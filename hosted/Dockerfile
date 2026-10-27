@@ -54,8 +54,10 @@ COPY package.json ./
 COPY src src
 COPY hosted/package.json hosted/
 COPY hosted/src hosted/src
-# Not root. A volume the platform mounts root-owned needs its own answer
-# (docs/hosted/RUNBOOK.md, step 2).
+# Not root. /data exists and is node's, so a run with a plain Docker volume
+# there (the RUNBOOK's drill) can write it. A volume the platform mounts
+# root-owned needs its own answer (docs/hosted/RUNBOOK.md, step 2).
+RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

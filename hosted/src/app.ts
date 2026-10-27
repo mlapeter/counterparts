@@ -29,7 +29,7 @@ import { createHostedServer } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
 import { Tenants, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_KEY_ID } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
 import type { LitestreamRun, Sidecar } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
@@ -94,6 +94,10 @@ export interface StartReport {
   readonly needsRestore: number;
   /** Registered OAuth clients never used, dropped. */
   readonly clientsSwept: number;
+  /** Live stores the bucket's tombstone said were deleted: their deletes were finished. */
+  readonly tombstoned: number;
+  /** Deleted stores whose key object or replica was still in the bucket (a delete with backups off): removed. */
+  readonly leftovers: number;
 }
 
 export interface App {
@@ -303,8 +307,33 @@ export function createApp(opts: AppOptions): App {
     backups,
     async start(startOpts: StartOptions = {}): Promise<StartReport> {
       rmSync(scratchRoot, { recursive: true, force: true });
+      // No sidecar until the restores are done (`Backups.hold`; the #653 review, L2).
+      backups?.hold();
+      let tombstoned = 0;
+      let leftovers = 0;
+      if (backups !== null) {
+        // A store the bucket says was deleted is deleted, whatever a restored
+        // accounts database says (the #653 review, M1): its delete is finished.
+        for (const id of await backups.tombstoned()) {
+          const personId = accounts.personOfStore(id);
+          if (personId === null) continue;
+          accounts.markDeleting(personId);
+          accounts.audit(personId, id, "delete.tombstone", null);
+          tombstoned += 1;
+        }
+      }
       // Deletes first: a half-deleted store must be gone before backups look for live ones.
       await finishPendingDeletes();
+      if (backups !== null) {
+        // A delete that ran with backups off left its key object and replica in
+        // the bucket (the #653 review, M2): removed now.
+        for (const id of accounts.deletedStoreIds()) {
+          if ((await backups.objectsLeft(id)) === 0) continue;
+          await backups.removeStore(id);
+          accounts.audit(accounts.personOfStore(id), id, "delete.leftovers", null);
+          leftovers += 1;
+        }
+      }
       // Every live store whose database is here has lived: mark it (a database
       // from before `opened_at`, or a mark whose write failed, heals here).
       const dbOf = (id: string): string => join(tenantDir(tenants.root, id), "store", DATABASE_FILE);
@@ -337,7 +366,7 @@ export function createApp(opts: AppOptions): App {
             }
           }
         }
-        await backups.reload();
+        await backups.release();
       }
       const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
@@ -353,7 +382,7 @@ export function createApp(opts: AppOptions): App {
         retryTimer.unref?.();
       }
       started = true;
-      return { restored, restoreFailed, keyless, needsRestore, clientsSwept };
+      return { restored, restoreFailed, keyless, needsRestore, clientsSwept, tombstoned, leftovers };
     },
     readiness,
     deleteAccount,
@@ -371,14 +400,51 @@ export function createApp(opts: AppOptions): App {
   };
 }
 
+/** What decides whether this volume's control databases are the bucket's (`controlVolume`). */
+export interface ControlVolume {
+  /** The bucket has `keys/control.wrapped`: something has backed up control databases there. */
+  readonly bucketKey: boolean;
+  /** This volume's `keys.sqlite` holds the control key: it is the volume that wrote them. */
+  readonly localKey: boolean;
+  /** The control databases present here. */
+  readonly present: readonly string[];
+}
+
+export async function controlVolume(dataRoot: string, backup: AppBackupOptions): Promise<ControlVolume> {
+  const bucketKey = (await backup.objects.get(keyObject(CONTROL_KEY_ID))) !== null;
+  const keysPath = join(dataRoot, "keys", "keys.sqlite");
+  let localKey = false;
+  if (existsSync(keysPath)) {
+    const keys = new KeyStore({ path: keysPath, wrapper: backup.wrapper });
+    localKey = keys.wrapped(CONTROL_KEY_ID) !== null;
+    keys.close();
+  }
+  return { bucketKey, localKey, present: CONTROL_DATABASES.filter((db) => existsSync(join(dataRoot, "control", db))) };
+}
+
+/** The refusal for a volume with control databases that aren't the bucket's, or null. */
+export function foreignControlRefusal(dataRoot: string, v: ControlVolume): string | null {
+  if (!v.bucketKey || v.localKey || v.present.length === 0) return null;
+  return `refused: this volume has ${v.present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Move ${join(dataRoot, "control")} aside, then deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore).`;
+}
+
 /**
  * THE CONTROL DATABASES, BACK FROM THE BUCKET (OL2b), before anything opens
  * them: `accounts.sqlite` and `oauth.sqlite`, under the `control` key adopted
  * from `keys/control.wrapped`. The entry point runs it for `restore control`,
- * `restore --all`, and at a RESTORE_ON_BOOT start on a volume that has no
- * accounts database.
+ * `restore --all`, and at a RESTORE_ON_BOOT start.
+ *
+ * THE KEY IS ADOPTED ONLY WHEN NO CONTROL FILE HERE IS KEPT (the #653 review,
+ * H1). A volume without the control key that holds a control database (made
+ * by an `invite` on a lost volume) is refused, unless `force` replaces every
+ * file: keeping that file and adopting the key would make it "the bucket's",
+ * and the next serve would replicate it over the real one.
  */
 export async function restoreControl(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, opts: { force?: boolean; missingOnly?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
+  if (opts.force !== true) {
+    const refusal = foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup));
+    if (refusal !== null) throw new Error(refusal.replace(/^refused: /, ""));
+  }
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
     const b = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });

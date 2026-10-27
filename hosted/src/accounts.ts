@@ -200,6 +200,27 @@ export class Accounts {
     return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at != null;
   }
 
+  /** Whose store this is (any state), or null. */
+  personOfStore(storeId: string): string | null {
+    return this.db.get<{ person_id: string }>("SELECT person_id FROM stores WHERE id = ?", storeId)?.person_id ?? null;
+  }
+
+  /** The stores whose delete finished (tombstones here): start-up checks the bucket holds nothing of them. */
+  deletedStoreIds(): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM stores WHERE state = 'deleted'").map((r) => r.id);
+  }
+
+  /**
+   * THE WAY OUT FOR A STORE THAT NEVER REACHED THE BUCKET (the #653 review, L8):
+   * forget that it was opened, so its next open starts it as a new install
+   * instead of waiting for a restore that has nothing to bring back. The caller
+   * checks the bucket holds nothing of it first (`main.ts start-over`).
+   */
+  clearOpened(storeId: string): void {
+    this.db.run("UPDATE stores SET opened_at = NULL WHERE id = ?", storeId);
+    this.audit(this.personOfStore(storeId), storeId, "store.start-over", null);
+  }
+
   /** The store's own quota in bytes, when one was set by hand; null ⇒ the server's default. */
   quotaOf(storeId: string): number | null {
     return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;

@@ -37,8 +37,11 @@ export const STORE_QUOTA_BYTES = 1024 * 1024 * 1024;
 /** How long a measured size is trusted before the dir is walked again. */
 export const SIZE_TTL_MS = 60_000;
 
-/** Tools that add nothing to a memory: they keep working over the quota. `self_page` with no `body` or `short` is a read and joins them. */
+/** Tools that add nothing to a memory: they keep working over the quota. `self_page` with no argument but `session`/`ifVersion` is a read and joins them. */
 export const QUOTA_FREE_TOOLS: ReadonlySet<string> = new Set(["recall", "status", "wake", "scope"]);
+
+/** The only `self_page` arguments a read carries. */
+const SELF_PAGE_READ_ARGS: ReadonlySet<string> = new Set(["session", "ifVersion"]);
 
 export type LimitReason = "rate-limited" | "store-full" | "in-flight";
 
@@ -160,7 +163,9 @@ export class McpLimits {
     }
     const args = params["arguments"];
     const a = args !== null && typeof args === "object" ? (args as Record<string, unknown>) : {};
-    const reads = QUOTA_FREE_TOOLS.has(name) || (name === "self_page" && a["body"] === undefined && a["short"] === undefined);
+    // `self_page` is a read only with nothing but a session or a version check:
+    // `body`, `short`, `summary` (the #653 review, L3) and anything new all write.
+    const reads = QUOTA_FREE_TOOLS.has(name) || (name === "self_page" && Object.keys(a).every((k) => SELF_PAGE_READ_ARGS.has(k)));
     if (reads) return null;
     const quota = this.opts.quotaOf?.(storeId) ?? this.quotaBytes;
     if (this.bytesOf(storeId) < quota) return null;

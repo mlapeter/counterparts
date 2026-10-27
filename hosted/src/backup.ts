@@ -45,6 +45,14 @@ export const CONTROL_DATABASES = ["accounts.sqlite", "oauth.sqlite"] as const;
 export const SNAPSHOT_HOURS = 12;
 
 export const keyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
+/**
+ * A DELETE'S TOMBSTONE in the bucket (the #653 review, M1): the store id and the
+ * time, no PII, written BEFORE the key object goes and never removed. A control
+ * database restored from before the delete (the sidecar was down when it ran)
+ * would bring the account back active, with its email; start-up finds the
+ * tombstone and finishes the delete instead.
+ */
+export const tombstoneObject = (storeId: string): string => `deleted/${storeId}`;
 export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
 /** A store that was opened before has no key on this volume and none in the bucket. */
@@ -239,6 +247,7 @@ export class Backups {
    */
   async removeStore(storeId: string): Promise<number> {
     if (!STORE_ID.test(storeId)) throw new Error("not a store id");
+    await this.opts.objects.put(tombstoneObject(storeId), `${new Date(Date.now()).toISOString()}\n`);
     this.opts.keys.delete(storeId);
     await this.reload();
     rmSync(this.keyFile(storeId), { force: true });
@@ -284,7 +293,8 @@ export class Backups {
       throw new Error("the bucket has no key object for that id, and this volume has no key: there is nothing to restore it with.");
     }
     await this.ensureStore(id, { reload: false });
-    writeFileSync(this.configPath, this.config(), { mode: 0o600 });
+    // The store being restored is in this configuration even though its file is missing (`config`'s skip).
+    writeFileSync(this.configPath, this.config(id), { mode: 0o600 });
     let restored = 0;
     let empty = 0;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -302,6 +312,16 @@ export class Backups {
       // may be behind it (`/readyz` doesn't see lag yet). Litestream's own
       // position for the old file (`.<name>-litestream`) goes: it describes a
       // database that is no longer there.
+      if (id !== CONTROL_KEY_ID) {
+        // Box 3 (the word index and the vectors, `cache/`) is never backed up:
+        // whatever is here belongs to the file about to be replaced. It goes, and
+        // the marker makes the store's next open rebuild it (`tenants.ts`), or
+        // recall finds nothing in a store full of memories. BOTH BEFORE the file
+        // moves in (the #653 review, L1): a crash between leaves a marker over the
+        // old file (one needless rebuild), never a new file with a stale cache.
+        rmSync(join(dirname(path), "cache"), { recursive: true, force: true });
+        writeFileSync(join(tenantDir(this.tenantsRoot(), id), RESTORED_MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });
+      }
       for (const f of [path, `${path}-wal`]) if (existsSync(f)) renameSync(f, `${f}.pre-restore-${stamp}`);
       rmSync(`${path}-shm`, { force: true });
       rmSync(join(dirname(path), `.${basename(path)}-litestream`), { recursive: true, force: true });
@@ -309,14 +329,6 @@ export class Backups {
       if (existsSync(`${out}-wal`)) renameSync(`${out}-wal`, `${path}-wal`);
       rmSync(`${out}-shm`, { force: true });
       restored += 1;
-      if (id !== CONTROL_KEY_ID) {
-        // Box 3 (the word index and the vectors, `cache/`) is never backed up:
-        // whatever is here belongs to the file just replaced. It goes, and the
-        // marker makes the store's next open rebuild it (`tenants.ts`), or
-        // recall finds nothing in a store full of memories.
-        rmSync(join(dirname(path), "cache"), { recursive: true, force: true });
-        writeFileSync(join(tenantDir(this.tenantsRoot(), id), RESTORED_MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });
-      }
     }
     return { restored, empty, kept: all.length - paths.length };
   }
@@ -327,7 +339,7 @@ export class Backups {
   }
 
   /** The Litestream configuration for every store that has a key, and the control databases. No secret in it. */
-  config(): string {
+  config(restoring?: string): string {
     const replica = (path: string, keyFile: string): string[] => [
       `    replica:`,
       `      type: s3`,
@@ -361,15 +373,51 @@ export class Backups {
     for (const id of ids) {
       if (id === CONTROL_KEY_ID || !STORE_ID.test(id)) continue;
       const dir = tenantDir(this.tenantsRoot(), id);
+      // A store that lived and has no database here waits for a restore (the
+      // #653 review, M4): it is not handed to the sidecar, which would watch a
+      // missing file at its replica's prefix. A store never opened yet stays in,
+      // so its first database is replicated from the start.
+      if (id !== restoring && this.opts.openedBefore?.(id) === true && !existsSync(join(dir, "store", DATABASE_FILE))) continue;
       lines.push(`  - path: ${yamlString(join(dir, "store", DATABASE_FILE))}`, ...replica(replicaPrefix(id).slice(0, -1), this.keyFile(id)));
     }
     return `${lines.join("\n")}\n`;
   }
 
+  /** True between `hold()` and `release()`: the configuration is written, the sidecar isn't started. */
+  private held = false;
+
+  /**
+   * START-UP'S PHASE (the #653 review, L2): no sidecar is started until the
+   * restores are done. A pending delete finished at start-up reloads, and a
+   * sidecar started then would replicate files a later restore replaces.
+   */
+  hold(): void {
+    this.held = true;
+  }
+
+  /** The end of start-up's phase: the configuration written, the sidecar started on it. */
+  async release(): Promise<void> {
+    this.held = false;
+    await this.reload();
+  }
+
   /** Write the configuration and restart the sidecar on it (resolves when the old child has exited). */
   async reload(): Promise<void> {
     writeFileSync(this.configPath, this.config(), { mode: 0o600 });
-    await this.opts.sidecar?.reload();
+    if (!this.held) await this.opts.sidecar?.reload();
+  }
+
+  /** What of a store is still in the bucket: its key object and its replica objects (a count). */
+  async objectsLeft(storeId: string): Promise<number> {
+    const key = (await this.opts.objects.get(keyObject(storeId))) === null ? 0 : 1;
+    return key + (await this.opts.objects.list(replicaPrefix(storeId))).length;
+  }
+
+  /** The live stores with a tombstone in the bucket: deleted, whatever the accounts database says. */
+  async tombstoned(): Promise<string[]> {
+    const out: string[] = [];
+    for (const id of this.opts.liveStores()) if ((await this.opts.objects.get(tombstoneObject(id))) !== null) out.push(id);
+    return out;
   }
 }
 

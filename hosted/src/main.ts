@@ -6,6 +6,7 @@
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT]
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
  *
  * Everything comes from the environment, and nothing falls back to a default:
  *
@@ -28,6 +29,7 @@
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
@@ -36,9 +38,9 @@ import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
-import { createApp, restoreControl } from "./app.js";
+import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix } from "./backup.js";
 import type { LitestreamRun } from "./backup.js";
 import { STORE_ID, Tenants } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
@@ -123,6 +125,35 @@ function restoreRunner(env: Record<string, string | undefined>): LitestreamRun {
  * then every live store whose database is missing. Prints counts, never an
  * address or a key; a store id is printed only when the operator named it.
  */
+/** A store's tag for an operator's terminal: the first 16 hex of its SHA-256, never the id itself. */
+export function storeTag(storeId: string): string {
+  return createHash("sha256").update(storeId).digest("hex").slice(0, 16);
+}
+
+/**
+ * `start-over <storeId>` (the #653 review, L8): the way out for a store that
+ * was opened and never reached the bucket (its person signed up, the volume died
+ * within seconds), which otherwise answers 503 forever. Refused unless its
+ * database is missing here AND the bucket holds no replica object of it; then
+ * its next open starts it as a new install.
+ */
+async function startOverCommand(dataRoot: string, backup: AppBackupOptions, storeId: string | undefined): Promise<string> {
+  if (storeId === undefined || !STORE_ID.test(storeId)) throw new Error("start-over needs a store id");
+  const accounts = new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") });
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
+  try {
+    if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
+    if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
+    if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
+    accounts.clearOpened(storeId);
+    return `store ${storeTag(storeId)}: starts over as a new, empty store at its next open`;
+  } finally {
+    keys.close();
+    accounts.close();
+  }
+}
+
 async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[], embedder: SharedEmbedder): Promise<{ text: string; failed: number }> {
   const force = args.includes("--force");
   const target = args.find((a) => !a.startsWith("--")) ?? (args.includes("--all") ? "--all" : undefined);
@@ -148,7 +179,13 @@ async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: L
     let restored = 0;
     let empty = 0;
     let failed = 0;
+    const deleted = new Set(await backups.tombstoned());
     for (const id of ids) {
+      if (deleted.has(id)) {
+        // The bucket says it was deleted: never restored; the next start finishes its delete.
+        lines.push(`store ${storeTag(id)}: deleted (the bucket has its tombstone); not restored, and the next start finishes the delete`);
+        continue;
+      }
       try {
         const r = await backups.restore(id, run, { force });
         if (r.restored > 0) {
@@ -159,8 +196,8 @@ async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: L
         empty += r.empty;
       } catch (err) {
         failed += 1;
-        // A store id is printed only because the operator is restoring stores by id; never an address or a key.
-        lines.push(`store ${id}: ${err instanceof Error ? err.message : String(err)}`);
+        // A tag, not the id (the #653 review, L5): matchable against the audit by whoever has the id, nothing more.
+        lines.push(`store ${storeTag(id)}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(failed)} failed, ${String(live.length - ids.length)} already here`);
@@ -187,25 +224,15 @@ async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: L
  *     run, …), always refuse: it isn't the real one, and it would replace it.
  */
 export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null): Promise<{ refusal?: string; restored?: string }> {
-  if ((await backup.objects.get(keyObject(CONTROL_KEY_ID))) === null) return {};
-  const keysPath = join(dataRoot, "keys", "keys.sqlite");
-  let localKey = false;
-  if (existsSync(keysPath)) {
-    const keys = new KeyStore({ path: keysPath, wrapper: backup.wrapper });
-    localKey = keys.wrapped(CONTROL_KEY_ID) !== null;
-    keys.close();
-  }
-  const present = CONTROL_DATABASES.filter((db) => existsSync(join(dataRoot, "control", db)));
-  if (localKey && present.length === CONTROL_DATABASES.length) return {};
-  if (!localKey && present.length > 0) {
-    return {
-      refusal: `refused: this volume has ${present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Move ${join(dataRoot, "control")} aside, then deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore).`,
-    };
-  }
+  const v = await controlVolume(dataRoot, backup);
+  if (!v.bucketKey) return {};
+  if (v.localKey && v.present.length === CONTROL_DATABASES.length) return {};
+  const foreign = foreignControlRefusal(dataRoot, v);
+  if (foreign !== null) return { refusal: foreign };
   if (run === null) {
     return {
-      refusal: localKey
-        ? `refused: ${String(CONTROL_DATABASES.length - present.length)} of the control databases are missing from this volume, and the bucket has their backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore).`
+      refusal: v.localKey
+        ? `refused: ${String(CONTROL_DATABASES.length - v.present.length)} of the control databases are missing from this volume, and the bucket has their backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore).`
         : "refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.",
     };
   }
@@ -223,16 +250,32 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (command === "invite" || command === "rewrap") {
-    // Neither may make a control database on a volume that isn't the bucket's (prepareVolume).
+  if (command === "invite" || command === "rewrap" || command === "start-over") {
+    // None may make a control database on a volume that isn't the bucket's
+    // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
+    // (the #653 review, L6), so it can never skip that check by accident.
     const configured = backupFromEnv(env, read.dataRoot);
-    if (configured !== null && !("refusal" in configured)) {
+    if (configured !== null && "refusal" in configured) {
+      process.stderr.write(`[hosted] ${configured.refusal}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    if (configured !== null) {
       const prepared = await prepareVolume(read.dataRoot, configured, null);
       if (prepared.refusal !== undefined) {
         process.stderr.write(`[hosted] ${prepared.refusal}\n`);
         process.exitCode = 1;
         return;
       }
+    }
+    if (command === "start-over") {
+      if (configured === null) {
+        process.stderr.write("[hosted] refused: start-over needs the bucket (not BACKUPS=off).\n");
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`${await startOverCommand(read.dataRoot, configured, rest[0])}\n`);
+      return;
     }
   }
   if (command === "invite") {
@@ -245,11 +288,19 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "rewrap" && command !== "restore") {
-    process.stderr.write("[hosted] commands: serve, invite, rewrap, restore\n");
+    process.stderr.write("[hosted] commands: serve, invite, rewrap, restore, start-over\n");
     process.exitCode = 1;
     return;
   }
   const backup = backupFromEnv(env, read.dataRoot);
+  // BACKUPS=off ON A VOLUME THAT WAS BACKED UP (the #653 review, M2): a delete
+  // then would leave its key object and replica in the bucket for good, and
+  // nothing would know to remove them. Off is for a volume that never had them.
+  if (backup === null && (existsSync(join(read.dataRoot, "keys", "keys.sqlite")) || existsSync(join(read.dataRoot, "control", "litestream.key")))) {
+    process.stderr.write("[hosted] refused: BACKUPS=off on a volume that has been backed up (keys/keys.sqlite or control/litestream.key is here). Name the bucket instead.\n");
+    process.exitCode = 1;
+    return;
+  }
   if (backup !== null && "refusal" in backup) {
     process.stderr.write(`[hosted] ${backup.refusal}\n`);
     process.exitCode = 1;
@@ -326,6 +377,8 @@ async function main(): Promise<void> {
   if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);
   if (report.restoreFailed > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restoreFailed)} store restores FAILED; those stores wait (the audit has them as store.restore.failed)\n`);
   if (report.keyless > 0) process.stderr.write(`[hosted] ${String(report.keyless)} stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made\n`);
+  if (report.tombstoned > 0) process.stderr.write(`[hosted] ${String(report.tombstoned)} accounts the bucket says were deleted came back with the control databases: their deletes were finished\n`);
+  if (report.leftovers > 0) process.stderr.write(`[hosted] removed what ${String(report.leftovers)} deleted stores had left in the bucket\n`);
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
