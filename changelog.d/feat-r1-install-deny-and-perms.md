@@ -18,7 +18,7 @@
   it (the dated copies and the copies taken before an upgrade) are made private; the folder
   itself is closed only when it holds nothing but snapshots, and never when it is your home
   folder or above it. Everything else in it keeps its permissions.
-- **`uninstall --delete-memories` names a store `rollback` set aside as memory.** A
-  `rollback-aside-…` folder beside your store is a whole earlier copy of your memory; the
-  plan now says so on its line and counts it ("That is 2 memory stores: yours, and 1 …"),
-  where it used to read "a file this package left". It is deleted with the rest, as before.
+- **`uninstall --delete-memories` now deletes a store `rollback` set aside, and says so.** A
+  `rollback-aside-…` folder beside your store is a whole earlier copy of your memory; it used
+  to be left behind. The plan names it as memory on its own line and counts it ("That is 2
+  memory stores: yours, and 1 …") before you type the confirmation.
