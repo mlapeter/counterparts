@@ -2,7 +2,7 @@
 
 ## Before any non-family user
 
-1. **Three gates** (DESIGN §5.4):
+1. **Gates** (DESIGN §5.4; item 2 is one more):
    - Railway's disk encryption confirmed in writing;
    - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
      both the KEK and the R2 credentials. First verify the reported Railway environment breach (unverified); it
@@ -37,8 +37,8 @@
      checked its sha256 and ran `litestream version`.
    - No MinIO image could be pulled: `minio/minio` is gone from Docker Hub. Our own S3 stand-in doesn't speak enough
      of S3 for the AWS SDK.
-   - So the RUNBOOK's drill (a second bucket, the real KEK typed from its offline copies, Docker on the Mac) is the first run of the real
-     binary.
+   - So the RUNBOOK's drill (a second bucket, the real KEK typed from its offline copies, Docker on the Mac) is the
+     first run of the real binary.
    - Read from Litestream 0.5.17's source, not run:
      - `sse-customer-key-path` is the key name, and the file holds the base64 of a 32-byte key, as generated;
      - `restore` takes `-config` or a replica URL, never both;

@@ -499,11 +499,11 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
    means every backup. Before building it, verify the reported breach: if it's wrong, the service is still better than
    an environment variable, but the urgency changes. Its key is exported to the two offline places.
-4. **Lockout proven.** Every KEK version in use is held offline in two places, and the real-binary drill has restored
-   with the KEK typed from them (RUNBOOK).
 3. **The account email encrypted under the person's DEK, with a keyed hash for lookup.** The hash key sits next to the
    KEK, behind `KeyWrapper`. Shredding the DEK then leaves only the hash in old copies, so the email goes "at once" like
    everything else. It is built in the same hardening pass as the key service. Not built now.
+4. **Lockout proven.** Every KEK version in use is held offline in two places, and the real-binary drill has restored
+   with the KEK typed from them (RUNBOOK).
 
 ---
 
