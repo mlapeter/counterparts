@@ -54,8 +54,22 @@ export interface PagesOptions {
   readonly onSignup?: (personId: string, storeId: string) => Promise<void>;
   /** Export (step 5): a file to send, and how to clean it up. */
   readonly exportStore?: (personId: string) => Promise<{ readonly path: string; readonly filename: string; readonly cleanup: () => void }>;
-  /** Delete the account, at once (step 5). */
+  /** Delete everything now: the account and memory erased at once (step 5). */
   readonly deleteAccount?: (personId: string) => Promise<void>;
+  /** Delete, the default (R6): locked at once, erased after 24 hours unless kept. Resolves to the deadline (null: not active). */
+  readonly scheduleDelete?: (personId: string) => Promise<number | null>;
+  /** Keep an account whose delete is pending (R6). False: nothing to keep, or too late. */
+  readonly keepAccount?: (personId: string) => boolean;
+}
+
+/** A deadline in the person's own zone, e.g. "Tuesday, October 28 at 2:05 PM MDT". */
+export function deadlineWords(at: number, timeZone: string | null): string {
+  const opts: Intl.DateTimeFormatOptions = { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" };
+  try {
+    return new Intl.DateTimeFormat("en-US", { ...opts, timeZone: timeZone ?? "UTC" }).format(at);
+  } catch {
+    return new Intl.DateTimeFormat("en-US", { ...opts, timeZone: "UTC" }).format(at);
+  }
 }
 
 export interface Pages {
@@ -70,6 +84,15 @@ export interface Pages {
 
 const SENT_WORDS =
   "If that address can sign in — or your invite code is good — a sign-in link is on its way. It works for 15 minutes, once, in this browser.";
+
+// THE DELETE WORDS (R6, Mike 2026-10-27: plain and honest). DESIGN §5.2 and §5.4 say the same.
+const DELETE_LATER_WORDS =
+  "Deleting locks your account and your memory at once: every connected AI is disconnected, and your memory isn't read, shown or used. 24 hours later your memory, its backups and its key are erased, unless you sign in before then and keep your account. Download your memory first if you want a copy.";
+const DELETE_NOW_WORDS = "your memory, its backups and its key are erased at once, and your account is closed. It can't be undone.";
+const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted account backups within 24 hours of the erase.";
+const FORGET_WORDS =
+  "Forgetting one memory is different: it is gone from your memory at once, though traces can stay in unused space in your memory's file (on our encrypted disks) and in its encrypted backups until they are overwritten or expire. When your account is erased, all of it becomes unreadable at once.";
+const KEEP_WORDS = "Keeping it brings your account and memory back as they were. Your connected AIs stay disconnected: connect them again from Claude.";
 
 export function accountPages(opts: PagesOptions): Pages {
   const names = cookieNames(opts.publicOrigin);
@@ -91,6 +114,8 @@ export function accountPages(opts: PagesOptions): Pages {
   };
 
   const personOf = (req: IncomingMessage): string | null => opts.accounts.sessionPerson(parseCookies(req).get(names.session) ?? null);
+  /** A signed-in person whose delete is pending (R6): served the pending page, keep, and delete now, and nothing else. */
+  const pendingOf = (req: IncomingMessage): string | null => opts.accounts.sessionPendingDelete(parseCookies(req).get(names.session) ?? null);
 
   const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = ""): void => {
     const nonce = randomBytes(16).toString("base64");
@@ -118,12 +143,55 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
     });
   };
 
+  /**
+   * THE PENDING PAGE (R6): the whole account page of a person whose delete is
+   * pending. When the erase happens, keep the account, or delete everything now.
+   * Nothing of the memory or the connections is shown.
+   */
+  const pendingPage = (res: ServerResponse, browser: string, personId: string): void => {
+    const person = opts.accounts.person(personId);
+    const at = person?.deleteAfter ?? now();
+    const when = escapeHtml(deadlineWords(at, person?.timeZone ?? null));
+    const token = escapeHtml(csrf.token(browser));
+    const due = at <= now();
+    page(res, 200, {
+      title: "Set to be deleted",
+      body: `<h1>Your account is set to be deleted</h1>
+${
+  due
+    ? `<p>The time to keep it has passed (${when}). Your memory, its backups and its key are being erased now.</p>`
+    : `<p>Your account and memory are locked, and will be erased at <strong>${when}</strong>: your memory, its backups and its key. Until then your memory isn't read, shown or used, and no AI can reach it.</p>
+${
+  opts.keepAccount === undefined
+    ? ""
+    : `<form method="post" action="/account/keep"><input type="hidden" name="csrf" value="${token}"><button type="submit">Keep my account</button></form>
+<p class="muted">${escapeHtml(KEEP_WORDS)}</p>`
+}
+${
+  opts.deleteAccount === undefined
+    ? ""
+    : `<h2>Delete everything now</h2>
+<form method="post" action="/account/delete"><input type="hidden" name="csrf" value="${token}"><input type="hidden" name="when" value="now">
+<p class="muted">Instead of at ${when}: ${escapeHtml(DELETE_NOW_WORDS)} ${escapeHtml(AFTER_ERASE_WORDS)}</p>
+<label>Type your email address to confirm<br><input type="email" name="confirm" autocomplete="off"></label>
+<button type="submit">Delete everything now</button></form>`
+}`
+}
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form>`,
+    });
+  };
+
   const route: Route = async (req, res, url) => {
     const p = url.pathname;
     if (p === "/login" && req.method === "GET") {
       const browser = browserOf(req, res);
       if (personOf(req) !== null) {
         redirect(res, safeNext(url.searchParams.get("next")));
+        return true;
+      }
+      if (pendingOf(req) !== null) {
+        // Signed in, with a delete pending: the one page they have (an Allow page's `next` would only send them back here).
+        redirect(res, "/account");
         return true;
       }
       loginForm(res, browser, safeNext(url.searchParams.get("next")));
@@ -195,6 +263,11 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
       const browser = browserOf(req, res);
       const personId = personOf(req);
       if (personId === null) {
+        const pending = pendingOf(req);
+        if (pending !== null) {
+          pendingPage(res, browser, pending);
+          return true;
+        }
         redirect(res, "/login?next=%2Faccount");
         return true;
       }
@@ -233,17 +306,90 @@ ${
 ${
   opts.deleteAccount === undefined
     ? ""
-    : `<h2>Delete everything</h2>
+    : `<h2>Delete your account</h2>
 <form method="post" action="/account/delete"><input type="hidden" name="csrf" value="${token}">
-<p class="muted">Deletes your memory and its backups at once, and closes your account. Your account email is purged from our encrypted account backups within 24 hours. It can't be undone. Download your memory first if you want to keep it.</p>
+${opts.scheduleDelete === undefined ? "" : `<p class="muted">${escapeHtml(DELETE_LATER_WORDS)}</p>`}
 <label>Type your email address to confirm<br><input type="email" name="confirm" autocomplete="off"></label>
-<button type="submit">Delete my account and memory</button></form>`
+${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" value="later">Delete my account (24 hours to change your mind)</button>\n<p class="muted">Or delete everything now: ${escapeHtml(DELETE_NOW_WORDS)}</p>`}
+<button type="submit" name="when" value="now">Delete everything now</button>
+<p class="muted">${escapeHtml(AFTER_ERASE_WORDS)} ${escapeHtml(FORGET_WORDS)}</p></form>`
 }
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form>`,
       });
       return true;
     }
-    if ((p === "/account/export" || p === "/account/delete") && req.method === "POST") {
+    if ((p === "/account/delete" || p === "/account/keep") && req.method === "POST") {
+      // The two doors a pending delete keeps open (R6): keep, and delete now.
+      const browser = parseCookies(req).get(names.browser);
+      const form = await readForm(req);
+      const active = personOf(req);
+      const pending = active === null ? pendingOf(req) : null;
+      const personId = active ?? pending;
+      if (form === null || !sameOrigin(req, opts.publicOrigin) || !csrf.check(browser, form.get("csrf")) || personId === null) {
+        message(res, 403, "Start again", "This form expired or came from somewhere else.", { href: "/account", text: "Your account" });
+        return true;
+      }
+      if (p === "/account/keep") {
+        if (opts.keepAccount === undefined) return false;
+        if (pending === null) {
+          redirect(res, "/account");
+          return true;
+        }
+        if (!opts.keepAccount(pending)) {
+          message(res, 409, "Too late to keep it", "The time to keep your account has passed, and it is being erased now.");
+          return true;
+        }
+        page(res, 200, {
+          title: "Kept",
+          body: `<h1>Your account is kept</h1><p>Your account and memory are back as they were. Your connected AIs were disconnected when you deleted: connect them again from Claude, with the address <code>${escapeHtml(opts.publicOrigin)}/mcp</code>.</p><p><a href="/account">Your account</a></p>`,
+        });
+        return true;
+      }
+      if (opts.deleteAccount === undefined) return false;
+      const person = opts.accounts.person(personId);
+      const typed = (form.get("confirm") ?? "").trim().toLowerCase();
+      if (person === null || person.email === null || typed !== person.email) {
+        message(res, 400, "Not deleted", "The address you typed doesn't match this account's. Nothing was deleted.", { href: "/account", text: "Back" });
+        return true;
+      }
+      const signOut = { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) };
+      // Delete is LATER unless "now" was pressed (R6). A pending delete can only be made "now".
+      if (form.get("when") !== "now" && opts.scheduleDelete !== undefined) {
+        if (pending !== null) {
+          redirect(res, "/account");
+          return true;
+        }
+        const deadline = await opts.scheduleDelete(personId);
+        const when = escapeHtml(deadlineWords(deadline ?? now(), person.timeZone));
+        page(res, 200, {
+          title: "Set to be deleted",
+          headers: signOut,
+          body: `<h1>Your account is set to be deleted</h1><p>Your account and memory are locked, every connected AI is disconnected, and you're signed out. At <strong>${when}</strong> your memory, its backups and its key are erased.</p><p>Changed your mind? Sign in before then and keep your account. Your connected AIs stay disconnected: you connect them again.</p><p class="muted">${escapeHtml(AFTER_ERASE_WORDS)}</p><p><a href="/login">Sign in</a></p>`,
+        });
+        return true;
+      }
+      const finished = await opts.deleteAccount(personId).then(
+        () => true,
+        () => false,
+      );
+      if (!finished) {
+        // The account is already closed (sessions and grants gone, the store marked
+        // deleting); the server finishes the rest on its own (`finishPendingDeletes`).
+        page(res, 202, {
+          title: "Deleting",
+          headers: signOut,
+          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.</p>`,
+        });
+        return true;
+      }
+      page(res, 200, {
+        title: "Deleted",
+        headers: signOut,
+        body: `<h1>Deleted</h1><p>Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Thank you for trying Counterparts.</p>`,
+      });
+      return true;
+    }
+    if (p === "/account/export" && req.method === "POST") {
       const browser = parseCookies(req).get(names.browser);
       const form = await readForm(req);
       const personId = personOf(req);
@@ -251,7 +397,7 @@ ${
         message(res, 403, "Start again", "This form expired or came from somewhere else.", { href: "/account", text: "Your account" });
         return true;
       }
-      if (p === "/account/export") {
+      {
         if (opts.exportStore === undefined) return false;
         const out = await opts.exportStore(personId);
         try {
@@ -275,38 +421,12 @@ ${
         opts.accounts.audit(personId, null, "account.exported", null);
         return true;
       }
-      if (opts.deleteAccount === undefined) return false;
-      const person = opts.accounts.person(personId);
-      const typed = (form.get("confirm") ?? "").trim().toLowerCase();
-      if (person === null || person.email === null || typed !== person.email) {
-        message(res, 400, "Not deleted", "The address you typed doesn't match this account's. Nothing was deleted.", { href: "/account", text: "Back" });
-        return true;
-      }
-      const finished = await opts.deleteAccount(personId).then(
-        () => true,
-        () => false,
-      );
-      if (!finished) {
-        // The account is already closed (sessions and grants gone, the store marked
-        // deleting); the server finishes the rest on its own (`finishPendingDeletes`).
-        page(res, 202, {
-          title: "Deleting",
-          headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
-          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.</p>`,
-        });
-        return true;
-      }
-      page(res, 200, {
-        title: "Deleted",
-        headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
-        body: `<h1>Deleted</h1><p>Your memory and its backups are gone, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Thank you for trying Counterparts.</p>`,
-      });
-      return true;
     }
     if ((p === "/account/timezone" || p === "/account/disconnect" || p === "/logout") && req.method === "POST") {
       const browser = parseCookies(req).get(names.browser);
       const form = await readForm(req);
-      const personId = personOf(req);
+      // Signing out is open to a pending delete too; the other two are not (R6).
+      const personId = personOf(req) ?? (p === "/logout" ? pendingOf(req) : null);
       if (form === null || !sameOrigin(req, opts.publicOrigin) || !csrf.check(browser, form.get("csrf")) || personId === null) {
         message(res, 403, "Start again", "This form expired or came from somewhere else.", { href: "/account", text: "Your account" });
         return true;

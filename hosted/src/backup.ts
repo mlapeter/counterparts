@@ -106,6 +106,12 @@ export interface BackupsOptions {
   readonly liveStores: () => string[];
   /** Was this store ever opened (accounts' `opened_at`)? A store that was and has no key anywhere is never given a new one. Absent ⇒ never. */
   readonly openedBefore?: (storeId: string) => boolean;
+  /**
+   * Is this live store locked by a pending delete (R6)? It stays backed up and
+   * its key is adopted from the bucket on a new volume, but `ensureAll` NEVER
+   * gives it a new key: a store set to be erased is not re-keyed. Absent ⇒ never.
+   */
+  readonly locked?: (storeId: string) => boolean;
 }
 
 function yamlString(s: string): string {
@@ -197,6 +203,13 @@ export class Backups {
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
     let keyless = 0;
     for (const id of this.opts.liveStores()) {
+      // A locked store (a delete pending) with no key here and none in the
+      // bucket is never handed to `ensureStore`, which would make one: it is
+      // counted keyless and left as it is until its erase or its keep (R6).
+      if (this.opts.locked?.(id) === true && this.opts.keys.wrapped(id) === null && (await this.opts.objects.get(keyObject(id))) === null) {
+        keyless += 1;
+        continue;
+      }
       try {
         await this.ensureStore(id, { reload: false });
       } catch (err) {

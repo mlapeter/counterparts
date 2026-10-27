@@ -72,7 +72,10 @@ export interface AppOptions {
    * (`backup.ensure.failed`, tagged by `storeTag`, the restore CLI's tag).
    */
   readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed", store: string) => void;
+  /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
+  /** How often the server finishes deletes while it runs: erases that were cut short, and pending deletes now due. Ten minutes by default. */
+  readonly finishEveryMs?: number;
   /** `server.ts#HostedServerOptions.logForwardedFor` (the entry point's `LOG_FORWARDED_FOR=1`). */
   readonly logForwardedFor?: (raw: string) => void;
 }
@@ -118,9 +121,18 @@ export interface App {
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
   readiness(): Promise<Readiness>;
-  /** Delete one person's account and memory, at once, everywhere. Idempotent: running it again finishes a delete that failed part-way. */
+  /** Delete one person's account and memory, at once, everywhere ("delete everything now"). Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;
-  /** Finish every delete that began and didn't end (start-up, and a timer while serving). Returns how many finished. */
+  /**
+   * Delete, the default (R6): the account and store are LOCKED at once (every
+   * session and connection stops, nothing opens the store), and erased by
+   * `deleteAccount`'s sequence once `DELETE_GRACE_MS` has passed, unless kept.
+   * Returns the deadline; null when the person wasn't active.
+   */
+  scheduleDelete(personId: string): Promise<number | null>;
+  /** The undo: a pending delete, before its deadline, back to active (connections stay revoked). */
+  keepAccount(personId: string): boolean;
+  /** Finish every delete that is due: erases that began and didn't end, and pending deletes whose deadline passed (start-up, and a timer while serving). Returns how many finished. */
   finishPendingDeletes(): Promise<number>;
   close(): Promise<void>;
 }
@@ -130,7 +142,7 @@ export function createApp(opts: AppOptions): App {
   const refused = livePathRefusal(opts.dataRoot, "the hosted data root");
   if (refused !== null) throw new Error(refused);
   const publicOrigin = opts.publicOrigin.replace(/\/+$/, "");
-  const accounts = new Accounts({ path: join(opts.dataRoot, "control", "accounts.sqlite") });
+  const accounts = new Accounts({ path: join(opts.dataRoot, "control", "accounts.sqlite"), ...(opts.now === undefined ? {} : { now: opts.now }) });
   const keys = opts.backup === undefined ? null : new KeyStore({ path: join(opts.dataRoot, "keys", "keys.sqlite"), wrapper: opts.backup.wrapper });
   const backups =
     opts.backup === undefined || keys === null
@@ -144,6 +156,7 @@ export function createApp(opts: AppOptions): App {
           sidecar: opts.backup.sidecar ?? null,
           liveStores: () => accounts.liveStoreIds(),
           openedBefore: (storeId) => accounts.wasOpened(storeId),
+          locked: (storeId) => accounts.storeLocked(storeId),
         });
   // Pages and OAuth need each other (the account page lists connections; the
   // Allow page needs the signed-in person), and pages need the delete that
@@ -151,6 +164,7 @@ export function createApp(opts: AppOptions): App {
   let oauth: OAuth | null = null;
   let tenantsRef: Tenants | null = null;
   let deleteRef: ((personId: string) => Promise<void>) | null = null;
+  let scheduleRef: ((personId: string) => Promise<number | null>) | null = null;
 
   // Export's plaintext copy is made on the data volume (encrypted at rest, and
   // swept at start-up after a crash), never in the container's /tmp.
@@ -183,6 +197,9 @@ export function createApp(opts: AppOptions): App {
     ...(backups === null ? {} : { onSignup: (_personId: string, storeId: string) => backups.ensureStore(storeId) }),
     exportStore,
     deleteAccount: (personId: string) => (deleteRef === null ? Promise.reject(new Error("not ready")) : deleteRef(personId)),
+    scheduleDelete: (personId: string) => (scheduleRef === null ? Promise.reject(new Error("not ready")) : scheduleRef(personId)),
+    keepAccount: (personId: string) => accounts.keep(personId),
+    ...(opts.now === undefined ? {} : { now: opts.now }),
   });
   oauth = createOAuth({
     publicOrigin,
@@ -201,6 +218,8 @@ export function createApp(opts: AppOptions): App {
     // A store that lived and lost its files waits for a restore rather than
     // starting over (and being replicated over its own backup).
     openedBefore: (storeId) => accounts.wasOpened(storeId),
+    // A store whose account is set to be deleted is kept and never opened (R6).
+    locked: (storeId) => accounts.storeLocked(storeId),
     onCreated: (storeId) => {
       // A store's dir made while the server runs is a sign-up's (already in the
       // sidecar's configuration) or a store started over (`main.ts start-over`,
@@ -231,7 +250,30 @@ export function createApp(opts: AppOptions): App {
   const o = oauth;
 
   /**
-   * DELETE, AT ONCE, EVERYWHERE (design §5.4 as Mike changed it). In order,
+   * DELETE, THE DEFAULT: LOCKED AT ONCE, ERASED IN 24 HOURS (R6, Mike
+   * 2026-10-27; it replaces 10-26's "at once, everywhere" as the default, which
+   * stays as "delete everything now"). In order:
+   *   1. the person and store turn `pending-delete` with a durable deadline,
+   *      and every web session ends (one transaction);
+   *   2. every grant is revoked, so every connection stops on its next call;
+   *   3. the store's handle drains and closes and its worker is dropped. It
+   *      isn't retired: the lock is the accounts row (`Tenants.locked`), so it
+   *      holds across a restart and lifts with a keep.
+   * The files, the key and the backups are untouched (the sidecar keeps the
+   * store in its configuration), so a keep loses nothing. The erase is the
+   * sequence below, begun by `finishPendingDeletes` once the deadline passes.
+   */
+  const scheduleDelete = async (personId: string): Promise<number | null> => {
+    const deadline = accounts.markPendingDelete(personId);
+    if (deadline === null) return null;
+    o.revokeAll(personId);
+    for (const storeId of accounts.storesToDelete(personId)) await tenants.close(storeId);
+    return deadline;
+  };
+  scheduleRef = scheduleDelete;
+
+  /**
+   * DELETE EVERYTHING NOW, AND THE ERASE AT A DEADLINE (design §5.4). In order,
    * each step audited by code:
    *   1. every session and connection stops (the person is marked deleting —
    *      durably, the store turns `deleting` — and every grant is revoked);
@@ -270,6 +312,11 @@ export function createApp(opts: AppOptions): App {
   };
   deleteRef = deleteAccount;
   const finishPendingDeletes = async (): Promise<number> => {
+    // Pending deletes whose deadline has passed begin their erase here: `due`
+    // turns them `deleting` only if the deadline is still passed and nobody
+    // kept the account, in one statement. A deadline still ahead is left alone,
+    // whatever restarted or failed meanwhile: never early.
+    for (const personId of accounts.dueDeletes()) accounts.markDeleting(personId, { due: true });
     let done = 0;
     for (const personId of accounts.pendingDeletes()) {
       try {
@@ -396,8 +443,10 @@ export function createApp(opts: AppOptions): App {
               if (r.restored > 0) {
                 accounts.markOpened(id);
                 // The cache rebuild (a re-embed of every row) runs now, before
-                // the server listens, not on some person's first call.
-                await tenants.withTenant(id, {}, async () => undefined);
+                // the server listens, not on some person's first call. Not for a
+                // store locked by a pending delete: nothing opens it, and its
+                // marker rebuilds the cache at its first open after a keep.
+                if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
               }
               restored += r.restored;
             } catch {
@@ -418,7 +467,7 @@ export function createApp(opts: AppOptions): App {
           } catch {
             /* the next tick */
           }
-        }, 10 * 60 * 1000);
+        }, opts.finishEveryMs ?? 10 * 60 * 1000);
         retryTimer.unref?.();
       }
       started = true;
@@ -426,6 +475,8 @@ export function createApp(opts: AppOptions): App {
     },
     readiness,
     deleteAccount,
+    scheduleDelete,
+    keepAccount: (personId: string) => accounts.keep(personId),
     finishPendingDeletes,
     async close(): Promise<void> {
       started = false;

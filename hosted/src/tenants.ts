@@ -90,6 +90,21 @@ export interface TenantsOptions {
   readonly openedBefore?: (storeId: string) => boolean;
   /** Told at every open that CREATED the store's dir (its first life). */
   readonly onCreated?: (storeId: string) => void;
+  /**
+   * Is this store locked (R6: its account's delete is pending, or erasing)?
+   * Asked on every acquire, from the accounts database, so the lock holds
+   * across a restart and lifts with a keep, with no call to make here. A
+   * locked store is never opened (`StoreLocked`). Absent ⇒ never.
+   */
+  readonly locked?: (storeId: string) => boolean;
+}
+
+/** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
+export class StoreLocked extends Error {
+  constructor() {
+    super("this store is locked: its account is set to be deleted");
+    this.name = "StoreLocked";
+  }
 }
 
 /** Beside a store just restored (`backup.ts#restore`): its next open rebuilds the cache, which no backup holds. */
@@ -240,6 +255,7 @@ export class Tenants {
   private async acquire(storeId: string, tenant: TenantOptions): Promise<Handle> {
     for (;;) {
       if (this.retired.has(storeId)) throw new Error("that store was deleted");
+      if (this.opts.locked?.(storeId) === true) throw new StoreLocked();
       const h = this.open.get(storeId);
       if (h === undefined) break;
       if (h.closing !== null) {

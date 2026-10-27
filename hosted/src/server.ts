@@ -35,7 +35,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { handleMcpPost } from "../../src/adapters/remote/http.js";
 import type { CallRecord } from "../../src/adapters/remote/http.js";
 import type { LimitReason, McpLimits } from "./limits.js";
-import { StoreNeedsRestore } from "./tenants.js";
+import { StoreLocked, StoreNeedsRestore } from "./tenants.js";
 import type { Tenants } from "./tenants.js";
 
 /** Who a valid token speaks for. */
@@ -199,6 +199,13 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         }),
       );
     } catch (err) {
+      // A store locked by a pending delete (R6), reached by a token checked a
+      // moment before its grant was revoked: the same 401 as that token now gets.
+      if (err instanceof StoreLocked && !res.headersSent) {
+        req.resume();
+        text(res, 401, "401\n", { ...challenge("invalid_token"), ...hsts });
+        return;
+      }
       // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
       // 503, so the client retries later instead of asking the person to sign in again.
       if (!(err instanceof StoreNeedsRestore) || res.headersSent) throw err;
