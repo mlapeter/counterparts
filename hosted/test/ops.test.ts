@@ -875,6 +875,19 @@ describe("#653 re-review", () => {
     await assert.rejects(startOverCommand(dataRoot, backupOptions(s3, ring, null), who.storeId), /tombstone/);
   });
 
+  test("start-over refuses a store set to be deleted (the #659 re-check)", async () => {
+    const { s3, ring, dataRoot, who } = await livedStore();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(who.storeId))) s3.objects.delete(k);
+    const accounts = new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") });
+    try {
+      assert.notEqual(accounts.markPendingDelete(who.personId), null);
+    } finally {
+      accounts.close();
+    }
+    await assert.rejects(startOverCommand(dataRoot, backupOptions(s3, ring, null), who.storeId), /set to be deleted/);
+  });
+
   test("N2: one deleted store whose leftovers can't be checked is audited and skipped; the start goes on", async () => {
     const { s3, ring, dataRoot, port, who } = await livedStore();
     const off = await rig({ dataRoot, port });

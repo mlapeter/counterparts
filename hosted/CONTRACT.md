@@ -172,6 +172,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       body was still arriving is answered `401` once the body ends, before any message runs (the door's `gate`, in
       `remote/http.ts`), and every call is checked against the lock again at its turn in the store's queue
       (`StoreLocked`). The delete page doesn't wait for such a body: the close isn't awaited.
+    - **A call runs only while its token still authenticates as its caller at its turn** (the #659 re-check). The
+      door re-runs `authenticate` inside the store's queue before each call, so a delete then a Keep (the lock gone,
+      the grant not) or a disconnect, landing while a body arrived or a call waited, never serves the old token. Any
+      such refusal answers the whole request `401` (`503` if the check itself throws), never a `200` "internal
+      error" (`McpPostOptions.refusal`).
     - **The erase is never early and never forgotten.** `delete_after` is in the replicated control database. The finish
       timer (every ten minutes) and start-up begin the erase of a pending delete only once its deadline has passed, in
       one statement that a keep can't race; then the sequence below runs, and is retried until it ends.
@@ -287,7 +292,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
     own backup. Such a store is also left out of the sidecar's configuration until it is restored. One that never
     reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
-    it or its tombstone. It's safe against the running server: the store's first open after it gets its key and a
+    it or its tombstone, or while its account is set to be deleted (R6). It's safe against the running server: the store's first open after it gets its key and a
     place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check

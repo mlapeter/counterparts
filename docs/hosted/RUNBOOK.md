@@ -195,6 +195,7 @@ any replica of it, or its tombstone.
 It is **safe against the running server** (`railway ssh`, then the line below). It only clears the store's
 "opened" mark. At that person's next call the server makes the new store, gives it its key, and adds it to the
 sidecar's configuration (a sidecar reload, logged as `sidecar.exit` / `sidecar.start`). No restart is needed.
+It refuses a store whose account is set to be deleted: if its person keeps it, start it over then.
 
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>

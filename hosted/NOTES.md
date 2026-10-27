@@ -315,3 +315,21 @@ Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.te
   account back connected, not only active. Corrected, with the `pending/<storeId>` marker as an option.
 - **Wording:** "after <time>", not "at" (the timer's tick); "isn't read by us or any AI, shown or used" (the sidecar
   still reads the file to back it up).
+
+### The #659 re-check
+
+- **HIGH: a held call ran on its old token after a Keep.** A request authenticated before the delete, its body sent
+  slowly, then delete, a fresh email sign-in and Keep, all before the body ended: the call ran and returned memory
+  (200, Node 24; bun answered 401 and hid it). The gate and the queue's check both asked `isLocked`, a property of
+  the store, and Keep clears it; what changed was the grant. The same hole was there before R6 for `/account/disconnect`.
+  Now the door re-runs `authenticate` on the same token inside the store's queue, just before each call, and refuses
+  unless it is still the same person and store. That also covers a whole body queued behind another call while a
+  delete and a Keep land (a test the review didn't write: it tells a token check from a lock check). `touchGrant`
+  writes at most once in ten minutes, so the extra check is two reads per call.
+- **LOW: a queued call refused by the lock answered 200 with JSON-RPC "internal error".** `one()` in
+  `remote/http.ts` caught `StoreLocked`. `McpPostOptions.refusal` now lets the door turn a call's error into an HTTP
+  answer for the whole request (`401` for a locked store or a revoked token, `503` when the re-check throws). In a
+  batch, answers already made are dropped with it: the client re-authenticates and sends again.
+- All four cases (slow body + Keep, slow body + disconnect, queued + lock, queued + delete and Keep) fail on Node 24
+  without the change and pass with it, on both runtimes.
+- **start-over refuses a store set to be deleted** (operator only; it read `liveStoreIds`, which includes pending).

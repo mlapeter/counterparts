@@ -143,6 +143,8 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
     if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
+    // A store set to be deleted (R6) is left as it is (the #659 re-check): kept, it can be started over then.
+    if (accounts.storeLocked(storeId)) throw new Error("that store is set to be deleted: start it over only if its person keeps it");
     const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
     if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
