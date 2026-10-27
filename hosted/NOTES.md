@@ -83,3 +83,104 @@ Status on 2026-10-26, late:
   pending deletes before `ensureAll`, and `Tenants.retire` refuses any later open.
 - **Litestream v0.5 dropped its own encryption.** SSE-C is per replica, and `dir` mode shares one key. So each store
   gets its own `path:` entry, and each wrapped DEK is one write-once R2 object rather than a replicated keys database.
+
+## OL2b: the ops pieces (feat/hosted-ops, 2026-10-26; `NOTES-OL2b.md` folded in here)
+
+Built on master 6699b892 (the merged OL2 stack). What it covers: restore and the drill, `/readyz`, `/mcp` limits, the
+DCR sweep, the Dockerfile, and `docs/hosted/RUNBOOK.md`. The guarantees are CONTRACT §29–§36; what is left is
+INTERFACE-GAPS §4–§16.
+
+### Found while building
+
+- **`ensureStore` would have minted a new key over the bucket's key object.** That happens on any volume that lost
+  `keys.sqlite`, and `keys.sqlite` is deliberately not replicated. The new key was then put over
+  `keys/<id>.wrapped`, and the whole backup became unreadable. It runs at every start, for every live store. Now it
+  adopts the bucket's key, and refuses a different DEK.
+- **A restored store answers recall with nothing.** The word index and the vectors live in `cache/` (box 3), which is
+  never backed up. The core doesn't rebuild a missing cache on open. So restore drops `cache/` and leaves
+  `restored.marker`, and the next open runs `rebuildCache()` with the shared embedder.
+- **A store whose dir is missing used to be treated as a new install** (`tenants.ts`'s `fresh`). It was given a new
+  empty store, and the sidecar then replicated that store over the real backup. Now `stores.opened_at` marks a
+  store that lived, and such a store waits for a restore (`503`).
+- **An empty volume beside a full bucket** would have started with empty control databases and replicated them over
+  the real ones. Start-up refuses that unless `RESTORE_ON_BOOT=1`.
+
+### Learned
+
+- **Litestream 0.5.17, read from its source** (the classifier refused running the binary on the Mac):
+  - `restore` takes `-config` or a replica URL, never both, so an SSE-C restore needs the store in a configuration;
+  - `sse-customer-key-path` takes the base64 of 32 bytes (what `keys.ts#litestreamKey` writes);
+  - there's a shutdown sync on SIGTERM;
+  - path-style is the default when an endpoint is set;
+  - `addr:` serves metrics, the way to replication lag later.
+- **A Litestream child killed before it has loaded has no SIGTERM handler**, so it makes no final sync. The drill
+  waits for the first upload before it stops the server. In production a child lives for hours, so this doesn't
+  bite.
+- **`minio/minio` is gone from Docker Hub.** A real-S3 drill needs R2 itself (a second bucket), or another image.
+- **The image builds and serves.** `docker build -f hosted/Dockerfile .` verified the Litestream sha256 and ran
+  `litestream version` (0.5.17, arm64). A `BACKUPS=off` run answered `/readyz` 200, `/mcp` 401 with the resource
+  metadata, made an invite, and was `healthy`. A run against an unreachable bucket refused to start, now naming
+  `R2_ENDPOINT`.
+- **Under bun, an aborted mid-body POST never ends its request** (INTERFACE-GAPS §21). The door now also settles on
+  the socket's `close`, which frees both the store's ref and the in-flight slot.
+
+### The review (high effort, after the first build)
+
+It found two data-loss paths and several smaller holes, all fixed on the branch with a test each:
+
+- **The guard checked `store/`, not the database file.** A restore that failed or found nothing left the dir
+  behind, and the store was then made empty.
+- **`prepareVolume` checked only `accounts.sqlite`.** An `invite` or a `BACKUPS=off` run on a lost volume made one,
+  and the next `serve` replicated the empty control databases over the real ones. A control restore cut short
+  likewise lost `oauth.sqlite`. Now the control key on this volume is what says "this volume is the bucket's", and
+  each control database is restored alone.
+- **The other fixes:**
+  - `opened_at` is back-filled at every start;
+  - one failing store no longer stops a RESTORE_ON_BOOT start;
+  - `--force` moves the old file aside;
+  - the cache is rebuilt before the server listens;
+  - a store that lived and has no key anywhere is never given a new one;
+  - the sweep keeps a client that any grant or token names;
+  - an abort under bun gives its slot back.
+
+### The independent review of #653 (high), and its fixes
+
+Each fix has a test in `test/ops.test.ts` or `test/main.test.ts` that builds the awkward state through the same rig.
+
+- **H1.** `restore control` (and `--all`) kept an `invite`-made `accounts.sqlite`, restored `oauth.sqlite` beside it,
+  and adopted the control key. That made the fake database "the bucket's" for the next serve. The three-way rule
+  (`app.ts#controlVolume`/`foreignControlRefusal`) now stands in front of every control restore.
+- **M1.** A delete made while the sidecar was down came back with the restored accounts database (active, with its
+  email). Deletes now write `deleted/<id>`, and every start finishes the delete of a live store that has one.
+- **M2.** A delete made with `BACKUPS=off` on a volume that was backed up left the store's key object and replica in
+  R2 forever. Such a start is refused now, and a start with backups removes what a `deleted` store left.
+- **M3.** `/data` is made in the image and owned by `node`. A plain Docker volume there was root-owned (EACCES in the
+  RUNBOOK drill); checked with a named volume.
+- **M4.** The sidecar's configuration listed a lived store with no database. It now leaves it out, except during
+  its own restore.
+- **The LOW findings:**
+  - L1: the marker comes before the move;
+  - L2: no sidecar mid-boot;
+  - L3: `self_page` `summary` counts as a write;
+  - L5: tags, not ids, in the restore CLI's output;
+  - L6: `invite` needs the backups named;
+  - L7: RUNBOOK fixes (the start-command override, the drain time, the healthcheck timeout, the unverified one-off
+    command, `--all --force`);
+  - L8: `start-over`.
+- **L4 (no global or cost-weighted budget) is flagged, not built** (INTERFACE-GAPS §14).
+
+### The re-review of #653 (at a84f6893)
+
+All five original findings were confirmed fixed. Its own findings were fixed, each with a test in the "#653
+re-review" block:
+
+- **N1.** A store started over on a running server wasn't in `litestream.yml` until some other reload. Its first
+  open now runs `ensureStore` (key, key file, configuration, reload) when `Backups.inConfig` says it's missing.
+- **N2.** One stuck deleted store in the leftovers loop crash-looped every start. The loop now catches per store and
+  audits.
+- **N3.** `start-over` refuses a tombstoned store.
+- **N4.** The leftovers check skips deletes the audit says already cleaned the bucket.
+- **N5.** Copies set aside are deleted after a day: by the stamp in the name for `pre-restore`, by ctime for
+  `control.aside-*`. The RUNBOOK's override moves `control/` aside only once, so a crash-restart doesn't move the
+  restored one too.
+

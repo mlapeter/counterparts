@@ -35,7 +35,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../../src/adapters/hosts.js";
@@ -48,7 +48,7 @@ import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
-import { isWithin } from "../../src/core/store/paths.js";
+import { DATABASE_FILE, isWithin } from "../../src/core/store/paths.js";
 import { beginNewInstall } from "../../src/core/onboarding.js";
 import { STATIC_WEIGHTS_ENV } from "../../src/core/embed/static.js";
 
@@ -80,6 +80,31 @@ export interface TenantsOptions {
   readonly now?: () => number;
   /** Told when a handle opens or closes. Ids only. A throw is swallowed. */
   readonly onEvent?: (name: "tenant.open" | "tenant.close", storeId: string) => void;
+  /**
+   * Has this store been opened before, anywhere (accounts' `stores.opened_at`,
+   * which is in the replicated control database)? A store that has, and whose
+   * dir is missing, is refused (`StoreNeedsRestore`) instead of starting over
+   * as a new install. Absent ⇒ never (tests of the earlier steps).
+   */
+  readonly openedBefore?: (storeId: string) => boolean;
+  /** Told at every open that CREATED the store's dir (its first life). */
+  readonly onCreated?: (storeId: string) => void;
+}
+
+/** Beside a store just restored (`backup.ts#restore`): its next open rebuilds the cache, which no backup holds. */
+export const RESTORED_MARKER = "restored.marker";
+
+/**
+ * A store that was opened before and whose files are gone from this volume.
+ * Opening it as new would make an empty store, which the sidecar would then
+ * replicate over the store's own backup: the thing that could bring it back.
+ * So it waits for a restore (`main.ts restore`, or `RESTORE_ON_BOOT=1`).
+ */
+export class StoreNeedsRestore extends Error {
+  constructor() {
+    super("this store's files are missing from the volume; it needs a restore");
+    this.name = "StoreNeedsRestore";
+  }
 }
 
 interface Handle {
@@ -235,7 +260,11 @@ export class Tenants {
     const dir = tenantDir(this.root, storeId);
     const storeDir = join(dir, "store");
     // A store this open CREATES is a new person's: it starts like a new install (below).
-    const fresh = !existsSync(storeDir);
+    // The DATABASE FILE, not the directory: a restore that failed or found no
+    // replica leaves `store/` behind empty, and that store must still wait for a
+    // restore, never be made empty and replicated over its own backup (#OL2b review H1).
+    const fresh = !existsSync(join(storeDir, DATABASE_FILE));
+    if (fresh && this.opts.openedBefore?.(storeId) === true) throw new StoreNeedsRestore();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const configPath = join(dir, "config.json");
     const config: AdapterConfig = {
@@ -262,7 +291,26 @@ export class Tenants {
         spawner: this.spawner,
       },
     });
-    if (fresh) startNewStore(server);
+    // Restored from the bucket: the word index and vectors (box 3) were never in
+    // the backup, so they are rebuilt from the rows before the first call.
+    const marker = join(dir, RESTORED_MARKER);
+    if (!fresh && existsSync(marker)) {
+      try {
+        server.counterpart.store.rebuildCache();
+      } catch (err) {
+        server.counterpart.close();
+        throw err;
+      }
+      rmSync(marker, { force: true });
+    }
+    if (fresh) {
+      startNewStore(server);
+      try {
+        this.opts.onCreated?.(storeId);
+      } catch {
+        /* a marker, not a gate */
+      }
+    }
     this.tell("tenant.open", storeId);
     return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
   }

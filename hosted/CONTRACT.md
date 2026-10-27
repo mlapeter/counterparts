@@ -162,15 +162,103 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the tenant dir is removed;
     - identities, sessions and links are deleted, and tombstones stay.
 
-    A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
+    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written, and it is never removed
+    (§31a). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
     its way out. The store turns `deleting` first, durably: start-up never gives it a new key, and a delete cut short
     (a crash, R2 down) is finished at start-up and on a timer. The delete asks for the typed address and a CSRF token.
 28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
     queue, sent only to the signed-in person behind CSRF, and the scratch copy (on the data volume, under `scratch/`, swept at
     start-up) is removed after sending.
 
+### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
+
+29. **The bucket's key is the store's key.** `keys.sqlite` is never replicated, so a new volume has no keys while its
+    backups in R2 are encrypted under the keys in `keys/<id>.wrapped`.
+    - `ensureStore` adopts a key object the bucket has (`KeyStore.adopt`: it must open under the ring for that store
+      id). It makes a new DEK only when neither side has one.
+    - When both sides have a key, the bucket's must be the same DEK (a rewrap's new wrapping) before the local one
+      is put over it. A different DEK is refused at start-up and left alone.
+    - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).
+    - A store that lived (`opened_at`) with no key here and none in the bucket is never given a new one: it is left
+      out of the backups and counted at start-up (`keyless`), and the start goes on.
+30. **Restore** (`main.ts restore <storeId|control|--all>`, or `RESTORE_ON_BOOT=1` at a start):
+    - the key object is adopted first;
+    - then `litestream restore -config … -o <file>.restoring -if-replica-exists <file>`, because SSE-C needs the
+      configuration and a replica URL can't carry it;
+    - then the file is moved into place.
+
+    It refuses:
+    - a file already in place, without `--force`. With it, the file in place is moved aside
+      (`*.pre-restore-<time>`), never deleted, and Litestream's position for it (`.<name>-litestream`) goes;
+    - an id the bucket has no key object for (no key is made for it);
+    - a ring that can't open the key object (nothing is written).
+
+    The control databases come back before anything opens them, one file at a time (a file in place is kept). A
+    restored store's `cache/` (box 3, never backed up) is dropped, and the marker that rebuilds it is written, BEFORE
+    the file moves in. It is rebuilt (`rebuildCache()`) by an open made
+    before the server listens (boot) or before the command ends (CLI), or recall would find nothing. One store's
+    failing restore is counted and audited, and the others go on.
+31. **A volume that isn't the bucket's never makes a control database** (`main.ts#prepareVolume`, before `serve`,
+    `invite` and `rewrap`). Once the bucket has `keys/control.wrapped`:
+    - a volume without the control key and without control databases restores them (`RESTORE_ON_BOOT=1`), or
+      refuses, saying how;
+    - a volume without the control key but WITH a control database (made by an `invite` or a `BACKUPS=off` run on a
+      lost volume) always refuses: that database isn't the real one, and it would be replicated over it;
+    - a volume with the key and a control database missing (a control restore cut short) restores that one alone,
+      or refuses.
+
+    Starting anyway would make empty control databases and replicate them over the real ones. A new server with an
+    empty bucket starts as before. The same rule stands in front of every control restore (`restoreControl`: the CLI's
+    `restore control` and `--all` too). The control key is adopted only when no control file here is kept.
+    - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
+    - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite` or `control/litestream.key`).
+31a. **The bucket's tombstones win.** At every start with backups on:
+    - a live store with `deleted/<id>` in the bucket has its delete finished (an accounts database restored from
+      before the delete would otherwise bring the account back, with its email);
+    - a store whose state is `deleted` and that still has a key object or replica objects (a delete made with
+      backups off) has them removed. A delete that cleaned the bucket (`delete.backups`) or an earlier pass
+      (`delete.leftovers`) isn't checked again, and one store that fails is audited and skipped.
+    - copies set aside (`control.aside-*`, `*.pre-restore-*`) more than a day old are deleted. They hold addresses
+      and memories outside the 24 h purge.
+
+    The restore CLI never restores a tombstoned store.
+31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
+    start-up writes the configuration but starts nothing.
+32. **A store that lived and lost its files waits for a restore.** `stores.opened_at` (in the replicated control
+    database) records the first open, and every start marks each live store whose database is present (a database
+    from before the column heals). A store opened before whose DATABASE FILE is missing (a dir left behind by a
+    failed restore counts as missing) is refused (`StoreNeedsRestore` →
+    `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
+    own backup. Such a store is also left out of the sidecar's configuration until it is restored. One that never
+    reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
+    it or its tombstone. It's safe against the running server: the store's first open after it gets its key and a
+    place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
+33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
+    key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check
+    names and their words (`ok`, `off`, `down`, `starting`): no id, no key, no message. `/healthz` stays liveness
+    only.
+34. **`/mcp` limits, per account, loose to start** (`limits.ts`):
+    - `tools/call`: 120 a minute and 1,500 an hour;
+    - 8 POSTs in flight at once;
+    - 1 GiB per store (`stores.quota_bytes` wins when set).
+
+    A refused call is a tool refusal the model can relay: `isError`, a `reason` (`rate-limited`, `store-full`),
+    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`,
+    `scope` and reading the self page (no argument but `session` or `ifVersion`) keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
+    is logged as its event and the hashed store tag, nothing else. The slot is given back at the answer or when the
+    client's socket closes, so an aborted request (bun included) never holds it.
+35. **The DCR sweep.** A registered (non-https) client that registered more than 30 days ago and that nobody ever
+    allowed (`client_use`, written at its first grant and back-filled from existing grants) and that no grant or
+    token names is dropped, along with its registration tokens. It runs at
+    start-up and every 10 minutes. A client allowed once is kept, even after a disconnect. CIMD clients are the
+    library's cache, and are not touched.
+36. **The image** (`hosted/Dockerfile`):
+    - Node 24.22.1 and bun 1.3.10 (for the two lockfiles' installs), pinned by tag and digest;
+    - Litestream 0.5.17, pinned by version and by the release's own sha256 for amd64 and arm64, checked in the build;
+    - it is built to run as `node`, with `/data` made and owned by `node`; the entry point is `main.ts serve`. On Railway, the RUNBOOK's
+      `RAILWAY_RUN_UID=0` for a root-owned volume runs it as root (INTERFACE-GAPS §6).
+
 ## What it drops, for now
 
-- Restore, the Dockerfile and the rest of operations: the ops step (`INTERFACE-GAPS.md`).
-- Rate limits on `/mcp` and size quotas: the ops step.
+- Replication lag in `/readyz`, alerts, and the Fly fallback (`INTERFACE-GAPS.md`).
 - The 2026-07-28 stateless revision: later, behind a version switch (DESIGN §3).

@@ -171,11 +171,59 @@ export class Accounts {
     // default is OFF (bun's is FAST).
     this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
+    // OL2b: when a store's dir was first made (the restore guard's "had a
+    // life"). Added by ALTER so a database made before it gains the column.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "opened_at")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN opened_at INTEGER");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /** Readiness: the database answers. Throws when it doesn't. */
+  ping(): void {
+    this.db.get("SELECT 1 AS one");
+  }
+
+  // ── stores (OL2b) ──────────────────────────────────────────────────────────
+
+  /** Record the store's first open (its dir was made). Once; later calls keep the first time. */
+  markOpened(storeId: string): void {
+    this.db.run("UPDATE stores SET opened_at = ? WHERE id = ? AND opened_at IS NULL", this.now(), storeId);
+  }
+
+  /** Was this store ever opened? A store that was, and has no files here, needs a restore. */
+  wasOpened(storeId: string): boolean {
+    return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at != null;
+  }
+
+  /** Whose store this is (any state), or null. */
+  personOfStore(storeId: string): string | null {
+    return this.db.get<{ person_id: string }>("SELECT person_id FROM stores WHERE id = ?", storeId)?.person_id ?? null;
+  }
+
+  /** The stores whose delete finished (tombstones here): start-up checks the bucket holds nothing of them. */
+  deletedStoreIds(): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM stores WHERE state = 'deleted'").map((r) => r.id);
+  }
+
+  /**
+   * THE WAY OUT FOR A STORE THAT NEVER REACHED THE BUCKET (the #653 review, L8):
+   * forget that it was opened, so its next open starts it as a new install
+   * instead of waiting for a restore that has nothing to bring back. The caller
+   * checks the bucket holds nothing of it first (`main.ts start-over`).
+   */
+  clearOpened(storeId: string): void {
+    this.db.run("UPDATE stores SET opened_at = NULL WHERE id = ?", storeId);
+    this.audit(this.personOfStore(storeId), storeId, "store.start-over", null);
+  }
+
+  /** The store's own quota in bytes, when one was set by hand; null ⇒ the server's default. */
+  quotaOf(storeId: string): number | null {
+    return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;
   }
 
   // ── invites ────────────────────────────────────────────────────────────────
@@ -433,6 +481,11 @@ export class Accounts {
 
   audit(personId: string | null, storeId: string | null, action: string, detail: string | null): void {
     this.db.run("INSERT INTO audit (at, person_id, store_id, action, detail) VALUES (?, ?, ?, ?, ?)", this.now(), personId, storeId, action, detail);
+  }
+
+  /** Did this store's audit ever record `action`? (The leftovers check skips deletes that cleaned the bucket.) */
+  storeAudited(storeId: string, actions: readonly string[]): boolean {
+    return this.db.get(`SELECT 1 AS one FROM audit WHERE store_id = ? AND action IN (${actions.map(() => "?").join(", ")}) LIMIT 1`, storeId, ...actions) !== undefined;
   }
 
   /** For tests and the account page: the audit rows of one person, oldest first. */
