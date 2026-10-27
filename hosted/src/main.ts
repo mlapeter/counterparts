@@ -22,6 +22,7 @@
  *   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   one bucket, objects only
  *   LITESTREAM_BIN     the sidecar binary (default: litestream on PATH)
  *   BACKUPS            "off" for a local run with no bucket
+ *   LOG_FORWARDED_FOR  "1": log the raw X-Forwarded-For of each /readyz request (first deploy's hop check; unset after)
  *   RESTORE_ON_BOOT    "1": serve restores what this volume is missing from the bucket before it starts
  *                      (the control databases, then every store that lived and has no files here)
  *
@@ -266,6 +267,8 @@ async function main(): Promise<void> {
     ...(backup === null ? {} : { backup }),
     // Limit refusals and stores waiting on a restore: the event and the hashed store tag, nothing else.
     onEvent: (name, store) => process.stderr.write(`[hosted] ${name} store=${store}\n`),
+    // First deploy only: the raw X-Forwarded-For of each /readyz request, to count the proxy's hops. Unset it after.
+    ...(env["LOG_FORWARDED_FOR"] === "1" ? { logForwardedFor: (raw: string) => process.stderr.write(`[hosted] /readyz X-Forwarded-For: ${raw}\n`) } : {}),
   });
   const report = await app.start(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {});
   if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);

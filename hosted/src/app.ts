@@ -68,6 +68,8 @@ export interface AppOptions {
   /** Limit refusals and stores waiting for a restore, by hashed store tag (the entry point logs them). */
   readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
   readonly now?: () => number;
+  /** `server.ts#HostedServerOptions.logForwardedFor` (the entry point's `LOG_FORWARDED_FOR=1`). */
+  readonly logForwardedFor?: (raw: string) => void;
 }
 
 export interface StartOptions {
@@ -283,6 +285,7 @@ export function createApp(opts: AppOptions): App {
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
+    ...(opts.logForwardedFor === undefined ? {} : { logForwardedFor: opts.logForwardedFor }),
   });
   return {
     server,

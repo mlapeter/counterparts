@@ -206,7 +206,7 @@ async function replicated(objects: Map<string, Stored>, prefixes: string[], ms =
   }
 }
 
-async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; start?: boolean } = {}): Promise<Rig & { port: number }> {
+async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; start?: boolean } = {}): Promise<Rig & { port: number }> {
   const port = o.port ?? (await freePort());
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
@@ -219,6 +219,7 @@ async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOpti
     ...(o.backup === undefined ? {} : { backup: o.backup }),
     ...(o.mcpLimits === undefined ? {} : { mcpLimits: o.mcpLimits }),
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
+    ...(o.logForwardedFor === undefined ? {} : { logForwardedFor: o.logForwardedFor }),
   });
   let closed = false;
   const close = async (): Promise<void> => {
@@ -450,11 +451,14 @@ describe("/readyz", () => {
     assert.equal(((await down.json()) as { checks: Record<string, string> }).checks["backups"], "down");
   });
 
-  test("with backups off, ready once started: backups and keys say off", async () => {
-    const r = await rig();
-    const res = await fetch(`${r.origin}/readyz`);
+  test("with backups off, ready once started: backups and keys say off; the first deploy's hop check logs the raw X-Forwarded-For", async () => {
+    const seen: string[] = [];
+    const r = await rig({ logForwardedFor: (raw) => seen.push(raw) });
+    const res = await fetch(`${r.origin}/readyz`, { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.2" } });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { ready: true, checks: { started: "ok", control: "ok", keys: "off", backups: "off" } });
+    await fetch(`${r.origin}/readyz`);
+    assert.deepEqual(seen, ["203.0.113.7, 10.0.0.2", "(none)"]);
   });
 });
 

@@ -77,6 +77,8 @@ export interface HostedServerOptions {
   readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
   /** `/readyz`: names of checks and their states only, never an id or a secret. Absent ⇒ `/readyz` answers like `/healthz`. */
   readonly readiness?: () => Promise<Readiness>;
+  /** First deploy only (`LOG_FORWARDED_FOR=1`): told the raw `X-Forwarded-For` of each `/readyz` request, to check the proxy's hops (INTERFACE-GAPS §4). */
+  readonly logForwardedFor?: (raw: string) => void;
 }
 
 /** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting"). */
@@ -232,6 +234,10 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       // states only. A check that throws is "down", and its message is not shown.
       if (url.pathname === "/readyz" && (req.method === "GET" || req.method === "HEAD")) {
         req.resume();
+        if (opts.logForwardedFor !== undefined) {
+          const xff = req.headers["x-forwarded-for"];
+          opts.logForwardedFor((Array.isArray(xff) ? xff.join(" | ") : (xff ?? "(none)")).slice(0, 200));
+        }
         let report: Readiness;
         try {
           report = opts.readiness === undefined ? { ready: true, checks: {} } : await opts.readiness();
