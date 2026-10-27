@@ -7,17 +7,19 @@
  * so a line that stays amber is a filesystem that does not keep modes or a
  * store nothing has written to since this version came.
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 
 import { DATABASE_FILE, OPEN_BITS, realRoot } from "../../core/store/index.js";
-import { installBaseRoots } from "../private-base.js";
+import { installBasePaths } from "../private-base.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
 function modeOf(path: string): number | null {
   try {
-    return statSync(path).mode & 0o777;
+    const st = lstatSync(path);
+    // A link is never chmodded through (`core/store/private.ts`), so never graded either.
+    return st.isSymbolicLink() ? null : st.mode & 0o777;
   } catch {
     return null;
   }
@@ -28,11 +30,15 @@ export function privatePaths(storeDir: string, configPath?: string): { path: str
   const store = realRoot(storeDir);
   // The base only when this IS an install's layout (`private-base.ts`), the
   // configuration sitting in it: a dir that is merely named `store` says nothing.
-  const base = configPath === undefined ? null : installBaseRoots(configPath, storeDir);
+  // Only our names in it, and the base itself only when it is ours to close.
+  const base = configPath === undefined ? null : installBasePaths(configPath, storeDir);
   const out: { path: string; dir: boolean }[] = [];
-  for (const d of base?.topOnly ?? []) out.push({ path: d, dir: true });
+  if (base?.baseIsOurs === true) out.push({ path: base.base, dir: true });
   out.push({ path: store, dir: true }, { path: join(store, DATABASE_FILE), dir: false });
-  for (const d of base?.recursive ?? []) if (realRoot(d) !== store) out.push({ path: d, dir: true });
+  for (const d of base?.trees ?? []) if (realRoot(d) !== store) out.push({ path: d, dir: true });
+  // Our files only matter where the base stays open (a home, a project):
+  // inside a closed base nobody else can reach them.
+  if (base !== null && !base.baseIsOurs) for (const f of base.files) out.push({ path: f, dir: false });
   return out;
 }
 

@@ -2379,3 +2379,10 @@ the files other modules write inside a 0700 store.
   (`adapters/private-base.ts`, run by the session-start hook and `connect`).
 - **Roots are realpathed, a database link is not read through** (`isOpen` uses `lstat`):
   a symlinked store was never tightened and asked again at every open.
+- **Re-check: the base is our names only.** `install --config ~/counterparts.json` makes
+  `$HOME` the base, so "the base and its immediate entries" stripped the home and
+  `~/Public`'s Drop Box. `adapters/private-base.ts` now tightens only the names this
+  package writes there (the config, `scopes.json`, the sidebar's files, the npm marker, a
+  legacy `credentials.env`, `store/` and `snapshots/`), and closes the directory itself
+  only when it holds nothing else and is not the home or above it. `doctor` reads the same
+  set. The core's `PrivateRoots.topOnly` became `only` (a path alone, never its entries).

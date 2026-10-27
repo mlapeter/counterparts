@@ -318,7 +318,7 @@ describe("the console's own files are private too (the entry point's umask)", ()
 // ── review of #657: the base is the adapters', links are followed at the root ─
 
 describe("the install's base directory is the adapters' to tighten, and only when it is one", () => {
-  test("`counterparts connect` tightens a loose ~/.counterparts (its config, snapshots, log) and nothing outside it", async () => {
+  test("`counterparts connect` tightens a loose ~/.counterparts (itself, its config, store and snapshots) and nothing outside it", async () => {
     const home = join(temp(), "home");
     const base = join(home, ".counterparts");
     const store = join(base, "store");
@@ -327,8 +327,6 @@ describe("the install's base directory is the adapters' to tighten, and only whe
     const c = quietIo();
     expect(await run(["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"], { io: c.io, env, home })).toBe(EXIT.ok);
     mkdirSync(join(base, "snapshots", "2026-10-01T00-00-00-000Z"), { recursive: true });
-    mkdirSync(join(base, "log"), { recursive: true });
-    writeFileSync(join(base, "log", "2026-10-27.jsonl"), "{}\n");
     for (const e of walk(base)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
     chmodSync(home, 0o755);
     const off = quietIo();
@@ -341,12 +339,12 @@ describe("the install's base directory is the adapters' to tighten, and only whe
         processes: () => ({ looked: true, processes: [] }),
       }),
     ).toBe(EXIT.ok);
-    // The store is the core's (a writer's open); the base, its config and
-    // snapshots and log are `connect`'s (`private-base.ts`).
+    // `connect` (`private-base.ts`): the default base holds only ours, so it is
+    // closed too.
     expect(mode(base)).toBe(0o700);
     expect(mode(configPath)).toBe(0o600);
     expect(mode(join(base, "snapshots", "2026-10-01T00-00-00-000Z"))).toBe(0o700);
-    expect(mode(join(base, "log", "2026-10-27.jsonl"))).toBe(0o600);
+    expect(mode(join(store, "counterparts.sqlite"))).toBe(0o600);
     expect(mode(home)).toBe(0o755);
     expect(modesFindings(store, "darwin", configPath)[0]?.severity).not.toBe("amber");
   });
@@ -395,5 +393,97 @@ describe("a symlinked store is tightened where it really is", () => {
     expect(storeNeedsTightening(store)).toBe(false);
     tightenStore(store);
     expect(mode(elsewhere)).toBe(0o644);
+  });
+});
+
+// ── re-check of #657: a base that is a home or a project keeps its own entries ─
+
+describe("a config outside ~/.counterparts: only our names in that directory are tightened", () => {
+  /** An install whose config sits in `base`, then everything there loosened, with somebody else's entries beside it. */
+  async function installIn(home: string, base: string): Promise<{ configPath: string; store: string }> {
+    const configPath = join(base, "counterparts.json");
+    const store = join(base, "store");
+    const env = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    expect(await run(["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"], { io: quietIo().io, env, home })).toBe(EXIT.ok);
+    expect(existsSync(join(store, "counterparts.sqlite"))).toBe(true);
+    mkdirSync(join(base, "snapshots", "2026-10-01T00-00-00-000Z"), { recursive: true });
+    writeFileSync(join(base, "scopes.json"), "{}\n");
+    // Somebody else's, as a home directory or a project holds them.
+    mkdirSync(join(base, "Public", "Drop Box"), { recursive: true });
+    mkdirSync(join(base, ".claude"), { recursive: true });
+    mkdirSync(join(base, "log"), { recursive: true });
+    writeFileSync(join(base, "log", "access.log"), "GET /\n");
+    writeFileSync(join(base, "server.js"), "// app\n");
+    for (const e of walk(base)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    chmodSync(join(base, "Public", "Drop Box"), 0o733);
+    return { configPath, store };
+  }
+  const connect = async (configPath: string, home: string): Promise<void> => {
+    expect(
+      await run(["connect", "--config", configPath], {
+        io: quietIo().io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        home,
+        spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+        processes: () => ({ looked: true, processes: [] }),
+      }),
+    ).toBe(EXIT.ok);
+  };
+  const untouched = (base: string): void => {
+    expect(mode(base)).toBe(0o755);
+    expect(mode(join(base, "Public"))).toBe(0o755);
+    expect(mode(join(base, "Public", "Drop Box"))).toBe(0o733);
+    expect(mode(join(base, ".claude"))).toBe(0o755);
+    expect(mode(join(base, "log"))).toBe(0o755);
+    expect(mode(join(base, "log", "access.log"))).toBe(0o644);
+    expect(mode(join(base, "server.js"))).toBe(0o644);
+  };
+  const ours = (base: string, configPath: string, store: string): void => {
+    expect(mode(configPath)).toBe(0o600);
+    expect(mode(join(base, "scopes.json"))).toBe(0o600);
+    expect(openPaths(store)).toEqual([]);
+    expect(openPaths(join(base, "snapshots"))).toEqual([]);
+  };
+
+  test("config at ~/counterparts.json: connect and a session start leave the home and its other entries alone", async () => {
+    const home = join(temp(), "home");
+    mkdirSync(home);
+    const { configPath, store } = await installIn(home, home);
+    await connect(configPath, home);
+    untouched(home);
+    ours(home, configPath, store);
+    // The session-start hook's call, with the home as the real one.
+    for (const e of walk(join(home, "snapshots"))) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    tightenInstallBase(configPath, store, { home });
+    untouched(home);
+    ours(home, configPath, store);
+    // doctor reads the same set: amber names none of the home's own entries.
+    chmodSync(configPath, 0o644);
+    const f = modesFindings(store, "darwin", configPath)[0];
+    expect(f?.severity).toBe("amber");
+    expect(f?.detail).toContain("counterparts.json");
+    expect(f?.detail).not.toContain("Public");
+    expect(f?.detail).not.toContain(`${home} (`);
+  });
+
+  test("config in a project directory: the project keeps its mode and its files", async () => {
+    const home = join(temp(), "home");
+    const project = join(home, "code", "my-app");
+    mkdirSync(project, { recursive: true });
+    const { configPath, store } = await installIn(home, project);
+    await connect(configPath, home);
+    untouched(project);
+    ours(project, configPath, store);
+  });
+
+  test("the default ~/.counterparts, holding only ours, is closed whole", async () => {
+    const home = join(temp(), "home");
+    const base = join(home, ".counterparts");
+    mkdirSync(base, { recursive: true });
+    const configPath = join(base, "claude-code.json");
+    expect(await run(["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"], { io: quietIo().io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, home })).toBe(EXIT.ok);
+    for (const e of walk(base)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    await connect(configPath, home);
+    expect(openPaths(base)).toEqual([]);
   });
 });

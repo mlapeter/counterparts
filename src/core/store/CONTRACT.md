@@ -557,7 +557,8 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     open changes no mode. A store shared with a group on purpose is tightened again at every
     writer's open; there is no opt-out yet. Hosted tenant stores get the same at-open
     tightening of their store directory (they are written 0700/0600 already, so it finds
-    nothing). The install's base directory (`~/.counterparts`) is the adapters'
+    nothing). The install's base directory is the adapters', and only the names this package
+    writes in it (the directory itself only when it holds nothing else and is not a home)
     (`adapters/private-base.ts`); the core never sets the umask, the package's own entry
     points do (`adapters/private-umask.ts`).
 

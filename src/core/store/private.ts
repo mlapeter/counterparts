@@ -114,11 +114,11 @@ export interface TightenReport {
   readonly skipped: readonly string[];
 }
 
-/** Which directories to tighten: `recursive` ones whole, `topOnly` ones and
- *  their immediate entries only. */
+/** What to tighten: `recursive` paths whole (a file, or a directory and all
+ *  under it), `only` paths alone (the path itself, never what is in it). */
 export interface PrivateRoots {
   readonly recursive: readonly string[];
-  readonly topOnly?: readonly string[];
+  readonly only?: readonly string[];
 }
 
 /** The core's own roots: the store, and a snapshots directory the caller named. */
@@ -130,7 +130,7 @@ export function storeRoots(storeDir: string, snapshotsDir?: string | null): Priv
 
 /** Does any root need tightening? A stat each, and the database's (`lstat`). */
 export function rootsNeedTightening(roots: PrivateRoots, files: readonly string[] = []): boolean {
-  return [...(roots.topOnly ?? []), ...roots.recursive, ...files].some((p) => isOpen(p));
+  return [...(roots.only ?? []), ...roots.recursive, ...files].some((p) => isOpen(p));
 }
 
 /** Does this store need tightening? The store directory and its database. */
@@ -154,7 +154,7 @@ export function tightenRoots(roots: PrivateRoots, chmod: Chmod = chmodSync): Tig
     if (chmodQuiet(path, mode & 0o7777 & ~OPEN_BITS, chmod)) tightened += 1;
     else skipped.push(path);
   };
-  const walk = (path: string, depth: number, recurse: boolean): void => {
+  const walk = (path: string, recurse: boolean): void => {
     let st;
     try {
       st = lstatSync(path);
@@ -164,20 +164,22 @@ export function tightenRoots(roots: PrivateRoots, chmod: Chmod = chmodSync): Tig
     if (st.isSymbolicLink()) return;
     if (st.isDirectory()) {
       fix(path, st.mode);
-      if (!recurse && depth > 0) return;
+      if (!recurse) return;
       let names: string[] = [];
       try {
         names = readdirSync(path);
       } catch {
         return;
       }
-      for (const name of names) walk(join(path, name), depth + 1, recurse);
+      for (const name of names) walk(join(path, name), true);
       return;
     }
     if (st.isFile()) fix(path, st.mode);
   };
-  for (const dir of roots.topOnly ?? []) walk(realRoot(dir), 0, false);
-  for (const dir of roots.recursive) walk(realRoot(dir), 0, true);
+  // As given: a caller that wants a root link followed resolves it first
+  // (`storeRoots`); an entry that is itself a link is never chmodded through.
+  for (const p of roots.only ?? []) walk(p, false);
+  for (const p of roots.recursive) walk(p, true);
   return { tightened, skipped };
 }
 

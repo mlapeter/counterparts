@@ -197,6 +197,8 @@ function writeConfig(over: Record<string, unknown> = {}): void {
       ...over,
     }),
   );
+  // As `install` writes it, under its umask 077 (R1): doctor grades our files beside the store.
+  chmodSync(configPath, 0o600);
 }
 
 /**

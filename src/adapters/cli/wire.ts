@@ -1590,7 +1590,7 @@ export const DENY_ADDED_LINE =
 function noteWired(input: WireInput): void {
   // The install's base directory, private (R1, `private-base.ts`): `connect` is
   // the upgrade path an older install runs.
-  tightenInstallBase(input.configPath, input.store);
+  tightenInstallBase(input.configPath, input.store, { home: input.home });
   if ((input.env[PLUGIN_ROOT_ENV] ?? "").trim().length > 0) return;
   noteNpmLive({
     configPath: input.configPath,
