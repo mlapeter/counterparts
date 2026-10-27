@@ -240,3 +240,24 @@ account, and "delete everything now" beside it. Built on master 087c3b85; the gu
 - **The tests drive the real timer.** `AppOptions.finishEveryMs` (ten minutes by default) runs it every few
   milliseconds, and `AppOptions.now` now reaches `Accounts` and the pages too, so an injected clock stands in for the
   24 hours (`test/delete.test.ts`).
+
+### The #659 review (high), and its fixes
+
+Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.test.ts`.
+
+- **BLOCKING: the pending state committed, then the revoke failed, and a keep brought the old connection back.** The
+  reviewer made `revokeAccount` throw once: the delete page answered 500 although the delete had taken effect, and
+  after Keep the OLD access token answered 200. Now the revoke and close after the commit are audited, not thrown
+  (the done page renders); every finish tick revokes again for every pending person (which also heals a crash
+  between the two writes); and a keep revokes first, refusing (503) if it can't.
+- **Medium: a call authenticated before the delete, its body sent slowly, ran after the lock** and returned memory
+  text with 200 on Node 24 (bun hides it, as it hides other mid-body behaviour, §21). The door now asks a `gate` once
+  the body has arrived (`remote/http.ts`, `McpPostOptions.gate`) and answers 401; the store's queue checks the lock
+  again at each call's turn. With only the queue check the same probe answers 200 with "internal error" and no
+  memory; with neither it returned the memory. The delete page no longer waits for that body (the close isn't awaited).
+- **The restore CLI opened a pending store** (its cache rebuild consumed the marker). It now restores it and leaves
+  it closed, like start-up.
+- **INTERFACE-GAPS §34 was wrong:** `oauth.sqlite` restores with `accounts.sqlite`, so an early restore brings the
+  account back connected, not only active. Corrected, with the `pending/<storeId>` marker as an option.
+- **Wording:** "after <time>", not "at" (the timer's tick); "isn't read by us or any AI, shown or used" (the sidecar
+  still reads the file to back it up).

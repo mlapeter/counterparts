@@ -399,7 +399,7 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 
 > Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
 > account alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
-> memory isn't read, shown or used. 24 hours later your memory, its backups and your key are erased, unless you sign
+> memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and your key are erased, unless you sign
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
 > is purged from our encrypted account backups within 24 hours of the erase. Forgetting one memory removes it from

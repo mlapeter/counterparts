@@ -118,9 +118,14 @@
 33. **No re-authentication for delete everything now** beyond the signed-in session and the typed address. From the
     pending page the session is always a fresh email link (the delete ended every other). From an active account it is
     whatever session the browser has (up to 30 days old).
-34. **A volume lost inside the 24 hours, restored from before the delete**, brings the account back `active` (with its
-    connections gone): the tombstone (`deleted/<id>`) is written only when the erase begins, so nothing in the bucket
-    says a delete was pending. A third narrow window beside §13's two.
+34. **A volume lost inside the 24 hours, with control restored from before the delete**, brings the account back
+    `active` AND connected: `oauth.sqlite` comes back with `accounts.sqlite`, so its grants return too, and the
+    deadline is lost. The tombstone (`deleted/<id>`) is written only when the erase begins, so nothing in the bucket
+    says a delete was pending. The reverse holds too: control restored from before a keep brings back a pending
+    account, which may then be erased at its old deadline. A third narrow window beside §13's two (the #659 review).
+    - **An option, not built:** a `pending/<storeId>` object in the bucket at the delete (holding the deadline),
+      removed at a keep, and honoured at start like the tombstone. It would close the first case; the reverse would
+      need the keep's own marker.
 35. **The erase can run up to one timer tick (ten minutes) after the deadline.** The pending page says the time to keep
     it has passed from the deadline on, and keep refuses then.
 36. **No operator undo or early erase.** The person does both from the pending page. An operator who had to could run

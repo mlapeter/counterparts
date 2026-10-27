@@ -330,7 +330,8 @@ and keep it; "delete everything now" erases at once. Nothing here needs you:
   outage during the 24 hours never erases early and never forgets. The server begins each erase within ten minutes
   of its deadline (or at the next start, if it was down then), and retries until R2 lets it finish.
 - **A locked store is still backed up**, so a restore in the window brings it back locked (unless the control
-  databases come back from before the delete: then it is `active` again, INTERFACE-GAPS §34), and a rewrap re-writes
+  databases come back from before the delete: then it is `active` and connected again, its deadline lost, and from
+  before a keep it comes back pending: INTERFACE-GAPS §34), and a rewrap re-writes
   its key object like any other.
 - **There is no operator undo or early erase.** The person does both from their account page (they sign in by email
   link as usual and see only that page). If someone can't reach their email and asks you to keep or erase it, tell

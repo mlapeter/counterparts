@@ -164,13 +164,22 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       The person can still sign in by a new email link, and is served exactly one page: the deadline, keep, delete
       everything now, sign out. Export, time zone and disconnect refuse (`403`); `/login` and the Allow page send them
       back to it. An operator's `setState` can't change a pending person.
-    - **Keep** (`POST /account/keep`, CSRF, only while the deadline is ahead) → `active`, the store as it was. Grants are
-      NOT restored: the person connects again.
+    - **The lock heals** (the #659 review). Once the pending state has committed, the delete has taken effect: a revoke
+      or close that then fails is audited (`delete.lock.revoke.failed`, `delete.lock.close.failed`) and the done page
+      still renders. Every finish tick revokes again for every pending person, and a keep revokes FIRST (a revoke that
+      throws keeps nothing: `503`), so a grant that outlived the delete never comes back with the account.
+    - **A call already holding the store is refused when it lands.** A request authenticated before the lock whose
+      body was still arriving is answered `401` once the body ends, before any message runs (the door's `gate`, in
+      `remote/http.ts`), and every call is checked against the lock again at its turn in the store's queue
+      (`StoreLocked`). The delete page doesn't wait for such a body: the close isn't awaited.
     - **The erase is never early and never forgotten.** `delete_after` is in the replicated control database. The finish
       timer (every ten minutes) and start-up begin the erase of a pending delete only once its deadline has passed, in
       one statement that a keep can't race; then the sequence below runs, and is retried until it ends.
+    - **Keep** (`POST /account/keep`, CSRF, only while the deadline is ahead) → `active`, the store as it was. Grants are
+      NOT restored: the person connects again.
     - **A pending store is never re-keyed**: start-up's `ensureAll` skips a locked store with no key here and none in
-      the bucket (it adopts a key the bucket has).
+      the bucket (it adopts a key the bucket has). The restore CLI restores a locked store but never opens it (its
+      cache rebuilds at its first open after a keep).
     - The migration is one `ALTER TABLE people ADD COLUMN delete_after`, made at open when the column is missing, so a
       fresh volume and an existing beta volume both take it.
 
