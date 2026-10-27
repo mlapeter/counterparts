@@ -249,7 +249,9 @@ export function controlAside(dataRoot: string, label: string, now: number = Date
   mkdirSync(join(dataRoot, "overrides"), { recursive: true });
   try {
     writeFileSync(guard, `${new Date(now).toISOString()}\n`, { flag: "wx" });
-  } catch {
+  } catch (err) {
+    // Only a guard already there means "used"; anything else (EACCES, ENOSPC) stops the start, saying so.
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     return { line: `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).` };
   }
   const control = join(dataRoot, "control");

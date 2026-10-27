@@ -219,7 +219,8 @@ These use the same environment as `serve`, and `litestream` on PATH or `LITESTRE
 
 ### If a start refuses (the service crash-loops)
 
-A crash-looping service can't be reached with `railway ssh`. Use a **start-command override** instead: Settings →
+A crash-looping service can't be reached with `railway ssh`. Use a variable where one is named below, otherwise a
+**start-command override**: Settings →
 Deploy → Custom Start Command, deploy once, read the log, then **clear it**. The image's entry point is
 `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts`, so an override names the whole line.
 
