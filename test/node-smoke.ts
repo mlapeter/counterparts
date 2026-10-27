@@ -23,7 +23,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -126,6 +126,33 @@ describe("under Node", () => {
       assert.deepEqual({ ...again.get<{ v: string; n: number }>("SELECT v, n FROM probe") }, { v: "kept", n: 1 });
     } finally {
       again.close();
+    }
+  });
+
+  test("secure_delete is FAST, and a deleted row's words are gone from every file (node:sqlite ships it at 0)", () => {
+    // Node's bundled SQLite defaults `secure_delete` to 0 (22.23 and 24.22,
+    // measured 2026-10-26), where bun's is FAST: without the pragma a deleted
+    // row stayed whole in the page's free space through a checkpoint and a close.
+    const dir = join(work, "secure-delete");
+    mkdirSync(dir);
+    const path = join(dir, "probe.sqlite");
+    const marker = "SECURE-DELETE-MARK-7f3a";
+    const db = openDb(path, { wal: true });
+    try {
+      assert.equal(db.get<{ secure_delete: number }>("PRAGMA secure_delete")?.secure_delete, 2);
+      db.run("CREATE TABLE probe (id INTEGER PRIMARY KEY, body TEXT)");
+      db.run("INSERT INTO probe (body) VALUES (?)", "kept ".repeat(40));
+      db.run("INSERT INTO probe (body) VALUES (?)", `${marker} a short memory ${marker}`);
+      db.run("INSERT INTO probe (body) VALUES (?)", "kept ".repeat(40));
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+      assert.ok(readFileSync(path).toString("latin1").includes(marker), "the marker reached the file before the delete");
+      db.run("DELETE FROM probe WHERE body LIKE ?", `${marker}%`);
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    } finally {
+      db.close();
+    }
+    for (const f of readdirSync(dir)) {
+      assert.equal(readFileSync(join(dir, f)).toString("latin1").includes(marker), false, `${f} still holds the deleted words`);
     }
   });
 

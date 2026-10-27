@@ -381,8 +381,10 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
 17. **[M] A removal reclaims the pages that held the words — the log AND the free list —
     on both databases.** Blanking a body is an `UPDATE`: in WAL mode the old page stays in
     the `-wal` until a checkpoint, and a body long enough to take OVERFLOW pages leaves
-    whole pages on the FREELIST still holding the words (`secure_delete` is FAST by default
-    and zeroes only the slack of a page being rewritten). Measured 2026-09-20, deterministic
+    whole pages on the FREELIST still holding the words (`secure_delete` is FAST — set by
+    `openDb` on every connection, since node:sqlite's compiled default is 0 where bun's is
+    FAST — and FAST zeroes only what a delete frees inside a page, never a whole freed
+    page). Measured 2026-09-20, deterministic
     with marks at the start, middle and end of a ~40 KB body. So the console's removal ends
     with `VACUUM` then `PRAGMA wal_checkpoint(TRUNCATE)` on each database, on its own
     connection, reported as its own surface and never thrown (G7; scar §2.20). A contended
