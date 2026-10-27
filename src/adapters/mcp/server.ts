@@ -478,6 +478,8 @@ export class McpServer {
    * Code-tab call served as a Claude Code session is in a directory, and
    * speaks Claude Code's. How to load a newer build stays this process's
    * host's (`this.host`): the process holding the old build is Desktop's.
+   * The dreaming words read it too (review of #650): the `setting` result and
+   * the dream and reflect launch `how` are the served session's host's.
    */
   private get placeHost(): string {
     return this.callAs !== null ? DEFAULT_HOST : this.host;

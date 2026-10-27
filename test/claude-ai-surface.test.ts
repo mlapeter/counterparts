@@ -24,9 +24,9 @@ import { join } from "node:path";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { CLAUDE_AI_WORDS } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_NOTE, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -402,21 +402,27 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     expect(reflect).toContain("The night routine calls `begin` and `finish` after the dream");
   });
 
-  test("Claude Code's and Desktop's dream and reflect descriptions are the shared ones, byte for byte", async () => {
-    for (const host of [false, DESKTOP_HOST] as const) {
-      const defs = Object.fromEntries(toolDefinitions(host).map((t) => [String(t["name"]), String(t["description"])]));
-      for (const name of ["dream", "reflect"]) {
-        const base = TOOLS.find((t) => t.name === name);
-        expect(defs[name]).toBe(renderDescription(base as never));
-      }
-      for (const phrase of SHARED) expect(defs["dream"]).toContain(phrase);
-      expect(defs["reflect"]).toContain("hand its prompt to a background agent");
+  test("Claude Code's dream and reflect descriptions are the shared ones, byte for byte; Desktop's name no background agent (OL1d)", async () => {
+    const defs = Object.fromEntries(toolDefinitions(false).map((t) => [String(t["name"]), String(t["description"])]));
+    for (const name of ["dream", "reflect"]) {
+      const base = TOOLS.find((t) => t.name === name);
+      expect(defs[name]).toBe(renderDescription(base as never));
     }
-    // Over Desktop's door too: what a Desktop client is sent.
+    for (const phrase of SHARED) expect(defs["dream"]).toContain(phrase);
+    expect(defs["reflect"]).toContain("hand its prompt to a background agent");
+    // Over Desktop's door: what a Desktop client is sent — the chat's own words.
     const { http } = await door(DESKTOP_HOST);
     const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: Record<string, unknown>[] }).tools;
-    const dream = String(list.find((t) => t["name"] === "dream")?.["description"]);
-    expect(dream).toBe(renderDescription(TOOLS.find((t) => t.name === "dream") as never));
+    for (const name of ["dream", "reflect"]) {
+      const d = String(list.find((t) => t["name"] === name)?.["description"]);
+      const spec = DESKTOP_TOOLS.find((t) => t.name === name) as never;
+      expect(d).toBe(renderDescription(spec));
+      expect(d.toLowerCase()).not.toContain("background agent");
+      expect(d).not.toContain("Do NOT run the dream yourself in this conversation");
+      expect(d).toContain("yourself, here in the chat");
+      // Privileges are every host's.
+      expect((spec as { privileges: unknown }).privileges).toEqual(TOOLS.find((t) => t.name === name)?.privileges as never);
+    }
   });
 
   test("the night prompt v2's steps, through the door: a night: true wake, dream launch, day's end, the dream, the reflection — none refused", async () => {
@@ -456,23 +462,19 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     expect(s.counterpart.store.reflection(rid)).toBeDefined();
   });
 
-  test("a launch result's `how`: claude.ai's follows the prompt here; Desktop's still hands it to a background agent", async () => {
+  test("a launch result's `how`: claude.ai's and Desktop's follow the prompt here; Claude Code's hands it to a background agent", async () => {
     for (const [host, dreamHow, reflectHow] of [
       [CLAUDE_AI_HOST, CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_REFLECT_LAUNCH_HOW],
-      [DESKTOP_HOST, null, null],
+      [DESKTOP_HOST, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_REFLECT_LAUNCH_HOW],
     ] as const) {
       const { http } = await door(host);
       const session = String((await tool(http.url, "wake", {})).structured["session"]);
       await tool(http.url, "remember", { session, text: "The cold frame lid sticks in the morning damp." });
       const d = String((await tool(http.url, "dream", { phase: "launch", session })).structured["how"]);
       const r = String((await tool(http.url, "reflect", { phase: "launch", session })).structured["how"]);
-      if (dreamHow === null) {
-        expect(d.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
-        expect(r.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
-      } else {
-        expect(d).toBe(dreamHow);
-        expect(r).toBe(reflectHow as string);
-      }
+      expect(d).toBe(dreamHow);
+      expect(r).toBe(reflectHow);
+      expect(`${d} ${r}`.toLowerCase()).not.toContain("background");
     }
   });
 });
