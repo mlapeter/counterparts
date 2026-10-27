@@ -186,12 +186,21 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       - the bucket has no tombstone for it;
       - the bucket held the control key BEFORE this start (not one this start put there), and that key was adopted
         or proven the same DEK as this volume's;
-      - this volume's control key is older than the store's first open, so `keys.sqlite` wasn't rebuilt since.
+      - this volume's control key is older than the store's first open (strictly), so `keys.sqlite` wasn't rebuilt
+        since.
+
+      The safety comes from the replica check, the key-age check, and `config()` listing only stores with a key: a
+      store this `keys.sqlite` never held a key for was never replicated by this volume, anywhere. The control-key
+      check does NOT prove the bucket is this volume's (a wrong bucket passes it at its second start); it only
+      keeps the first start against a new bucket from minting.
 
       Each mint is audited (`backup.key.minted`) and logged by `storeTag`, and its key file is rewritten whatever
       was there. Otherwise the store is left out of the backups, counted (`keyless`), audited and logged by tag
       with a fixed reason, and the start goes on. Sign-up, a first open and a restore never mint for it.
-    - A `404 NoSuchBucket` (a wrong `R2_BUCKET`) is an error, never read as "no such object".
+    - A `404 NoSuchBucket` (a wrong `R2_BUCKET`) is an error on GET and DELETE, never read as "no such object" or
+      "already deleted".
+    - A bucket whose control key is another DEK than this volume's is refused at start-up, naming the control key
+      and the RUNBOOK's way back.
 30. **Restore** (`main.ts restore <storeId|control|--all>`, or `RESTORE_ON_BOOT=1` at a start):
     - the key object is adopted first;
     - then `litestream restore -config … -o <file>.restoring -if-replica-exists <file>`, because SSE-C needs the

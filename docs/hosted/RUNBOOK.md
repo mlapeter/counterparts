@@ -254,8 +254,9 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   `start-over` commands print (SHA-256 of the id); `store=` in the limit and `store.needs-restore` lines is a
   different, per-process tag, which can't be matched across restarts.
 - **`backup.key.minted storeTag=<tag>`** (not a refusal): a store served with no backup key, here or in the bucket,
-  and the bucket held nothing of it. The start made it a key, and it is backed up from now on. Nothing to do. Within a
-  minute, R2's object browser shows `keys/<id>.wrapped` and objects under `tenants/<id>/`.
+  and the bucket held nothing of it. The start made it a key; it is backed up once that start is serving (the line
+  comes before the key's upload, so a start that stops after it says `did not start: …`, and the next start finishes
+  the upload). Nothing to do. Within a minute, R2's object browser shows `keys/<id>.wrapped` and objects under `tenants/<id>/`.
 - **`backup.keyless storeTag=<tag> reason=<reason>`**, with **"N stores that lived have no key here or in the
   bucket"** below it: the store serves, but isn't backed up, and no key was made, on purpose. By reason:
   - `no-database`: its database isn't on this volume. It also waits for a restore (`RESTORE_ON_BOOT=1`), or for
@@ -263,11 +264,16 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   - `bucket-unproven`: the bucket had no control key before this start: it is a new bucket, or not this volume's.
     **Check `R2_BUCKET` first.** If it's wrong, fix it and redeploy. If it's right (a new bucket on purpose), the next
     start makes the key, because this start put the control key there.
+
+    If the corrected bucket then refuses with **"the bucket's control key is a different key from this volume's"**,
+    that wrong-bucket start made this volume a new control key (it happens when `keys/keys.sqlite` was lost too). The
+    way back: remove `keys/` from the volume (`rm -rf /data/keys`, with a start-command override if the service
+    crash-loops), then deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, then unset both.
   - `bucket-unreadable`: a check's request to the bucket failed. The next restart tries again.
   - `tombstone`: the bucket says it was deleted. A start finishes the delete.
   - `replica-in-bucket`: the bucket holds backup objects of it, under a key that is gone. A new key would bury them.
     Tell the coordinator.
-  - `keys-newer`: this volume's `keys/keys.sqlite` was made after the store was first opened (it was rebuilt), so
+  - `keys-newer`: this volume's `keys/keys.sqlite` was made no earlier than the store was first opened (it was rebuilt), so
     an older key of it may exist somewhere. Tell the coordinator.
 - **`did not start: the object store says the bucket (R2_BUCKET) doesn't exist`**: `R2_BUCKET` names a bucket R2
   doesn't have. Fix the variable.

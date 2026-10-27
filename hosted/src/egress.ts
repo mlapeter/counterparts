@@ -118,6 +118,8 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
     },
     async delete(key) {
       const res = await send(`${base}/${objectKey(key)}`, { method: "DELETE" });
+      // Like GET (the #658 review): a delete in a bucket that doesn't exist deleted nothing, and must not read as done.
+      if (res.status === 404 && /<Code>NoSuchBucket<\/Code>/.test(await res.text())) throw new Error("the object store says the bucket (R2_BUCKET) doesn't exist");
       if (!res.ok && res.status !== 404) throw new Error(`object store DELETE answered ${String(res.status)}`);
     },
     async list(prefix) {

@@ -1274,11 +1274,16 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.equal(lived.s3.objects.has(keyObject(id)), false, "nothing went to the other bucket");
   });
 
-  test("(f2) this volume's keys.sqlite is newer than the store's first open (it was rebuilt since): no key", async () => {
+  test("(f2) this volume's keys.sqlite is no older than the store's first open (it was rebuilt since; the same millisecond counts): no key", async () => {
     const lived = await keylessStore();
     const id = lived.who.storeId;
+    const accounts = new Accounts({ path: join(lived.dataRoot, "control", "accounts.sqlite") });
+    const opened = accounts.openedAt(id);
+    accounts.close();
+    assert.notEqual(opened, null);
+    // Equal, the edge (the #658 review): `>=` refuses it.
     const keysDb = openDb(join(lived.dataRoot, "keys", "keys.sqlite"), { wal: true });
-    keysDb.run("UPDATE store_keys SET created_at = ? WHERE store_id = ?", Date.now() + 60_000, CONTROL_KEY_ID);
+    keysDb.run("UPDATE store_keys SET created_at = ? WHERE store_id = ?", opened, CONTROL_KEY_ID);
     keysDb.close();
     const run = await spawnServe(serveEnv(lived));
     assert.ok(run.up, run.stderr());
@@ -1298,8 +1303,39 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     const wrong = r2ObjectStore({ endpoint: lived.s3.base, bucket: "not-the-bucket", accessKeyId: "a", secretAccessKey: "b" });
     await assert.rejects(wrong.get("keys/control.wrapped"), /bucket \(R2_BUCKET\) doesn't exist/);
     await assert.rejects(wrong.list("tenants/"), /LIST answered 404/);
+    await assert.rejects(wrong.delete("keys/control.wrapped"), /bucket \(R2_BUCKET\) doesn't exist/, "a delete in no bucket is not done");
     const right = r2ObjectStore({ endpoint: lived.s3.base, bucket: "bkt", accessKeyId: "a", secretAccessKey: "b" });
     assert.equal(await right.get("keys/nothing-here.wrapped"), null);
+    await right.delete("keys/nothing-here.wrapped"); // NoSuchKey: already gone, fine
+  });
+
+  test("keys.sqlite lost, then a start against a wrong empty bucket: back on the right bucket the refusal names the control key, and the RUNBOOK's way back works", async () => {
+    const lived = await livedStore({ tls: true });
+    const id = lived.who.storeId;
+    const keyBefore = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
+    // The wrong-bucket start's outcome (#653's existing behaviour): this volume made itself a new control key.
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    const empty = await s3StandIn({ tls: true });
+    const wrongStart = await spawnServe(serveEnv({ ...lived, s3: empty, bin: standinBinary(empty.ca) }));
+    assert.ok(wrongStart.up, wrongStart.stderr());
+    await wrongStart.stop();
+    assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)));
+    // R2_BUCKET fixed: the start refuses, naming the control key and the way back.
+    const bin = standinBinary(lived.s3.ca);
+    const refused = await spawnServe(serveEnv({ ...lived, bin }));
+    assert.equal(refused.up, false);
+    const said = await refused.stop();
+    assert.match(said, /did not start: the bucket's control key is a different key from this volume's/);
+    assert.match(said, /rm -rf \/data\/keys on Railway\), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
+    // The way back: keys/ removed, one deploy with CONTROL_ASIDE + RESTORE_ON_BOOT.
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    const back = await spawnServe(serveEnv({ ...lived, bin }, { CONTROL_ASIDE: "1", RESTORE_ON_BOOT: "1" }));
+    assert.ok(back.up, back.stderr());
+    assert.match(back.stderr(), /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
+    assert.match(back.stderr(), /restored the control databases: 2 restored/);
+    assert.equal((await rpc(`http://127.0.0.1:${String(lived.port)}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
+    await back.stop();
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), keyBefore, "the store's key is the bucket's, adopted");
   });
 
   test("every keyless reason has its own words, by tag, never an id", () => {
@@ -1310,6 +1346,8 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
       assert.doesNotMatch(line, /undefined/);
       assert.ok(line.length > 140, line);
     }
-    assert.match(eventLine("backup.key.minted", tag), /is backed up from this start/);
+    // Said before its key object's upload, so it promises nothing the start might not reach (the #658 review).
+    assert.match(eventLine("backup.key.minted", tag), /It has a key now; backed up once this start is serving/);
+    assert.doesNotMatch(eventLine("backup.key.minted", tag), /from this start/);
   });
 });

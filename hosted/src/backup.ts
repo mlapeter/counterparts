@@ -55,6 +55,10 @@ export const keyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
 export const tombstoneObject = (storeId: string): string => `deleted/${storeId}`;
 export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
+/** The refusal when the bucket's control key is another DEK than this volume's. */
+export const CONTROL_KEY_DIFFERS =
+  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
+
 /** A store that was opened before has no key on this volume and none in the bucket. */
 export class StoreKeyMissing extends Error {
   constructor() {
@@ -198,7 +202,18 @@ export class Backups {
     wrapped ??= await this.opts.keys.create(storeId);
     if (adopted || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
     if (remote !== wrapped) {
-      if (remote !== null) await this.opts.keys.adopt(storeId, await this.readable(storeId, remote)); // throws on a different DEK
+      if (remote !== null) {
+        const checked = await this.readable(storeId, remote);
+        try {
+          await this.opts.keys.adopt(storeId, checked); // throws on a different DEK
+        } catch (err) {
+          // The control key, said as such (the #658 review): after a start against
+          // a wrong, empty bucket made this volume a new one, "a different key for
+          // that store" misleads. The RUNBOOK's way back is named.
+          if (storeId === CONTROL_KEY_ID) throw new Error(CONTROL_KEY_DIFFERS);
+          throw err;
+        }
+      }
       await this.opts.objects.put(keyObject(storeId), wrapped);
     }
     if (opts.reload !== false) await this.reload();
@@ -289,7 +304,7 @@ export class Backups {
     if (!bucketProven) return "bucket-unproven";
     const keysMade = this.opts.keys.createdAt(CONTROL_KEY_ID);
     const opened = this.opts.openedAt?.(storeId) ?? null;
-    if (keysMade === null || opened === null || keysMade > opened) return "keys-newer";
+    if (keysMade === null || opened === null || keysMade >= opened) return "keys-newer"; // equal refuses too (the #658 review)
     return null;
   }
 
