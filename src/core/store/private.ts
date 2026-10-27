@@ -107,11 +107,18 @@ export function privateRoots(storeDir: string, snapshotsDir?: string | null): { 
   return { recursive, topOnly };
 }
 
-/** Does this store need tightening? Two stats: the store directory and the database. */
+/** Does this store need tightening? A few stats: the store directory, the database and,
+ *  in the `<base>/store` layout, the base and snapshots directories (doctor's Privacy
+ *  line reads the same four, so its "the next session that writes does the same" holds).
+ *  Never on Windows, where modes read 666/777 whatever is done (the caller's gate). */
 export function storeNeedsTightening(storeDir: string): boolean {
   const store = resolve(storeDir);
   const base = basename(store) === DEFAULT_STORE_SUBDIR ? dirname(store) : null;
-  return isOpen(store) || isOpen(join(store, DATABASE_FILE)) || (base !== null && isOpen(base));
+  return (
+    isOpen(store) ||
+    isOpen(join(store, DATABASE_FILE)) ||
+    (base !== null && (isOpen(base) || isOpen(join(base, "snapshots"))))
+  );
 }
 
 /**

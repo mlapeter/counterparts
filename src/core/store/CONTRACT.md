@@ -546,8 +546,8 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     the database file's mode; measured on bun 1.3 and Node 22/24). A `VACUUM INTO` copy is
     chmodded `0600` (it takes `0644 & ~umask`, never the source's mode). The roots the store
     makes (itself, its cache, a snapshot's folder) are `0700`. A writer's open of a store
-    that is readable by group or other (two stats: the store dir, the database, and the base
-    dir in the `<base>/store` layout) tightens it: group and other bits off everything under
+    that is readable by group or other (a few stats: the store dir, the database, and the base
+    and snapshots dirs in the `<base>/store` layout; never on Windows) tightens it: group and other bits off everything under
     the store, the snapshots dir and the base dir's log, never following a link; a chmod the
     filesystem refuses is counted on `store.modes.tightened` and never refuses the open. An
     observer's open changes no mode. The core never sets the umask; the package's own entry

@@ -1006,7 +1006,7 @@ export class Store {
     // readable by others is tightened the first time a writer opens it. Two
     // stats when it is already tight, no write at open either way, and a chmod
     // the filesystem refuses is a line in the ring, never a refusal.
-    if (!this.observer) this.tightenIfOpen(opts);
+    if (!this.observer && process.platform !== "win32") this.tightenIfOpen(opts);
   }
 
   private tightenIfOpen(opts: StoreOptions): void {

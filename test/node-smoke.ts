@@ -16,7 +16,10 @@
  *   3. a SessionStart hook runs end to end on a fake payload and injects a wake;
  *   4. `install`'s printed commands name Node, and the hook command it prints is
  *      one the hook reader recognises as ours;
- *   5. recall's meaning mode answers in this process (`mcp/meaning.ts`).
+ *   5. recall's meaning mode answers in this process (`mcp/meaning.ts`);
+ *   6. the store is private (R1): a new store's database family 0600 in this
+ *      process under umask 022, and the console as a child under umask 022
+ *      leaves every file 0600 and every directory 0700, its backup copy too.
  *
  * Hermetic: every child gets HOME pointed into the temp directory and
  * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, and nothing here names a default path.
