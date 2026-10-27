@@ -143,7 +143,7 @@ import {
   dreamingFindings,
   nightRunFindings,
 } from "./doctor-self-page.js";
-import { hostFindings, runtimeFindings, desktopFindings } from "./doctor-host.js";
+import { denyFindings, hostFindings, runtimeFindings, desktopFindings } from "./doctor-host.js";
 import type { HostReading, DesktopReading } from "./doctor-host.js";
 import { readOwed, crashWriteUpFindings, overdueWords } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
@@ -3391,6 +3391,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // small file reads outside this store, and the hook does not pay for them.
     ...(input.host === undefined ? [] : hostFindings(input.host)),
     ...(input.host === undefined ? [] : runtimeFindings(input.host)),
+    ...(input.host === undefined ? [] : denyFindings(input.host)),
     // CLAUDE DESKTOP (2026-09-30): its config entry, and when it last woke.
     ...(input.desktop === undefined ? [] : desktopFindings(input.desktop, input.store, input.dir)),
   ];

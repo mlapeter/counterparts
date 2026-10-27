@@ -604,6 +604,9 @@ export interface HostRead {
   readonly plugin: PluginInstallRead | null;
   /** A recorded `counterparts-sidebar@…` install (`host-wiring.ts#sidebarPluginRecorded`). */
   readonly sidebarPlugin: boolean;
+  /** Some settings file read carries `{ "serverUrl": HOSTED_DENY_URL }` in
+   *  `deniedMcpServers` (R1, 2026-10-27). */
+  readonly deny: boolean;
 }
 
 /** Which of our host entries a runtime row came from: Claude Code's hooks, its
@@ -792,6 +795,8 @@ export function readHost(
   const stale = new Map<string, string>();
   const settingsRead: string[] = [];
   const settingsUnreadable: string[] = [];
+  // Counterparts Online kept out (R1): our URL in any settings file read.
+  let deny = false;
   // WHICH RUNTIME the host launches us with — read off the same commands, never
   // spawned: `bun run <script>` or `node --import <node-hooks.mjs> <script>`.
   const runtimes = new Map<string, { kind: RuntimeKind | "binary"; used: Set<HostUse>; projectEnv: Set<HostUse> }>();
@@ -825,6 +830,7 @@ export function readHost(
     if (read.state === "unreadable") settingsUnreadable.push(path);
     if (read.state !== "read") continue;
     settingsRead.push(path);
+    if (Array.isArray(read.value[DENY_KEY]) && (read.value[DENY_KEY] as unknown[]).some((e) => e !== null && typeof e === "object" && (e as Record<string, unknown>)["serverUrl"] === HOSTED_DENY_URL)) deny = true;
     const hooks = read.value["hooks"];
     if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks)) continue;
     for (const [event, entries] of Object.entries(hooks as Record<string, unknown>)) {
@@ -902,6 +908,7 @@ export function readHost(
     })),
     plugin: pluginInstall({ home, env, cwd }),
     sidebarPlugin: sidebarPluginRecorded({ home, env, cwd }),
+    deny,
   };
 }
 
