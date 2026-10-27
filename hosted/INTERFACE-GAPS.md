@@ -108,3 +108,23 @@
 29. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
 30. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
 31. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.
+
+## The 24-hour delete (R6, 10-27)
+
+32. **No confirmation email for a delete, a keep or an erase.** None was built for the delete before R6 (DESIGN §7.1
+    said one goes out), so none was added (the brief: only if one existed). Recommended next: one email at the delete,
+    naming the deadline and the way to keep it. It is the only notice a person gets if someone else's hand used their
+    signed-in browser, and the 24 hours are what make it worth sending.
+33. **No re-authentication for delete everything now** beyond the signed-in session and the typed address. From the
+    pending page the session is always a fresh email link (the delete ended every other). From an active account it is
+    whatever session the browser has (up to 30 days old).
+34. **A volume lost inside the 24 hours, restored from before the delete**, brings the account back `active` (with its
+    connections gone): the tombstone (`deleted/<id>`) is written only when the erase begins, so nothing in the bucket
+    says a delete was pending. A third narrow window beside §13's two.
+35. **The erase can run up to one timer tick (ten minutes) after the deadline.** The pending page says the time to keep
+    it has passed from the deadline on, and keep refuses then.
+36. **No operator undo or early erase.** The person does both from the pending page. An operator who had to could run
+    the same calls (`app.keepAccount`, `app.deleteAccount`) from a one-off script; there is no CLI.
+37. **R5 (keyless store mint):** a mint inside `ensureStore` must also skip a store whose account is pending delete
+    (`Accounts.storeLocked`). Today `Backups.ensureAll` never hands such a store to `ensureStore` without a key, which
+    covers a mint there; a mint anywhere else needs the same check.

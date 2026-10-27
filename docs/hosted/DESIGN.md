@@ -24,7 +24,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
 | Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
-| Q4 | When a delete becomes unreadable everywhere | **Answered by Mike (2026-10-26): at once, everywhere.** Each wrapped DEK is one write-once R2 object, deleted with everything else (§5.4) | The account email leaves the control database's backups within 24 hours (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
+| Q4 | When a delete becomes unreadable everywhere | **Changed by Mike (2026-10-27; it was "at once, everywhere" on 10-26): delete is locked at once and erased 24 hours later unless the person keeps it; "delete everything now" beside it erases at once.** Each wrapped DEK is one write-once R2 object, deleted with everything else at the erase (§5.4) | A day to change your mind, against a locked copy that lives a day longer. The account email leaves the control database's backups within 24 hours of the erase (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
 | Q6 | Which runtime runs the hosted server | **Node 24 LTS in the container** (the package already runs on Node through `node-hooks.mjs`). Tests run under bun too (§8.2) | `oidc-provider` supports Node only and prints "Unsupported runtime" on bun, even though the spike passed there (**M**) |
 | Q7 | The background worker (`wake` spawns `runner.ts` per boundary) | **Keep the child process, through the existing `Spawner` seam, behind a global cap and one pending run per store.** In-process comes later (§2.5) | It reuses the proven runner and isolates CPU, at the cost of one short-lived process per run |
@@ -398,11 +398,18 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 **The honest privacy claim this supports** (for OL3's privacy page, plain words):
 
 > Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
-> account alone. When you delete your account, your memory, its backups and your key are erased at once, so no copy
-> of your memory anywhere can be read again by anyone, us included. Your account email is purged from our encrypted
-> account backups within 24 hours. We hold the keys, so this protects your memory
-> from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our promise, kept by access
-> controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
+> account alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
+> memory isn't read, shown or used. 24 hours later your memory, its backups and your key are erased, unless you sign
+> in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
+> Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
+> is purged from our encrypted account backups within 24 hours of the erase. Forgetting one memory removes it from
+> your memory at once; traces of it can stay in unused space in your memory's file and its backups until they are
+> overwritten or expire, and erasing your account makes all of it unreadable at once. We hold the keys, so this
+> protects your memory from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our
+> promise, kept by access controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees
+> what Claude reads.
+>
+> (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph.)
 
 **What file encryption would add,** if Mike wants it later: "even a copy of our server's disk is unreadable without our
 key service". It is a contained follow-up, because of the key hierarchy below. Measure the native driver first.
@@ -428,15 +435,21 @@ The alternative, if Mike wants the backup provider never to see a key:
 
 Railway's own volume backups stay **off**. Their retention is Railway's, not ours, and they would hold the key files.
 
-### 5.4 Keys and crypto-shredding (Q4; as Mike changed it, 2026-10-26, and as built in step 5)
+### 5.4 Keys and crypto-shredding (Q4; as Mike changed it, 2026-10-26 and again 2026-10-27, and as built in step 5 and R6)
 
-**Mike's answers:**
+**Mike's answers (2026-10-26):**
 - Q2 and Q3 accepted.
 - The §5.2 paragraph is accepted, now saying "at once".
 - The native-driver spike is not run now.
 - Two changes to this section:
-  1. Delete is **at once, everywhere**.
+  1. Delete is **at once, everywhere**. *Changed 2026-10-27, below.*
   2. The KEK sits behind a swappable seam.
+
+**Mike's change (2026-10-27, R6):** "keep it simple — a reasonable balance between deleting at once and an
+over-complex system hunting every scrap." Delete defaults to a **soft delete with 24 hours to recover**, and
+"**delete it all now**", with no recovery, sits beside it. "All" is the memory store, its backups and its key (the
+crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: the store's `secure_delete` stays FAST
+(no ON, no VACUUM).
 
 - **KEK, behind one seam.** All wrapping and unwrapping goes through one `KeyWrapper` interface (`hosted/src/keys.ts`).
   - Each wrapped key records the KEK version it was wrapped under. Nothing else in `hosted/` touches the raw KEK, and a
@@ -461,7 +474,25 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
   - It is backed up once, at sign-up, as its own R2 object `keys/<storeId>.wrapped`. A rewrap overwrites it.
   - There is no `keys.sqlite` backup and there are no daily copies.
   - R2 versioning and object lock stay **off** for `keys/` (a bucket setting, in §7.3).
-- **Delete, at once** (`app.ts#deleteAccount`, one audit row per step, no content):
+- **Delete, the default: locked at once, erased in 24 hours** (R6, `app.ts#scheduleDelete`). The states:
+
+  | person / store | what it means | how it leaves |
+  |---|---|---|
+  | `active` / `active` | served | delete → `pending-delete`; delete everything now → the erase |
+  | `pending-delete` / `pending-delete`, with `people.delete_after` | **locked**: every web session ended and every grant revoked (and the OAuth library's own login sessions), no door serves the store, no worker runs; the files, the key and the backups are kept, and the sidecar keeps replicating | keep, before `delete_after` → `active` (grants stay revoked: the person reconnects); `delete_after` passes, or delete everything now → the erase |
+  | `suspended` / `deleting` | the erase has begun (below) | finished → `deleted` |
+  | `deleted` / `deleted` | tombstones | — |
+
+  - `delete_after` (now + 24 h) is a column in the replicated control database, so a restart, a crash or an R2 outage
+    never forgets it and never erases early. The ten-minute finish timer and start-up begin the erase of every pending
+    delete whose deadline has passed, in one statement that a keep can't race (`Accounts.markDeleting`'s `due`, and
+    `keep` needs the deadline still ahead).
+  - Signing in still works for a pending delete, by a new email link. It serves exactly one page (the deadline, "keep
+    my account", "delete everything now", sign out). Every other account page refuses, and `/login` and the Allow page
+    send the person back to it. `/mcp` answers `401`, the refresh token `invalid_grant`.
+  - A pending store stays in every list that keeps a store (start-up's key check, a restore, a rewrap's key objects,
+    the tombstone check), so a keep loses nothing. It is never given a NEW key (`Backups.ensureAll`'s `locked`).
+- **Delete everything now, and the erase at a deadline** (`app.ts#deleteAccount`, one audit row per step, no content):
   1. the person is marked deleting and the store turns `deleting` (durably: start-up never gives it a new key), so every
      session stops, and every grant is revoked;
   2. the store is retired in the process (nothing re-opens it), and its handle drains and closes;
@@ -491,7 +522,7 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
     (`backup.ts#SNAPSHOT_HOURS`). That leaves 12 h of room for the lag inside the 24 h promise.
   - **The cost.** Two snapshots a day instead of one, and a 12 h point-in-time window.
   - The audit rows (person id, action codes, invite id, no address) stay as tombstones by design.
-  - The account page, the done page and the 202 "didn't finish" page all say "purged within 24 hours".
+  - The account page, the done pages and the 202 "didn't finish" page all say "purged within 24 hours" (of the erase).
 
 **Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
 1. Railway's disk encryption confirmed in writing.
@@ -513,14 +544,15 @@ Plain SQLite through the same `node:sqlite` binding (`store/db.ts`'s `openDb`, W
 store, under its own SSE-C key derived from the KEK.
 
 ```
-people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|deleted,
-               display_name NULL, time_zone TEXT, invite_id NULL)
+people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|pending-delete|deleted,
+               display_name NULL, time_zone TEXT, invite_id NULL,
+               delete_after NULL -- R6: when a pending delete is due)
 identities    (id PK, person_id FK, kind TEXT -- email|phone|passkey|…, value TEXT -- normalized,
                verified_at NULL, created_at, UNIQUE(kind, value))
 login_links   (id PK, identity_id FK, token_hash UNIQUE, browser_hash, expires_at, used_at NULL, ip_hash)
 web_sessions  (id PK, person_id FK, token_hash UNIQUE, created_at, expires_at, last_seen_at, ua_hint)
 stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id FK, created_at,
-               state TEXT -- active|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
+               state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
 audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)
@@ -563,8 +595,11 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 - **Export.** `GET /account/export` (signed in, with a fresh re-authentication inside 10 minutes) streams a zip:
   - the core's own export, `cli/export.ts`: its `markdown` tree (readable), and its `database` copy (complete,
     openable by anything that speaks SQLite, and the shape a local install could import at stage 3).
-- **Delete.** `POST /account/delete` (re-authentication plus typing your email) runs §5.4's sequence. A confirmation email
-  goes out afterwards.
+- **Delete.** `POST /account/delete` (typing your email) locks the account and sets the erase for 24 hours later;
+  with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`
+  undoes a pending delete. *As built (R6):* there is no re-authentication beyond the signed-in session (a pending
+  delete's session is always a fresh email link, since the delete ended every other), and no confirmation email
+  (none was ever built; `hosted/INTERFACE-GAPS.md` §32).
 
 ### 7.2 Fly.io fallback
 

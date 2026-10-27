@@ -210,3 +210,32 @@ re-review" block:
   `keyless` and never makes it a key: it serves, unbacked, until a human runs `start-over` again. Recommendation:
   let `ensureAll` make a key for a store with no key here or in the bucket AND no replica objects (the test
   `start-over` already makes), so the next start heals it.
+
+## R6: delete locked at once, erased after 24 hours (10-27)
+
+Mike's change of 10-26's "at once, everywhere" (DESIGN Q4, §5.4): delete is a soft delete with 24 hours to keep the
+account, and "delete everything now" beside it. Built on master 087c3b85; the guarantees are CONTRACT §27.
+
+- **The state is the accounts row, not the process.** `pending-delete` on the person and the store, and
+  `people.delete_after`, are in the replicated control database. The lock on the store is `Tenants.locked`, asked on
+  every acquire, so it holds across a restart and lifts with a keep, with no in-memory set to rebuild. `retire` stays
+  for the erase, which is final.
+- **A pending store is still a live store** (`liveStoreIds`). Leaving it out would have dropped it from a rewrap's
+  key-object re-upload (`syncKeyObjects`): the old KEK version dropped afterwards, a keep, and its backup could no
+  longer be opened. It would also have dropped it from a restore and from start-up's key adoption on a new volume. So
+  it stays in, and `Backups.ensureAll` alone learns `locked`: never a NEW key for it.
+- **Keep and the deadline are one condition from two sides.** `keep` needs `delete_after > now`; the timer's
+  `markDeleting(…, { due: true })` needs `delete_after <= now` and `state = 'pending-delete'`. Each is one statement,
+  so the timer can never erase an account a keep just brought back, and a keep never lands after the erase began.
+- **Sign-in had to learn a second state.** `requestLink`, `useLink` and the session lookup gated on `isLive`, so a
+  pending person got no email at all. They now use `canSignIn` (active or pending); `sessionPerson` stays active-only,
+  and `sessionPendingDelete` is the one other way a session counts, used by the pending page, keep, delete now and
+  sign out. `isLive` stays active-only for `authenticate` and the OAuth library's `findAccount`.
+- **The OAuth library's login session outlived the grants, and crashed the next authorize.** A library `Session` row
+  naming an account `findAccount` no longer finds made its consent check throw (`oidc.grant` undefined): a 500 on
+  `/oauth/authorize` in that browser. `revokeAccount` now deletes the person's library sessions too, so that browser is
+  asked to sign in and lands on the pending page. The same 500 would have hit a suspended person's browser before
+  (suspension revokes nothing, INTERFACE-GAPS §18); it isn't fixed for suspension here.
+- **The tests drive the real timer.** `AppOptions.finishEveryMs` (ten minutes by default) runs it every few
+  milliseconds, and `AppOptions.now` now reaches `Accounts` and the pages too, so an injected clock stands in for the
+  24 hours (`test/delete.test.ts`).

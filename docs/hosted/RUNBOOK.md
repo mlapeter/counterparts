@@ -321,6 +321,24 @@ Afterwards, empty the drill bucket: it holds keys wrapped under the real KEK. Th
 People who use the server hold no keys, so they can't lock themselves out. A key a person holds themselves would
 stay opt-in only, if it's ever built.
 
+## Deletes (24 hours to keep, or everything now)
+
+Since 2026-10-27 (R6) a person's delete locks the account at once and erases it 24 hours later, unless they sign in
+and keep it; "delete everything now" erases at once. Nothing here needs you:
+
+- **The deadline survives anything.** It is in `accounts.sqlite` (`people.delete_after`). A redeploy, a crash or an R2
+  outage during the 24 hours never erases early and never forgets. The server begins each erase within ten minutes
+  of its deadline (or at the next start, if it was down then), and retries until R2 lets it finish.
+- **A locked store is still backed up**, so a restore in the window brings it back locked (unless the control
+  databases come back from before the delete: then it is `active` again, INTERFACE-GAPS §34), and a rewrap re-writes
+  its key object like any other.
+- **There is no operator undo or early erase.** The person does both from their account page (they sign in by email
+  link as usual and see only that page). If someone can't reach their email and asks you to keep or erase it, tell
+  the coordinator: it is a one-off script around `app.keepAccount` / `app.deleteAccount`, not a command.
+- **Audit codes** (`accounts.sqlite`'s `audit`, ids only): `account.pending-delete`, `account.kept`,
+  `account.deleting.due` (the deadline's erase began), then the erase's own `delete.backups`, `delete.store`,
+  `account.deleted`, or `delete.retry.failed` while R2 is down.
+
 ## Rollback
 
 Stop the service: Railway → service → remove the active deployment, or scale it to zero. claude.ai's connector then
