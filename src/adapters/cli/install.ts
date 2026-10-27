@@ -94,6 +94,22 @@ export const BIN = {
 export const MCP_SERVER_NAME = "counterparts";
 
 /**
+ * COUNTERPARTS ONLINE, KEPT OUT OF CLAUDE CODE (2026-10-27, R1). Claude Code
+ * loads a person's claude.ai connectors into every session, so somebody with
+ * this install AND the hosted connector would get two memory servers over two
+ * stores. `connect` puts this one entry in `deniedMcpServers`
+ * (`wire.ts#mergeDeny`); `disconnect` takes exactly it out; `doctor` reads it.
+ *
+ * The URL, never a `serverName`: the name is whatever each person typed for
+ * the connector. The domain is the hosted DESIGN's lean (`app.counterparts.ai`),
+ * not a final word: this constant is the one place to change it.
+ */
+export const HOSTED_DENY_URL = "https://app.counterparts.ai/*";
+
+/** The settings key Claude Code reads its MCP deny list from. */
+export const DENY_KEY = "deniedMcpServers";
+
+/**
  * THE TWO ENTRY SCRIPTS, ABSOLUTE, resolved from THIS file's location — never
  * from a working directory and never from a name on a PATH.
  *
@@ -443,7 +459,7 @@ export function settingsBlock(hookCommand = runCommand(HOOK_SCRIPT)): string {
   for (const event of HOST_EVENTS) {
     hooks[event] = [{ hooks: [{ type: "command", command: hookCommand }] }];
   }
-  return JSON.stringify({ hooks }, null, 2);
+  return JSON.stringify({ hooks, [DENY_KEY]: [{ serverUrl: HOSTED_DENY_URL }] }, null, 2);
 }
 
 /**
