@@ -92,11 +92,10 @@ export interface StartOptions {
    */
   readonly restore?: LitestreamRun;
   /**
-   * NEW_BUCKET on a volume never backed up (R7; `main.ts#prepareVolume`): the
-   * stores that lived under BACKUPS=off are given keys at this start. R5's (f)
-   * and (f2) can never hold for them (the bucket and `keys.sqlite` are both
-   * newer than every store), and both exist to doubt exactly what the operator
-   * said here. Its other checks stand.
+   * NEW_BUCKET on a volume that ran with BACKUPS=off (R7;
+   * `main.ts#prepareVolume`): `keys.sqlite` records `backups-turned-on` before
+   * anything else at this start, and every store opened before it has R5's (f)
+   * and (f2) waived, now and at every later start (`Backups#mintRefusal`).
    */
   readonly firstBackup?: boolean;
 }
@@ -447,6 +446,9 @@ export function createApp(opts: AppOptions): App {
       const asideSwept = sweepAside(opts.dataRoot, tenants.root, (opts.now ?? Date.now)());
       // No sidecar until the restores are done (`Backups.hold`; the #653 review, L2).
       backups?.hold();
+      // Turning backups on (R7): recorded before anything is made or put, so a
+      // start cut short anywhere after it is still known as one.
+      if (startOpts.firstBackup === true) keys?.recordFact("backups-turned-on");
       let tombstoned = 0;
       let leftovers = 0;
       if (backups !== null) {
@@ -494,7 +496,7 @@ export function createApp(opts: AppOptions): App {
         // Keys first (adopted from the bucket on a new volume; minted for a store
         // that served with none, when nothing can be buried), then restores
         // while no sidecar runs, then the sidecar on the whole configuration.
-        ({ keyless, minted } = await backups.ensureAll({ reload: false, ...(startOpts.firstBackup === true ? { firstBackup: true } : {}) }));
+        ({ keyless, minted } = await backups.ensureAll({ reload: false }));
         if (startOpts.restore !== undefined) {
           // Every missing live store, marked or not: `-if-replica-exists` makes a
           // store with no replica a no-op. One that fails is counted and left

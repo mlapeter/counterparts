@@ -141,7 +141,25 @@ CREATE TABLE IF NOT EXISTS store_keys (
   kek_version TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS volume_facts (
+  name TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
 `;
+
+/**
+ * Facts about this volume's backups, kept in `keys.sqlite` (R7, the #661
+ * review): they go with it when it is lost, which is what makes them safe to
+ * act on (a volume rebuilt without them is treated as one that may have had
+ * keys somewhere).
+ *
+ *   - `backups-turned-on`: a start with NEW_BUCKET began turning backups on for
+ *     a volume that had run with BACKUPS=off. Written before anything is made
+ *     or put. A store opened before it never had a key anywhere.
+ *   - `control-key-in-bucket`: this volume's control key has reached a bucket
+ *     (`ensureAll`, after its `ensureStore(control)`).
+ */
+export type VolumeFact = "backups-turned-on" | "control-key-in-bucket";
 
 /** The wrapped DEKs, on the volume (`keys/keys.sqlite`). Not replicated by Litestream (design §5.4). */
 export class KeyStore {
@@ -199,6 +217,16 @@ export class KeyStore {
     } finally {
       incoming.fill(0);
     }
+  }
+
+  /** When a `VolumeFact` was first recorded (ms), or null. */
+  fact(name: VolumeFact): number | null {
+    return this.db.get<{ at: number }>("SELECT at FROM volume_facts WHERE name = ?", name)?.at ?? null;
+  }
+
+  /** Records a `VolumeFact` once: the first time is kept. */
+  recordFact(name: VolumeFact): void {
+    this.db.run("INSERT OR IGNORE INTO volume_facts (name, at) VALUES (?, ?)", name, this.now());
   }
 
   /** When this volume's key for the store was made or adopted here (ms), or null. A rewrap keeps it. */
