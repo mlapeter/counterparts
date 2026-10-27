@@ -247,13 +247,30 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   `CONTROL_ASIDE` above, and every `*.pre-restore-*` file that a `--force` restore moved aside. Every start deletes any
   that are more than a day old, and logs `deleted N copies set aside…`. Check one within the day if you need to,
   then let it go, or delete it by hand sooner (`rm -rf /data/control.aside-1`).
-- **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
-  coordinator; no new key is made on purpose.
 - **`backup.ensure.failed storeTag=<tag>: this store is NOT backed up yet`** (not a refusal; the server runs): a store
-  started over on the running server couldn't get its key or its place in `litestream.yml`. The next restart retries
-  it. If that restart logs "N stores that lived have no key…", see the entry above. `storeTag=` is the tag the
-  `restore` and `start-over` commands print (SHA-256 of the id); `store=` in the limit and `store.needs-restore` lines
-  is a different, per-process tag, which can't be matched across restarts.
+  started over on the running server couldn't get its key or its place in `litestream.yml`. It serves, unbacked,
+  until the next start. That start gives it a key when the bucket holds nothing of it (the next entry). To heal it
+  sooner, restart the service (Railway → the deployment → Restart; unverified here). `storeTag=` is the tag the `restore` and
+  `start-over` commands print (SHA-256 of the id); `store=` in the limit and `store.needs-restore` lines is a
+  different, per-process tag, which can't be matched across restarts.
+- **`backup.key.minted storeTag=<tag>`** (not a refusal): a store served with no backup key, here or in the bucket,
+  and the bucket held nothing of it. The start made it a key, and it is backed up from now on. Nothing to do. Within a
+  minute, R2's object browser shows `keys/<id>.wrapped` and objects under `tenants/<id>/`.
+- **`backup.keyless storeTag=<tag> reason=<reason>`**, with **"N stores that lived have no key here or in the
+  bucket"** below it: the store serves, but isn't backed up, and no key was made, on purpose. By reason:
+  - `no-database`: its database isn't on this volume. It also waits for a restore (`RESTORE_ON_BOOT=1`), or for
+    `start-over` if it never reached the bucket.
+  - `bucket-unproven`: the bucket had no control key before this start: it is a new bucket, or not this volume's.
+    **Check `R2_BUCKET` first.** If it's wrong, fix it and redeploy. If it's right (a new bucket on purpose), the next
+    start makes the key, because this start put the control key there.
+  - `bucket-unreadable`: a check's request to the bucket failed. The next restart tries again.
+  - `tombstone`: the bucket says it was deleted. A start finishes the delete.
+  - `replica-in-bucket`: the bucket holds backup objects of it, under a key that is gone. A new key would bury them.
+    Tell the coordinator.
+  - `keys-newer`: this volume's `keys/keys.sqlite` was made after the store was first opened (it was rebuilt), so
+    an older key of it may exist somewhere. Tell the coordinator.
+- **`did not start: the object store says the bucket (R2_BUCKET) doesn't exist`**: `R2_BUCKET` names a bucket R2
+  doesn't have. Fix the variable.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 

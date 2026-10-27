@@ -179,8 +179,19 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - When both sides have a key, the bucket's must be the same DEK (a rewrap's new wrapping) before the local one
       is put over it. A different DEK is refused at start-up and left alone.
     - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).
-    - A store that lived (`opened_at`) with no key here and none in the bucket is never given a new one: it is left
-      out of the backups and counted at start-up (`keyless`), and the start goes on.
+    - A store that lived (`opened_at`) with no key here and none in the bucket gets a new one **only at start-up**
+      (`Backups.ensureAll`, R5), and only when nothing a new key could bury exists anywhere:
+      - its database file is here (it served, unbacked);
+      - the bucket answered its key object's GET with "no such key", and its replica prefix's LIST, empty;
+      - the bucket has no tombstone for it;
+      - the bucket held the control key BEFORE this start (not one this start put there), and that key was adopted
+        or proven the same DEK as this volume's;
+      - this volume's control key is older than the store's first open, so `keys.sqlite` wasn't rebuilt since.
+
+      Each mint is audited (`backup.key.minted`) and logged by `storeTag`, and its key file is rewritten whatever
+      was there. Otherwise the store is left out of the backups, counted (`keyless`), audited and logged by tag
+      with a fixed reason, and the start goes on. Sign-up, a first open and a restore never mint for it.
+    - A `404 NoSuchBucket` (a wrong `R2_BUCKET`) is an error, never read as "no such object".
 30. **Restore** (`main.ts restore <storeId|control|--all>`, or `RESTORE_ON_BOOT=1` at a start):
     - the key object is adopted first;
     - then `litestream restore -config … -o <file>.restoring -if-replica-exists <file>`, because SSE-C needs the
