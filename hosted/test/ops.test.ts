@@ -34,7 +34,7 @@ import type { App, AppBackupOptions } from "../src/app.js";
 import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore } from "../src/keys.js";
-import { controlAside, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
+import { controlAside, controlAsideAtStart, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
 import { tenantDir } from "../src/tenants.js";
 import { listen, rpc, tempRoot, tool } from "./helpers.js";
 
@@ -945,19 +945,21 @@ describe("#653 re-review", () => {
 // ── R3: the #653 final check's two LOWs ──────────────────────────────────────
 
 describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", () => {
-  test("CONTROL_ASIDE moves control/ once per label: a restart, and a start after the day-old sweep, move nothing; a new label re-arms it", async () => {
+  test("CONTROL_ASIDE moves control/ once per label, on a refusing volume: a restart, the day-old sweep and a second incident move nothing; a new label re-arms it", async () => {
     const { s3, bin, ring, dataRoot, port, who } = await livedStore();
-    // Only keys.sqlite lost: the start refuses (it can't tell this control/ from an invite's).
+    // Only keys.sqlite lost: the start refuses (it can't tell this control/ from an invite's), naming the variables.
     rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
     const backup = backupOptions(s3, ring, null);
     const run = litestreamRunner(bin, litestreamEnv());
-    assert.match(String((await prepareVolume(dataRoot, backup, run)).refusal), /not the key that wrote the bucket's backups/);
+    const refusal = String((await prepareVolume(dataRoot, backup, run)).refusal);
+    assert.match(refusal, /not the key that wrote the bucket's backups/);
+    assert.match(refusal, /CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
     const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
 
     // Deploy 1, CONTROL_ASIDE=1 + RESTORE_ON_BOOT=1: what `serve` runs, in its order.
-    assert.match((controlAside(dataRoot, "1") as { line: string }).line, /moved control\/ to control\.aside-1/);
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /moved control\/ to control\.aside-1/);
     assert.deepEqual(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite")), before);
-    assert.ok(existsSync(overrideGuard(dataRoot, "1")));
+    assert.match(readFileSync(overrideGuard(dataRoot, "1"), "utf8"), /^moved \d{4}-/);
     assert.match(String((await prepareVolume(dataRoot, backup, run)).restored), /^2 restored/);
     const a = await rig({ dataRoot, port, backup, start: false });
     await a.app.start({ restore: run });
@@ -966,7 +968,7 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     await (a as unknown as { close: () => Promise<void> }).close();
 
     // A crash-restart of the same deploy: the restored control/ stays.
-    assert.match((controlAside(dataRoot, "1") as { line: string }).line, /used once already: nothing moved/);
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /used once already: nothing moved/);
     assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")));
 
     // Two days on, the override forgotten: the start's sweep deletes the copy, never the guard.
@@ -976,17 +978,52 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     assert.ok(existsSync(overrideGuard(dataRoot, "1")));
     await (later as unknown as { close: () => Promise<void> }).close();
     const restored = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
-    assert.match((controlAside(dataRoot, "1") as { line: string }).line, /used once already: nothing moved/);
-    assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")));
+
+    // A second incident (keys.sqlite lost again) with CONTROL_ASIDE=1 still set: nothing moves, the start refuses.
+    rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /used once already: nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), restored);
     assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
-    assert.deepEqual((await prepareVolume(dataRoot, backup, null)).refusal, undefined);
+    assert.match(String((await prepareVolume(dataRoot, backup, null)).refusal), /not the key that wrote/);
 
     // Re-armed on purpose, with a new label.
-    assert.match((controlAside(dataRoot, "2") as { line: string }).line, /moved control\/ to control\.aside-2/);
+    assert.match(((await controlAsideAtStart(dataRoot, "2", backup)) as { line: string }).line, /moved control\/ to control\.aside-2/);
     assert.deepEqual(readFileSync(join(dataRoot, "control.aside-2", "accounts.sqlite")), restored);
   });
 
-  test("CONTROL_ASIDE: a bad label is refused; an aside dir already there is never moved into; a missing control/ uses the label up", () => {
+  test("CONTROL_ASIDE on a volume with good control/ and no keys/, beside a bucket with no control key (the #655 review): nothing moves, no guard, the start goes on", async () => {
+    const dataRoot = join(tmp.root, "volume");
+    // A server that ran without backups: real accounts, no keys/.
+    const off = await rig({ dataRoot });
+    const who = await connect(off, "only-copy@example.com");
+    await (off as unknown as { close: () => Promise<void> }).close();
+    assert.equal(existsSync(join(dataRoot, "keys")), false);
+    const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    const s3 = await s3StandIn();
+    const ring = new Map([["v1", randomBytes(32)]]);
+    const backup = backupOptions(s3, ring, null);
+    const out = (await controlAsideAtStart(dataRoot, "1", backup)) as { line: string };
+    assert.match(out.line, /isn't refusing for the control key .*: nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.equal(existsSync(overrideGuard(dataRoot, "1")), false);
+    // What serve does next: the volume check passes, the server starts on the real control databases.
+    assert.equal((await prepareVolume(dataRoot, backup, null)).refusal, undefined);
+    const b = await rig({ dataRoot, port: off.port, backup });
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+  });
+
+  test("CONTROL_ASIDE with a fresh label on a healthy volume moves nothing and writes no guard", async () => {
+    const { s3, ring, dataRoot } = await livedStore();
+    const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    const out = (await controlAsideAtStart(dataRoot, "5", backupOptions(s3, ring, null))) as { line: string };
+    assert.match(out.line, /nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
+    assert.equal(existsSync(join(dataRoot, "control.aside-5")), false);
+    assert.equal(existsSync(overrideGuard(dataRoot, "5")), false);
+  });
+
+  test("CONTROL_ASIDE's move: a bad label is refused; an aside dir already there is never moved into; a claim whose move didn't finish says so", () => {
     const dataRoot = join(tmp.root, "data");
     mkdirSync(join(dataRoot, "control"), { recursive: true });
     writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "now");
@@ -995,11 +1032,11 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     assert.match((controlAside(dataRoot, "7") as { line: string }).line, /already here, so nothing moved/);
     assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "now");
     assert.deepEqual(readdirSync(join(dataRoot, "control.aside-7")), []);
-    rmSync(join(dataRoot, "control"), { recursive: true, force: true });
-    assert.match((controlAside(dataRoot, "8") as { line: string }).line, /no control\/ to move/);
-    mkdirSync(join(dataRoot, "control"), { recursive: true });
-    assert.match((controlAside(dataRoot, "8") as { line: string }).line, /used once already/);
-    assert.ok(existsSync(join(dataRoot, "control")));
+    // A crash after the claim, before the rename.
+    mkdirSync(join(dataRoot, "overrides"), { recursive: true });
+    writeFileSync(overrideGuard(dataRoot, "8"), "claimed 2026-10-27T00:00:00.000Z\n");
+    assert.match((controlAside(dataRoot, "8") as { line: string }).line, /claimed but the move didn't finish: nothing moved\. Set a new label/);
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "now");
   });
 
   test("backup.ensure.failed: a started-over store whose backup set-up fails is audited AND logged, by tag, never by id or address", async () => {
@@ -1028,7 +1065,7 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     assert.ok(b.app.accounts.auditOf(who.personId).some((x) => x.action === "backup.ensure.failed"));
     // The line serve writes for it.
     const line = eventLine(...failed[0]!);
-    assert.match(line, new RegExp(`^\\[hosted\\] backup\\.ensure\\.failed store=${storeTag(who.storeId)}: this store is NOT backed up yet`));
+    assert.match(line, new RegExp(`^\\[hosted\\] backup\\.ensure\\.failed storeTag=${storeTag(who.storeId)}: this store is NOT backed up yet`));
     assert.doesNotMatch(line, new RegExp(who.storeId));
     assert.doesNotMatch(line, /@|EACCES|litestream\.yml for/);
   });

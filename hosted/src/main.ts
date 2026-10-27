@@ -28,11 +28,12 @@
  *                      (the control databases, then every store that lived and has no files here)
  *   CONTROL_ASIDE      a label (letters, digits, - and _): serve moves control/ to control.aside-<label>
  *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
- *                      stays); for the "not the key that wrote the bucket's backups" refusal, with RESTORE_ON_BOOT=1
+ *                      stays), and only on a volume refused as "not the key that wrote the bucket's backups";
+ *                      with RESTORE_ON_BOOT=1
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { withEmbedderDefault } from "../../src/adapters/config.js";
@@ -216,8 +217,9 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
  * store tag, nothing else: never an id, an address or an error's text.
  */
 export function eventLine(name: string, store: string): string {
-  const why = name === "backup.ensure.failed" ? ": this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it)" : "";
-  return `[hosted] ${name} store=${store}${why}\n`;
+  // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
+  if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it\n`;
+  return `[hosted] ${name} store=${store}\n`;
 }
 
 /** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */
@@ -232,32 +234,63 @@ export const overrideGuard = (dataRoot: string, label: string): string => join(d
  * RESTORE_ON_BOOT start restores the bucket's control databases in its place.
  * The RUNBOOK's recovery for "…but not the key that wrote the bucket's backups".
  *
+ * ONLY ON A VOLUME IN THAT STATE (the #655 review): the bucket has the control
+ * key, this volume doesn't, and it holds a control database
+ * (`foreignControlRefusal`). On any other volume `control/` may be the only
+ * copy of every account (a bucket with no control backups has nothing to put
+ * in its place, and the sweep deletes the aside a day later), so nothing moves
+ * and no guard is written; the start goes on. A bucket that can't be read
+ * throws: the start doesn't happen, and nothing moved.
+ *
  * AT MOST ONCE PER LABEL, until a human sets a new one. The guard
- * (`overrides/control-aside-<label>.used`) is written BEFORE the move, with an
- * exclusive create, and nothing ever deletes it: not the day-old sweep (which
- * deletes `control.aside-*` itself, the copy, so a guard that was that copy's
- * existence re-armed a forgotten override a day later), not a crash-restart.
- * A crash between the guard and the move leaves `control/` where it was, and
- * the start refuses as before: never a second move of a restored `control/`.
+ * (`overrides/control-aside-<label>.used`) is created exclusively as
+ * `claimed <time>` BEFORE the move and rewritten `moved <time>` after it;
+ * nothing ever deletes it (not the day-old sweep, which deletes the aside copy
+ * itself, so a guard that was the copy's existence re-armed a forgotten
+ * override a day later; not a crash-restart). A crash between the claim and
+ * the move leaves `control/` where it was, the label used, and says so.
  * Re-arm on purpose with a new label.
  */
+export async function controlAsideAtStart(dataRoot: string, label: string, backup: AppBackupOptions, now: number = Date.now()): Promise<{ line: string } | { refusal: string }> {
+  if (!CONTROL_ASIDE_LABEL.test(label)) return { refusal: "refused: CONTROL_ASIDE must be a label of letters, digits, - and _ (at most 32), e.g. CONTROL_ASIDE=1." };
+  const used = guardState(dataRoot, label);
+  if (used !== null) return { line: used };
+  if (foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup)) === null) {
+    return { line: `CONTROL_ASIDE=${label}: this volume isn't refusing for the control key (or the bucket has no control backups to restore in its place): nothing moved. Unset CONTROL_ASIDE.` };
+  }
+  return controlAside(dataRoot, label, now);
+}
+
+/** What a guard already there says, or null for a label never used. */
+function guardState(dataRoot: string, label: string): string | null {
+  const guard = overrideGuard(dataRoot, label);
+  if (!existsSync(guard)) return null;
+  const claimedOnly = readFileSync(guard, "utf8").startsWith("claimed") && !existsSync(join(dataRoot, `control.aside-${label}`));
+  return claimedOnly
+    ? `CONTROL_ASIDE=${label} was claimed but the move didn't finish: nothing moved. Set a new label (CONTROL_ASIDE=<new label>) to try again.`
+    : `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).`;
+}
+
+/** The move itself, once the volume's state is checked (`controlAsideAtStart`). */
 export function controlAside(dataRoot: string, label: string, now: number = Date.now()): { line: string } | { refusal: string } {
   if (!CONTROL_ASIDE_LABEL.test(label)) return { refusal: "refused: CONTROL_ASIDE must be a label of letters, digits, - and _ (at most 32), e.g. CONTROL_ASIDE=1." };
-  const guard = overrideGuard(dataRoot, label);
+  const used = guardState(dataRoot, label);
+  if (used !== null) return { line: used };
+  const control = join(dataRoot, "control");
   const aside = join(dataRoot, `control.aside-${label}`);
-  if (existsSync(guard)) return { line: `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).` };
+  if (!existsSync(control)) return { line: `CONTROL_ASIDE=${label}: there is no control/ to move: nothing moved. Unset CONTROL_ASIDE.` };
+  if (existsSync(aside)) return { line: `CONTROL_ASIDE=${label}: control.aside-${label} is already here, so nothing moved. Set a new label to move control/ aside.` };
+  const guard = overrideGuard(dataRoot, label);
   mkdirSync(join(dataRoot, "overrides"), { recursive: true });
   try {
-    writeFileSync(guard, `${new Date(now).toISOString()}\n`, { flag: "wx" });
+    writeFileSync(guard, `claimed ${new Date(now).toISOString()}\n`, { flag: "wx" });
   } catch (err) {
     // Only a guard already there means "used"; anything else (EACCES, ENOSPC) stops the start, saying so.
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-    return { line: `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).` };
+    return { line: guardState(dataRoot, label)! };
   }
-  const control = join(dataRoot, "control");
-  if (!existsSync(control)) return { line: `CONTROL_ASIDE=${label}: there is no control/ to move; this label is used now. Unset CONTROL_ASIDE.` };
-  if (existsSync(aside)) return { line: `CONTROL_ASIDE=${label}: control.aside-${label} is already here, so nothing moved; this label is used now. Set a new label to move control/ aside.` };
   renameSync(control, aside);
+  writeFileSync(guard, `moved ${new Date(now).toISOString()}\n`);
   return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
 }
 
@@ -400,7 +433,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const moved = controlAside(read.dataRoot, asideLabel);
+    const moved = await controlAsideAtStart(read.dataRoot, asideLabel, backup);
     if ("refusal" in moved) {
       process.stderr.write(`[hosted] ${moved.refusal}\n`);
       process.exitCode = 1;

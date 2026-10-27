@@ -465,7 +465,7 @@ export async function controlVolume(dataRoot: string, backup: AppBackupOptions):
 /** The refusal for a volume with control databases that aren't the bucket's, or null. */
 export function foreignControlRefusal(dataRoot: string, v: ControlVolume): string | null {
   if (!v.bucketKey || v.localKey || v.present.length === 0) return null;
-  return `refused: this volume has ${v.present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Move ${join(dataRoot, "control")} aside, then deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore).`;
+  return `refused: this volume has ${v.present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).`;
 }
 
 /**

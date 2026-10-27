@@ -212,10 +212,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `restore control` and `--all` too). The control key is adopted only when no control file here is kept.
     - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
     - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite` or `control/litestream.key`).
-    - `CONTROL_ASIDE=<label>` (`main.ts#controlAside`, `serve` only, never with `BACKUPS=off`) moves `control/` to
-      `control.aside-<label>` before anything opens it, AT MOST ONCE PER LABEL: the guard
-      `overrides/control-aside-<label>.used` is written before the move, and nothing deletes it (not the day-old
-      sweep, not a restart). A new label re-arms it.
+    - `CONTROL_ASIDE=<label>` (`main.ts#controlAsideAtStart`, `serve` only, never with `BACKUPS=off`) moves `control/`
+      to `control.aside-<label>` before anything opens it, ONLY on a volume `foreignControlRefusal` refuses (on any
+      other, nothing moves, no guard is written, and the start goes on), and AT MOST ONCE PER LABEL: the guard
+      `overrides/control-aside-<label>.used` is created (`claimed`) before the move and rewritten (`moved`) after,
+      and nothing deletes it (not the day-old sweep, not a restart). A new label re-arms it.
 31a. **The bucket's tombstones win.** At every start with backups on:
     - a live store with `deleted/<id>` in the bucket has its delete finished (an accounts database restored from
       before the delete would otherwise bring the account back, with its email);

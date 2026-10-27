@@ -109,8 +109,9 @@ describe("the entry point, the #653 review's refusals", () => {
 });
 
 describe("the entry point, R3: CONTROL_ASIDE", () => {
-  // A bucket that can't be reached (port 1): `serve` gets as far as the bucket
-  // check and stops there, after CONTROL_ASIDE has run. No network beyond localhost.
+  // A bucket that can't be reached (port 1): `serve` stops at its first bucket
+  // read. No network beyond localhost. (The moves themselves, against a bucket,
+  // are in ops.test.ts: R2_ENDPOINT must be https, which the S3 stand-in isn't.)
   const withBucket = (dataRoot: string, extra: Record<string, string>): Record<string, string> =>
     baseEnv({
       HOSTED_DATA_ROOT: dataRoot,
@@ -124,21 +125,24 @@ describe("the entry point, R3: CONTROL_ASIDE", () => {
     });
   const serve = (env: Record<string, string>) => spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env, encoding: "utf8", timeout: 30_000 });
 
-  test("serve moves control/ aside once per label; the same label again (a crash-restart, a forgotten override) moves nothing", () => {
+  test("an unreachable bucket: serve does not start and moves nothing (the volume's state is read first); a used label moves nothing either", () => {
     const dataRoot = join(tmp.root, "data");
     mkdirSync(join(dataRoot, "control"), { recursive: true });
-    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "the first control/");
+    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "the only control/");
     const first = serve(withBucket(dataRoot, { CONTROL_ASIDE: "1" }));
-    assert.match(first.stderr, /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
-    assert.equal(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite"), "utf8"), "the first control/");
-    assert.ok(existsSync(overrideGuard(dataRoot, "1")));
-    // What a restore would put back.
-    mkdirSync(join(dataRoot, "control"), { recursive: true });
-    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "the restored control/");
+    assert.equal(first.status, 1);
+    assert.match(first.stderr, /did not start/);
+    assert.doesNotMatch(first.stderr, /moved control/);
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "the only control/");
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.equal(existsSync(join(dataRoot, "overrides")), false);
+    // A label used before (a crash-restart, a forgotten override): said before the bucket is asked anything.
+    mkdirSync(join(dataRoot, "overrides"), { recursive: true });
+    writeFileSync(overrideGuard(dataRoot, "1"), "moved 2026-10-27T00:00:00.000Z\n");
+    mkdirSync(join(dataRoot, "control.aside-1"), { recursive: true });
     const again = serve(withBucket(dataRoot, { CONTROL_ASIDE: "1" }));
     assert.match(again.stderr, /CONTROL_ASIDE=1 was used once already: nothing moved/);
-    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "the restored control/");
-    assert.equal(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite"), "utf8"), "the first control/");
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "the only control/");
   });
 
   test("CONTROL_ASIDE is refused with BACKUPS=off, and with a label that isn't one", () => {

@@ -231,10 +231,16 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   (variables, no start-command override) for one deploy, then unset both. `serve` moves `control/` to
   `/data/control.aside-1` before anything opens it, and logs `CONTROL_ASIDE=1: moved control/ …`.
 
-  It moves `control/` aside **once per label**, ever: it writes `/data/overrides/control-aside-1.used` first, and
-  nothing deletes that file. A crash-restart, or a `CONTROL_ASIDE=1` left set for weeks, logs `…was used once
-  already: nothing moved` and serves. **To do it again on purpose, set a new label** (`CONTROL_ASIDE=2`, then `3`,
-  …). The used labels are in `/data/overrides/`.
+  It moves `control/` only on a volume that refuses for this reason (the bucket has the control key, this volume
+  doesn't). On any other volume it logs `…isn't refusing for the control key…: nothing moved` and the start goes on,
+  so it can never set aside the only copy of the accounts. A bucket it can't read stops the start (`did not start`),
+  with nothing moved.
+
+  It moves `control/` aside **once per label**, ever: it writes `/data/overrides/control-aside-1.used` (`claimed`,
+  then `moved` after the move), and nothing deletes that file. A crash-restart, or a `CONTROL_ASIDE=1` left set for
+  weeks, logs `…was used once already: nothing moved`. `…claimed but the move didn't finish` means the server stopped
+  between the two; `control/` is where it was. **To do it again on purpose, set a new label** (`CONTROL_ASIDE=2`,
+  then `3`, …). The used labels are in `/data/overrides/`.
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
 - **Copies set aside hold addresses and memories**, outside the 24-hour purge: `/data/control.aside-*` from the
@@ -243,6 +249,11 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   then let it go, or delete it by hand sooner (`rm -rf /data/control.aside-1`).
 - **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
   coordinator; no new key is made on purpose.
+- **`backup.ensure.failed storeTag=<tag>: this store is NOT backed up yet`** (not a refusal; the server runs): a store
+  started over on the running server couldn't get its key or its place in `litestream.yml`. The next restart retries
+  it. If that restart logs "N stores that lived have no key…", see the entry above. `storeTag=` is the tag the
+  `restore` and `start-over` commands print (SHA-256 of the id); `store=` in the limit and `store.needs-restore` lines
+  is a different, per-process tag, which can't be matched across restarts.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 
