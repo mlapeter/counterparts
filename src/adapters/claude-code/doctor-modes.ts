@@ -1,7 +1,8 @@
 /**
  * `doctor`'s line on who can read the store (2026-10-27, R1): amber when the
- * store, its database, the base directory beside it or the snapshots
- * directory is readable by group or other, with the two commands that close
+ * store, its database, our entries in the base directory beside it (and the
+ * base itself when it is ours) or ours in the snapshots directory is readable
+ * by group or other, with the two commands that close
  * it. A handful of `stat` calls, no store read, never red: the store opens
  * either way, and a writer's open tightens it by itself (`core/store/private.ts`),
  * so a line that stays amber is a filesystem that does not keep modes or a
@@ -10,8 +11,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 
-import { DATABASE_FILE, OPEN_BITS, realRoot } from "../../core/store/index.js";
-import { installBasePaths } from "../private-base.js";
+import { DATABASE_FILE, OPEN_BITS, realRoot, storeRoots } from "../../core/store/index.js";
+import { configuredSnapshots, installBaseRoots } from "../private-base.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
@@ -25,26 +26,44 @@ function modeOf(path: string): number | null {
   }
 }
 
-/** The paths the line reads, each with the mode it should have at most. */
-export function privatePaths(storeDir: string, configPath?: string): { path: string; dir: boolean }[] {
+/**
+ * The paths the line reads, each with the mode it should have at most: exactly
+ * the roots a session start (or `connect`) and a writer's open tighten
+ * (`private-base.ts#installBaseRoots`, `core/store/private.ts#storeRoots`), a
+ * configured snapshots directory outside the base included, plus the database.
+ * Each root by itself: a tree is read at its top, as the gate reads it.
+ */
+export function privatePaths(storeDir: string, configPath?: string, home?: string): { path: string; dir: boolean }[] {
   const store = realRoot(storeDir);
   // The base only when this IS an install's layout (`private-base.ts`), the
   // configuration sitting in it: a dir that is merely named `store` says nothing.
-  // Only our names in it, and the base itself only when it is ours to close.
-  const base = configPath === undefined ? null : installBasePaths(configPath, storeDir);
+  const roots =
+    (configPath === undefined ? null : installBaseRoots(configPath, storeDir, home)) ??
+    storeRoots(storeDir, configPath === undefined ? null : (configuredSnapshots(configPath) ?? null), home);
   const out: { path: string; dir: boolean }[] = [];
-  if (base?.baseIsOurs === true) out.push({ path: base.base, dir: true });
-  out.push({ path: store, dir: true }, { path: join(store, DATABASE_FILE), dir: false });
-  for (const d of base?.trees ?? []) if (realRoot(d) !== store) out.push({ path: d, dir: true });
-  // Our files only matter where the base stays open (a home, a project):
-  // inside a closed base nobody else can reach them.
-  if (base !== null && !base.baseIsOurs) for (const f of base.files) out.push({ path: f, dir: false });
+  const seen = new Set<string>();
+  const add = (path: string): void => {
+    if (seen.has(path)) return;
+    seen.add(path);
+    out.push({ path, dir: isDir(path) });
+  };
+  add(store);
+  out.push({ path: join(store, DATABASE_FILE), dir: false });
+  for (const p of [...(roots.only ?? []), ...roots.recursive]) add(p);
   return out;
 }
 
-export function modesFindings(storeDir: string, platform: string = process.platform, configPath?: string): Finding[] {
+function isDir(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export function modesFindings(storeDir: string, platform: string = process.platform, configPath?: string, home?: string): Finding[] {
   if (platform === "win32") return [];
-  const paths = privatePaths(storeDir, configPath).filter((p) => existsSync(p.path));
+  const paths = privatePaths(storeDir, configPath, home).filter((p) => existsSync(p.path));
   if (paths.length === 0) return [];
   const open = paths
     .map((p) => ({ ...p, mode: modeOf(p.path) }))

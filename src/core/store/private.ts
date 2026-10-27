@@ -20,9 +20,17 @@
  *     `077` (`adapters/private-umask.ts`), so their files come out `0600` too.
  *     The core never sets the umask: an embedder's process is not ours.
  *   - **An existing store is tightened** (`tightenStore`) when a writer opens
- *     it: the store directory and everything under it, and a snapshots
- *     directory the caller NAMED (`opts.snapshotsDir`), lose their group and
- *     other bits. NOTHING ELSE: the core does not guess at a parent directory
+ *     it: the store directory and everything under it lose their group and
+ *     other bits. A snapshots directory the caller NAMED (`opts.snapshotsDir`)
+ *     is the owner's choice of place, not ours (round 4 of #657: `snapshots.dir`
+ *     set to `$HOME` or `~/Documents` made the whole home private), so it is
+ *     read the way the adapters read a base (`snapshotsDirRoots`): only the
+ *     entries this package writes there (dated copies, pre-migration copies,
+ *     a `.partial-…` copy, a `.taking-…` claim) go whole, and the directory
+ *     itself is closed only when it holds nothing else and is not a
+ *     filesystem root, the home or above it, inside or around the store,
+ *     writable by others, sticky or setgid, or another account's. NOTHING
+ *     ELSE: the core does not guess at a parent directory
  *     from a name (review of #657: a store dir named `store` made its parent
  *     and every sibling lose their bits, which on an embedder's machine is an
  *     app's files and on hosted a tenant's). The base directory of the layout
@@ -32,6 +40,9 @@
  *     some network drives) is skipped and counted, never a refusal. "Once" is
  *     stats, not a stored flag: an already-tight store costs two `stat` calls,
  *     and an open writes nothing at open.
+ *   - **A path carrying a setuid, setgid or sticky bit is never chmodded** and
+ *     never counts as open: bun's `chmodSync` drops those bits (measured, bun
+ *     1.3), and a setgid directory a group shares is not ours to rewrite.
  *   - **A store meant to be shared with a group is tightened again** at every
  *     writer's open. There is no opt-out today (few guards, loose limits: one
  *     can be added when somebody needs it).
@@ -41,14 +52,17 @@
  * finds nothing to do), and any database it creates through `openDb` is 0600.
  */
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, parse, resolve } from "node:path";
 
-import { DATABASE_FILE } from "./paths.js";
+import { DATABASE_FILE, assertSafeDataDir, isWithin } from "./paths.js";
 
 export const PRIVATE_DIR_MODE = 0o700;
 export const PRIVATE_FILE_MODE = 0o600;
 /** The bits that make a path readable (or enterable) by anybody but its owner. */
 export const OPEN_BITS = 0o077;
+/** setuid, setgid, sticky: a path carrying one is never chmodded (see the header). */
+export const SPECIAL_BITS = 0o7000;
 
 /** `chmod`, as a seam: a test makes one path refuse, the way exFAT does. */
 export type Chmod = (path: string, mode: number) => void;
@@ -91,6 +105,9 @@ export function isOpen(path: string): boolean {
   try {
     const st = lstatSync(path);
     if (st.isSymbolicLink()) return false;
+    // Never chmodded (`tightenRoots`), so never a reason to try: a setgid
+    // directory would otherwise keep the gate open at every open.
+    if ((st.mode & SPECIAL_BITS) !== 0) return false;
     return (st.mode & OPEN_BITS) !== 0;
   } catch {
     return false;
@@ -121,11 +138,96 @@ export interface PrivateRoots {
   readonly only?: readonly string[];
 }
 
-/** The core's own roots: the store, and a snapshots directory the caller named. */
-export function storeRoots(storeDir: string, snapshotsDir?: string | null): PrivateRoots {
-  const recursive = [realRoot(storeDir)];
-  if (snapshotsDir !== undefined && snapshotsDir !== null) recursive.push(realRoot(snapshotsDir));
-  return { recursive };
+/**
+ * The names this package writes in a snapshots directory: a daily copy
+ * (`adapters/snapshots.ts#SNAPSHOT_NAME_RE`), a copy taken before a migration
+ * (`pre-migration.ts#PRE_MIGRATION_NAME_RE`), a copy being written
+ * (`snapshots.ts#PARTIAL_NAME_RE`) and a day's claim (`snapshots.ts#CLAIM_NAME_RE`).
+ * Spelled here because the core cannot import the adapter (and `pre-migration`
+ * imports this file); `test/private-store.test.ts` holds the spellings together.
+ * This list only ever makes a path private; what rotation may DELETE stays
+ * `snapshots.ts`'s own line.
+ */
+export const SNAPSHOT_ENTRY_NAMES: readonly RegExp[] = [
+  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/,
+  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-pre-migration-v[0-9A-Za-z]+-to-v[0-9A-Za-z]+$/,
+  /^\.partial-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-\d+$/,
+  /^\.taking-\d{4}-\d{2}-\d{2}$/,
+];
+
+/**
+ * May this directory itself be closed (beyond holding only ours)? Not the home
+ * or above it, not writable by others, not sticky or setgid, owned by this
+ * account. `dir` and `home` as real paths. The rule `adapters/private-base.ts`
+ * applies to an install's base, and this file to a snapshots directory.
+ */
+export function closableDir(dir: string, home: string = homedir()): boolean {
+  const h = realRoot(home);
+  const d = realRoot(dir);
+  if (d === h || isWithin(d, h)) return false;
+  try {
+    const st = lstatSync(d);
+    if (!st.isDirectory()) return false;
+    if ((st.mode & 0o002) !== 0 || (st.mode & SPECIAL_BITS) !== 0) return false;
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    return uid === null || st.uid === uid;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A snapshots directory, read the way an install's base is (see the header):
+ * its snapshot-named entries whole, the directory itself only when it is ours
+ * to close, and nothing at all when it is a place `snapshots.ts#assertRotatableDir`
+ * refuses (a filesystem root, the home or above it, inside the store or around
+ * it, a live v1 store). Symbolic-link entries are skipped.
+ */
+export function snapshotsDirRoots(snapshotsDir: string, storeDir: string, home: string = homedir()): { only: string[]; recursive: string[] } {
+  const none = { only: [], recursive: [] };
+  const real = realRoot(snapshotsDir);
+  const store = realRoot(storeDir);
+  const h = realRoot(home);
+  try {
+    assertSafeDataDir(snapshotsDir);
+    assertSafeDataDir(real);
+  } catch {
+    return none;
+  }
+  if (real === parse(real).root || real === h || isWithin(real, h)) return none;
+  if (isWithin(store, real) || isWithin(real, store)) return none;
+  let names: string[];
+  try {
+    if (!lstatSync(real).isDirectory()) return none;
+    names = readdirSync(real);
+  } catch {
+    return none;
+  }
+  const recursive: string[] = [];
+  let foreign = 0;
+  for (const name of names) {
+    if (!SNAPSHOT_ENTRY_NAMES.some((re) => re.test(name))) {
+      foreign += 1;
+      continue;
+    }
+    const path = join(real, name);
+    try {
+      if (lstatSync(path).isSymbolicLink()) continue;
+    } catch {
+      continue;
+    }
+    recursive.push(path);
+  }
+  return { only: foreign === 0 && closableDir(real, h) ? [real] : [], recursive };
+}
+
+/** The core's own roots: the store whole, and what is ours in a snapshots
+ *  directory the caller named (`snapshotsDirRoots`). The store is first. */
+export function storeRoots(storeDir: string, snapshotsDir?: string | null, home?: string): PrivateRoots {
+  const store = realRoot(storeDir);
+  if (snapshotsDir === undefined || snapshotsDir === null) return { recursive: [store] };
+  const snaps = snapshotsDirRoots(snapshotsDir, storeDir, home);
+  return { only: snaps.only, recursive: [store, ...snaps.recursive] };
 }
 
 /** Does any root need tightening? A stat each, and the database's (`lstat`). */
@@ -151,6 +253,8 @@ export function tightenRoots(roots: PrivateRoots, chmod: Chmod = chmodSync): Tig
   const skipped: string[] = [];
   const fix = (path: string, mode: number): void => {
     if ((mode & OPEN_BITS) === 0) return;
+    // A chmod would drop the bit (bun) or rewrite what a group shares: left alone.
+    if ((mode & SPECIAL_BITS) !== 0) return;
     if (chmodQuiet(path, mode & 0o7777 & ~OPEN_BITS, chmod)) tightened += 1;
     else skipped.push(path);
   };
@@ -183,7 +287,7 @@ export function tightenRoots(roots: PrivateRoots, chmod: Chmod = chmodSync): Tig
   return { tightened, skipped };
 }
 
-/** The core's tightening: the store and a named snapshots directory, nothing else. */
+/** The core's tightening: the store and ours in a named snapshots directory, nothing else. */
 export function tightenStore(storeDir: string, snapshotsDir?: string | null, chmod: Chmod = chmodSync): TightenReport {
   return tightenRoots(storeRoots(storeDir, snapshotsDir), chmod);
 }

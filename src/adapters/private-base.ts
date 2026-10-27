@@ -14,29 +14,49 @@
  * directory makes the project the base. What is tightened is the list
  * `uninstall` reads too (`owned-names.ts#ownedKind`): the configuration and
  * its backups and temp siblings, `scopes.json`, the sidebar's files, the npm
- * marker, `store/` and `snapshots/` (or the configured snapshots dir, when it
- * sits here) with their parked, blank and new siblings, `rollback`'s
- * set-aside stores, and a `debug/` of night transcripts; plus a legacy
- * `credentials.env`. Directories go whole, symbolic links are skipped. In a
- * home or a project base a file of somebody else's that happens to carry one
- * of those names is tightened too; that is the one collision left, and the
- * names are specific enough that it should not happen.
+ * marker, `store/` and `snapshots/` with their parked, blank and new siblings,
+ * `rollback`'s set-aside stores, and a `debug/` of night transcripts; plus a
+ * legacy `credentials.env`. Directories go whole, symbolic links are skipped.
+ * In a home or a project base a file of somebody else's that happens to carry
+ * one of those names is tightened too; that is the one collision left, and
+ * the names are specific enough that it should not happen.
  *
  * The directory ITSELF is made `0700` only when it holds nothing but ours and
- * is not the home directory or above it, not writable by others, not sticky,
- * and owned by this account: the default `~/.counterparts` is closed, a home
- * or a project never is.
+ * is not the home directory or above it, not writable by others, not sticky
+ * or setgid, and owned by this account (`core/store/private.ts#closableDir`):
+ * the default `~/.counterparts` is closed, a home or a project never is. A
+ * base that is a symbolic link (`~/.counterparts` -> somewhere else) is read
+ * and closed where it really is, on the same rules, the home compared by its
+ * real path too.
+ *
+ * A CONFIGURED SNAPSHOTS DIRECTORY IS THE OWNER'S PLACE (round 4 of #657):
+ * `snapshots.dir` set to `$HOME` or `~/Documents` is not a tree of ours, in
+ * this base or anywhere else. Only `<base>/snapshots`, the one this package
+ * makes, goes whole; any other is read by the core's rule
+ * (`core/store/private.ts#snapshotsDirRoots`, the one a writer's open
+ * applies): the snapshot-named entries whole, the directory itself only when
+ * it is ours to close, nothing at all in a place snapshots are refused.
  *
  * Run by the session-start hook and by `connect` (the upgrade path); best-
  * effort and silent, gated by a few stats, never on Windows. `doctor`'s
- * Privacy line reads the same set (`installBasePaths`).
+ * Privacy line reads the same set (`installBaseRoots`).
  */
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
-import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, isWithin, realRoot, rootsNeedTightening, tightenRoots } from "../core/store/index.js";
+import {
+  DATABASE_FILE,
+  DEFAULT_STORE_SUBDIR,
+  closableDir,
+  defaultSnapshotsDir,
+  realRoot,
+  rootsNeedTightening,
+  storeRoots,
+  tightenRoots,
+} from "../core/store/index.js";
 import type { Chmod, PrivateRoots, TightenReport } from "../core/store/index.js";
+import { loadConfig } from "./config.js";
 import { ownedKind, ownedNames } from "./owned-names.js";
 
 export { SIDEBAR_NAMES } from "./owned-names.js";
@@ -47,39 +67,25 @@ export { SIDEBAR_NAMES } from "./owned-names.js";
 const LEGACY_CREDENTIALS = "credentials.env";
 
 export interface BasePaths {
+  /** The base, by its real path. */
   readonly base: string;
   /** The base directory itself, when it is ours to close (see the header). */
   readonly baseIsOurs: boolean;
   /** Our entries in it that are there: files alone, directories whole. */
   readonly files: readonly string[];
   readonly trees: readonly string[];
+  /** `snapshots.dir`, by its real path, when the configuration names one
+   *  other than `<base>/snapshots`: read by the core's rule, wherever it is. */
+  readonly snapshotsDir: string | null;
 }
 
-/** `snapshots.dir` from the configuration file; absent when it names none or
- *  cannot be read. */
-function configuredSnapshots(configPath: string): string | undefined {
+/** `snapshots.dir` as every entry point reads it (`config.ts#loadConfig`);
+ *  absent when it names none or the file cannot be read. */
+export function configuredSnapshots(configPath: string): string | undefined {
   try {
-    const raw = JSON.parse(readFileSync(configPath, "utf8")) as { snapshots?: { dir?: unknown } };
-    const dir = raw.snapshots?.dir;
-    return typeof dir === "string" ? dir : undefined;
+    return loadConfig(JSON.parse(readFileSync(configPath, "utf8"))).config.snapshots?.dir;
   } catch {
     return undefined;
-  }
-}
-
-/** May the base directory itself be closed (beyond holding only ours)? Not the
- *  home or above it, not writable by others, not sticky, owned by this account. */
-function closable(base: string, home: string): boolean {
-  const h = resolve(home);
-  const b = resolve(base);
-  if (b === h || isWithin(b, h)) return false;
-  try {
-    const st = lstatSync(b);
-    if ((st.mode & 0o002) !== 0 || (st.mode & 0o1000) !== 0) return false;
-    const uid = typeof process.getuid === "function" ? process.getuid() : null;
-    return uid === null || st.uid === uid;
-  } catch {
-    return false;
   }
 }
 
@@ -87,11 +93,21 @@ function closable(base: string, home: string): boolean {
  *  `<dirname(configPath)>/store` with that configuration in place. */
 export function installBasePaths(configPath: string, storeDir: string, home: string = homedir()): BasePaths | null {
   if (!existsSync(configPath)) return null;
-  const base = dirname(resolve(configPath));
+  const base = realRoot(dirname(resolve(configPath)));
   const store = join(base, DEFAULT_STORE_SUBDIR);
   if (realRoot(store) !== realRoot(storeDir)) return null;
-  const snapshotsDir = configuredSnapshots(configPath);
-  const owned = ownedNames(configPath, snapshotsDir === undefined ? {} : { snapshots: { dir: snapshotsDir } }, store);
+  // The configured snapshots dir, unless it is the one this package makes.
+  const configured = configuredSnapshots(configPath);
+  const ownDefault = defaultSnapshotsDir(store);
+  const snapshotsDir =
+    configured === undefined || (ownDefault !== null && realRoot(configured) === realRoot(ownDefault))
+      ? null
+      : realRoot(configured);
+  const owned = ownedNames(
+    join(base, basename(configPath)),
+    snapshotsDir === null ? {} : { snapshots: { dir: snapshotsDir } },
+    store,
+  );
   let names: string[] = [];
   try {
     names = readdirSync(base);
@@ -102,10 +118,13 @@ export function installBasePaths(configPath: string, storeDir: string, home: str
   const trees: string[] = [];
   let foreign = 0;
   for (const name of names) {
-    if (ownedKind(name, owned, base) === null && name !== LEGACY_CREDENTIALS) {
+    const kind = ownedKind(name, owned, base);
+    if (kind === null && name !== LEGACY_CREDENTIALS) {
       foreign += 1;
       continue;
     }
+    // A configured snapshots dir that sits here is ours to name, not ours whole.
+    if (kind === "snapshots" && snapshotsDir !== null) continue;
     const path = join(base, name);
     try {
       const st = lstatSync(path);
@@ -115,15 +134,20 @@ export function installBasePaths(configPath: string, storeDir: string, home: str
       continue;
     }
   }
-  return { base, baseIsOurs: foreign === 0 && closable(base, home), files, trees };
+  return { base, baseIsOurs: foreign === 0 && closableDir(base, home), files, trees, snapshotsDir };
 }
 
-/** The same set as roots for `tightenRoots`; the store by its real path. */
+/** The same set as roots for `tightenRoots`: the base's, and the core's own
+ *  (the store by its real path, ours in a configured snapshots dir), so
+ *  `connect` and `doctor` cover what a writer's open does. */
 export function installBaseRoots(configPath: string, storeDir: string, home: string = homedir()): PrivateRoots | null {
   const p = installBasePaths(configPath, storeDir, home);
   if (p === null) return null;
-  const store = realRoot(join(p.base, DEFAULT_STORE_SUBDIR));
-  return { only: [...(p.baseIsOurs ? [p.base] : []), ...p.files], recursive: [...p.trees.filter((t) => t !== join(p.base, DEFAULT_STORE_SUBDIR)), store] };
+  const store = join(p.base, DEFAULT_STORE_SUBDIR);
+  const core = storeRoots(store, p.snapshotsDir, home);
+  const only = [...(p.baseIsOurs ? [p.base] : []), ...p.files, ...(core.only ?? [])];
+  const recursive = [...core.recursive, ...p.trees.filter((t) => t !== store)];
+  return { only: [...new Set(only)], recursive: [...new Set(recursive)] };
 }
 
 /** Tighten an install's base, when it is one. Null when there was nothing to do. */
