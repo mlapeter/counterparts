@@ -6,8 +6,8 @@ in `DESIGN.md`, the guarantees in `hosted/CONTRACT.md`, what is still owed in `h
 Written 2026-10-26 (OL2b). Nothing here has been run against Railway or R2 yet. Each step that hasn't been verified
 says so, and the first deploy is where it gets checked.
 
-Never paste a secret into a chat, a commit or an issue. Every value below goes into Railway's variables page or a
-password manager, and nowhere else.
+Never paste a secret into a chat, a commit or an issue. Every value below goes into Railway's variables page, a
+password manager, or (the KEK only) its paper copy, and nowhere else.
 
 ---
 
@@ -19,8 +19,10 @@ password manager, and nowhere else.
    openssl rand -base64 32
    ```
 
-   Save it in your password manager as "Counterparts hosted KEK v1". **Without it, every backup is unreadable.**
-   No copy of it exists anywhere else.
+   **Keep it offline in two places before you use it**: a password manager, as "Counterparts hosted KEK v1", and
+   a paper copy somewhere safe. **Without it, every backup is unreadable.** Railway's variable is the only copy
+   online, and it isn't a backup: losing the Railway account loses it. Do the same for every later version (v2, …)
+   before it goes into `HOSTED_KEKS`.
 2. **Generate the cookie keys** (these sign the OAuth library's cookies):
 
    ```sh
@@ -246,14 +248,17 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
 The hermetic test (`hosted/test/ops.test.ts`) drives the restore through a stand-in Litestream. It proves our side:
 the key objects, the configuration, the arguments, the layout, the cache rebuild, and the words coming back
 through `/mcp`. It doesn't prove Litestream itself. This does. It runs on your Mac, with Docker, against a **second
-bucket** (e.g. `counterparts-drill`, with its own token scoped to it), and a throwaway KEK:
+bucket** (e.g. `counterparts-drill`, with its own token scoped to it), and **the real KEK, typed in from an offline
+copy, never copied from the Railway variable.** That is the test: a restore that works only with Railway's copy
+proves nothing about the day Railway is gone. Type it from one copy for step 1 and from the other copy for step 5,
+so both copies are proven:
 
 ```sh
 docker build -f hosted/Dockerfile -t counterparts-hosted .
-export DRILL_KEK="v1:$(openssl rand -base64 32)"        # throwaway; never the real one
+read -rs -p "KEK v1 from the password manager: " K && export HOSTED_KEKS="v1:$K"; unset K; echo
 run() { docker run --rm -p 127.0.0.1:8080:8080 -v cp-drill:/data \
   -e HOSTED_DATA_ROOT=/data -e PUBLIC_ORIGIN=http://127.0.0.1:8080 -e MAIL=log \
-  -e HOSTED_KEKS="$DRILL_KEK" \
+  -e HOSTED_KEKS \
   -e R2_ENDPOINT -e R2_BUCKET=counterparts-drill -e R2_ACCESS_KEY_ID -e R2_SECRET_ACCESS_KEY "$@" counterparts-hosted; }
 run --name drill -d                                          # 1. serve (the drill bucket's token in R2_* of this shell)
 docker exec drill node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite
@@ -261,10 +266,16 @@ docker exec drill node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts
 docker stop -t 60 drill                                      # 2. Litestream's last sync on SIGTERM (give it time)
 docker volume rm cp-drill                                    # 3. the volume is gone
 run --name drill -d                                          # 4. must REFUSE: the volume is empty, the bucket isn't
+read -rs -p "KEK v1 from the paper copy: " K && export HOSTED_KEKS="v1:$K"; unset K; echo
 run --name drill -d -e RESTORE_ON_BOOT=1                     # 5. restores; recall the line through the client
+unset HOSTED_KEKS K
 ```
 
-Afterwards, empty the drill bucket. Things to note for the coordinator:
+`-e HOSTED_KEKS` passes it by name, so it never shows in `ps`. `docker inspect` shows it while the container runs,
+which is acceptable on your own Mac, and `--rm` removes it. If step 5 refuses because the ring can't open a key,
+the paper copy doesn't match: fix the copy now, while the password manager's still works. Run the drill again after each new KEK version.
+
+Afterwards, empty the drill bucket: it holds keys wrapped under the real KEK. Things to note for the coordinator:
 
 - **first: whether step 1's Litestream accepted the configuration.** It lists a store that signed up but was never
   opened, whose database file doesn't exist yet. The log should show Litestream waiting on it, not exiting;
@@ -276,13 +287,27 @@ Afterwards, empty the drill bucket. Things to note for the coordinator:
 
 ## Rotating the KEK
 
-1. Generate v2 as in 1.1, then set `HOSTED_KEKS=v1:<old>,v2:<new>` and `HOSTED_KEK_CURRENT=v2`.
+1. Generate v2 as in 1.1, and record it in the two offline places first. Then set
+   `HOSTED_KEKS=v1:<old>,v2:<new>` and `HOSTED_KEK_CURRENT=v2`.
 2. Stop the service, then run `… main.ts rewrap` once. It prints
    `rewrapped N keys onto v2; M key objects re-written`.
    - **Unverified on Railway:** a one-off command with the service stopped. If there's no such thing, use the
      start-command override above (`… main.ts rewrap`), deploy once, read the line, then clear the override.
 3. Start the service, and check `/readyz`.
 4. Only then drop `v1:` from `HOSTED_KEKS`, and redeploy. A ring that can't open a key refuses to start.
+
+## Moving the KEK to the Cloudflare key service (later; a gate before non-family users)
+
+1. **Before building it:** verify the reported Railway environment-variable breach (Mike's report, not verified).
+   If it's wrong, the key service is still better than an environment variable, but it is less urgent.
+2. When the key service holds the KEK, **export its key to the same two offline places**, recorded before the
+   rewrap onto it. Losing the Cloudflare account must not lose the memories.
+3. Rewrap onto it as in "Rotating the KEK", then run the drill with the exported copy.
+4. **With the key service down, a restart can't open any store until it's back** (the same shape as an R2 outage
+   blocking a start). A running server keeps serving. Accepted.
+
+People who use the server hold no keys, so they can't lock themselves out. A key a person holds themselves would
+stay opt-in only, if it's ever built.
 
 ## Rollback
 

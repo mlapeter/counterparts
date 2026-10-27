@@ -2,10 +2,14 @@
 
 ## Before any non-family user
 
-1. **Two gates** (DESIGN §5.4):
+1. **Gates** (DESIGN §5.4; item 2 is one more):
    - Railway's disk encryption confirmed in writing;
    - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
-     both the KEK and the R2 credentials.
+     both the KEK and the R2 credentials. First verify the reported Railway environment breach (unverified); it
+     changes the urgency, not the direction. Its key is exported to the two offline places. With it down, a restart
+     can't open stores (accepted, like item 9);
+   - lockout: every KEK version held offline in two places before use, and the drill (item 5) restored with the KEK
+     typed from them, not from the Railway variable.
 2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
    lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
    service. Not built now.
@@ -33,8 +37,8 @@
      checked its sha256 and ran `litestream version`.
    - No MinIO image could be pulled: `minio/minio` is gone from Docker Hub. Our own S3 stand-in doesn't speak enough
      of S3 for the AWS SDK.
-   - So the RUNBOOK's drill (a second bucket, a throwaway KEK, Docker on the Mac) is the first run of the real
-     binary.
+   - So the RUNBOOK's drill (a second bucket, the real KEK typed from its offline copies, Docker on the Mac) is the
+     first run of the real binary.
    - Read from Litestream 0.5.17's source, not run:
      - `sse-customer-key-path` is the key name, and the file holds the base64 of a 32-byte key, as generated;
      - `restore` takes `-config` or a replica URL, never both;
