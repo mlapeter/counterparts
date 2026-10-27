@@ -60,3 +60,16 @@
   (`call-log.ts#summarizeChats`). Keyed that way "wake first" is true by construction;
   what measures a chat that never woke is the calls that named no session, counted per
   connection, and how many of them came before any wake on it.
+- **2026-10-26, OL4: the 7-chat script** (`tools/trials/claude-ai/chat-script.ts`). The
+  claude.ai chats Mike drove by hand, played over this door with fixed tool calls and scored
+  from the call log and the store; about a second, no model. Learned building it: on this
+  hookless host the briefing chat 7 wakes with ("Coming up", "Last night", "Last here") is
+  composed only by the worker's sleep. Nothing else here crosses a boundary. With the worker
+  stubbed, as every test in this module stubs it, every wake reads the bootstrap line, so the
+  script runs the worker's heavy half (`Counterpart.sessionEnd`, as `runner.ts` calls it)
+  in-process after each wake that asks for one. The script also runs on its own clock
+  (the harness's `serve-at.ts` way), so the night falls on the next day and the writer gets
+  a day to read; the product has no clock knob. What it can't score, a notice relayed or the
+  safety pause, is left to the human run. Thin spot, held lightly: chat 6 chapters a
+  one-line chat. A real goodbye closes a longer chat, so the script checks that the chapter
+  door works, not what a chapter is like.
