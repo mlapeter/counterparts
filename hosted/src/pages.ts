@@ -111,7 +111,7 @@ export function deleteLaterMail(to: string, deadline: string, origin: string): {
   return {
     to,
     subject: "Your Counterparts account is set to be deleted",
-    text: `Your Counterparts account was set to be deleted. Your account and memory are locked, and every connected AI is disconnected. After ${deadline} your memory, its backups and its key are erased.
+    text: `Your Counterparts account was set to be deleted. Your account and memory are locked, and every connected AI is disconnected. After ${deadline} your memory, its backups and its key are erased. Until then your memory isn't read, shown or used.
 
 Changed your mind? Sign in at ${origin}/login before then and click "Keep my account". Your connected AIs stay disconnected: you connect them again.
 
@@ -260,7 +260,11 @@ ${
           })
           .catch(() => {
             // The page says the same thing either way; the failure is the operator's to see.
-            opts.accounts.audit(null, null, "mail.failed", null);
+            try {
+              opts.accounts.audit(null, null, "mail.failed", null);
+            } catch {
+              /* a late failure on a closed or busy database is not an unhandled rejection */
+            }
           });
       }
       message(res, 200, "Check your email", SENT_WORDS);
@@ -410,7 +414,12 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
           sending = Promise.reject(err);
         }
         void sending.catch(() => {
-          opts.accounts.audit(personId, storeId, "delete.mail.failed", null);
+          // It can land long after the page (a provider's timeout), on a closed or busy database.
+          try {
+            opts.accounts.audit(personId, storeId, "delete.mail.failed", null);
+          } catch {
+            /* the log line below still says it */
+          }
           try {
             opts.onDeleteMailFailed?.(storeId);
           } catch {
@@ -439,6 +448,29 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
         () => true,
         () => false,
       );
+      if (!finished) {
+        // Did the erase begin (the person marked deleting, durably)? A failure before
+        // that (a database error, a server not ready) changed nothing: no email, and
+        // the person is told to try again (the #662 review).
+        let state: string | null = null;
+        try {
+          state = opts.accounts.person(personId)?.state ?? null;
+        } catch {
+          state = null;
+        }
+        if (state !== "suspended" && state !== "deleted") {
+          message(
+            res,
+            503,
+            "Try again",
+            pending === null
+              ? "Your account couldn't be deleted just now. Nothing changed. Try again in a minute."
+              : "Your account couldn't be deleted just now. Nothing changed: it is still set to be deleted. Try again in a minute.",
+            { href: "/account", text: "Your account" },
+          );
+          return true;
+        }
+      }
       mail(deleteNowMail(to, finished));
       if (!finished) {
         // The account is already closed (sessions and grants gone, the store marked

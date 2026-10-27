@@ -314,7 +314,8 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   doesn't have. Fix the variable.
 - **`delete.mail.failed storeTag=<tag>`** (not a refusal): a person deleted their account and its confirmation email
   (R9) didn't send. The delete stands and their page said so; nothing retries the email. If it repeats, check Resend
-  (`RESEND_API_KEY`, `MAIL_FROM`'s domain); sign-in links would be failing too.
+  (`RESEND_API_KEY`, `MAIL_FROM`'s domain); sign-in links would be failing too. `storeTag=none` is possible: the
+  account had no store left to name.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 

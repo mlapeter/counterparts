@@ -23,7 +23,7 @@ import { DELETE_GRACE_MS, Accounts } from "../src/accounts.js";
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
 import { keyObject, replicaPrefix, tombstoneObject } from "../src/backup.js";
-import { memoryMailer, memoryObjectStore } from "../src/egress.js";
+import { memoryMailer, memoryObjectStore, resendMailer } from "../src/egress.js";
 import type { Mail, Mailer, ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper } from "../src/keys.js";
 import { eventLine } from "../src/main.js";
@@ -113,20 +113,30 @@ const ring = (): Map<string, Buffer> => new Map([["v1", randomBytes(32)]]);
 
 /** One server on a data root. Pass the same `dataRoot`, `objects` and `wrapper` to restart it on the same volume and bucket. */
 async function rig(
-  o: { clock?: { at: number }; objects?: ReturnType<typeof memoryObjectStore>; store?: ObjectStore; wrapper?: EnvKeyWrapper; finishEveryMs?: number; onEvent?: (name: string, store: string) => void; failMail?: { on: boolean } } = {},
+  o: {
+    clock?: { at: number };
+    objects?: ReturnType<typeof memoryObjectStore>;
+    store?: ObjectStore;
+    wrapper?: EnvKeyWrapper;
+    finishEveryMs?: number;
+    onEvent?: (name: string, store: string) => void;
+    failMail?: { on: boolean; via?: Mailer };
+  } = {},
 ): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
-  // `failMail.on`: every send throws (the provider down), from the moment it is set.
+  // `failMail.on`: from the moment it is set, every send throws at once (the provider down), or goes `via` a
+  // mailer that fails its own way (a real `resendMailer` answered late with an error).
   const failMail = o.failMail;
   const mailer: Mailer =
     failMail === undefined
       ? mail
       : {
           send: (m) => {
-            if (failMail.on) throw new Error("mail provider answered 503");
-            return mail.send(m);
+            if (!failMail.on) return mail.send(m);
+            if (failMail.via !== undefined) return failMail.via.send(m);
+            throw new Error("mail provider answered 503");
           },
         };
   const objects = o.objects ?? memoryObjectStore();
@@ -906,7 +916,7 @@ describe("R9: the delete emails", () => {
     assert.equal(m.subject, "Your Counterparts account is set to be deleted");
     const when = deadlineWords(t0 + DELETE_GRACE_MS, "America/Denver");
     assert.match(when, /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, \w+ \d+ at \d+:\d\d [AP]M M[DS]T$/, "the person's own zone (signUp's America/Denver)");
-    assert.ok(m.text.includes(`Your account and memory are locked, and every connected AI is disconnected. After ${when} your memory, its backups and its key are erased.`));
+    assert.ok(m.text.includes(`Your account and memory are locked, and every connected AI is disconnected. After ${when} your memory, its backups and its key are erased. Until then your memory isn't read, shown or used.`));
     assert.ok(m.text.includes(`Sign in at ${r.origin}/login before then and click "Keep my account".`));
     assert.match(m.text, /If it wasn't you, sign in and keep your account before then/);
     assertClean(r, m, [...secrets, "quince", "orchard", "crimson"]);
@@ -1056,5 +1066,85 @@ describe("R9: the delete emails", () => {
       [storeTag(me.storeId), storeTag(me.storeId)],
       "a pending person's store is still named by its tag",
     );
+  });
+
+  test("the real Resend mailer failing LATE (a 502 after the page, after the purge): audited and logged by tag, with no address and no error text (the #662 review)", async () => {
+    const called: { at: number; to: string }[] = [];
+    const late = resendMailer({
+      apiKey: "re_test_not_a_key",
+      from: "Counterparts <memory@counterparts.ai>",
+      fetchFn: (async (_url: string, init: RequestInit) => {
+        await new Promise((res) => setTimeout(res, 250));
+        called.push({ at: Date.now(), to: String(JSON.parse(String(init.body)).to) });
+        return new Response("upstream says: quota exceeded for late@example.com", { status: 502 });
+      }) as unknown as typeof fetch,
+    });
+    const failMail = { on: false, via: late };
+    const events: [string, string][] = [];
+    const r = await rig({ failMail, finishEveryMs: 60 * 60 * 1000, onEvent: (name, store) => void events.push([name, store]) });
+    const me = await signUp(r, "late@example.com");
+    await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
+    failMail.on = true;
+
+    const page = await (await me.browser.go("/account")).text();
+    const gone = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "late@example.com" });
+    assert.equal(gone.status, 200, "the page doesn't wait for the provider");
+    assert.match(await gone.text(), /Your memory, its backups and its key are erased/);
+    // The purge is done, and the provider hasn't answered yet: the failure lands after it.
+    assert.equal(r.app.accounts.person(me.personId)!.state, "deleted");
+    assert.equal(r.app.accounts.person(me.personId)!.email, null);
+    await assertErased(r, me.storeId);
+    assert.equal(r.app.accounts.auditOf(me.personId).some((a) => a.action === "delete.mail.failed"), false, "not failed yet");
+
+    await until(() => r.app.accounts.auditOf(me.personId).some((a) => a.action === "delete.mail.failed"), "the late failure audited");
+    assert.deepEqual(called.map((c) => c.to), ["late@example.com"], "the send went to the address read before the purge");
+    assert.deepEqual(events.filter(([n]) => n === "delete.mail.failed"), [["delete.mail.failed", storeTag(me.storeId)]]);
+    const line = eventLine("delete.mail.failed", storeTag(me.storeId));
+    for (const logged of [line, JSON.stringify(events), JSON.stringify(r.app.accounts.auditOf(me.personId))]) {
+      assert.doesNotMatch(logged, /@|late@|502|answered|quota|upstream/, "no address and no error text");
+    }
+  });
+
+  test("delete everything now that fails BEFORE the erase begins: nothing changed, no email, and the page says try again (the #662 review)", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "unbegun@example.com");
+    const accounts = r.app.accounts;
+    const real = accounts.markDeleting.bind(accounts);
+    let failNext = 2;
+    accounts.markDeleting = (personId: string, o?: { due?: boolean }): boolean => {
+      if (failNext > 0) {
+        failNext -= 1;
+        throw new Error("accounts.sqlite is busy");
+      }
+      return real(personId, o);
+    };
+    const before = deleteMails(r).length;
+
+    // From an active account.
+    let page = await (await me.browser.go("/account")).text();
+    let res = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "unbegun@example.com" });
+    assert.equal(res.status, 503);
+    assert.match(await res.text(), /couldn&#39;t be deleted just now\. Nothing changed\. Try again in a minute/);
+    assert.equal(accounts.person(me.personId)!.state, "active");
+    assert.notEqual(me.browser.cookie("cp_session"), null, "still signed in");
+    assert.equal(deleteMails(r).length, before, "no email");
+
+    // From the pending page: still set to be deleted, no email beyond the delete's own.
+    assert.equal((await deleteLater(me.browser, "unbegun@example.com")).status, 200);
+    assert.equal(deleteMails(r).length, before + 1);
+    await signIn(r, me.browser, "unbegun@example.com", "");
+    page = await (await me.browser.go("/account")).text();
+    res = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "unbegun@example.com" });
+    assert.equal(res.status, 503);
+    assert.match(await res.text(), /Nothing changed: it is still set to be deleted/);
+    assert.equal(accounts.person(me.personId)!.state, "pending-delete");
+    assert.equal(deleteMails(r).length, before + 1, "no email");
+
+    // Tried again, it erases, and sends its one email.
+    res = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "unbegun@example.com" });
+    assert.equal(res.status, 200);
+    assert.equal(accounts.person(me.personId)!.state, "deleted");
+    assert.equal(deleteMails(r).length, before + 2);
+    assert.equal(deleteMails(r).at(-1)!.subject, "Your Counterparts account is deleted");
   });
 });

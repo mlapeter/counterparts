@@ -434,3 +434,18 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
 - **The 24-hour email adds one line the pages don't have:** "If it wasn't you, sign in and keep your account before
   then." It is the case the email exists for.
 - `main.ts`'s `MAIL=log` line names the email by its subject (it said "a sign-in email" for every one).
+
+### The #662 review (high), and its fixes
+
+- **The tests only failed the mailer at once; `resendMailer` only fails later** (a non-ok answer, or its 10 s
+  timeout). A test now drives the real `resendMailer` with a `fetchFn` that answers `502` after 250 ms, behind a
+  delete-now: the page and the purge are done before it fails, and the audit row and the event still appear, with
+  neither the address nor the error text.
+- **A delete-now that failed before the erase began got the "being deleted" email and the `202` page** (any failure
+  of `deleteAccount` read as "cut short", including a database error at `markDeleting`, when nothing had changed).
+  After a failure the handler now reads the person's state: `suspended` or `deleted` is the `202` and its email;
+  anything else (or a read that throws) sends nothing and answers `503` "Nothing changed. Try again", still signed in.
+- The audit write in both mail-failure handlers (sign-in and delete) is wrapped, so a late failure on a closed or busy
+  database is never an unhandled rejection.
+- The 24 h email gained the pending page's "Until then your memory isn't read, shown or used", after the deadline
+  sentence so "then" has its antecedent. DESIGN §5.2 says the mail provider sees the address and keeps its own logs.

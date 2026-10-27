@@ -194,7 +194,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       A delete that sets a deadline sends one to the account's address: locked, every connected AI disconnected, the
       erase time in the person's own zone, and how to keep it (sign in at the plain `/login`, then Keep my account).
       Delete everything now sends one in the done page's words (or the `202` page's, when the erase was cut short and
-      the server finishes it), to the address read BEFORE the delete purged it. A second delete, a keep and the
+      the server finishes it), to the address read BEFORE the delete purged it. A delete-now that failed before the
+      erase began (the person not yet `suspended` or `deleted`) changed nothing: no email, and a `503` "try again". A second delete, a keep and the
       timer's erase send nothing. The emails carry no token, no link but `/login`, no id, and nothing of the memory.
       A send is not awaited and can't undo or block the delete: a failure is audited (`delete.mail.failed`) and
       logged by `storeTag` only, never the address, and the page is the same either way ("an email … is on its way").

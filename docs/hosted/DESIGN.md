@@ -402,7 +402,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and your key are erased, unless you sign
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
-> is purged from our encrypted account backups within 24 hours of the erase. Forgetting one memory removes it from
+> is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
+> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Forgetting one memory removes it from
 > your memory at once; traces of it can stay in unused space in your memory's file and its backups until they are
 > overwritten or expire, and erasing your account makes all of it unreadable at once. We hold the keys, so this
 > protects your memory from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our
