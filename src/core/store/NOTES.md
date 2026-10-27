@@ -2386,3 +2386,12 @@ the files other modules write inside a 0700 store.
   legacy `credentials.env`, `store/` and `snapshots/`), and closes the directory itself
   only when it holds nothing else and is not the home or above it. `doctor` reads the same
   set. The core's `PrivateRoots.topOnly` became `only` (a path alone, never its entries).
+- **Second re-check: one list of our names.** The base list was shorter than what we
+  write (parked, blank and new stores, rollback's set-aside stores, `debug/`, config
+  backups and temp siblings), so a parked full copy of an old memory stayed 644 and doctor
+  said green. `uninstall`'s `ownedKind` moved to `adapters/owned-names.ts`, a leaf both
+  read, and gained `rollback-aside-v*` (which uninstall had missed too, so a delete now
+  takes it as well). A base is closed only when it is also not writable by others, not
+  sticky, and owned by this account. One collision is left on purpose: in a home or project
+  base, somebody else's file that happens to carry one of our names (a `scopes.json`, a
+  `store.parked-…`) is tightened too.

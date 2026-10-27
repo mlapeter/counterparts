@@ -1,6 +1,6 @@
 /**
  * THE BASE DIRECTORY OF AN INSTALL, KEPT PRIVATE (2026-10-27, R1; moved out
- * of the core in the review of #657, narrowed in its re-check).
+ * of the core in the review of #657, narrowed in its re-checks).
  *
  * The core tightens only the store it opens (`core/store/private.ts`). The
  * directory around it holds the configuration and the files this package
@@ -9,44 +9,42 @@
  * as its store. A store dir that merely happens to be called `store` proves
  * nothing, and its parent is left alone.
  *
- * ONLY OUR NAMES, NEVER THE DIRECTORY'S OTHER ENTRIES (re-check of #657):
- * `install --config ~/counterparts.json` makes `$HOME` the base, and a config
- * in a project directory makes the project the base. So what is tightened is
- * the list of names this package writes there (`ownNames`): the configuration
- * itself, `scopes.json`, the sidebar's two files, the npm marker, a legacy
- * `credentials.env`, and `store/` and `snapshots/` whole. Everything else in
- * the directory keeps its mode. The directory ITSELF is made `0700` only when
- * it holds nothing but ours and is not the home directory or above it: the
- * default `~/.counterparts` is, a home or a project never is.
+ * ONLY OUR NAMES, NEVER THE DIRECTORY'S OTHER ENTRIES: `install --config
+ * ~/counterparts.json` makes `$HOME` the base, and a config in a project
+ * directory makes the project the base. What is tightened is the list
+ * `uninstall` reads too (`owned-names.ts#ownedKind`): the configuration and
+ * its backups and temp siblings, `scopes.json`, the sidebar's files, the npm
+ * marker, `store/` and `snapshots/` (or the configured snapshots dir, when it
+ * sits here) with their parked, blank and new siblings, `rollback`'s
+ * set-aside stores, and a `debug/` of night transcripts; plus a legacy
+ * `credentials.env`. Directories go whole, symbolic links are skipped. In a
+ * home or a project base a file of somebody else's that happens to carry one
+ * of those names is tightened too; that is the one collision left, and the
+ * names are specific enough that it should not happen.
+ *
+ * The directory ITSELF is made `0700` only when it holds nothing but ours and
+ * is not the home directory or above it, not writable by others, not sticky,
+ * and owned by this account: the default `~/.counterparts` is closed, a home
+ * or a project never is.
  *
  * Run by the session-start hook and by `connect` (the upgrade path); best-
  * effort and silent, gated by a few stats, never on Windows. `doctor`'s
  * Privacy line reads the same set (`installBasePaths`).
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, SNAPSHOTS_DIR_NAME, isWithin, realRoot, rootsNeedTightening, tightenRoots } from "../core/store/index.js";
+import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, isWithin, realRoot, rootsNeedTightening, tightenRoots } from "../core/store/index.js";
 import type { Chmod, PrivateRoots, TightenReport } from "../core/store/index.js";
-import { NPM_LIVE_NAME } from "./npm-live.js";
-import { SCOPES_FILE_NAME } from "./scopes.js";
+import { ownedKind, ownedNames } from "./owned-names.js";
+
+export { SIDEBAR_NAMES } from "./owned-names.js";
 
 /** The old credentials file's name (`cli/install.ts#LEGACY_CREDENTIALS_FILE`),
- *  spelled here so this leaf does not import the console. */
+ *  spelled here so this leaf does not import the console. `uninstall` leaves
+ *  it (a file the person may want), but it is ours to make private. */
 const LEGACY_CREDENTIALS = "credentials.env";
-/** The sidebar's two files (`sidebar-status.ts#SIDEBAR_FILE_NAME`, `#PLUGIN_PRESENCE_NAME`),
- *  spelled here because that module pulls in the dashboard, which the hook
- *  must not load; `test/private-store.test.ts` holds the two spellings together. */
-export const SIDEBAR_NAMES: readonly string[] = ["sidebar.json", "sidebar-plugin-here"];
-
-/** Is this entry of the base one this package writes? Directories go whole. */
-function ownName(name: string, configName: string): "file" | "tree" | null {
-  if (name === DEFAULT_STORE_SUBDIR || name === SNAPSHOTS_DIR_NAME) return "tree";
-  if (name === configName || name === SCOPES_FILE_NAME || SIDEBAR_NAMES.includes(name)) return "file";
-  if (name === LEGACY_CREDENTIALS || NPM_LIVE_NAME.test(name)) return "file";
-  return null;
-}
 
 export interface BasePaths {
   readonly base: string;
@@ -57,13 +55,43 @@ export interface BasePaths {
   readonly trees: readonly string[];
 }
 
+/** `snapshots.dir` from the configuration file; absent when it names none or
+ *  cannot be read. */
+function configuredSnapshots(configPath: string): string | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as { snapshots?: { dir?: unknown } };
+    const dir = raw.snapshots?.dir;
+    return typeof dir === "string" ? dir : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** May the base directory itself be closed (beyond holding only ours)? Not the
+ *  home or above it, not writable by others, not sticky, owned by this account. */
+function closable(base: string, home: string): boolean {
+  const h = resolve(home);
+  const b = resolve(base);
+  if (b === h || isWithin(b, h)) return false;
+  try {
+    const st = lstatSync(b);
+    if ((st.mode & 0o002) !== 0 || (st.mode & 0o1000) !== 0) return false;
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    return uid === null || st.uid === uid;
+  } catch {
+    return false;
+  }
+}
+
 /** Our paths in an install's base, or null when `storeDir` is not
  *  `<dirname(configPath)>/store` with that configuration in place. */
 export function installBasePaths(configPath: string, storeDir: string, home: string = homedir()): BasePaths | null {
   if (!existsSync(configPath)) return null;
   const base = dirname(resolve(configPath));
-  if (realRoot(join(base, DEFAULT_STORE_SUBDIR)) !== realRoot(storeDir)) return null;
-  const configName = basename(resolve(configPath));
+  const store = join(base, DEFAULT_STORE_SUBDIR);
+  if (realRoot(store) !== realRoot(storeDir)) return null;
+  const snapshotsDir = configuredSnapshots(configPath);
+  const owned = ownedNames(configPath, snapshotsDir === undefined ? {} : { snapshots: { dir: snapshotsDir } }, store);
   let names: string[] = [];
   try {
     names = readdirSync(base);
@@ -74,21 +102,28 @@ export function installBasePaths(configPath: string, storeDir: string, home: str
   const trees: string[] = [];
   let foreign = 0;
   for (const name of names) {
-    const kind = ownName(name, configName);
-    if (kind === "file") files.push(join(base, name));
-    else if (kind === "tree") trees.push(join(base, name));
-    else foreign += 1;
+    if (ownedKind(name, owned, base) === null && name !== LEGACY_CREDENTIALS) {
+      foreign += 1;
+      continue;
+    }
+    const path = join(base, name);
+    try {
+      const st = lstatSync(path);
+      if (st.isSymbolicLink()) continue;
+      (st.isDirectory() ? trees : files).push(path);
+    } catch {
+      continue;
+    }
   }
-  const h = resolve(home);
-  const homeOrAbove = resolve(base) === h || isWithin(resolve(base), h);
-  return { base, baseIsOurs: foreign === 0 && !homeOrAbove, files, trees };
+  return { base, baseIsOurs: foreign === 0 && closable(base, home), files, trees };
 }
 
-/** The same set as roots for `tightenRoots`. */
+/** The same set as roots for `tightenRoots`; the store by its real path. */
 export function installBaseRoots(configPath: string, storeDir: string, home: string = homedir()): PrivateRoots | null {
   const p = installBasePaths(configPath, storeDir, home);
   if (p === null) return null;
-  return { only: [...(p.baseIsOurs ? [p.base] : []), ...p.files], recursive: p.trees.map((t) => (basename(t) === DEFAULT_STORE_SUBDIR ? realRoot(t) : t)) };
+  const store = realRoot(join(p.base, DEFAULT_STORE_SUBDIR));
+  return { only: [...(p.baseIsOurs ? [p.base] : []), ...p.files], recursive: [...p.trees.filter((t) => t !== join(p.base, DEFAULT_STORE_SUBDIR)), store] };
 }
 
 /** Tighten an install's base, when it is one. Null when there was nothing to do. */

@@ -23,7 +23,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { EXIT, run } from "../src/adapters/cli/index.js";
@@ -32,7 +32,8 @@ import { modesFindings } from "../src/adapters/claude-code/doctor-modes.js";
 import { runSnapshot } from "../src/adapters/snapshots.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { STORE_TIGHTENED_EVENT, Store, storeNeedsTightening, tightenStore } from "../src/core/store/index.js";
-import { tightenInstallBase } from "../src/adapters/private-base.js";
+import { installBasePaths, tightenInstallBase } from "../src/adapters/private-base.js";
+import { ownedKind, ownedNames } from "../src/adapters/owned-names.js";
 import type { StoreEvent } from "../src/core/store/index.js";
 import { scriptArgs } from "../src/adapters/runtime.js";
 
@@ -492,4 +493,78 @@ test("private-base spells the sidebar's two file names as sidebar-status does", 
   const { SIDEBAR_NAMES } = await import("../src/adapters/private-base.js");
   const { PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME } = await import("../src/adapters/sidebar-status.js");
   expect([...SIDEBAR_NAMES].sort()).toEqual([PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME].sort());
+});
+
+// ── re-check of #657: one list of our names, for uninstall and for privacy ──
+
+describe("what uninstall calls ours is what is made private", () => {
+  /** A default ~/.counterparts with every kind of thing this package leaves in it. */
+  function fullBase(foreign: boolean): { home: string; base: string; configPath: string; store: string; ours: string[] } {
+    const home = join(temp(), "home");
+    const base = join(home, ".counterparts");
+    const store = join(base, "store");
+    Store.open({ dir: store }).close();
+    const configPath = join(base, "claude-code.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: store }));
+    const files = [
+      "claude-code.json.4242.tmp",
+      "claude-code.json.counterparts-backup-2026-09-21T14-03-05Z",
+      "scopes.json",
+      "scopes.json.tmp",
+      "sidebar.json",
+      "sidebar.json.17.tmp",
+      "sidebar-plugin-here",
+      "npm-live.json",
+      "credentials.env",
+    ];
+    for (const f of files) writeFileSync(join(base, f), "x\n");
+    const trees = ["store.parked-2026-09-21", "store.blank-2026-09-21", "store.new-4242", "snapshots", "snapshots.parked-2026-09-21", "rollback-aside-v13-2026-10-11T07-25-00-000Z"];
+    for (const t of trees) {
+      mkdirSync(join(base, t), { recursive: true });
+      writeFileSync(join(base, t, "counterparts.sqlite"), "old memory\n");
+    }
+    mkdirSync(join(base, "debug", "2026-10-20"), { recursive: true });
+    writeFileSync(join(base, "debug", "2026-10-20", "dream-nrn_abc.jsonl"), "{}\n");
+    if (foreign) {
+      mkdirSync(join(base, "Public"));
+      writeFileSync(join(base, "notes.txt"), "mine\n");
+    }
+    for (const e of walk(base)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    return { home, base, configPath, store, ours: ["claude-code.json", "store", "debug", ...files, ...trees] };
+  }
+
+  test("the two callers read one fixture the same way", () => {
+    const { home, base, configPath, store, ours } = fullBase(true);
+    const owned = ownedNames(configPath, {}, store);
+    const byUninstall = readdirSync(base).filter((n) => ownedKind(n, owned, base) !== null);
+    const p = installBasePaths(configPath, store, home);
+    const byPrivacy = [...(p?.files ?? []), ...(p?.trees ?? [])].map((x) => basename(x));
+    // credentials.env is the one difference: uninstall leaves it, privacy closes it.
+    expect([...byPrivacy].sort()).toEqual([...byUninstall, "credentials.env"].sort());
+    expect([...byPrivacy].sort()).toEqual([...ours].sort());
+    expect(p?.baseIsOurs).toBe(false);
+  });
+
+  test("a loose default base with a parked store, debug/ and a config backup: all of it closed, doctor green after", async () => {
+    const { home, base, configPath, store } = fullBase(false);
+    expect(modesFindings(store, "darwin", configPath)[0]?.severity).toBe("amber");
+    await run(["connect", "--config", configPath], {
+      io: quietIo().io,
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      home,
+      spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+      processes: () => ({ looked: true, processes: [] }),
+    });
+    expect(openPaths(base)).toEqual([]);
+    expect(modesFindings(store, "darwin", configPath)[0]?.severity).toBe("green");
+  });
+
+  test("a base that others may write in, or that is sticky, is never closed (its entries still are)", () => {
+    const { home, base, configPath, store } = fullBase(false);
+    chmodSync(base, 0o1777);
+    tightenInstallBase(configPath, store, { home });
+    expect(mode(base)).toBe(0o777);
+    expect(mode(join(base, "store.parked-2026-09-21"))).toBe(0o700);
+    expect(mode(configPath)).toBe(0o600);
+  });
 });
