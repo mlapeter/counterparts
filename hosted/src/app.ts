@@ -91,6 +91,14 @@ export interface StartOptions {
    * point, before anything opens them: `restoreControl`).
    */
   readonly restore?: LitestreamRun;
+  /**
+   * NEW_BUCKET on a volume never backed up (R7; `main.ts#prepareVolume`): the
+   * stores that lived under BACKUPS=off are given keys at this start. R5's (f)
+   * and (f2) can never hold for them (the bucket and `keys.sqlite` are both
+   * newer than every store), and both exist to doubt exactly what the operator
+   * said here. Its other checks stand.
+   */
+  readonly firstBackup?: boolean;
 }
 
 export interface StartReport {
@@ -486,7 +494,7 @@ export function createApp(opts: AppOptions): App {
         // Keys first (adopted from the bucket on a new volume; minted for a store
         // that served with none, when nothing can be buried), then restores
         // while no sidecar runs, then the sidecar on the whole configuration.
-        ({ keyless, minted } = await backups.ensureAll({ reload: false }));
+        ({ keyless, minted } = await backups.ensureAll({ reload: false, ...(startOpts.firstBackup === true ? { firstBackup: true } : {}) }));
         if (startOpts.restore !== undefined) {
           // Every missing live store, marked or not: `-if-replica-exists` makes a
           // store with no replica a no-op. One that fails is counted and left

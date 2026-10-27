@@ -243,10 +243,11 @@ command minted, and the RUNBOOK's "tell the coordinator" led nowhere.
 - **A 404 NoSuchBucket now throws** in `r2ObjectStore.get` and `.delete`, so a wrong `R2_BUCKET` is never read as "no
   such object" or "already deleted". Before, a typo'd bucket read as empty until the first PUT failed.
 - **The control key's mismatch says so** (the #658 review). A volume that lost `keys.sqlite` and started against a
-  wrong, empty bucket makes itself a new control key (#653's behaviour, kept). Back on the right bucket, the start
+  wrong, empty bucket made itself a new control key (#653's behaviour). Back on the right bucket, the start
   used to refuse with "a different key for that store is already here"; it now names the control key and the way
   back (remove `keys/`, one deploy with `CONTROL_ASIDE` and `RESTORE_ON_BOOT`), and a test runs that way back
-  through serve. Refusing a lived volume beside a bucket with no control key is R7, separate.
+  through serve. Since R7 (below) that wrong-bucket start is refused, so this path is reached only when
+  `NEW_BUCKET` was set on a wrong bucket.
 - **The lines are fixed words by tag** (`main.ts#eventLine`): `backup.key.minted storeTag=…`, or `backup.keyless
   storeTag=… reason=…` with one of six reasons (`backup.ts#KEYLESS_REASONS`), above the count lines. Each is audited
   (`backup.key.minted`, or `backup.keyless` with the reason in the detail). The mint is audited and logged once the key
@@ -333,3 +334,37 @@ Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.te
 - All four cases (slow body + Keep, slow body + disconnect, queued + lock, queued + delete and Keep) fail on Node 24
   without the change and pass with it, on both runtimes.
 - **start-over refuses a store set to be deleted** (operator only; it read `liveStoreIds`, which includes pending).
+
+## R7: a lived volume beside a bucket with no control key (10-27)
+
+From the #658 review (its T2/T3). `prepareVolume` let any volume start beside a bucket with no control key, and the
+start then made the volume a control key in that bucket and replicated the control databases there. On a volume that
+had lived, that is a wrong `R2_BUCKET` (or a lost `keys.sqlite` beside one): the control writes made in that window
+went to the wrong bucket, and fixing `R2_BUCKET` then refused "a different key" with a manual way back (`rm -rf
+/data/keys`, `CONTROL_ASIDE`, `RESTORE_ON_BOOT`) that lost those writes. #658's (f)/(f2) kept it from minting STORE
+keys there, but the control key itself was made. The guarantee is CONTRACT §31.
+
+- **Refused now, unless `NEW_BUCKET` names the bucket.** Lived = the control key here, or any control database
+  (the brief's `localKey || present.length > 0`). A new volume beside an empty bucket starts with no variable.
+- **The refusal names its case from what the volume holds** (`main.ts#livedRefusal`): the control key here (T2: the
+  bucket is most likely wrong); `control/litestream.key` without it (T3: `keys.sqlite` lost, and the bucket most
+  likely wrong); neither (a `BACKUPS=off` volume, or an `invite` run before the first serve). `control/litestream.key`
+  tells T3 from off because a `BACKUPS=off` run never writes it (the M2 refusal leans on the same file).
+- **T3 fixed now needs no `rm -rf /data/keys`.** No control key is made at the refused start, so the right bucket
+  refuses for the control key as #653 designed, and `CONTROL_ASIDE` + `RESTORE_ON_BOOT` bring the control databases
+  back. A test runs it through serve.
+- **Chosen: `NEW_BUCKET=<R2_BUCKET's value>`, not `=1`.** It names the bucket, so one left set never vouches for a
+  different bucket (the dangerous later mistake is exactly a changed `R2_BUCKET`), and the refusal can print the line
+  to paste. Any other value doesn't count, and the refusal says so. No guard file like `CONTROL_ASIDE`'s: once used,
+  the bucket has the control key and the variable changes nothing (each start says so until it is unset).
+- **Found: `BACKUPS=off` → on left every store unbacked for good, before R7 too.** The stores lived (`opened_at`) with
+  no key anywhere, so R5's mint refused them: `bucket-unproven` at the first start, then `keys-newer` at every start
+  after (the control key is newer than every store by construction). So `NEW_BUCKET` on a volume never backed up also
+  waives (f) and (f2) for that start (`StartOptions.firstBackup` → `ensureAll` → `mintRefusal`); (c), (d) and (e)
+  still check the bucket. Such a volume never had a key to lose, and both checks exist to doubt exactly what the
+  operator said. On a volume backed up before, `NEW_BUCKET` waives nothing: a T3 volume moved to a new bucket keeps
+  its stores keyless (`bucket-unproven`, then `keys-newer`), as R5 left that case. Tested both ways.
+- **Left:** a `BACKUPS=off` → on start that stops after its control key's upload and before every store's key would
+  leave the rest `keys-newer` (the next start no longer looks like a volume never backed up). Rare: the bucket failing
+  mid-start, on the one start that turns backups on.
+

@@ -228,7 +228,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       The safety comes from the replica check, the key-age check, and `config()` listing only stores with a key: a
       store this `keys.sqlite` never held a key for was never replicated by this volume, anywhere. The control-key
       check does NOT prove the bucket is this volume's (a wrong bucket passes it at its second start); it only
-      keeps the first start against a new bucket from minting.
+      keeps the first start against a new bucket from minting. Since R7 a lived volume reaches a bucket with no
+      control key only through `NEW_BUCKET` (§31), which waives (f) and the key-age check for a volume never backed up.
 
       Each mint is audited (`backup.key.minted`) and logged by `storeTag`, and its key file is rewritten whatever
       was there. Otherwise the store is left out of the backups, counted (`keyless`), audited and logged by tag
@@ -263,9 +264,27 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - a volume with the key and a control database missing (a control restore cut short) restores that one alone,
       or refuses.
 
-    Starting anyway would make empty control databases and replicate them over the real ones. A new server with an
-    empty bucket starts as before. The same rule stands in front of every control restore (`restoreControl`: the CLI's
-    `restore control` and `--all` too). The control key is adopted only when no control file here is kept.
+    Starting anyway would make empty control databases and replicate them over the real ones. The same rule stands in
+    front of every control restore (`restoreControl`: the CLI's `restore control` and `--all` too). The control key is
+    adopted only when no control file here is kept.
+    - **A volume that lived beside a bucket with NO control key is refused** (R7, `main.ts#emptyBucket`). Lived means
+      this volume holds the control key or any control database. Starting would make the volume a control key in that
+      bucket and back the control databases up there: with a wrong `R2_BUCKET`, every control write from then on goes
+      to the wrong bucket, and back on the right one the start refuses "a different key" (when `keys.sqlite` was lost
+      too). The refusal names the case it thinks it is, from what the volume holds:
+      - the control key is here: `R2_BUCKET` is most likely wrong;
+      - `control/litestream.key` but no control key (`keys.sqlite` lost): `R2_BUCKET` is most likely wrong, and the
+        right bucket then asks for `CONTROL_ASIDE` + `RESTORE_ON_BOOT`, with no `keys/` to remove;
+      - control databases and no backup key at all: a `BACKUPS=off` volume (or an `invite` run before the first start).
+    - **`NEW_BUCKET=<R2_BUCKET's value>` is the opt-in** for the two legitimate cases: a new bucket on purpose, and
+      `BACKUPS=off` turning on. It names the bucket, so one left set never vouches for another bucket; any other value
+      doesn't count, and the refusal says so. Used, it logs a line; set and not needed, it logs that it changed nothing.
+      On a volume never backed up, it also waives R5's (f) and (f2) at that start (`StartOptions.firstBackup`), so the
+      stores that lived under off get their keys then; its other checks stand. On a volume backed up before it waives
+      nothing.
+    - A new volume beside an empty bucket (the first deploy) starts as before, with no variable. The rule stands in
+      front of `invite`, `rewrap` and `start-over` too (a `start-over` against a wrong, empty bucket would find "no
+      replica").
     - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
     - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite` or `control/litestream.key`).
     - `CONTROL_ASIDE=<label>` (`main.ts#controlAsideAtStart`, `serve` only, never with `BACKUPS=off`) moves `control/`

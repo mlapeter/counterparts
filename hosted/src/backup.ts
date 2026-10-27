@@ -57,7 +57,7 @@ export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
 /** The refusal when the bucket's control key is another DEK than this volume's. */
 export const CONTROL_KEY_DIFFERS =
-  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
+  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (NEW_BUCKET set on a wrong R2_BUCKET, after keys/keys.sqlite was lost) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
 
 /** A store that was opened before has no key on this volume and none in the bucket. */
 export class StoreKeyMissing extends Error {
@@ -249,7 +249,7 @@ export class Backups {
    * between the checks and the mint. Anything else is left out of the backups
    * (and said so), never allowed to stop every other person's start.
    */
-  async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
+  async ensureAll(opts: { reload?: boolean; firstBackup?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
     const unreadable = await this.opts.keys.unreadable();
     if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys don't open with the KEK ring: put the old version back in the ring and run rewrap again.`);
     // (f) THE BUCKET IS THIS VOLUME'S: it held the control key BEFORE this start.
@@ -273,7 +273,7 @@ export class Backups {
         await this.ensureStore(id, { reload: false });
       } catch (err) {
         if (!(err instanceof StoreKeyMissing)) throw err;
-        const refusal = await this.mintRefusal(id, bucketProven);
+        const refusal = await this.mintRefusal(id, bucketProven, opts.firstBackup === true);
         if (refusal !== null) {
           keyless += 1;
           this.opts.onKeyless?.(id, refusal);
@@ -308,8 +308,12 @@ export class Backups {
    * Every key a store can have is made or adopted in `keys.sqlite`, and every
    * replica of it is written under one: so with (a)–(f2), no copy of it anywhere
    * is under a key that is gone, and a new key buries nothing.
+   *
+   * `firstBackup` (R7: NEW_BUCKET at the start of a volume that was never
+   * backed up, BACKUPS=off turning on) waives (f) and (f2): such a volume never
+   * had a key to lose, and both are newer than every store by construction.
    */
-  private async mintRefusal(storeId: string, bucketProven: boolean): Promise<KeylessReason | null> {
+  private async mintRefusal(storeId: string, bucketProven: boolean, firstBackup = false): Promise<KeylessReason | null> {
     if (this.opts.keys.wrapped(storeId) !== null) throw new Error("a store with a key here reached the mint"); // (a): ensureStore's invariant
     if (!existsSync(this.dbPaths(storeId)[0]!)) return "no-database";
     try {
@@ -318,6 +322,7 @@ export class Backups {
     } catch {
       return "bucket-unreadable";
     }
+    if (firstBackup) return null;
     if (!bucketProven) return "bucket-unproven";
     const keysMade = this.opts.keys.createdAt(CONTROL_KEY_ID);
     const opened = this.opts.openedAt?.(storeId) ?? null;

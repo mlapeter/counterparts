@@ -62,7 +62,7 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    | `R2_SECRET_ACCESS_KEY` | the R2 token's secret |
    | `LOG_FORWARDED_FOR` | `1`, **for the first deploy only** (section 5, step 3) |
 
-   Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS` or `RESTORE_ON_BOOT`.
+   Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`.
 
 ## 3. Cloudflare R2 (about 10 minutes)
 
@@ -118,7 +118,9 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite --note mike
    ```
 
-   It prints one `cpi_…` code, once. It needs the backup variables set, as `serve` does.
+   It prints one `cpi_…` code, once. It needs the backup variables set, as `serve` does. Make it only once the
+   server is serving: on a new volume, an `invite` before the first start makes a control database, and that start
+   then refuses as if the volume had run with `BACKUPS=off` (the `NEW_BUCKET` entry under "If a start refuses").
 2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email, so open it
    **in the same browser**.
 3. Your account page shows no connected apps yet.
@@ -180,7 +182,8 @@ writes nothing.
 
 Without the flag, a server on an empty volume beside a bucket that has backups **refuses to start**, and says so. If
 it started, it would make empty databases and replicate them over the real ones. (A new server with a new, empty
-bucket starts normally.)
+bucket starts normally. A volume that has lived beside an empty bucket refuses too, unless `NEW_BUCKET` says the
+bucket is new on purpose: "If a start refuses".)
 
 ### One store's files are gone
 
@@ -244,6 +247,28 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   then `3`, …). The used labels are in `/data/overrides/`.
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
+- **"…the bucket R2_BUCKET names ("<name>") has no control key"** (R7): this volume has lived (its control key or
+  its control databases are here), and the bucket has never been this volume's. Nothing was made or put anywhere.
+  The line says which case it thinks it is:
+  - **"this volume has been backed up (its control key is in keys/keys.sqlite)"**: `R2_BUCKET` is most likely wrong.
+    Fix it and redeploy; it starts as before.
+  - **"…has lost its control key (keys/keys.sqlite)"**: `keys/keys.sqlite` is gone AND `R2_BUCKET` is most likely
+    wrong. Fix `R2_BUCKET`; that start then refuses with "…but not the key that wrote the bucket's backups" (the
+    first entry above): deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, then unset both. No
+    `rm -rf /data/keys` is needed.
+  - **"…has never been backed up: it ran with BACKUPS=off"** (or an `invite` ran before the first start): you are
+    turning backups on.
+
+  **Only when the bucket is new on purpose** (a move to a new bucket, or turning backups on after `BACKUPS=off`), set
+  `NEW_BUCKET` to `R2_BUCKET`'s exact value (the line prints it: `NEW_BUCKET=<name>`) for one deploy. The log says
+  `NEW_BUCKET=<name>: …on purpose…`, and R2 then shows `keys/control.wrapped`. Unset it once it is serving. Left
+  set, each start logs `NEW_BUCKET is set, but … it changed nothing`; any other value doesn't count, so a later
+  wrong `R2_BUCKET` is refused again.
+  - Turning backups on, the same start gives every store a key (`backup.key.minted storeTag=…`, one per store).
+  - Moving a volume that still has `keys/keys.sqlite`: every store's key goes into the new bucket as it is.
+  - Moving a volume that LOST `keys/keys.sqlite` to a new bucket: its stores' keys went with that file, so they stay
+    unbacked (`backup.keyless … reason=bucket-unproven`, then `keys-newer`). Go back to the old bucket instead (the
+    second case above) unless it is gone too, and tell the coordinator.
 - **Copies set aside hold addresses and memories**, outside the 24-hour purge: `/data/control.aside-*` from the
   `CONTROL_ASIDE` above, and every `*.pre-restore-*` file that a `--force` restore moved aside. Every start deletes any
   that are more than a day old, and logs `deleted N copies set aside…`. Check one within the day if you need to,
@@ -262,14 +287,15 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   bucket"** below it: the store serves, but isn't backed up, and no key was made, on purpose. By reason:
   - `no-database`: its database isn't on this volume. It also waits for a restore (`RESTORE_ON_BOOT=1`), or for
     `start-over` if it never reached the bucket.
-  - `bucket-unproven`: the bucket had no control key before this start: it is a new bucket, or not this volume's.
-    **Check `R2_BUCKET` first.** If it's wrong, fix it and redeploy. If it's right (a new bucket on purpose), the next
-    start makes the key, because this start put the control key there.
+  - `bucket-unproven`: the bucket had no control key before this start, which `NEW_BUCKET` said is on purpose (since
+    R7 that is the only way a volume that lived gets here). **Check `R2_BUCKET` anyway.** If it's wrong after all,
+    fix it and redeploy. If it's right, the next start makes the key, because this start put the control key there.
 
     If the corrected bucket then refuses with **"the bucket's control key is a different key from this volume's"**,
-    that wrong-bucket start made this volume a new control key (it happens when `keys/keys.sqlite` was lost too). The
-    way back: remove `keys/` from the volume (`rm -rf /data/keys`, with a start-command override if the service
-    crash-loops), then deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, then unset both.
+    the `NEW_BUCKET` start made this volume a new control key in the wrong bucket (it happens when `keys/keys.sqlite`
+    was lost too). The way back: remove `keys/` from the volume (`rm -rf /data/keys`, with a start-command override
+    if the service crash-loops), then deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, then
+    unset both.
   - `bucket-unreadable`: a check's request to the bucket failed. The next restart tries again.
   - `tombstone`: the bucket says it was deleted. A start finishes the delete.
   - `replica-in-bucket`: the bucket holds backup objects of it, under a key that is gone. A new key would bury them.

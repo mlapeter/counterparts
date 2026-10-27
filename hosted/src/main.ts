@@ -30,6 +30,9 @@
  *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
  *                      stays), and only on a volume refused as "not the key that wrote the bucket's backups";
  *                      with RESTORE_ON_BOOT=1
+ *   NEW_BUCKET         R2_BUCKET's exact value: this volume has lived (its control key or control databases are
+ *                      here) and the bucket has no control key ON PURPOSE (a move to a new bucket, or turning
+ *                      backups on after BACKUPS=off). Without it such a start is refused (R7). One deploy, then unset
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
@@ -42,7 +45,7 @@ import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
-import type { AppBackupOptions } from "./app.js";
+import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun } from "./backup.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -235,7 +238,7 @@ const KEYLESS_WORDS: Record<KeylessReason, string> = {
   "no-database": "its database isn't on this volume. It waits for a restore (RESTORE_ON_BOOT=1), or for start-over if it never reached the bucket",
   "replica-in-bucket": "the bucket holds backup objects of it under a key that is gone, and a new key would bury them. Tell the coordinator",
   tombstone: "the bucket has its tombstone: it was deleted, and the delete is finished at a start",
-  "bucket-unproven": "the bucket had no control key before this start, so it isn't proven to be this volume's. If R2_BUCKET is wrong, fix it before anything else; if it is right, the next start checks again (this start put the control key there). If the corrected bucket then refuses with \"the bucket's control key is a different key\", the wrong-bucket start made this volume a new control key: remove keys/ (rm -rf /data/keys), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1",
+  "bucket-unproven": "the bucket had no control key before this start (NEW_BUCKET said it is new on purpose), so it isn't proven to be this volume's. If R2_BUCKET is wrong after all, fix it before anything else; if it is right, the next start checks again (this start put the control key there). If the corrected bucket then refuses with \"the bucket's control key is a different key\", this start made this volume a new control key: remove keys/ (rm -rf /data/keys), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1",
   "keys-newer": "this volume's keys (keys/keys.sqlite) were made after the store was first opened, so an older key of it may exist. Tell the coordinator",
   "bucket-unreadable": "the bucket didn't answer one of the checks. The next restart tries again",
   locked: "its account is set to be deleted (a pending delete), and a store set to be erased is never given a new key. It is erased at its deadline; if its person keeps it, the next start checks it like any store that lived with no key",
@@ -313,11 +316,35 @@ export function controlAside(dataRoot: string, label: string, now: number = Date
   return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
 }
 
+/** What `prepareVolume` found: a refusal, or the start goes on (with what it restored, and a line to log). */
+export interface Prepared {
+  readonly refusal?: string;
+  readonly restored?: string;
+  /** A line for the log: NEW_BUCKET was used, or is set and changed nothing. */
+  readonly note?: string;
+  /**
+   * NEW_BUCKET was used on a volume that was NEVER backed up (a `BACKUPS=off`
+   * run turning backups on): `serve` passes it to `app.start`, so the stores
+   * that lived under off are given keys at this start (R5's (f) and (f2)
+   * waived; its other checks stand). Never set for a volume backed up before.
+   */
+  readonly firstBackup?: boolean;
+}
+
 /**
- * BEFORE ANYTHING OPENS A CONTROL DATABASE (`serve`, `invite`, `rewrap`): is
- * this volume the one that wrote the bucket's backups? (The #OL2b review, H2.)
+ * BEFORE ANYTHING OPENS A CONTROL DATABASE (`serve`, `invite`, `rewrap`,
+ * `start-over`): is this volume the one that wrote the bucket's backups? (The
+ * #OL2b review, H2; R7.)
  *
- *   - The bucket has no `keys/control.wrapped`: a new server. Go on.
+ *   - The bucket has no `keys/control.wrapped`, and this volume never lived
+ *     (no control key, no control database): a new server. Go on.
+ *   - The bucket has no control key, but this volume LIVED (R7): refused,
+ *     unless NEW_BUCKET names this bucket. Otherwise the start would make the
+ *     volume a control key in that bucket and back the control databases up
+ *     there: with a wrong R2_BUCKET, the control writes from then on go to the
+ *     wrong bucket, and back on the right one the start refuses "a different
+ *     key" (when `keys.sqlite` was lost too). The refusal says which case it
+ *     thinks it is (`livedRefusal`).
  *   - This volume holds the control key too: it is the bucket's. A control
  *     database missing from it (a control restore cut short) is restored alone
  *     with a runner, refused without one. Never made empty: an empty one would
@@ -327,10 +354,12 @@ export function controlAside(dataRoot: string, label: string, now: number = Date
  *     refuse, saying how. With one here (made by an `invite`, a `BACKUPS=off`
  *     run, …), always refuse: it isn't the real one, and it would replace it.
  */
-export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null): Promise<{ refusal?: string; restored?: string }> {
+export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null, opts: { newBucket?: string | undefined } = {}): Promise<Prepared> {
   const v = await controlVolume(dataRoot, backup);
-  if (!v.bucketKey) return {};
-  if (v.localKey && v.present.length === CONTROL_DATABASES.length) return {};
+  const newBucket = opts.newBucket === undefined || opts.newBucket === "" ? undefined : opts.newBucket;
+  if (!v.bucketKey) return emptyBucket(dataRoot, backup, v, newBucket);
+  const unused = newBucket === undefined ? {} : { note: "NEW_BUCKET is set, but the bucket already has the control key: it changed nothing. Unset NEW_BUCKET." };
+  if (v.localKey && v.present.length === CONTROL_DATABASES.length) return unused;
   const foreign = foreignControlRefusal(dataRoot, v);
   if (foreign !== null) return { refusal: foreign };
   if (run === null) {
@@ -342,7 +371,42 @@ export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, 
   }
   const r = await restoreControl(dataRoot, backup, run, { missingOnly: true });
   if (r.restored + r.kept < CONTROL_DATABASES.length) return { refusal: `refused: the bucket's key object is there, but ${String(r.empty)} control databases have no replica to restore from. Nothing was started.` };
-  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here` };
+  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here`, ...unused };
+}
+
+/**
+ * A BUCKET WITH NO CONTROL KEY (R7). A volume that never lived starts as a new
+ * server. One that lived starts only when NEW_BUCKET is R2_BUCKET's exact
+ * value: the variable names the bucket, so one left set never vouches for a
+ * different bucket later (a typo'd R2_BUCKET is refused again).
+ */
+function emptyBucket(dataRoot: string, backup: AppBackupOptions, v: ControlVolume, newBucket: string | undefined): Prepared {
+  if (!v.localKey && v.present.length === 0) {
+    return newBucket === undefined ? {} : { note: "NEW_BUCKET is set, but this volume is new (no control key, no control databases): it changed nothing. Unset NEW_BUCKET." };
+  }
+  // Backed up before: the control key here, or (keys.sqlite lost) the control
+  // databases' key file, which a BACKUPS=off run never writes (the M2 check).
+  const backedUp = v.localKey || existsSync(join(dataRoot, "keys", "keys.sqlite")) || existsSync(join(dataRoot, "control", "litestream.key"));
+  if (newBucket === backup.bucket) {
+    return backedUp
+      ? { note: `NEW_BUCKET=${backup.bucket}: this volume was backed up to another bucket, and starts on this one, which has no control key, on purpose. Its control key and databases are backed up here from this start. Unset NEW_BUCKET once it is serving.` }
+      : { note: `NEW_BUCKET=${backup.bucket}: this volume ran without backups (BACKUPS=off) and starts on this bucket, which has no control key, on purpose. Its control databases and every store are backed up here from this start. Unset NEW_BUCKET once it is serving.`, firstBackup: true };
+  }
+  return { refusal: livedRefusal(v, backedUp, backup.bucket, newBucket) };
+}
+
+/** The R7 refusal: the case it thinks it is, what to fix, and the one variable that says "on purpose". */
+function livedRefusal(v: ControlVolume, backedUp: boolean, bucket: string, newBucket: string | undefined): string {
+  const optIn = `set NEW_BUCKET=${bucket} (R2_BUCKET's value) for one deploy, then unset it`;
+  const mismatch = newBucket === undefined ? "" : ` (NEW_BUCKET is set, but not to R2_BUCKET's value "${bucket}", so it doesn't count.)`;
+  const tail = ` (docs/hosted/RUNBOOK.md, If a start refuses).${mismatch}`;
+  if (v.localKey) {
+    return `refused: this volume has been backed up (its control key is in keys/keys.sqlite), but the bucket R2_BUCKET names ("${bucket}") has no control key: R2_BUCKET is most likely wrong. Fix it and deploy again. Only if this is a new, empty bucket on purpose (a move to a new bucket), ${optIn}${tail}`;
+  }
+  if (backedUp) {
+    return `refused: this volume has been backed up (control/litestream.key is here) but has lost its control key (keys/keys.sqlite), and the bucket R2_BUCKET names ("${bucket}") has no control key: R2_BUCKET is most likely wrong. Fix it and deploy again; the right bucket then asks for CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1, which bring the control databases back. Only if this is a new, empty bucket on purpose, ${optIn}; this volume's stores lost their keys with keys/keys.sqlite and would stay unbacked there (backup.keyless reason=keys-newer)${tail}`;
+  }
+  return `refused: this volume has ${v.present.join(" and ")} but has never been backed up: it ran with BACKUPS=off (or an invite ran before its first start). The bucket R2_BUCKET names ("${bucket}") has no control key. To turn backups on into this bucket, ${optIn}; this start then backs up the control databases and every store. If R2_BUCKET is wrong, fix it instead${tail}`;
 }
 
 async function main(): Promise<void> {
@@ -365,12 +429,13 @@ async function main(): Promise<void> {
       return;
     }
     if (configured !== null) {
-      const prepared = await prepareVolume(read.dataRoot, configured, null);
+      const prepared = await prepareVolume(read.dataRoot, configured, null, { newBucket: env["NEW_BUCKET"] });
       if (prepared.refusal !== undefined) {
         process.stderr.write(`[hosted] ${prepared.refusal}\n`);
         process.exitCode = 1;
         return;
       }
+      if (prepared.note !== undefined) process.stderr.write(`[hosted] ${prepared.note}\n`);
     }
     if (command === "start-over") {
       if (configured === null) {
@@ -462,16 +527,21 @@ async function main(): Promise<void> {
   }
   // AN EMPTY VOLUME BESIDE A BUCKET THAT HAS BACKUPS: starting would make new,
   // empty control databases and replicate them over the real ones. So either
-  // restore them first (RESTORE_ON_BOOT=1) or refuse, saying how.
+  // restore them first (RESTORE_ON_BOOT=1) or refuse, saying how. And (R7) a
+  // volume that lived beside a bucket with NO control key: refused unless
+  // NEW_BUCKET names the bucket.
   const restoreOnBoot = env["RESTORE_ON_BOOT"] === "1";
+  let firstBackup = false;
   if (backup !== null) {
-    const prepared = await prepareVolume(read.dataRoot, backup, restoreOnBoot ? restoreRunner(env) : null);
+    const prepared = await prepareVolume(read.dataRoot, backup, restoreOnBoot ? restoreRunner(env) : null, { newBucket: env["NEW_BUCKET"] });
     if (prepared.refusal !== undefined) {
       process.stderr.write(`[hosted] ${prepared.refusal}\n`);
       process.exitCode = 1;
       return;
     }
     if (prepared.restored !== undefined) process.stderr.write(`[hosted] restored the control databases: ${prepared.restored}\n`);
+    if (prepared.note !== undefined) process.stderr.write(`[hosted] ${prepared.note}\n`);
+    firstBackup = prepared.firstBackup === true;
   }
   const mailer = mailerFrom(env);
   if (typeof mailer === "string") {
@@ -494,7 +564,7 @@ async function main(): Promise<void> {
     // First deploy only: the raw X-Forwarded-For of each /readyz request, to count the proxy's hops. Unset it after.
     ...(env["LOG_FORWARDED_FOR"] === "1" ? { logForwardedFor: (raw: string) => process.stderr.write(`[hosted] /readyz X-Forwarded-For: ${raw}\n`) } : {}),
   });
-  const report = await app.start(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {});
+  const report = await app.start({ ...(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {}), ...(firstBackup ? { firstBackup: true } : {}) });
   if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);
   if (report.restoreFailed > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restoreFailed)} store restores FAILED; those stores wait (the audit has them as store.restore.failed)\n`);
   if (report.minted > 0) process.stderr.write(`[hosted] ${String(report.minted)} stores that served with no key here or in the bucket were given one (backup.key.minted above)\n`);
