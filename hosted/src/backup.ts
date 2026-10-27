@@ -35,7 +35,7 @@ import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
 import type { KeyStore } from "./keys.js";
 import { litestreamKey } from "./keys.js";
-import { STORE_ID, tenantDir } from "./tenants.js";
+import { RESTORED_MARKER, STORE_ID, tenantDir } from "./tenants.js";
 
 /** The pseudo-store whose DEK keys the control databases' backups. */
 export const CONTROL_KEY_ID = "control";
@@ -273,6 +273,14 @@ export class Backups {
       if (existsSync(`${out}-wal`)) renameSync(`${out}-wal`, `${path}-wal`);
       rmSync(`${out}-shm`, { force: true });
       restored += 1;
+      if (id !== CONTROL_KEY_ID) {
+        // Box 3 (the word index and the vectors, `cache/`) is never backed up:
+        // whatever is here belongs to the file just replaced. It goes, and the
+        // marker makes the store's next open rebuild it (`tenants.ts`), or
+        // recall finds nothing in a store full of memories.
+        rmSync(join(dirname(path), "cache"), { recursive: true, force: true });
+        writeFileSync(join(tenantDir(this.tenantsRoot(), id), RESTORED_MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });
+      }
     }
     return { restored, empty };
   }

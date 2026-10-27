@@ -15,7 +15,15 @@ Brief: `~/counterparts-notes/2026-10-26-briefs/OL2b-hosted-ops.md`. Branched fro
 
 ## Done
 
-(nothing yet)
+- 1–5 built, with `hosted/test/ops.test.ts` (12 tests, through HTTP; bun + Node 24 green, 101 hosted tests).
+- Found while building: `ensureStore` would MINT A NEW KEY over the bucket's key object on a volume that lost
+  `keys.sqlite`, making the whole backup unreadable. Fixed: adopt the bucket's key; refuse a different DEK.
+- Found: a restored store's word index / vectors (`cache/`, never backed up) are empty; recall finds nothing.
+  Fixed: restore drops `cache/` and leaves `restored.marker`; the next open runs `rebuildCache()`.
+
+## Next
+
+6 Dockerfile, 7 RUNBOOK, then fold this file into hosted/NOTES.md, CONTRACT, INTERFACE-GAPS; PR.
 
 ## Learned
 

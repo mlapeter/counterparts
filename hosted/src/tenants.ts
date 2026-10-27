@@ -35,7 +35,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../../src/adapters/hosts.js";
@@ -90,6 +90,9 @@ export interface TenantsOptions {
   /** Told at every open that CREATED the store's dir (its first life). */
   readonly onCreated?: (storeId: string) => void;
 }
+
+/** Beside a store just restored (`backup.ts#restore`): its next open rebuilds the cache, which no backup holds. */
+export const RESTORED_MARKER = "restored.marker";
 
 /**
  * A store that was opened before and whose files are gone from this volume.
@@ -285,6 +288,13 @@ export class Tenants {
         spawner: this.spawner,
       },
     });
+    // Restored from the bucket: the word index and vectors (box 3) were never in
+    // the backup, so they are rebuilt from the rows before the first call.
+    const marker = join(dir, RESTORED_MARKER);
+    if (!fresh && existsSync(marker)) {
+      server.counterpart.store.rebuildCache();
+      rmSync(marker, { force: true });
+    }
     if (fresh) {
       startNewStore(server);
       try {

@@ -155,6 +155,26 @@ async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: L
   }
 }
 
+/**
+ * Before `serve` opens anything: a volume with no accounts database beside a
+ * bucket that has the control key's object is a volume that LOST its data, not
+ * a new server. Starting would make empty control databases and replicate them
+ * over the real ones. With a runner (RESTORE_ON_BOOT=1) they are restored;
+ * without, the start is refused, saying how.
+ */
+export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null): Promise<{ refusal?: string; restored?: string }> {
+  if (existsSync(join(dataRoot, "control", "accounts.sqlite"))) return {};
+  if ((await backup.objects.get(keyObject(CONTROL_KEY_ID))) === null) return {}; // a new server: an empty bucket
+  if (run === null) {
+    return {
+      refusal:
+        "refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.",
+    };
+  }
+  const r = await restoreControl(dataRoot, backup, run);
+  return { restored: `${String(r.restored)} restored, ${String(r.empty)} with no backup` };
+}
+
 async function main(): Promise<void> {
   const env = process.env as Record<string, string | undefined>;
   const [command = "serve", ...rest] = process.argv.slice(2);
@@ -218,14 +238,14 @@ async function main(): Promise<void> {
   // empty control databases and replicate them over the real ones. So either
   // restore them first (RESTORE_ON_BOOT=1) or refuse, saying how.
   const restoreOnBoot = env["RESTORE_ON_BOOT"] === "1";
-  if (backup !== null && !existsSync(join(read.dataRoot, "control", "accounts.sqlite")) && (await backup.objects.get(keyObject(CONTROL_KEY_ID))) !== null) {
-    if (!restoreOnBoot) {
-      process.stderr.write("[hosted] refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.\n");
+  if (backup !== null) {
+    const prepared = await prepareVolume(read.dataRoot, backup, restoreOnBoot ? restoreRunner(env) : null);
+    if (prepared.refusal !== undefined) {
+      process.stderr.write(`[hosted] ${prepared.refusal}\n`);
       process.exitCode = 1;
       return;
     }
-    const r = await restoreControl(read.dataRoot, backup, restoreRunner(env));
-    process.stderr.write(`[hosted] restored the control databases: ${String(r.restored)} restored, ${String(r.empty)} with no backup\n`);
+    if (prepared.restored !== undefined) process.stderr.write(`[hosted] restored the control databases: ${prepared.restored}\n`);
   }
   const mailer = mailerFrom(env);
   if (typeof mailer === "string") {
