@@ -30,7 +30,9 @@ export const SIDEBAR_NAMES: readonly string[] = ["sidebar.json", "sidebar-plugin
 export const ASIDE_PREFIX = "rollback-aside-v";
 export const ASIDE_NAME_RE = /^rollback-aside-v[0-9A-Za-z]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
 
-export type OwnedKind = "config" | "scopes" | "snapshots" | "store" | "sidecar";
+/** `aside` is `rollback`'s set-aside store: a whole memory store, named as one
+ *  in `uninstall`'s plan (round 4 of #657), never "a file this package left". */
+export type OwnedKind = "config" | "scopes" | "snapshots" | "store" | "aside" | "sidecar";
 
 /** The basenames this package writes inside a configuration directory. Built
  *  from the configuration rather than assumed, because three of the five are
@@ -75,7 +77,7 @@ export function ownedKind(name: string, owned: OwnedNames, configDir?: string): 
   if (SIDEBAR_NAMES.includes(name) || /^sidebar\.json\.\d+\.tmp$/.test(name)) return "sidecar";
   if (NPM_LIVE_NAME.test(name)) return "sidecar";
   // `rollback`'s set-aside store, beside a store this package laid out.
-  if (owned.store !== null && ASIDE_NAME_RE.test(name)) return "sidecar";
+  if (owned.store !== null && ASIDE_NAME_RE.test(name)) return "aside";
   // A developer's night transcripts (2026-10-23, `debug.nightTranscripts`),
   // beside a store this package laid out (`config.ts#nightDebugDir`) — ours
   // only while it holds nothing else: a `debug` folder with anything of the

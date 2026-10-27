@@ -2495,3 +2495,23 @@ describe("uninstall — review of #414", () => {
     expect(text(kept.out)).not.toContain(REMOVE_PACKAGE);
   });
 });
+
+// ── round 4 of #657: rollback's set-aside store is memory, and says so ──────
+
+test("a rollback-aside store in the base is named and counted as memory in the delete plan", async () => {
+  await install();
+  const aside = join(base(), "rollback-aside-v13-2026-10-11T07-25-00-000Z");
+  mkdirSync(aside);
+  writeFileSync(join(aside, "counterparts.sqlite"), "old memory\n");
+  const config = { dataDir: storePath() };
+  const del = planUninstall({ configPath: configPath(), config, home, verb: "delete" });
+  const entry = del.entries.find((e) => e.path === aside);
+  expect(entry?.kind).toBe("aside");
+  const lines = planLines(del, "delete", home);
+  const row = lines.find((l) => l.includes("rollback-aside-v13")) ?? "";
+  expect(row).toContain("memories too: a whole store `rollback` set aside");
+  expect(row).not.toContain("a file this package left");
+  expect(text(lines)).toContain("That is 2 memory stores: yours, and 1 whole memory store `rollback` set aside.");
+  const park = planUninstall({ configPath: configPath(), config, home, verb: "park" });
+  expect(text(planLines(park, "park", home, ".parked"))).toContain("memory stores rollback set aside");
+});

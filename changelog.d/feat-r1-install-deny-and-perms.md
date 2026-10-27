@@ -14,3 +14,11 @@
 - **`backup --out` and `export` write private copies** (the database `600` in a `700`
   folder) wherever you point them. A store you share with a group on purpose is made
   private again the next time Counterparts writes to it; there is no switch for that yet.
+- **A `snapshots.dir` you pointed somewhere of your own stays yours.** Only the snapshots in
+  it (the dated copies and the copies taken before an upgrade) are made private; the folder
+  itself is closed only when it holds nothing but snapshots, and never when it is your home
+  folder or above it. Everything else in it keeps its permissions.
+- **`uninstall --delete-memories` names a store `rollback` set aside as memory.** A
+  `rollback-aside-…` folder beside your store is a whole earlier copy of your memory; the
+  plan now says so on its line and counts it ("That is 2 memory stores: yours, and 1 …"),
+  where it used to read "a file this package left". It is deleted with the rest, as before.

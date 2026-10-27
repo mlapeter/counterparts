@@ -690,6 +690,7 @@ const WHAT: Record<OwnedKind, string> = {
   scopes: "which directories memory is on for",
   snapshots: "the snapshots",
   store: "your memory",
+  aside: "memories too: a whole store `rollback` set aside",
   sidecar: "a file this package left",
 };
 
@@ -700,6 +701,7 @@ const SHORT_WHAT: Record<OwnedKind, string> = {
   scopes: "scopes",
   snapshots: "snapshots",
   store: "your memory",
+  aside: "memory stores rollback set aside",
   sidecar: "files it left behind",
 };
 
@@ -923,6 +925,13 @@ export function planLines(
       for (const line of log ?? []) out.push(`${" ".repeat(2 + pathWidth + 2 + sizeWidth + 3)}${line}`);
     }
     if (plan.entries.length === 0) out.push("  (nothing — there is none of ours left here)");
+    // A SET-ASIDE STORE IS MEMORY (round 4 of #657): said and counted as such,
+    // so "your memory" on one line is not read as the only memory going.
+    const asides = plan.entries.filter((e) => e.kind === "aside").length;
+    if (asides > 0) {
+      const stores = `${String(asides)} whole memory store${asides === 1 ? "" : "s"} \`rollback\` set aside`;
+      out.push(plan.storeActed ? `  That is ${String(asides + 1)} memory stores: yours, and ${stores}.` : `  That includes ${stores}.`);
+    }
     if (plan.wholeDirectory) {
       out.push(`  and the ${short(plan.configDir)} folder itself.`);
     }
