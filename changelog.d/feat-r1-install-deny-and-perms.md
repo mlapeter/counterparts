@@ -22,3 +22,6 @@
   `rollback-aside-…` folder beside your store is a whole earlier copy of your memory; it used
   to be left behind. The plan names it as memory on its own line and counts it ("That is 2
   memory stores: yours, and 1 …") before you type the confirmation.
+- **`uninstall --delete-memories` never takes a `snapshots.dir` you chose.** A snapshots
+  folder your configuration points at, even one inside the same folder as the
+  configuration, is now listed under what is left alone instead of among what is deleted.
