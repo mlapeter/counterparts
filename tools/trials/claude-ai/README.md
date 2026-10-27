@@ -20,6 +20,11 @@ on a fresh trial store, to measure two things docs can't tell us: whether Claude
   running trial server, with hooks, other MCP servers and claude.ai connectors off.
   `trial.sh prompt` prints the night prompt, which is also the Cowork scheduled task's text.
 
+`chat-script.ts` is the model-free half (OL4): the seven chats and a night played over the
+same door with fixed tool calls, on a fresh store under `~/counterparts-trials/ol4-<date>`,
+scored in a short table (exit 1 on a regression). What it cannot score (a notice relayed,
+the safety pause) is left to the human run.
+
 Each start of the same trial directory keeps its store and canary but gets a new URL, so
 the connector has to be updated after a restart.
 
