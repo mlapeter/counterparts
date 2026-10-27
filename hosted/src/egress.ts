@@ -93,7 +93,12 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
   const base = `${opts.endpoint.replace(/\/+$/, "")}/${encodeURIComponent(opts.bucket)}`;
   const send = async (url: string, init: RequestInit): Promise<Response> => {
     const signed = await client.sign(url, { ...init, signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000) });
-    return (opts.fetchFn ?? fetch)(signed);
+    try {
+      return await (opts.fetchFn ?? fetch)(signed);
+    } catch (err) {
+      // Said plainly: a boot that stops here should name the bucket, not "fetch failed".
+      throw new Error(`the object store (R2_ENDPOINT) didn't answer: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
   const store: ObjectStore = {
     async put(key, body) {
