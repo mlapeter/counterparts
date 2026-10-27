@@ -42,6 +42,8 @@ import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { COUNTERPARTS_HOOK_COMMAND } from "../src/adapters/claude-code/transcript.js";
 import {
+  DENY_KEY,
+  HOSTED_DENY_URL,
   HOOK_COMMAND_MARK,
   HOST_EVENTS,
   MCP_SCRIPT,
@@ -52,6 +54,9 @@ import {
 import {
   BACKUP_INFIX,
   backupPath,
+  DENY_ADDED_LINE,
+  denyPresent,
+  mergeDeny,
   isOurHookCommand,
   mcpAddArgs,
   mergeHooks,
@@ -2385,5 +2390,175 @@ describe("connect writes the npm-live marker, disconnect removes it", () => {
     // The plugin's uninstall rule (`onlyDead`) leaves a live npm install, and its marker.
     await unwire(live({ onlyDead: true }));
     expect(existsSync(npmLivePath(configPath()))).toBe(true);
+  });
+});
+
+// ── Counterparts Online, kept out of Claude Code (2026-10-27, R1) ───────────
+
+describe("the deniedMcpServers entry", () => {
+  const OURS = { serverUrl: HOSTED_DENY_URL };
+  const THEIRS = [{ serverName: "claude.ai counterparts-trial" }, { serverUrl: "https://*.trycloudflare.com/*" }];
+
+  describe("mergeDeny, pure", () => {
+    test("added at the end of a list, once; the object handed in is never mutated", () => {
+      const before = { [DENY_KEY]: structuredClone(THEIRS), model: "opus" };
+      const frozen = structuredClone(before);
+      const r = mergeDeny(before, "wire");
+      expect(r.change).toBe("added");
+      expect(r.value[DENY_KEY]).toEqual([...THEIRS, OURS]);
+      expect(r.value["model"]).toBe("opus");
+      expect(before).toEqual(frozen);
+      const again = mergeDeny(r.value, "wire");
+      expect(again.changed).toBe(false);
+      expect(again.change).toBe("kept");
+    });
+
+    test("a second copy of ours is dropped; somebody's own entry for our URL is left and counts", () => {
+      const twice = mergeDeny({ [DENY_KEY]: [OURS, THEIRS[0], OURS] }, "wire");
+      expect(twice.value[DENY_KEY]).toEqual([OURS, THEIRS[0]]);
+      const theirsForOurs = { [DENY_KEY]: [{ serverUrl: HOSTED_DENY_URL, note: "mine" }] };
+      expect(mergeDeny(theirsForOurs, "wire").changed).toBe(false);
+      expect(mergeDeny(theirsForOurs, "unwire").changed).toBe(false);
+      expect(denyPresent(theirsForOurs)).toBe(true);
+    });
+
+    test("unwire takes out exactly ours, and the key when ours was all it held", () => {
+      expect(mergeDeny({ [DENY_KEY]: [...THEIRS, OURS] }, "unwire").value).toEqual({ [DENY_KEY]: THEIRS });
+      expect(mergeDeny({ [DENY_KEY]: [OURS], x: 1 }, "unwire").value).toEqual({ x: 1 });
+      expect(mergeDeny({ [DENY_KEY]: THEIRS }, "unwire").changed).toBe(false);
+    });
+  });
+
+  test("a deniedMcpServers that is not a list REFUSES, changes not one byte, and the block names the key", async () => {
+    writeSettingsFile({ [DENY_KEY]: { serverUrl: "https://x/*" } });
+    const before = hashOf(settingsFile());
+    const c = consoleWith();
+    const result = await wire(input({ io: c.io }));
+    expect(result.outcome).toBe("refused");
+    expect(hashOf(settingsFile())).toBe(before);
+    expect(backups()).toHaveLength(0);
+    expect(text(c.err)).toContain(`"${DENY_KEY}"`);
+    expect(text(c.err)).toContain(HOSTED_DENY_URL);
+  });
+
+  describe("through `counterparts connect` / `disconnect` on a temp home", () => {
+    async function install(): Promise<void> {
+      const c = consoleWith();
+      const code = await run(["install", "--config", configPath(), "--budget", "9000", "--name", "Ada"], { io: c.io, env: ENV, home });
+      expect(code).toBe(EXIT.ok);
+    }
+    const cli = async (verb: "connect" | "disconnect"): Promise<Console_> => {
+      const c = consoleWith(null);
+      const code = await run([verb, "--config", configPath()], {
+        io: c.io,
+        env: ENV,
+        home,
+        spawner: spawnerThat(() => OK).spawner,
+        processes: noProcesses,
+      });
+      expect(code).toBe(EXIT.ok);
+      return c;
+    };
+    const registerHere = (): void =>
+      writeFileSync(
+        mcpFile(),
+        JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: process.execPath, args: scriptArgs(MCP_SCRIPT, process.execPath), env: { COUNTERPARTS_DATA_DIR: store() } } } }),
+      );
+
+    test("added once, beside a deny list and keys that were there; kept by a second run; exactly ours removed by disconnect", async () => {
+      await install();
+      const original = {
+        model: "opus",
+        permissions: { allow: ["Bash(git:*)"] },
+        [DENY_KEY]: structuredClone(THEIRS),
+        hooks: { SessionStart: [FOREIGN] },
+      };
+      writeSettingsFile(original);
+      const before = readFileSync(settingsFile(), "utf8");
+
+      const first = await cli("connect");
+      expect(text(first.out)).toContain(DENY_ADDED_LINE);
+      const wired = readSettingsFile();
+      expect(wired[DENY_KEY]).toEqual([...THEIRS, OURS]);
+      expect(wired["model"]).toBe("opus");
+      expect(wired["permissions"]).toEqual(original.permissions);
+      // The backup is the file as it was, before either half changed.
+      expect(backups()).toHaveLength(1);
+      expect(readFileSync(join(home, ".claude", backups()[0] ?? ""), "utf8")).toBe(before);
+      expect(readHost(home, home, ENV).deny).toBe(true);
+
+      // A second run: no change, no second backup, nothing said about the entry.
+      registerHere();
+      const after = hashOf(settingsFile());
+      const second = await cli("connect");
+      expect(hashOf(settingsFile())).toBe(after);
+      expect(backups()).toHaveLength(1);
+      expect(text(second.out)).not.toContain(DENY_ADDED_LINE);
+
+      await cli("disconnect");
+      // BYTE FOR MEANING: the whole document is what it was, their deny list included.
+      expect(readSettingsFile()).toEqual(original);
+      expect(readHost(home, home, ENV).deny).toBe(false);
+    });
+
+    test("an install from before this build (hooks and server already there): connect adds the entry alone", async () => {
+      await install();
+      await cli("connect");
+      registerHere();
+      // The older build's file: the same hooks, no deny list.
+      const older = readSettingsFile();
+      delete older[DENY_KEY];
+      writeSettingsFile(older);
+      const before = backups().length;
+      const c = await cli("connect");
+      expect(readSettingsFile()[DENY_KEY]).toEqual([OURS]);
+      expect(readSettingsFile()["hooks"]).toEqual(older["hooks"]);
+      expect(backups().length).toBe(before + 1);
+      expect(text(c.out)).toContain("hooks already in");
+      expect(text(c.out)).toContain(DENY_ADDED_LINE);
+    });
+
+    test("only the entry left (hooks taken out by hand): disconnect takes it out and names the backup", async () => {
+      await install();
+      writeSettingsFile({ model: "opus", [DENY_KEY]: [OURS] });
+      const c = await cli("disconnect");
+      expect(readSettingsFile()).toEqual({ model: "opus" });
+      expect(text(c.out)).toContain(`taken out of ${DENY_KEY}`);
+      expect(text(c.out)).toContain(BACKUP_INFIX);
+    });
+
+    test("doctor's Online row: green after connect, amber with the fix when the entry is gone", async () => {
+      await install();
+      await cli("connect");
+      const doctor = async (): Promise<string> => {
+        const c = consoleWith(null);
+        await run(["doctor", "--all", "--config", configPath()], { io: c.io, env: ENV, home });
+        return text(c.out);
+      };
+      const green = await doctor();
+      expect(green).toContain("Online");
+      expect(green).toContain("kept out of Claude Code");
+      const older = readSettingsFile();
+      delete older[DENY_KEY];
+      writeSettingsFile(older);
+      const amber = await doctor();
+      expect(amber).toContain("Counterparts Online is not kept out of Claude Code");
+      expect(amber).toContain("counterparts connect");
+    });
+  });
+
+  test("the plugin's uninstall that keeps a live npm install keeps the entry too", async () => {
+    const shim = join(home, "npm/bin/counterparts-hook");
+    mkdirSync(dirname(shim), { recursive: true });
+    writeFileSync(shim, "#!/bin/sh\n");
+    chmodSync(shim, 0o755);
+    writeSettingsFile({
+      hooks: Object.fromEntries(HOST_EVENTS.map((e) => [e, [{ hooks: [{ type: "command", command: shim }] }]])),
+      [DENY_KEY]: [OURS],
+    });
+    const before = readFileSync(settingsFile(), "utf8");
+    const result = await unwire(input({ io: consoleWith().io, onlyDead: true }));
+    expect(result.outcome).toBe("ok");
+    expect(readFileSync(settingsFile(), "utf8")).toBe(before);
   });
 });
