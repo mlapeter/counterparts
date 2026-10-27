@@ -2707,3 +2707,38 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   in a night child; the check above left them out), and whether `--system-prompt` changes
   what of the user's CLAUDE.md reaches the child. A model night after release, or the
   coordinator's `childUsage` per child, says.
+
+## 2026-10-27 — a failed night child says why (R4)
+
+Night run nrn_8f332b7d176d (10-27, 2.1.311) ended "claude exited with an error (exit 1)":
+the catch-up did one batch in 55 s and exited 1; writer, dream and tags each exited 1 in
+~3 s with 0 tokens. Nothing of what the host said was kept, so the cause was unrecoverable.
+It was a lost sign-in: the owner switched Claude Code accounts mid-run.
+
+- **Measured on 2.1.311 with no sign-in** (an empty `CLAUDE_CONFIG_DIR`, so no hooks and no
+  login): `claude -p` exits 1 and writes `Not logged in · Please run /login` to STDOUT — under
+  `stream-json` an `init` line, a synthetic assistant message, and a `result` line with
+  `is_error: true`, `subtype: "success"`, `terminal_reason: "api_error"`,
+  `api_error_status: null` and all-zero usage (so the row reads 0 tokens rather than none).
+  STDERR is empty. An unknown flag goes to STDERR (`error: unknown option '--x'`), STDOUT
+  empty. So `subtype` is not the test of an error; `is_error` is.
+- **The catch-up child reads only its STDERR**: its output is text, not kept (it is prose),
+  and the brief adds no flag. A sign-in lost during a write-up therefore leaves the write-up
+  row's `detail` empty; the night's own row gets the line from the dream's child, which keeps
+  its `stream-json`. If a write-up's reason is ever needed alone, keeping its text STDOUT's
+  last line on a non-zero exit is the smallest step (open).
+- **Quick by the child's own time.** The run's quick-exit test counted from the run's start,
+  catch-up included: a 55-second catch-up made three 3-second exits read `exit`, not
+  `quick-exit` (the reflection, judged on the dream child's own time, was skipped as quick).
+  It now uses the failing child's own `ms`.
+- **STDERR is piped for every child**, so the exit-then-grace end (once only for children
+  whose STDOUT was kept) now holds for all: a helper holding the pipe cannot hold the run.
+- **Review of #656 narrowed both readings.** A result's text is read only when it is the
+  host's API error. `max_turns` and `error_during_execution` results can carry the model's
+  words (memory text), so for those only the subtype and status are kept. `signed-out` is
+  read only from the host's own words: no bare "401" ("retry after 401 seconds") and no
+  bare "OAuth" ("the OAuth flow"). It is also gated on nothing having begun, because
+  `fellBack` asks on any `could-not-start`, and a dream that began is resumed instead. The
+  scrub gained JSON, quoted and space-separated labels, Basic auth, whole cookies, `pw=`
+  and the digitless prefixed keys (`ghp_`, `xox?-`, `AKIA`). STDERR prefers its last
+  error-shaped line. OSC sequences are stripped, and home paths become `~`.

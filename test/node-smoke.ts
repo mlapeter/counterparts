@@ -20,23 +20,26 @@
  *   6. the store is private (R1): a new store's database family 0600 in this
  *      process under umask 022, and the console as a child under umask 022
  *      leaves every file 0600 and every directory 0700, its backup copy too.
+ *   7. a night child that fails signed out says why on the run's row (R4).
  *
  * Hermetic: every child gets HOME pointed into the temp directory and
  * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, and nothing here names a default path.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { openNightCounterpart, runNight } from "../src/adapters/claude-code/night-run.js";
 import { hookCommand, runCommand } from "../src/adapters/cli/install.js";
 import { isOurHookCommand } from "../src/adapters/cli/wire.js";
 import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
 import { NODE_HOOKS, currentRuntime, scriptArgs } from "../src/adapters/runtime.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { nightRunWords } from "../src/core/dream/index.js";
 import { openDb } from "../src/core/store/db.js";
 import { Store } from "../src/core/store/index.js";
 
@@ -293,6 +296,40 @@ describe("under Node", () => {
     assert.ok(isOurHookCommand(hook), hook);
     assert.ok(isOurHookCommand(hookCommand(config, process.execPath)));
     assert.ok(runCommand(SERVE, process.execPath).endsWith(`"${SERVE}"`));
+  });
+
+  test("a night child that fails signed out says why on the row (R4, 2026-10-27), through the real runner and a stand-in claude", async () => {
+    const dir = join(work, "night-r4");
+    const bin = join(work, "night-r4-bin");
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const result = JSON.stringify({ type: "result", subtype: "success", is_error: true, api_error_status: null, terminal_reason: "api_error", result: "Not logged in · Please run /login", usage: { input_tokens: 0, output_tokens: 0 } });
+    const stub = join(bin, "claude");
+    writeFileSync(stub, ["#!/bin/sh", "cat > /dev/null", `printf '%s\\n' '${result}'`, "echo 'token=abcd1234wxyz5678' >&2", "exit 1"].join("\n"), "utf8");
+    chmodSync(stub, 0o755);
+    const cfg = { dataDir: dir, identity: { name: "Mike" }, injectionBudgetBytes: 20_000 };
+    const seed = openNightCounterpart(cfg);
+    try {
+      seed.store.advanceClock("2026-09-10");
+      for (let d = 11; d <= 20; d += 1) seed.store.advanceClock(`2026-09-${String(d)}`);
+      for (const body of ["The migration runs before the container boots.", "Mike talks decisions through out loud.", "I say what I do not know first.", "Seat the valve before the pump runs."]) {
+        const day = seed.store.livedDay();
+        seed.store.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } });
+      }
+    } finally {
+      seed.close();
+    }
+    const out = await runNight({ open: () => openNightCounterpart(cfg), config: cfg, run: "nrn_node_r4", session: "s1", scope: work, kind: { kind: "night" }, baseEnv: { PATH: "/usr/bin:/bin" }, command: stub });
+    assert.equal(out.state, "could-not-start");
+    assert.equal(out.reason, "signed-out");
+    assert.equal(out.detail, "api_error: Not logged in · Please run /login");
+    assert.equal(nightRunWords(out), "Claude Code was signed out: api_error: Not logged in · Please run /login");
+    const c = openNightCounterpart(cfg);
+    try {
+      assert.equal(c.dreams.nightRun()?.reason, "signed-out");
+    } finally {
+      c.close();
+    }
   });
 
   test("meaning mode arranges a card's arc in this process", () => {

@@ -219,31 +219,41 @@ These use the same environment as `serve`, and `litestream` on PATH or `LITESTRE
 
 ### If a start refuses (the service crash-loops)
 
-A crash-looping service can't be reached with `railway ssh`. Use a **start-command override** instead: Settings →
+A crash-looping service can't be reached with `railway ssh`. Use a variable where one is named below, otherwise a
+**start-command override**: Settings →
 Deploy → Custom Start Command, deploy once, read the log, then **clear it**. The image's entry point is
 `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts`, so an override names the whole line.
 
 - **"…but not the key that wrote the bucket's backups"**: this volume has a control database, but not the control
   key. Either something else made that database (an `invite` or a `BACKUPS=off` run on a lost volume), or only
   `keys/keys.sqlite` was lost and the control databases are fine. The server can't tell which, so both take the safe
-  path, which loses at most the last seconds not yet replicated. Set `RESTORE_ON_BOOT=1` and this override for one
-  deploy, then clear the override:
+  path, which loses at most the last seconds not yet replicated. Set `RESTORE_ON_BOOT=1` and `CONTROL_ASIDE=1`
+  (variables, no start-command override) for one deploy, then unset both. `serve` moves `control/` to
+  `/data/control.aside-1` before anything opens it, and logs `CONTROL_ASIDE=1: moved control/ …`.
 
-  ```sh
-  sh -c 'test -e /data/control.aside-1 || mv /data/control /data/control.aside-1; exec node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve'
-  ```
+  It moves `control/` only on a volume that refuses for this reason (the bucket has the control key, this volume
+  doesn't). On any other volume it logs `…isn't refusing for the control key…: nothing moved` and the start goes on,
+  so it can never set aside the only copy of the accounts. A bucket it can't read stops the start (`did not start`),
+  with nothing moved.
 
-  The `test -e` makes it move `control/` aside **once**. A crash-restart of the same deploy runs the override again
-  and must not move the freshly restored `control/` aside too. (If `control.aside-1` is still there from an earlier
-  incident, use `-2`.)
+  It moves `control/` aside **once per label**, ever: it writes `/data/overrides/control-aside-1.used` (`claimed`,
+  then `moved` after the move), and nothing deletes that file. A crash-restart, or a `CONTROL_ASIDE=1` left set for
+  weeks, logs `…was used once already: nothing moved`. `…claimed but the move didn't finish` means the server stopped
+  between the two; `control/` is where it was. **To do it again on purpose, set a new label** (`CONTROL_ASIDE=2`,
+  then `3`, …). The used labels are in `/data/overrides/`.
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
 - **Copies set aside hold addresses and memories**, outside the 24-hour purge: `/data/control.aside-*` from the
-  override above, and every `*.pre-restore-*` file that a `--force` restore moved aside. Every start deletes any
+  `CONTROL_ASIDE` above, and every `*.pre-restore-*` file that a `--force` restore moved aside. Every start deletes any
   that are more than a day old, and logs `deleted N copies set aside…`. Check one within the day if you need to,
   then let it go, or delete it by hand sooner (`rm -rf /data/control.aside-1`).
 - **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
   coordinator; no new key is made on purpose.
+- **`backup.ensure.failed storeTag=<tag>: this store is NOT backed up yet`** (not a refusal; the server runs): a store
+  started over on the running server couldn't get its key or its place in `litestream.yml`. The next restart retries
+  it. If that restart logs "N stores that lived have no key…", see the entry above. `storeTag=` is the tag the
+  `restore` and `start-over` commands print (SHA-256 of the id); `store=` in the limit and `store.needs-restore` lines
+  is a different, per-process tag, which can't be matched across restarts.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 
