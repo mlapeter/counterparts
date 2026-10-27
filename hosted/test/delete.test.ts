@@ -263,6 +263,58 @@ async function replicate(r: Rig, storeId: string): Promise<void> {
   for (const n of [1, 2]) await r.objects.put(`${replicaPrefix(storeId)}ltx/0/${String(n)}.ltx`, "ciphertext");
 }
 
+/** Remember `text`, then start a recall for `question` whose body is only partly sent (authenticated, holding the store). */
+async function slowRecall(r: Rig, c: Connected, text: string, question: string): Promise<{ finish: () => Promise<{ status: number; text: string; headers: Record<string, string | string[] | undefined> }> }> {
+  const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
+  const session = String(woke["session"]);
+  await tool(`${r.origin}/mcp`, "remember", { session, text }, bearer(c.access));
+  const found = await rpc(`${r.origin}/mcp`, "tools/call", { name: "recall", arguments: { session, question, mode: "facts" } }, bearer(c.access));
+  assert.match(JSON.stringify(found.body), new RegExp(question.split(" ")[0]!), "the memory is there to be found");
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "recall", arguments: { session, question, mode: "facts" } } });
+  const url = new URL(`${r.origin}/mcp`);
+  let sendRest: () => void = () => undefined;
+  const answer = new Promise<{ status: number; text: string; headers: Record<string, string | string[] | undefined> }>((resolve, reject) => {
+    const req = httpRequest(
+      { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": "application/json", accept: "application/json", "content-length": String(Buffer.byteLength(body)), authorization: `Bearer ${c.access}` } },
+      (res) => {
+        let got = "";
+        res.setEncoding("utf8");
+        res.on("data", (d: string) => (got += d));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text: got, headers: res.headers }));
+      },
+    );
+    req.on("error", reject);
+    req.write(body.slice(0, 20));
+    sendRest = (): void => void req.end(body.slice(20));
+  });
+  await new Promise((res) => setTimeout(res, 150)); // authenticated, holding the store, body half sent
+  return {
+    finish: async () => {
+      sendRest();
+      return answer;
+    },
+  };
+}
+
+/** Remember `text`, hold the store's queue, then send a whole recall for `question`: its body is in and it waits its turn. `release` lets it run. */
+async function queuedRecall(r: Rig, storeId: string, c: Connected, text: string, question: string): Promise<{ release: () => ReturnType<typeof rpc> }> {
+  const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
+  const session = String(woke["session"]);
+  await tool(`${r.origin}/mcp`, "remember", { session, text }, bearer(c.access));
+  let open: () => void = () => undefined;
+  const held = r.app.tenants.withTenant(storeId, {}, (t) => t.serial(() => new Promise<void>((res) => (open = res))));
+  await new Promise((res) => setTimeout(res, 50));
+  const answer = rpc(`${r.origin}/mcp`, "tools/call", { name: "recall", arguments: { session, question, mode: "facts" } }, bearer(c.access));
+  await new Promise((res) => setTimeout(res, 150)); // body in, past the gate, queued behind the hold
+  return {
+    release: async () => {
+      open();
+      await held;
+      return answer;
+    },
+  };
+}
+
 describe("delete, the default: locked at once, kept within 24 hours", () => {
   test("pending: every door refuses but keep and delete-now; a keep at 23 h brings it back as it was, and the old token stays refused", async () => {
     const r = await rig();
@@ -679,33 +731,69 @@ describe("the #659 review", () => {
     const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
     const me = await signUp(r, "slow-body@example.com");
     const c = await connect(r, me.browser);
-    const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
-    const session = String(woke["session"]);
-    await tool(`${r.origin}/mcp`, "remember", { session, text: "The slow body asks about the lantern in the bell tower." }, bearer(c.access));
-    const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "recall", arguments: { session, question: "lantern bell tower", mode: "facts" } } });
-    const url = new URL(`${r.origin}/mcp`);
-    let sendRest: () => void = () => undefined;
-    const answer = new Promise<{ status: number; text: string }>((resolve, reject) => {
-      const req = httpRequest(
-        { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": "application/json", accept: "application/json", "content-length": String(Buffer.byteLength(body)), authorization: `Bearer ${c.access}` } },
-        (res) => {
-          let text = "";
-          res.setEncoding("utf8");
-          res.on("data", (d: string) => (text += d));
-          res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
-        },
-      );
-      req.on("error", reject);
-      req.write(body.slice(0, 20));
-      sendRest = (): void => void req.end(body.slice(20));
-    });
-    await new Promise((res) => setTimeout(res, 150)); // authenticated, holding the store, body half sent
+    const call = await slowRecall(r, c, "The slow body asks about the lantern in the bell tower.", "lantern bell tower");
     const started = Date.now();
     assert.equal((await deleteLater(me.browser, "slow-body@example.com")).status, 200);
     assert.ok(Date.now() - started < 2000, "the delete page didn't wait for the held body");
-    sendRest();
-    const got = await answer;
+    const got = await call.finish();
     assert.equal(got.status, 401);
+    assert.match(String(got.headers["www-authenticate"]), /invalid_token/);
     assert.doesNotMatch(got.text, /lantern/);
+  });
+
+  test("the same slow body after a delete AND a Keep (the lock gone again, the grant not): 401, no memory", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "slow-keep@example.com");
+    const c = await connect(r, me.browser);
+    const call = await slowRecall(r, c, "The slow keeper hides the brass compass under the stairs.", "brass compass stairs");
+    assert.equal((await deleteLater(me.browser, "slow-keep@example.com")).status, 200);
+    await signIn(r, me.browser, "slow-keep@example.com", "");
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    assert.equal((await me.browser.form("/account/keep", { csrf })).status, 200);
+    assert.equal(r.app.tenants.isLocked(me.storeId), false, "kept: the store is unlocked");
+    const got = await call.finish();
+    assert.equal(got.status, 401);
+    assert.doesNotMatch(got.text, /brass compass/);
+  });
+
+  test("the same slow body after a disconnect of its connection: 401, no memory", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "slow-disc@example.com");
+    const c = await connect(r, me.browser);
+    const call = await slowRecall(r, c, "The disconnected call asks for the silver thimble.", "silver thimble");
+    const grant = r.app.oauth.store.grantsOf(me.personId)[0]!.id;
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    await me.browser.form("/account/disconnect", { csrf, id: grant });
+    assert.equal(r.app.oauth.store.grantsOf(me.personId).length, 0);
+    const got = await call.finish();
+    assert.equal(got.status, 401);
+    assert.doesNotMatch(got.text, /silver thimble/);
+  });
+
+  test("a whole body queued behind another call when the lock lands: the same 401 (not a 200 'internal error'), no memory", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "queued@example.com");
+    const c = await connect(r, me.browser);
+    const q = await queuedRecall(r, me.storeId, c, "The queued call asks about the copper kettle in the attic.", "copper kettle attic");
+    assert.equal((await deleteLater(me.browser, "queued@example.com")).status, 200);
+    const got = await q.release();
+    assert.equal(got.status, 401);
+    assert.match(String(got.headers.get("www-authenticate")), /invalid_token/);
+    assert.doesNotMatch(JSON.stringify(got.body), /copper kettle/);
+  });
+
+  test("a whole body queued behind another call while a delete AND a Keep land: 401 at its turn, no memory", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "queued-keep@example.com");
+    const c = await connect(r, me.browser);
+    const q = await queuedRecall(r, me.storeId, c, "The patient call asks about the jade frog on the sill.", "jade frog sill");
+    assert.equal((await deleteLater(me.browser, "queued-keep@example.com")).status, 200);
+    await signIn(r, me.browser, "queued-keep@example.com", "");
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    assert.equal((await me.browser.form("/account/keep", { csrf })).status, 200);
+    assert.equal(r.app.tenants.isLocked(me.storeId), false, "kept: the store is unlocked");
+    const got = await q.release();
+    assert.equal(got.status, 401);
+    assert.doesNotMatch(JSON.stringify(got.body), /jade frog/);
   });
 });

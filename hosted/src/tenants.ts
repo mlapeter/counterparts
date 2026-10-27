@@ -191,7 +191,9 @@ export class Tenants {
     try {
       // Every call is checked against the lock once its turn in the queue comes
       // (#659 review): a request that held the store while its body arrived
-      // slowly must not run after the store was locked meanwhile.
+      // slowly must not run after the store was locked meanwhile. The lock is
+      // a store's state; a token revoked meanwhile (a disconnect, a delete then
+      // Keep) is the door's to check, at the same turn (`server.ts`, step 6).
       const serial: Serial = (call) =>
         h.serial(async () => {
           if (this.isLocked(storeId)) throw new StoreLocked();
