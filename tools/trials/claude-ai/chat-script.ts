@@ -37,8 +37,12 @@
  *   - the worker: wake's spawner is a stub that, instead of starting the
  *     detached worker, has the script run the worker's heavy half in-process
  *     (`Counterpart.sessionEnd`, as `claude-code/bin/runner.ts` calls it, with
- *     the sweep skipped) right after the wake answers — so the night's sleep
- *     composes the briefing chat 7 wakes with, as a real worker would;
+ *     the sweep skipped, then its step 3a: `keepHeldPage` and `refreshWake`)
+ *     right after the wake answers — so the night's sleep composes the
+ *     briefing chat 7 wakes with, as a real worker would. Left out of the
+ *     runner's run: the vector backfill (no embedder), the word-index
+ *     re-stem (`terms`), the coverage ledger (3b), transcript retention (3c)
+ *     and the snapshot;
  *   - in-process: the server is opened here and served by `serveHttp`, so
  *     `bin/serve-http.ts`'s process guards (named --config, the url line) are
  *     not exercised; `trial.sh check` covers those;
@@ -47,9 +51,9 @@
  * person, whether the safety pause showed — is printed as n/a; the human run
  * (trial.sh) scores those.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { CLAUDE_CODE_BUDGET_BYTES } from "../../../src/adapters/config.js";
 import { CLAUDE_AI_HOST } from "../../../src/adapters/hosts.js";
@@ -61,6 +65,7 @@ import type { CallRecord, HttpMcpServer } from "../../../src/adapters/remote/htt
 import { openCallLog, summarizeChats } from "../../../src/adapters/remote/call-log.js";
 import { liveStoreRefusal } from "../../../src/adapters/remote/bin/serve-http.js";
 import { Counterpart } from "../../../src/core/counterpart.js";
+import { PAGE_HELD_SETTLE_MS } from "../../../src/core/self/index.js";
 import { localDate } from "../../../src/core/time.js";
 
 /** The zone the script's clock reads days in: fixed, so the run is the same on any machine. */
@@ -114,7 +119,8 @@ export interface Observations {
     readonly preference: { readonly stored: boolean; readonly about: string | null };
     readonly plan: { readonly stored: boolean; readonly eventDate: string | null; readonly status: string | null };
     readonly chapter: { readonly stored: boolean; readonly episodeId: string | null };
-    readonly dream: { readonly journaled: boolean };
+    /** The dream's own row: its state, and whether its journal holds the words written. */
+    readonly dream: { readonly state: string | null; readonly journalHasWords: boolean; readonly changes: readonly { readonly action: string; readonly ref: string | null }[] };
     readonly share: { readonly afterNight: string | null; readonly afterWake: string | null; readonly afterTold: string | null; readonly carriedBy: string | null };
   };
 }
@@ -137,6 +143,8 @@ export interface ScriptOptions {
    * break (a wake that loses the share), through the same socket.
    */
   readonly wrap?: (server: HttpMcpServer) => HttpMcpServer;
+  /** Told the opened brain before anything is served — for a test's deliberate break inside the store. */
+  readonly onOpen?: (counterpart: Counterpart) => void;
   /** The first chat's instant; default today 10:00 in `SCRIPT_ZONE`'s day (as UTC 16:00). */
   readonly startAt?: number;
 }
@@ -154,7 +162,11 @@ function defaultStart(): number {
 export async function playChats(opts: ScriptOptions): Promise<Observations> {
   const storeDir = join(opts.runDir, "store");
   const callLogPath = join(opts.runDir, "calls.jsonl");
-  mkdirSync(opts.runDir, { recursive: true, mode: 0o700 });
+  // A FRESH STORE, ALWAYS: a run folder that already exists is refused, so two
+  // runs never share a store (the leaf is made exclusively; its parents may exist).
+  if (existsSync(opts.runDir)) throw new Error(`refused: ${opts.runDir} already exists; every run gets a fresh folder`);
+  mkdirSync(dirname(opts.runDir), { recursive: true, mode: 0o700 });
+  mkdirSync(opts.runDir, { mode: 0o700 });
   const start = opts.startAt ?? defaultStart();
   // THE SCRIPT CLOCK: it runs on with the real one between jumps, so a call's
   // instants stay in order, and `at(t)` moves it to the next chat's moment.
@@ -167,6 +179,7 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
   };
 
   const counterpart = Counterpart.open({ dir: storeDir, now, timeZone: SCRIPT_ZONE, budgetBytes: CLAUDE_CODE_BUDGET_BYTES });
+  opts.onOpen?.(counterpart);
   // THE WORKER, in-process: the stub spawner notes the ask, and `wake` (below)
   // runs the heavy half once the wake has answered, as a detached worker would.
   let workerAsked = false;
@@ -238,7 +251,11 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
     if (workerAsked) {
       workerAsked = false;
       const today = localDate(now(), SCRIPT_ZONE);
-      await counterpart.sessionEnd({ date: today, at: today, sweep: { skipped: "not-opted-in" }, ...(session.length === 0 ? {} : { session }) });
+      const report = await counterpart.sessionEnd({ date: today, at: today, sweep: { skipped: "not-opted-in" }, ...(session.length === 0 ? {} : { session }) });
+      // runner.ts's 3a, in its order: a held page the run end never kept, then
+      // the wake's catch-up render — not when the cycle stood aside.
+      counterpart.self.keepHeldPage({ settledMs: PAGE_HELD_SETTLE_MS });
+      if (report.cycle.held === undefined) counterpart.refreshWake({ at: today });
       workerRuns += 1;
     }
     return session;
@@ -329,12 +346,15 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
     share.afterWake = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_state ?? null);
     share.carriedBy = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_session ?? null);
     if (reflection !== null) await call("chat 7", "reflect", { phase: "told", session: s7, reflection });
+    // "when's the dentist?" — the plan found again by its words.
+    await call("chat 7", "recall", { session: s7, question: "dentist zqalvarez", mode: "facts" });
     share.afterTold = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_state ?? null);
 
     const row = (id: string | null) => (id === null ? undefined : counterpart.store.row(id));
     const feelingRow = row(ids["feeling"]);
     const prefRow = row(ids["preference"]);
     const planRow = row(ids["plan"]);
+    const dreamRow = dream === null ? undefined : counterpart.store.dream(dream);
     const observations: Observations = {
       steps,
       calls,
@@ -353,7 +373,11 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
         preference: { stored: prefRow !== undefined, about: prefRow?.about ?? null },
         plan: { stored: planRow !== undefined, eventDate: planRow?.event_date ?? null, status: planRow?.status ?? null },
         chapter: { stored: episodeId !== null && counterpart.store.row(episodeId) !== undefined, episodeId },
-        dream: { journaled: dream !== null && steps.some((s) => s.chat === "night" && s.tool === "dream" && s.ok && typeof s.structured["handBack"] === "string") },
+        dream: {
+          state: dreamRow?.state ?? null,
+          journalHasWords: dreamRow?.journal?.includes(WORDS.journal) === true,
+          changes: dream === null ? [] : counterpart.store.dreamChanges(dream).map((c) => ({ action: c.action, ref: c.ref })),
+        },
         share,
       },
     };
@@ -405,7 +429,21 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
   // THE NIGHT.
   const nightWake = stepsOf(o, "night")[0];
   add("night: quiet wake, no share carried", nightWake?.ok === true && !nightWake.text.includes("ZQSHARE"), nightWake === undefined ? "no night wake" : "woke with night: true");
-  add("night: dream journaled", o.store.dream.journaled, o.store.dream.journaled ? "journal handed back" : "no journal");
+  add(
+    "night: dream journaled (store)",
+    o.store.dream.state === "journaled" && o.store.dream.journalHasWords,
+    `dream state ${String(o.store.dream.state)}, journal holds the words ${String(o.store.dream.journalHasWords)}`,
+  );
+  // THE NIGHT'S CHANGES: the link between the feeling and the plan landed in
+  // the store, and chat 7's "Last night" says so. (The replay is asked too but
+  // not scored: a memory born that day is not counted, `replayed-not-counted:birth-day`.)
+  const links = o.store.dream.changes.filter((c) => c.action === "link");
+  const lastNightLine = (stepsOf(o, "chat 7")[0]?.text ?? "").split("\n").find((l) => l.startsWith("Last night:")) ?? "";
+  add(
+    "night: the dream's link landed",
+    links.length === 1 && lastNightLine.includes("made 1 link"),
+    `${String(links.length)} link change(s) in the store (${o.store.dream.changes.map((c) => c.action).join(", ") || "none"}); Last night says made 1 link ${String(lastNightLine.includes("made 1 link"))}`,
+  );
   add("night: share left offered", o.store.share.afterNight === "offered", `share_state ${String(o.store.share.afterNight)}`);
 
   // SHARE TOLD: chat 7's wake carries it, the store says so, told marks it.
@@ -423,6 +461,10 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
   const lastNight = (w7?.text ?? "").split("\n").find((l) => l.startsWith("Last night:")) ?? "";
   const night7 = o.dream !== null && o.reflection !== null && lastNight.includes(o.dream) && lastNight.includes(o.reflection);
   add("chat 7: last night in the wake", night7, night7 ? lastNight : `no Last night line naming the dream and the reflection (${lastNight.length === 0 ? "no line" : lastNight})`);
+  const recall7 = stepsOf(o, "chat 7").find((s) => s.tool === "recall");
+  const recallIds = Array.isArray(recall7?.structured["ids"]) ? (recall7.structured["ids"] as unknown[]) : [];
+  const found = o.ids["plan"] !== null && o.ids["plan"] !== undefined && (recallIds.includes(o.ids["plan"]) || (recall7?.text.includes(o.ids["plan"]) ?? false));
+  add("chat 7: recall finds the plan", found, found ? `"dentist zqalvarez" returned ${String(o.ids["plan"])}` : `"dentist zqalvarez" did not return the plan (ids: ${recallIds.join(", ") || "none"})`);
   const others = chats.filter((c) => c !== "chat 7" && stepsOf(o, c).some((s) => s.text.includes("ZQSHARE")));
   add("the share reaches no other chat", others.length === 0, others.length === 0 ? "only chat 7" : `also in: ${others.join(", ")}`);
 
@@ -473,7 +515,7 @@ export const STUBBED =
   "Model-free: fixed tool calls, no model. Stubbed: the clock (script clock, zone America/Denver), the worker (its heavy half run in-process after each wake that asks), the embedder (lexical recall). In-process server behind the real HTTP door; trial.sh check covers the entry point's process guards.";
 
 function stamp(t: number): string {
-  return new Date(t).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return new Date(t).toISOString().replace(/[:.]/g, "-").slice(0, 23);
 }
 
 async function main(argv: readonly string[]): Promise<number> {

@@ -9,6 +9,12 @@
  *   - a deliberate break makes it fail: a wake that loses the morning share
  *     (the server wrapped behind the same socket) fails "chat 7: wake carries
  *     the share" and the run, and the CLI would exit 1;
+ *   - the review's three (#652): a dream whose journal never reaches the store
+ *     fails "dream journaled" though the reply had its hand-back; a propose
+ *     with no changes fails "the dream's link landed"; a recall that loses the
+ *     plan fails "recall finds the plan" — each the only row that fails where
+ *     the rest can stand;
+ *   - a run folder that already exists is refused;
  *   - a refused tool call fails "every call answered";
  *   - the script refuses the owner's live store.
  *
@@ -93,6 +99,79 @@ describe("the 7-chat script", () => {
     expect(rows.find((r) => r.check === "wake shown, every chat")?.verdict).toBe("pass");
     expect(rows.find((r) => r.check === "every call answered")?.verdict).toBe("pass");
     expect(rows.filter((r) => r.verdict === "FAIL").map((r) => r.check)).toEqual(["chat 7: wake carries the share"]);
+  });
+
+  /** The one row expected to fail under a break, with every other row still passing. */
+  function onlyFails(rows: readonly { check: string; verdict: string }[], check: string): void {
+    expect(rows.filter((r) => r.verdict === "FAIL").map((r) => r.check)).toEqual([check]);
+  }
+
+  test("a break inside the store — the dream's journal never written — fails 'dream journaled', whatever the answer said", async () => {
+    const o = await playChats({
+      runDir: join(root, "run"),
+      onOpen: (cp) => {
+        const store = cp.store as unknown as { updateDream: (id: string, patch: Record<string, unknown>) => unknown };
+        const real = store.updateDream.bind(store);
+        store.updateDream = (id, patch) => (patch["state"] === "journaled" ? undefined : real(id, patch));
+      },
+    });
+    const { rows, passed } = score(o);
+    expect(passed).toBe(false);
+    // The journal call still answered with its hand-back: the row reads the store, not the reply.
+    expect(o.steps.some((s) => s.tool === "dream" && typeof s.structured["handBack"] === "string")).toBe(true);
+    expect(rows.find((r) => r.check === "night: dream journaled (store)")?.verdict).toBe("FAIL");
+  });
+
+  test("a propose that changes nothing fails 'the dream's link landed'", async () => {
+    const emptied = (inner: HttpMcpServer): HttpMcpServer => ({
+      handle: (request: Request) => {
+        const args = request.params?.["arguments"] as Record<string, unknown> | undefined;
+        if (request.method === "tools/call" && request.params?.["name"] === "dream" && args?.["phase"] === "propose") {
+          return inner.handle({ ...request, params: { ...request.params, arguments: { ...args, changes: [] } } });
+        }
+        return inner.handle(request);
+      },
+      get clientName() {
+        return inner.clientName ?? null;
+      },
+      get clientVersion() {
+        return inner.clientVersion ?? null;
+      },
+    });
+    const o = await playChats({ runDir: join(root, "run"), wrap: emptied });
+    const { rows, passed } = score(o);
+    expect(passed).toBe(false);
+    // Only the night's changes: the empty "Last night" still names the dream, so that row holds.
+    onlyFails(rows, "night: the dream's link landed");
+  });
+
+  test("a recall that loses the plan fails 'recall finds the plan'", async () => {
+    const o = await playChats({
+      runDir: join(root, "run"),
+      // The plan's id gone from that one recall's answer (ids and text alike).
+      wrap: (inner) => ({
+        handle: async (request: Request) => {
+          const res = await inner.handle(request);
+          const args = request.params?.["arguments"] as Record<string, unknown> | undefined;
+          if (res === null || request.method !== "tools/call" || request.params?.["name"] !== "recall" || args?.["question"] !== "dentist zqalvarez") return res;
+          return JSON.parse(JSON.stringify(res).replace(/mem_[0-9a-f]{12}/g, "mem_000000000000")) as Response;
+        },
+        get clientName() {
+          return inner.clientName ?? null;
+        },
+        get clientVersion() {
+          return inner.clientVersion ?? null;
+        },
+      }),
+    });
+    const { rows } = score(o);
+    onlyFails(rows, "chat 7: recall finds the plan");
+  });
+
+  test("a run folder that already exists is refused: never a shared store", async () => {
+    const runDir = join(root, "run");
+    await playChats({ runDir });
+    await expect(playChats({ runDir })).rejects.toThrow("already exists");
   });
 
   test("a refused call fails 'every call answered'", async () => {

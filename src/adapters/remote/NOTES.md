@@ -66,8 +66,13 @@
   hookless host the briefing chat 7 wakes with ("Coming up", "Last night", "Last here") is
   composed only by the worker's sleep. Nothing else here crosses a boundary. With the worker
   stubbed, as every test in this module stubs it, every wake reads the bootstrap line, so the
-  script runs the worker's heavy half (`Counterpart.sessionEnd`, as `runner.ts` calls it)
-  in-process after each wake that asks for one. The script also runs on its own clock
+  script runs the worker's heavy half (`Counterpart.sessionEnd`, as `runner.ts` calls it,
+  then its step 3a: `keepHeldPage` and `refreshWake`) in-process after each wake that asks
+  for one. Still left out of the runner's run: the vector backfill (no embedder), the
+  word-index re-stem (`terms`), the coverage ledger (3b), transcript retention (3c) and the
+  snapshot. Review of #652: the night's rows read the store (the dream row `journaled` with
+  its words; the link in `dream_changes`, and "Last night" saying so), not the replies; the
+  replay asked for is not scored, since a memory born that day is not counted. The script also runs on its own clock
   (the harness's `serve-at.ts` way), so the night falls on the next day and the writer gets
   a day to read; the product has no clock knob. What it can't score, a notice relayed or the
   safety pause, is left to the human run. Thin spot, held lightly: chat 6 chapters a
