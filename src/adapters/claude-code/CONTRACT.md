@@ -830,8 +830,22 @@ children's output (the host's cut, below, is read from the host's own transcript
   finished) and the exit as its reason;
 - `failed` or `timed-out`: nothing finished;
 - `could-not-start`: `no-claude`, `spawn-failed`, `quick-exit` (non-zero inside
-  `NIGHT_QUICK_EXIT_MS` with nothing begun), `nothing-ran` (a clean exit that began no dream
+  `NIGHT_QUICK_EXIT_MS` of the failing child's own start, with nothing begun), `signed-out`
+  (2026-10-27: a failed child said the host had lost its sign-in — a 401, "not logged in",
+  an invalid key, an expired OAuth token), `nothing-ran` (a clean exit that began no dream
   and no reflection), `refused`, or `runner` (the detached process could not be started).
+
+**[M] A failed child says why (2026-10-27, R4; `child-error.ts`).** For a child that exits
+non-zero, one line of what the host said goes on the row's `detail` (`exit`, `quick-exit`,
+`signed-out`, and `partial` by `exit`), on that child's line (`NightChildRun.detail`), on the
+`dream.night` event (`detail`, `childDetails`), and on the write-up row (`detail`; the night
+row's is `catch-up: <line>`): the child's own `stream-json` error result (only a result that
+is an error; never a successful one's prose) when its output is kept, else the last line of
+its STDERR (every child pipes STDERR now; its last `STDERR_TAIL_BYTES` kept). At most 300
+characters, one line, and scrubbed by shape before it is stored or logged: the value after a
+credential label (`…token`, `…key`, `secret`, `password`, `authorization`, `cookie` with `:`
+or `=`), the word after `Bearer`, `sk-…`, and any run of 20+ key-ish characters with a digit
+in it become `[redacted]`. No flag is added to the child, and nothing is retried.
 
 **[M] The child is locked down (owner decision B).** `--permission-mode default`;
 `--allowedTools` exactly `mcp__counterparts__dream`, `…reflect`, `…self_page`, `…recall`;
