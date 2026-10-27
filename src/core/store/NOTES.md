@@ -2344,3 +2344,26 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   pair out of one of its words the index no longer holds (`sweepCueEdges`'s `terms`, review of
   #613), so a word wired to another memory does not outlive the only memory that held it. `dropGateRecords` is new beside `rewriteGateValues`:
   recall's per-turn cue records have their own lifetime inside the session's.
+
+## 2026-10-27 — the store is private to its user (R1)
+
+Measured before building, a database created and written under umask 022:
+
+| | bun 1.3.10 | Node 22.23 / 24.22 |
+|---|---|---|
+| new `counterparts.sqlite` | 644 | 644 |
+| its `-wal`/`-shm` | the database file's mode (644, or 600 after a chmod before WAL) | the same |
+| `VACUUM INTO` output | 644 (`0644 & ~umask`), whatever the source's mode | the same |
+| under umask 077 | 600 for all four | the same |
+
+So one chmod on a database the open created, before WAL, makes the family private, and a
+`VACUUM INTO` copy needs its own chmod. Directories: `mkdirPrivate` chmods the ones it
+created (a `mkdir` mode is masked by the umask). The at-open tightening is gated by stats,
+not a meta row, because a write at open is what broke a live `backup` once (2026-08-25):
+an already-tight store costs two or three `stat` calls. Two consequences, held lightly: a
+store somebody loosened on purpose is tightened again at the next writer's open, and on a
+filesystem that does not keep modes (exFAT reads 777) the walk runs at every writer's open
+and changes nothing; both look acceptable for a few hundred files. Everything else the
+package writes is private by the entry points' umask (`adapters/private-umask.ts`), which
+the core never touches, so an embedder gets the database family and the roots private and
+the files other modules write inside a 0700 store.

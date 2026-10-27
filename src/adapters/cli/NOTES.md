@@ -2092,3 +2092,21 @@ door the plugin's `/counterparts:uninstall` drives.
   deprecated, for the same release; the `store.export` row no longer carries them.
 - The `remove` list and `dream` / `night` / `core --list` lost their `[confidential]`
   markers; `[journal]` and the body fallback stay.
+
+## 2026-10-27 — `connect` writes Counterparts Online's deny entry (R1)
+
+- One entry, `{ "serverUrl": install.ts#HOSTED_DENY_URL }`, in `deniedMcpServers`, planned
+  with the hooks (`wire.ts#planSettings`) so a run that changes either takes one backup and
+  makes one write. Ours is recognised only as exactly that object; an entry somebody wrote
+  for the same URL with keys of its own counts as present and is never removed. A
+  `deniedMcpServers` that is not a list is a refusal, like a bad `hooks` key.
+- The URL, not a `serverName`: the name is whatever each person typed for the connector.
+- The plugin's keep-the-memory uninstall (`onlyDead`) leaves the entry while a hook or
+  registration of ours still runs: it is a live npm install's protection.
+- An install from before this build has its hooks and server already, so nothing re-adds
+  the entry until `connect` runs again; `doctor`'s Online line is amber with that fix.
+- `doctor`'s Online line shows only beside npm wiring: with nothing connected the Claude
+  Code line already says to run `connect`, and a plugin-only install has no `connect` to run.
+- Our own processes run under umask 077 (`adapters/private-umask.ts`), so `connect` spawns
+  `claude` under the umask it was given (`withHostUmask`): rule 6, `~/.claude.json` is not
+  ours, extends to its mode.

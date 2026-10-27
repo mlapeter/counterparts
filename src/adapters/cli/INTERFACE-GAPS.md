@@ -417,3 +417,17 @@ really closes; a hook turn measured the same before and after. `store/NOTES.md`,
   writes `dreams/` (each journal and its change log) and `reflections/` (each entry and
   morning share) beside the memories. What a dream was shown and what undoing it needs
   stay in the database, which the database export and `backup` copy whole.
+
+## Counterparts Online beside this install (2026-10-27, R1)
+
+- **Claude Desktop's chat loads claude.ai connectors too, and has no deny list we know of.**
+  `connect` keeps the hosted connector out of Claude Code with one `deniedMcpServers` entry
+  (`wire.ts#mergeDeny`), but a person with this install's Desktop entry (`install --host
+  claude-desktop`) and the hosted connector gets two memories in Desktop's chat, over two
+  stores. Desktop's Code tab takes connectors from the app as well, where settings files do
+  not apply. Needs its own answer; not built.
+- **That a `serverUrl` entry alone keeps a claude.ai connector out is not proven here.**
+  The trial config that worked had a `serverName` entry beside it. The check is `/mcp` in a
+  Claude Code session once the hosted connector is added (a RUNBOOK §7 step at deploy).
+- **A plugin-only install gets no deny entry and no doctor line for it.** The plugin wires
+  nothing in `settings.json`, and its `connect` would wire the host a second time.
