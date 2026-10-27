@@ -32,6 +32,8 @@ export const LINK_MS = 15 * 60 * 1000;
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
 export const MAX_EMAIL = 254;
+/** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
+export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS people (
@@ -138,11 +140,19 @@ export function validTimeZone(raw: unknown): string | null {
 
 export interface Person {
   readonly id: string;
-  readonly state: "active" | "suspended" | "deleted";
+  /**
+   * `active`; `suspended` (by an operator, or while a delete erases);
+   * `pending-delete` (locked, erased at `deleteAfter` unless kept); `deleted`
+   * (a tombstone).
+   */
+  readonly state: "active" | "suspended" | "pending-delete" | "deleted";
   readonly email: string | null;
   readonly timeZone: string | null;
+  /** The person's ACTIVE store, or null (none, or locked by a pending delete). */
   readonly storeId: string | null;
   readonly createdAt: number;
+  /** When a pending delete becomes due; null otherwise. */
+  readonly deleteAfter: number | null;
 }
 
 export type LinkRequest =
@@ -175,6 +185,12 @@ export class Accounts {
     // life"). Added by ALTER so a database made before it gains the column.
     if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "opened_at")) {
       this.db.exec("ALTER TABLE stores ADD COLUMN opened_at INTEGER");
+    }
+    // R6 (2026-10-27): when a delete set for later becomes due. NULL unless the
+    // person is `pending-delete`. Added the same way, so a fresh volume and an
+    // existing beta volume both take it.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "delete_after")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN delete_after INTEGER");
     }
     this.now = opts.now ?? ((): number => Date.now());
   }
@@ -275,7 +291,7 @@ export class Accounts {
     let inviteId: string | null = null;
     let refused: "invite-required" | "suspended" | null = null;
     if (identity !== undefined) {
-      if (!this.isLive(identity.person_id)) refused = "suspended";
+      if (!this.canSignIn(identity.person_id)) refused = "suspended";
     } else {
       inviteId = this.liveInvite(typeof input.inviteCode === "string" ? input.inviteCode.trim() : "");
       if (inviteId === null) refused = "invite-required";
@@ -332,14 +348,14 @@ export class Accounts {
       if (claimed !== 1) return { ok: false, reason: "used" };
       if (row.identity_id !== null) {
         const ident = this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE id = ?", row.identity_id);
-        if (ident === undefined || !this.isLive(ident.person_id)) return { ok: false, reason: "suspended" };
+        if (ident === undefined || !this.canSignIn(ident.person_id)) return { ok: false, reason: "suspended" };
         this.audit(ident.person_id, null, "login.link", null);
         return { ok: true, personId: ident.person_id, created: false };
       }
       // An address that signed up through another link meanwhile: sign in as that person.
       const existing = this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE kind = 'email' AND value = ?", row.email);
       if (existing !== undefined) {
-        if (!this.isLive(existing.person_id)) return { ok: false, reason: "suspended" };
+        if (!this.canSignIn(existing.person_id)) return { ok: false, reason: "suspended" };
         this.audit(existing.person_id, null, "login.link", null);
         return { ok: true, personId: existing.person_id, created: false };
       }
@@ -374,8 +390,23 @@ export class Accounts {
     return token;
   }
 
-  /** Who this session cookie belongs to, if it is current and the person is live. Slides the expiry. */
+  /** Who this session cookie belongs to, if it is current and the person is live (`active`). Slides the expiry. */
   sessionPerson(token: string | null): string | null {
+    const s = this.sessionOf(token);
+    return s !== null && s.state === "active" ? s.personId : null;
+  }
+
+  /**
+   * THE ONE OTHER WAY A SESSION COUNTS (R6): a person whose delete is pending,
+   * for the pages that serve them — keep the account, or delete everything now.
+   * Every other page, and the OAuth side, use `sessionPerson`, which refuses them.
+   */
+  sessionPendingDelete(token: string | null): string | null {
+    const s = this.sessionOf(token);
+    return s !== null && s.state === "pending-delete" ? s.personId : null;
+  }
+
+  private sessionOf(token: string | null): { personId: string; state: string } | null {
     if (token === null || token.length < 16 || token.length > 128) return null;
     const hash = sha256(token);
     const at = this.now();
@@ -383,11 +414,13 @@ export class Accounts {
       "SELECT id, person_id, expires_at, last_seen_at FROM web_sessions WHERE token_hash = ?",
       hash,
     );
-    if (row === undefined || row.expires_at <= at || !this.isLive(row.person_id)) return null;
+    if (row === undefined || row.expires_at <= at) return null;
+    const state = this.stateOf(row.person_id);
+    if (state !== "active" && state !== "pending-delete") return null;
     if (at - row.last_seen_at > SESSION_TOUCH_MS) {
       this.db.run("UPDATE web_sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?", at, at + SESSION_MS, row.id);
     }
-    return row.person_id;
+    return { personId: row.person_id, state };
   }
 
   endSession(token: string | null): void {
@@ -397,19 +430,34 @@ export class Accounts {
 
   // ── people ─────────────────────────────────────────────────────────────────
 
+  private stateOf(personId: string): string | null {
+    return this.db.get<{ state: string }>("SELECT state FROM people WHERE id = ?", personId)?.state ?? null;
+  }
+
+  /** Active: every door is open to them (OAuth, `/mcp`, the account pages). */
   isLive(personId: string): boolean {
-    return this.db.get<{ state: string }>("SELECT state FROM people WHERE id = ?", personId)?.state === "active";
+    return this.stateOf(personId) === "active";
+  }
+
+  /**
+   * May sign in on the web: active, or a delete pending (R6: so they can keep
+   * the account, or delete everything now). That is all it allows: no AI can
+   * connect (`isLive`), and the pages show them only the pending page.
+   */
+  canSignIn(personId: string): boolean {
+    const state = this.stateOf(personId);
+    return state === "active" || state === "pending-delete";
   }
 
   person(personId: string): Person | null {
-    const p = this.db.get<{ id: string; state: Person["state"]; time_zone: string | null; created_at: number }>(
-      "SELECT id, state, time_zone, created_at FROM people WHERE id = ?",
+    const p = this.db.get<{ id: string; state: Person["state"]; time_zone: string | null; created_at: number; delete_after: number | null }>(
+      "SELECT id, state, time_zone, created_at, delete_after FROM people WHERE id = ?",
       personId,
     );
     if (p === undefined) return null;
     const email = this.db.get<{ value: string }>("SELECT value FROM identities WHERE person_id = ? AND kind = 'email' ORDER BY created_at LIMIT 1", personId)?.value ?? null;
     const store = this.db.get<{ id: string }>("SELECT id FROM stores WHERE person_id = ? AND state = 'active' ORDER BY created_at LIMIT 1", personId)?.id ?? null;
-    return { id: p.id, state: p.state, email, timeZone: p.time_zone, storeId: store, createdAt: p.created_at };
+    return { id: p.id, state: p.state, email, timeZone: p.time_zone, storeId: store, createdAt: p.created_at, deleteAfter: p.delete_after };
   }
 
   setTimeZone(personId: string, raw: unknown): boolean {
@@ -427,17 +475,88 @@ export class Accounts {
    * Suspending clears sessions either way — nobody refused is let back in.
    */
   setState(personId: string, state: "active" | "suspended"): boolean {
-    // A person whose delete has begun stays out until it finishes (`markDeleting`).
-    this.db.run("UPDATE people SET state = ? WHERE id = ? AND state != 'deleted' AND NOT EXISTS (SELECT 1 FROM stores WHERE person_id = people.id AND state = 'deleting')", state, personId);
+    // A person whose delete has begun stays out until it finishes (`markDeleting`);
+    // one whose delete is pending is theirs to keep or not (`keep`), not an operator's.
+    this.db.run(
+      "UPDATE people SET state = ? WHERE id = ? AND state NOT IN ('deleted', 'pending-delete') AND NOT EXISTS (SELECT 1 FROM stores WHERE person_id = people.id AND state = 'deleting')",
+      state,
+      personId,
+    );
     const changed = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
     if (state !== "active") this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
     if (changed) this.audit(personId, null, `person.${state}`, null);
     return changed;
   }
 
-  /** The store ids of every live store (start-up's backup check). */
+  /**
+   * The store ids of every live store: active, or locked by a pending delete
+   * (R6). A pending store is KEPT as it was, so it stays in everything that
+   * keeps a store: start-up's backup check (its key adopted on a new volume,
+   * never a new one made: `Backups.ensureAll`'s `locked`), a restore, a
+   * rewrap's key objects, the tombstone check. Nothing serves it (`storeLocked`).
+   */
   liveStoreIds(): string[] {
-    return this.db.all<{ id: string }>("SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state = 'active' AND p.state != 'deleted'").map((r) => r.id);
+    return this.db
+      .all<{ id: string }>("SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state IN ('active', 'pending-delete') AND p.state != 'deleted'")
+      .map((r) => r.id);
+  }
+
+  /** Is this store locked: a pending delete, or past it (erasing, erased)? Nothing opens it then. An unknown id: false. */
+  storeLocked(storeId: string): boolean {
+    const state = this.db.get<{ state: string }>("SELECT state FROM stores WHERE id = ?", storeId)?.state;
+    return state !== undefined && state !== "active";
+  }
+
+  // ── a delete set for later (R6, Mike 2026-10-27) ──────────────────────────
+
+  /**
+   * DELETE: LOCKED AT ONCE, ERASED LATER. The person and their stores turn
+   * `pending-delete` and every web session ends, in one transaction, and
+   * `delete_after` (durable, in the replicated control database) says when the
+   * erase is due. The store's files, key and backups are untouched. Returns the
+   * deadline, or null when the person wasn't active (already pending: the first
+   * deadline stands).
+   */
+  markPendingDelete(personId: string): number | null {
+    const deadline = this.now() + DELETE_GRACE_MS;
+    const changed = this.db.transaction((): boolean => {
+      this.db.run("UPDATE people SET state = 'pending-delete', delete_after = ? WHERE id = ? AND state = 'active'", deadline, personId);
+      if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) !== 1) return false;
+      this.db.run("UPDATE stores SET state = 'pending-delete' WHERE person_id = ? AND state = 'active'", personId);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+      return true;
+    });
+    if (!changed) return null;
+    this.audit(personId, null, "account.pending-delete", null);
+    return deadline;
+  }
+
+  /**
+   * KEEP IT (the undo): a pending delete, before it is due, back to active, the
+   * store as it was. Connections are not restored (they were revoked; the person
+   * connects again). False when there is nothing to keep: not pending, or the
+   * deadline has passed — the erase is due, and a keep never races it
+   * (`markDeleting`'s `due` is the other half of one condition).
+   */
+  keep(personId: string): boolean {
+    const kept = this.db.transaction((): boolean => {
+      this.db.run("UPDATE people SET state = 'active', delete_after = NULL WHERE id = ? AND state = 'pending-delete' AND delete_after > ?", personId, this.now());
+      if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) !== 1) return false;
+      this.db.run("UPDATE stores SET state = 'active' WHERE person_id = ? AND state = 'pending-delete'", personId);
+      return true;
+    });
+    if (kept) this.audit(personId, null, "account.kept", null);
+    return kept;
+  }
+
+  /** Every person whose delete is pending (due or not): the finish tick re-makes their lock whole. */
+  pendingDeletePeople(): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM people WHERE state = 'pending-delete'").map((r) => r.id);
+  }
+
+  /** People whose pending delete is due now (`delete_after` passed). A deadline still ahead never appears. */
+  dueDeletes(): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM people WHERE state = 'pending-delete' AND delete_after IS NOT NULL AND delete_after <= ?", this.now()).map((r) => r.id);
   }
 
   /**
@@ -454,24 +573,37 @@ export class Accounts {
       this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
       this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
-      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
     });
     this.audit(personId, null, "account.deleted", null);
   }
 
   /**
-   * Mark a person as being deleted: every session and link stops now, before
-   * the slow part, and their stores turn `deleting` — durably, so start-up's
-   * backup check (`liveStoreIds`) never gives a half-deleted store a new key,
-   * and `pendingDeletes` finds the delete to finish after a crash.
+   * Mark a person as being deleted (the ERASE begins): every session and link
+   * stops now, before the slow part, and their stores turn `deleting` —
+   * durably, so start-up's backup check (`liveStoreIds`) never gives a
+   * half-deleted store a new key, and `pendingDeletes` finds the delete to
+   * finish after a crash. From active (delete everything now) or from a
+   * pending delete (delete now from the pending page, or its deadline).
+   *
+   * `due`: only a pending delete whose deadline has passed, in one statement,
+   * so a keep (`keep`, which needs the deadline ahead) and the timer can never
+   * both win. Returns false when `due` found nothing to begin.
    */
-  markDeleting(personId: string): void {
-    this.db.transaction(() => {
-      this.db.run("UPDATE people SET state = 'suspended' WHERE id = ? AND state = 'active'", personId);
-      this.db.run("UPDATE stores SET state = 'deleting' WHERE person_id = ? AND state = 'active'", personId);
+  markDeleting(personId: string, opts: { due?: boolean } = {}): boolean {
+    const began = this.db.transaction((): boolean => {
+      if (opts.due === true) {
+        this.db.run("UPDATE people SET state = 'suspended' WHERE id = ? AND state = 'pending-delete' AND delete_after IS NOT NULL AND delete_after <= ?", personId, this.now());
+        if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) !== 1) return false;
+      } else {
+        this.db.run("UPDATE people SET state = 'suspended' WHERE id = ? AND state IN ('active', 'pending-delete')", personId);
+      }
+      this.db.run("UPDATE stores SET state = 'deleting' WHERE person_id = ? AND state IN ('active', 'pending-delete')", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+      return true;
     });
-    this.audit(personId, null, "account.deleting", null);
+    if (began) this.audit(personId, null, opts.due === true ? "account.deleting.due" : "account.deleting", null);
+    return began;
   }
 
   /** The stores a delete has to remove: every one not yet a tombstone (active or deleting). */
@@ -479,7 +611,7 @@ export class Accounts {
     return this.db.all<{ id: string }>("SELECT id FROM stores WHERE person_id = ? AND state != 'deleted' ORDER BY created_at", personId).map((r) => r.id);
   }
 
-  /** People whose delete began and didn't finish (a crash, or R2 down): start-up and a timer finish them. */
+  /** People whose ERASE began and didn't finish (a crash, or R2 down): start-up and a timer finish them. Never a delete still pending (`dueDeletes`). */
   pendingDeletes(): string[] {
     return this.db.all<{ person_id: string }>("SELECT DISTINCT person_id FROM stores WHERE state = 'deleting'").map((r) => r.person_id);
   }

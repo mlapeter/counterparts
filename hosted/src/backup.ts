@@ -110,6 +110,12 @@ export interface BackupsOptions {
   readonly liveStores: () => string[];
   /** Was this store ever opened (accounts' `opened_at`)? A store that was and has no key anywhere gets a new one only by `ensureAll`'s checks. Absent ⇒ never. */
   readonly openedBefore?: (storeId: string) => boolean;
+  /**
+   * Is this live store locked by a pending delete (R6)? It stays backed up and
+   * its key is adopted from the bucket on a new volume, but `ensureAll` NEVER
+   * gives it a new key: a store set to be erased is not re-keyed. Absent ⇒ never.
+   */
+  readonly locked?: (storeId: string) => boolean;
   /** When it was first opened (accounts' `opened_at`, ms), for `ensureAll`'s mint. Absent ⇒ unknown, and nothing is minted. */
   readonly openedAt?: (storeId: string) => number | null;
   /**
@@ -133,10 +139,13 @@ export interface BackupsOptions {
  *     isn't proven to be this volume's (a new or a different bucket);
  *   - `keys-newer`: this volume's `keys.sqlite` was made after the store was
  *     first opened (it was rebuilt), so a key of it may have existed before;
- *   - `bucket-unreadable`: a check's request to the bucket failed.
+ *   - `bucket-unreadable`: a check's request to the bucket failed;
+ *   - `locked` (R6): its account is set to be deleted. A store set to be erased
+ *     is never re-keyed; it is checked BEFORE `ensureStore`, so it never reaches
+ *     the mint (`ensureAll`).
  */
-export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable";
-export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable"];
+export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable" | "locked";
+export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable", "locked"];
 
 function yamlString(s: string): string {
   return JSON.stringify(s); // a JSON string is a valid YAML double-quoted scalar
@@ -252,6 +261,14 @@ export class Backups {
     let keyless = 0;
     let minted = 0;
     for (const id of this.opts.liveStores()) {
+      // A locked store (a delete pending) with no key here and none in the
+      // bucket is never handed to `ensureStore`, which would make one: it is
+      // counted keyless and left as it is until its erase or its keep (R6).
+      if (this.opts.locked?.(id) === true && this.opts.keys.wrapped(id) === null && (await this.opts.objects.get(keyObject(id))) === null) {
+        keyless += 1;
+        this.opts.onKeyless?.(id, "locked");
+        continue;
+      }
       try {
         await this.ensureStore(id, { reload: false });
       } catch (err) {

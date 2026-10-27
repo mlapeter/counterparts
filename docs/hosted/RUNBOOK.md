@@ -195,6 +195,7 @@ any replica of it, or its tombstone.
 It is **safe against the running server** (`railway ssh`, then the line below). It only clears the store's
 "opened" mark. At that person's next call the server makes the new store, gives it its key, and adds it to the
 sidecar's configuration (a sidecar reload, logged as `sidecar.exit` / `sidecar.start`). No restart is needed.
+It refuses a store whose account is set to be deleted: if its person keeps it, start it over then.
 
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>
@@ -275,6 +276,8 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
     Tell the coordinator.
   - `keys-newer`: this volume's `keys/keys.sqlite` was made no earlier than the store was first opened (it was rebuilt), so
     an older key of it may exist somewhere. Tell the coordinator.
+  - `locked`: its account is set to be deleted (R6), and a store set to be erased is never given a new key. Nothing to
+    do: it is erased at its deadline, and if its person keeps it, the next start checks it like any other.
 - **`did not start: the object store says the bucket (R2_BUCKET) doesn't exist`**: `R2_BUCKET` names a bucket R2
   doesn't have. Fix the variable.
 
@@ -343,6 +346,25 @@ Afterwards, empty the drill bucket: it holds keys wrapped under the real KEK. Th
 
 People who use the server hold no keys, so they can't lock themselves out. A key a person holds themselves would
 stay opt-in only, if it's ever built.
+
+## Deletes (24 hours to keep, or everything now)
+
+Since 2026-10-27 (R6) a person's delete locks the account at once and erases it 24 hours later, unless they sign in
+and keep it; "delete everything now" erases at once. Nothing here needs you:
+
+- **The deadline survives anything.** It is in `accounts.sqlite` (`people.delete_after`). A redeploy, a crash or an R2
+  outage during the 24 hours never erases early and never forgets. The server begins each erase within ten minutes
+  of its deadline (or at the next start, if it was down then), and retries until R2 lets it finish.
+- **A locked store is still backed up**, so a restore in the window brings it back locked (unless the control
+  databases come back from before the delete: then it is `active` and connected again, its deadline lost, and from
+  before a keep it comes back pending: INTERFACE-GAPS §36), and a rewrap re-writes
+  its key object like any other.
+- **There is no operator undo or early erase.** The person does both from their account page (they sign in by email
+  link as usual and see only that page). If someone can't reach their email and asks you to keep or erase it, tell
+  the coordinator: it is a one-off script around `app.keepAccount` / `app.deleteAccount`, not a command.
+- **Audit codes** (`accounts.sqlite`'s `audit`, ids only): `account.pending-delete`, `account.kept`,
+  `account.deleting.due` (the deadline's erase began), then the erase's own `delete.backups`, `delete.store`,
+  `account.deleted`, or `delete.retry.failed` while R2 is down.
 
 ## Rollback
 

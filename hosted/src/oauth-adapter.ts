@@ -139,6 +139,11 @@ export class OidcStore {
   /** Every grant of one person (account delete, suspension). */
   revokeAccount(accountId: string): void {
     for (const g of this.grantsOf(accountId)) this.revokeGrant(g.id);
+    // And the library's own login sessions of this person (R6). One left naming
+    // an account `findAccount` no longer finds (a pending delete) made the
+    // library's consent check throw at the next authorize (a 500); without it,
+    // that browser is asked to sign in, and our login shows the pending page.
+    this.db.run("DELETE FROM oidc WHERE model = 'Session' AND json_extract(payload, '$.accountId') = ?", accountId);
   }
 
   /** Readiness: the database answers. Throws when it doesn't. */

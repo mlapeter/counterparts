@@ -143,6 +143,8 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
     if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
+    // A store set to be deleted (R6) is left as it is (the #659 re-check): kept, it can be started over then.
+    if (accounts.storeLocked(storeId)) throw new Error("that store is set to be deleted: start it over only if its person keeps it");
     const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
     if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
@@ -172,9 +174,10 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   const accounts = new Accounts({ path: accountsPath });
   // Opens each restored store once, so its cache is rebuilt here, offline, not on the person's first call.
-  const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }) });
+  // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
+  const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id) });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
@@ -192,7 +195,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
         const r = await backups.restore(id, run, { force });
         if (r.restored > 0) {
           accounts.markOpened(id);
-          await tenants.withTenant(id, {}, async () => undefined);
+          if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
         }
         restored += r.restored;
         empty += r.empty;
@@ -235,6 +238,7 @@ const KEYLESS_WORDS: Record<KeylessReason, string> = {
   "bucket-unproven": "the bucket had no control key before this start, so it isn't proven to be this volume's. If R2_BUCKET is wrong, fix it before anything else; if it is right, the next start checks again (this start put the control key there). If the corrected bucket then refuses with \"the bucket's control key is a different key\", the wrong-bucket start made this volume a new control key: remove keys/ (rm -rf /data/keys), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1",
   "keys-newer": "this volume's keys (keys/keys.sqlite) were made after the store was first opened, so an older key of it may exist. Tell the coordinator",
   "bucket-unreadable": "the bucket didn't answer one of the checks. The next restart tries again",
+  locked: "its account is set to be deleted (a pending delete), and a store set to be erased is never given a new key. It is erased at its deadline; if its person keeps it, the next start checks it like any store that lived with no key",
 };
 
 /** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */

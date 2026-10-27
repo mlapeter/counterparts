@@ -90,6 +90,21 @@ export interface TenantsOptions {
   readonly openedBefore?: (storeId: string) => boolean;
   /** Told at every open that CREATED the store's dir (its first life). */
   readonly onCreated?: (storeId: string) => void;
+  /**
+   * Is this store locked (R6: its account's delete is pending, or erasing)?
+   * Asked on every acquire, from the accounts database, so the lock holds
+   * across a restart and lifts with a keep, with no call to make here. A
+   * locked store is never opened (`StoreLocked`). Absent ⇒ never.
+   */
+  readonly locked?: (storeId: string) => boolean;
+}
+
+/** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
+export class StoreLocked extends Error {
+  constructor() {
+    super("this store is locked: its account is set to be deleted");
+    this.name = "StoreLocked";
+  }
 }
 
 /** Beside a store just restored (`backup.ts#restore`): its next open rebuilds the cache, which no backup holds. */
@@ -156,6 +171,11 @@ export class Tenants {
     return this.open.size;
   }
 
+  /** Is this store locked by a pending delete (or past it)? `TenantsOptions.locked`; false when absent. */
+  isLocked(storeId: string): boolean {
+    return this.opts.locked?.(storeId) === true;
+  }
+
   /** Is this store's handle open (and not closing)? */
   isOpen(storeId: string): boolean {
     const h = this.open.get(storeId);
@@ -169,7 +189,17 @@ export class Tenants {
   async withTenant<T>(storeId: string, tenant: TenantOptions, fn: (target: McpTarget, server: McpServer) => Promise<T>): Promise<T> {
     const h = await this.acquire(storeId, tenant);
     try {
-      return await fn({ server: h.server, serial: h.serial }, h.server);
+      // Every call is checked against the lock once its turn in the queue comes
+      // (#659 review): a request that held the store while its body arrived
+      // slowly must not run after the store was locked meanwhile. The lock is
+      // a store's state; a token revoked meanwhile (a disconnect, a delete then
+      // Keep) is the door's to check, at the same turn (`server.ts`, step 6).
+      const serial: Serial = (call) =>
+        h.serial(async () => {
+          if (this.isLocked(storeId)) throw new StoreLocked();
+          return call();
+        });
+      return await fn({ server: h.server, serial }, h.server);
     } finally {
       h.refs -= 1;
       h.lastUsed = this.now();
@@ -240,6 +270,7 @@ export class Tenants {
   private async acquire(storeId: string, tenant: TenantOptions): Promise<Handle> {
     for (;;) {
       if (this.retired.has(storeId)) throw new Error("that store was deleted");
+      if (this.isLocked(storeId)) throw new StoreLocked();
       const h = this.open.get(storeId);
       if (h === undefined) break;
       if (h.closing !== null) {

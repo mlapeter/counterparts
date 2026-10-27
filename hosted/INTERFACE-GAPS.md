@@ -114,3 +114,29 @@
 33. **`keys-newer` has no way out** (R5). A store left keyless because `keys.sqlite` was rebuilt after it was opened
     stays unbacked: nothing mints for it, and `start-over` refuses while its database is here. An operator command
     (`start-over --rekey`, with the same checks minus that one, after a human has looked) would be the path.
+
+## The 24-hour delete (R6, 10-27)
+
+34. **No confirmation email for a delete, a keep or an erase.** None was built for the delete before R6 (DESIGN §7.1
+    said one goes out), so none was added (the brief: only if one existed). Recommended next: one email at the delete,
+    naming the deadline and the way to keep it. It is the only notice a person gets if someone else's hand used their
+    signed-in browser, and the 24 hours are what make it worth sending.
+35. **No re-authentication for delete everything now** beyond the signed-in session and the typed address. From the
+    pending page the session is always a fresh email link (the delete ended every other). From an active account it is
+    whatever session the browser has (up to 30 days old).
+36. **A volume lost inside the 24 hours, with control restored from before the delete**, brings the account back
+    `active` AND connected: `oauth.sqlite` comes back with `accounts.sqlite`, so its grants return too, and the
+    deadline is lost. The tombstone (`deleted/<id>`) is written only when the erase begins, so nothing in the bucket
+    says a delete was pending. The reverse holds too: control restored from before a keep brings back a pending
+    account, which may then be erased at its old deadline. A third narrow window beside §13's two (the #659 review).
+    - **An option, not built:** a `pending/<storeId>` object in the bucket at the delete (holding the deadline),
+      removed at a keep, and honoured at start like the tombstone. It would close the first case; the reverse would
+      need the keep's own marker.
+37. **The erase can run up to one timer tick (ten minutes) after the deadline.** The pending page says the time to keep
+    it has passed from the deadline on, and keep refuses then.
+38. **No operator undo or early erase.** The person does both from the pending page. An operator who had to could run
+    the same calls (`app.keepAccount`, `app.deleteAccount`) from a one-off script; there is no CLI.
+39. **R5's mint and a pending delete (closed when #658 merged).** `Backups.ensureAll` checks `locked` BEFORE
+    `ensureStore`: a store set to be deleted with no key here and none in the bucket is counted keyless with the
+    reason `locked` (audited and logged through `onKeyless`, like R5's other reasons) and never reaches
+    `mintRefusal` or the mint. A mint added anywhere else needs the same check.

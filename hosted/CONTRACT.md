@@ -153,7 +153,43 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - The control databases, under the `control` pseudo-store's key.
     - Each wrapped DEK, once, as `keys/<storeId>.wrapped`.
     - The sidecar's configuration holds paths only. Its environment holds R2 credentials only.
-27. **Delete is at once, everywhere.** In one sequence:
+27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
+    "at once, everywhere" as the default, which stays as "delete everything now").
+    - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
+      + 24 h), and every web session ends, in one transaction; every grant is revoked, and the OAuth library's own login
+      sessions of the person end; the store's handle closes and its worker is dropped. The files, the key and the
+      backups are untouched, and the sidecar keeps the store in its configuration.
+    - **While pending, no door serves it.** `/mcp` answers `401` (and `Tenants.locked`, read from the accounts row,
+      refuses any open, also after a restart); a refresh token is `invalid_grant`; a new connection can't be allowed.
+      The person can still sign in by a new email link, and is served exactly one page: the deadline, keep, delete
+      everything now, sign out. Export, time zone and disconnect refuse (`403`); `/login` and the Allow page send them
+      back to it. An operator's `setState` can't change a pending person.
+    - **The lock heals** (the #659 review). Once the pending state has committed, the delete has taken effect: a revoke
+      or close that then fails is audited (`delete.lock.revoke.failed`, `delete.lock.close.failed`) and the done page
+      still renders. Every finish tick revokes again for every pending person, and a keep revokes FIRST (a revoke that
+      throws keeps nothing: `503`), so a grant that outlived the delete never comes back with the account.
+    - **A call already holding the store is refused when it lands.** A request authenticated before the lock whose
+      body was still arriving is answered `401` once the body ends, before any message runs (the door's `gate`, in
+      `remote/http.ts`), and every call is checked against the lock again at its turn in the store's queue
+      (`StoreLocked`). The delete page doesn't wait for such a body: the close isn't awaited.
+    - **A call runs only while its token still authenticates as its caller at its turn** (the #659 re-check). The
+      door re-runs `authenticate` inside the store's queue before each call, so a delete then a Keep (the lock gone,
+      the grant not) or a disconnect, landing while a body arrived or a call waited, never serves the old token. Any
+      such refusal answers the whole request `401` (`503` if the check itself throws), never a `200` "internal
+      error" (`McpPostOptions.refusal`).
+    - **The erase is never early and never forgotten.** `delete_after` is in the replicated control database. The finish
+      timer (every ten minutes) and start-up begin the erase of a pending delete only once its deadline has passed, in
+      one statement that a keep can't race; then the sequence below runs, and is retried until it ends.
+    - **Keep** (`POST /account/keep`, CSRF, only while the deadline is ahead) → `active`, the store as it was. Grants are
+      NOT restored: the person connects again.
+    - **A pending store is never re-keyed**: start-up's `ensureAll` skips a locked store with no key here and none in
+      the bucket (it adopts a key the bucket has), BEFORE `ensureStore`, so it never reaches R5's mint; the skip is audited and logged as `backup.keyless` reason `locked`. The restore CLI restores a locked store but never opens it (its
+      cache rebuilds at its first open after a keep).
+    - The migration is one `ALTER TABLE people ADD COLUMN delete_after`, made at open when the column is missing, so a
+      fresh volume and an existing beta volume both take it.
+
+    **Delete everything now** (`when=now`, from the account page or the pending page), and the erase at a deadline, run
+    one sequence:
     - sessions and grants stop;
     - the handle closes;
     - the store is retired in this process (a call authenticated just before the revoke can't re-open it);
@@ -165,7 +201,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written, and it is never removed
     (§31a). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
     its way out. The store turns `deleting` first, durably: start-up never gives it a new key, and a delete cut short
-    (a crash, R2 down) is finished at start-up and on a timer. The delete asks for the typed address and a CSRF token.
+    (a crash, R2 down) is finished at start-up and on a timer. Both deletes ask for the typed address and a CSRF token.
 28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
     queue, sent only to the signed-in person behind CSRF, and the scratch copy (on the data volume, under `scratch/`, swept at
     start-up) is removed after sending.
@@ -256,7 +292,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
     own backup. Such a store is also left out of the sidecar's configuration until it is restored. One that never
     reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
-    it or its tombstone. It's safe against the running server: the store's first open after it gets its key and a
+    it or its tombstone, or while its account is set to be deleted (R6). It's safe against the running server: the store's first open after it gets its key and a
     place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check

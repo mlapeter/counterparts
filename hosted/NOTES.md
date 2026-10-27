@@ -264,3 +264,72 @@ command minted, and the RUNBOOK's "tell the coordinator" led nowhere.
   next start, which the RUNBOOK says to force with a restart).
 - **Left keyless on purpose:** `keys-newer` with nothing in any bucket (a gap store whose volume then lost and rebuilt
   `keys.sqlite`) can't be told from the mass-mint case above, and nothing heals it. Rare: two failures in a row.
+
+## R6: delete locked at once, erased after 24 hours (10-27)
+
+Mike's change of 10-26's "at once, everywhere" (DESIGN Q4, §5.4): delete is a soft delete with 24 hours to keep the
+account, and "delete everything now" beside it. Built on master 087c3b85; the guarantees are CONTRACT §27.
+
+- **The state is the accounts row, not the process.** `pending-delete` on the person and the store, and
+  `people.delete_after`, are in the replicated control database. The lock on the store is `Tenants.locked`, asked on
+  every acquire, so it holds across a restart and lifts with a keep, with no in-memory set to rebuild. `retire` stays
+  for the erase, which is final.
+- **A pending store is still a live store** (`liveStoreIds`). Leaving it out would have dropped it from a rewrap's
+  key-object re-upload (`syncKeyObjects`): the old KEK version dropped afterwards, a keep, and its backup could no
+  longer be opened. It would also have dropped it from a restore and from start-up's key adoption on a new volume. So
+  it stays in, and `Backups.ensureAll` alone learns `locked`: never a NEW key for it.
+- **Keep and the deadline are one condition from two sides.** `keep` needs `delete_after > now`; the timer's
+  `markDeleting(…, { due: true })` needs `delete_after <= now` and `state = 'pending-delete'`. Each is one statement,
+  so the timer can never erase an account a keep just brought back, and a keep never lands after the erase began.
+- **Sign-in had to learn a second state.** `requestLink`, `useLink` and the session lookup gated on `isLive`, so a
+  pending person got no email at all. They now use `canSignIn` (active or pending); `sessionPerson` stays active-only,
+  and `sessionPendingDelete` is the one other way a session counts, used by the pending page, keep, delete now and
+  sign out. `isLive` stays active-only for `authenticate` and the OAuth library's `findAccount`.
+- **The OAuth library's login session outlived the grants, and crashed the next authorize.** A library `Session` row
+  naming an account `findAccount` no longer finds made its consent check throw (`oidc.grant` undefined): a 500 on
+  `/oauth/authorize` in that browser. `revokeAccount` now deletes the person's library sessions too, so that browser is
+  asked to sign in and lands on the pending page. The same 500 would have hit a suspended person's browser before
+  (suspension revokes nothing, INTERFACE-GAPS §18); it isn't fixed for suspension here. The delete is a scan of the
+  `Session` rows with `json_extract` (no index on a session's account): fine for a beta of twenty.
+- **The tests drive the real timer.** `AppOptions.finishEveryMs` (ten minutes by default) runs it every few
+  milliseconds, and `AppOptions.now` now reaches `Accounts` and the pages too, so an injected clock stands in for the
+  24 hours (`test/delete.test.ts`).
+
+### The #659 review (high), and its fixes
+
+Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.test.ts`.
+
+- **BLOCKING: the pending state committed, then the revoke failed, and a keep brought the old connection back.** The
+  reviewer made `revokeAccount` throw once: the delete page answered 500 although the delete had taken effect, and
+  after Keep the OLD access token answered 200. Now the revoke and close after the commit are audited, not thrown
+  (the done page renders); every finish tick revokes again for every pending person (which also heals a crash
+  between the two writes); and a keep revokes first, refusing (503) if it can't.
+- **Medium: a call authenticated before the delete, its body sent slowly, ran after the lock** and returned memory
+  text with 200 on Node 24 (bun hides it, as it hides other mid-body behaviour, §21). The door now asks a `gate` once
+  the body has arrived (`remote/http.ts`, `McpPostOptions.gate`) and answers 401; the store's queue checks the lock
+  again at each call's turn. With only the queue check the same probe answers 200 with "internal error" and no
+  memory; with neither it returned the memory. The delete page no longer waits for that body (the close isn't awaited).
+- **The restore CLI opened a pending store** (its cache rebuild consumed the marker). It now restores it and leaves
+  it closed, like start-up.
+- **INTERFACE-GAPS §36 (was §34) was wrong:** `oauth.sqlite` restores with `accounts.sqlite`, so an early restore brings the
+  account back connected, not only active. Corrected, with the `pending/<storeId>` marker as an option.
+- **Wording:** "after <time>", not "at" (the timer's tick); "isn't read by us or any AI, shown or used" (the sidecar
+  still reads the file to back it up).
+
+### The #659 re-check
+
+- **HIGH: a held call ran on its old token after a Keep.** A request authenticated before the delete, its body sent
+  slowly, then delete, a fresh email sign-in and Keep, all before the body ended: the call ran and returned memory
+  (200, Node 24; bun answered 401 and hid it). The gate and the queue's check both asked `isLocked`, a property of
+  the store, and Keep clears it; what changed was the grant. The same hole was there before R6 for `/account/disconnect`.
+  Now the door re-runs `authenticate` on the same token inside the store's queue, just before each call, and refuses
+  unless it is still the same person and store. That also covers a whole body queued behind another call while a
+  delete and a Keep land (a test the review didn't write: it tells a token check from a lock check). `touchGrant`
+  writes at most once in ten minutes, so the extra check is two reads per call.
+- **LOW: a queued call refused by the lock answered 200 with JSON-RPC "internal error".** `one()` in
+  `remote/http.ts` caught `StoreLocked`. `McpPostOptions.refusal` now lets the door turn a call's error into an HTTP
+  answer for the whole request (`401` for a locked store or a revoked token, `503` when the re-check throws). In a
+  batch, answers already made are dropped with it: the client re-authenticates and sends again.
+- All four cases (slow body + Keep, slow body + disconnect, queued + lock, queued + delete and Keep) fail on Node 24
+  without the change and pass with it, on both runtimes.
+- **start-over refuses a store set to be deleted** (operator only; it read `liveStoreIds`, which includes pending).

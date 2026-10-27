@@ -378,7 +378,7 @@ describe("sign-up, export and delete, through the app", () => {
     assert.match(bytes.toString("latin1"), /lemon tree by the gate/);
   });
 
-  test("delete happens AT ONCE, everywhere: the wrapped key and every replica object are gone from R2 right after; nothing of the store is left", async () => {
+  test("delete everything now happens AT ONCE, everywhere: the wrapped key and every replica object are gone from R2 right after; nothing of the store is left", async () => {
     const r = await appRig();
     const me = await signUp(r, "gone@example.com");
     const other = await signUp(r, "stays@example.com");
@@ -387,9 +387,9 @@ describe("sign-up, export and delete, through the app", () => {
     await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
     const page = await (await me.browser.go("/account")).text();
     // A mistyped confirmation deletes nothing.
-    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "someone@example.com" })).status, 400);
+    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "someone@example.com" })).status, 400);
     assert.ok(r.objects.objects.has(keyObject(me.storeId)));
-    const done = await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "gone@example.com" });
+    const done = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "gone@example.com" });
     assert.equal(done.status, 200);
     // R2, right after: no wrapped key, no replica object.
     assert.equal(r.objects.objects.has(keyObject(me.storeId)), false);
@@ -464,7 +464,7 @@ describe("delete, when things go wrong", () => {
     const me = await signUp(r, "flush@example.com");
     const other = await signUp(r, "keeps@example.com");
     const page = await (await me.browser.go("/account")).text();
-    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "flush@example.com" })).status, 200);
+    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "flush@example.com" })).status, 200);
     assert.deepEqual(await objects.list(replicaPrefix(me.storeId)), []);
     assert.equal(objects.objects.has(keyObject(me.storeId)), false);
     // The other store's final flush (from the same restart) is its own and stays.
@@ -496,7 +496,7 @@ describe("delete, when things go wrong", () => {
     await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
     const page = await (await me.browser.go("/account")).text();
     down = true;
-    const res = await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "halfway@example.com" });
+    const res = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "halfway@example.com" });
     assert.equal(res.status, 202);
     // Closed already: signed out, no way back in, the store out of start-up's live list.
     assert.equal((await me.browser.go("/account")).status, 303);
@@ -527,7 +527,7 @@ describe("delete, when things go wrong", () => {
     const me = await signUp(r, "no-trace-left@example.com");
     const wrapped = r.app.keys!.wrapped(me.storeId)!;
     const page = await (await me.browser.go("/account")).text();
-    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "no-trace-left@example.com" })).status, 200);
+    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "no-trace-left@example.com" })).status, 200);
     const keysFile = join(tmp.root, "data", "keys", "keys.sqlite");
     for (const f of [keysFile, `${keysFile}-wal`]) {
       if (existsSync(f)) assert.equal(readFileSync(f).includes(Buffer.from(wrapped.split(".")[3]!)), false, `${f} still holds the wrapped DEK`);

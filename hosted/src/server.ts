@@ -20,7 +20,12 @@
  *   4. a body that is not `application/json` → `415`, which closes the
  *      `text/plain` "simple request" a page could send with no preflight (the
  *      #634 review's hole in the local door);
- *   5. the caller's store, through `Tenants.withTenant` (its own queue).
+ *   5. the caller's store, through `Tenants.withTenant` (its own queue);
+ *   6. once the body is in, a store locked meanwhile → `401`; and each call,
+ *      at its turn in the queue, re-runs `authenticate` on the same token →
+ *      `401` (`503` if the check throws) unless it is still the same caller, so
+ *      a delete, a disconnect, or a delete then Keep, that landed while the
+ *      body arrived or the call waited, is never served on the old token.
  *
  * THE STORE COMES FROM THE TOKEN AND NOTHING ELSE. No path segment, header or
  * argument names a store; `authenticate` maps a token to exactly one person and
@@ -35,7 +40,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { handleMcpPost } from "../../src/adapters/remote/http.js";
 import type { CallRecord } from "../../src/adapters/remote/http.js";
 import type { LimitReason, McpLimits } from "./limits.js";
-import { StoreNeedsRestore } from "./tenants.js";
+import { StoreLocked, StoreNeedsRestore } from "./tenants.js";
 import type { Tenants } from "./tenants.js";
 
 /** Who a valid token speaks for. */
@@ -118,6 +123,11 @@ export function bearer(req: IncomingMessage): string | null {
   return m === null ? null : (m[1] ?? null);
 }
 
+/** A call whose token no longer authenticates as its caller when its turn came. */
+class TokenRevoked extends Error {}
+/** A call whose token could not be re-checked at its turn (the control database down). */
+class RecheckFailed extends Error {}
+
 export function createHostedServer(opts: HostedServerOptions): Server {
   const origin = opts.publicOrigin.replace(/\/+$/, "");
   const allowed = new Set(opts.allowedOrigins ?? []);
@@ -127,6 +137,8 @@ export function createHostedServer(opts: HostedServerOptions): Server {
   const challenge = (error?: string): Record<string, string> => ({
     "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl(origin)}"${error === undefined ? "" : `, error="${error}"`}`,
   });
+
+  const unauthorized = { status: 401, headers: challenge("invalid_token") };
 
   const mcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== "POST") {
@@ -191,14 +203,44 @@ export function createHostedServer(opts: HostedServerOptions): Server {
           req.socket.once("close", gone);
           res.once("finish", () => req.socket.removeListener("close", gone));
           res.once("close", () => req.socket.removeListener("close", gone));
-          const routed = limits === undefined ? target : { serial: target.serial, server: limits.wrap(target.server, caller.personId, caller.storeId, (reason) => event(`limit.${reason}`, store)) };
-          handleMcpPost(req, res, routed, {
+          // EACH CALL, AT ITS TURN, RE-CHECKS THE TOKEN (#659 re-check): the
+          // headers' check is not enough. A body that arrives slowly, or a
+          // message queued behind another call, can outlive its grant — a
+          // delete then a Keep (the lock is gone again, the grant is not), a
+          // disconnect — and must not run on it. A check that throws (the
+          // control database down) refuses the call too: 503, not a sign-in.
+          const serial: typeof target.serial = (call) =>
+            target.serial(async () => {
+              let now: Caller | null;
+              try {
+                now = await opts.authenticate(token!);
+              } catch {
+                throw new RecheckFailed();
+              }
+              if (now === null || now.personId !== caller.personId || now.storeId !== caller.storeId) throw new TokenRevoked();
+              return call();
+            });
+          const mcpServer = limits === undefined ? target.server : limits.wrap(target.server, caller.personId, caller.storeId, (reason) => event(`limit.${reason}`, store));
+          handleMcpPost(req, res, { serial, server: mcpServer }, {
             ...(opts.maxBodyBytes === undefined ? {} : { maxBodyBytes: opts.maxBodyBytes }),
+            // A store locked (a delete) while this body was still arriving: the
+            // same 401 its revoked token now gets, and no message runs (#659 review).
+            gate: () => (opts.tenants.isLocked(caller.storeId) ? unauthorized : null),
+            // The same answers for a call refused at its turn: 401 for a store
+            // locked or a token revoked meanwhile, never a 200 "internal error".
+            refusal: (err) => (err instanceof StoreLocked || err instanceof TokenRevoked ? unauthorized : err instanceof RecheckFailed ? { status: 503, headers: { "Retry-After": "30" } } : null),
             onCall: (r) => opts.onCall?.({ ...r, store }),
           });
         }),
       );
     } catch (err) {
+      // A store locked by a pending delete (R6), reached by a token checked a
+      // moment before its grant was revoked: the same 401 as that token now gets.
+      if (err instanceof StoreLocked && !res.headersSent) {
+        req.resume();
+        text(res, 401, "401\n", { ...challenge("invalid_token"), ...hsts });
+        return;
+      }
       // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
       // 503, so the client retries later instead of asking the person to sign in again.
       if (!(err instanceof StoreNeedsRestore) || res.headersSent) throw err;

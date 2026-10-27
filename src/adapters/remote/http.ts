@@ -123,6 +123,36 @@ export interface McpPostOptions {
    *  (413, 400). A throw is swallowed. */
   readonly onRefused?: (status: number) => void;
   readonly now?: () => number;
+  /**
+   * Asked once the whole body has arrived, before any message reaches the
+   * server: a refusal is answered with its status and headers instead. The
+   * hosted door uses it for a store locked while a slow body was in flight.
+   * Absent ⇒ never refused here.
+   */
+  readonly gate?: () => Refusal | null;
+  /**
+   * Asked when a message's call throws: a refusal answers the WHOLE request
+   * with its status and headers (any answers already made in a batch are
+   * dropped) instead of the message's JSON-RPC "internal error". The hosted
+   * door uses it for a store locked, or a token revoked, while the message
+   * waited its turn. Absent, or null for this error ⇒ "internal error".
+   */
+  readonly refusal?: (err: unknown) => Refusal | null;
+}
+
+/** What a door's `gate` or `refusal` answers instead: an HTTP status and its headers. */
+export interface Refusal {
+  readonly status: number;
+  readonly headers?: Record<string, string>;
+}
+
+/** Carries a `refusal` out of one message to the request's answer. */
+class Refused extends Error {
+  readonly refusal: Refusal;
+  constructor(refusal: Refusal) {
+    super("refused");
+    this.refusal = refusal;
+  }
 }
 
 export interface ServeHttpOptions extends McpPostOptions {
@@ -223,7 +253,12 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
   let response: Response | null;
   try {
     response = await target.serial(() => target.server.handle(request));
-  } catch {
+  } catch (err) {
+    const refused = opts.refusal?.(err) ?? null;
+    if (refused !== null) {
+      tell(() => opts.onCall?.({ at: new Date(started).toISOString(), method: code(request.method, 64) ?? "other", connection, ok: false, reason: String(refused.status), ms: now() - started }));
+      throw new Refused(refused);
+    }
     // The message stays on this machine: it could name a path on disk.
     response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
   }
@@ -308,6 +343,11 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
   });
   req.on("end", () => {
     if (over) return;
+    const shut = opts.gate?.() ?? null;
+    if (shut !== null) {
+      refuse(shut.status, shut.headers ?? {});
+      return;
+    }
     void (async (): Promise<void> => {
       let body: unknown;
       try {
@@ -335,9 +375,15 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
       const initializing = messages.some((m) => m !== null && typeof m === "object" && (m as Record<string, unknown>)["method"] === "initialize");
       const connection = initializing ? randomUUID() : (carried ?? null);
       const responses: Response[] = [];
-      for (const message of messages) {
-        const response = await one(message, connection, target, opts, now);
-        if (response !== null) responses.push(response);
+      try {
+        for (const message of messages) {
+          const response = await one(message, connection, target, opts, now);
+          if (response !== null) responses.push(response);
+        }
+      } catch (err) {
+        if (!(err instanceof Refused) || res.headersSent) throw err;
+        refuse(err.refusal.status, err.refusal.headers ?? {});
+        return;
       }
       const headers: Record<string, string> = initializing && connection !== null ? { "Mcp-Session-Id": connection } : {};
       if (responses.length === 0) {
