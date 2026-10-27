@@ -44,7 +44,7 @@ import { Accounts } from "./accounts.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
-import type { LitestreamRun } from "./backup.js";
+import type { KeylessReason, LitestreamRun } from "./backup.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
 import { KeyStore, kekRingFromEnv } from "./keys.js";
@@ -219,9 +219,25 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
  */
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
-  if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it\n`;
+  if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;
+  if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
+  if (name.startsWith("backup.keyless.")) {
+    const reason = name.slice("backup.keyless.".length) as KeylessReason;
+    return `[hosted] backup.keyless storeTag=${store} reason=${reason}: this store is NOT backed up, and no key was made: ${KEYLESS_WORDS[reason]}\n`;
+  }
   return `[hosted] ${name} store=${store}\n`;
 }
+
+/** What each `backup.keyless` reason says to the operator (docs/hosted/RUNBOOK.md, If a start refuses). */
+const KEYLESS_WORDS: Record<KeylessReason, string> = {
+  "no-database": "its database isn't on this volume. It waits for a restore (RESTORE_ON_BOOT=1), or for start-over if it never reached the bucket",
+  "replica-in-bucket": "the bucket holds backup objects of it under a key that is gone, and a new key would bury them. Tell the coordinator",
+  tombstone: "the bucket has its tombstone: it was deleted, and the delete is finished at a start",
+  "bucket-unproven": "the bucket had no control key before this start, so it isn't proven to be this volume's. If R2_BUCKET is wrong, fix it before anything else; if it is right, the next start checks again (this start put the control key there). If the corrected bucket then refuses with \"the bucket's control key is a different key\", the wrong-bucket start made this volume a new control key: remove keys/ (rm -rf /data/keys), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1",
+  "keys-newer": "this volume's keys (keys/keys.sqlite) were made after the store was first opened, so an older key of it may exist. Tell the coordinator",
+  "bucket-unreadable": "the bucket didn't answer one of the checks. The next restart tries again",
+  locked: "its account is set to be deleted (a pending delete), and a store set to be erased is never given a new key. It is erased at its deadline; if its person keeps it, the next start checks it like any store that lived with no key",
+};
 
 /** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */
 export const CONTROL_ASIDE_LABEL = /^[A-Za-z0-9_-]{1,32}$/;
@@ -479,7 +495,8 @@ async function main(): Promise<void> {
   const report = await app.start(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {});
   if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);
   if (report.restoreFailed > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restoreFailed)} store restores FAILED; those stores wait (the audit has them as store.restore.failed)\n`);
-  if (report.keyless > 0) process.stderr.write(`[hosted] ${String(report.keyless)} stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made\n`);
+  if (report.minted > 0) process.stderr.write(`[hosted] ${String(report.minted)} stores that served with no key here or in the bucket were given one (backup.key.minted above)\n`);
+  if (report.keyless > 0) process.stderr.write(`[hosted] ${String(report.keyless)} stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made (backup.keyless above says why, per store)\n`);
   if (report.tombstoned > 0) process.stderr.write(`[hosted] ${String(report.tombstoned)} accounts the bucket says were deleted came back with the control databases: their deletes were finished\n`);
   if (report.leftovers > 0) process.stderr.write(`[hosted] removed what ${String(report.leftovers)} deleted stores had left in the bucket\n`);
   if (report.asideSwept > 0) process.stderr.write(`[hosted] deleted ${String(report.asideSwept)} copies set aside more than a day ago (control.aside-*, *.pre-restore-*)\n`);

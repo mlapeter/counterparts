@@ -205,11 +205,65 @@ re-review" block:
   store is NOT backed up yet …` (`storeTag=`, not `store=`, which is server.ts's per-process HMAC tag elsewhere), through the app's `onEvent` and `main.ts#eventLine`. The tag is `storeTag` (SHA-256,
   the restore CLI's tag, now in `tenants.ts`), not the server's per-process HMAC, so an operator can match it to
   `restore`/`start-over` output. Never the id, an address or the error's text (a sidecar error can carry a path).
-- **Open (flagged, not built; the coordinator briefs it separately):** when `ensureStore` fails before any key exists (the bucket unreachable at the
-  first open of a started-over store), the store is still marked opened, so the next start's `ensureAll` counts it
-  `keyless` and never makes it a key: it serves, unbacked, until a human runs `start-over` again. Recommendation:
-  let `ensureAll` make a key for a store with no key here or in the bucket AND no replica objects (the test
-  `start-over` already makes), so the next start heals it.
+- **Found, then built as R5 (below):** when `ensureStore` failed before any key existed (the bucket unreachable at the
+  first open of a started-over store), the store was still marked opened, and it served, unbacked, for good.
+
+### R5: a store that served with no key anywhere gets one at start-up (10-27)
+
+The rule was "no key is ever minted for a store that lived". It exists because a lived store with no key here and none
+in the bucket MIGHT have lost its key: a new key would hide that, and its replica, if any, would be buried for good. But
+a started-over store whose first open's `ensureStore` threw (the R3 finding) is in that state with nothing anywhere to
+bury, and nothing healed it: later starts counted it `keyless`, `start-over` refused ("its database is here"), no
+command minted, and the RUNBOOK's "tell the coordinator" led nowhere.
+
+- **Now `ensureAll`, at start-up only, mints when every condition holds** (`backup.ts#mintRefusal`, the #655 review's
+  list plus one):
+  - (a) no key in `keys.sqlite`, and (b) the bucket's GET of its key object said "no such key" (both are what
+    `StoreKeyMissing` means; a GET that throws stops the start, as before);
+  - (e) its database file is here;
+  - (c) the LIST of its replica prefix answered, and empty;
+  - (d) no tombstone;
+  - (f) the bucket held the control key BEFORE this start. It is read before `ensureStore(control)`, which puts the
+    local control key into a bucket that has none. Past that call, the bucket's key was adopted or proven the same
+    DEK, or the start already threw. **(f) alone does not prove the bucket is this volume's** (the #658 review): a
+    wrong bucket passes it at its second start. It only keeps the FIRST start against a new bucket from minting;
+  - (f2, added here) this volume's control key is strictly older than the store's first open
+    (`keys.store_keys.created_at` < `stores.opened_at`; equal refuses, the #658 review). Without it, a volume that lost `keys.sqlite` and was pointed at an empty bucket passes (f) on
+    its SECOND start (the first put the control key there), and every lived store would be minted at once, while the
+    real keys sit in the right bucket. Every key a store can have is made or adopted in `keys.sqlite`, so a
+    `keys.sqlite` older than the store's opening that has no key of it means it never had one on this volume.
+  - **What makes the mint safe** is (c), (f2), and `config()` listing only stores with a key: a store this
+    `keys.sqlite` never held a key for was never replicated by this volume to any bucket, and the bucket we can see
+    holds nothing of it.
+- **Only at start-up**: no sidecar runs yet (`hold`), so no replica can appear between the checks and the mint. Sign-up,
+  a first open and a restore still throw `StoreKeyMissing` and never mint.
+- **The key file is rewritten at the mint**, whatever is there. `ensureStore` writes it only when missing, so a key file
+  left from a key that is gone (no normal path leaves one with (f2) holding; a tenant dir copied by hand could) would
+  have put the new replica under an SSE-C key nobody holds. The heal test leaves one there on purpose.
+- **A 404 NoSuchBucket now throws** in `r2ObjectStore.get` and `.delete`, so a wrong `R2_BUCKET` is never read as "no
+  such object" or "already deleted". Before, a typo'd bucket read as empty until the first PUT failed.
+- **The control key's mismatch says so** (the #658 review). A volume that lost `keys.sqlite` and started against a
+  wrong, empty bucket makes itself a new control key (#653's behaviour, kept). Back on the right bucket, the start
+  used to refuse with "a different key for that store is already here"; it now names the control key and the way
+  back (remove `keys/`, one deploy with `CONTROL_ASIDE` and `RESTORE_ON_BOOT`), and a test runs that way back
+  through serve. Refusing a lived volume beside a bucket with no control key is R7, separate.
+- **The lines are fixed words by tag** (`main.ts#eventLine`): `backup.key.minted storeTag=…`, or `backup.keyless
+  storeTag=… reason=…` with one of six reasons (`backup.ts#KEYLESS_REASONS`), above the count lines. Each is audited
+  (`backup.key.minted`, or `backup.keyless` with the reason in the detail). The mint is audited and logged once the key
+  exists, BEFORE its key object's upload, so the line says "backed up once this start is serving", not "from this
+  start": if that PUT fails, the start stops (`did not start: object store PUT answered …`), and the next start,
+  finding the key here, puts it without a second `minted` line.
+- **Tests run through `main.ts serve` as a process** on bun and Node 24, against the S3 stand-in over https: a
+  self-signed certificate from `openssl` at test time, trusted by `NODE_EXTRA_CA_CERTS`; the Litestream stand-in gets
+  it from its wrapper script, since the sidecar's environment is PATH and the R2 credentials only. The stand-in moved
+  to `test/helpers.ts`, with a fault hook and `spawnServe`. The heal test reaches the keyless state for real (start-over
+  on a running server, then a first open whose key GET fails) before the spawned serve heals it.
+- **Chosen: the automatic mint, not an operator command** (`start-over --rekey`, the brief's alternative). The gap is
+  that nobody acts. On Railway a command means `railway ssh` into a running container, and the conditions are the
+  same either way. Not built: the command, and a retry on the running server's 10-minute timer (a store heals at the
+  next start, which the RUNBOOK says to force with a restart).
+- **Left keyless on purpose:** `keys-newer` with nothing in any bucket (a gap store whose volume then lost and rebuilt
+  `keys.sqlite`) can't be told from the mass-mint case above, and nothing heals it. Rare: two failures in a row.
 
 ## R6: delete locked at once, erased after 24 hours (10-27)
 
@@ -257,7 +311,7 @@ Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.te
   memory; with neither it returned the memory. The delete page no longer waits for that body (the close isn't awaited).
 - **The restore CLI opened a pending store** (its cache rebuild consumed the marker). It now restores it and leaves
   it closed, like start-up.
-- **INTERFACE-GAPS §34 was wrong:** `oauth.sqlite` restores with `accounts.sqlite`, so an early restore brings the
+- **INTERFACE-GAPS §36 (was §34) was wrong:** `oauth.sqlite` restores with `accounts.sqlite`, so an early restore brings the
   account back connected, not only active. Corrected, with the `pending/<storeId>` marker as an option.
 - **Wording:** "after <time>", not "at" (the timer's tick); "isn't read by us or any AI, shown or used" (the sidecar
   still reads the file to back it up).

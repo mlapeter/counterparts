@@ -201,6 +201,11 @@ export class KeyStore {
     }
   }
 
+  /** When this volume's key for the store was made or adopted here (ms), or null. A rewrap keeps it. */
+  createdAt(storeId: string): number | null {
+    return this.db.get<{ created_at: number }>("SELECT created_at FROM store_keys WHERE store_id = ?", storeId)?.created_at ?? null;
+  }
+
   wrapped(storeId: string): WrappedKey | null {
     return this.db.get<{ wrapped: string }>("SELECT wrapped FROM store_keys WHERE store_id = ?", storeId)?.wrapped ?? null;
   }

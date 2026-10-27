@@ -599,7 +599,7 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
   with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`
   undoes a pending delete. *As built (R6):* there is no re-authentication beyond the signed-in session (a pending
   delete's session is always a fresh email link, since the delete ended every other), and no confirmation email
-  (none was ever built; `hosted/INTERFACE-GAPS.md` §32).
+  (none was ever built; `hosted/INTERFACE-GAPS.md` §34).
 
 ### 7.2 Fly.io fallback
 

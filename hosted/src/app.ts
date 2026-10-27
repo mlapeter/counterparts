@@ -30,7 +30,7 @@ import type { HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
-import type { LitestreamRun, Sidecar } from "./backup.js";
+import type { KeylessReason, LitestreamRun, Sidecar } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
@@ -69,9 +69,12 @@ export interface AppOptions {
   /**
    * Limit refusals and stores waiting for a restore, by hashed store tag (the
    * entry point logs them); and a new store whose backup set-up failed
-   * (`backup.ensure.failed`, tagged by `storeTag`, the restore CLI's tag).
+   * (`backup.ensure.failed`, tagged by `storeTag`, the restore CLI's tag);
+   * and, at start-up, a store that lived with no key anywhere: given one
+   * (`backup.key.minted`) or not, and why (`backup.keyless.<reason>`), by
+   * `storeTag` too (R5).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}`, store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, and pending deletes now due. Ten minutes by default. */
@@ -95,8 +98,10 @@ export interface StartReport {
   readonly restored: number;
   /** Stores whose restore failed now (RESTORE_ON_BOOT); they wait, the rest start. */
   readonly restoreFailed: number;
-  /** Stores that lived and have no key anywhere: left out of the backups, never given a new key. */
+  /** Stores that lived and have no key anywhere, and that a new key could bury something of: left out of the backups. */
   readonly keyless: number;
+  /** Stores that lived and served with no key anywhere, given one now (every condition of the mint held; R5). */
+  readonly minted: number;
   /** Stores opened before whose files are missing, left waiting (no RESTORE_ON_BOOT, or a restore that found nothing). */
   readonly needsRestore: number;
   /** Registered OAuth clients never used, dropped. */
@@ -157,6 +162,16 @@ export function createApp(opts: AppOptions): App {
           liveStores: () => accounts.liveStoreIds(),
           openedBefore: (storeId) => accounts.wasOpened(storeId),
           locked: (storeId) => accounts.storeLocked(storeId),
+          openedAt: (storeId) => accounts.openedAt(storeId),
+          // Audited, and logged by tag (never the id): what start-up did with a store that had no key anywhere.
+          onKeyless: (storeId, outcome) => {
+            accounts.audit(accounts.personOfStore(storeId), storeId, outcome === "minted" ? "backup.key.minted" : "backup.keyless", outcome === "minted" ? null : outcome);
+            try {
+              opts.onEvent?.(outcome === "minted" ? "backup.key.minted" : `backup.keyless.${outcome}`, storeTag(storeId));
+            } catch {
+              /* a log, not a gate */
+            }
+          },
         });
   // Pages and OAuth need each other (the account page lists connections; the
   // Allow page needs the signed-in person), and pages need the delete that
@@ -466,10 +481,12 @@ export function createApp(opts: AppOptions): App {
       let restored = 0;
       let restoreFailed = 0;
       let keyless = 0;
+      let minted = 0;
       if (backups !== null) {
-        // Keys first (adopted from the bucket on a new volume), then restores
+        // Keys first (adopted from the bucket on a new volume; minted for a store
+        // that served with none, when nothing can be buried), then restores
         // while no sidecar runs, then the sidecar on the whole configuration.
-        keyless = (await backups.ensureAll({ reload: false })).keyless;
+        ({ keyless, minted } = await backups.ensureAll({ reload: false }));
         if (startOpts.restore !== undefined) {
           // Every missing live store, marked or not: `-if-replica-exists` makes a
           // store with no replica a no-op. One that fails is counted and left
@@ -509,7 +526,7 @@ export function createApp(opts: AppOptions): App {
         retryTimer.unref?.();
       }
       started = true;
-      return { restored, restoreFailed, keyless, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
+      return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
     },
     readiness,
     deleteAccount,

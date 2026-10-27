@@ -216,6 +216,11 @@ export class Accounts {
     return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at != null;
   }
 
+  /** When this store was first opened (ms), or null: the keyless-store mint compares it with the volume's keys (R5). */
+  openedAt(storeId: string): number | null {
+    return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at ?? null;
+  }
+
   /** Whose store this is (any state), or null. */
   personOfStore(storeId: string): string | null {
     return this.db.get<{ person_id: string }>("SELECT person_id FROM stores WHERE id = ?", storeId)?.person_id ?? null;

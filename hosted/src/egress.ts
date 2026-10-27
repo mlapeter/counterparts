@@ -107,12 +107,19 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
     },
     async get(key) {
       const res = await send(`${base}/${objectKey(key)}`, { method: "GET" });
-      if (res.status === 404) return null;
+      if (res.status === 404) {
+        // A wrong R2_BUCKET answers 404 too (NoSuchBucket). That is not "no such
+        // object": a start must not read a missing bucket as an empty one (R5).
+        if (/<Code>NoSuchBucket<\/Code>/.test(await res.text())) throw new Error("the object store says the bucket (R2_BUCKET) doesn't exist");
+        return null;
+      }
       if (!res.ok) throw new Error(`object store GET answered ${String(res.status)}`);
       return res.text();
     },
     async delete(key) {
       const res = await send(`${base}/${objectKey(key)}`, { method: "DELETE" });
+      // Like GET (the #658 review): a delete in a bucket that doesn't exist deleted nothing, and must not read as done.
+      if (res.status === 404 && /<Code>NoSuchBucket<\/Code>/.test(await res.text())) throw new Error("the object store says the bucket (R2_BUCKET) doesn't exist");
       if (!res.ok && res.status !== 404) throw new Error(`object store DELETE answered ${String(res.status)}`);
     },
     async list(prefix) {

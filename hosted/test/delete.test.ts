@@ -109,7 +109,7 @@ interface Rig {
 const ring = (): Map<string, Buffer> => new Map([["v1", randomBytes(32)]]);
 
 /** One server on a data root. Pass the same `dataRoot`, `objects` and `wrapper` to restart it on the same volume and bucket. */
-async function rig(o: { clock?: { at: number }; objects?: ReturnType<typeof memoryObjectStore>; store?: ObjectStore; wrapper?: EnvKeyWrapper; finishEveryMs?: number } = {}): Promise<Rig> {
+async function rig(o: { clock?: { at: number }; objects?: ReturnType<typeof memoryObjectStore>; store?: ObjectStore; wrapper?: EnvKeyWrapper; finishEveryMs?: number; onEvent?: (name: string) => void } = {}): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
@@ -123,6 +123,7 @@ async function rig(o: { clock?: { at: number }; objects?: ReturnType<typeof memo
     spawner: () => ({ pid: 1 }),
     now: () => clock.at,
     finishEveryMs: o.finishEveryMs ?? TICK_MS,
+    ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
     backup: {
       wrapper: o.wrapper ?? new EnvKeyWrapper(ring(), "v1"),
       objects: o.store ?? objects,
@@ -563,6 +564,34 @@ describe("keys and the schema", () => {
     assert.equal(objects.objects.has(keyObject(gone.storeId)), false);
     assert.notEqual(b.app.keys!.wrapped(live.storeId), null);
     assert.equal(b.app.accounts.person(gone.personId)!.state, "pending-delete");
+    assert.ok(b.app.accounts.auditOf(gone.personId).some((x) => x.action === "backup.keyless" && x.detail === "locked"), "the skip is audited with its reason");
+  });
+
+  test("R5's mint state (lived, database here, no key, no replica, the bucket proven): an active store is minted a key, a pending one never, and the skip says why", async () => {
+    const clock = { at: Date.now() };
+    const wrapper = new EnvKeyWrapper(ring(), "v1");
+    const objects = memoryObjectStore();
+    const a = await rig({ clock, objects, wrapper });
+    const gone = await signUp(a, "locked-mint@example.com");
+    const live = await signUp(a, "live-mint@example.com");
+    clock.at = Date.now() + 60_000; // opened after this volume's control key was made (R5's keys-newer check reads the real clock there)
+    for (const who of [gone, live]) await a.app.tenants.withTenant(who.storeId, {}, async () => undefined);
+    assert.equal((await deleteLater(gone.browser, "locked-mint@example.com")).status, 200);
+    for (const who of [gone, live]) {
+      a.app.keys!.delete(who.storeId);
+      await objects.delete(keyObject(who.storeId));
+      for (const k of await objects.list(replicaPrefix(who.storeId))) await objects.delete(k);
+    }
+    await stop(a);
+    const events: string[] = [];
+    const b = await rig({ clock, objects, wrapper, onEvent: (name) => events.push(name) });
+    assert.notEqual(b.app.keys!.wrapped(live.storeId), null, "R5 mints for the active store");
+    assert.equal(b.app.keys!.wrapped(gone.storeId), null, "never for the pending one");
+    assert.equal(objects.objects.has(keyObject(gone.storeId)), false);
+    assert.ok(events.includes("backup.key.minted"));
+    assert.ok(events.includes("backup.keyless.locked"));
+    assert.ok(b.app.accounts.auditOf(gone.personId).some((x) => x.action === "backup.keyless" && x.detail === "locked"));
+    assert.ok(!b.app.accounts.auditOf(gone.personId).some((x) => x.action === "backup.key.minted"));
   });
 
   test("an accounts database from before R6 (no delete_after) opens and gains the column; its people are untouched", () => {
