@@ -551,8 +551,12 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     the way) are `0700`. A writer's open of a store whose directory or database is readable
     by group or other (stats on the real path of the root; a symlinked database is neither
     read through nor chmodded; never on Windows) takes group and other bits off everything
-    under the store and under a snapshots directory the caller NAMED, and nothing else: the
-    core does not tighten a parent or a sibling (review of #657). A chmod the filesystem
+    under the store, and in a snapshots directory the caller NAMED only the entries this
+    package writes there, closing that directory itself only when it holds nothing else and
+    is not the home or above it, shared, sticky, setgid or another account's (nothing at all
+    in a place snapshots are refused), and nothing else: the core does not tighten a parent
+    or a sibling (review of #657, round 4). A path with a setuid, setgid or sticky bit is
+    never chmodded. A chmod the filesystem
     refuses is counted on `store.modes.tightened` and never refuses the open. An observer's
     open changes no mode. A store shared with a group on purpose is tightened again at every
     writer's open; there is no opt-out yet. Hosted tenant stores get the same at-open
