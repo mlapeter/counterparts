@@ -51,7 +51,14 @@ CREATE TABLE IF NOT EXISTS grant_use (
   grant_id TEXT PRIMARY KEY,
   last_used_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS client_use (
+  client_id TEXT PRIMARY KEY,
+  first_grant_at INTEGER NOT NULL
+);
 `;
+
+/** OL2b: a registered client that no one ever allowed is dropped this long after it registered (INTERFACE-GAPS §9). */
+export const UNUSED_CLIENT_DAYS = 30;
 
 /** Rows whose ids are not bearer credentials (see the header). */
 const READABLE = new Set(["Grant", "Client"]);
@@ -132,6 +139,39 @@ export class OidcStore {
     for (const g of this.grantsOf(accountId)) this.revokeGrant(g.id);
   }
 
+  /** Readiness: the database answers. Throws when it doesn't. */
+  ping(): void {
+    this.db.get("SELECT 1 AS one");
+  }
+
+  /**
+   * THE DCR SWEEP (OL2b). Registration is open, and Claude registers a client
+   * per fresh connection, so `Client` rows pile up. Dropped: a REGISTERED
+   * client (not an https client id: a CIMD document is the client's own, and
+   * the library caches it) that registered more than `maxAgeMs` ago and was
+   * NEVER allowed by anyone (`client_use`, written at its first grant). With
+   * it go its registration tokens. A client someone allowed once is kept, even
+   * after a disconnect. Returns how many went.
+   */
+  sweepClients(maxAgeMs: number = UNUSED_CLIENT_DAYS * 24 * 60 * 60 * 1000): number {
+    const cutoffSeconds = Math.floor((this.now() - maxAgeMs) / 1000);
+    const due = this.db
+      .all<{ key: string; payload: string }>("SELECT key, payload FROM oidc WHERE model = 'Client' AND key NOT LIKE 'https://%'")
+      .filter((r) => {
+        const issued = (JSON.parse(r.payload) as { client_id_issued_at?: number }).client_id_issued_at;
+        return typeof issued === "number" && issued < cutoffSeconds;
+      })
+      .map((r) => r.key)
+      .filter((id) => this.db.get("SELECT 1 AS one FROM client_use WHERE client_id = ?", id) === undefined);
+    for (const id of due) {
+      this.db.transaction(() => {
+        this.db.run("DELETE FROM oidc WHERE model = 'RegistrationAccessToken' AND json_extract(payload, '$.clientId') = ?", id);
+        this.db.run("DELETE FROM oidc WHERE model = 'Client' AND key = ?", id);
+      });
+    }
+    return due.length;
+  }
+
   touchGrant(grantId: string, minGapMs = 10 * 60 * 1000): void {
     const at = this.now();
     const prev = this.db.get<{ last_used_at: number }>("SELECT last_used_at FROM grant_use WHERE grant_id = ?", grantId)?.last_used_at;
@@ -173,6 +213,9 @@ export class OidcAdapter {
       this.model === "Grant" && typeof payload.accountId === "string" ? payload.accountId : null,
       expiresAt,
     );
+    if (this.model === "Grant" && typeof payload.clientId === "string") {
+      this.store.db.run("INSERT OR IGNORE INTO client_use (client_id, first_grant_at) VALUES (?, ?)", payload.clientId, Date.now());
+    }
     if (Math.random() < 0.02) this.store.sweep();
   }
 

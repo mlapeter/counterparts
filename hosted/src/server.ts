@@ -34,6 +34,8 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
 import { handleMcpPost } from "../../src/adapters/remote/http.js";
 import type { CallRecord } from "../../src/adapters/remote/http.js";
+import type { LimitReason, McpLimits } from "./limits.js";
+import { StoreNeedsRestore } from "./tenants.js";
 import type { Tenants } from "./tenants.js";
 
 /** Who a valid token speaks for. */
@@ -69,6 +71,18 @@ export interface HostedServerOptions {
   readonly onCall?: (record: HostedCallRecord) => void;
   /** The salt the store tag is keyed with. Random per process when absent. */
   readonly logSalt?: string;
+  /** Per-account limits on `/mcp` (`limits.ts`). Absent ⇒ none (tests of the earlier steps). */
+  readonly limits?: McpLimits;
+  /** Told each limit refusal and each store refused for a missing restore, with the hashed store tag only. A throw is swallowed. */
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
+  /** `/readyz`: names of checks and their states only, never an id or a secret. Absent ⇒ `/readyz` answers like `/healthz`. */
+  readonly readiness?: () => Promise<Readiness>;
+}
+
+/** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting"). */
+export interface Readiness {
+  readonly ready: boolean;
+  readonly checks: Readonly<Record<string, string>>;
 }
 
 export const MCP_PATHS = new Set(["/mcp", "/mcp/"]);
@@ -147,18 +161,44 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       text(res, 415, "415\n", hsts);
       return;
     }
-    for (const [k, v] of Object.entries(hsts)) res.setHeader(k, v);
     const store = tag(caller.storeId);
-    await opts.tenants.withTenant(caller.storeId, caller.timeZone === undefined ? {} : { timeZone: caller.timeZone }, (target) =>
-      new Promise<void>((done) => {
-        res.once("close", () => done());
-        res.once("finish", () => done());
-        handleMcpPost(req, res, target, {
-          ...(opts.maxBodyBytes === undefined ? {} : { maxBodyBytes: opts.maxBodyBytes }),
-          onCall: (r) => opts.onCall?.({ ...r, store }),
-        });
-      }),
-    );
+    const limits = opts.limits;
+    if (limits !== undefined && !limits.enter(caller.personId)) {
+      req.resume();
+      event("limit.in-flight", store);
+      text(res, 429, "429: too many requests at once for this account\n", { "Retry-After": "5", ...hsts });
+      return;
+    }
+    for (const [k, v] of Object.entries(hsts)) res.setHeader(k, v);
+    try {
+      await opts.tenants.withTenant(caller.storeId, caller.timeZone === undefined ? {} : { timeZone: caller.timeZone }, (target) =>
+        new Promise<void>((done) => {
+          res.once("close", () => done());
+          res.once("finish", () => done());
+          const routed = limits === undefined ? target : { serial: target.serial, server: limits.wrap(target.server, caller.personId, caller.storeId, (reason) => event(`limit.${reason}`, store)) };
+          handleMcpPost(req, res, routed, {
+            ...(opts.maxBodyBytes === undefined ? {} : { maxBodyBytes: opts.maxBodyBytes }),
+            onCall: (r) => opts.onCall?.({ ...r, store }),
+          });
+        }),
+      );
+    } catch (err) {
+      // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
+      // 503, so the client retries later instead of asking the person to sign in again.
+      if (!(err instanceof StoreNeedsRestore) || res.headersSent) throw err;
+      req.resume();
+      event("store.needs-restore", store);
+      text(res, 503, "503: this memory is being restored\n", { "Retry-After": "300" });
+    } finally {
+      limits?.leave(caller.personId);
+    }
+  };
+  const event = (name: `limit.${LimitReason}` | "store.needs-restore", store: string): void => {
+    try {
+      opts.onEvent?.(name, store);
+    } catch {
+      /* a log, not a gate */
+    }
   };
 
   const server = createServer((req, res) => {
@@ -185,6 +225,21 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       if (url.pathname === "/healthz" && (req.method === "GET" || req.method === "HEAD")) {
         req.resume();
         text(res, 200, "ok\n", hsts);
+        return;
+      }
+      // READY: the control databases answer, start-up finished, the key ring
+      // opened every key, and (with backups on) the sidecar is up. Names and
+      // states only. A check that throws is "down", and its message is not shown.
+      if (url.pathname === "/readyz" && (req.method === "GET" || req.method === "HEAD")) {
+        req.resume();
+        let report: Readiness;
+        try {
+          report = opts.readiness === undefined ? { ready: true, checks: {} } : await opts.readiness();
+        } catch {
+          report = { ready: false, checks: { readiness: "down" } };
+        }
+        res.writeHead(report.ready ? 200 : 503, { ...BASE_HEADERS, "Content-Type": "application/json", ...hsts });
+        res.end(`${JSON.stringify({ ready: report.ready, checks: report.checks })}\n`);
         return;
       }
       for (const route of opts.routes ?? []) {

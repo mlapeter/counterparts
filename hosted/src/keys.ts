@@ -175,6 +175,32 @@ export class KeyStore {
     return wrapped;
   }
 
+  /**
+   * RESTORE'S FIRST STEP: take a store's wrapped DEK back from its one backup
+   * object (`keys.sqlite` is never replicated, so a new volume starts without
+   * it). The value must open under the ring for THIS store id. When a key is
+   * already here it must be the same DEK (a rewrap changes the wrapping, never
+   * the key); a different one is refused, loudly — adopting it would bury the
+   * key one of the two copies is encrypted under. Returns true when it inserted.
+   */
+  async adopt(storeId: string, wrapped: WrappedKey): Promise<boolean> {
+    const incoming = await this.wrapper.unwrap(wrapped, storeId);
+    try {
+      const here = this.wrapped(storeId);
+      if (here !== null) {
+        const mine = await this.wrapper.unwrap(here, storeId);
+        const same = mine.equals(incoming);
+        mine.fill(0);
+        if (!same) throw new Error("a different key for that store is already here");
+        return false;
+      }
+      this.db.run("INSERT INTO store_keys (store_id, wrapped, kek_version, created_at) VALUES (?, ?, ?, ?)", storeId, wrapped, kekVersionOf(wrapped), this.now());
+      return true;
+    } finally {
+      incoming.fill(0);
+    }
+  }
+
   wrapped(storeId: string): WrappedKey | null {
     return this.db.get<{ wrapped: string }>("SELECT wrapped FROM store_keys WHERE store_id = ?", storeId)?.wrapped ?? null;
   }
@@ -184,6 +210,11 @@ export class KeyStore {
     const w = this.wrapped(storeId);
     if (w === null) throw new Error("no key for that store");
     return this.wrapper.unwrap(w, storeId);
+  }
+
+  /** A wrapped value from elsewhere (the bucket), opened under this ring for this store: a check. The caller zeroes it. */
+  async unwrapForCheck(storeId: string, wrapped: WrappedKey): Promise<Buffer> {
+    return this.wrapper.unwrap(wrapped, storeId);
   }
 
   storeIds(): string[] {

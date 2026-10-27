@@ -5,6 +5,7 @@
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT]
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *
  * Everything comes from the environment, and nothing falls back to a default:
  *
@@ -21,19 +22,24 @@
  *   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   one bucket, objects only
  *   LITESTREAM_BIN     the sidecar binary (default: litestream on PATH)
  *   BACKUPS            "off" for a local run with no bucket
+ *   RESTORE_ON_BOOT    "1": serve restores what this volume is missing from the bucket before it starts
+ *                      (the control databases, then every store that lived and has no files here)
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { isAbsolute } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 import { withEmbedderDefault } from "../../src/adapters/config.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
-import { createApp } from "./app.js";
+import { createApp, restoreControl } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, LitestreamSidecar } from "./backup.js";
+import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner } from "./backup.js";
+import type { LitestreamRun } from "./backup.js";
+import { STORE_ID } from "./tenants.js";
 import { KeyStore, kekRingFromEnv } from "./keys.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
@@ -89,12 +95,64 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
   }
   const configPath = `${dataRoot}/litestream.yml`;
   const sidecar = new LitestreamSidecar({
-    binary: env["LITESTREAM_BIN"] ?? "litestream",
+    binary: litestreamBinary(env),
     configPath,
-    env: { PATH: env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: accessKeyId, LITESTREAM_SECRET_ACCESS_KEY: secretAccessKey },
+    env: litestreamEnv(env, accessKeyId, secretAccessKey),
     onEvent: (name) => process.stderr.write(`[hosted] ${name}\n`),
   });
   return { wrapper, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar };
+}
+
+const litestreamBinary = (env: Record<string, string | undefined>): string => env["LITESTREAM_BIN"] ?? "litestream";
+
+/** The Litestream child's whole environment: PATH and the R2 credentials, nothing else of the server's. */
+function litestreamEnv(env: Record<string, string | undefined>, accessKeyId: string, secretAccessKey: string): Record<string, string> {
+  return { PATH: env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: accessKeyId, LITESTREAM_SECRET_ACCESS_KEY: secretAccessKey };
+}
+
+/** `restore`'s runner, from the same environment as the sidecar's. */
+function restoreRunner(env: Record<string, string | undefined>): LitestreamRun {
+  return litestreamRunner(litestreamBinary(env), litestreamEnv(env, env["R2_ACCESS_KEY_ID"] ?? "", env["R2_SECRET_ACCESS_KEY"] ?? ""));
+}
+
+/**
+ * `restore <storeId|control|--all> [--force]`, with the server stopped. `--all`
+ * is the volume's disaster recovery: the control databases (when missing),
+ * then every live store whose database is missing. Prints counts, never an
+ * address or a key; a store id is printed only when the operator named it.
+ */
+async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[]): Promise<string> {
+  const force = args.includes("--force");
+  const target = args.find((a) => !a.startsWith("--")) ?? (args.includes("--all") ? "--all" : undefined);
+  if (target === undefined || (target !== "--all" && target !== CONTROL_KEY_ID && !STORE_ID.test(target))) throw new Error("restore needs a store id, control, or --all");
+  const accountsPath = join(dataRoot, "control", "accounts.sqlite");
+  const lines: string[] = [];
+  if (target === CONTROL_KEY_ID || (target === "--all" && (force || !existsSync(accountsPath)))) {
+    const r = await restoreControl(dataRoot, backup, run, { force });
+    lines.push(`control: ${String(r.restored)} restored, ${String(r.empty)} with no backup`);
+    if (target === CONTROL_KEY_ID) return lines.join("\n");
+  }
+  if (!existsSync(accountsPath)) throw new Error("no accounts database here: restore control first (or --all)");
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
+  const accounts = new Accounts({ path: accountsPath });
+  try {
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds() });
+    const live = accounts.liveStoreIds();
+    if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
+    const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
+    let restored = 0;
+    let empty = 0;
+    for (const id of ids) {
+      const r = await backups.restore(id, run, { force });
+      restored += r.restored;
+      empty += r.empty;
+    }
+    lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(live.length - ids.length)} already here`);
+    return lines.join("\n");
+  } finally {
+    keys.close();
+    accounts.close();
+  }
 }
 
 async function main(): Promise<void> {
@@ -115,8 +173,8 @@ async function main(): Promise<void> {
     process.stdout.write(`${code}\n`);
     return;
   }
-  if (command !== "serve" && command !== "rewrap") {
-    process.stderr.write("[hosted] commands: serve, invite, rewrap\n");
+  if (command !== "serve" && command !== "rewrap" && command !== "restore") {
+    process.stderr.write("[hosted] commands: serve, invite, rewrap, restore\n");
     process.exitCode = 1;
     return;
   }
@@ -147,6 +205,28 @@ async function main(): Promise<void> {
     process.stdout.write(`rewrapped ${String(moved.length)} keys onto ${backup.wrapper.version}; ${String(put)} key objects re-written\n`);
     return;
   }
+  if (command === "restore") {
+    if (backup === null) {
+      process.stderr.write("[hosted] refused: restore needs the keys and the bucket (not BACKUPS=off).\n");
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(`${await restoreCommand(read.dataRoot, backup, restoreRunner(env), rest)}\n`);
+    return;
+  }
+  // AN EMPTY VOLUME BESIDE A BUCKET THAT HAS BACKUPS: starting would make new,
+  // empty control databases and replicate them over the real ones. So either
+  // restore them first (RESTORE_ON_BOOT=1) or refuse, saying how.
+  const restoreOnBoot = env["RESTORE_ON_BOOT"] === "1";
+  if (backup !== null && !existsSync(join(read.dataRoot, "control", "accounts.sqlite")) && (await backup.objects.get(keyObject(CONTROL_KEY_ID))) !== null) {
+    if (!restoreOnBoot) {
+      process.stderr.write("[hosted] refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const r = await restoreControl(read.dataRoot, backup, restoreRunner(env));
+    process.stderr.write(`[hosted] restored the control databases: ${String(r.restored)} restored, ${String(r.empty)} with no backup\n`);
+  }
   const mailer = mailerFrom(env);
   if (typeof mailer === "string") {
     process.stderr.write(`[hosted] ${mailer}\n`);
@@ -164,8 +244,13 @@ async function main(): Promise<void> {
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
+    // Limit refusals and stores waiting on a restore: the event and the hashed store tag, nothing else.
+    onEvent: (name, store) => process.stderr.write(`[hosted] ${name} store=${store}\n`),
   });
-  await app.start();
+  const report = await app.start(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {});
+  if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);
+  if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
+  if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
   process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
   await new Promise<void>((resolveStop) => {

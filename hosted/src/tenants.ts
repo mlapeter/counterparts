@@ -80,6 +80,28 @@ export interface TenantsOptions {
   readonly now?: () => number;
   /** Told when a handle opens or closes. Ids only. A throw is swallowed. */
   readonly onEvent?: (name: "tenant.open" | "tenant.close", storeId: string) => void;
+  /**
+   * Has this store been opened before, anywhere (accounts' `stores.opened_at`,
+   * which is in the replicated control database)? A store that has, and whose
+   * dir is missing, is refused (`StoreNeedsRestore`) instead of starting over
+   * as a new install. Absent ⇒ never (tests of the earlier steps).
+   */
+  readonly openedBefore?: (storeId: string) => boolean;
+  /** Told at every open that CREATED the store's dir (its first life). */
+  readonly onCreated?: (storeId: string) => void;
+}
+
+/**
+ * A store that was opened before and whose files are gone from this volume.
+ * Opening it as new would make an empty store, which the sidecar would then
+ * replicate over the store's own backup: the thing that could bring it back.
+ * So it waits for a restore (`main.ts restore`, or `RESTORE_ON_BOOT=1`).
+ */
+export class StoreNeedsRestore extends Error {
+  constructor() {
+    super("this store's files are missing from the volume; it needs a restore");
+    this.name = "StoreNeedsRestore";
+  }
 }
 
 interface Handle {
@@ -236,6 +258,7 @@ export class Tenants {
     const storeDir = join(dir, "store");
     // A store this open CREATES is a new person's: it starts like a new install (below).
     const fresh = !existsSync(storeDir);
+    if (fresh && this.opts.openedBefore?.(storeId) === true) throw new StoreNeedsRestore();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const configPath = join(dir, "config.json");
     const config: AdapterConfig = {
@@ -262,7 +285,14 @@ export class Tenants {
         spawner: this.spawner,
       },
     });
-    if (fresh) startNewStore(server);
+    if (fresh) {
+      startNewStore(server);
+      try {
+        this.opts.onCreated?.(storeId);
+      } catch {
+        /* a marker, not a gate */
+      }
+    }
     this.tell("tenant.open", storeId);
     return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
   }

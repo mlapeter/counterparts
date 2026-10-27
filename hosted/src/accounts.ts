@@ -171,11 +171,38 @@ export class Accounts {
     // default is OFF (bun's is FAST).
     this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
+    // OL2b: when a store's dir was first made (the restore guard's "had a
+    // life"). Added by ALTER so a database made before it gains the column.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "opened_at")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN opened_at INTEGER");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /** Readiness: the database answers. Throws when it doesn't. */
+  ping(): void {
+    this.db.get("SELECT 1 AS one");
+  }
+
+  // ── stores (OL2b) ──────────────────────────────────────────────────────────
+
+  /** Record the store's first open (its dir was made). Once; later calls keep the first time. */
+  markOpened(storeId: string): void {
+    this.db.run("UPDATE stores SET opened_at = ? WHERE id = ? AND opened_at IS NULL", this.now(), storeId);
+  }
+
+  /** Was this store ever opened? A store that was, and has no files here, needs a restore. */
+  wasOpened(storeId: string): boolean {
+    return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at != null;
+  }
+
+  /** The store's own quota in bytes, when one was set by hand; null ⇒ the server's default. */
+  quotaOf(storeId: string): number | null {
+    return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;
   }
 
   // ── invites ────────────────────────────────────────────────────────────────

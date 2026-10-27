@@ -11,7 +11,7 @@
  *
  * Mike's hosted store is new and separate: nothing here reads a local store.
  */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import type { Server } from "node:http";
 import { isAbsolute, join } from "node:path";
 
@@ -28,8 +28,11 @@ import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
 import { Tenants, tenantDir } from "./tenants.js";
-import { Backups } from "./backup.js";
-import type { Sidecar } from "./backup.js";
+import { Backups, CONTROL_KEY_ID } from "./backup.js";
+import type { LitestreamRun, Sidecar } from "./backup.js";
+import { McpLimits, dirBytes } from "./limits.js";
+import type { LimitReason } from "./limits.js";
+import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
 import { KeyStore } from "./keys.js";
 import type { KeyWrapper } from "./keys.js";
@@ -60,6 +63,30 @@ export interface AppOptions {
   readonly onCall?: (record: HostedCallRecord) => void;
   readonly maxOpenStores?: number;
   readonly backup?: AppBackupOptions;
+  /** `/mcp`'s per-account limits (`limits.ts`); each absent number is that file's default. */
+  readonly mcpLimits?: { readonly perMinute?: number; readonly perHour?: number; readonly inFlight?: number; readonly quotaBytes?: number };
+  /** Limit refusals and stores waiting for a restore, by hashed store tag (the entry point logs them). */
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
+  readonly now?: () => number;
+}
+
+export interface StartOptions {
+  /**
+   * RESTORE_ON_BOOT: before the sidecar starts, every live store that was
+   * opened before and has no database file here is restored from the bucket
+   * with this runner (the control databases come back earlier, in the entry
+   * point, before anything opens them: `restoreControl`).
+   */
+  readonly restore?: LitestreamRun;
+}
+
+export interface StartReport {
+  /** Stores restored now (RESTORE_ON_BOOT). */
+  readonly restored: number;
+  /** Stores opened before whose files are missing, left waiting (no RESTORE_ON_BOOT, or a restore that found nothing). */
+  readonly needsRestore: number;
+  /** Registered OAuth clients never used, dropped. */
+  readonly clientsSwept: number;
 }
 
 export interface App {
@@ -70,8 +97,10 @@ export interface App {
   readonly tenants: Tenants;
   readonly keys: KeyStore | null;
   readonly backups: Backups | null;
-  /** Start-up work that may touch the network: finish any delete a crash cut short, then backups' `ensureAll`. */
-  start(): Promise<void>;
+  /** Start-up work that may touch the network: finish any delete a crash cut short, then backups' `ensureAll`, then (RESTORE_ON_BOOT) restores, then the sidecar. */
+  start(opts?: StartOptions): Promise<StartReport>;
+  /** `/readyz`'s report. */
+  readiness(): Promise<Readiness>;
   /** Delete one person's account and memory, at once, everywhere. Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;
   /** Finish every delete that began and didn't end (start-up, and a timer while serving). Returns how many finished. */
@@ -151,6 +180,10 @@ export function createApp(opts: AppOptions): App {
     ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.spawner === undefined ? {} : { spawner: opts.spawner }),
     ...(opts.maxOpenStores === undefined ? {} : { maxOpen: opts.maxOpenStores }),
+    // A store that lived and lost its files waits for a restore rather than
+    // starting over (and being replicated over its own backup).
+    openedBefore: (storeId) => accounts.wasOpened(storeId),
+    onCreated: (storeId) => accounts.markOpened(storeId),
   });
   tenantsRef = tenants;
   tenants.startSweeping();
@@ -208,14 +241,48 @@ export function createApp(opts: AppOptions): App {
     return done;
   };
   let retryTimer: ReturnType<typeof setInterval> | null = null;
+  let started = false;
+  const limits = new McpLimits({
+    ...opts.mcpLimits,
+    sizeOf: (storeId) => dirBytes(tenantDir(tenants.root, storeId)),
+    quotaOf: (storeId) => accounts.quotaOf(storeId),
+    ...(opts.now === undefined ? {} : { now: opts.now }),
+  });
+
+  const readiness = async (): Promise<Readiness> => {
+    const checks: Record<string, string> = { started: started ? "ok" : "starting" };
+    try {
+      accounts.ping();
+      o.store.ping();
+      checks["control"] = "ok";
+    } catch {
+      checks["control"] = "down";
+    }
+    if (keys === null) checks["keys"] = "off";
+    else {
+      try {
+        keys.storeIds();
+        // The ring opened every key at start-up (`ensureAll` refuses otherwise), so started ⇒ loaded.
+        checks["keys"] = started ? "ok" : "starting";
+      } catch {
+        checks["keys"] = "down";
+      }
+    }
+    const sidecar = opts.backup?.sidecar ?? null;
+    checks["backups"] = sidecar === null ? "off" : sidecar.up?.() === false ? "down" : "ok";
+    return { ready: Object.values(checks).every((v) => v === "ok" || v === "off"), checks };
+  };
 
   const server = createHostedServer({
     tenants,
     publicOrigin,
     authenticate: o.authenticate,
     routes: [o.route, pages.route],
+    limits,
+    readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
+    ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
   });
   return {
     server,
@@ -225,19 +292,45 @@ export function createApp(opts: AppOptions): App {
     tenants,
     keys,
     backups,
-    async start(): Promise<void> {
+    async start(startOpts: StartOptions = {}): Promise<StartReport> {
       rmSync(scratchRoot, { recursive: true, force: true });
       // Deletes first: a half-deleted store must be gone before backups look for live ones.
       await finishPendingDeletes();
-      if (backups !== null) await backups.ensureAll();
+      let restored = 0;
+      if (backups !== null) {
+        // Keys first (adopted from the bucket on a new volume), then restores
+        // while no sidecar runs, then the sidecar on the whole configuration.
+        await backups.ensureAll({ reload: false });
+        if (startOpts.restore !== undefined) {
+          for (const id of backups.missingStores().filter((s) => accounts.wasOpened(s))) {
+            const r = await backups.restore(id, startOpts.restore);
+            accounts.audit(null, id, "store.restored", String(r.restored));
+            restored += r.restored;
+          }
+        }
+        await backups.reload();
+      }
+      const needsRestore = (backups?.missingStores() ?? accounts.liveStoreIds().filter((id) => !existsSync(join(tenantDir(tenants.root, id), "store")))).filter((s) => accounts.wasOpened(s)).length;
+      const clientsSwept = o.store.sweepClients();
       if (retryTimer === null) {
-        retryTimer = setInterval(() => void finishPendingDeletes(), 10 * 60 * 1000);
+        retryTimer = setInterval(() => {
+          void finishPendingDeletes();
+          try {
+            o.store.sweepClients();
+          } catch {
+            /* the next tick */
+          }
+        }, 10 * 60 * 1000);
         retryTimer.unref?.();
       }
+      started = true;
+      return { restored, needsRestore, clientsSwept };
     },
+    readiness,
     deleteAccount,
     finishPendingDeletes,
     async close(): Promise<void> {
+      started = false;
       if (retryTimer !== null) clearInterval(retryTimer);
       retryTimer = null;
       await tenants.closeAll();
@@ -247,4 +340,21 @@ export function createApp(opts: AppOptions): App {
       accounts.close();
     },
   };
+}
+
+/**
+ * THE CONTROL DATABASES, BACK FROM THE BUCKET (OL2b), before anything opens
+ * them: `accounts.sqlite` and `oauth.sqlite`, under the `control` key adopted
+ * from `keys/control.wrapped`. The entry point runs it for `restore control`,
+ * `restore --all`, and at a RESTORE_ON_BOOT start on a volume that has no
+ * accounts database.
+ */
+export async function restoreControl(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, opts: { force?: boolean } = {}): Promise<{ restored: number; empty: number }> {
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
+  try {
+    const b = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });
+    return await b.restore(CONTROL_KEY_ID, run, opts);
+  } finally {
+    keys.close();
+  }
 }
