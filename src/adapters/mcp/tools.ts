@@ -2068,9 +2068,47 @@ function withDesktopSession(spec: ToolSpec): ToolSpec {
   return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...properties, session: DESKTOP_SESSION_PROPERTY } } };
 }
 
+/**
+ * DESKTOP'S `dream` AND `reflect` WORDS (2026-10-26, OL1d, from #649's review).
+ * Desktop's chat has no background Agent tool: its wake's dream note already
+ * says to follow a launch's prompt in the chat, and its launch `how` says the
+ * same (`server-words.ts#DESKTOP_DREAM_LAUNCH_HOW`). The every-host words —
+ * "hand the prompt to a background agent", "Do NOT run the dream yourself in
+ * this conversation" — fought that note. Desktop has no transcript sweep (no
+ * hooks), so the dream's words staying out of the transcript is not what keeps
+ * them out of memory here; the replaced negative says what does. Only summary,
+ * admission and negatives change; privileges are every host's.
+ */
+export const DESKTOP_WORDS: Readonly<
+  Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string; readonly negativeExamples?: readonly string[] }>>
+> = {
+  dream: {
+    summary:
+      "Dreaming, in the nightly run: a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it, in one run. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+    admission:
+      "Call `launch` only after the owner said \"dream\" (or yes, or \"dream on your own\") to the day's dream line, and follow the prompt it returns yourself, here in the chat, step by step: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. This chat starts nothing on its own: with the setting `auto`, a Claude Code session on this memory, if there is one, runs the night in its own session. Call `setting` with value `auto` when the owner says \"dream on your own\" or turns it on, `off` when they say 'no dreams', `ask` when they want to be asked; `decline` when they say not today.",
+    negativeExamples: [
+      "Do NOT start a dream the owner did not ask for: you launch only on their word, never on your own.",
+      "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",
+      "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
+    ],
+  },
+  reflect: {
+    summary:
+      "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+    admission:
+      "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and follow its prompt yourself, here in the chat. Call `told` after you told the owner a morning share, in your own words. Call `close` or `reopen` only on the owner's word about a share's open threads.",
+  },
+};
+
+function withDesktopWords(spec: ToolSpec): ToolSpec {
+  const words = DESKTOP_WORDS[spec.name as ToolName];
+  return words === undefined ? spec : { ...spec, ...words };
+}
+
 /** The tools a Claude Desktop client is offered: every host's — each able to
- *  name its session — and `wake`. */
-export const DESKTOP_TOOLS: readonly ToolSpec[] = [...TOOLS.map(withDesktopSession), WAKE];
+ *  name its session, in the chat's words where those differ — and `wake`. */
+export const DESKTOP_TOOLS: readonly ToolSpec[] = [...TOOLS.map((t) => withDesktopWords(withDesktopSession(t))), WAKE];
 
 /**
  * `wake` FOR CLAUDE.AI (2026-10-26, the claude.ai trial). The same tool and the

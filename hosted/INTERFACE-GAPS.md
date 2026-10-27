@@ -15,9 +15,10 @@
      LTX files after it are pruned within max(interval, retention) plus Litestream's retention lag. The generated config
      sets 12 h / 12 h (`backup.ts#SNAPSHOT_HOURS`), which leaves 12 h of room for that lag. The lag is unmeasured
      without the binary; measure it on the first deploy.
-3. **The `src/` store contract's `secure_delete` note.** `src/core/store/CONTRACT.md` says the default is FAST, which
-   is bun only; Node's default is 0, and the hosted server runs Node. The core's forget and removal paths should be
-   checked for what they rely on. That file is the coordinator's, not this lane's (#648 review).
+3. **Closed 2026-10-26: the `src/` store contract's `secure_delete` note.** Measured: node:sqlite's default is 0 on
+   22.23 and 24.22, and a deleted row stayed in the file through a checkpoint and a close. `openDb` now sets FAST on
+   every connection under both runtimes, so tenant memory stores match bun; the removal path's `VACUUM` then
+   checkpoint measured clean under both Nodes. `keys`, `accounts` and `oauth` still raise it to ON after the open.
 
 ## The first Railway deploy (`docs/hosted/RUNBOOK.md` walks each)
 
