@@ -275,6 +275,8 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
     Tell the coordinator.
   - `keys-newer`: this volume's `keys/keys.sqlite` was made no earlier than the store was first opened (it was rebuilt), so
     an older key of it may exist somewhere. Tell the coordinator.
+  - `locked`: its account is set to be deleted (R6), and a store set to be erased is never given a new key. Nothing to
+    do: it is erased at its deadline, and if its person keeps it, the next start checks it like any other.
 - **`did not start: the object store says the bucket (R2_BUCKET) doesn't exist`**: `R2_BUCKET` names a bucket R2
   doesn't have. Fix the variable.
 
