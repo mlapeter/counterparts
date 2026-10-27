@@ -2395,3 +2395,19 @@ the files other modules write inside a 0700 store.
   sticky, and owned by this account. One collision is left on purpose: in a home or project
   base, somebody else's file that happens to carry one of our names (a `scopes.json`, a
   `store.parked-…`) is tightened too.
+- **Round 4: a configured `snapshots.dir` is the owner's place.** The core still took a
+  named snapshots directory whole, so `snapshots.dir` set to `$HOME` or `~/Documents` made
+  the home 700, the Drop Box 700 and every document 600 at the next `note`, with doctor
+  green (it graded a snapshots dir only inside the base). Now `snapshotsDirRoots` reads it
+  the way a base is read: only the names written there (dated copies, pre-migration copies,
+  `.partial-…`, `.taking-…`; spelled in `private.ts`, held to `snapshots.ts` by a test) go
+  whole, the directory is closed only when it holds nothing else (`closableDir`, the base's
+  rule, moved here), and a place `assertRotatableDir` refuses (a filesystem root, the home or
+  above it, in or around the store, a live v1 store) gets nothing. The base's own
+  `snapshots/` still goes whole; a configured one sitting in a home base no longer does.
+  doctor now grades exactly the roots that are tightened (`installBaseRoots` or
+  `storeRoots`), each at its top. A symlinked base is read at its real path.
+- **bun's `chmodSync` drops sticky and setgid** (measured, bun 1.3.10: `0o1700` reads back
+  `0o700`), so a path carrying a special bit is never chmodded and never counts as open;
+  tests set those bits through `/bin/chmod`, since the earlier "sticky base" test had in
+  fact been testing a plain 777.
