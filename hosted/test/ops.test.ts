@@ -1304,7 +1304,7 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.ok(run.up, run.stderr());
     const out = await run.stop();
     assert.match(out, keylessLine(id, "bucket-unproven"));
-    assert.match(out, /If R2_BUCKET is wrong after all, fix it before anything else/);
+    assert.match(out, /If R2_BUCKET or R2_ENDPOINT is wrong after all, fix it before anything else/);
     assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
     assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)), "that start put this volume's control key there");
     assert.equal(empty.objects.has(keyObject(id)), false);

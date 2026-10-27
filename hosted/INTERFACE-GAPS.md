@@ -143,10 +143,11 @@
 
 ## A lived volume beside a bucket with no control key (R7, 10-27)
 
-40. **`BACKUPS=off` → on cut short.** `NEW_BUCKET` on a volume never backed up waives R5's (f) and (f2) for that start
-    only. If that start stops after its control key's upload and before every store has its key (the bucket failing
-    mid-start), the next start no longer looks like a volume never backed up, and the stores left are `keys-newer`
-    for good, like R5's own two-failures case (§33). A way out would be the same operator `--rekey`.
-41. **A lost `keys/keys.sqlite` moved to a new bucket on purpose** keeps its stores unbacked (`NEW_BUCKET` waives
-    nothing on a volume that was backed up). Today's answer is "go back to the old bucket"; with the old bucket gone
-    too there is none, as in §33.
+40. **`BACKUPS=off` → on, and `keys.sqlite` lost before every store has its key.** The turn-on fact
+    (`backups-turned-on`) lives in `keys.sqlite`, so a turn-on cut short, or a store left keyless at it (a failed
+    check, a pending delete), heals at a later start (the #661 review). If `keys.sqlite` is then lost before those
+    stores have their keys, the fact goes with it and they are `keys-newer` for good, like R5's own two-failures case
+    (§33). A way out would be the same operator `--rekey`.
+41. **A lost `keys/keys.sqlite` moved to a new bucket on purpose** is refused (`NEW_BUCKET` doesn't count once a key
+    file says the volume was backed up): its stores' keys are in the old bucket only. Today's answer is "go back to
+    the old bucket"; with the old bucket gone too there is none, as in §33.

@@ -344,29 +344,49 @@ went to the wrong bucket, and fixing `R2_BUCKET` then refused "a different key" 
 /data/keys`, `CONTROL_ASIDE`, `RESTORE_ON_BOOT`) that lost those writes. #658's (f)/(f2) kept it from minting STORE
 keys there, but the control key itself was made. The guarantee is CONTRACT §31.
 
-- **Refused now, unless `NEW_BUCKET` names the bucket.** Lived = the control key here, or any control database
-  (the brief's `localKey || present.length > 0`). A new volume beside an empty bucket starts with no variable.
-- **The refusal names its case from what the volume holds** (`main.ts#livedRefusal`): the control key here (T2: the
-  bucket is most likely wrong); `control/litestream.key` without it (T3: `keys.sqlite` lost, and the bucket most
-  likely wrong); neither (a `BACKUPS=off` volume, or an `invite` run before the first serve). `control/litestream.key`
-  tells T3 from off because a `BACKUPS=off` run never writes it (the M2 refusal leans on the same file).
+- **Refused now, unless `NEW_BUCKET` names the bucket.** Lived = a person or a store (the #661 review's HIGH 2,
+  below; the brief's `localKey || present.length > 0` gave false refusals). A volume with nothing to lose starts with
+  no variable.
+- **The refusal names its case from what the volume holds** (`main.ts#emptyBucket`): a turn-on cut short; the control
+  key here (T2: the bucket is most likely wrong); a key file without it (T3: `keys.sqlite` lost, and the bucket most
+  likely wrong); none (a `BACKUPS=off` volume). A key file (`control/litestream.key` or a store's) tells T3 from off
+  because a `BACKUPS=off` run never writes one (the M2 refusal leans on the same files).
 - **T3 fixed now needs no `rm -rf /data/keys`.** No control key is made at the refused start, so the right bucket
   refuses for the control key as #653 designed, and `CONTROL_ASIDE` + `RESTORE_ON_BOOT` bring the control databases
   back. A test runs it through serve.
-- **Chosen: `NEW_BUCKET=<R2_BUCKET's value>`, not `=1`.** It names the bucket, so one left set never vouches for a
-  different bucket (the dangerous later mistake is exactly a changed `R2_BUCKET`), and the refusal can print the line
-  to paste. Any other value doesn't count, and the refusal says so. No guard file like `CONTROL_ASIDE`'s: once used,
-  the bucket has the control key and the variable changes nothing (each start says so until it is unset).
+- **Chosen: `NEW_BUCKET=<R2_ENDPOINT's host>/<R2_BUCKET>`, not `=1`.** Bound to both, so one left set never vouches for
+  a different bucket or account (the dangerous later mistake is exactly a changed `R2_BUCKET`), and the refusal prints
+  the line to paste. No guard file like `CONTROL_ASIDE`'s: once used, the bucket has the control key and the variable
+  changes nothing (each start says so until it is unset).
 - **Found: `BACKUPS=off` → on left every store unbacked for good, before R7 too.** The stores lived (`opened_at`) with
   no key anywhere, so R5's mint refused them: `bucket-unproven` at the first start, then `keys-newer` at every start
-  after (the control key is newer than every store by construction). So `NEW_BUCKET` on a volume never backed up also
-  waives (f) and (f2) for that start (`StartOptions.firstBackup` → `ensureAll` → `mintRefusal`); (c), (d) and (e)
-  still check the bucket. Such a volume never had a key to lose, and both checks exist to doubt exactly what the
-  operator said. On a volume backed up before, `NEW_BUCKET` waives nothing: a T3 volume moved to a new bucket keeps
-  its stores keyless (`bucket-unproven`, then `keys-newer`), as R5 left that case. Tested both ways.
-- **Left:** a `BACKUPS=off` → on start that stops after its control key's upload and before every store's key would
-  leave the rest `keys-newer` (the next start no longer looks like a volume never backed up). Rare: the bucket failing
-  mid-start, on the one start that turns backups on.
+  after (the control key is newer than every store by construction). Now the turn-on is a fact in `keys.sqlite`
+  (below), and every store opened before it has (f) and (f2) waived; (c), (d) and (e) still check the bucket. Such a
+  store never had a key to lose, and both checks exist to doubt exactly what the operator said.
+
+### The #661 review (high), and its fixes
+
+Each has a test in `test/ops.test.ts`'s R7 block, through a spawned serve with `s3.fault`.
+
+- **HIGH 1: the waiver lasted one start, and "never backed up" was read from files a start makes before anything
+  reaches the bucket.** An off → on start cut short by the control key's PUT (P1) was then refused as "has been backed
+  up … most likely wrong", and with `NEW_BUCKET` again its store went `bucket-unproven`, then `keys-newer` for good;
+  likewise a replica LIST that failed at that start (P1b), and a store whose delete was pending then and kept later
+  (P5). Now `app.start` records `backups-turned-on` in `keys.sqlite` before anything else, the waiver is read from it
+  at every start for the stores opened before it, and `ensureAll` records `control-key-in-bucket`; a turn-on fact
+  without that one is "a turn-on cut short", which `NEW_BUCKET` finishes. In `keys.sqlite`, so a volume that lost it
+  loses the waiver too (T3 stays safe). Sabotage-checked: without the waiver the four off → on tests fail.
+- **HIGH 2: a first deploy could be refused with false text.** A first start whose second GET failed (P6) or whose
+  token was read-only (P2) left `keys.sqlite` (and a control key) and control databases, and the next start was
+  refused as T3 or T2. Now a volume with no person and no store starts as a new server whatever it holds; that also
+  ends the invite-before-the-first-start refusal. `keys.sqlite` existing no longer counts as a backup trace in R7.
+- **LOW 3:** `NEW_BUCKET` binds `R2_ENDPOINT`'s host too (a move between Cloudflare accounts keeps the bucket's name).
+- **LOW 4:** T3 never takes `NEW_BUCKET`, and its refusal doesn't print one.
+- **LOW 5:** a store's `litestream.key` counts as a backup trace (T3, and M2's `BACKUPS=off` refusal), and M2 now
+  also stands in front of `invite`, `rewrap` and `start-over`.
+- **LOW 6:** `restore` stands behind the R7 check (`emptyBucketGate`): `restore --all --force` beside a wrong, empty
+  bucket put the control key there.
+- **LOW 7 (the rider):** `REFUSED_ERROR` is -32050; -32001 is the TS SDK's `RequestTimeout`.
 
 ### R7's rider: a refusal inside a batch keeps the answers made (the #659 re-check, LOW)
 
