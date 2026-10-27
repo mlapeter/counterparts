@@ -11,7 +11,7 @@
  *
  * Mike's hosted store is new and separate: nothing here reads a local store.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import type { Server } from "node:http";
 import { isAbsolute, join } from "node:path";
 
@@ -98,6 +98,8 @@ export interface StartReport {
   readonly tombstoned: number;
   /** Deleted stores whose key object or replica was still in the bucket (a delete with backups off): removed. */
   readonly leftovers: number;
+  /** Copies set aside by a restore or by hand (`control.aside-*`, `*.pre-restore-*`) older than a day: deleted. */
+  readonly asideSwept: number;
 }
 
 export interface App {
@@ -195,7 +197,22 @@ export function createApp(opts: AppOptions): App {
     // A store that lived and lost its files waits for a restore rather than
     // starting over (and being replicated over its own backup).
     openedBefore: (storeId) => accounts.wasOpened(storeId),
-    onCreated: (storeId) => accounts.markOpened(storeId),
+    onCreated: (storeId) => {
+      // A store's dir made while the server runs is a sign-up's (already in the
+      // sidecar's configuration) or a store started over (`main.ts start-over`,
+      // left out while it waited): that one gets its key and a place in the
+      // configuration now, or nothing replicates it until some other reload
+      // (the #653 re-review, N1). Marked after, so a store with no key anywhere
+      // gets a new one: it starts over as new.
+      if (backups === null || backups.inConfig(storeId)) {
+        accounts.markOpened(storeId);
+        return;
+      }
+      void backups
+        .ensureStore(storeId)
+        .catch(() => accounts.audit(accounts.personOfStore(storeId), storeId, "backup.ensure.failed", null))
+        .finally(() => accounts.markOpened(storeId));
+    },
   });
   tenantsRef = tenants;
   tenants.startSweeping();
@@ -307,6 +324,7 @@ export function createApp(opts: AppOptions): App {
     backups,
     async start(startOpts: StartOptions = {}): Promise<StartReport> {
       rmSync(scratchRoot, { recursive: true, force: true });
+      const asideSwept = sweepAside(opts.dataRoot, tenants.root, (opts.now ?? Date.now)());
       // No sidecar until the restores are done (`Backups.hold`; the #653 review, L2).
       backups?.hold();
       let tombstoned = 0;
@@ -327,11 +345,21 @@ export function createApp(opts: AppOptions): App {
       if (backups !== null) {
         // A delete that ran with backups off left its key object and replica in
         // the bucket (the #653 review, M2): removed now.
+        // Only deletes that never cleaned the bucket (no `delete.backups`, no
+        // earlier leftovers pass): the check doesn't grow with every delete (N4).
+        // One that fails is audited and left for the next start, never a crash
+        // loop for everyone (N2).
         for (const id of accounts.deletedStoreIds()) {
-          if ((await backups.objectsLeft(id)) === 0) continue;
-          await backups.removeStore(id);
-          accounts.audit(accounts.personOfStore(id), id, "delete.leftovers", null);
-          leftovers += 1;
+          if (accounts.storeAudited(id, ["delete.backups", "delete.leftovers"])) continue;
+          try {
+            if ((await backups.objectsLeft(id)) > 0) {
+              await backups.removeStore(id);
+              leftovers += 1;
+            }
+            accounts.audit(accounts.personOfStore(id), id, "delete.leftovers", null);
+          } catch {
+            accounts.audit(accounts.personOfStore(id), id, "delete.leftovers.failed", null);
+          }
         }
       }
       // Every live store whose database is here has lived: mark it (a database
@@ -382,7 +410,7 @@ export function createApp(opts: AppOptions): App {
         retryTimer.unref?.();
       }
       started = true;
-      return { restored, restoreFailed, keyless, needsRestore, clientsSwept, tombstoned, leftovers };
+      return { restored, restoreFailed, keyless, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
     },
     readiness,
     deleteAccount,
@@ -452,4 +480,46 @@ export async function restoreControl(dataRoot: string, backup: AppBackupOptions,
   } finally {
     keys.close();
   }
+}
+
+/** How long a copy set aside by a restore is kept: past the "purged within 24 hours" promise it would break. */
+export const ASIDE_KEEP_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * COPIES SET ASIDE, SWEPT AFTER A DAY (the #653 re-review, N5): `control.aside-*`
+ * (the RUNBOOK's override moves `control/` there) and every `*.pre-restore-*`
+ * (`--force` moves a file there). They hold addresses and memories outside the
+ * 24 h purge, so they go a day after they were set aside: by the time in the
+ * name for a `pre-restore` copy, by the change time (a rename sets it) for an
+ * `aside` dir. Returns how many went.
+ */
+export function sweepAside(dataRoot: string, tenantsRoot: string, now: number): number {
+  let swept = 0;
+  const gone = (path: string, at: number): void => {
+    if (!Number.isFinite(at) || now - at < ASIDE_KEEP_MS) return;
+    rmSync(path, { recursive: true, force: true });
+    swept += 1;
+  };
+  const stampOf = (name: string): number => {
+    const m = /\.pre-restore-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(name);
+    return m === null ? Number.NaN : Date.parse(`${m[1]!}T${m[2]!}:${m[3]!}:${m[4]!}.${m[5]!}Z`);
+  };
+  const list = (dir: string): string[] => {
+    try {
+      return readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  for (const name of list(dataRoot)) {
+    if (!name.startsWith("control.aside")) continue;
+    try {
+      gone(join(dataRoot, name), statSync(join(dataRoot, name)).ctimeMs);
+    } catch {
+      /* gone already */
+    }
+  }
+  const dirs = [join(dataRoot, "control"), ...list(tenantsRoot).map((id) => join(tenantsRoot, id, "store"))];
+  for (const dir of dirs) for (const name of list(dir)) if (name.includes(".pre-restore-")) gone(join(dir, name), stampOf(name));
+  return swept;
 }

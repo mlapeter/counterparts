@@ -187,8 +187,12 @@ Its person's `/mcp` calls get `503` with `Retry-After`. The log shows `store.nee
 `RESTORE_ON_BOOT=1` deploy restores every store that is missing, and touches none that are present.
 
 **A store that never reached the bucket** (its person signed up and the volume died within seconds) stays at `503`:
-a restore finds nothing. Its way out is to start it over as a new, empty store. That's refused while the bucket
-holds any replica of it.
+a restore finds nothing. Its way out is to start it over as a new, empty store. It is refused while the bucket holds
+any replica of it, or its tombstone.
+
+It is **safe against the running server** (`railway ssh`, then the line below). It only clears the store's
+"opened" mark. At that person's next call the server makes the new store, gives it its key, and adds it to the
+sidecar's configuration (a sidecar reload, logged as `sidecar.exit` / `sidecar.start`). No restart is needed.
 
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>
@@ -224,10 +228,18 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   deploy, then clear the override:
 
   ```sh
-  sh -c 'mv /data/control /data/control.aside-$(date +%s) && exec node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve'
+  sh -c 'test -e /data/control.aside-1 || mv /data/control /data/control.aside-1; exec node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve'
   ```
+
+  The `test -e` makes it move `control/` aside **once**. A crash-restart of the same deploy runs the override again
+  and must not move the freshly restored `control/` aside too. (If `control.aside-1` is still there from an earlier
+  incident, use `-2`.)
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
+- **Copies set aside hold addresses and memories**, outside the 24-hour purge: `/data/control.aside-*` from the
+  override above, and every `*.pre-restore-*` file that a `--force` restore moved aside. Every start deletes any
+  that are more than a day old, and logs `deleted N copies set aside…`. Check one within the day if you need to,
+  then let it go, or delete it by hand sooner (`rm -rf /data/control.aside-1`).
 - **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
   coordinator; no new key is made on purpose.
 

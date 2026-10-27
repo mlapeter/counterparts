@@ -483,6 +483,11 @@ export class Accounts {
     this.db.run("INSERT INTO audit (at, person_id, store_id, action, detail) VALUES (?, ?, ?, ?, ?)", this.now(), personId, storeId, action, detail);
   }
 
+  /** Did this store's audit ever record `action`? (The leftovers check skips deletes that cleaned the bucket.) */
+  storeAudited(storeId: string, actions: readonly string[]): boolean {
+    return this.db.get(`SELECT 1 AS one FROM audit WHERE store_id = ? AND action IN (${actions.map(() => "?").join(", ")}) LIMIT 1`, storeId, ...actions) !== undefined;
+  }
+
   /** For tests and the account page: the audit rows of one person, oldest first. */
   auditOf(personId: string): { action: string; detail: string | null }[] {
     return this.db.all<{ action: string; detail: string | null }>("SELECT action, detail FROM audit WHERE person_id = ? ORDER BY rowid", personId);

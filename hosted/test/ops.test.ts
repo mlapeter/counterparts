@@ -207,7 +207,7 @@ async function replicated(objects: Map<string, Stored>, prefixes: string[], ms =
   }
 }
 
-async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; start?: boolean } = {}): Promise<Rig & { port: number }> {
+async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; now?: () => number; start?: boolean } = {}): Promise<Rig & { port: number }> {
   const port = o.port ?? (await freePort());
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
@@ -221,6 +221,7 @@ async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOpti
     ...(o.mcpLimits === undefined ? {} : { mcpLimits: o.mcpLimits }),
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
     ...(o.logForwardedFor === undefined ? {} : { logForwardedFor: o.logForwardedFor }),
+    ...(o.now === undefined ? {} : { now: o.now }),
   });
   let closed = false;
   const close = async (): Promise<void> => {
@@ -861,5 +862,82 @@ describe("#653 review: limits", () => {
     assert.equal((summary.body["result"] as { structuredContent: { reason: string } }).structuredContent.reason, "store-full");
     const read = await rpc(url, "tools/call", { name: "self_page", arguments: { ifVersion: -1 } }, bearer(who.access));
     assert.notEqual((read.body["result"] as { structuredContent?: { reason?: string } }).structuredContent?.reason, "store-full");
+  });
+});
+
+// ── the #653 re-review ───────────────────────────────────────────────────────
+
+describe("#653 re-review", () => {
+  test("N1: start-over on a RUNNING server: the new store gets its key and a place in the sidecar's configuration at its first call", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(who.storeId))) s3.objects.delete(k);
+    let reloads = 0;
+    const backup = { ...backupOptions(s3, ring, null), sidecar: { reload: () => void reloads++, stop: async () => undefined } };
+    const b = await rig({ dataRoot, port, backup });
+    assert.doesNotMatch(readFileSync(b.app.backups!.configPath, "utf8"), new RegExp(who.storeId));
+    const before = reloads;
+    // The operator, in the running container.
+    assert.match(await startOverCommand(dataRoot, backupOptions(s3, ring, null), who.storeId), /starts over/);
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    const until = Date.now() + 5000;
+    while (!readFileSync(b.app.backups!.configPath, "utf8").includes(who.storeId) && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    assert.match(readFileSync(b.app.backups!.configPath, "utf8"), new RegExp(who.storeId));
+    assert.ok(reloads > before, "the sidecar was reloaded onto it");
+    assert.ok(existsSync(join(tenantDir(b.app.tenants.root, who.storeId), "litestream.key")));
+    assert.equal(b.app.accounts.wasOpened(who.storeId), true);
+  });
+
+  test("N3: start-over refuses a store the bucket has a tombstone for", async () => {
+    const { s3, ring, dataRoot, who } = await livedStore();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(who.storeId))) s3.objects.delete(k);
+    s3.objects.set(tombstoneObject(who.storeId), { body: Buffer.from("2026-10-26T00:00:00.000Z\n"), keyMd5: null });
+    await assert.rejects(startOverCommand(dataRoot, backupOptions(s3, ring, null), who.storeId), /tombstone/);
+  });
+
+  test("N2: one deleted store whose leftovers can't be checked is audited and skipped; the start goes on", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const off = await rig({ dataRoot, port });
+    await off.app.deleteAccount(who.personId);
+    await (off as unknown as { close: () => Promise<void> }).close();
+    const base = backupOptions(s3, ring, null);
+    const stuck = { ...base.objects, list: async (prefix: string) => (prefix === replicaPrefix(who.storeId) ? Promise.reject(new Error("R2 500")) : base.objects.list(prefix)) };
+    const b = await rig({ dataRoot, port, backup: { ...base, objects: stuck }, start: false });
+    const report = await b.app.start();
+    assert.equal(report.leftovers, 0);
+    assert.ok(b.app.accounts.auditOf(who.personId).some((a) => a.action === "delete.leftovers.failed"));
+    assert.equal((await fetch(`${b.origin}/readyz`)).status, 200);
+  });
+
+  test("N4: a delete that ran with backups on is not checked again at every start", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const on = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null) });
+    await on.app.deleteAccount(who.personId);
+    await (on as unknown as { close: () => Promise<void> }).close();
+    const base = backupOptions(s3, ring, null);
+    const asked: string[] = [];
+    const watched = { ...base.objects, get: async (k: string) => (asked.push(k), base.objects.get(k)), list: async (p: string) => (asked.push(p), base.objects.list(p)) };
+    const b = await rig({ dataRoot, port, backup: { ...base, objects: watched }, start: false });
+    await b.app.start();
+    assert.equal(asked.filter((k) => k.includes(who.storeId)).length, 0, asked.join(", "));
+  });
+
+  test("N5: copies set aside (control.aside-*, *.pre-restore-*) are deleted at a start once they are a day old, kept before", async () => {
+    const dataRoot = join(tmp.root, "data");
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(join(dataRoot, "control.aside-1"), { recursive: true });
+    writeFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite"), "an address lived here");
+    mkdirSync(join(dataRoot, "control"), { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    writeFileSync(join(dataRoot, "control", `accounts.sqlite.pre-restore-${stamp}`), "x");
+    const fresh = await rig({ dataRoot });
+    assert.equal((await fresh.app.start()).asideSwept, 0);
+    assert.ok(existsSync(join(dataRoot, "control.aside-1")));
+    await (fresh as unknown as { close: () => Promise<void> }).close();
+    const later = await rig({ dataRoot, now: () => Date.now() + 2 * 24 * 60 * 60 * 1000, start: false });
+    assert.equal((await later.app.start()).asideSwept, 2);
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.equal(existsSync(join(dataRoot, "control", `accounts.sqlite.pre-restore-${stamp}`)), false);
   });
 });

@@ -40,7 +40,7 @@ import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { LitestreamRun } from "./backup.js";
 import { STORE_ID, Tenants } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
@@ -146,6 +146,8 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
     const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
     if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
+    // A deleted store is never started over (the #653 re-review, N3): the next start finishes its delete.
+    if ((await backup.objects.get(tombstoneObject(storeId))) !== null) throw new Error("the bucket has its tombstone: it was deleted, and the next start finishes the delete");
     accounts.clearOpened(storeId);
     return `store ${storeTag(storeId)}: starts over as a new, empty store at its next open`;
   } finally {
@@ -379,6 +381,7 @@ async function main(): Promise<void> {
   if (report.keyless > 0) process.stderr.write(`[hosted] ${String(report.keyless)} stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made\n`);
   if (report.tombstoned > 0) process.stderr.write(`[hosted] ${String(report.tombstoned)} accounts the bucket says were deleted came back with the control databases: their deletes were finished\n`);
   if (report.leftovers > 0) process.stderr.write(`[hosted] removed what ${String(report.leftovers)} deleted stores had left in the bucket\n`);
+  if (report.asideSwept > 0) process.stderr.write(`[hosted] deleted ${String(report.asideSwept)} copies set aside more than a day ago (control.aside-*, *.pre-restore-*)\n`);
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));

@@ -169,3 +169,18 @@ Each fix has a test in `test/ops.test.ts` or `test/main.test.ts` that builds the
   - L8: `start-over`.
 - **L4 (no global or cost-weighted budget) is flagged, not built** (INTERFACE-GAPS §14).
 
+### The re-review of #653 (at a84f6893)
+
+All five original findings were confirmed fixed. Its own findings were fixed, each with a test in the "#653
+re-review" block:
+
+- **N1.** A store started over on a running server wasn't in `litestream.yml` until some other reload. Its first
+  open now runs `ensureStore` (key, key file, configuration, reload) when `Backups.inConfig` says it's missing.
+- **N2.** One stuck deleted store in the leftovers loop crash-looped every start. The loop now catches per store and
+  audits.
+- **N3.** `start-over` refuses a tombstoned store.
+- **N4.** The leftovers check skips deletes the audit says already cleaned the bucket.
+- **N5.** Copies set aside are deleted after a day: by the stamp in the name for `pre-restore`, by ctime for
+  `control.aside-*`. The RUNBOOK's override moves `control/` aside only once, so a crash-restart doesn't move the
+  restored one too.
+

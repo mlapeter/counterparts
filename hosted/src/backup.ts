@@ -365,6 +365,7 @@ export class Backups {
       "dbs:",
     ];
     const ids = this.opts.keys.storeIds();
+    const listed: string[] = [];
     if (ids.includes(CONTROL_KEY_ID)) {
       for (const db of CONTROL_DATABASES) {
         lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...replica(`control/${db}`, this.keyFile(CONTROL_KEY_ID)));
@@ -379,8 +380,18 @@ export class Backups {
       // so its first database is replicated from the start.
       if (id !== restoring && this.opts.openedBefore?.(id) === true && !existsSync(join(dir, "store", DATABASE_FILE))) continue;
       lines.push(`  - path: ${yamlString(join(dir, "store", DATABASE_FILE))}`, ...replica(replicaPrefix(id).slice(0, -1), this.keyFile(id)));
+      listed.push(id);
     }
+    this.lastListed = listed;
     return `${lines.join("\n")}\n`;
+  }
+
+  /** The stores the configuration last generated listed. */
+  private lastListed: string[] = [];
+
+  /** Is this store in the configuration as last written (`reload`)? (The #653 re-review, N1.) */
+  inConfig(storeId: string): boolean {
+    return this.lastListed.includes(storeId);
   }
 
   /** True between `hold()` and `release()`: the configuration is written, the sidecar isn't started. */

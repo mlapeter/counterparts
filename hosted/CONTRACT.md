@@ -216,7 +216,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - a live store with `deleted/<id>` in the bucket has its delete finished (an accounts database restored from
       before the delete would otherwise bring the account back, with its email);
     - a store whose state is `deleted` and that still has a key object or replica objects (a delete made with
-      backups off) has them removed.
+      backups off) has them removed. A delete that cleaned the bucket (`delete.backups`) or an earlier pass
+      (`delete.leftovers`) isn't checked again, and one store that fails is audited and skipped.
+    - copies set aside (`control.aside-*`, `*.pre-restore-*`) more than a day old are deleted. They hold addresses
+      and memories outside the 24 h purge.
 
     The restore CLI never restores a tombstoned store.
 31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
@@ -228,7 +231,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
     own backup. Such a store is also left out of the sidecar's configuration until it is restored. One that never
     reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
-    it.
+    it or its tombstone. It's safe against the running server: the store's first open after it gets its key and a
+    place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check
     names and their words (`ok`, `off`, `down`, `starting`): no id, no key, no message. `/healthz` stays liveness
