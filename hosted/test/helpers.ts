@@ -53,6 +53,8 @@ export async function rpc(url: string, method: string, params?: Record<string, u
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params === undefined ? {} : { params }) }),
+    // A server that never answers fails the test, never hangs the run.
+    signal: AbortSignal.timeout(60_000),
   });
   const text = await res.text();
   let body: Record<string, unknown> = {};
@@ -218,15 +220,34 @@ export interface Spawned {
  * or Node), with exactly `env`: resolves when it says `serving` or exits.
  */
 export async function spawnServe(env: Record<string, string>, ms = 30_000): Promise<Spawned> {
-  const child = spawn(process.execPath, [...scriptArgs(MAIN), "serve"], { env, stdio: ["ignore", "ignore", "pipe"] });
+  // Its own process group, so whatever it leaves behind (a sidecar child that
+  // inherited its stderr) is ended with it, and no test waits on a pipe forever.
+  const child = spawn(process.execPath, [...scriptArgs(MAIN), "serve"], { env, stdio: ["ignore", "ignore", "pipe"], detached: true });
   let err = "";
-  // `close`, not `exit`: the last of stderr has been read by then.
-  const exited = new Promise<void>((r) => child.once("close", () => r()));
+  child.stderr!.on("data", (d: Buffer) => {
+    err += d.toString("utf8");
+  });
+  const exited = new Promise<void>((r) => child.once("exit", () => r()));
+  const closed = new Promise<void>((r) => child.once("close", () => r()));
+  const killGroup = (signal: NodeJS.Signals): void => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, signal);
+    } catch {
+      /* gone */
+    }
+  };
+  const settle = async (): Promise<string> => {
+    killGroup("SIGKILL"); // after its exit: only what it left behind
+    await Promise.race([closed, new Promise((r) => setTimeout(r, 2000))]);
+    return err;
+  };
   const serving = (): boolean => err.includes("[hosted] serving ");
   const up = await new Promise<boolean>((resolveUp) => {
-    const t = setTimeout(() => resolveUp(false), ms);
-    child.stderr!.on("data", (d: Buffer) => {
-      err += d.toString("utf8");
+    const t = setTimeout(() => {
+      killGroup("SIGKILL"); // never left running behind a failed assertion
+      resolveUp(false);
+    }, ms);
+    child.stderr!.on("data", () => {
       if (serving()) {
         clearTimeout(t);
         resolveUp(true);
@@ -242,8 +263,10 @@ export async function spawnServe(env: Record<string, string>, ms = 30_000): Prom
     stderr: () => err,
     stop: async () => {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      const t = setTimeout(() => killGroup("SIGKILL"), 20_000);
       await exited;
-      return err;
+      clearTimeout(t);
+      return settle();
     },
   };
 }
