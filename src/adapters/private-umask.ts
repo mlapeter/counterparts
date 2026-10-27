@@ -18,8 +18,14 @@
  *   - **Another program's files.** A program that is not ours (`claude mcp
  *     add`, `claude -p`, the browser opener, `git`) is started under the
  *     umask the process was given (`withHostUmask`), so a file it writes (a
- *     stranger's `~/.claude.json`) gets the mode it always did. Our own
- *     worker inherits `077` on purpose.
+ *     stranger's `~/.claude.json`) gets the mode it always did.
+ *   - **Our own children START under the host's umask too** (`spawn.ts#
+ *     spawnDetached`, the plugin's first-run install, the plugin console's
+ *     hand-off): each sets `077` itself in `start()`, and must find the
+ *     host's umask there to record, or the night's `claude -p` would be
+ *     handed `077` as if it were the host's (review of #657).
+ *   - **A directory made outside our tree** (`~/.claude` by `connect`, Claude
+ *     Desktop's config folder) is made under the host's umask.
  *   - **Files written with an explicit mode.** `wire.ts#writeSettings` keeps
  *     a settings file's own mode, and a new one is `0644` as before.
  *

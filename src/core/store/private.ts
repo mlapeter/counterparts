@@ -8,30 +8,42 @@
  *   - **The database family is `0600`**: `db.ts#openDb` sets it on a file it
  *     just created, before anything turns WAL on, and SQLite gives `-wal` and
  *     `-shm` the database file's own mode (measured, bun 1.3 and Node 22/24).
+ *     That is every database an open creates, the store's own and any other
+ *     (hosted's control databases too).
  *   - **A `VACUUM INTO` copy is `0600`** (`pre-migration.ts#vacuumInto`): it
  *     does NOT take the source's mode, it takes `0644 & ~umask` (measured on
  *     both runtimes), so the copy is chmodded after.
- *   - **The roots it creates are `0700`** (`mkdirPrivate`): the store, its
- *     cache, the snapshots directory, the base directory beside them. A
- *     directory nobody else can enter keeps everything under it private
- *     whatever the files' own modes, which is the guarantee that matters; our
- *     own processes also run under umask `077` (`adapters/private-umask.ts`),
- *     so their files come out `0600` too. The core never sets the umask: an
- *     embedder's process is not ours.
- *   - **An existing store is tightened** (`tightenStore`) the first time this
- *     build opens it to write: directories to `0700`, files lose their group
- *     and other bits. BEST-EFFORT: a chmod the filesystem will not take
- *     (exFAT, some network drives) is skipped and counted, and is never a
- *     reason to refuse an open. "Once" is two stats, not a stored flag: an
- *     open that writes nothing at open stays that way (the store constructor's
- *     rule), and a store that is already tight costs two `stat` calls.
+ *   - **The directories it creates are `0700`** (`mkdirPrivate`): the store,
+ *     its cache, a snapshot's folder, and any missing parent made on the way.
+ *     A directory nobody else can enter keeps everything under it private
+ *     whatever the files' own modes. Our own processes also run under umask
+ *     `077` (`adapters/private-umask.ts`), so their files come out `0600` too.
+ *     The core never sets the umask: an embedder's process is not ours.
+ *   - **An existing store is tightened** (`tightenStore`) when a writer opens
+ *     it: the store directory and everything under it, and a snapshots
+ *     directory the caller NAMED (`opts.snapshotsDir`), lose their group and
+ *     other bits. NOTHING ELSE: the core does not guess at a parent directory
+ *     from a name (review of #657: a store dir named `store` made its parent
+ *     and every sibling lose their bits, which on an embedder's machine is an
+ *     app's files and on hosted a tenant's). The base directory of the layout
+ *     this package makes (`~/.counterparts`) is the adapters' to tighten
+ *     (`adapters/private-base.ts`), which know it from the configuration
+ *     sitting in it. BEST-EFFORT: a chmod the filesystem will not take (exFAT,
+ *     some network drives) is skipped and counted, never a refusal. "Once" is
+ *     stats, not a stored flag: an already-tight store costs two `stat` calls,
+ *     and an open writes nothing at open.
+ *   - **A store meant to be shared with a group is tightened again** at every
+ *     writer's open. There is no opt-out today (few guards, loose limits: one
+ *     can be added when somebody needs it).
  *
- * Hosted is out of scope: its volume layout sets its own modes.
+ * Hosted: its tenant stores get the same at-open tightening of the store
+ * directory (its volume layout already writes 0700/0600 as one user, so it
+ * finds nothing to do), and any database it creates through `openDb` is 0600.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
-import { DATABASE_FILE, DEFAULT_STORE_SUBDIR } from "./paths.js";
+import { DATABASE_FILE } from "./paths.js";
 
 export const PRIVATE_DIR_MODE = 0o700;
 export const PRIVATE_FILE_MODE = 0o600;
@@ -72,12 +84,26 @@ export function mkdirPrivate(dir: string, chmod: Chmod = chmodSync): void {
   for (const d of created) chmodQuiet(d, PRIVATE_DIR_MODE, chmod);
 }
 
-/** Is this path open to group or other? False for a path that is not there. */
+/** Is this path open to group or other? False for a path that is not there,
+ *  and for a symbolic link (a link's own mode means nothing, and the walk
+ *  never follows one, so a check that read through it would ask forever). */
 export function isOpen(path: string): boolean {
   try {
-    return (statSync(path).mode & OPEN_BITS) !== 0;
+    const st = lstatSync(path);
+    if (st.isSymbolicLink()) return false;
+    return (st.mode & OPEN_BITS) !== 0;
   } catch {
     return false;
+  }
+}
+
+/** The real path of a directory root, so a symlinked store is read and
+ *  tightened where it actually is; the path as given when it is not there. */
+export function realRoot(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
   }
 }
 
@@ -88,49 +114,41 @@ export interface TightenReport {
   readonly skipped: readonly string[];
 }
 
-/** The directories a store's privacy covers: the store itself, its snapshots
- *  directory, and, in the layout this package makes (`<base>/store`), the base
- *  directory (its configuration, credentials and log sit there). */
-export function privateRoots(storeDir: string, snapshotsDir?: string | null): { recursive: string[]; topOnly: string[] } {
-  const store = resolve(storeDir);
-  const recursive = [store];
-  const topOnly: string[] = [];
-  const base = basename(store) === DEFAULT_STORE_SUBDIR ? dirname(store) : null;
-  if (snapshotsDir !== undefined && snapshotsDir !== null) recursive.push(resolve(snapshotsDir));
-  if (base !== null) {
-    topOnly.push(base);
-    const snaps = join(base, "snapshots");
-    if (!recursive.includes(snaps)) recursive.push(snaps);
-    const log = join(base, "log");
-    recursive.push(log);
-  }
-  return { recursive, topOnly };
+/** Which directories to tighten: `recursive` ones whole, `topOnly` ones and
+ *  their immediate entries only. */
+export interface PrivateRoots {
+  readonly recursive: readonly string[];
+  readonly topOnly?: readonly string[];
 }
 
-/** Does this store need tightening? A few stats: the store directory, the database and,
- *  in the `<base>/store` layout, the base and snapshots directories (doctor's Privacy
- *  line reads the same four, so its "the next session that writes does the same" holds).
- *  Never on Windows, where modes read 666/777 whatever is done (the caller's gate). */
-export function storeNeedsTightening(storeDir: string): boolean {
-  const store = resolve(storeDir);
-  const base = basename(store) === DEFAULT_STORE_SUBDIR ? dirname(store) : null;
-  return (
-    isOpen(store) ||
-    isOpen(join(store, DATABASE_FILE)) ||
-    (base !== null && (isOpen(base) || isOpen(join(base, "snapshots"))))
-  );
+/** The core's own roots: the store, and a snapshots directory the caller named. */
+export function storeRoots(storeDir: string, snapshotsDir?: string | null): PrivateRoots {
+  const recursive = [realRoot(storeDir)];
+  if (snapshotsDir !== undefined && snapshotsDir !== null) recursive.push(realRoot(snapshotsDir));
+  return { recursive };
+}
+
+/** Does any root need tightening? A stat each, and the database's (`lstat`). */
+export function rootsNeedTightening(roots: PrivateRoots, files: readonly string[] = []): boolean {
+  return [...(roots.topOnly ?? []), ...roots.recursive, ...files].some((p) => isOpen(p));
+}
+
+/** Does this store need tightening? The store directory and its database. */
+export function storeNeedsTightening(storeDir: string, snapshotsDir?: string | null): boolean {
+  const roots = storeRoots(storeDir, snapshotsDir);
+  return rootsNeedTightening(roots, [join(roots.recursive[0] ?? storeDir, DATABASE_FILE)]);
 }
 
 /**
- * Take group and other bits off every directory and file under the roots
- * (`privateRoots`). Never follows a symlink (`lstat`), never throws: a path
- * that will not change is listed in `skipped` and the walk goes on.
+ * Take group and other bits off every directory and file under the roots.
+ * Never follows a symlink below a root (`lstat`), never throws: a path that
+ * will not change is listed in `skipped` and the walk goes on. Only the group
+ * and other bits go; the owner's stay (0755 becomes 0700, 0644 becomes 0600,
+ * an owner x-bit stays).
  */
-export function tightenStore(storeDir: string, snapshotsDir?: string | null, chmod: Chmod = chmodSync): TightenReport {
+export function tightenRoots(roots: PrivateRoots, chmod: Chmod = chmodSync): TightenReport {
   let tightened = 0;
   const skipped: string[] = [];
-  // Only the group and other bits go; the owner's are left as they are (a
-  // directory 0755 becomes 0700, a file 0644 becomes 0600, an owner x-bit stays).
   const fix = (path: string, mode: number): void => {
     if ((mode & OPEN_BITS) === 0) return;
     if (chmodQuiet(path, mode & 0o7777 & ~OPEN_BITS, chmod)) tightened += 1;
@@ -158,8 +176,13 @@ export function tightenStore(storeDir: string, snapshotsDir?: string | null, chm
     }
     if (st.isFile()) fix(path, st.mode);
   };
-  const roots = privateRoots(storeDir, snapshotsDir);
-  for (const dir of roots.topOnly) walk(dir, 0, false);
-  for (const dir of roots.recursive) walk(dir, 0, true);
+  for (const dir of roots.topOnly ?? []) walk(realRoot(dir), 0, false);
+  for (const dir of roots.recursive) walk(realRoot(dir), 0, true);
   return { tightened, skipped };
 }
+
+/** The core's tightening: the store and a named snapshots directory, nothing else. */
+export function tightenStore(storeDir: string, snapshotsDir?: string | null, chmod: Chmod = chmodSync): TightenReport {
+  return tightenRoots(storeRoots(storeDir, snapshotsDir), chmod);
+}
+

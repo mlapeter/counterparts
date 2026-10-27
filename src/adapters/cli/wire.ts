@@ -60,8 +60,12 @@
  * memory. Every rule above holds for it: one plan with the hooks
  * (`planSettings`), so one backup and one atomic write; every other entry in
  * that list keeps its place and keys; already there is no change; a list
- * that is not a list is a refusal; and `disconnect` takes out exactly that
- * entry and nothing else (`mergeDeny`).
+ * that is not a list is a refusal on `connect` (and left alone by
+ * `disconnect`); and `disconnect` takes out exactly that entry and nothing
+ * else (`mergeDeny`). OURS IS RECOGNISED BY CONTENT: an entry that is exactly
+ * that one object is taken out whoever typed it. A person leaving this
+ * install for Online wants it gone anyway, and `disconnect` says which entry
+ * it took out.
  *
  * The one thing this file cannot do anything about is said out loud instead:
  * a Claude Code session that is already open. Measured 2026-09-21 — after
@@ -98,6 +102,7 @@ import { noteNpmLive, removeNpmLive } from "../npm-live.js";
 import { PACKAGE_ROOT, PLUGIN_DATA_ENV, PLUGIN_ROOT_ENV } from "../plugin.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
 import { withHostUmask } from "../private-umask.js";
+import { tightenInstallBase } from "../private-base.js";
 import { parseScriptInvocation, readsHostUserConfig, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, installedVersion, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
@@ -371,11 +376,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Read `~/.claude/settings.json` and decide, before anything is planned,
  * whether this is a file we are willing to write.
  *
- * Seven refusals, and each one is a shape whose meaning we would be guessing at:
+ * Six refusals, and each one is a shape whose meaning we would be guessing at:
  * a symlink out of the home, something that is not a regular file, bytes that
  * are not JSON, a top-level value that is not an object, a `hooks` key that is
- * not an object, one of our five events whose value is not an array, and a
- * `deniedMcpServers` that is not a list.
+ * not an object, and one of our five events whose value is not an array. (A
+ * `deniedMcpServers` that is not a list is `connect`'s seventh, `denyRefusal`:
+ * `disconnect` has nothing to take out of it.)
  * Guessing about any of them means rewriting somebody's configuration into a
  * shape they did not choose.
  */
@@ -558,24 +564,6 @@ export function sightSettings(named: string, home: string): SettingsSight {
         `refused: the "hooks" key in ${target} is ${Array.isArray(hooks) ? "an array" : `a ${typeof hooks}`}, ` +
         "not an object of event names. Merging into a shape this command does not understand " +
         "is how a working configuration stops working.",
-    };
-  }
-  // THE DENY LIST (2026-10-27, R1): a list of entries or nothing. Any other
-  // shape is one whose meaning we would be guessing at, so it is refused like
-  // a bad `hooks` key rather than replaced.
-  const denied = parsed[DENY_KEY];
-  if (denied !== undefined && !Array.isArray(denied)) {
-    return {
-      ...absent,
-      target,
-      symlink,
-      exists: true,
-      mode,
-      value: parsed,
-      refusal:
-        `refused: the "${DENY_KEY}" key in ${target} is ${isRecord(denied) ? "an object" : `a ${typeof denied}`}, ` +
-        "not a list. The host reads it as a list of servers to keep out, and this command " +
-        "will not overwrite a value whose meaning it cannot tell.",
     };
   }
   if (isRecord(hooks)) {
@@ -890,6 +878,22 @@ export function mergeDeny(settings: Record<string, unknown>, direction: "wire" |
   return { value: next, change: "removed", changed: true, foreignKept };
 }
 
+/**
+ * THE DENY LIST IS A LIST OR NOTHING, for `connect` (2026-10-27, R1): any other
+ * shape is one whose meaning we would be guessing at, so a wire refuses it like
+ * a bad `hooks` key. An unwire does not ask: it has nothing of ours to take out
+ * of a value that is not a list, and leaves it as it is (review of #657).
+ */
+export function denyRefusal(sight: SettingsSight): string | null {
+  const denied = sight.value[DENY_KEY];
+  if (denied === undefined || Array.isArray(denied)) return null;
+  const what = denied === null ? "null" : isRecord(denied) ? "an object" : `a ${typeof denied}`;
+  return (
+    `refused: the "${DENY_KEY}" key in ${sight.target} is ${what}, not a list. The host reads it ` +
+    "as a list of servers to keep out, and this command will not overwrite a value whose meaning it cannot tell."
+  );
+}
+
 /** Does this settings object keep our URL out (any entry naming it)? */
 export function denyPresent(settings: Record<string, unknown>): boolean {
   const raw = settings[DENY_KEY];
@@ -966,7 +970,8 @@ export function writeSettings(
   let backup: string | null = null;
   let temp: string | null = null;
   try {
-    mkdirSync(dir, { recursive: true });
+    // Not our directory (`~/.claude`, Desktop's folder): made under the host's umask.
+    withHostUmask(() => mkdirSync(dir, { recursive: true }));
     if (sight.exists) {
       backup = copyToFreeBackup(target, now);
       // A backup of a 0600 file must not be world-readable because `copyFile`
@@ -1381,8 +1386,9 @@ export async function wire(input: WireInput): Promise<WireResult> {
     u.heading("Connecting Claude Code…");
   }
 
-  if (sight.refusal !== null) {
-    io.err(sight.refusal);
+  const refusal = sight.refusal ?? denyRefusal(sight);
+  if (refusal !== null) {
+    io.err(refusal);
     io.err("");
     io.err("Nothing was changed. The block to merge by hand, its two keys at the top level:");
     for (const line of settingsBlock(command).split("\n")) io.err(`  ${line}`);
@@ -1498,8 +1504,9 @@ export async function wire(input: WireInput): Promise<WireResult> {
     // saving. The plan is re-made against what is there NOW, and a file that
     // has become unreadable in the meantime refuses rather than gets rewritten.
     const fresh = sightSettings(named, home);
-    if (fresh.refusal !== null) {
-      io.err(`refused after re-reading the file: ${fresh.refusal}`);
+    const freshRefusal = fresh.refusal ?? denyRefusal(fresh);
+    if (freshRefusal !== null) {
+      io.err(`refused after re-reading the file: ${freshRefusal}`);
       return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     const again = planSettings(fresh.value, command, "wire");
@@ -1581,6 +1588,9 @@ export const DENY_ADDED_LINE =
  * copy then runs beside the settings wiring — a rare path, left as it is.
  */
 function noteWired(input: WireInput): void {
+  // The install's base directory, private (R1, `private-base.ts`): `connect` is
+  // the upgrade path an older install runs.
+  tightenInstallBase(input.configPath, input.store);
   if ((input.env[PLUGIN_ROOT_ENV] ?? "").trim().length > 0) return;
   noteNpmLive({
     configPath: input.configPath,
@@ -2125,7 +2135,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       // Only the deny entry was there (the hooks taken out by hand): the
       // backup is named on this line instead.
       u.hint(
-        `Counterparts Online's entry was taken out of ${DENY_KEY}` +
+        `Counterparts Online's entry, { "serverUrl": "${HOSTED_DENY_URL}" }, was taken out of ${DENY_KEY}` +
           `${again.changed ? "" : ` in ${tilde(fresh.target, home)}${backupSaid}`}.`,
       );
     }

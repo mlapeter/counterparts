@@ -35,7 +35,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BINARY, TRANSPILED } from "../../runtime.js";
-import { usePrivateUmask } from "../../private-umask.js";
+import { usePrivateUmask, withHostUmask } from "../../private-umask.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { PACKAGE_ROOT, PLUGIN_ROOT_ENV, npmDoctorCommand, pluginDoctorLine, pluginOrigin, runningAsPlugin } from "../../plugin.js";
@@ -87,8 +87,8 @@ function doctorFromStoodDownPlugin(): number | null {
   const wired = npmDoctorCommand(wiring);
   const r =
     wired !== null
-      ? spawnSync(wired.exe, [...wired.args], { stdio: "inherit", env })
-      : spawnSync("counterparts", process.argv.slice(2), { stdio: "inherit", env });
+      ? withHostUmask(() => spawnSync(wired.exe, [...wired.args], { stdio: "inherit", env }))
+      : withHostUmask(() => spawnSync("counterparts", process.argv.slice(2), { stdio: "inherit", env }));
   if (r.error !== undefined) {
     process.stdout.write("The npm install's `counterparts` is not on this PATH. Run `counterparts doctor` in a terminal.\n");
     return 0;

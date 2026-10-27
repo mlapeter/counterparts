@@ -1429,3 +1429,72 @@ describe("gaps: bin/nightly.ts end to end, against a stub `claude` first on PATH
     }
   }, 30_000);
 });
+
+// ── the night's `claude -p` runs under the HOST's umask (review of #657) ─────
+
+describe("the night's claude -p gets the host's umask, not ours", () => {
+  test("a process under umask 022 that set 077 and starts nightly.ts the hook's way: the stub claude reads 0022", () => {
+    const bin = mkdtempSync(join(tmpdir(), "counterparts-night-umask-"));
+    try {
+      const scope = join(bin, "project");
+      mkdirSync(scope);
+      const stubDir = join(bin, "stub");
+      mkdirSync(stubDir);
+      const seen = join(bin, "umask-seen");
+      const stub = join(stubDir, "claude");
+      writeFileSync(stub, ["#!/bin/sh", `umask > ${JSON.stringify(seen)}`, "cat > /dev/null", "exit 0"].join("\n"), "utf8");
+      chmodSync(stub, 0o755);
+      const configPath = join(bin, "claude-code.json");
+      writeFileSync(configPath, JSON.stringify({ dataDir: dir, owner: true, identity: { name: "Mike" } }), "utf8");
+      const seed = openNightCounterpart({ dataDir: dir });
+      lived(seed);
+      seed.close();
+      const src = join(import.meta.dir, "..", "src", "adapters");
+      const nightly = join(src, "claude-code", "bin", "nightly.ts");
+      // What the hook does (`hooks.ts`): our entry point sets 077 first thing,
+      // then `spawnDetached` starts `bin/nightly.ts` with the default spawner.
+      const driver = join(bin, "driver.ts");
+      writeFileSync(
+        driver,
+        [
+          `import { usePrivateUmask } from ${JSON.stringify(join(src, "private-umask.ts"))};`,
+          `import { spawnDetached } from ${JSON.stringify(join(src, "spawn.ts"))};`,
+          "usePrivateUmask();",
+          `const out = spawnDetached({ ok: true, reason: "ready", command: process.execPath, args: ["run", ${JSON.stringify(nightly)}], env: Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined)), timeoutMs: 60000, escalate: false });`,
+          "if (!out.started) process.exit(3);",
+        ].join("\n"),
+        "utf8",
+      );
+      const out = Bun.spawnSync(["/bin/sh", "-c", 'umask 022; exec "$@"', "sh", process.execPath, "run", driver], {
+        env: {
+          PATH: `${stubDir}:/usr/bin:/bin`,
+          HOME: bin,
+          COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+          COUNTERPARTS_CONFIG: configPath,
+          COUNTERPARTS_DATA_DIR: dir,
+          COUNTERPARTS_SESSION: "s1",
+          COUNTERPARTS_SCOPE: scope,
+          COUNTERPARTS_NIGHT_RUN: "nrn_umask",
+          COUNTERPARTS_NIGHT_KIND: "night",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(out.exitCode).toBe(0);
+      const deadline = Date.now() + 25_000;
+      let said = "";
+      while (Date.now() < deadline) {
+        try {
+          said = readFileSync(seen, "utf8").trim();
+        } catch {
+          said = "";
+        }
+        if (said.length > 0) break;
+        Bun.sleepSync(100);
+      }
+      expect(said).toBe("0022");
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }, 40_000);
+});

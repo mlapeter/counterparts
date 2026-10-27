@@ -1011,7 +1011,7 @@ export class Store {
 
   private tightenIfOpen(opts: StoreOptions): void {
     try {
-      if (!storeNeedsTightening(this.dir)) return;
+      if (!storeNeedsTightening(this.dir, opts.snapshotsDir ?? null)) return;
       const report = tightenStore(this.dir, opts.snapshotsDir ?? null, opts.chmod);
       this.emit(STORE_TIGHTENED_EVENT, undefined, {
         tightened: report.tightened,

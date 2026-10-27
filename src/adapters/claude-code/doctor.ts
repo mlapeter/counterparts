@@ -3389,7 +3389,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // A rollback's hold (2026-10-11): one file read, and only when it is there.
     ...rollbackFindings(input.dir),
     // Who can read the store (R1): a few stats, no store read.
-    ...modesFindings(input.dir),
+    ...modesFindings(input.dir, process.platform, input.configPath),
     // DID THE HOST STEPS TAKE (finding 4). Also read by the caller — it is four
     // small file reads outside this store, and the hook does not pay for them.
     ...(input.host === undefined ? [] : hostFindings(input.host)),

@@ -8,9 +8,10 @@
  * store nothing has written to since this version came.
  */
 import { existsSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 
-import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, OPEN_BITS, SNAPSHOTS_DIR_NAME } from "../../core/store/index.js";
+import { DATABASE_FILE, OPEN_BITS, realRoot } from "../../core/store/index.js";
+import { installBaseRoots } from "../private-base.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
@@ -23,18 +24,21 @@ function modeOf(path: string): number | null {
 }
 
 /** The paths the line reads, each with the mode it should have at most. */
-export function privatePaths(storeDir: string): { path: string; dir: boolean }[] {
-  const store = resolve(storeDir);
+export function privatePaths(storeDir: string, configPath?: string): { path: string; dir: boolean }[] {
+  const store = realRoot(storeDir);
+  // The base only when this IS an install's layout (`private-base.ts`), the
+  // configuration sitting in it: a dir that is merely named `store` says nothing.
+  const base = configPath === undefined ? null : installBaseRoots(configPath, storeDir);
   const out: { path: string; dir: boolean }[] = [];
-  if (basename(store) === DEFAULT_STORE_SUBDIR) out.push({ path: dirname(store), dir: true });
+  for (const d of base?.topOnly ?? []) out.push({ path: d, dir: true });
   out.push({ path: store, dir: true }, { path: join(store, DATABASE_FILE), dir: false });
-  if (basename(store) === DEFAULT_STORE_SUBDIR) out.push({ path: join(dirname(store), SNAPSHOTS_DIR_NAME), dir: true });
+  for (const d of base?.recursive ?? []) out.push({ path: d, dir: true });
   return out;
 }
 
-export function modesFindings(storeDir: string, platform: string = process.platform): Finding[] {
+export function modesFindings(storeDir: string, platform: string = process.platform, configPath?: string): Finding[] {
   if (platform === "win32") return [];
-  const paths = privatePaths(storeDir).filter((p) => existsSync(p.path));
+  const paths = privatePaths(storeDir, configPath).filter((p) => existsSync(p.path));
   if (paths.length === 0) return [];
   const open = paths
     .map((p) => ({ ...p, mode: modeOf(p.path) }))
@@ -55,7 +59,7 @@ export function modesFindings(storeDir: string, platform: string = process.platf
       "amber",
       "Privacy",
       `readable by other accounts on this machine: ${open.map((p) => `${p.path} (${p.mode.toString(8)})`).join(", ")}`,
-      `Run: ${fix} — the next session that writes does the same, the whole store included. ` +
+      `Run: ${fix} — the next Claude Code session (or counterparts connect) does the same, the whole store included. ` +
         "A filesystem that does not keep modes (exFAT, some network drives) reads this way and cannot be tightened.",
       data,
     ),
