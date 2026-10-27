@@ -19,7 +19,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { join } from "node:path";
@@ -34,7 +34,7 @@ import type { App, AppBackupOptions } from "../src/app.js";
 import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore } from "../src/keys.js";
-import { prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
+import { controlAside, controlAsideAtStart, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
 import { tenantDir } from "../src/tenants.js";
 import { listen, rpc, tempRoot, tool } from "./helpers.js";
 
@@ -939,5 +939,134 @@ describe("#653 re-review", () => {
     assert.equal((await later.app.start()).asideSwept, 2);
     assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
     assert.equal(existsSync(join(dataRoot, "control", `accounts.sqlite.pre-restore-${stamp}`)), false);
+  });
+});
+
+// ── R3: the #653 final check's two LOWs ──────────────────────────────────────
+
+describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", () => {
+  test("CONTROL_ASIDE moves control/ once per label, on a refusing volume: a restart, the day-old sweep and a second incident move nothing; a new label re-arms it", async () => {
+    const { s3, bin, ring, dataRoot, port, who } = await livedStore();
+    // Only keys.sqlite lost: the start refuses (it can't tell this control/ from an invite's), naming the variables.
+    rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
+    const backup = backupOptions(s3, ring, null);
+    const run = litestreamRunner(bin, litestreamEnv());
+    const refusal = String((await prepareVolume(dataRoot, backup, run)).refusal);
+    assert.match(refusal, /not the key that wrote the bucket's backups/);
+    assert.match(refusal, /CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
+    const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+
+    // Deploy 1, CONTROL_ASIDE=1 + RESTORE_ON_BOOT=1: what `serve` runs, in its order.
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /moved control\/ to control\.aside-1/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite")), before);
+    assert.match(readFileSync(overrideGuard(dataRoot, "1"), "utf8"), /^moved \d{4}-/);
+    assert.match(String((await prepareVolume(dataRoot, backup, run)).restored), /^2 restored/);
+    const a = await rig({ dataRoot, port, backup, start: false });
+    await a.app.start({ restore: run });
+    // The same token works: the bucket's control databases are the ones in place.
+    assert.equal((await rpc(`${a.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    await (a as unknown as { close: () => Promise<void> }).close();
+
+    // A crash-restart of the same deploy: the restored control/ stays.
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /used once already: nothing moved/);
+    assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")));
+
+    // Two days on, the override forgotten: the start's sweep deletes the copy, never the guard.
+    const later = await rig({ dataRoot, port, backup, now: () => Date.now() + 2 * 24 * 60 * 60 * 1000, start: false });
+    assert.equal((await later.app.start()).asideSwept, 1);
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.ok(existsSync(overrideGuard(dataRoot, "1")));
+    await (later as unknown as { close: () => Promise<void> }).close();
+    const restored = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+
+    // A second incident (keys.sqlite lost again) with CONTROL_ASIDE=1 still set: nothing moves, the start refuses.
+    rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
+    assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /used once already: nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), restored);
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.match(String((await prepareVolume(dataRoot, backup, null)).refusal), /not the key that wrote/);
+
+    // Re-armed on purpose, with a new label.
+    assert.match(((await controlAsideAtStart(dataRoot, "2", backup)) as { line: string }).line, /moved control\/ to control\.aside-2/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control.aside-2", "accounts.sqlite")), restored);
+  });
+
+  test("CONTROL_ASIDE on a volume with good control/ and no keys/, beside a bucket with no control key (the #655 review): nothing moves, no guard, the start goes on", async () => {
+    const dataRoot = join(tmp.root, "volume");
+    // A server that ran without backups: real accounts, no keys/.
+    const off = await rig({ dataRoot });
+    const who = await connect(off, "only-copy@example.com");
+    await (off as unknown as { close: () => Promise<void> }).close();
+    assert.equal(existsSync(join(dataRoot, "keys")), false);
+    const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    const s3 = await s3StandIn();
+    const ring = new Map([["v1", randomBytes(32)]]);
+    const backup = backupOptions(s3, ring, null);
+    const out = (await controlAsideAtStart(dataRoot, "1", backup)) as { line: string };
+    assert.match(out.line, /isn't refusing for the control key .*: nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
+    assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
+    assert.equal(existsSync(overrideGuard(dataRoot, "1")), false);
+    // What serve does next: the volume check passes, the server starts on the real control databases.
+    assert.equal((await prepareVolume(dataRoot, backup, null)).refusal, undefined);
+    const b = await rig({ dataRoot, port: off.port, backup });
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+  });
+
+  test("CONTROL_ASIDE with a fresh label on a healthy volume moves nothing and writes no guard", async () => {
+    const { s3, ring, dataRoot } = await livedStore();
+    const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    const out = (await controlAsideAtStart(dataRoot, "5", backupOptions(s3, ring, null))) as { line: string };
+    assert.match(out.line, /nothing moved/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
+    assert.equal(existsSync(join(dataRoot, "control.aside-5")), false);
+    assert.equal(existsSync(overrideGuard(dataRoot, "5")), false);
+  });
+
+  test("CONTROL_ASIDE's move: a bad label is refused; an aside dir already there is never moved into; a claim whose move didn't finish says so", () => {
+    const dataRoot = join(tmp.root, "data");
+    mkdirSync(join(dataRoot, "control"), { recursive: true });
+    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "now");
+    assert.match((controlAside(dataRoot, "../x") as { refusal: string }).refusal, /CONTROL_ASIDE must be a label/);
+    mkdirSync(join(dataRoot, "control.aside-7"), { recursive: true });
+    assert.match((controlAside(dataRoot, "7") as { line: string }).line, /already here, so nothing moved/);
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "now");
+    assert.deepEqual(readdirSync(join(dataRoot, "control.aside-7")), []);
+    // A crash after the claim, before the rename.
+    mkdirSync(join(dataRoot, "overrides"), { recursive: true });
+    writeFileSync(overrideGuard(dataRoot, "8"), "claimed 2026-10-27T00:00:00.000Z\n");
+    assert.match((controlAside(dataRoot, "8") as { line: string }).line, /claimed but the move didn't finish: nothing moved\. Set a new label/);
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "now");
+  });
+
+  test("backup.ensure.failed: a started-over store whose backup set-up fails is audited AND logged, by tag, never by id or address", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(who.storeId))) s3.objects.delete(k);
+    let failing = false;
+    const backup = {
+      ...backupOptions(s3, ring, null),
+      sidecar: {
+        reload: () => {
+          if (failing) throw new Error("sidecar: spawn EACCES at /data/litestream.yml for awkward@example.com");
+        },
+        stop: async () => undefined,
+      },
+    };
+    const events: [string, string][] = [];
+    const b = await rig({ dataRoot, port, backup, onEvent: (name, store) => void events.push([name, store]) });
+    failing = true;
+    assert.match(await startOverCommand(dataRoot, backupOptions(s3, ring, null), who.storeId), /starts over/);
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    const until = Date.now() + 5000;
+    while (!events.some(([n]) => n === "backup.ensure.failed") && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    const failed = events.filter(([n]) => n === "backup.ensure.failed");
+    assert.deepEqual(failed, [["backup.ensure.failed", storeTag(who.storeId)]]);
+    assert.ok(b.app.accounts.auditOf(who.personId).some((x) => x.action === "backup.ensure.failed"));
+    // The line serve writes for it.
+    const line = eventLine(...failed[0]!);
+    assert.match(line, new RegExp(`^\\[hosted\\] backup\\.ensure\\.failed storeTag=${storeTag(who.storeId)}: this store is NOT backed up yet`));
+    assert.doesNotMatch(line, new RegExp(who.storeId));
+    assert.doesNotMatch(line, /@|EACCES|litestream\.yml for/);
   });
 });

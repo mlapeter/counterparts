@@ -181,6 +181,32 @@ re-review" block:
 - **N3.** `start-over` refuses a tombstoned store.
 - **N4.** The leftovers check skips deletes the audit says already cleaned the bucket.
 - **N5.** Copies set aside are deleted after a day: by the stamp in the name for `pre-restore`, by ctime for
-  `control.aside-*`. The RUNBOOK's override moves `control/` aside only once, so a crash-restart doesn't move the
-  restored one too.
+  `control.aside-*`. The RUNBOOK's override moved `control/` aside only once, so a crash-restart doesn't move the
+  restored one too. (Its guard was `control.aside-1` itself, which this sweep deletes: R3 below.)
 
+### R3: the final check's two LOWs (10-27)
+
+- **The control override is one-shot for real.** It was a Railway start command (`sh -c 'test -e
+  /data/control.aside-1 || mv …'`) whose guard was the aside copy itself, and the day-old sweep (N5) deletes that
+  copy: an override left set re-armed a day later and moved the restored `control/` aside at the next restart. It
+  is now `CONTROL_ASIDE=<label>` in `serve` (`main.ts#controlAside`), with the guard in `overrides/`, a dir the sweep
+  never lists. The guard is an exclusive create before the move, so a crash between the two leaves `control/` in
+  place (the start refuses as before) and never moves it twice. A new label re-arms it. Moved into `serve` so it is
+  testable through the entry point; a shell line in the RUNBOOK wasn't. Refused with `BACKUPS=off`: the aside copy
+  would be the only one, and it is swept a day later.
+- **The #655 review (BLOCKING): the move checks the volume first.** As first built, `CONTROL_ASIDE` moved `control/`
+  on any volume. On one with good control databases, no `keys/`, and a bucket with no control key, the only copy of
+  every account went aside, `prepareVolume` let the start go on with empty control databases, they replicated, and
+  the sweep deleted the aside a day later. `controlAsideAtStart` now reads `controlVolume` and moves only when
+  `foreignControlRefusal` refuses; otherwise nothing moves and no guard is written. An unreachable bucket stops the
+  start before anything moves. The guard reads `claimed <time>` before the move and `moved <time>` after, so a crash
+  in between says so. The refusal names `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, not a manual `mv`.
+- **`backup.ensure.failed` has a stderr line**, not only the audit: `[hosted] backup.ensure.failed storeTag=<tag>: this
+  store is NOT backed up yet …` (`storeTag=`, not `store=`, which is server.ts's per-process HMAC tag elsewhere), through the app's `onEvent` and `main.ts#eventLine`. The tag is `storeTag` (SHA-256,
+  the restore CLI's tag, now in `tenants.ts`), not the server's per-process HMAC, so an operator can match it to
+  `restore`/`start-over` output. Never the id, an address or the error's text (a sidecar error can carry a path).
+- **Open (flagged, not built; the coordinator briefs it separately):** when `ensureStore` fails before any key exists (the bucket unreachable at the
+  first open of a started-over store), the store is still marked opened, so the next start's `ensureAll` counts it
+  `keyless` and never makes it a key: it serves, unbacked, until a human runs `start-over` again. Recommendation:
+  let `ensureAll` make a key for a store with no key here or in the bucket AND no replica objects (the test
+  `start-over` already makes), so the next start heals it.
