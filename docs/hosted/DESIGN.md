@@ -442,9 +442,14 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
   - Each wrapped key records the KEK version it was wrapped under. Nothing else in `hosted/` touches the raw KEK, and a
     test pins that.
   - **The beta holds the KEK in a Railway secret**: `HOSTED_KEKS` holds the ring of versions and `HOSTED_KEK_CURRENT`
-    names the one in use (`EnvKeyWrapper`). Mike also keeps a copy offline; losing the KEK means losing every backup.
+    names the one in use (`EnvKeyWrapper`). Losing the KEK means losing every backup, so every version is kept offline
+    in two places (a password manager and paper), recorded before the version is used. The restore drill types the
+    KEK from those copies, not from the Railway variable (RUNBOOK, "The drill").
   - **Later**, Mike moves it to our own small Cloudflare Worker key service, called only from Railway's fixed egress IP.
-    That is a second `KeyWrapper` and nothing else changes.
+    That is a second `KeyWrapper` and nothing else changes. Its key is exported to the same two offline places, so
+    losing the Cloudflare account doesn't lose the memories. With the key service down, a restart can't open stores
+    until it's back, like an R2 outage blocking a start. Accepted.
+  - People hold no keys online, so a person can't lock themselves out. A key a person holds would be opt-in only.
 - **Rewrap** (`main.ts rewrap`, `KeyStore.rewrap`) moves every wrapped DEK from KEK version N to N+1 and re-writes each
   store's key object. One operation covers rotation and the move to Cloudflare.
 - **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
@@ -492,7 +497,10 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
 1. Railway's disk encryption confirmed in writing.
 2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
-   means every backup.
+   means every backup. Before building it, verify the reported breach: if it's wrong, the service is still better than
+   an environment variable, but the urgency changes. Its key is exported to the two offline places.
+4. **Lockout proven.** Every KEK version in use is held offline in two places, and the real-binary drill has restored
+   with the KEK typed from them (RUNBOOK).
 3. **The account email encrypted under the person's DEK, with a keyed hash for lookup.** The hash key sits next to the
    KEK, behind `KeyWrapper`. Shredding the DEK then leaves only the hash in old copies, so the email goes "at once" like
    everything else. It is built in the same hardening pass as the key service. Not built now.
@@ -566,7 +574,7 @@ R2 bucket. A move is: restore from R2 into a Fly volume, change DNS. A runbook g
 ### 7.3 What Mike must do (prepared by the build, done by him)
 
 1. Railway: the project, the service, the volume, and the `HOSTED_KEKS` / `HOSTED_KEK_CURRENT` secrets (generate a
-   32-byte key, base64). Keep a copy of the KEK offline.
+   32-byte key, base64). Keep every KEK version offline in two places (a password manager and paper) before it is used.
 2. Cloudflare R2: a bucket, and an API token scoped to that bucket's objects only. Versioning and object lock stay
    **off** (at least for `keys/`), so a delete is a delete.
 3. Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP (§5.4).
