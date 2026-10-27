@@ -21,7 +21,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,9 +29,9 @@ import { fileURLToPath } from "node:url";
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { modesFindings } from "../src/adapters/claude-code/doctor-modes.js";
-import { runSnapshot } from "../src/adapters/snapshots.js";
+import { CLAIM_NAME_RE, PARTIAL_NAME_RE, SNAPSHOT_NAME_RE, runSnapshot } from "../src/adapters/snapshots.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { STORE_TIGHTENED_EVENT, Store, storeNeedsTightening, tightenStore } from "../src/core/store/index.js";
+import { PRE_MIGRATION_NAME_RE, SNAPSHOT_ENTRY_NAMES, STORE_TIGHTENED_EVENT, Store, snapshotsDirRoots, storeNeedsTightening, tightenStore } from "../src/core/store/index.js";
 import { installBasePaths, tightenInstallBase } from "../src/adapters/private-base.js";
 import { ownedKind, ownedNames } from "../src/adapters/owned-names.js";
 import type { StoreEvent } from "../src/core/store/index.js";
@@ -71,6 +71,11 @@ async function looseUmaskAsync<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 const mode = (p: string): number => statSync(p).mode & 0o777;
+
+/** chmod through /bin/chmod: bun's `chmodSync` drops the sticky and setgid bits. */
+function chmodSpecial(p: string, m: number): void {
+  expect(spawnSync("/bin/chmod", [m.toString(8), p]).status).toBe(0);
+}
 
 /** Every path under `root` (itself included), not following links. */
 function walk(root: string): { path: string; dir: boolean; mode: number }[] {
@@ -561,10 +566,250 @@ describe("what uninstall calls ours is what is made private", () => {
 
   test("a base that others may write in, or that is sticky, is never closed (its entries still are)", () => {
     const { home, base, configPath, store } = fullBase(false);
-    chmodSync(base, 0o1777);
+    chmodSpecial(base, 0o1777);
+    tightenInstallBase(configPath, store, { home });
+    expect(statSync(base).mode & 0o7777).toBe(0o1777);
+    chmodSpecial(base, 0o777);
     tightenInstallBase(configPath, store, { home });
     expect(mode(base)).toBe(0o777);
     expect(mode(join(base, "store.parked-2026-09-21"))).toBe(0o700);
     expect(mode(configPath)).toBe(0o600);
   });
+});
+
+// ── round 4 of #657: a configured snapshots dir is the owner's place ────────
+
+describe("a configured snapshots.dir: only the snapshots in it are made private", () => {
+  /** The console as a child under umask 022, with HOME the temp home. */
+  function cli(home: string, args: readonly string[]): { code: number | null; out: string } {
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: home, USERPROFILE: home, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    const res = spawnSync(
+      "/bin/sh",
+      ["-c", 'umask 022; exec "$@"', "sh", process.execPath, ...scriptArgs(CLI, process.execPath), ...args],
+      { env, encoding: "utf8", input: "", timeout: 60_000 },
+    );
+    return { code: res.status, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
+  }
+
+  const DAY = "2026-10-01T00-00-00-000Z";
+  const PRE = "2026-10-02T00-00-00-000Z-pre-migration-v14-to-v15";
+
+  /** Install into $H/.counterparts, point snapshots.dir at `snaps` (or leave the
+   *  default), lay out the home the way a person's looks, and loosen it all. */
+  function setup(snapsOf: ((home: string) => string) | null): { home: string; base: string; store: string; configPath: string; snaps: string } {
+    const home = realpathSync(temp());
+    const base = join(home, ".counterparts");
+    const store = join(base, "store");
+    const configPath = join(base, "claude-code.json");
+    const install = cli(home, ["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"]);
+    expect(install.code).toBe(0);
+    const snaps = snapsOf === null ? join(base, "snapshots") : snapsOf(home);
+    if (snapsOf !== null) {
+      const cfg = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      writeFileSync(configPath, `${JSON.stringify({ ...cfg, snapshots: { dir: snaps } }, null, 2)}\n`);
+    }
+    // Somebody's home.
+    mkdirSync(join(home, "Public", "Drop Box"), { recursive: true });
+    mkdirSync(join(home, "Sites"), { recursive: true });
+    writeFileSync(join(home, "Sites", "index.html"), "<p>hi</p>\n");
+    mkdirSync(join(home, "Documents", "taxes"), { recursive: true });
+    writeFileSync(join(home, "Documents", "letter.txt"), "dear\n");
+    writeFileSync(join(home, "Documents", "taxes", "2025.pdf"), "%PDF\n");
+    // Snapshots this package wrote, where the config points.
+    for (const name of [DAY, PRE]) {
+      mkdirSync(join(snaps, name), { recursive: true });
+      writeFileSync(join(snaps, name, "counterparts.sqlite"), "copy\n");
+    }
+    for (const e of walk(home)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    chmodSync(join(home, "Public", "Drop Box"), 0o733);
+    return { home, base, store, configPath, snaps };
+  }
+
+  const homeUntouched = (home: string): void => {
+    expect(mode(home)).toBe(0o755);
+    expect(mode(join(home, "Public"))).toBe(0o755);
+    expect(mode(join(home, "Public", "Drop Box"))).toBe(0o733);
+    expect(mode(join(home, "Sites"))).toBe(0o755);
+    expect(mode(join(home, "Sites", "index.html"))).toBe(0o644);
+    expect(mode(join(home, "Documents"))).toBe(0o755);
+    expect(mode(join(home, "Documents", "letter.txt"))).toBe(0o644);
+    expect(mode(join(home, "Documents", "taxes"))).toBe(0o755);
+    expect(mode(join(home, "Documents", "taxes", "2025.pdf"))).toBe(0o644);
+  };
+
+  const note = (home: string, store: string): void => {
+    const res = cli(home, ["note", "Ada keeps her bike in the hall closet since the garage flooded", "--dir", store]);
+    expect(res.out).toContain("Remembered");
+  };
+
+  const connect = async (configPath: string, home: string): Promise<void> => {
+    expect(
+      await run(["connect", "--config", configPath], {
+        io: quietIo().io,
+        env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        home,
+        spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+        processes: () => ({ looked: true, processes: [] }),
+      }),
+    ).toBe(EXIT.ok);
+  };
+
+  test("snapshots.dir = $HOME: a writer's open and connect leave the home and everything in it as they were", async () => {
+    const { home, store, configPath } = setup((h) => h);
+    note(home, store);
+    homeUntouched(home);
+    // A refused place gets nothing, not even the entries that look like ours.
+    expect(mode(join(home, DAY))).toBe(0o755);
+    expect(openPaths(store)).toEqual([]);
+    await connect(configPath, home);
+    homeUntouched(home);
+    const f = modesFindings(store, "darwin", configPath, home)[0];
+    expect(f?.severity).toBe("green");
+  });
+
+  test("snapshots.dir = ~/Documents holding the person's files: the snapshots in it go private, Documents and its files stay", async () => {
+    const { home, store, configPath, snaps } = setup((h) => join(h, "Documents"));
+    // doctor before: amber, naming the snapshot entries, never Documents or its files.
+    const before = modesFindings(store, "darwin", configPath, home)[0];
+    expect(before?.severity).toBe("amber");
+    expect(before?.detail).toContain(join(snaps, DAY));
+    expect(before?.detail).not.toContain(`${snaps} (`);
+    expect(before?.detail).not.toContain("letter.txt");
+    expect(before?.detail).not.toContain("taxes");
+    note(home, store);
+    homeUntouched(home);
+    expect(openPaths(join(snaps, DAY))).toEqual([]);
+    expect(openPaths(join(snaps, PRE))).toEqual([]);
+    await connect(configPath, home);
+    homeUntouched(home);
+    expect(modesFindings(store, "darwin", configPath, home)[0]?.severity).toBe("green");
+  });
+
+  test("snapshots.dir = a dedicated dir holding only snapshots: the dir is closed whole, its parent is not", async () => {
+    const { home, store, configPath, snaps } = setup((h) => join(h, "backups", "counterparts-snaps"));
+    writeFileSync(join(snaps, ".taking-2026-10-01"), "");
+    chmodSync(join(snaps, ".taking-2026-10-01"), 0o644);
+    writeFileSync(join(home, "backups", "photos.tar"), "x\n");
+    chmodSync(join(home, "backups", "photos.tar"), 0o644);
+    const before = modesFindings(store, "darwin", configPath, home)[0];
+    expect(before?.detail).toContain(`${snaps} (755)`);
+    note(home, store);
+    expect(openPaths(snaps)).toEqual([]);
+    expect(mode(join(home, "backups"))).toBe(0o755);
+    expect(mode(join(home, "backups", "photos.tar"))).toBe(0o644);
+    homeUntouched(home);
+    await connect(configPath, home);
+    expect(modesFindings(store, "darwin", configPath, home)[0]?.severity).toBe("green");
+  });
+
+  test("the default snapshots dir: closed whole with the base by connect, the home left alone", async () => {
+    const { home, base, store, configPath, snaps } = setup(null);
+    note(home, store);
+    homeUntouched(home);
+    await connect(configPath, home);
+    expect(openPaths(base)).toEqual([]);
+    expect(mode(snaps)).toBe(0o700);
+    homeUntouched(home);
+    expect(modesFindings(store, "darwin", configPath, home)[0]?.severity).toBe("green");
+  });
+
+  test("a snapshots dir that is sticky, setgid or open to all is never closed; its snapshots still are", () => {
+    const root = temp();
+    const store = join(root, "store");
+    Store.open({ dir: store }).close();
+    const snaps = join(root, "shared");
+    mkdirSync(join(snaps, DAY), { recursive: true });
+    for (const m of [0o1777, 0o777, 0o2750]) {
+      chmodSpecial(snaps, m);
+      chmodSync(join(snaps, DAY), 0o755);
+      tightenStore(store, snaps);
+      expect(statSync(snaps).mode & 0o7777).toBe(m);
+      expect(mode(join(snaps, DAY))).toBe(0o700);
+    }
+    // A setgid dir under the store is left as it is, and does not keep the gate open.
+    const shared = join(store, "group");
+    mkdirSync(shared);
+    chmodSpecial(shared, 0o2770);
+    expect(statSync(shared).mode & 0o7777).toBe(0o2770);
+    tightenStore(store);
+    expect(statSync(shared).mode & 0o7777).toBe(0o2770);
+    expect(storeNeedsTightening(store)).toBe(false);
+  });
+
+  test("a snapshots dir that contains the store, or sits inside it, gets nothing", () => {
+    const root = temp();
+    const store = join(root, "base", "store");
+    Store.open({ dir: store }).close();
+    writeFileSync(join(root, "base", "other.txt"), "x\n");
+    chmodSync(join(root, "base"), 0o755);
+    chmodSync(join(root, "base", "other.txt"), 0o644);
+    tightenStore(store, join(root, "base"));
+    expect(mode(join(root, "base"))).toBe(0o755);
+    expect(mode(join(root, "base", "other.txt"))).toBe(0o644);
+    expect(snapshotsDirRoots(join(store, "snaps"), store)).toEqual({ only: [], recursive: [] });
+  });
+
+  test("the core spells the snapshot names as snapshots.ts and pre-migration.ts do", () => {
+    expect(SNAPSHOT_ENTRY_NAMES.map((r) => r.source).sort()).toEqual(
+      [SNAPSHOT_NAME_RE, PRE_MIGRATION_NAME_RE, PARTIAL_NAME_RE, CLAIM_NAME_RE].map((r) => r.source).sort(),
+    );
+  });
+});
+
+// ── round 4 of #657: a symlinked base is closed where it really is ──────────
+
+test("~/.counterparts as a link to the real base: connect closes the real base, doctor green", async () => {
+  const home = realpathSync(temp());
+  const real = join(home, "elsewhere", "cp");
+  mkdirSync(real, { recursive: true });
+  symlinkSync(real, join(home, ".counterparts"));
+  const configPath = join(home, ".counterparts", "claude-code.json");
+  const env = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+  expect(await run(["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"], { io: quietIo().io, env, home })).toBe(EXIT.ok);
+  for (const e of walk(join(home, "elsewhere"))) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+  const store = join(home, ".counterparts", "store");
+  expect(modesFindings(store, "darwin", configPath, home)[0]?.detail).toContain(`${real} (755)`);
+  await run(["connect", "--config", configPath], {
+    io: quietIo().io,
+    env,
+    home,
+    spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+    processes: () => ({ looked: true, processes: [] }),
+  });
+  expect(openPaths(real)).toEqual([]);
+  expect(mode(join(home, "elsewhere"))).toBe(0o755);
+  expect(lstatSync(join(home, ".counterparts")).isSymbolicLink()).toBe(true);
+  expect(modesFindings(store, "darwin", configPath, home)[0]?.severity).toBe("green");
+});
+
+test("a link from the home to the home itself is never closed", () => {
+  const home = realpathSync(temp());
+  symlinkSync(home, join(home, "me"));
+  const configPath = join(home, "me", "counterparts.json");
+  const store = join(home, "store");
+  Store.open({ dir: store }).close();
+  writeFileSync(join(home, "counterparts.json"), JSON.stringify({ dataDir: store }));
+  chmodSync(home, 0o755);
+  tightenInstallBase(configPath, store, { home });
+  expect(mode(home)).toBe(0o755);
+  expect(installBasePaths(configPath, store, home)?.baseIsOurs).toBe(false);
+});
+
+test("config at ~/counterparts.json with snapshots.dir = ~/Documents: the base does not take Documents whole either", () => {
+  const home = realpathSync(temp());
+  const store = join(home, "store");
+  Store.open({ dir: store }).close();
+  const configPath = join(home, "counterparts.json");
+  writeFileSync(configPath, JSON.stringify({ dataDir: store, snapshots: { dir: join(home, "Documents") } }));
+  mkdirSync(join(home, "Documents", "taxes"), { recursive: true });
+  writeFileSync(join(home, "Documents", "letter.txt"), "dear\n");
+  for (const e of walk(home)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+  const p = installBasePaths(configPath, store, home);
+  expect(p?.trees.map((t) => basename(t))).not.toContain("Documents");
+  tightenInstallBase(configPath, store, { home });
+  expect(mode(home)).toBe(0o755);
+  expect(mode(join(home, "Documents"))).toBe(0o755);
+  expect(mode(join(home, "Documents", "letter.txt"))).toBe(0o644);
+  expect(mode(join(home, "Documents", "taxes"))).toBe(0o755);
+  expect(mode(configPath)).toBe(0o600);
 });
