@@ -107,7 +107,12 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
     },
     async get(key) {
       const res = await send(`${base}/${objectKey(key)}`, { method: "GET" });
-      if (res.status === 404) return null;
+      if (res.status === 404) {
+        // A wrong R2_BUCKET answers 404 too (NoSuchBucket). That is not "no such
+        // object": a start must not read a missing bucket as an empty one (R5).
+        if (/<Code>NoSuchBucket<\/Code>/.test(await res.text())) throw new Error("the object store says the bucket (R2_BUCKET) doesn't exist");
+        return null;
+      }
       if (!res.ok) throw new Error(`object store GET answered ${String(res.status)}`);
       return res.text();
     },

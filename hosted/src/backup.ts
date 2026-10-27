@@ -104,9 +104,35 @@ export interface BackupsOptions {
   readonly sidecar?: Sidecar | null;
   /** The store ids that are live now (from accounts), for `ensureAll`. */
   readonly liveStores: () => string[];
-  /** Was this store ever opened (accounts' `opened_at`)? A store that was and has no key anywhere is never given a new one. Absent ⇒ never. */
+  /** Was this store ever opened (accounts' `opened_at`)? A store that was and has no key anywhere gets a new one only by `ensureAll`'s checks. Absent ⇒ never. */
   readonly openedBefore?: (storeId: string) => boolean;
+  /** When it was first opened (accounts' `opened_at`, ms), for `ensureAll`'s mint. Absent ⇒ unknown, and nothing is minted. */
+  readonly openedAt?: (storeId: string) => number | null;
+  /**
+   * What `ensureAll` did with a store that lived and has no key anywhere: made
+   * it one (`minted`, called right after the key exists, before its upload), or
+   * why not. The app audits it and logs it by tag.
+   */
+  readonly onKeyless?: (storeId: string, outcome: "minted" | KeylessReason) => void;
 }
+
+/**
+ * WHY A STORE THAT LIVED WITH NO KEY ANYWHERE WAS NOT GIVEN ONE (R5), each a
+ * condition of the mint that failed. A fixed vocabulary: it goes into the log
+ * and the audit, never free text.
+ *
+ *   - `no-database`: its database isn't on this volume (it waits for a restore);
+ *   - `replica-in-bucket`: the bucket holds replica objects of it, under a key
+ *     that is gone (a new key would bury them);
+ *   - `tombstone`: the bucket has its tombstone (it was deleted);
+ *   - `bucket-unproven`: the bucket had no control key before this start, so it
+ *     isn't proven to be this volume's (a new or a different bucket);
+ *   - `keys-newer`: this volume's `keys.sqlite` was made after the store was
+ *     first opened (it was rebuilt), so a key of it may have existed before;
+ *   - `bucket-unreadable`: a check's request to the bucket failed.
+ */
+export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable";
+export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable"];
 
 function yamlString(s: string): string {
   return JSON.stringify(s); // a JSON string is a valid YAML double-quoted scalar
@@ -163,8 +189,10 @@ export class Backups {
       wrapped = remote;
     }
     if (wrapped === null && storeId !== CONTROL_KEY_ID && this.opts.openedBefore?.(storeId) === true) {
-      // A store that lived, with no key here and none in the bucket: its key was
-      // lost. A new one would hide that, and make any copy of it unreadable.
+      // A store that lived, with no key here and none in the bucket: its key may
+      // have been lost, and a new one would hide that and make any copy of it
+      // unreadable. Never minted here (sign-up, a first open, a restore): only
+      // `ensureAll` at start-up mints one, after checking nothing can be buried.
       throw new StoreKeyMissing();
     }
     wrapped ??= await this.opts.keys.create(storeId);
@@ -190,24 +218,79 @@ export class Backups {
    * Start-up: every wrapped DEK must open with the ring as it is now (a KEK
    * version dropped before a rewrap finished would otherwise go unnoticed until
    * a restore), then the control key and every live store, then one reload.
+   *
+   * A STORE THAT LIVED WITH NO KEY ANYWHERE gets one here, and only here, when
+   * nothing a new key could bury exists (R5; `mintRefusal`). It runs only at
+   * start-up, before any sidecar (`hold`), so no replica of it can appear
+   * between the checks and the mint. Anything else is left out of the backups
+   * (and said so), never allowed to stop every other person's start.
    */
-  async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number }> {
+  async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
     const unreadable = await this.opts.keys.unreadable();
     if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys don't open with the KEK ring: put the old version back in the ring and run rewrap again.`);
+    // (f) THE BUCKET IS THIS VOLUME'S: it held the control key BEFORE this start.
+    // Read before `ensureStore(control)`, which puts the local key into a bucket
+    // that has none; past it, the bucket's key was adopted (a new volume) or
+    // proven the same DEK as this volume's (a different one throws).
+    const bucketProven = (await this.opts.objects.get(keyObject(CONTROL_KEY_ID))) !== null;
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
     let keyless = 0;
+    let minted = 0;
     for (const id of this.opts.liveStores()) {
       try {
         await this.ensureStore(id, { reload: false });
       } catch (err) {
-        // One store whose key is gone everywhere is left out of the backups
-        // (and said so), not allowed to stop every other person's start.
         if (!(err instanceof StoreKeyMissing)) throw err;
-        keyless += 1;
+        const refusal = await this.mintRefusal(id, bucketProven);
+        if (refusal !== null) {
+          keyless += 1;
+          this.opts.onKeyless?.(id, refusal);
+          continue;
+        }
+        // The key file is written whatever is there: one left from a key that is
+        // gone would put the replica under an SSE-C key nobody holds.
+        await this.opts.keys.create(id);
+        await this.writeKeyFile(id);
+        this.opts.onKeyless?.(id, "minted");
+        await this.ensureStore(id, { reload: false }); // the key object's one upload
+        minted += 1;
       }
     }
     if (opts.reload !== false) await this.reload();
-    return { keyless };
+    return { keyless, minted };
+  }
+
+  /**
+   * THE MINT'S CONDITIONS (R5; the #655 review's list), for a store that
+   * `ensureStore` found with no key here (a) and none in the bucket, by a GET
+   * that answered "no such key" and didn't throw (b). Null when every one holds:
+   *
+   *   (e) its database file is here: live, and unbacked;
+   *   (c) the bucket's LIST of its replica prefix answered, and empty;
+   *   (d) the bucket has no tombstone for it;
+   *   (f) the bucket held the control key before this start;
+   *   (f2) this volume's control key is older than the store's first open, so
+   *        `keys.sqlite` wasn't rebuilt since it lived (a lost `keys.sqlite`
+   *        pointed at a new bucket for two starts would pass (f) on the second).
+   *
+   * Every key a store can have is made or adopted in `keys.sqlite`, and every
+   * replica of it is written under one: so with (a)–(f2), no copy of it anywhere
+   * is under a key that is gone, and a new key buries nothing.
+   */
+  private async mintRefusal(storeId: string, bucketProven: boolean): Promise<KeylessReason | null> {
+    if (this.opts.keys.wrapped(storeId) !== null) throw new Error("a store with a key here reached the mint"); // (a): ensureStore's invariant
+    if (!existsSync(this.dbPaths(storeId)[0]!)) return "no-database";
+    try {
+      if ((await this.opts.objects.list(replicaPrefix(storeId))).length > 0) return "replica-in-bucket";
+      if ((await this.opts.objects.get(tombstoneObject(storeId))) !== null) return "tombstone";
+    } catch {
+      return "bucket-unreadable";
+    }
+    if (!bucketProven) return "bucket-unproven";
+    const keysMade = this.opts.keys.createdAt(CONTROL_KEY_ID);
+    const opened = this.opts.openedAt?.(storeId) ?? null;
+    if (keysMade === null || opened === null || keysMade > opened) return "keys-newer";
+    return null;
   }
 
   /** After a rewrap: the moved stores' objects carry the new wrapping (an overwrite; versioning is off). */
