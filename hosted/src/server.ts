@@ -172,7 +172,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       return;
     }
     // The slot is given back once, at the answer, or when the client's socket
-    // goes (under bun an abort mid-body never ends the request: INTERFACE-GAPS §18).
+    // goes (under bun an abort mid-body never ends the request: INTERFACE-GAPS §21).
     let held = limits !== undefined;
     const release = (): void => {
       if (!held) return;
@@ -186,7 +186,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         new Promise<void>((done) => {
           res.once("close", () => done());
           res.once("finish", () => done());
-          // Under bun an abort mid-body emits neither (INTERFACE-GAPS §18); the socket's close is the last word.
+          // Under bun an abort mid-body emits neither (INTERFACE-GAPS §21); the socket's close is the last word.
           const gone = (): void => done();
           req.socket.once("close", gone);
           res.once("finish", () => req.socket.removeListener("close", gone));

@@ -137,7 +137,7 @@ export function storeTag(storeId: string): string {
  * database is missing here AND the bucket holds no replica object of it; then
  * its next open starts it as a new install.
  */
-async function startOverCommand(dataRoot: string, backup: AppBackupOptions, storeId: string | undefined): Promise<string> {
+export async function startOverCommand(dataRoot: string, backup: AppBackupOptions, storeId: string | undefined): Promise<string> {
   if (storeId === undefined || !STORE_ID.test(storeId)) throw new Error("start-over needs a store id");
   const accounts = new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") });
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
@@ -154,7 +154,7 @@ async function startOverCommand(dataRoot: string, backup: AppBackupOptions, stor
   }
 }
 
-async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[], embedder: SharedEmbedder): Promise<{ text: string; failed: number }> {
+export async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[], embedder: SharedEmbedder): Promise<{ text: string; failed: number }> {
   const force = args.includes("--force");
   const target = args.find((a) => !a.startsWith("--")) ?? (args.includes("--all") ? "--all" : undefined);
   if (target === undefined || (target !== "--all" && target !== CONTROL_KEY_ID && !STORE_ID.test(target))) throw new Error("restore needs a store id, control, or --all");

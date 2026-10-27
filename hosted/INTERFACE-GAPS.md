@@ -58,7 +58,7 @@
 11. **The limits' numbers are guesses** (`limits.ts`): 120 calls a minute, 1,500 an hour, 8 in flight, 1 GiB.
     They're tuned from the `limit.*` log lines after the first weeks, and they live in memory (one replica). The
     size is a walk of the tenant dir, cached for 60 s. `stores.size_bytes` isn't written.
-12. **The restore CLI doesn't know whether the server runs.** "Server stopped" is a comment, as for `rewrap` (§25).
+12. **The restore CLI doesn't know whether the server runs.** "Server stopped" is a comment, as for `rewrap` (§28).
     On Railway the practical way to run a command is inside the running container, so the RUNBOOK uses
     `RESTORE_ON_BOOT` for every restore there. A lock file held by `serve` would close it (OL2b review L4).
 13. **What a restore can bring back of a deleted person** (OL2b review L3). Restores go to the latest state, and
@@ -67,31 +67,40 @@
       back `active`, with its email, and no memory (its key and prefix are gone, and no new key is made);
     - the 12 h snapshot history, reachable only with a manual `-timestamp`.
 
+14. **No global or cost-weighted budget** (the #653 review, L4). The limits are per account and count calls, not
+    their cost: a few accounts each inside their own limits, all running heavy calls, still slow everyone (one
+    event loop). Acceptable for an invite-only beta of about 20; a shared budget or a cost weight per tool comes
+    with real load.
+15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
+    only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5).
+16. **What the real binary does with a configured database that doesn't exist yet** (a store signed up and not yet
+    opened) is unverified. It's the RUNBOOK drill's first check (the #653 review, M4).
+
 ## Low, named so they are decisions
 
-14. **Duplicate grants.** Each Allow press for the same client mints a new grant, so the account page can list
+17. **Duplicate grants.** Each Allow press for the same client mints a new grant, so the account page can list
    duplicates, and Disconnect removes only one (#646 review).
-15. **Suspension doesn't revoke grants.** Restoring a person restores their connections. `authenticate` checks
+18. **Suspension doesn't revoke grants.** Restoring a person restores their connections. `authenticate` checks
     `isLive`, so a suspended person's token is refused anyway (#646 review).
-16. **Custom-scheme redirects.** The Allow page's `form-action` lists only http(s) return origins, so a custom-scheme
+19. **Custom-scheme redirects.** The Allow page's `form-action` lists only http(s) return origins, so a custom-scheme
     native client may be blocked by CSP after Allow. That's functional, not security (#646 review).
-17. **The batch, interrupted.** If a client disconnects mid-batch, the rest of the batch can run after the store was
+20. **The batch, interrupted.** If a client disconnects mid-batch, the rest of the batch can run after the store was
     evicted. Those calls fail with "internal error" to a client that has gone; nothing crosses tenants (#643 review).
     Batches are capped at 32 messages.
-18. **Bun only, and closed at the door.** `node:http` under bun doesn't emit `close` on a mid-body abort. The door now
+21. **Bun only, and closed at the door.** `node:http` under bun doesn't emit `close` on a mid-body abort. The door now
     also settles on the socket's `close`, so neither the store's ref nor the in-flight slot is held (OL2b review).
-19. **`/login/link` has no rate limit.** The tokens are 256-bit, so there is nothing to brute-force (#644 review).
-20. **A residual in the mail timing.** The mailer still builds its request before the response flushes. That costs well
+22. **`/login/link` has no rate limit.** The tokens are 256-bit, so there is nothing to brute-force (#644 review).
+23. **A residual in the mail timing.** The mailer still builds its request before the response flushes. That costs well
     under a millisecond, below network jitter (#644 review).
-21. **The link-validity oracle.** "Wrong browser" and "can't be used" tell a live token from a dead one. At 256 bits
+24. **The link-validity oracle.** "Wrong browser" and "can't be used" tell a live token from a dead one. At 256 bits
     that isn't exploitable (#644 review).
-22. **Sign-up while R2 is down.** If the key object's put fails, the store is in `litestream.yml` without
+25. **Sign-up while R2 is down.** If the key object's put fails, the store is in `litestream.yml` without
     `keys/<id>.wrapped`, and can't be restored from R2 alone until the next `ensureAll` (#648 review).
-23. **Retire, tested only through `withTenant`.** A door-level test (authenticate, then delete, then the MCP POST) is a
+26. **Retire, tested only through `withTenant`.** A door-level test (authenticate, then delete, then the MCP POST) is a
     follow-up (#648 review).
-24. **A hung Litestream makes the delete POST wait** up to the 30 s SIGKILL timeout (#648 review).
-25. **`rewrap` with the server up.** "Server stopped" is only a comment. Start-up's unreadable-key refusal catches the
+27. **A hung Litestream makes the delete POST wait** up to the 30 s SIGKILL timeout (#648 review).
+28. **`rewrap` with the server up.** "Server stopped" is only a comment. Start-up's unreadable-key refusal catches the
     bad outcome (#648 review).
-26. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
-27. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
-28. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.
+29. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
+30. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
+31. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.

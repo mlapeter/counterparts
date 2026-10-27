@@ -116,8 +116,7 @@ password manager, and nowhere else.
    node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite --note mike
    ```
 
-   It prints one `cpi_…` code, once. (If `railway ssh` isn't available, run the same line as a one-off command from
-   Railway's service menu.)
+   It prints one `cpi_…` code, once. It needs the backup variables set, as `serve` does.
 2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email, so open it
    **in the same browser**.
 3. Your account page shows no connected apps yet.
@@ -167,13 +166,15 @@ writes nothing.
 ### The whole volume is gone (or it's a new volume, or a move to Fly)
 
 1. Attach the new, empty volume at `/data`, with the same variables, the same bucket and the same KEK.
-2. Add `RESTORE_ON_BOOT=1`, then deploy.
+2. Add `RESTORE_ON_BOOT=1`. Raise the healthcheck timeout for this one deploy (Settings → Deploy → Healthcheck
+   Timeout, or `RAILWAY_HEALTHCHECK_TIMEOUT_SEC=1800`), because every restored store's cache is rebuilt before
+   the server listens. Then deploy.
 3. The log shows:
    - `restored the control databases: 2 restored, 0 already here`;
    - each restored store's cache being rebuilt before `serving` (a large store takes a while);
    - `RESTORE_ON_BOOT: N store databases restored. Unset RESTORE_ON_BOOT now.`;
    - and, only if any failed, `N store restores FAILED`. Those stores wait, and everyone else is served.
-4. **Remove `RESTORE_ON_BOOT`**, then redeploy.
+4. **Remove `RESTORE_ON_BOOT`** and the raised timeout, then redeploy.
 
 Without the flag, a server on an empty volume beside a bucket that has backups **refuses to start**, and says so. If
 it started, it would make empty databases and replicate them over the real ones. (A new server with a new, empty
@@ -185,25 +186,46 @@ Its person's `/mcp` calls get `503` with `Retry-After`. The log shows `store.nee
 **not** re-created as an empty one, because that empty store would be replicated over its own backup. The same
 `RESTORE_ON_BOOT=1` deploy restores every store that is missing, and touches none that are present.
 
+**A store that never reached the bucket** (its person signed up and the volume died within seconds) stays at `503`:
+a restore finds nothing. Its way out is to start it over as a new, empty store. That's refused while the bucket
+holds any replica of it.
+
+```sh
+node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>
+```
+
 ### By hand (a local copy, or the drill), with the server stopped
 
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore --all          # control (when missing), then every missing store
-node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore control
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId> [--force]
 ```
 
 These use the same environment as `serve`, and `litestream` on PATH or `LITESTREAM_BIN`.
 - A file already in place is refused, unless `--force`. With `--force` the old file is moved aside as
   `*.pre-restore-<time>` and never deleted.
-- The control databases are restored one at a time, and one already in place is kept.
+- The control databases are restored one at a time, and one already in place is kept. A volume without the control
+  key that holds a control database is refused (see below).
+- **`--all --force` restores EVERY live store**, not only the missing ones, moving each file in place aside.
+- A store the bucket has a tombstone for (`deleted/<id>`, written by every delete) is never restored. The next start
+  finishes its delete.
 - **Not on Railway while the service runs.** Nothing checks for the running server, so use `RESTORE_ON_BOOT` there.
 
-### If a start refuses
+### If a start refuses (the service crash-loops)
 
-- **"…but not the key that wrote the bucket's backups"**: this volume has a control database that something else
-  made (an `invite` or a `BACKUPS=off` run, on a lost volume). Move `/data/control` aside, then use
-  `RESTORE_ON_BOOT=1`.
+A crash-looping service can't be reached with `railway ssh`. Use a **start-command override** instead: Settings →
+Deploy → Custom Start Command, deploy once, read the log, then **clear it**. The image's entry point is
+`node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts`, so an override names the whole line.
+
+- **"…but not the key that wrote the bucket's backups"**: this volume has a control database, but not the control
+  key. Either something else made that database (an `invite` or a `BACKUPS=off` run on a lost volume), or only
+  `keys/keys.sqlite` was lost and the control databases are fine. The server can't tell which, so both take the safe
+  path, which loses at most the last seconds not yet replicated. Set `RESTORE_ON_BOOT=1` and this override for one
+  deploy, then clear the override:
+
+  ```sh
+  sh -c 'mv /data/control /data/control.aside-$(date +%s) && exec node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve'
+  ```
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
 - **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
@@ -226,7 +248,7 @@ run() { docker run --rm -p 127.0.0.1:8080:8080 -v cp-drill:/data \
 run --name drill -d                                          # 1. serve (the drill bucket's token in R2_* of this shell)
 docker exec drill node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite
 #    sign up at http://127.0.0.1:8080/login (the link is in `docker logs drill`), connect any MCP client, remember a line
-docker stop drill                                            # 2. Litestream's last sync on SIGTERM
+docker stop -t 60 drill                                      # 2. Litestream's last sync on SIGTERM (give it time)
 docker volume rm cp-drill                                    # 3. the volume is gone
 run --name drill -d                                          # 4. must REFUSE: the volume is empty, the bucket isn't
 run --name drill -d -e RESTORE_ON_BOOT=1                     # 5. restores; recall the line through the client
@@ -234,15 +256,21 @@ run --name drill -d -e RESTORE_ON_BOOT=1                     # 5. restores; reca
 
 Afterwards, empty the drill bucket. Things to note for the coordinator:
 
-- the time step 2 took (that's the final sync);
+- **first: whether step 1's Litestream accepted the configuration.** It lists a store that signed up but was never
+  opened, whose database file doesn't exist yet. The log should show Litestream waiting on it, not exiting;
+- the time step 2 took (that's the final sync). On Railway, the old container gets a drain time before it is
+  killed. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` so that sync can finish (unverified; check Railway's
+  current name for it);
 - whether step 5's recall found the line;
 - whether R2's object browser shows the store's objects under `tenants/<id>/` and none readable without the key.
 
 ## Rotating the KEK
 
 1. Generate v2 as in 1.1, then set `HOSTED_KEKS=v1:<old>,v2:<new>` and `HOSTED_KEK_CURRENT=v2`.
-2. Stop the service, then run `… main.ts rewrap` once, as a one-off command. It prints
+2. Stop the service, then run `… main.ts rewrap` once. It prints
    `rewrapped N keys onto v2; M key objects re-written`.
+   - **Unverified on Railway:** a one-off command with the service stopped. If there's no such thing, use the
+     start-command override above (`… main.ts rewrap`), deploy once, read the line, then clear the override.
 3. Start the service, and check `/readyz`.
 4. Only then drop `v1:` from `HOSTED_KEKS`, and redeploy. A ring that can't open a key refuses to start.
 
@@ -260,7 +288,8 @@ the hosted server exists. The volume and the bucket stay as they are, so startin
 - **The final sync on SIGTERM.** Litestream 0.5.17's source has a shutdown sync (`shutdown-sync-timeout`). At each
   redeploy, the old container's log should end with Litestream's shutdown lines, before `sidecar.exit`.
 - **Limits.** `[hosted] limit.rate-limited` / `limit.store-full` / `limit.in-flight` lines. Each line is a hashed
-  store tag and nothing else. The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
+  store tag and nothing else. (Litestream's own lines, from the sidecar child, do name database paths, and so store
+  ids. Railway's log is the operator's, not a place anyone else reads.) The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
   1 GiB a store.
 - **An R2 outage stops a restart.** Start-up reads the bucket (`keys/`), so a deploy during an R2 outage refuses to
   start. It says `the object store (R2_ENDPOINT) didn't answer`. A server that is already running keeps serving.

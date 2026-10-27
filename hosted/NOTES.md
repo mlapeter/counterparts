@@ -88,7 +88,7 @@ Status on 2026-10-26, late:
 
 Built on master 6699b892 (the merged OL2 stack). What it covers: restore and the drill, `/readyz`, `/mcp` limits, the
 DCR sweep, the Dockerfile, and `docs/hosted/RUNBOOK.md`. The guarantees are CONTRACT §29–§36; what is left is
-INTERFACE-GAPS §4–§13.
+INTERFACE-GAPS §4–§16.
 
 ### Found while building
 
@@ -121,7 +121,7 @@ INTERFACE-GAPS §4–§13.
   `litestream version` (0.5.17, arm64). A `BACKUPS=off` run answered `/readyz` 200, `/mcp` 401 with the resource
   metadata, made an invite, and was `healthy`. A run against an unreachable bucket refused to start, now naming
   `R2_ENDPOINT`.
-- **Under bun, an aborted mid-body POST never ends its request** (INTERFACE-GAPS §18). The door now also settles on
+- **Under bun, an aborted mid-body POST never ends its request** (INTERFACE-GAPS §21). The door now also settles on
   the socket's `close`, which frees both the store's ref and the in-flight slot.
 
 ### The review (high effort, after the first build)
@@ -142,3 +142,30 @@ It found two data-loss paths and several smaller holes, all fixed on the branch 
   - a store that lived and has no key anywhere is never given a new one;
   - the sweep keeps a client that any grant or token names;
   - an abort under bun gives its slot back.
+
+### The independent review of #653 (high), and its fixes
+
+Each fix has a test in `test/ops.test.ts` or `test/main.test.ts` that builds the awkward state through the same rig.
+
+- **H1.** `restore control` (and `--all`) kept an `invite`-made `accounts.sqlite`, restored `oauth.sqlite` beside it,
+  and adopted the control key. That made the fake database "the bucket's" for the next serve. The three-way rule
+  (`app.ts#controlVolume`/`foreignControlRefusal`) now stands in front of every control restore.
+- **M1.** A delete made while the sidecar was down came back with the restored accounts database (active, with its
+  email). Deletes now write `deleted/<id>`, and every start finishes the delete of a live store that has one.
+- **M2.** A delete made with `BACKUPS=off` on a volume that was backed up left the store's key object and replica in
+  R2 forever. Such a start is refused now, and a start with backups removes what a `deleted` store left.
+- **M3.** `/data` is made in the image and owned by `node`. A plain Docker volume there was root-owned (EACCES in the
+  RUNBOOK drill); checked with a named volume.
+- **M4.** The sidecar's configuration listed a lived store with no database. It now leaves it out, except during
+  its own restore.
+- **The LOW findings:**
+  - L1: the marker comes before the move;
+  - L2: no sidecar mid-boot;
+  - L3: `self_page` `summary` counts as a write;
+  - L5: tags, not ids, in the restore CLI's output;
+  - L6: `invite` needs the backups named;
+  - L7: RUNBOOK fixes (the start-command override, the drain time, the healthcheck timeout, the unverified one-off
+    command, `--all --force`);
+  - L8: `start-over`.
+- **L4 (no global or cost-weighted budget) is flagged, not built** (INTERFACE-GAPS §14).
+

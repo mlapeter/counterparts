@@ -162,7 +162,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the tenant dir is removed;
     - identities, sessions and links are deleted, and tombstones stay.
 
-    A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
+    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written, and it is never removed
+    (§31a). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
     its way out. The store turns `deleting` first, durably: start-up never gives it a new key, and a delete cut short
     (a crash, R2 down) is finished at start-up and on a timer. The delete asks for the typed address and a CSRF token.
 28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
@@ -193,7 +194,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - a ring that can't open the key object (nothing is written).
 
     The control databases come back before anything opens them, one file at a time (a file in place is kept). A
-    restored store's `cache/` (box 3, never backed up) is dropped and rebuilt (`rebuildCache()`) by an open made
+    restored store's `cache/` (box 3, never backed up) is dropped, and the marker that rebuilds it is written, BEFORE
+    the file moves in. It is rebuilt (`rebuildCache()`) by an open made
     before the server listens (boot) or before the command ends (CLI), or recall would find nothing. One store's
     failing restore is counted and audited, and the others go on.
 31. **A volume that isn't the bucket's never makes a control database** (`main.ts#prepareVolume`, before `serve`,
@@ -206,13 +208,27 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       or refuses.
 
     Starting anyway would make empty control databases and replicate them over the real ones. A new server with an
-    empty bucket starts as before.
+    empty bucket starts as before. The same rule stands in front of every control restore (`restoreControl`: the CLI's
+    `restore control` and `--all` too). The control key is adopted only when no control file here is kept.
+    - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
+    - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite` or `control/litestream.key`).
+31a. **The bucket's tombstones win.** At every start with backups on:
+    - a live store with `deleted/<id>` in the bucket has its delete finished (an accounts database restored from
+      before the delete would otherwise bring the account back, with its email);
+    - a store whose state is `deleted` and that still has a key object or replica objects (a delete made with
+      backups off) has them removed.
+
+    The restore CLI never restores a tombstoned store.
+31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
+    start-up writes the configuration but starts nothing.
 32. **A store that lived and lost its files waits for a restore.** `stores.opened_at` (in the replicated control
     database) records the first open, and every start marks each live store whose database is present (a database
     from before the column heals). A store opened before whose DATABASE FILE is missing (a dir left behind by a
     failed restore counts as missing) is refused (`StoreNeedsRestore` →
     `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
-    own backup.
+    own backup. Such a store is also left out of the sidecar's configuration until it is restored. One that never
+    reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
+    it.
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check
     names and their words (`ok`, `off`, `down`, `starting`): no id, no key, no message. `/healthz` stays liveness
@@ -224,7 +240,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 
     A refused call is a tool refusal the model can relay: `isError`, a `reason` (`rate-limited`, `store-full`),
     plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`,
-    `scope` and reading the self page keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
+    `scope` and reading the self page (no argument but `session` or `ifVersion`) keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
     is logged as its event and the hashed store tag, nothing else. The slot is given back at the answer or when the
     client's socket closes, so an aborted request (bun included) never holds it.
 35. **The DCR sweep.** A registered (non-https) client that registered more than 30 days ago and that nobody ever
@@ -235,7 +251,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 36. **The image** (`hosted/Dockerfile`):
     - Node 24.22.1 and bun 1.3.10 (for the two lockfiles' installs), pinned by tag and digest;
     - Litestream 0.5.17, pinned by version and by the release's own sha256 for amd64 and arm64, checked in the build;
-    - it is built to run as `node`, and the entry point is `main.ts serve`. On Railway, the RUNBOOK's
+    - it is built to run as `node`, with `/data` made and owned by `node`; the entry point is `main.ts serve`. On Railway, the RUNBOOK's
       `RAILWAY_RUN_UID=0` for a root-owned volume runs it as root (INTERFACE-GAPS §6).
 
 ## What it drops, for now
