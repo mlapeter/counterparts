@@ -11,8 +11,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 
-import { DATABASE_FILE, OPEN_BITS, realRoot, storeRoots } from "../../core/store/index.js";
-import { configuredSnapshots, installBaseRoots } from "../private-base.js";
+import { DATABASE_FILE, OPEN_BITS, SPECIAL_BITS, realRoot, storeRoots } from "../../core/store/index.js";
+import { configuredMirror, configuredSnapshots, installBaseRoots } from "../private-base.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
@@ -20,7 +20,7 @@ function modeOf(path: string): number | null {
   try {
     const st = lstatSync(path);
     // A link is never chmodded through (`core/store/private.ts`), so never graded either.
-    return st.isSymbolicLink() ? null : st.mode & 0o777;
+    return st.isSymbolicLink() ? null : st.mode & 0o7777;
   } catch {
     return null;
   }
@@ -69,23 +69,46 @@ export function modesFindings(storeDir: string, platform: string = process.platf
     .map((p) => ({ ...p, mode: modeOf(p.path) }))
     .filter((p): p is { path: string; dir: boolean; mode: number } => p.mode !== null && (p.mode & OPEN_BITS) !== 0);
   const data = { open: open.map((p) => `${p.path}:${p.mode.toString(8)}`).join(",") };
+  // A configured mirror is never tightened (R8): copies an older build put
+  // there stay as they were. Not graded here, and the line says so.
+  const mirror = configPath === undefined ? undefined : configuredMirror(configPath);
+  const mirrorNote = mirror === undefined ? "" : `; the snapshot mirror at ${mirror} is not checked here`;
   if (open.length === 0) {
-    return [finding("modes", "green", "Privacy", "the store is readable by you alone (directories 700, database 600)", "", data)];
+    return [finding("modes", "green", "Privacy", `the store is readable by you alone (directories 700, database 600)${mirrorNote}`, "", data)];
   }
-  const dirs = open.filter((p) => p.dir).map((p) => `"${p.path}"`);
-  const files = open.filter((p) => !p.dir).map((p) => `"${p.path}"`);
+  // A path carrying setuid, setgid or sticky is never chmodded by a session
+  // (`core/store/private.ts#tightenRoots`): on Linux a directory made inside a
+  // setgid one inherits g+s, so a 2755 store dir stays open until closed by
+  // hand. `go-rwx` closes it and leaves the special bit as it is.
+  const special = open.filter((p) => (p.mode & SPECIAL_BITS) !== 0);
+  const plain = open.filter((p) => (p.mode & SPECIAL_BITS) === 0);
+  const dirs = plain.filter((p) => p.dir).map((p) => `"${p.path}"`);
+  const files = plain.filter((p) => !p.dir).map((p) => `"${p.path}"`);
   const fix = [
     ...(dirs.length === 0 ? [] : [`chmod 700 ${dirs.join(" ")}`]),
     ...(files.length === 0 ? [] : [`chmod 600 ${files.join(" ")}*`]),
   ].join(" && ");
+  const byHand = special.map((p) => `"${p.path}"`).join(" ");
+  const hint = [
+    ...(plain.length === 0
+      ? []
+      : [`Run: ${fix} — the next Claude Code session (or counterparts connect) does the same, the whole store included.`]),
+    ...(special.length === 0
+      ? []
+      : [
+          `Run by hand: chmod go-rwx ${byHand} — ${special.length === 1 ? "it carries" : "they carry"} a setuid, setgid or sticky bit, ` +
+            "which a session never changes, so no session will close " +
+            `${special.length === 1 ? "it" : "them"}.`,
+        ]),
+    "A filesystem that does not keep modes (exFAT, some network drives) reads this way and cannot be tightened.",
+  ].join(" ");
   return [
     finding(
       "modes",
       "amber",
       "Privacy",
-      `readable by other accounts on this machine: ${open.map((p) => `${p.path} (${p.mode.toString(8)})`).join(", ")}`,
-      `Run: ${fix} — the next Claude Code session (or counterparts connect) does the same, the whole store included. ` +
-        "A filesystem that does not keep modes (exFAT, some network drives) reads this way and cannot be tightened.",
+      `readable by other accounts on this machine: ${open.map((p) => `${p.path} (${p.mode.toString(8)})`).join(", ")}${mirrorNote}`,
+      hint,
       data,
     ),
   ];

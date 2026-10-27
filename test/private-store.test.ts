@@ -813,3 +813,72 @@ test("config at ~/counterparts.json with snapshots.dir = ~/Documents: the base d
   expect(mode(join(home, "Documents", "taxes"))).toBe(0o755);
   expect(mode(configPath)).toBe(0o600);
 });
+
+// ── R8: the #657 follow-up lows ─────────────────────────────────────────────
+
+describe("R8: special bits, the mirror, a dangling base link", () => {
+  /** The console as a child under umask 022, with HOME the temp home. */
+  function cli(home: string, args: readonly string[]): { code: number | null; out: string } {
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: home, USERPROFILE: home, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    const res = spawnSync(
+      "/bin/sh",
+      ["-c", 'umask 022; exec "$@"', "sh", process.execPath, ...scriptArgs(CLI, process.execPath), ...args],
+      { env, encoding: "utf8", input: "", timeout: 60_000 },
+    );
+    return { code: res.status, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
+  }
+
+  function installed(): { home: string; base: string; store: string; configPath: string } {
+    const home = realpathSync(temp());
+    const base = join(home, ".counterparts");
+    const configPath = join(base, "claude-code.json");
+    expect(cli(home, ["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"]).code).toBe(0);
+    return { home, base, store: join(base, "store"), configPath };
+  }
+
+  test("a setgid store dir: a writer leaves it, and doctor says to chmod it by hand, not that a session will", () => {
+    const { home, store, configPath } = installed();
+    chmodSpecial(store, 0o2755);
+    // macOS clears g+s silently for a group the user is not in; Linux CI carries it then.
+    if ((lstatSync(store).mode & 0o2000) === 0) return;
+    expect(cli(home, ["note", "Ada waters the fern on the landing every other Thursday", "--dir", store]).out).toContain("Remembered");
+    expect(lstatSync(store).mode & 0o7777).toBe(0o2755);
+    const doc = cli(home, ["doctor", "--config", configPath]);
+    const privacy = doc.out.split("\n").filter((l) => /Privacy|chmod/.test(l)).join("\n");
+    expect(privacy).toContain(`chmod go-rwx "${store}"`);
+    expect(privacy).toContain("no session will close it");
+    expect(privacy).not.toContain("the next Claude Code session");
+    // Closed by hand as told: green, the bit kept.
+    expect(spawnSync("/bin/chmod", ["go-rwx", store]).status).toBe(0);
+    expect(lstatSync(store).mode & 0o7777).toBe(0o2700);
+    expect(cli(home, ["doctor", "--config", configPath]).out).toContain("readable by you alone");
+  });
+
+  test("a configured mirror is named as not checked; its loose copies are left as they are", () => {
+    const { home, configPath } = installed();
+    const mirror = join(home, "mirror");
+    mkdirSync(join(mirror, "2026-10-01T00-00-00-000Z"), { recursive: true });
+    writeFileSync(join(mirror, "2026-10-01T00-00-00-000Z", "counterparts.sqlite"), "old copy\n");
+    chmodSync(join(mirror, "2026-10-01T00-00-00-000Z", "counterparts.sqlite"), 0o644);
+    const cfg = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(configPath, `${JSON.stringify({ ...cfg, snapshots: { mirror } }, null, 2)}\n`);
+    const doc = cli(home, ["doctor", "--config", configPath]);
+    expect(doc.out).toContain("readable by you alone");
+    expect(doc.out).toContain(`the snapshot mirror at ${mirror} is not checked here`);
+    expect(mode(join(mirror, "2026-10-01T00-00-00-000Z", "counterparts.sqlite"))).toBe(0o644);
+  });
+
+  test("install through a dangling ~/.counterparts link refuses by name and makes nothing", () => {
+    const home = realpathSync(temp());
+    const target = join(home, "elsewhere", "base");
+    const link = join(home, ".counterparts");
+    symlinkSync(target, link);
+    const res = cli(home, ["install", "--no-connect", "--config", join(link, "claude-code.json"), "--budget", "9000", "--name", "Ada"]);
+    expect(res.code).not.toBe(0);
+    expect(res.out).toContain(`${link} is a symbolic link to ${target}, which is not there`);
+    expect(res.out).toContain(`mkdir -p "${target}"`);
+    expect(res.out).not.toContain("ENOENT");
+    expect(existsSync(target)).toBe(false);
+    expect(existsSync(join(home, "elsewhere"))).toBe(false);
+  });
+});

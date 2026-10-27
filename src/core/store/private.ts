@@ -53,7 +53,7 @@
  * directory (its volume layout already writes 0700/0600 as one user, so it
  * finds nothing to do), and any database it creates through `openDb` is 0600.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
 
@@ -91,6 +91,7 @@ export function mkdirPrivate(dir: string, chmod: Chmod = chmodSync): void {
   const created: string[] = [];
   let head = target;
   while (!existsSync(head)) {
+    danglingLink(head);
     created.push(head);
     const up = dirname(head);
     if (up === head) break;
@@ -98,6 +99,28 @@ export function mkdirPrivate(dir: string, chmod: Chmod = chmodSync): void {
   }
   mkdirSync(target, { recursive: true, mode: PRIVATE_DIR_MODE });
   for (const d of created) chmodQuiet(d, PRIVATE_DIR_MODE, chmod);
+}
+
+/**
+ * Refuse, by name, a path that is a symbolic link to nothing (R8): `mkdir -p`
+ * through `~/.counterparts -> /Volumes/x/base` with `base` not made yet fails
+ * with a bare `ENOENT` for a path that looks as if it should simply be made.
+ * The link's target is the owner's choice of place (another disk, a synced
+ * folder), so it is not made for them: they make it, or remove the link.
+ */
+function danglingLink(path: string): void {
+  let target: string;
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return;
+    target = readlinkSync(path);
+  } catch {
+    return;
+  }
+  const where = resolve(dirname(path), target);
+  throw new Error(
+    `${path} is a symbolic link to ${where}, which is not there. ` +
+      `Make that directory (mkdir -p "${where}") or remove the link (rm "${path}"), then run this again.`,
+  );
 }
 
 /** Is this path open to group or other? False for a path that is not there,
