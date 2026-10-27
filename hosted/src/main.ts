@@ -210,6 +210,16 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   }
 }
 
+/**
+ * `serve`'s log line for an app event: limit refusals, stores waiting on a
+ * restore, a new store's failed backup set-up (R3). The event and the hashed
+ * store tag, nothing else: never an id, an address or an error's text.
+ */
+export function eventLine(name: string, store: string): string {
+  const why = name === "backup.ensure.failed" ? ": this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it)" : "";
+  return `[hosted] ${name} store=${store}${why}\n`;
+}
+
 /** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */
 export const CONTROL_ASIDE_LABEL = /^[A-Za-z0-9_-]{1,32}$/;
 
@@ -426,8 +436,7 @@ async function main(): Promise<void> {
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
-    // Limit refusals, stores waiting on a restore, a new store's failed backup set-up: the event and the hashed store tag, nothing else.
-    onEvent: (name, store) => process.stderr.write(`[hosted] ${name} store=${store}${name === "backup.ensure.failed" ? ": this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it)" : ""}\n`),
+    onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
     // First deploy only: the raw X-Forwarded-For of each /readyz request, to count the proxy's hops. Unset it after.
     ...(env["LOG_FORWARDED_FOR"] === "1" ? { logForwardedFor: (raw: string) => process.stderr.write(`[hosted] /readyz X-Forwarded-For: ${raw}\n`) } : {}),
   });

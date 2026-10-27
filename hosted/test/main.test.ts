@@ -5,13 +5,13 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer as createNetServer } from "node:net";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
-import { readEnv } from "../src/main.js";
+import { overrideGuard, readEnv } from "../src/main.js";
 import { tempRoot } from "./helpers.js";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
@@ -105,5 +105,52 @@ describe("the entry point, the #653 review's refusals", () => {
     const run = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env, encoding: "utf8", timeout: 30_000 });
     assert.equal(run.status, 1);
     assert.match(run.stderr, /BACKUPS=off on a volume that has been backed up/);
+  });
+});
+
+describe("the entry point, R3: CONTROL_ASIDE", () => {
+  // A bucket that can't be reached (port 1): `serve` gets as far as the bucket
+  // check and stops there, after CONTROL_ASIDE has run. No network beyond localhost.
+  const withBucket = (dataRoot: string, extra: Record<string, string>): Record<string, string> =>
+    baseEnv({
+      HOSTED_DATA_ROOT: dataRoot,
+      PUBLIC_ORIGIN: "https://app.counterparts.ai",
+      HOSTED_KEKS: `v1:${Buffer.alloc(32, 7).toString("base64")}`,
+      R2_ENDPOINT: "https://127.0.0.1:1",
+      R2_BUCKET: "bkt",
+      R2_ACCESS_KEY_ID: "test-generated-id",
+      R2_SECRET_ACCESS_KEY: "test-generated-secret",
+      ...extra,
+    });
+  const serve = (env: Record<string, string>) => spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env, encoding: "utf8", timeout: 30_000 });
+
+  test("serve moves control/ aside once per label; the same label again (a crash-restart, a forgotten override) moves nothing", () => {
+    const dataRoot = join(tmp.root, "data");
+    mkdirSync(join(dataRoot, "control"), { recursive: true });
+    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "the first control/");
+    const first = serve(withBucket(dataRoot, { CONTROL_ASIDE: "1" }));
+    assert.match(first.stderr, /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
+    assert.equal(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite"), "utf8"), "the first control/");
+    assert.ok(existsSync(overrideGuard(dataRoot, "1")));
+    // What a restore would put back.
+    mkdirSync(join(dataRoot, "control"), { recursive: true });
+    writeFileSync(join(dataRoot, "control", "accounts.sqlite"), "the restored control/");
+    const again = serve(withBucket(dataRoot, { CONTROL_ASIDE: "1" }));
+    assert.match(again.stderr, /CONTROL_ASIDE=1 was used once already: nothing moved/);
+    assert.equal(readFileSync(join(dataRoot, "control", "accounts.sqlite"), "utf8"), "the restored control/");
+    assert.equal(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite"), "utf8"), "the first control/");
+  });
+
+  test("CONTROL_ASIDE is refused with BACKUPS=off, and with a label that isn't one", () => {
+    const dataRoot = join(tmp.root, "data");
+    mkdirSync(join(dataRoot, "control"), { recursive: true });
+    const off = serve(baseEnv({ HOSTED_DATA_ROOT: dataRoot, PUBLIC_ORIGIN: "http://127.0.0.1:1", MAIL: "log", PORT: "1", BACKUPS: "off", CONTROL_ASIDE: "1" }));
+    assert.equal(off.status, 1);
+    assert.match(off.stderr, /CONTROL_ASIDE needs the bucket/);
+    const bad = serve(withBucket(dataRoot, { CONTROL_ASIDE: "../x" }));
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr, /CONTROL_ASIDE must be a label/);
+    assert.ok(existsSync(join(dataRoot, "control")));
+    assert.equal(existsSync(join(dataRoot, "overrides")), false);
   });
 });
