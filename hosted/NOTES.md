@@ -240,7 +240,9 @@ command minted, and the RUNBOOK's "tell the coordinator" led nowhere.
   Before, a typo'd bucket read as empty until the first PUT failed.
 - **The lines are fixed words by tag** (`main.ts#eventLine`): `backup.key.minted storeTag=…`, or `backup.keyless
   storeTag=… reason=…` with one of six reasons (`backup.ts#KEYLESS_REASONS`), above the count lines. Each is audited
-  (`backup.key.minted`, or `backup.keyless` with the reason in the detail).
+  (`backup.key.minted`, or `backup.keyless` with the reason in the detail). The mint is audited and logged once the key
+  exists, BEFORE its key object's upload: if that PUT fails, the start stops (`did not start: object store PUT
+  answered …`), and the next start, finding the key here, puts it without a second `minted` line.
 - **Tests run through `main.ts serve` as a process** on bun and Node 24, against the S3 stand-in over https: a
   self-signed certificate from `openssl` at test time, trusted by `NODE_EXTRA_CA_CERTS`; the Litestream stand-in gets
   it from its wrapper script, since the sidecar's environment is PATH and the R2 credentials only. The stand-in moved

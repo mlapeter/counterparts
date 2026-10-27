@@ -222,7 +222,7 @@ export function eventLine(name: string, store: string): string {
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a new key now, and is backed up from this start\n`;
   if (name.startsWith("backup.keyless.")) {
     const reason = name.slice("backup.keyless.".length) as KeylessReason;
-    return `[hosted] backup.keyless storeTag=${store} reason=${reason}: this store is NOT backed up, and no key was made: ${KEYLESS_WORDS[reason] ?? "see the audit"}\n`;
+    return `[hosted] backup.keyless storeTag=${store} reason=${reason}: this store is NOT backed up, and no key was made: ${KEYLESS_WORDS[reason]}\n`;
   }
   return `[hosted] ${name} store=${store}\n`;
 }

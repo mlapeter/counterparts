@@ -9,7 +9,10 @@
  *   - a store that lived and lost its files waits for a restore;
  *   - `/readyz`;
  *   - `/mcp`'s per-account limits;
- *   - the DCR sweep.
+ *   - the DCR sweep;
+ *   - (R5) a store that served with no key anywhere gets one at start-up, only
+ *     when nothing can be buried: through `main.ts serve` as a process, against
+ *     the stand-in over https.
  *
  * Hermetic: a temp data root, an in-memory mailer, a local S3 stand-in on
  * 127.0.0.1 that ENFORCES SSE-C (an object put under a key is refused to a GET
@@ -1304,7 +1307,8 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     for (const reason of KEYLESS_REASONS) {
       const line = eventLine(`backup.keyless.${reason}`, tag);
       assert.match(line, new RegExp(`^\\[hosted\\] backup\\.keyless storeTag=${tag} reason=${reason}: `));
-      assert.doesNotMatch(line, /see the audit/);
+      assert.doesNotMatch(line, /undefined/);
+      assert.ok(line.length > 140, line);
     }
     assert.match(eventLine("backup.key.minted", tag), /is backed up from this start/);
   });
