@@ -1207,9 +1207,9 @@ export const WAKE_SETTLES_CHARS = 80;
 
 /**
  * WHAT WOULD SETTLE IT, AFTER THE ITEM (2026-10-27, S1; Ames's idea, lightly
- * held): ` · settles when Katie says how it went`. A phrase that already opens
+ * held): ` · settles when the landlord replies`. A phrase that already opens
  * with "after", "once", "when"… reads ` · settles after the 11-26 check`, its
- * first letter lowered ("When Katie…" → "when Katie…"); one that already says
+ * first letter lowered ("When the landlord…" → "when the landlord…"); one that already says
  * "settles" is not said twice. Kept to `WAKE_SETTLES_CHARS`. Empty when
  * nothing was named.
  */

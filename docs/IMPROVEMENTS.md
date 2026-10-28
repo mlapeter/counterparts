@@ -4034,6 +4034,84 @@ replay compare read 0 lines differing).
 - Check with the Y1 lines in `docs/CHECK-AFTER.md` ("Due ~5 days after Today so far"). Revert: the PR (back to
   about-me cites only), or `self.YESTERDAY_FROM_SUMMARY` false.
 
+### Decided by the O2 builder, 2026-10-26, lightly held (Still open, this folder's first)
+
+- Decided by the O2 builder, 2026-10-26, lightly held: a thread with no folder recorded (from
+  before folders, or a host's name scope read from another place) is shown with the personal
+  ones, marked work or not. Why: there is no folder it could be another's work in, and leaving
+  it out would leave it out of every wake.
+- Decided by the O2 builder, 2026-10-26, lightly held: "personal" is "not work" by the rule
+  "Work here" and Nearby already use (`isWorkMemory`), so a thread marked world, or an unmarked
+  self or person memory, from another folder follows this folder's too. Why: one split, not two.
+- Decided by the O2 builder, 2026-10-26, lightly held: a core memory being reconsidered keeps
+  its lead in Still open. Why: it is the self's keep-or-retire decision, store-wide, and its
+  rotation was decided on its own (2026-10-20).
+- Decided by the O2 builder, 2026-10-26, lightly held: a reader that names no folder sees no
+  folder's work (fail closed, as the hints read does).
+
+### Decided by the S2 builder, 2026-10-26, lightly held (short sessions written up; Mike: "sounds good")
+
+- Decided by the S2 builder, 2026-10-26, lightly held: a session that left no record of its
+  own owes its unwritten stretch from ONE piece (`coverage.UNRECORDED_OWED_PIECES` 1), whatever
+  its span. A record is any claim that is not an in-the-moment note's (told apart by the note's
+  `own` mark: a handback's memories, "nothing new", a chapter, a write-up), or a write-up mark.
+  The 3-pieces-over-15-minutes floor stays for the tail after a record. Why: the Dana week
+  (0.3.36) and H0's check-ins week had 3–5-turn sessions that were never owed, so never
+  written up. No bytes floor (guards loose-first): a lone "hi" is owed, and the writer may
+  answer it with nothing. Revert: `UNRECORDED_OWED_PIECES` very high (1e9).
+- Decided by the S2 builder, 2026-10-26, lightly held: when a night would run for its catch-up
+  alone because of `too-little-new`, each session owed from an earlier day counts as one new
+  memory toward `MIN_NEW` (`dream.OWED_COUNTS_AS_NEW`); at three the night runs whole, the
+  catch-up first. `first-day` stays the catch-up alone. Why: the addendum's "owed write-ups
+  and remembers count as new material". On H0 `checkins` it moves one whole night (day 8's to
+  day 7's); the catch-up-only nights it starts every morning are S2's floor change, not this.
+  Revert: false.
+- Decided by the S2 builder, 2026-10-26, lightly held: "Last here" names a later session with
+  no chapter (the folder's newest, newer than every chapter here, with words still held or a
+  memory of its own) with its newest memory — the night's write-up, or a note it made — or
+  "not written up yet", and the newest chapter after it as "Before it". Recall's "the most
+  recent session" is unchanged. Why: the Dana week's "Last here" named day 1's meeting until
+  day 6. No switch.
+- Decided in the S2 review, 2026-10-26, lightly held: a night made whole by owed write-ups
+  says so (`night:owed-as-new`) and reads the dream's queue again after its catch-up; under
+  `MIN_NEW` it ends as the catch-up alone. Why: the promotion is a forecast made before the
+  catch-up runs, and a seat that refuses or fails the catch-up kept the debt — and so the
+  promotion — every morning until it lapsed, three model children a night on too little new.
+- Decided in the S2 review, 2026-10-26: a session that is not a person's conversation
+  (`claude -p`, the Agent SDK) is held to the floor for the night and the pointer
+  (`pointable`), small or not — on the builder's head a six-line headless run under 15
+  minutes was owed, not small, and written up.
+- Decided in the S2 review, 2026-10-26: "Last here"'s later session quotes only a memory
+  filed in this folder (`memoryFolder`); a session at work in two folders had the other
+  folder's note quoted.
+- Not done, on evidence: batching several short sessions into one write-up part. H0's "36
+  parts for 9 sessions" was the refusing night seat re-planning everything owed so far each
+  night; with a working catch-up each night plans only the day before's sessions (1–2 parts,
+  all in ONE child), and per part the extra cost is two tool turns against the child's own
+  start. A multi-session part would change the door's protocol (per-session `happened_on`,
+  `cover` and marks) for a few cents a night.
+
+### Decided by the S2c builder, 2026-10-26, lightly held (doctor's Catch-up amber for check-in users)
+
+- Decided by the S2c builder, 2026-10-26, lightly held: doctor's Catch-up line (and the
+  Authorship line's count) is amber only for an OVERDUE debt (`doctor-write-ups.ts#overdue`):
+  the newest catch-up row is from a later date than the stretch's latest piece, or
+  `OVERDUE_DAYS_OF_USE` (2) days of use came after it with no catch-up run since. It was amber
+  for any stretch from yesterday or earlier, which after S2 was every morning before the first
+  prompt for a check-in user (H0 `checkins`: amber on 7 of 8 mornings, now 0). Dates, not
+  minutes: the night is launched from the morning session's first prompt, and a second run the
+  same day is not a chance at that day's sessions. Any catch-up counts as a chance, a bounded or
+  failed one included (loose-first). The "finished here, waiting on another project" amber uses
+  the same test. Revert: `overdue` back to `localDate(stretch.lastAt) < today`.
+- Decided by the S2c builder, 2026-10-26: the lapsing count says what it counts, by reason
+  (`sessions.ts#notPointableWhy`): "short headless runs (claude -p, the Agent SDK)" and "short
+  sessions with no session record", "short" being small or under the floor. It said "small, not
+  known as a person's session", wrong on both halves since the S2 review held headless runs to
+  the floor small or not. `counterparts coverage` says the same: "(short, and headless or with no
+  session record)".
+- Also: the Catch-up fix line said a stretch "lapses after two more days of use"; it is
+  `LAPSE_DAYS_OF_USE` (14) since 2026-10-10, and now reads it.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

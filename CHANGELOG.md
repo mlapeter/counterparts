@@ -1,5 +1,163 @@
 # Changelog
 
+## 0.3.38 — 2026-10-28
+
+Dreams can be found: ask about a dream, or about something only a dream held, and recall shows it labelled `[dream]`, told as dreamed and never as lived; `recall "last dream"` reads the newest one whole. An open item can say what would settle it ("settles when …"), and the night closes a few when that plainly happened. The wake says so when search by meaning is switched on but can't run, with the fix for how you installed, and an open window that meets a memory another window's newer Counterparts upgraded says whether to reload or update. A nightly run that fails now records what Claude Code said, so the next failure can be read. Short check-ins are written up by the next night, and "Last here" names the newest session. **Privacy:** your store is now readable by your account alone (folders 700, files 600, tightened the first time this version writes to it), and `counterparts connect` adds one `deniedMcpServers` entry to `~/.claude/settings.json` so Claude Code never loads Counterparts Online beside this install. **Run `counterparts connect` once after upgrading from npm** to add that entry: until then doctor's new Online line reads amber. No store-format change (store v15, cache v7). Going back to 0.3.37 needs no store restore: `counterparts disconnect`, 0.3.37's install, then `counterparts connect`. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **Still open lists this folder's threads first.** A session's "Still open" leads with the
+  open threads written in its folder (and the folders joined to it as one project), then the
+  personal ones (about me, us or the owner) from anywhere. Another folder's work stays in that
+  folder, as "Work here" does, and the "N more open" line counts only what could show here.
+  The `still open` recall handle lists by the same rule. A thread with no folder recorded is
+  shown with the personal ones.
+- **Short sessions are written up too.** A session that ends without leaving a record of its
+  own (no answer to the end-of-session ask, no chapter, no write-up) is now owed a write-up
+  whatever its size, so a quick check-in is remembered by the next night instead of being let
+  go. Notes saved in the moment still count as written, but they are not the session's record.
+  The 15-minute floor still applies to a closing line after a session's own record.
+- **A night runs for check-ins.** When the dream has too little new to work on, each session
+  owed a write-up counts as one new memory, because the night writes it up first; with three,
+  the night runs whole instead of its catch-up alone — and dreams only if the catch-up did
+  write them up; when it could not, the night stays the catch-up alone.
+- **"Last here" names the newest session.** When the folder's newest session wrote no chapter,
+  the wake's "Last here" names it, with its newest memory (or "not written up yet"), and the
+  older chapter after it, instead of the older chapter as if nothing had happened since.
+- **"Last here" quotes the session's own words, and passes over runs nobody attended.** It no
+  longer quotes what the night filed under a session (a dream's gist or merge, a reflection's
+  entry) as if the session had said it: the quote is the session's own note, its write-up, or
+  "not written up yet". A `claude -p` or Agent SDK run is passed over for the person's own
+  session, and a session with no chapter now gets its room in the wake too.
+- **Doctor no longer goes amber every morning for short check-ins.** Yesterday's sessions are
+  owed until that night's catch-up, which runs at the day's first prompt, so a doctor read before
+  it was amber every morning. Its Catch-up line is now amber only when a session is overdue: a
+  catch-up ran on a later day and left it owed, or two days of use passed with no catch-up since.
+  The sessions left to lapse are now named for what they are: short headless runs (`claude -p`,
+  the Agent SDK), and short sessions with no session record.
+- **The memory server speaks MCP 2025-11-25 when a client asks for it.** claude.ai's connector and Claude
+  Desktop's chat ask for it, and now get it back instead of being answered in 2025-06-18. Nothing a
+  client sees changes beyond the version: that revision's additions are optional, and this server
+  uses none of them. A client asking for a version the server doesn't know still gets 2025-06-18.
+- **Under Node, a deleted row's words no longer linger in the database file.** Node's built-in
+  SQLite leaves `secure_delete` off, so a deleted or rewritten row stayed in the file's free space
+  until the page was reused. The store now sets it to FAST on every open, as it already was under
+  Bun.
+- **A nightly run that fails now says why.** When a background child of the nightly run exits
+  with an error, the run's record, `counterparts doctor` and `dream --show` carry one short
+  line of what Claude Code said (for example "Not logged in · Please run /login"), with
+  anything that looks like a key or token blanked out. Before, it said only "claude exited
+  with an error (exit 1)". A run that stopped because Claude Code was signed out, such as
+  after switching accounts mid-run, now says so plainly, and the next session offers to dream
+  there.
+- **`counterparts connect` keeps Counterparts Online out of Claude Code.** Claude Code loads
+  your claude.ai connectors into every session, so with both this install and the hosted
+  connector you would get two memories over two stores. `connect` (and so `install`) now adds
+  one entry, `{ "serverUrl": "https://app.counterparts.ai/*" }`, to `deniedMcpServers` in
+  `~/.claude/settings.json`, with the same backup and leaving everything else as it is;
+  `disconnect` takes out exactly that entry. `doctor` has an Online line; an install from
+  before this version reads amber there until you run `counterparts connect` once.
+- **Your memory is private to your account on this computer.** The store, its snapshots and
+  everything Counterparts writes under `~/.counterparts` are now readable by you alone
+  (folders 700, files 600; they were 755 and 644). An existing store is tightened the first
+  time this version writes to it; a drive that doesn't keep permissions (exFAT, some network
+  drives) is left as it is and still opens. `doctor` has a Privacy line that says when the
+  store is readable by other accounts, with the two commands that close it.
+- **`backup --out` and `export` write private copies** (the database `600` in a `700`
+  folder) wherever you point them. A store you share with a group on purpose is made
+  private again the next time Counterparts writes to it; there is no switch for that yet.
+- **A `snapshots.dir` you pointed somewhere of your own stays yours.** Only the snapshots in
+  it (the dated copies and the copies taken before an upgrade) are made private; the folder
+  itself is closed only when it holds nothing but snapshots, and never when it is your home
+  folder or above it. Everything else in it keeps its permissions.
+- **`uninstall --delete-memories` now deletes a store `rollback` set aside, and says so.** A
+  `rollback-aside-…` folder beside your store is a whole earlier copy of your memory; it used
+  to be left behind. The plan names it as memory on its own line and counts it ("That is 2
+  memory stores: yours, and 1 …") before you type the confirmation.
+- **`uninstall --delete-memories` never takes a `snapshots.dir` you chose.** A snapshots
+  folder your configuration points at, even one inside the same folder as the
+  configuration, is now listed under what is left alone instead of among what is deleted.
+- **`doctor`'s Privacy line is right about setgid folders and the snapshot mirror.** A store
+  folder carrying a setgid or sticky bit (on Linux, a folder made inside a setgid one inherits
+  it) is never changed by a session, so the line now gives the one command to run by hand
+  (`chmod go-rwx …`, which keeps the bit) instead of saying the next session will do it. With a
+  `snapshots.mirror` configured, the line says the mirror is not checked.
+- **Installing through a `~/.counterparts` link to a folder that is not there yet** now says so
+  and how to fix it (make the folder, or remove the link), instead of a bare `ENOENT`.
+- **Dreams can be remembered by what they were about.** Asking about something a recent dream
+  was about ("keys", "locked doors") brings that dream up as one line after the answer, even
+  when the question never says "dream": one at most, and only when its meaning is close.
+  Asking about a dream ("did you dream about the greenhouse?") finds it by its words or
+  meaning, however old, and shows it first with a few lines of it. Either way it is labelled
+  `[dream]` with its date and id, and said to be dreamed, not lived, so it is told as a dream
+  and never as something that happened. "When did you last dream?" always names the newest
+  one, including one from earlier the same day.
+- **Dreams fade unless they are talked about.** A recent dream comes up beside other
+  questions only for a day or so, unless it is read, asked about by what it was about, or
+  told; each day it is, it stays longer. It is never deleted: asking about dreams, "last
+  dream" and its id still find it.
+- **Dreams follow the folder setting for where they ran.** A dream that ran in a folder set
+  off or paused is not shown in another folder's answers or as its "last dream". The rule
+  is about where the dream ran, not what it is about.
+- **`recall "last dream"` reads the newest dream whole.** The handle `last dream` (or `last
+  night`, any case) returns the newest dream in full, its title, whole journal and what it did,
+  with the reflection after it and its share; nothing is credited or marked told. A dream's or
+  a reflection's id given alone as a handle reads whole too.
+- **Dreaming off stops a dream on every host.** With dreaming set off, `dream` refuses to
+  launch, and refuses its writer and begin steps called without a launch, in Claude Code, the
+  Code tab and Desktop chat alike; a run already under way finishes. Desktop chat's dream and
+  reflect words say to follow the prompt in the chat itself, with no background agent.
+- **Your counterpart tells you when search by meaning can't run.** When it's switched on but
+  its files didn't install or won't load, the session's wake carries one line for the assistant
+  to pass on: what's off, that memories are still found by their words, and the fix for how you
+  installed (for the plugin, `/plugin` → Installed → counterparts → Update now; for npm,
+  installing Counterparts again). If it keeps failing for another reason, it says so once a day
+  and points at doctor. Nothing is said when it's healthy or when you switched it off.
+- **The fix for missing meaning files now works for npm installs.** Doctor and `install` used to
+  say `bun add -g counterparts-model-potion`, which Counterparts doesn't look for; they now say to
+  install Counterparts again (`npm install -g counterparts` under Node, `bun add -g counterparts`
+  under Bun).
+- **An open item can say what would settle it.** Beside `unresolved: true`, `remember` and
+  `session_end` entries take an optional `settlesWhen`, a short phrase like "the landlord
+  replies". "Still open", in the wake and in `recall "still open"`, shows it after the
+  item ("… · settles when the landlord replies"; the wake cuts a long one at about
+  80 characters). From the day after it was written, the nightly reflection is shown open items
+  that name one, and closes at most three a night when a memory plainly shows that thing
+  happened, with a why and the way back; when the memory it points to is missing, is the item
+  itself or is older than it, the morning share says so. Items without one behave exactly as
+  before. `status` counts open items that name one, that have only a date, and that have
+  neither.
+- **An open window that meets a memory a newer Counterparts upgraded says what to do.** For the plugin, it used to say
+  "Run /mcp and Reconnect", which restarts the same old version. Now it says to run `/reload-plugins` (with `--force`
+  if it warns about the cache), or start a new session (first, in Claude Desktop's Code tab), when Claude Code already
+  has the newer version, and to update the plugin first when it doesn't. The npm install keeps "/mcp and Reconnect".
+- **The hook in that window says the same, and tells the assistant too.** The red "memory is OFF … Run: counterparts
+  doctor" line now names the step for how you installed (plugin installs have no `counterparts` command; an npm
+  install is told to update itself), and the assistant gets a line so it doesn't act as if it remembers. Doctor's
+  Store open line gives the same step.
+- **After an upgrade, the next session you start names the windows that still run the old version.** Once, with the
+  step for each (reload, or `/mcp` and Reconnect for npm); Claude Desktop's wake says it too.
+- **"Counterparts was updated" names the right step for plugin users.** The once-a-session line after an update said
+  "Run /mcp and Reconnect" to everyone; a plugin window is now told to run `/reload-plugins` or start a new session.
+- **The end-of-session ask invites a `settlesWhen` beside an open item.** When the assistant marks something still
+  open, the ask now suggests naming what would close it, if it can, so more open items reach the nightly check that
+  closes them.
+- **An old window's "memory is OFF" line and doctor no longer say reload when a reload wouldn't help.** When the
+  plugin version Claude Code records is newer than the window but older than the version that upgraded the memory,
+  they now say to update first, as the memory tools already did.
+- **Claude Desktop chat brings up the night's share.** A chat's wake never carried the
+  morning share a reflection left, so on a store used from Desktop chat alone it stayed
+  unsaid. The next chat's wake now carries it, once, right after its session line. Claude
+  Code's terminals wait for the reflecting session to end, as before.
+- **"Today, elsewhere" dates an open folder by its open session.** A folder whose session from
+  yesterday ended this morning beside a new one read "open since" yesterday's start; it now
+  reads the open session's own start, and "quiet since" measures that session's silence.
+- **The night no longer turns a missing record into "I didn't".** The dream and the page's
+  writers are told that finding no record of something is not a memory that it didn't happen,
+  so the page says it doesn't know instead. Guidance only: nothing checks a sentence.
+- **`counterparts mechanisms` and the dashboard show Schemas as built.** The row said nothing
+  forms beliefs yet; it now counts the beliefs the nights formed, the ones adopted from a dream,
+  and the memories filed for and against them, and the dashboard's Schemas panel shows the
+  newest beliefs.
+
 ## 0.3.37 — 2026-10-25
 
 The wake says what the night did: a "Last night:" line under Yesterday, or, before the day's own nightly run, "The night of Oct 24: …" naming the latest night that finished. "Still open" counts what it leaves out calmly and points at `recall "still open"`, which lists every open item, and a terminal left open for hours reads "quiet since …" instead of "(live)". The Yesterday line can now open with day's end's own summary of yesterday, which in 0.3.36 never showed (a chapter's summary recorded no folder), also when yesterday's work spanned several folders. Ambient recall looks up memories by the meaning of what you just typed, not the exchange before it. **Privacy fixes:** a folder you have turned off no longer shows its chapter summaries ("Might be relevant") or its chapter titles (the Yesterday line) in another folder's session start, whichever way the wake arrives: built at session start, handed over as the last turn-end left it, or read back for a lost session. No store-format change (store v15, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Going back to 0.3.36 needs no store restore: `counterparts disconnect`, 0.3.36's install, then `counterparts connect`. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.

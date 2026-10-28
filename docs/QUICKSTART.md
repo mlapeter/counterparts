@@ -108,16 +108,20 @@ bun add -g counterparts@latest
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
-Coming from 0.3.13 or earlier, or from 0.3.14 with Claude Desktop connected, run this
-once after upgrading. If you connected Claude Desktop, quit it first:
+Coming from 0.3.37 or earlier, run this once after upgrading. If you connected Claude
+Desktop, quit it first:
 
 ```
 counterparts connect
 ```
 
-It rewrites the hooks, the memory server's registration and Claude Desktop's entry so
-that Bun no longer reads a project's `.env` or `bunfig.toml` into them. Until then
-`counterparts doctor`'s Runtime line is amber. Desktop rewrites its own config file while
+It adds one entry to `deniedMcpServers` in `~/.claude/settings.json`, so a claude.ai
+connector to Counterparts Online is never loaded into Claude Code as a second memory
+beside this one, leaving everything else in the file as it is. Until then `counterparts
+doctor`'s Online line is amber. Coming from 0.3.13 or earlier, or from 0.3.14 with Claude
+Desktop connected, it also rewrites the hooks, the memory server's registration and Claude
+Desktop's entry so that Bun no longer reads a project's `.env` or `bunfig.toml` into them;
+until then the Runtime line is amber too. Desktop rewrites its own config file while
 it's open, so `connect` leaves Desktop's entry alone while Desktop runs, and says so.
 
 If you set it up before search by meaning was built in, it turns on by itself after the
