@@ -78,8 +78,7 @@ export const WRITTEN_UP_BY_META_KEY = "writtenUpBy";
 
 /**
  * WHAT WOULD SETTLE AN OPEN ITEM (2026-10-27, S1; Ames's idea, lightly held):
- * a short phrase beside `unresolved: true` ("Katie says how the reading
- * went"), written by `mint.ts`. "Still open" shows it; the nightly reflection
+ * a short phrase beside `unresolved: true` ("the landlord replies"), written by `mint.ts`. "Still open" shows it; the nightly reflection
  * is handed it, so it can close an item whose trigger plainly happened.
  * Absent: no trigger named.
  */

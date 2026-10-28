@@ -307,7 +307,7 @@ export const UNRESOLVED_PROPERTY = {
 export const SETTLES_WHEN_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional, with unresolved: true: what would settle it, in a short phrase ("Katie says how the reading went", "Mike decides pricing"). "Still open" shows it, and the nightly run can close the item once a memory shows it happened. A date goes in eventDate. Revising the item with unresolved: true keeps it unless you send a new one (null drops it).',
+    'Optional, with unresolved: true: what would settle it, in a short phrase ("the landlord replies", "the team decides pricing"). "Still open" shows it, and the nightly run can close the item once a memory shows it happened. A date goes in eventDate. Revising the item with unresolved: true keeps it unless you send a new one (null drops it).',
 } as const;
 
 /**
