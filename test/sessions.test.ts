@@ -237,6 +237,19 @@ describe("pruning", () => {
     expect(readdirSync(sessionsDir(dir))).toEqual(["s_new.json"]);
   });
 
+  test("the store's handle salt is kept however old it is; an old record beside it is not", () => {
+    const salt = expansionSalt(dir);
+    expect(salt).not.toBeNull();
+    recordSession(dir, { sessionId: "s_old", scope: "/p", phase: "end", at: T0 });
+    const month = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    for (const path of [expansionsSaltPath(dir), join(sessionsDir(dir), "s_old.json")]) utimesSync(path, month, month);
+
+    expect(pruneSessions(dir)).toBe(1);
+
+    expect(readdirSync(sessionsDir(dir))).toEqual(["expansions.salt"]);
+    expect(expansionSalt(dir)).toBe(salt);
+  });
+
   test("an absent registry prunes nothing and says nothing", () => {
     expect(pruneSessions(dir)).toBe(0);
   });
