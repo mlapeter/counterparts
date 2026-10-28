@@ -894,7 +894,7 @@ const RECALL: ToolSpec = {
       question: {
         type: "string",
         description:
-          "What you are trying to remember, in words. Needs mode. A time in it (\"last week\", \"in September\", \"around the cut-over\", \"where did we leave off\") filters a facts answer to that window.",
+          "What you are trying to remember, in words. Needs mode. A time in it (\"last week\", \"in September\", \"around the cut-over\", \"where did we leave off\") filters a facts answer to that window. A dream it reaches comes labelled [dream], with its date and drm_ id: dreamed, not lived — tell it as a dream.",
       },
       query: { type: "string", description: "Another name for question." },
       mode: {

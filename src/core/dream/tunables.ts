@@ -357,6 +357,55 @@ export const DREAM_TUNABLES = {
   PROJECT_JOIN_EXPIRE_DAYS: 3,
   /** Reflections a pair is not asked about again after it was. CAL. */
   PROJECT_JOIN_REST: 7,
+
+  // ── remembering a dream (D1, 2026-10-27) ─────────────────────────────────
+  /**
+   * A DREAM IS RECALLED BY WHAT IT WAS ABOUT (D1, 2026-10-27; Mike: "if humans
+   * remember it then so should counterparts, humans talk a lot about what they
+   * dreamed and think about it during the day"). A question that does NOT
+   * name dreaming reaches a journal only by MEANING, at or above this cosine
+   * (the higher of the question against the title and against each passage of
+   * the journal, `DREAM_RECALL_PASSAGE_CHARS` long), and at most
+   * `DREAM_RECALL_UNNAMED_MAX` of them. CAL on potion-base-8M@256, 10-27
+   * (NOTES "D1"): "keys" 0.74 and "locked doors" 0.47 against the ring-of-keys
+   * dream; the nearest ordinary misses 0.41 ("where did I leave my car keys"
+   * against a work dream) and 0.35 ("what did I say about my sister"). With
+   * no embedder, such a question reaches no dream (words alone pulled work
+   * dreams beside 6 of 8 ordinary questions, review of #645).
+   */
+  DREAM_RECALL_MEANING_BAR: 0.45,
+  /** The most dreams a question that does not name dreaming carries. */
+  DREAM_RECALL_UNNAMED_MAX: 1,
+  /**
+   * A question that DOES name dreaming ("did you dream about the greenhouse?")
+   * reaches a journal by a shared content word (as since OL1b) or by the
+   * meaning of its content words once the dream words and the asking are out
+   * (`nights.ts#dreamlessQuestion`), at or above this cosine. Lower than the
+   * unnamed bar: the question already asks for a dream. CAL on
+   * potion-base-8M@256, 10-27: "greenhouse seedlings" 0.48 against its own
+   * dream, 0.14 against the keys dream; "keys" 0.74 / 0.20; "release" 0.51
+   * against a work dream, 0.12 against the keys dream.
+   */
+  DREAM_RECALL_NAMED_FLOOR: 0.3,
+  /** How much of a journal one vector reads: under the static table's 512-token cap (~2,000 characters). */
+  DREAM_RECALL_PASSAGE_CHARS: 1_500,
+  /**
+   * FADING (D1, 2026-10-27; coordinator: "fast unless used, the way a human
+   * dream is gone by lunch unless someone tells it"). A question that does not
+   * name dreaming reaches a journal by what it was about only while the
+   * lived day is within its REACH of its last touch — the day it was dreamed, or the last lived day it was
+   * recalled or retold (`dream/recalled.ts`). The reach starts at this many
+   * lived days (the day after a dream is still in reach; the one after that
+   * is not) and is multiplied by `DREAM_RECALL_REACH_GROWTH` for every lived
+   * day it was touched, up to `DREAM_RECALL_REACH_MAX_DAYS`: spaced use keeps
+   * a dream, as it keeps a memory. A faded dream stays in the journal: a question
+   * that names dreaming, "last dream" and its id still reach it. Read at use.
+   */
+  DREAM_RECALL_REACH_DAYS: 1,
+  /** The reach's growth for each lived day a dream was recalled or retold. CAL. */
+  DREAM_RECALL_REACH_GROWTH: 3,
+  /** The longest a dream's reach grows. CAL. */
+  DREAM_RECALL_REACH_MAX_DAYS: 90,
 } as const;
 
 export type DreamAction = keyof typeof DREAM_TUNABLES.LIMITS;

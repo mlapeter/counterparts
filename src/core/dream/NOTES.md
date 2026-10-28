@@ -505,6 +505,10 @@ exists for the store-level tests of what an owner-read bundle must keep — a me
 confidential memory is confidential, a page rests on nothing confidential — which opt in.
 
 **Two things the guest bundle does not cover, for now (2026-10-02, left open for the owner).**
+*CLOSED 2026-10-27 (D1): stale since confidential memories and the yours/guest split were
+retired on 2026-10-21 ("2026-10-21 — confidential memories removed (dream and reflection)",
+below); there is no confidential text for a journal to carry. A journal's reach follows the
+folder rule instead (D1, below).*
 - *A recall during an `ask` dream.* The dream's background agent calls the session's own
   server, which is the owner's since #318. The bundle and its parts stay guest, but a `recall`
   BY QUESTION the agent makes mid-dream answers as that server does, so it can return a
@@ -1204,3 +1208,113 @@ What it is for: a child's transcript or output is matched to its row by name, no
   `folderOn` answers "off" for every folder when the scopes file will not read, which
   would drop every candidate (all carry a directory scope) — not the cause on 10-23
   (avail 0 alone empties the offer), but the first suspect if `offered` reads 0 with a pool.
+
+## 2026-10-27 — dreams are recalled by what they were about (D1)
+
+Mike, 2026-10-27: "if humans remember it then so should counterparts, humans talk a lot
+about what they dreamed and think about it during the day." Ames (Katie's counterpart)
+told her its last dream was 10-23 when one had run at 4:42 pm that day: recall could not
+reach `dreams.journal`. Rule 2 and guarantee 6 are rewritten (CONTRACT). Built on OL1b's
+`nightsForQuestion` (1d6be0e5), not beside it: the dream rides in `nights` as before, and
+now also in the answer's own words.
+
+- **By meaning, beside words.** A question that names dreaming reaches a journal by a shared
+  content word (as since OL1b) or by the meaning of what is left once its dream words are out
+  (every journal says "I dreamed", so those words would match them all), at
+  `DREAM_RECALL_NAMED_FLOOR` (0.30) — content words only (`dreamlessQuestion`): the residue
+  of "when did you last dream?" ("when did you last") cosined 0.49 against a work dream, so
+  function words are dropped too; "any dreams about the release?" → "release" 0.51 against
+  the work dream, 0.12 against the keys dream. A question that does NOT name dreaming reaches one only
+  by meaning, at `DREAM_RECALL_MEANING_BAR` (0.45), and carries at most one, the best: the
+  review of #645 found words alone pulled work dreams beside 6 of 8 ordinary questions. With
+  no embedder (or a failed embedding) such a question reaches no dream; a question naming
+  dreaming still gets words and the newest.
+- **The bar, measured** on potion-base-8M@256 (the only embedder), 10-27, the best of the
+  title and 1,500-character passages against a realistic ~1,000-character journal:
+  ring-of-keys dream — "keys" 0.74 (its title), "locked doors" 0.47, "who has a key to the
+  rooms" 0.42, "where did I leave my car keys" 0.49 (a fair reminder); a work dream
+  (release, dashboard, PRs) — "pull requests to merge" 0.23, "did the tests pass" 0.38,
+  "where did I leave my car keys" 0.41; ordinary questions against either — "what did I say
+  about my sister" 0.35, "dentist" ≤ 0. The title carries a short question; a whole-journal
+  vector alone gave "keys" 0.41, under any bar that keeps the misses out. 0.45 sits between
+  the nearest miss (0.41) and "locked doors" (0.47): thin, and CAL. A one-sentence journal
+  cosines higher than a long one, so measure on real lengths.
+- **Vectors in memory, not in box 3.** Journal vectors are made on the fly with the
+  question's own embedder (at most `QUESTION_NIGHTS_LOOKBACK` = 30 journals, fewer as they
+  fade; the static table is microseconds a passage) and kept in the server for its life
+  (`McpServer#dreamVectors`). A `drm_` row in box 3's `embeddings` needs no DDL change, but
+  every memory scan reads that table (`nearestTo` would hand meaning mode a `drm_` id,
+  `neighbours` would put dream vectors in the dream's own queue reads, `verify --rebuild`
+  refills from `memories` and would drop them) — a change in what a write produces, which is
+  the cache's format (`cache.ts` v7 header). No schema or cache bump.
+- **Ranking: in the answer, not under it.** Each dream comes as `[dream] <title> · drm_… ·
+  dreamed <date> · <why>` and an excerpt, after the answer's head (its first paragraph) and
+  before its first result, with the gloss "[dream] = dreamed, not lived: …" once at the end,
+  as `[journal]`'s is. Mike's point is that dreams are part of the day's thinking, so they
+  are not a footnote; a facts score and a cosine are not on one scale, so the dream is not
+  interleaved by number. When the question asks WHEN ("when did you last dream?", "why
+  haven't you dreamed lately?", "my most recent dream"), the newest journaled dream leads
+  whatever else matched — Ames's case; the older words-only rule could put an older dream
+  that shared "lately" first. Every `nights` dream (by id and "last dream" too) carries
+  `label: "[dream]"` and `dreamed: "dreamed, not lived: …"`.
+- **Fading: gone by lunch unless told** (`dream/recalled.ts`). A journal is reached by what
+  it was about while the lived day is within its reach of its last touch: 1 lived day (the
+  next day it is still there; the one after, gone), ×3 for every lived day it was recalled
+  or retold, up to 90. A touch: read whole ("last dream", its id), delivered to a question
+  that asks about dreams (the person asked, so it was told), or its reflection's share told.
+  Riding beside an ordinary answer is NOT a touch — it is a list shown, and the 09-14 rule
+  for memories is that opening or quoting credits, a list does not; otherwise a dream about
+  the work would keep itself alive on every work question. A touch is a `dream.recalled`
+  event, latched per dream per lived day (`dedup_key`, which also exempts it from the event
+  prune): no column. Faded is not gone: "last dream", its id and a question asking when it
+  last dreamed still read it. All tunables in `DREAM_TUNABLES`, read at use.
+- **The folder rule** (coordinator, 10-27): the `dreams.scope` column is the folder the
+  dream ran in. A dream from this session's folder, or with none, is read here; from another
+  folder only while the folder setting has it on (`server.ts#folderOn`, the rule a chapter
+  or a thread obeys to be named in another folder's wake). Applies to every question and to
+  "last dream". An id (`drm_…`) still opens across folders, as a memory's id does.
+- **Still not lived.** Capture still refuses the mark; the answer carries `[dream]`, never
+  `DREAM_MARK` (that would make capture refuse the person's whole turn). A counterpart
+  retelling its dream in a turn ("I dreamed of keys…") is lived speech and may be captured
+  as having said it — arguably right (it did tell it), left as is.
+- **Open:** the 512-token cap is why journals are read in passages; a journal of 30,000
+  characters is 20 vectors, made once a process. The bar is one number for every embedder
+  (only one exists); if another arrives it wants its own, as `SEMANTIC_BY_IDENTITY` does.
+
+### After the review of #663 (2026-10-27; supersedes the placement and touch bullets above)
+
+- **A question that names dreaming reaches any recent dream, faded or not** (HIGH). Fading
+  had gated the named path too, so "did you dream about the greenhouse?" two lived days
+  after the greenhouse dream found only the newest. Now the named path matches every
+  recent journal (`dreamCandidates(naming = true)`) and only the unnamed path is gated by
+  reach. A prompted match there (why `words` or `meaning`) is a touch, so asking about a
+  dream revives it for ordinary questions too. Test: greenhouse on day N, keys on N+1,
+  asked on N+2.
+- **Ordinary questions: one line, after the results** (HIGH; the coordinator's decision).
+  The 0.45 bar stays. A question that does not name dreaming shows a dream as the single
+  line `[dream] title · drm_ · dreamed date · why`: no excerpt, no gloss, after the
+  results (`withDreamLines(…, asked = false)`). The memories are that answer; the dream is
+  there and labelled, but not in front of what was asked. A question that names dreaming
+  keeps the excerpt, the place before the results and the gloss: there the dream is the
+  answer.
+- **Calibrating on live use.** The durable `mcp.recall` row now carries `dreams`: each
+  dream that came, why, and its meaning score (null when none was measured). The bar can
+  be read off real rows instead of invented journals. Ids and numbers only. The row's
+  `chars` is now the answer as shipped, dream lines included: the dreams are worked out
+  before the row is written.
+- **What counts as a touch, narrowed** (MEDIUM). Only a dream that came as `words` or
+  `meaning`, or the newest when the question asked when (`asked-when`, new). The fallback
+  newest on any question with a dream word (`names-dreams`) is not a touch: in this repo
+  "dream" is a product word, and that fallback would keep the newest alive on every
+  question about the dream feature. A dream beside an ordinary answer is still not a touch.
+- **The folder rule, said plainly**: it goes by where the dream ran (`dreams.scope`), not
+  by what it is about. It keeps a folder's nightly run in that folder, as a chapter or a
+  thread is kept. It is not content privacy. It is applied before the lookback limit now
+  (`readableDreams`), so a readable older dream is not hidden behind twenty from a folder
+  set off.
+- **The dream's own background agent gets no dream lines** (`dreamingNow`: a dream begun
+  under the session's id and not yet journaled). Otherwise a recall mid-dream could fold
+  old journals into tonight's merges.
+- `dreamCandidates` is computed once per recall and handed to both the embedder and the
+  matcher. A journal whose every passage failed to embed is not cached as "no meaning".
+

@@ -163,7 +163,7 @@ describe("recall opens a night by its id", () => {
     expect(res.isError).not.toBe(true);
     expect(p["reason"]).toBe("expanded");
     expect(p["memories"]).toEqual([]);
-    expect(String(p["nightsGloss"])).toContain("changes nothing");
+    expect(String(p["nightsGloss"])).toContain("changes no memory and credits nothing");
     const d = (p["nights"] as DreamSummary[])[0] as DreamSummary;
     expect(d.kind).toBe("dream");
     expect(d.id).toBe(n.dream);
