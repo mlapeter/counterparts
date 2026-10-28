@@ -154,14 +154,29 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
-import { LAST_NIGHT_WIRE_CHARS, NIGHTS_GLOSS, isLastNightHandle, nightsForQuestion, readLastNight } from "./nights.js";
-import type { QuestionNightWhy } from "./nights.js";
+import {
+  LAST_NIGHT_WIRE_CHARS,
+  NIGHTS_GLOSS,
+  asksAboutDreams,
+  dreamPassages,
+  dreamlessQuestion,
+  dreamsInReach,
+  isLastNightHandle,
+  nightsForQuestion,
+  readLastNight,
+  withDreamLines,
+} from "./nights.js";
+import type { DreamReadable, QuestionNightWhy } from "./nights.js";
+import { noteDreamRecalled } from "../../core/dream/recalled.js";
+import { cosine } from "../../core/physics/index.js";
+import type { DreamTouch } from "../../core/dream/recalled.js";
 import { claudeAiWakeText, sameYouLine } from "./chat-wake.js";
 
 /** Why a dream rode beside a question's answer, as the result says it. */
 const QUESTION_NIGHT_WHY: Readonly<Record<QuestionNightWhy, string>> = {
   "reflection-shown": "the answer shows the reflection that followed this dream",
   words: "this dream's title or journal shares words with the question",
+  meaning: "this dream was about what the question asks (by meaning)",
   "names-dreams": "the question asks about dreams; this is the newest",
 };
 import type { NightSummary } from "./nights.js";
@@ -2452,8 +2467,11 @@ export class McpServer {
    */
   private lastNightTool(handle: string): ToolResult {
     // The two parts' room, under this server's ceiling with the words beside them (review of #645).
-    const night = readLastNight(this.counterpart, Math.min(LAST_NIGHT_WIRE_CHARS, this.resultCeilingChars - 4_000));
+    const readable = this.dreamReadable();
+    const night = readLastNight(this.counterpart, Math.min(LAST_NIGHT_WIRE_CHARS, this.resultCeilingChars - 4_000), readable);
     const found = night.dream !== null || night.reflection !== null;
+    // Read whole, a dream is recalled: it keeps its reach (D1, `dream/recalled.ts`).
+    if (night.dream !== null) this.noteDreamTouched(night.dream.id, "read");
     this.emit("mcp.recall.lastnight", undefined, { dream: night.dream !== null, reflection: night.reflection !== null, cut: night.reflectionCut ?? null });
     const rid = night.reflection?.id ?? "";
     const cutNote =
@@ -2622,30 +2640,133 @@ export class McpServer {
     this.noteRecall(row, 0, question, false, payload, ids, key);
     this.markSeen(ids, key);
     this.noteAsked(ids, key, question);
-    // DREAMS THE QUESTION REACHES (2026-10-26, OL1b): a dream is not a memory,
-    // so neither mode finds one; beside the answer, read-only, on its first
-    // page (`nights.ts#nightsForQuestion`). Credits and marks nothing.
-    const dreams = page === 1 ? nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t)) : [];
+    // DREAMS THE QUESTION REACHES (2026-10-26, OL1b; by what they were about,
+    // D1 2026-10-27): a dream is not a memory, so neither mode finds one; it
+    // rides beside the answer, labelled [dream] in the answer's own words and
+    // in `nights`, on its first page (`nights.ts#nightsForQuestion`). Credits
+    // no memory; a dream delivered to a question that asks about dreams is
+    // noted as recalled, so it keeps its reach (`dream/recalled.ts`).
+    const readable = this.dreamReadable();
+    const dreams =
+      page === 1
+        ? nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t), {
+            meaning: await this.dreamMeaning(question, embedded.vector, readable),
+            ...(readable === undefined ? {} : { readable }),
+          })
+        : [];
     // The answer first (review of #645): a dream that would carry the result
     // past its ceiling stays out, so the net never cuts the answer for it.
+    // Measured with the dream's lines in the answer, as it will ship.
     const dreamGloss = `${NIGHTS_GLOSS} recall with handle "last dream" reads the newest whole, and a dream's id alone reads that one whole.`;
+    const withDreams = (): Record<string, unknown> => {
+      const shown = dreams.map((d) => ({ night: d.night, why: QUESTION_NIGHT_WHY[d.why] }));
+      const text = withDreamLines(answer, shown);
+      return {
+        ...payload,
+        chars: text.length,
+        answer: text,
+        nights: shown.map((d) => ({ ...d.night, why: d.why })),
+        nightsGloss: dreamGloss,
+      };
+    };
     while (dreams.length > 0) {
-      const tried = { ...payload, nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })), nightsGloss: dreamGloss };
-      if (wireChars(JSON.stringify(tried)) <= this.resultCeilingChars) break;
+      if (wireChars(JSON.stringify(withDreams())) <= this.resultCeilingChars) break;
       dreams.pop();
     }
     if (dreams.length > 0) {
       this.emit("mcp.recall.nights", undefined, { dreams: dreams.length, why: dreams.map((d) => d.why).join(",") });
-      return this.result(
-        {
-          ...payload,
-          nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })),
-          nightsGloss: dreamGloss,
-        },
-        false,
-      );
+      // Asked about, a dream is told: recalled, and its reach widens. Riding
+      // beside an ordinary answer is a list shown, which credits nothing (the
+      // 09-14 rule for memories: opening or quoting credits, a list does not).
+      if (asksAboutDreams(question)) for (const d of dreams) this.noteDreamTouched(d.night.id, "asked");
+      return this.result(withDreams(), false);
     }
     return this.result(payload, false);
+  }
+
+  /**
+   * THE FOLDER RULE FOR A DREAM (D1, 2026-10-27): a dream written here, or
+   * with no folder, reads here; one written in another folder only while the
+   * folder setting has that folder on — the rule a chapter or a thread obeys
+   * to be named in another folder's wake (`folderOn`). No setting file:
+   * every dream. A setting that will not read: only this folder's and the
+   * placeless.
+   */
+  private dreamReadable(): DreamReadable | undefined {
+    const on = this.folderOn();
+    if (on === undefined) return undefined;
+    let here: string;
+    try {
+      here = canonicalScopePath(this.scope);
+    } catch {
+      here = this.scope;
+    }
+    return (scope) => {
+      if (scope === null || scope.trim().length === 0) return true;
+      let there: string;
+      try {
+        there = canonicalScopePath(scope);
+      } catch {
+        there = scope;
+      }
+      return there === here || on(scope);
+    };
+  }
+
+  /** Journal vectors, by dream id (and its journal's length and title, should it be written again), for this process's life. */
+  private readonly dreamVectors = new Map<string, readonly (readonly number[])[]>();
+
+  /**
+   * WHAT EACH REACHABLE DREAM MEANS AGAINST THE QUESTION (D1, 2026-10-27):
+   * the best cosine of its title and journal passages (`dreamPassages`)
+   * against the question — or, for a question that names dreaming, against
+   * what is left once the dream words are out (every journal says "I
+   * dreamed", so those words would match them all). Embedded on the fly with
+   * the question's own embedder, at most `QUESTION_NIGHTS_LOOKBACK` dreams
+   * and fewer as they fade; kept in memory, never in box 3 (NOTES "D1": a
+   * `drm_` row there would be read by every memory scan). No embedder, or
+   * nothing left to embed: an empty map. Never throws.
+   */
+  private async dreamMeaning(question: string, questionVector: number[] | null, readable: DreamReadable | undefined): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    const embedder = this.embedder;
+    if (embedder === null) return out;
+    try {
+      const candidates = dreamsInReach(this.counterpart, readable);
+      if (candidates.length === 0) return out;
+      let q: number[] | null = questionVector;
+      if (asksAboutDreams(question)) {
+        const left = dreamlessQuestion(question);
+        q = left.length === 0 ? null : await embedder.vector(left);
+      }
+      if (q === null || q.length === 0) return out;
+      for (const d of candidates) {
+        const key = `${d.id}:${String(d.journal?.length ?? 0)}:${d.title ?? ""}`;
+        let vecs: readonly (readonly number[])[] | undefined = this.dreamVectors.get(key);
+        if (vecs === undefined) {
+          const made: number[][] = [];
+          for (const text of dreamPassages(d)) {
+            const v = await embedder.vector(text);
+            if (v !== null && v.length === q.length) made.push(v);
+          }
+          vecs = made;
+          this.dreamVectors.set(key, vecs);
+        }
+        let best = Number.NEGATIVE_INFINITY;
+        for (const v of vecs) best = Math.max(best, cosine(q, v));
+        if (Number.isFinite(best)) out.set(d.id, best);
+      }
+    } catch {
+      return out;
+    }
+    return out;
+  }
+
+  /** A dream was recalled: its reach widens (`dream/recalled.ts`). Never throws; nothing under observer. */
+  private noteDreamTouched(id: string, how: DreamTouch): void {
+    this.telemetry(() => {
+      noteDreamRecalled(this.counterpart.store, this.observer, id, how);
+    });
   }
 
   /**
@@ -2861,6 +2982,8 @@ export class McpServer {
       wire += cost;
       nights.push(n);
     }
+    // A dream opened by its id is recalled: it keeps its reach (D1, `dream/recalled.ts`).
+    for (const n of nights) if (n.kind === "dream") this.noteDreamTouched(n.id, "read");
     const waiting = [...(bounded.waiting ?? []), ...nightsWaiting];
     return {
       path: result.path,

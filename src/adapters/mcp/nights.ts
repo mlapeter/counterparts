@@ -18,9 +18,14 @@
  * confidentiality boundary that also stood here was retired 2026-10-21.)
  *
  * Pure reads over the store; never writes, never throws past its caller.
+ * (A dream's RECALL is noted by the server, `dream/recalled.ts`, so a dream
+ * that is used keeps its reach — D1, 2026-10-27; reading still credits no
+ * memory.)
  */
 import type { Counterpart } from "../../core/counterpart.js";
 import { clipWire, wireChars } from "../../core/fit/index.js";
+import { dreamReach } from "../../core/dream/recalled.js";
+import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
 import { rowTombstoned } from "../../core/store/index.js";
 import type { DreamChangeRow, DreamRow, ReflectionRow, Store } from "../../core/store/index.js";
 
@@ -62,6 +67,10 @@ export interface IdsCapped {
 
 export interface DreamSummary {
   readonly kind: "dream";
+  /** `[dream]` (D1, 2026-10-27): wherever recall shows a dream, it says so, as `[journal]` marks a chapter. */
+  readonly label: "[dream]";
+  /** "dreamed, not lived: …" — told as a dream, never as something that happened. */
+  readonly dreamed: string;
   readonly id: string;
   readonly date: string | null;
   readonly day: number;
@@ -191,6 +200,8 @@ function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readon
   const journal = dream.journal === null || dream.journal.trim().length === 0 ? null : cut(dream.journal.trim(), journalMax);
   return {
     kind: "dream",
+    label: DREAM_LABEL,
+    dreamed: dreamedLine(dream),
     id: dream.id,
     date: dream.date,
     day: dream.day,
@@ -308,13 +319,14 @@ export const LAST_NIGHT_WIRE_CHARS = 36_000;
  * stays whole and the reflection comes as a summary (its entry cut, and said),
  * or by id alone; its id read as a handle opens it whole on its own.
  */
-export function readLastNight(counterpart: Counterpart, room: number = LAST_NIGHT_WIRE_CHARS): LastNight {
+export function readLastNight(counterpart: Counterpart, room: number = LAST_NIGHT_WIRE_CHARS, readable?: DreamReadable): LastNight {
   const store = counterpart.store;
   try {
-    const recent = store.dreams({ limit: 20 });
+    // The folder rule (D1): a dream from a folder this session may not read is not its last night.
+    const recent = store.dreams({ limit: 20 }).filter((d) => readableBy(readable, d.scope));
     const dream = recent.find((d) => d.journal !== null && d.journal.trim().length > 0 && d.state !== "undone") ?? recent[0];
     const dreamRead = dream === undefined ? null : readNight(counterpart, dream.id, { whole: true });
-    const after = dream === undefined ? store.reflections({ limit: 1 })[0] : store.reflections({ dreamId: dream.id, limit: 1 })[0];
+    const after = dream === undefined ? store.reflections({ limit: 20 }).find((r) => readableBy(readable, r.scope)) : store.reflections({ dreamId: dream.id, limit: 1 })[0];
     const reflectionRead = after === undefined ? null : readNight(counterpart, after.id, { whole: true });
     const d = dreamRead?.ok === true && dreamRead.night.kind === "dream" ? dreamRead.night : null;
     const r = reflectionRead?.ok === true && reflectionRead.night.kind === "reflection" ? reflectionRead.night : null;
@@ -334,77 +346,253 @@ export const QUESTION_NIGHTS_MAX = 2;
 /** How many recent dreams a question's words are matched against. */
 export const QUESTION_NIGHTS_LOOKBACK = 30;
 
+/** The words that ask ABOUT a night; never what it was about. */
+const DREAM_WORDS = /\b(dream|dreams|dreamed|dreamt|dreaming)\b/gi;
+
 /** Does the question name dreaming? */
 export function asksAboutDreams(question: string): boolean {
   return /\b(dream|dreams|dreamed|dreamt|dreaming)\b/i.test(question);
 }
 
-/** Why a dream rode beside a question's answer. */
-export type QuestionNightWhy = "reflection-shown" | "words" | "names-dreams";
+/**
+ * Does a question about dreams ask WHEN — "when did you last dream?", "why
+ * haven't you dreamed lately?" (D1, Ames's case)? Then the newest dream leads,
+ * whatever else its words reach.
+ */
+export function asksWhenDreamed(question: string): boolean {
+  return asksAboutDreams(question) && /\b(last|latest|lately|recent|recently|newest|when|today|tonight|yesterday|anymore)\b/i.test(question);
+}
 
 /**
- * DREAMS A QUESTION REACHES (2026-10-26, OL1b item 3; lightly held). A dream
- * is not a memory, so neither mode's index finds it; its reflection's entry
- * IS one, and meaning mode found that on the trial's first day. So a dream
- * rides beside a question's answer when:
+ * What a question asks about once the dream words are out ("did you dream
+ * about the greenhouse?" → "did you about the greenhouse?"): the text whose
+ * MEANING a question that names dreaming is matched by. Empty when nothing is
+ * left but the asking.
+ */
+export function dreamlessQuestion(question: string): string {
+  const left = question.replace(DREAM_WORDS, " ").replace(/\s+/g, " ").trim();
+  return /[a-z]{3,}/i.test(left) ? left : "";
+}
+
+/**
+ * Who may read a dream: the folder rule every crossing obeys (`server.ts#
+ * folderOn`, `lifecycle.ts#chapterExports`). A dream written in this
+ * session's own folder, or with none (a run that named no place), is read
+ * here; one written in another folder only while that folder's setting has it
+ * on. Absent: every dream (no setting file).
+ */
+export type DreamReadable = (scope: string | null) => boolean;
+
+/** The scope test for one dream; never throws (a test that throws reads as "not here"). */
+function readableBy(readable: DreamReadable | undefined, scope: string | null): boolean {
+  if (readable === undefined) return true;
+  try {
+    return readable(scope);
+  } catch {
+    return false;
+  }
+}
+
+/** A dream wrote a journal. */
+function journaled(d: DreamRow): boolean {
+  return d.journal !== null && d.journal.trim().length > 0;
+}
+
+/**
+ * THE DREAMS A QUESTION MAY REACH BY WHAT THEY WERE ABOUT (D1, 2026-10-27):
+ * the last `QUESTION_NIGHTS_LOOKBACK` dreams that wrote a journal, not undone,
+ * readable here, and still within their reach (`dream/recalled.ts`: a dream
+ * fades fast unless it is recalled or retold). The server embeds these and no
+ * others. Newest first; never throws.
+ */
+export function dreamsInReach(counterpart: Counterpart, readable?: DreamReadable): DreamRow[] {
+  const store = counterpart.store;
+  try {
+    const today = store.livedDay();
+    return store
+      .dreams({ limit: QUESTION_NIGHTS_LOOKBACK })
+      .filter((d) => d.state !== "undone" && journaled(d) && readableBy(readable, d.scope) && dreamReach(store, d, today).inReach);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The texts one dream is matched by meaning through: its title, and its
+ * journal in passages (`DREAM_RECALL_PASSAGE_CHARS`, under the static table's
+ * 512-token cap, so imagery past the first ~2,000 characters is read too).
+ * The match is the best of them.
+ */
+export function dreamPassages(d: Pick<DreamRow, "title" | "journal">): string[] {
+  const out: string[] = [];
+  const title = d.title?.trim() ?? "";
+  if (title.length > 0) out.push(title);
+  const journal = d.journal?.trim() ?? "";
+  const size = DREAM_TUNABLES.DREAM_RECALL_PASSAGE_CHARS;
+  for (let i = 0; i < journal.length; i += size) {
+    const piece = journal.slice(i, i + size).trim();
+    if (piece.length > 0) out.push(piece);
+  }
+  return out;
+}
+
+/** Why a dream rode beside a question's answer. */
+export type QuestionNightWhy = "reflection-shown" | "words" | "meaning" | "names-dreams";
+
+export interface QuestionNightsOptions {
+  /**
+   * Each reachable dream's MEANING against the question (id → cosine, the best
+   * of its passages): the whole question when it does not name dreaming, the
+   * question with its dream words out (`dreamlessQuestion`) when it does.
+   * Absent or empty: no meaning (no embedder, or nothing left to embed).
+   */
+  readonly meaning?: ReadonlyMap<string, number>;
+  /** The folder rule (`DreamReadable`). Absent: every dream. */
+  readonly readable?: DreamReadable;
+}
+
+/**
+ * DREAMS A QUESTION REACHES (2026-10-26, OL1b item 3; extended by what they
+ * were ABOUT, D1, 2026-10-27). A dream is not a memory, so neither mode's
+ * index finds it; it rides beside the answer, labelled, read-only. A dream
+ * comes when:
  *
  *   1. the answer showed the entry of a reflection that followed it; or
- *   2. the question names dreaming, and its title or journal shares a
- *      content word with it (review of #645: on any question, two shared
- *      words carried a work-week dream beside six of eight ordinary
- *      questions — "the release", "the dashboard work" — so a question that
- *      does not ask about dreams is reached only by rule 1); or
- *   3. the question names dreaming and nothing matched: the newest dream.
+ *   2. the question names dreaming and — among the dreams still in reach —
+ *      its title or journal shares a content word with the question, or
+ *      MEANS what the rest of the question asks at or above
+ *      `DREAM_RECALL_NAMED_FLOOR`; or
+ *   3. the question names dreaming: the newest dream that wrote a journal,
+ *      faded or not — first when it asks WHEN (`asksWhenDreamed`: "when did
+ *      you last dream?", Ames's case), else after what its content reached;
+ *      or
+ *   4. the question does NOT name dreaming (D1): a dream still in reach whose
+ *      meaning clears `DREAM_RECALL_MEANING_BAR` — the best one, at most
+ *      `DREAM_RECALL_UNNAMED_MAX`. Words alone never carry a dream here
+ *      (review of #645: they pulled work dreams beside six of eight ordinary
+ *      questions), and with no embedder this rule reaches nothing.
  *
- * Words, not vectors: dream journals have no embedding (a cache table would
- * be a store-format change, batched with others — not this lane's). Summaries,
- * newest first, at most `QUESTION_NIGHTS_MAX`; each says why it came. `words`
- * is the content-word reader (`reconsolidation.ts#contentWords`), handed in
- * so this file reads no core module it does not already. Never throws.
+ * Every rule obeys the folder rule (`readable`). Summaries, at most
+ * `QUESTION_NIGHTS_MAX`, each saying why it came. `words` is the content-word
+ * reader (`reconsolidation.ts#contentWords`), handed in so this file reads no
+ * core module it does not already. Never throws.
  */
 export function nightsForQuestion(
   counterpart: Counterpart,
   question: string,
   shownIds: readonly string[],
   words: (text: string) => Set<string>,
+  opts: QuestionNightsOptions = {},
 ): { night: DreamSummary; why: QuestionNightWhy }[] {
   const store = counterpart.store;
+  const t = DREAM_TUNABLES;
   try {
-    const recent = store.dreams({ limit: QUESTION_NIGHTS_LOOKBACK }).filter((d) => d.state !== "undone");
+    const recent = store.dreams({ limit: QUESTION_NIGHTS_LOOKBACK }).filter((d) => d.state !== "undone" && readableBy(opts.readable, d.scope));
     if (recent.length === 0) return [];
-    const picked = new Map<string, QuestionNightWhy>();
+    const today = store.livedDay();
+    const reach = recent.filter((d) => journaled(d) && dreamReach(store, d, today).inReach);
+    const meaning = opts.meaning ?? new Map<string, number>();
+    const order: { id: string; why: QuestionNightWhy }[] = [];
+    const add = (id: string, why: QuestionNightWhy): void => {
+      if (!order.some((o) => o.id === id)) order.push({ id, why });
+    };
+    const naming = asksAboutDreams(question);
+    const newest = recent.find(journaled) ?? recent[0];
+    if (naming && newest !== undefined && asksWhenDreamed(question)) add(newest.id, "names-dreams");
     const shown = new Set(shownIds);
     if (shown.size > 0) {
       for (const r of store.reflections({ limit: QUESTION_NIGHTS_LOOKBACK })) {
-        if (r.entry_id !== null && shown.has(r.entry_id) && r.dream_id !== null && recent.some((d) => d.id === r.dream_id)) picked.set(r.dream_id, "reflection-shown");
+        if (r.entry_id !== null && shown.has(r.entry_id) && r.dream_id !== null && recent.some((d) => d.id === r.dream_id)) add(r.dream_id, "reflection-shown");
       }
     }
-    const naming = asksAboutDreams(question);
-    const asked = words(question);
-    // The words that ask ABOUT a night are not what it was about.
-    for (const w of ["dream", "dreams", "dreamed", "dreamt", "dreaming", "night", "last"]) for (const v of words(w)) asked.delete(v);
-    if (naming && asked.size > 0) {
-      for (const d of recent) {
-        if (picked.has(d.id)) continue;
+    if (naming) {
+      const asked = words(question);
+      for (const w of ["dream", "dreams", "dreamed", "dreamt", "dreaming", "night", "last"]) for (const v of words(w)) asked.delete(v);
+      const content: { id: string; why: QuestionNightWhy; score: number; at: number }[] = [];
+      reach.forEach((d, at) => {
+        const m = meaning.get(d.id) ?? Number.NEGATIVE_INFINITY;
+        if (m >= t.DREAM_RECALL_NAMED_FLOOR) {
+          content.push({ id: d.id, why: "meaning", score: m, at });
+          return;
+        }
+        if (asked.size === 0) return;
         const have = words(`${d.title ?? ""} ${d.journal ?? ""}`);
         let shared = 0;
         for (const w of asked) if (have.has(w)) shared += 1;
-        if (shared >= 1) picked.set(d.id, "words");
-      }
+        // Words rank below any meaning match: a shared word is a weaker sign than a meaning that clears the floor.
+        if (shared >= 1) content.push({ id: d.id, why: "words", score: shared / 1_000, at });
+      });
+      content.sort((a, b) => b.score - a.score || a.at - b.at);
+      for (const c of content) add(c.id, c.why);
+      if (newest !== undefined) add(newest.id, "names-dreams");
+    } else {
+      const best = reach
+        .map((d, at) => ({ id: d.id, score: meaning.get(d.id) ?? Number.NEGATIVE_INFINITY, at }))
+        .filter((x) => x.score >= t.DREAM_RECALL_MEANING_BAR)
+        .sort((a, b) => b.score - a.score || a.at - b.at)
+        .slice(0, t.DREAM_RECALL_UNNAMED_MAX);
+      for (const b of best) add(b.id, "meaning");
     }
-    if (picked.size === 0 && naming) {
-      const newest = recent.find((d) => d.journal !== null && d.journal.trim().length > 0) ?? recent[0];
-      if (newest !== undefined) picked.set(newest.id, "names-dreams");
-    }
-    const order = recent.map((d) => d.id).filter((id) => picked.has(id)).slice(0, QUESTION_NIGHTS_MAX);
     const out: { night: DreamSummary; why: QuestionNightWhy }[] = [];
-    for (const id of order) {
-      const read = readNight(counterpart, id);
-      const why = picked.get(id);
-      if (read.ok && read.night.kind === "dream" && why !== undefined) out.push({ night: read.night, why });
+    for (const o of order.slice(0, QUESTION_NIGHTS_MAX)) {
+      const read = readNight(counterpart, o.id);
+      if (read.ok && read.night.kind === "dream") out.push({ night: read.night, why: o.why });
     }
     return out;
   } catch {
     return [];
   }
+}
+
+// ── a dream in an answer's words (D1, 2026-10-27) ───────────────────────────
+
+/** The label a dream carries wherever recall shows it, as `[journal]` marks a chapter. */
+export const DREAM_LABEL = "[dream]" as const;
+
+/**
+ * Said once under an answer that shows a dream, as `FACTS_JOURNAL_GLOSS` is
+ * under one that shows a chapter. Mike asked for a label and a line that say
+ * it was dreamed (2026-10-27).
+ */
+export const DREAM_ANSWER_GLOSS =
+  '[dream] = dreamed, not lived: a journal the nightly run wrote while it dreamed — not a memory, and not something that happened. Tell it as a dream ("I dreamed …"), never as an event; recall a drm_ id to read it whole.';
+
+/** How much of a journal an answer line quotes. */
+export const DREAM_ANSWER_EXCERPT_CHARS = 280;
+
+/** The "dreamed, not lived" line each dream in `nights` carries beside its label. */
+export function dreamedLine(night: { readonly date: string | null }): string {
+  return `dreamed, not lived: a dream${night.date === null ? "" : ` on ${night.date}`}, told as "I dreamed …", never as something that happened`;
+}
+
+/**
+ * The lines an answer gains for the dreams beside it: per dream, `[dream]
+ * <title> · drm_… · dreamed <date> · <why>` and an excerpt of its journal.
+ * Placed by `withDreamLines`.
+ */
+export function dreamAnswerLines(dreams: readonly { night: DreamSummary; why: string }[]): string[] {
+  const out: string[] = [];
+  for (const { night, why } of dreams) {
+    const title = night.title?.trim() || "a dream with no title";
+    out.push(`${DREAM_LABEL} ${title} · ${night.id} · dreamed ${night.date ?? "on an unknown date"} · ${why}`);
+    const text = (night.journal ?? "").replace(/\s+/g, " ").trim();
+    if (text.length > 0) out.push(`   ${text.length <= DREAM_ANSWER_EXCERPT_CHARS ? text : `${text.slice(0, DREAM_ANSWER_EXCERPT_CHARS - 1)}…`}`);
+  }
+  return out;
+}
+
+/**
+ * THE ANSWER WITH ITS DREAMS IN IT (D1). Not at the bottom (Mike: dreams are
+ * part of the day's thinking): after the answer's head — its first paragraph,
+ * the count and what was asked — and before its first result, the way a
+ * dream that came to mind would be said before the list; the gloss once at
+ * the end, as `[journal]`'s is. An answer with no paragraph break takes them
+ * after it. No dream: the answer unchanged.
+ */
+export function withDreamLines(answer: string, dreams: readonly { night: DreamSummary; why: string }[]): string {
+  if (dreams.length === 0) return answer;
+  const block = dreamAnswerLines(dreams).join("\n");
+  const cut = answer.indexOf("\n\n");
+  const body = cut < 0 ? `${answer}\n\n${block}` : `${answer.slice(0, cut)}\n\n${block}${answer.slice(cut)}`;
+  return `${body}\n${DREAM_ANSWER_GLOSS}`;
 }

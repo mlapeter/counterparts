@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
 import { openServer } from "../src/adapters/mcp/index.js";
-import { NIGHT_JOURNAL_CHARS } from "../src/adapters/mcp/nights.js";
+import { DREAM_ANSWER_GLOSS, DREAM_LABEL, NIGHT_JOURNAL_CHARS } from "../src/adapters/mcp/nights.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/reflect.js";
 import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
 import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
@@ -188,14 +188,18 @@ describe("a question reaches a dream", () => {
     const first = await door();
     const full = await recall(first.url, { question, mode: "meaning" });
     expect(((full["nights"] as Record<string, unknown>[] | undefined) ?? []).map((x) => x["id"])).toContain(n.dream);
-    const { nights: _n, nightsGloss: _g, ...answerOnly } = full;
+    // The dream's lines ride in the answer too (D1): the answer without them is the plain one.
+    expect(String(full["answer"])).toContain(`${DREAM_LABEL} `);
+    const plain = String(full["answer"]).replace(/\n\n\[dream\][^\n]*(\n {3}[^\n]*)?/g, "").replace(`\n${DREAM_ANSWER_GLOSS}`, "");
+    const { nights: _n, nightsGloss: _g, ...rest } = full;
+    const answerOnly = { ...rest, answer: plain, chars: plain.length };
     for (const c of closers.splice(0).reverse()) await c();
     // Room for the answer, not for the dream beside it.
     const tight = await door(wireChars(JSON.stringify(answerOnly)) + 50);
     const p = await recall(tight.url, { question, mode: "meaning" });
     expect(p["nights"]).toBeUndefined();
     expect(p["cut"]).toBeUndefined();
-    expect(p["answer"]).toBe(full["answer"]);
+    expect(p["answer"]).toBe(plain);
   });
 });
 
