@@ -40,6 +40,7 @@
  * reachable by construction, not by a tool description nobody reads.*
  */
 import type { Band, Kind } from "../types.js";
+import { settlesWhenOf } from "../types.js";
 import { defaultClaimFor, strength } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { AboutMark, ProseDoc, Store } from "../store/index.js";
@@ -348,6 +349,8 @@ export interface StillOpenItem {
   readonly reconsidering?: true;
   /** Its date, when it has one (the wake lists such a thread under "Coming up"). */
   readonly date?: string;
+  /** What would settle it, when one was named (`meta.settlesWhen`, S1 2026-10-27). */
+  readonly settlesWhen?: string;
 }
 
 /** The most characters of a title the `still open` handle gives. */
@@ -1194,12 +1197,14 @@ export class Self {
       const whole = flatten((s.doc.title ?? "").trim() || first);
       const title = whole.length <= STILL_OPEN_TITLE_CHARS ? whole : `${whole.slice(0, STILL_OPEN_TITLE_CHARS - 1).trimEnd()}…`;
       const touched = carry.touched.get(id) ?? Math.max(s.doc.bornDay, s.physics.lastUsedDay);
+      const settles = s.unresolved ? settlesWhenOf(s.doc.meta) : null;
       out.push({
         id,
         title,
         livedDaysSinceTouched: Math.max(0, day - touched),
         ...(s.reconsidering === true ? { reconsidering: true } : {}),
         ...(s.doc.eventDate === undefined ? {} : { date: s.doc.eventDate }),
+        ...(settles === null ? {} : { settlesWhen: settles }),
       });
     }
     // What the carry no longer keeps, counted as the list is: another
@@ -3866,7 +3871,13 @@ export class Self {
       boundedDate?: boolean;
       standing?: { prefix: string; suffix: string };
       line?: string;
+      settles?: string;
     } = { statement: statement.length > 0 ? statement : id };
+    // What would settle it, while it is still open (S1, 2026-10-27).
+    if (doc.meta["unresolved"] === true) {
+      const settles = settlesWhenOf(doc.meta);
+      if (settles !== null) out.settles = settles;
+    }
     // A LONG ITEM'S LINE (#489 C, 2026-10-16): its title, else `lineOf`'s
     // first line — offered only past `WAKE_LINE_BYTES`, and only when the line
     // and its id are shorter than the statement. Which lanes print it is

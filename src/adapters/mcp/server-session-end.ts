@@ -255,6 +255,7 @@ export async function depositEntries(
     if (typeof rec["updates"] === "string") draft["updates"] = rec["updates"];
     if (rec["how"] !== undefined) draft["how"] = rec["how"];
     if (typeof rec["unresolved"] === "boolean") draft["unresolved"] = rec["unresolved"];
+    if (rec["settlesWhen"] !== undefined) draft["settlesWhen"] = rec["settlesWhen"];
     if (rec["salience"] !== undefined) draft["claimed"] = rec["salience"];
     // A bad dimension does NOT fail the batch and is not silently dropped:
     // the dimensions ride into the draft and `remember/intake` refuses that
