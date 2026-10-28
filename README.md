@@ -15,6 +15,7 @@ macOS and Linux; Windows not yet supported.
 
 ```
 curl -fsSL https://bun.sh/install | bash     # if you don't have bun
+# then open a new terminal
 bun add -g counterparts
 counterparts
 ```
