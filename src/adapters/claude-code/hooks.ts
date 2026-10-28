@@ -528,8 +528,14 @@ export const RATE_CLAUSE = "`rated` 0–3 each footnote shown since you last wro
 /**
  * WHAT OPEN MEANS, IN THE ASK (2026-10-22, the open-threads brief): the same
  * narrowing as the `unresolved` field's own text (`mcp/tools.ts#UNRESOLVED_PROPERTY`).
+ *
+ * AND WHAT WOULD CLOSE IT (2026-10-27, F1 after S1): the Stop ask is the door
+ * most open items come through, so it invites `settlesWhen` beside them — "if
+ * you can", never demanded (`mcp/tools.ts#SETTLES_WHEN_PROPERTY` says the rest).
+ * Without it the nightly reflection is shown few items it could close.
  */
-export const OPEN_MEANS = "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise)";
+export const OPEN_MEANS =
+  "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it";
 
 /** How long one open item's title may run in the ask's last line (2026-10-22). */
 const OPEN_TITLE_CHARS = 60;
@@ -538,7 +544,7 @@ const OPEN_TITLE_CHARS = 60;
  * The most the ask's open line may run, whole (the review of #592, F5): a
  * title is clipped at `OPEN_TITLE_CHARS` and an id is 16 characters, so five
  * items fit; an item past it is left out, never cut. With the two lines'
- * own pin (720) the whole ask stays under ~1,250 characters.
+ * own pin (770) the whole ask stays under ~1,300 characters.
  */
 export const OPEN_LINE_MAX_CHARS = 520;
 

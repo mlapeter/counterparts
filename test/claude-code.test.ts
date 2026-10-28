@@ -3074,9 +3074,9 @@ describe("the one ask names the session and BOTH tools that take it", () => {
     // the bound came down with it (was 1,300). The words themselves are pinned
     // in `test/stop-ask-quiet.test.ts`. 450 until 2026-10-01 (the retire clause);
     // 610 since 2026-10-14 (the ratings clause); 720 since 2026-10-22 (what
-    // open means, `OPEN_MEANS`).
+    // open means, `OPEN_MEANS`); 770 since 2026-10-27 (its settlesWhen invitation).
     expect(text.split("\n").length).toBe(2);
-    expect(text.length).toBeLessThanOrEqual(720);
+    expect(text.length).toBeLessThanOrEqual(770);
   });
 
   test("the handoff is a FIELD on the call item 1 already names — not a third tool", () => {

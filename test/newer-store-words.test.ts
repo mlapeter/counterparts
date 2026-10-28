@@ -131,6 +131,16 @@ function seedStore(): void {
   }
 }
 
+/** The wake's build stamp a newer writer leaves (`WAKE_BUILD_KEY`), set before the store is bumped past this code. */
+function stampWriter(version: string): void {
+  const s = Store.open({ dir });
+  try {
+    s.setMeta(WAKE_BUILD_KEY, version);
+  } finally {
+    s.close();
+  }
+}
+
 // ── the words ───────────────────────────────────────────────────────────────
 
 describe("reload or update: decided by what Claude Code records", () => {
@@ -417,6 +427,25 @@ describe("through the real hook: an old hook against a newer store", () => {
     expect(model).toContain(PLUGIN_UPDATE);
   }, 60_000);
 
+  test("F1: a record newer than this window but older than the writer: update, naming the writer — a reload would load code that still refuses", () => {
+    // loaded 0.3.37, record 0.3.38, writer 0.3.39 — as LOADED, NEWER and one past NEWER.
+    const writer = patchPast(NEWER);
+    seedStore();
+    stampWriter(`${writer}-${SHA}`);
+    bumpStore();
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${NEWER}-${SHA}`, { installPath: REPO_ROOT }) });
+    const { person, model } = parsed(runHook("SessionStart", "sess-old-window-4", PLUGIN_ENV()).stdout);
+    expect(person).toBe(
+      `Counterparts memory is OFF in this window: a newer version of Counterparts (${writer}) upgraded this memory; this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`,
+    );
+    expect(model).toContain(PLUGIN_UPDATE);
+    // A writer no newer than the record: the reload, as before.
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${writer}-${SHA}`, { installPath: REPO_ROOT }) });
+    expect(parsed(runHook("SessionStart", "sess-old-window-5", PLUGIN_ENV()).stdout).person).toBe(
+      `Counterparts memory is OFF in this window: ${RELOAD_WORDS.charAt(0).toLowerCase()}${RELOAD_WORDS.slice(1)}`,
+    );
+  }, 120_000);
+
   test("npm (no CLAUDE_PLUGIN_ROOT): the hook is the install, so the step updates it", () => {
     seedStore();
     bumpStore();
@@ -461,6 +490,24 @@ describe("doctor's Store open line says the same step (constitution 16)", () => 
     expect(reload?.fix).toContain(RELOAD_WORDS);
     const npm = doctorFindings(doctorInput({ open: reading, install: "npm" })).find((f) => f.key === "store-open");
     expect(npm?.fix).toContain(`update Counterparts: in a terminal, run ${npmUpdateCommand()}; then run /mcp and Reconnect.`);
+  });
+
+  test("F1: a record newer than this copy but older than the writer: update, naming the writer, read from the refused database", () => {
+    // loaded 0.3.37, record 0.3.38, writer 0.3.39 — as LOADED, NEWER and one past NEWER.
+    const writer = patchPast(NEWER);
+    seedStore();
+    stampWriter(writer);
+    bumpStore();
+    const reading = readCounterpartOpen(dir);
+    expect(reading.code).toBe("SCHEMA_AHEAD");
+    const line = doctorFindings(doctorInput({ open: reading, install: "plugin", pluginRecorded: () => NEWER })).find((f) => f.key === "store-open");
+    expect(line?.fix).toContain(
+      `A newer version of Counterparts (${writer}) upgraded this memory; this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`,
+    );
+    expect(line?.fix).not.toContain(RELOAD_WORDS);
+    // The record as new as the writer: the reload.
+    const reload = doctorFindings(doctorInput({ open: reading, install: "plugin", pluginRecorded: () => writer })).find((f) => f.key === "store-open");
+    expect(reload?.fix).toContain(RELOAD_WORDS);
   });
 });
 

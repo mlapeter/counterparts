@@ -552,7 +552,8 @@ describe("review of #592 — F1/F2/F5: the Stop ask's own items", () => {
     expect(lines.length).toBe(3);
     expect(lines[2]?.length ?? 0).toBeLessThanOrEqual(OPEN_LINE_MAX_CHARS);
     expect(lines[2]?.match(/mem_[0-9a-f]+/g)?.length).toBe(5);
-    expect(ask.length).toBeLessThanOrEqual(1_250);
+    // 1,250 until 2026-10-27; 1,300 since the ask invites settlesWhen (F1, 51 characters).
+    expect(ask.length).toBeLessThanOrEqual(1_300);
   });
 });
 

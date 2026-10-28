@@ -144,6 +144,14 @@ export interface OpenDbOptions {
    * this, and `adapters/cli` opens box 3 read-only for a census.
    */
   readonly wal?: boolean;
+  /**
+   * The connection's busy wait, set first as always (I39). Absent:
+   * `BUSY_TIMEOUT_MS`. 0 for a peek that would rather answer "can't read it
+   * now" than wait (`operational.ts#peekMeta`, review of #668): the open's own
+   * pragmas wait on a store held EXCLUSIVE, so the wait has to be chosen here,
+   * not after the open.
+   */
+  readonly busyTimeoutMs?: number;
 }
 
 /**
@@ -503,7 +511,7 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
   // inside another writer's commit window — which is where "database is locked"
   // came from. Set on every connection, including the short-lived one
   // `VACUUM INTO` opens for a backup (§5 G8, live-verify 2026-08-25).
-  exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  exec(`PRAGMA busy_timeout = ${String(opts.busyTimeoutMs ?? BUSY_TIMEOUT_MS)}`);
   // Foreign keys are OFF by default in SQLite; referential integrity is enforced by
   // the store (contract §5 G4), so turn them on before anything is written.
   exec("PRAGMA foreign_keys = ON");

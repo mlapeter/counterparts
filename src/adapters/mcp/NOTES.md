@@ -1905,3 +1905,17 @@ its own small PR, after a look at its live use.
 - **Open check (review of #666, item 3; Q11):** "Update now" vs "Update marketplace". Whether Installed → counterparts
   → Update now refreshes the marketplace listing first, or answers "already at the latest" with auto-update off, needs
   a throwaway-home run in interactive Claude Code. Until then `PLUGIN_UPDATE` stays "Update now".
+
+## 2026-10-27 — the hook and doctor weigh the writer too (F1, after #666)
+
+- **The writer guard was the server's alone.** `newerStoreStep` says reload only into a record at least as new as the
+  version that upgraded the memory, but only `server.ts#newerStoreRoute` passed a `writer`. The hook and doctor said
+  reload for loaded 0.3.37, record 0.3.38, writer 0.3.39, and the reload would have loaded code that still refuses.
+- **Read without the store.** In the hook and doctor the store refused to open (`SCHEMA_AHEAD`), so there is no
+  `getMeta`. `store#peekMeta` reads one meta value on its own connection (`wal: false`, one SELECT, closed; never
+  throws), and `claude-code/standdown.ts#aheadWriter` applies the server's rule: a version-shaped
+  `self.wake.build`, said only when newer than this copy. The path is the one the refusal named, else the
+  configured store's database (the cache's own `SCHEMA_AHEAD` names no path). Off the npm route only, as the server.
+- **What it can't see.** A newer writer that migrated the store but hasn't published a wake yet leaves the old stamp
+  (or none), so the words fall back to what they said before: reload when the record is newer. Unmeasured how often
+  a migration lands without a wake following it in the same process.
