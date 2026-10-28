@@ -90,7 +90,9 @@ import { homedir } from "node:os";
 import { CLAUDE_AI_HOST, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, wordingFor } from "../hosts.js";
 import { PLUGIN_ROOT_ENV } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
-import { sidebarBeside } from "../host-wiring.js";
+import { pluginVersionRecorded, sidebarBeside, versionCore } from "../host-wiring.js";
+import { coreNewer, newerStoreRemedy } from "../update-words.js";
+import type { NewerStoreInput } from "../update-words.js";
 import {
   MEET_STEPS,
   STYLE_CHOICES,
@@ -247,7 +249,7 @@ import {
   desktopWriteUpAsk,
   STORE_BUSY_REFUSAL,
   schemaUnreadableRefusal,
-  staleServerRefusal,
+  newerStoreRefusal,
   cacheAheadRefusal,
   uninstallRouteWords,
   memoryHomeWords,
@@ -295,6 +297,7 @@ export {
   SERVER_VERSION,
   staleServerRefusal,
   STALE_SERVER_REFUSAL,
+  newerStoreRefusal,
   cacheAheadRefusal,
   schemaUnreadableRefusal,
   SCHEMA_UNREADABLE_REFUSAL,
@@ -420,6 +423,7 @@ export class McpServer {
   private lifecycleInst: Lifecycle | null = null;
   private readonly wakeNotice: ((opts: { night: boolean }) => string | null) | undefined;
   private readonly manifestVersion: () => string | null;
+  private readonly pluginVersion: () => string | null;
   private readonly env: Readonly<Record<string, string | undefined>>;
 
   constructor(opts: McpServerOptions) {
@@ -441,6 +445,9 @@ export class McpServer {
     this.wakeNotice = opts.wakeNotice;
     this.manifestVersion = opts.manifestVersion ?? manifestVersionOnDisk;
     this.env = opts.env ?? process.env;
+    this.pluginVersion =
+      opts.pluginVersion ??
+      (() => pluginVersionRecorded({ home: homedir(), env: this.env, cwd: this.env["CLAUDE_PROJECT_DIR"] ?? null }));
     // A server TOLD it serves Desktop takes Desktop's place from the start; the
     // one a Desktop client reveals itself to takes it at `initialize`. A server
     // told it serves claude.ai (`adapters/remote/`) takes `claude-ai:` the same way.
@@ -1117,10 +1124,50 @@ export class McpServer {
     return this.refuse(tool, "schema-ahead", {
       // The store's stamp ahead is a newer build this server has not loaded;
       // the cache's alone is a newer build's cache (`cacheAheadRefusal`).
-      detail: verdict.storeAhead ? staleServerRefusal(this.host) : cacheAheadRefusal(paths.cache(this.counterpart.store.dir), this.host),
+      // Both in the words of this copy's route (U1a): a plugin's Reconnect
+      // restarts its old folder (`newerStoreRoute`).
+      detail: verdict.storeAhead
+        ? newerStoreRefusal({ ...this.newerStoreRoute(), host: this.host })
+        : cacheAheadRefusal(paths.cache(this.counterpart.store.dir), this.host, this.newerStoreRoute()),
       store: { expected: SCHEMA_VERSION, found: verdict.store, ahead: verdict.storeAhead },
       cache: { expected: CACHE_SCHEMA_VERSION, found: verdict.cache, ahead: verdict.cacheAhead },
     });
+  }
+
+  /**
+   * WHAT THIS SERVER'S ROUTE SAYS ABOUT A NEWER STORE (U1a, 2026-10-27): the
+   * facts `update-words.ts#newerStoreWords` decides from. Only a Claude Code
+   * server off the npm route reads Claude Code's plugin record — the one
+   * file that says whether `/reload-plugins` would load something newer. The
+   * writer is the wake's build stamp, said only when it is newer than this.
+   * Never throws: a fact it cannot read is a null, which gives the update
+   * words, and those work either way.
+   */
+  private newerStoreRoute(): Omit<NewerStoreInput, "who" | "host"> {
+    const loaded = this.identity?.build.version ?? installedVersion();
+    let recorded: string | null = null;
+    let writer: string | null = null;
+    if (this.host === DEFAULT_HOST && this.install !== "npm") {
+      try {
+        recorded = this.pluginVersion();
+      } catch {
+        recorded = null;
+      }
+      try {
+        // Only a version-shaped stamp is ever said (`versionCore`).
+        const wrote = versionCore(this.counterpart.store.getMeta(WAKE_BUILD_KEY));
+        writer = coreNewer(wrote, loaded) ? wrote : null;
+      } catch {
+        writer = null;
+      }
+    }
+    return {
+      route: this.install,
+      loaded,
+      recorded,
+      writer,
+      codeTab: (this.env["CLAUDE_CODE_ENTRYPOINT"] ?? "") === CODE_TAB_ENTRYPOINT,
+    };
   }
 
   // ── the launch record ──────────────────────────────────────────────────────
@@ -3303,6 +3350,19 @@ export class McpServer {
         return null;
       }
       if (!versionNewer(wrote, loaded)) return null;
+      // A PLUGIN'S SERVER (U1a): "installed somewhere else" was the review of
+      // #318's answer for a copy this disk does not hold, and for an npm
+      // server it still is. The plugin keeps old folders beside the new one,
+      // so its newer copy may be installed right here and only not reloaded:
+      // its step is the route's (`update-words.ts`), reload or update.
+      if (this.host === DEFAULT_HOST && this.install !== "npm") {
+        const route = this.newerStoreRoute();
+        const step = newerStoreRemedy({ ...route, who: "server", host: this.host });
+        return {
+          line: `A newer version of Counterparts (${String(wrote)}) has written this memory; this window still runs ${loaded}. To use it here, ${step}.`,
+          reconnect: true,
+        };
+      }
       return {
         line: `A newer Counterparts (${String(wrote)}), installed somewhere else, has written this memory store; this server is ${loaded}.`,
         reconnect: false,

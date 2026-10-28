@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { EMBED_BACKFILL_EVENT, RUNNER_FAILED_EVENT } from "../../core/counterpart.js";
 import type { Store } from "../../core/store/index.js";
 import { MODEL_FILE, VOCAB_FILE, resolveStaticWeights } from "../../core/embed/static.js";
-import { bundledModelDir, currentRuntime } from "../runtime.js";
+import { bundledModelDir } from "../runtime.js";
 import type { RuntimeKind } from "../runtime.js";
 import type { AdapterConfig } from "../config.js";
 import type { InstallRoute } from "../plugin.js";
@@ -30,34 +30,15 @@ import { payloadOf, str } from "./doctor-finding.js";
 
 // ── the install routes, shared with doctor.ts and `install` ────────────────
 
-/** The plugin's way to a newer or whole copy: Claude Code's plugin manager. */
-export const PLUGIN_UPDATE = "in Claude Code, /plugin → Installed → counterparts → Update now (or uninstall it and install it again)";
-
-/**
- * THE NPM INSTALL'S WAY TO THE MEANING TABLE: install Counterparts again with
- * the runtime it runs on (README's two lines). The weights are the package's
- * own dependency and are found beside it (`resolveStaticWeights`'
- * `require.resolve`); a separate global `counterparts-model-potion` is not
- * where that looks, so naming it was a fix that fixed nothing (review of #664).
- */
-export function npmTableCommand(runtime: RuntimeKind = currentRuntime()): string {
-  return runtime === "node" ? "npm install -g counterparts" : "bun add -g counterparts";
-}
+// The steps themselves live in the adapters' shared leaf since U1a
+// (`../update-words.ts`): the MCP server's refusal says them too, and it may
+// not import this adapter. Re-exported here, where doctor and the wake read them.
+import { PLUGIN_UPDATE, byRoute, npmTableCommand } from "../update-words.js";
+export { PLUGIN_UPDATE, byRoute, npmTableCommand, npmUpdateCommand } from "../update-words.js";
 
 /** The plugin's way to the meaning table: its update reruns the dependency
  *  step, which needs npm (#396: a Bun-only computer has none). */
 export const PLUGIN_TABLE_UPDATE = `${PLUGIN_UPDATE}; the plugin installs its files with npm, so with no npm on this computer install Node.js (https://nodejs.org) first`;
-
-/**
- * A fix that installs something, in the words of the route this copy came
- * by: the npm command, the plugin's update, or — not known — both.
- */
-export function byRoute(route: InstallRoute | undefined, npm: string, plugin: string = PLUGIN_UPDATE): string {
-  const r = route ?? "either";
-  if (r === "npm") return npm;
-  if (r === "plugin") return plugin;
-  return `npm: ${npm} · plugin: ${plugin}`;
-}
 
 // ── the table on disk ──────────────────────────────────────────────────────
 

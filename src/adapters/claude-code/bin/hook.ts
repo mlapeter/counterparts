@@ -53,9 +53,13 @@ import {
   CONFIG_UNREADABLE,
   classifyStandDown,
   decideSay,
+  newerStoreSay,
   readMark,
   writeMark,
 } from "../standdown.js";
+import { CODE_TAB_ENTRYPOINT } from "../../hosts.js";
+import { pluginVersionRecorded } from "../../host-wiring.js";
+import { newerStoreWords } from "../../update-words.js";
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 import { BINARY, entryScript, scriptArgs } from "../../runtime.js";
@@ -568,8 +572,11 @@ interface Said {
  * ONE LINE ON STDERR ALWAYS — AND, WHEN THIS WAS A FAULT, ONE RED LINE WHERE
  * THE OWNER WILL SEE IT.
  *
- * Exit code is untouched (0, always) and nothing else is injected: no wake, no
- * context, just the `systemMessage` the host displays. WHAT to say and WHETHER
+ * Exit code is untouched (0, always) and no wake is injected: just the
+ * `systemMessage` the host displays — and, for the one fault that has a line
+ * for the model (`StandDownFault.say`: a memory a newer Counterparts upgraded),
+ * that line as `additionalContext`, so the model does not act as if it
+ * remembers. WHAT to say and WHETHER
  * to say it is `standdown.ts#decideSay`'s, which is the rule that tells a store
  * that will not open from a database that was merely busy; this function is the
  * process end of it — the two channels, the mark, and the ordering.
@@ -594,8 +601,43 @@ function standDown(
   // still one this session has met, and the count is what decides the next one.
   writeMark(dataDir, said.sessionId, decision.mark);
   if (decision.message === null) return;
-  process.stdout.write(JSON.stringify({ systemMessage: decision.message }));
+  // A FAULT WITH A LINE FOR THE MODEL TOO (U1a: a memory a newer Counterparts
+  // upgraded) rides the envelope the paused notice does (`sayPaused`): the
+  // person's line as `systemMessage`, the model's as `additionalContext`.
+  process.stdout.write(
+    decision.model === null
+      ? JSON.stringify({ systemMessage: decision.message })
+      : hostDelivery(said.hook, { injection: decision.model, ask: null }, {}, [decision.message]).stdout,
+  );
   said.wroteStdout = true;
+}
+
+/**
+ * THE STAND-DOWN'S WORDS FOR A STORE A NEWER COUNTERPARTS UPGRADED (U1a,
+ * 2026-10-27), or the fault unchanged. The step is this copy's route's
+ * (`update-words.ts#newerStoreWords`): a hook is the code installed at its own
+ * path, so on npm a store ahead of it means the install is the older one
+ * (update); on the plugin it is the folder Claude Code loaded for this window,
+ * and `installed_plugins.json` says whether `/reload-plugins` would load a
+ * newer one (reload) or not (update first). Read only when the fault is this
+ * one; never throws — a fact it cannot read gives the update words.
+ */
+function withNewerStoreWords(fault: StandDownFault | null, payload: Record<string, unknown>): StandDownFault | null {
+  if (fault === null || fault.code !== "SCHEMA_AHEAD") return fault;
+  try {
+    const route = installRoute(process.env);
+    const cwd = process.env["CLAUDE_PROJECT_DIR"] ?? eventDirectory(payload);
+    const words = newerStoreWords({
+      route,
+      who: "hook",
+      loaded: installedVersion(),
+      recorded: route === "npm" ? null : pluginVersionRecorded({ home: homedir(), env: process.env, cwd }),
+      codeTab: (process.env["CLAUDE_CODE_ENTRYPOINT"] ?? "") === CODE_TAB_ENTRYPOINT,
+    });
+    return newerStoreSay(fault, words);
+  } catch {
+    return fault;
+  }
 }
 
 /**
@@ -710,7 +752,7 @@ async function main(): Promise<void> {
     const remedy = `Set "dataDir" in ${choice.path}, or set ${DATA_DIR_ENV}.`;
     standDown(said, {
       line: describeGuardRefusal(err, remedy) ?? detail,
-      fault: classifyStandDown(err),
+      fault: withNewerStoreWords(classifyStandDown(err), payload),
       marker: true,
     });
   }
