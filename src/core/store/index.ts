@@ -5339,7 +5339,7 @@ export class Store {
    *  dated, `asked`, or names what would settle it (2026-10-22; `settles`
    *  P2 2026-10-28; `reads-memories.ts#openThreadTouches`): what the parking
    *  rule reads (`self/identity.ts#openCarry`). */
-  openThreadTouches(opts: { glimpses?: boolean } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
+  openThreadTouches(opts: { glimpses?: boolean; at?: string } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
     return memoryReads.openThreadTouches(this, opts);
   }
 

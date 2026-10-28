@@ -17,6 +17,12 @@
   `settlesWhen` are never parked. Why: a date is its own trigger and the wake's "Coming up"
   handles it; a `settlesWhen` item's door is the reflection's `settlesOpen`, which a parked item
   would leave.
+- Decided in the review of #674, 2026-10-28, lightly held: "dated" means a date still to
+  come — ahead, inside its grace week after (`HOLD_GRACE_DAYS`, while "Coming up" still says it
+  was due), or repeating. A one-off whose date and grace are behind it parks like any other
+  open item once untouched 14 lived days. Why: the brief scoped the exemption to "eventDate in
+  the future"; past its grace "Coming up" has let the item go, and exempt it sat in "Still
+  open" for good (probe: a 10-05 vet visit still listed on 11-10, 38 lived days untouched).
 - Decided by the P2 builder, 2026-10-28, lightly held: the reflection's `staleOpen` and close
   proposals keep skipping parked items. Why: being offered is not a touch, and offering them
   each night would make parking a slower path to closing.

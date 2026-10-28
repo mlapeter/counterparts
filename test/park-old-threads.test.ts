@@ -358,3 +358,71 @@ describe("P2. an open item untouched for 14 lived days is parked", () => {
     expect(moreLine("hints", ["mem_a"], undefined, 5)).not.toContain(PARKED_WORDS);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Review of #674 (2026-10-28): the line itself, a date that has gone by, and
+// the session-start doctor reading.
+describe("review of #674 — the line at exactly 14 lived days; a one-off date gone by parks; a repeating one and one in its grace do not", () => {
+  test("through remember, the handle, status, the reflection and the wake assembled at session start", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1); // 2026-10-02
+    const plain = await remember(s, { text: "Open: is the compost bin lid cracked along the hinge?", unresolved: true });
+    const gone = await remember(s, { text: "Open: the vet visit for the dog on the fifth — did the booster happen?", unresolved: true, eventDate: "2026-10-05" });
+    const weekly = await remember(s, { text: "Open: the weekly bin rota with the neighbours, still not agreed.", unresolved: true, eventDate: "2026-10-05", recurring: "weekly" });
+    const grace = await remember(s, { text: "Open: the parish fence survey due on the last day of October.", unresolved: true, eventDate: "2026-10-31" });
+    const parkedIds = async (): Promise<string[]> => (await stillOpen(s)).items.filter((i) => i.parked === true).map((i) => i.id).sort();
+
+    // Lived day 14 (10-15): 13 untouched, the vet date and its grace week behind — nothing parks yet.
+    toDay(w, K);
+    expect(await parkedIds()).toEqual([]);
+
+    // Lived day 15 (10-16): exactly 14 untouched. The plain one and the one-off
+    // gone by park; the repeating one and the one still ahead do not.
+    toDay(w, K + 1);
+    expect(await parkedIds()).toEqual([plain, gone].sort());
+    const listed = await stillOpen(s);
+    expect(listed.items.find((i) => i.id === gone)).toMatchObject({ parked: true, date: "2026-10-05", touched: `${String(K)} lived days ago` });
+    expect(listed.items.find((i) => i.id === plain)).toMatchObject({ parked: true, touched: `${String(K)} lived days ago` });
+    const status = (await s.call("status", {})).structuredContent;
+    expect((status["openItems"] as Record<string, unknown>)["parked"]).toBe(2);
+    // The night counts both, once, as parked, and offers neither.
+    const night = w.c.reflections.begin({ session: "s-night-15" });
+    if (!night.ok) throw new Error(night.reason);
+    expect(night.bundle.noLongerCarried).toBe(2);
+    expect(night.bundle.staleOpen.map((x) => x.id)).not.toContain(gone);
+    // The wake assembled at session start lists neither.
+    w.c.rebrief({ budgetBytes: BUDGET, at: w.today() });
+    const woke = sessionStart(w, "s-day-15");
+    expect(inStillOpen(woke, plain)).toBe(false);
+    expect(woke).not.toContain("vet visit");
+    // The repeating one rides "Coming up" (its next week), the one still ahead "Still open".
+    expect(woke).toContain(weekly);
+    expect(inStillOpen(woke, grace)).toBe(true);
+
+    // Lived day 35 (11-05): the fence survey's day is behind but its grace week is not — still not parked.
+    toDay(w, 35);
+    expect(await parkedIds()).toEqual([plain, gone].sort());
+    // Lived day 40 (11-10): its grace gone too, it parks; the repeating one never does.
+    toDay(w, 40);
+    expect(await parkedIds()).toEqual([plain, gone, grace].sort());
+    expect(openCarry(w.c.store, 40, K).carried).toContain(weekly);
+
+    // Touched again (revised, still open), the one gone by is back.
+    const revised = await s.call("remember", { text: "Open: the vet visit — the booster was moved, the clinic will ring.", unresolved: true, updates: gone });
+    expect(revised.isError ?? false).toBe(false);
+    const head = String(revised.structuredContent["id"]);
+    expect((await stillOpen(s)).items.find((i) => i.id === head)?.parked).toBeUndefined();
+  });
+
+  test("doctor's Open items line is not in the session-start reading (never red; it reads every open row)", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    await remember(s, { text: "Open: is the ladder hook on the barn wall still loose?", unresolved: true });
+    toDay(w, 1 + K);
+    const input = { configPath: config, configReason: "loaded" as const, config: { dataDir: storeDir }, dir: storeDir, store: w.c.store, today: w.today(), refusals: {} };
+    expect(doctorFindings(input).find((x) => x.key === "open-items")?.data).toMatchObject({ open: 1, parked: 1 });
+    expect(doctorFindings({ ...input, budgetMs: 5_000 }).find((x) => x.key === "open-items")).toBeUndefined();
+  });
+});

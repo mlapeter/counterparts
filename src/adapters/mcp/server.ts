@@ -3593,7 +3593,7 @@ export class McpServer {
       openItems: {
         ...openSettlesCounts(store),
         parked: this.parkedCount(),
-        note: `Open items (unresolved), carried or not: how many name what would settle them (settlesWhen), how many have only a date (eventDate), and how many have neither. parked: untouched for ${String(this.counterpart.self.tunables.OPEN_CARRY_DAYS)}+ lived days with no date and no settlesWhen, so left out of the wake's Still open — not closed; recall "still open" lists them last.`,
+        note: `Open items (unresolved), carried or not: how many name what would settle them (settlesWhen), how many have only a date (eventDate), and how many have neither. parked: untouched for ${String(this.counterpart.self.tunables.OPEN_CARRY_DAYS)}+ lived days with no date still to come and no settlesWhen, so left out of the wake's Still open — not closed; recall "still open" lists them last.`,
       },
       stance: { observer: this.observer },
     };

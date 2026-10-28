@@ -281,7 +281,7 @@ export function openSettlesCounts(store: Store): { open: number; withSettlesWhen
  * WHICH OPEN THREADS ARE STILL CARRIED (2026-10-22, the open-threads brief;
  * the one place the rule lives — the wake's "Still open", built and
  * assembled, the reflection's `staleOpen` and its `noLongerCarried` count
- * all read it). Of the open threads (`openThread`), one with no `eventDate`,
+ * all read it). Of the open threads (`openThread`), one with no `eventDate` still to come,
  * not `asked`, untouched for `days` lived days or more
  * (`SelfTunables.OPEN_CARRY_DAYS`) is NOT carried: the wake shows it in no
  * lane ("Nearby" would read as carried still). It is not closed: the flag
@@ -330,13 +330,21 @@ export function carriesOpen(
 }
 
 /** `glimpses`: `SelfTunables.OPEN_CARRY_GLIMPSE_TOUCH` — true counts an
- *  unrated footnote as a touch again (the revert of the 10-22 call). */
-export function openCarry(store: Store, day: number, days: number, glimpses = false): OpenCarry {
+ *  unrated footnote as a touch again (the revert of the 10-22 call).
+ *
+ *  DATED MEANS STILL TO COME (review of #674, 2026-10-28; the brief: "dated
+ *  items (eventDate in the future) … probably never parked"): a date is
+ *  never parked while it is ahead, inside its grace after (the week "Coming
+ *  up" still says it was due) or repeating. A one-off whose date and grace
+ *  are behind `at` (the store's own day, `Store#today`, by default) is parked
+ *  like any open item once untouched for `days` lived days — before this it
+ *  sat in "Still open" for good, which "Coming up" had already let go. */
+export function openCarry(store: Store, day: number, days: number, glimpses = false, at?: string): OpenCarry {
   const touched = new Map<string, number>();
   const carried: string[] = [];
   const notCarried = new Map<string, number>();
   try {
-    for (const f of store.openThreadTouches({ glimpses })) {
+    for (const f of store.openThreadTouches({ glimpses, at: at ?? store.today() })) {
       if (!openThread(store, f.id)) continue;
       touched.set(f.id, f.touchedDay);
       if (carriesOpen(f, day, days)) carried.push(f.id);

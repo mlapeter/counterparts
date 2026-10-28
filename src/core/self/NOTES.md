@@ -2878,7 +2878,12 @@ P2 is that rule retuned and said aloud, not a second mechanism beside it:
 - **Never parked**: a dated item (as before), an `asked` one (as before), and one naming what
   would settle it (`meta.settlesWhen`, S1; read in the same SQL, `reads-memories.ts#
   openThreadTouches`'s `settles`). Its door is the reflection's `settlesOpen`, which a parked
-  item would leave.
+  item would leave. **Dated means still to come** (review of #674): ahead of the store's day,
+  inside its grace week after (`HOLD_GRACE_DAYS`), or repeating (`openThreadTouches`'s `at`,
+  `openCarry`'s `at`, `Store#today` by default). A one-off past its grace parks like the rest —
+  exempt, a 10-05 vet visit was still in "Still open" on 11-10, which "Coming up" had let go.
+- **Doctor's Open items line is not in the session-start reading** (review of #674): it is
+  never red, the only thing that notice prints, and `openCarry` reads every open row.
 - **Said**: "Still open"'s count line ends `· N parked` after its paren (`briefing.ts#
   parkedTail`; `countedLanes` reads the count before it as before), the collapsed line too;
   the count is per reader (another folder's work not counted, O2), set on `Lanes.parked` by
