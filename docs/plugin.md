@@ -150,7 +150,7 @@ written, the hook delivers anyway.
 disconnect` (it removes the settings hooks and the `claude mcp` registration, with
 a backup) and restart Claude Code. Same store, same memories.
 
-**Moving from the plugin to npm:** `npm i -g counterparts`, then `counterparts
+**Moving from the plugin to npm:** `npm i -g counterparts@latest`, then `counterparts
 install`. Once its wiring is live, the plugin stands down by itself; uninstall the
 plugin to tidy up.
 
@@ -525,7 +525,7 @@ still loads, and `/plugin` notes the missing packages. Then, measured by the loo
   the route for the install (`plugin.ts#installRoute`): for the plugin, `/plugin` →
   Installed → counterparts → Update now, with Node.js first where there is no npm, or
   `COUNTERPARTS_STATIC_WEIGHTS_DIR`; for the npm install, Counterparts installed again
-  with the runtime it runs on (`npm install -g counterparts` under Node, `bun add -g
+  with the runtime it runs on (`npm install -g counterparts@latest` under Node, `bun add -g
   counterparts` under Bun), which brings the table as its dependency;
 - under Bun, the same amber line. With no `node_modules` above the plugin, Bun's runtime
   auto-install would fetch the package from the npm registry into `~/.bun/install/cache`,

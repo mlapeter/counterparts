@@ -230,7 +230,7 @@ describe("the binary wires no host", () => {
     const code = await run(["connect"], { io: c.io, env: {}, home: join(work, "home"), binary: fake });
     expect(code).toBe(EXIT.refused);
     expect(c.err.join("\n")).toBe(BINARY_CONNECT_REFUSAL);
-    expect(BINARY_CONNECT_REFUSAL).toContain("npm i -g counterparts");
+    expect(BINARY_CONNECT_REFUSAL).toContain("npm i -g counterparts@latest");
     expect(existsSync(join(work, "home", ".claude"))).toBe(false);
   });
 
