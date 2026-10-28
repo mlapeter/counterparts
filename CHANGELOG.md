@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.39 — 2026-10-28
+
+Counterparts now tells you when an update is out: once a day it asks the npm registry for the newest version number (nothing about you or your memory goes with it), and when you're a few releases behind, or a release is worth taking, your Claude says so once, with the steps for how you installed. **To turn it off,** tell your Claude to stop reminding you about updates, or set `"updateCheck": false` in `~/.counterparts/claude-code.json`, or `COUNTERPARTS_UPDATE_CHECK=off`; it never runs under Claude Code's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. A store now keeps its id after its first week (the session-start cleanup no longer deletes its handle salt). When `claude` isn't on PATH, the `claude mcp add …` line to paste sits on one line of its own. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.38 needs no store restore: `counterparts disconnect`, 0.3.38's install, then `counterparts connect`.
+
+- **Counterparts now tells you when an update is out.** Once a day, it asks the npm registry
+  (`registry.npmjs.org`) for the newest version number. The request carries no memory, no
+  conversation, no identifier, not even which version you have; because it's daily, npm
+  can see your computer's network address and that Counterparts checked that day. When
+  you're a few releases behind, or a release is worth taking, your Claude mentions it once,
+  with the steps for how you installed. **To turn it off, tell your Claude to stop
+  reminding you about updates, or set `"updateCheck": false` in
+  `~/.counterparts/claude-code.json` (or `COUNTERPARTS_UPDATE_CHECK=off`).** It doesn't
+  run under Claude Code's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; a copy that checks
+  nothing says once, after 30 days, that a newer one may be out. `counterparts doctor` has
+  an Updates line.
+- **Plugin users are offered Claude Code's own auto-update, once.** /plugin → Marketplaces →
+  counterparts → Enable auto-update keeps Counterparts current without asking.
+- **The plugin's update step is now Update marketplace.** Fix lines say /plugin →
+  Marketplaces → counterparts → Update marketplace, which refreshes the listing before it
+  updates, instead of Installed → Update now.
+- **npm lines say `@latest`.** Doctor's and the wake's npm steps, and the install lines in the README,
+  QUICKSTART and docs, say `npm install -g counterparts@latest`: on Node 20 the bare form quietly
+  installs 0.3.10. After the bun installer, the docs say to open a new terminal.
+- **A store keeps its id after its first week.** The session-start cleanup removed the store's handle salt
+  (`sessions/expansions.salt`) seven days after it was made, so the next session made a new one: the store's id
+  changed (the sidebar compares it) and earlier handle lookups no longer matched. The salt is now kept however old
+  it is. A store that already lost its salt has nothing to recover: the one it made since is kept from now on, and
+  handle lookups only last a day anyway.
+- When `claude` isn't on PATH, setup and connect print the `claude mcp add …` line to paste on one line of its own, never wrapped, so pasting it works on a narrow terminal (it's the same line doctor prints). The `claude mcp remove …` line disconnect prints in the same case is on its own line too.
+
 ## 0.3.38 — 2026-10-28
 
 Dreams can be found: ask about a dream, or about something only a dream held, and recall shows it labelled `[dream]`, told as dreamed and never as lived; `recall "last dream"` reads the newest one whole. An open item can say what would settle it ("settles when …"), and the night closes a few when that plainly happened. The wake says so when search by meaning is switched on but can't run, with the fix for how you installed, and an open window that meets a memory another window's newer Counterparts upgraded says whether to reload or update. A nightly run that fails now records what Claude Code said, so the next failure can be read. Short check-ins are written up by the next night, and "Last here" names the newest session. **Privacy:** your store is now readable by your account alone (folders 700, files 600, tightened the first time this version writes to it), and `counterparts connect` adds one `deniedMcpServers` entry to `~/.claude/settings.json` so Claude Code never loads Counterparts Online beside this install. **Run `counterparts connect` once after upgrading from npm** to add that entry: until then doctor's new Online line reads amber. No store-format change (store v15, cache v7). Going back to 0.3.37 needs no store restore: `counterparts disconnect`, 0.3.37's install, then `counterparts connect`. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
