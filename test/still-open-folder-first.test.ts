@@ -127,10 +127,10 @@ function tools(w: World, dir = HERE): McpServer {
   return new McpServer({ counterpart: w.c, session: S, scope: dir, now: () => w.now(), scopesFile: scopesPath(config) });
 }
 
-type Item = { id: string; title: string };
-async function handle(s: McpServer): Promise<{ items: Item[]; total: number; notCarried: number }> {
+type Item = { id: string; title: string; parked?: boolean };
+async function handle(s: McpServer): Promise<{ items: Item[]; total: number; parked: number }> {
   const r = (await s.call("recall", { handle: "still open" })).structuredContent;
-  return { items: r["items"] as Item[], total: r["total"] as number, notCarried: (r["notCarried"] as number | undefined) ?? 0 };
+  return { items: r["items"] as Item[], total: r["total"] as number, parked: (r["parked"] as number | undefined) ?? 0 };
 }
 
 function lane(text: string, heading: string): string[] {
@@ -270,7 +270,7 @@ describe("O2. Still open: this folder's first, personal after, other folders' wo
     expect(JSON.stringify(got)).not.toContain("SITE-1");
   });
 
-  test("the tail counts only what could show here, and the handle's not-carried count too", async () => {
+  test("the tail counts only what could show here, and its parked count and the handle's parked list too", async () => {
     const w = world(at(D2, 9));
     toDay(w, 2);
     // Old ones, left untouched past the carry: two of ours, five of the workshop's work.
@@ -287,11 +287,17 @@ describe("O2. Still open: this folder's first, personal after, other folders' wo
     expect(text).not.toContain("THERE-");
     // 7 of ours and 1 personal could show; the rest of those 8 is the tail.
     expect(tailCount(text)).toBe(8 - shown.length);
+    // Parked (P2): our two old ones, not the workshop's five — on the tail too.
+    expect(lane(text, FRAMING.threads).at(-1) ?? "").toEndWith(") · 2 parked");
     const got = await handle(tools(w));
-    expect(got.total).toBe(8);
-    expect(got.items.at(-1)?.title).toStartWith("OWNER");
-    // Not carried: our two old ones, not the workshop's five.
-    expect(got.notCarried).toBe(2);
+    expect(got.total).toBe(10);
+    expect(got.items[7]?.title).toStartWith("OWNER");
+    expect(got.parked).toBe(2);
+    expect(got.items.slice(8).map((i) => [i.title.slice(0, 7), i.parked])).toEqual([
+      ["HEREOLD", true],
+      ["HEREOLD", true],
+    ]);
+    expect(JSON.stringify(got)).not.toContain("THEREOLD");
   });
 
   test("a tight wake keeps this folder's first item, not the personal one", () => {

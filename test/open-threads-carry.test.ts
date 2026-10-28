@@ -38,6 +38,8 @@ import { addDays, localDate } from "../src/core/time.js";
 
 const BASE = Date.parse("2026-09-01T12:00:00Z");
 const BUDGET = 9_000;
+/** The parking line (P2: 14 lived days; 21 before). */
+const K = SELF_TUNABLES.OPEN_CARRY_DAYS;
 const SCOPE = "/proj";
 let dir: string;
 let dateN = 0;
@@ -146,24 +148,23 @@ describe("1. open means someone owes an answer", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("3. an untouched, ownerless open item stops being carried", () => {
-  test("the live store's example: born on lived days 11 and 12, untouched — carried through day 31, gone on 32 and 33; dated and asked ones stay", async () => {
-    expect(SELF_TUNABLES.OPEN_CARRY_DAYS).toBe(21);
+  test("the live store's example: born on lived days 11 and 12, untouched — carried through day 24, parked on 25 and 26; dated and asked ones stay", async () => {
+    // P2 (2026-10-28): parked at 14 lived days untouched (21 before).
+    expect(SELF_TUNABLES.OPEN_CARRY_DAYS).toBe(14);
     const s = server("s-writer");
     toDay(s, 11);
     const eleven = await remember(s, { text: "Open: should the Zillow listing note move to the house folder?", unresolved: true });
     const asked = await remember(s, { text: "Open: Mike asked which week the tax packet goes out.", unresolved: true, status: "asked" });
     toDay(s, 12);
     const twelve = await remember(s, { text: "Open: the Tiny Castles tile sizes disagree between the two sheets.", unresolved: true });
-    toDay(s, 25);
+    toDay(s, 18);
     // Six live ones, so the lane overflows and its count line names the rest.
     const fresh: string[] = [];
     for (let i = 0; i < 6; i += 1) fresh.push(await remember(s, { text: `Open: question ${String(i)} for Mike about the kiln schedule this week.`, unresolved: true }));
 
-    // Days 25..31 shown every day — in both wakes and the reflection's bundle —
-    // and none of it is a touch.
-    // Shown every day from 25 to 31 — in both wakes and the reflection's
+    // Shown every day from 18 to 24 — in both wakes and the reflection's
     // bundle — and none of it is a touch.
-    for (let d = 25; d <= 31; d += 1) {
+    for (let d = 18; d <= 24; d += 1) {
       toDay(s, d);
       const w = wakes(s);
       // The three old ones rank after the six fresh (`byThreadLive`), so they
@@ -172,39 +173,40 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
       const night = s.counterpart.reflections.begin({ session: `s-night-${String(d)}` });
       if (!night.ok) throw new Error(night.reason);
       expect(night.bundle.noLongerCarried).toBeUndefined();
-      if (d === 31) expect(night.bundle.staleOpen.map((x) => x.id)).toEqual(expect.arrayContaining([eleven, twelve]));
+      if (d === 24) expect(night.bundle.staleOpen.map((x) => x.id)).toEqual(expect.arrayContaining([eleven, twelve]));
     }
 
-    // Day 32: the day-11 one is no longer carried, in either wake.
-    toDay(s, 32);
+    // Day 25: the day-11 one is parked, in either wake, and the tail says so.
+    toDay(s, 25);
     let w = wakes(s);
-    // (Counted, so by the total: only the day-11 one is 21 lived days untouched.)
+    // (Counted, so by the total: only the day-11 one is 14 lived days untouched.)
     for (const text of [w.built, w.assembled]) {
       expect(inStillOpen(text, eleven)).toBe(false);
       expect(openTotal(text)).toBe(8);
+      expect(lane(text, FRAMING.threads).at(-1)).toEndWith(") · 1 parked");
     }
     // Which one the total lost, by id (review of #623: the count names no ids now).
-    const carry32 = openCarry(s.counterpart.store, 32, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
-    expect([eleven, twelve, asked].map((id) => carry32.has(id))).toEqual([true, false, false]);
+    const carry25 = openCarry(s.counterpart.store, 25, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+    expect([eleven, twelve, asked].map((id) => carry25.has(id))).toEqual([true, false, false]);
     // Not closed: the flag stands.
     expect(s.counterpart.store.readProse(eleven).meta["unresolved"]).toBe(true);
 
-    // Day 33: both gone, from the list and its count; the asked one stays.
-    toDay(s, 33);
+    // Day 26: both parked, out of the list and its count; the asked one stays.
+    toDay(s, 26);
     w = wakes(s);
     for (const text of [w.built, w.assembled]) {
       expect(inStillOpen(text, eleven)).toBe(false);
       expect(inStillOpen(text, twelve)).toBe(false);
       expect(openTotal(text)).toBe(7);
-      const carry33 = openCarry(s.counterpart.store, 33, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
-      expect([eleven, twelve, asked].map((id) => carry33.has(id))).toEqual([true, true, false]);
+      const carry26 = openCarry(s.counterpart.store, 26, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+      expect([eleven, twelve, asked].map((id) => carry26.has(id))).toEqual([true, true, false]);
       // In no other lane either ("Nearby" would read as carried still).
       for (const id of [eleven, twelve]) {
         expect(text).not.toContain(id);
         expect(text).not.toContain(words.get(id) ?? id);
       }
-      // 6 fresh + asked = 7 carried: 5 listed, "2 more".
-      expect(lane(text, FRAMING.threads).join("\n")).toMatch(/\(2 more open, /);
+      // 6 fresh + asked = 7 carried: 5 listed, "2 more", and 2 parked.
+      expect(lane(text, FRAMING.threads).join("\n")).toMatch(/\(2 more open, .*\) · 2 parked$/);
     }
 
     // Recall still finds it — and being shown an answer is not a touch.
@@ -230,19 +232,19 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     const dated = await remember(s, { text: "Open: check the backup restore on the first of the year with Robin.", unresolved: true, eventDate: "2027-01-01" });
     const plain = await remember(s, { text: "Open: does the glaze order need a second supplier before spring?", unresolved: true });
     const reopened = await remember(s, { text: "Open: did the old deploy key come off the build box for good?", unresolved: true });
-    // Day 20: the reflection closes one itself; on day 30 the owner reopens it — a revision.
-    toDay(s, 20);
+    // Day 12: the reflection closes one itself; on day 20 the owner reopens it — a revision.
+    toDay(s, 12);
     const night = s.counterpart.reflections.begin({ session: "s-night" });
     if (!night.ok) throw new Error(night.reason);
     const fin = s.counterpart.reflections.finish({ reflection: night.bundle.reflection, session: "s-night", entry: "A look back.", closeNow: [{ id: reopened, why: "The key list shows it gone." }] });
     if (!fin.ok) throw new Error(fin.reason);
     expect(s.counterpart.store.readProse(reopened).meta["unresolved"]).toBe(false);
-    toDay(s, 30);
+    toDay(s, 20);
     const back = s.counterpart.reflections.reopen({ reflection: night.bundle.reflection, session: "s-owner", ids: [reopened] });
     if (!back.ok) throw new Error(back.reason);
     expect(back.reopened).toEqual([reopened]);
 
-    toDay(s, 40);
+    toDay(s, 30);
     const w = wakes(s);
     for (const text of [w.built, w.assembled]) {
       expect(inStillOpen(text, dated)).toBe(true);
@@ -251,7 +253,7 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     }
     const touches = new Map(s.counterpart.store.openThreadTouches().map((t) => [t.id, t]));
     expect(touches.get(dated)).toMatchObject({ touchedDay: 2, dated: true });
-    expect(touches.get(reopened)?.touchedDay).toBe(30);
+    expect(touches.get(reopened)?.touchedDay).toBe(20);
   });
 });
 
@@ -264,7 +266,7 @@ describe("3b. the reflection: out of staleOpen, and the count told once", () => 
     const a = await remember(s, { text: "Open: is the old deploy key still on the build box?", unresolved: true });
     toDay(s, 3);
     const b = await remember(s, { text: "Open: talk through the chapter numbering later.", unresolved: true });
-    toDay(s, 21);
+    toDay(s, K);
     const night21 = c.reflections.begin({ session: "s-night" });
     if (!night21.ok) throw new Error(night21.reason);
     expect(night21.bundle.staleOpen.map((x) => x.id)).toEqual(expect.arrayContaining([a, b]));
@@ -278,24 +280,24 @@ describe("3b. the reflection: out of staleOpen, and the count told once", () => 
     });
     if (!fin21.ok) throw new Error(fin21.reason);
     // The cite came back as a reflection's return (physics §5.11) — which the carry does not read.
-    expect(c.store.returnsOf(a).some((r) => r.source === "reflection" && r.day === 21)).toBe(true);
+    expect(c.store.returnsOf(a).some((r) => r.source === "reflection" && r.day === K)).toBe(true);
     expect(c.reflections.told({ reflection: night21.bundle.reflection, session: "s-morning" }).ok).toBe(true);
 
-    toDay(s, 22);
+    toDay(s, K + 1);
     const night22 = c.reflections.begin({ session: "s-night" });
     if (!night22.ok) throw new Error(night22.reason);
     expect(night22.bundle.staleOpen.map((x) => x.id)).not.toContain(a);
     expect(night22.bundle.staleOpen.map((x) => x.id)).toContain(b);
     expect(night22.bundle.noLongerCarried).toBe(1);
-    expect(night22.instructions).toContain('"1 open item nobody touched in 21 lived days is no longer carried; recall shows them."');
+    expect(night22.instructions).toContain(`"1 open item nobody touched in ${String(K)} lived days is parked; recall "still open" lists them."`);
     expect(night22.instructions).not.toContain(a);
     // A quiet night: no share, so nothing is spent.
     const fin22 = c.reflections.finish({ reflection: night22.bundle.reflection, session: "s-night", entry: "Another look back." });
     if (!fin22.ok) throw new Error(fin22.reason);
     expect(JSON.parse(c.store.reflection(night22.bundle.reflection)?.detail ?? "{}")["notCarried"]).toEqual([a]);
 
-    // Day 24: b leaves too. a went untold on 22, so the count says both.
-    toDay(s, 24);
+    // Day K + 3: b is parked too. a went untold on 22, so the count says both.
+    toDay(s, K + 3);
     const night24 = c.reflections.begin({ session: "s-night" });
     if (!night24.ok) throw new Error(night24.reason);
     expect(night24.bundle.staleOpen.map((x) => x.id)).not.toContain(b);
@@ -305,7 +307,7 @@ describe("3b. the reflection: out of staleOpen, and the count told once", () => 
     expect(c.reflections.told({ reflection: night24.bundle.reflection, session: "s-morning-2" }).ok).toBe(true);
 
     // Told: the next night has nothing new to say.
-    toDay(s, 25);
+    toDay(s, K + 4);
     const night25 = c.reflections.begin({ session: "s-night" });
     if (!night25.ok) throw new Error(night25.reason);
     expect(night25.bundle.noLongerCarried).toBeUndefined();
@@ -320,13 +322,13 @@ describe("3b. the reflection: out of staleOpen, and the count told once", () => 
     const old = await remember(s, { text: "Open: which day does the store move to the new shelf?", title: "Store move day", unresolved: true });
     await remember(s, { text: "The store moves to the new shelf on Tuesday.", updates: old, how: "changed" });
     expect(c.store.readProse(old).meta["unresolved"]).toBe(true);
-    toDay(s, 25);
+    toDay(s, K + 4);
     const w = wakes(s);
     for (const text of [w.built, w.assembled]) for (const id of [dreamed, old]) expect(inStillOpen(text, id)).toBe(false);
     const night = c.reflections.begin({ session: "s-night" });
     if (!night.ok) throw new Error(night.reason);
     expect(night.bundle.noLongerCarried).toBeUndefined();
-    const touches = openCarry(c.store, 25, SELF_TUNABLES.OPEN_CARRY_DAYS);
+    const touches = openCarry(c.store, K + 4, SELF_TUNABLES.OPEN_CARRY_DAYS);
     expect(touches.touched.has(dreamed)).toBe(false);
     expect(touches.touched.has(old)).toBe(false);
   });
@@ -660,10 +662,10 @@ describe("re-review of #592 — G1: a real use is a touch in every order; a glim
       onDay(c, 11);
       await glimpse(c, "sA", x, filler);
       expect(touched(c, x)).toBe(10);
-      onDay(c, 30);
+      onDay(c, 10 + K - 1);
       const w = wakes({ counterpart: c } as McpServer);
       for (const text of [w.built, w.assembled]) expect(inStillOpen(text, x)).toBe(true);
-      onDay(c, 31);
+      onDay(c, 10 + K);
       const w2 = wakes({ counterpart: c } as McpServer);
       for (const text of [w2.built, w2.assembled]) expect(inStillOpen(text, x)).toBe(false);
     });

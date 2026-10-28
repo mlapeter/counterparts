@@ -525,7 +525,7 @@ export const STILL_OPEN_HANDLE = "still open";
  * The line it replaces — `(96 more still open, 15 untouched for 2+ weeks;
  * recall ids (the first 5): mem_…×5)` — read as guilt, and five bare ids said
  * nothing of what they were. Its "untouched" count was a third rule beside
- * the carry (`identity.ts#openCarry`: 21 lived days, a glimpse is not a
+ * the carry (`identity.ts#openCarry`: 21 lived days then, 14 since P2; a glimpse is not a
  * touch) and the order (`STILL_OPEN_STALE_DAYS`: 14, born or used), so it is
  * dropped rather than realigned; the order still puts the weeks-old last.
  *
@@ -550,11 +550,30 @@ export const OPEN_TAIL_WORDS = `kept quietly; recall "${STILL_OPEN_HANDLE}" list
 /** "Still open"'s tail words from #623 (2026-10-25, morning), read back off a bundle stored with them. */
 export const OPEN_TAIL_WORDS_BEFORE = "kept quietly; recall finds one by what it's about";
 
+/**
+ * WHAT "STILL OPEN" PARKED, COUNTED ON ITS TAIL (P2, 2026-10-28; roadmap
+ * 10-28, lightly held): `(5 more open, kept quietly; recall "still open"
+ * lists them) · 41 parked`. A parked thread (untouched `OPEN_CARRY_DAYS`
+ * lived days, `identity.ts#openCarry`) is in no lane and not in the "more"
+ * count; this says how many there are, after the paren so `countedLanes`
+ * reads the count as before, and the handle the tail names lists them,
+ * marked. It rides only on the lane's own count line — the "more" line or
+ * the collapsed one — and never adds a line: a lane that lists all it
+ * carries says nothing of what it parked. Revert: `parkedTail` returns "".
+ */
+export const PARKED_WORDS = "parked";
+
+/** ` · 41 parked`, or nothing for none. */
+export function parkedTail(parked: number | undefined): string {
+  return parked === undefined || !(parked > 0) ? "" : ` · ${String(Math.floor(parked))} ${PARKED_WORDS}`;
+}
+
 /** `(3 more might be relevant; recall ids: mem_…, mem_…, mem_…)`; for "Still
- *  open" `(56 more open, kept quietly; …)` (`OPEN_TAIL_WORDS`); for "Coming up"
+ *  open" `(56 more open, kept quietly; …)` (`OPEN_TAIL_WORDS`), and ` · N
+ *  parked` after it when some are (`parkedTail`); for "Coming up"
  *  `(2 overdue, 4 more coming up; recall ids: …)` or `(2 overdue; recall ids: …)`. */
-export function moreLine(lane: LaneName, ids: readonly string[], overdue?: readonly string[]): string {
-  if (lane === "threads") return `(${String(ids.length)} more open, ${OPEN_TAIL_WORDS})`;
+export function moreLine(lane: LaneName, ids: readonly string[], overdue?: readonly string[], parked?: number): string {
+  if (lane === "threads") return `(${String(ids.length)} more open, ${OPEN_TAIL_WORDS})${parkedTail(parked)}`;
   const late = overdueAmong(lane, ids, overdue);
   if (late === 0) return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${recallIds(ids)})`;
   const rest = ids.length - late;
@@ -680,12 +699,14 @@ export function collapsedLine(lane: LaneName, ids: readonly string[], counted?: 
   // Those past their date said as such (review of #511): `none due today, 2 overdue`.
   const late = none ? overdueAmong(lane, ids, counted?.horizonOverdue) : 0;
   const why = none ? `${NONE_TODAY_WORDS}${late === 0 ? "" : `, ${String(late)} ${OVERDUE_WORD}`}` : COLLAPSED_WORDS;
-  return `${laneHeading(lane)} ${String(ids.length)} — ${why}; ${recallIds(ids)}`;
+  // "Still open"'s parked, after the ids (P2, `parkedTail`).
+  return `${laneHeading(lane)} ${String(ids.length)} — ${why}; ${recallIds(ids)}${lane === "threads" ? parkedTail(counted?.threadsParked) : ""}`;
 }
 
 /** What "Coming up" counts rather than lists, as a composition's request
- *  carries it (`BriefingRequest.horizonLater`, `.horizonOverdue`). */
-export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue">;
+ *  carries it (`BriefingRequest.horizonLater`, `.horizonOverdue`) — and
+ *  what "Still open" parked (`.threadsParked`, P2). */
+export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue" | "threadsParked">;
 
 /** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
 export function collapsedLane(line: string): LaneName | null {
@@ -947,6 +968,12 @@ export interface BriefingRequest {
   /** Those of `horizonLater` past their date (review of #511): the line
    *  counts them as overdue. Absent: none said so. */
   readonly horizonOverdue?: readonly string[];
+  /**
+   * HOW MANY OPEN THREADS ARE PARKED, for this reader (P2, 2026-10-28;
+   * `identity.ts#openCarry`): "Still open"'s count line says it after its
+   * paren (`parkedTail`). Absent or 0: nothing said.
+   */
+  readonly threadsParked?: number;
 }
 
 export interface TrimEvent {
