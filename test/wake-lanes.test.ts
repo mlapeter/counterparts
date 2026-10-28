@@ -545,8 +545,9 @@ describe("the write-up ask says to close what got done (item 4)", () => {
     // pin — 474 since 2026-10-10 (01 C1's attention ask; the 10-character
     // margin this held was spent on "what you read, what they said, what happened");
     // 535 on 2026-10-12 (the pronoun rule); 610 on 2026-10-14 (the ratings clause);
-    // 720 on 2026-10-22 (what open means, `OPEN_MEANS`).
-    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(720);
+    // 720 on 2026-10-22 (what open means, `OPEN_MEANS`); 770 on 2026-10-27 (its
+    // settlesWhen invitation, F1).
+    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(770);
     expect(desktopWriteUpAsk("s1")).toContain(clause);
     // Inside the 2,048 characters Claude Code serves of a tool description.
     expect(renderDescription(toolSpec("session_end")!).slice(0, 2_048)).toContain(clause);

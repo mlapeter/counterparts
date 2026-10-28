@@ -555,8 +555,9 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // attention, one idea each, not what is "worth keeping". The ratings
     // clause since 2026-10-14 (Mike's call, tracking only). What open means
     // since 2026-10-22 (the open-threads brief: someone owes an answer).
+    // The settlesWhen invitation since 2026-10-27 (F1, after S1).
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `unresolved` only when someone owes an answer (a question to them, a check with a date, a promise); `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
+      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it; `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
         "2) Write chapter 3 with the counterparts chapter tool, session: SID.",
     );
   });
@@ -599,8 +600,9 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // 535 since 2026-10-12: the pronoun rule (onboarding round 1, E; Mike).
     // 610 since 2026-10-14: the ratings clause (Mike's call, tracking only).
     // 720 since 2026-10-22: what open means (`OPEN_MEANS`, the open-threads brief).
-    expect(text.length).toBeLessThanOrEqual(720);
-    expect(stopAsk(UUID, 1234).length).toBeLessThanOrEqual(720);
+    // 770 since 2026-10-27: the settlesWhen invitation (51 characters, F1).
+    expect(text.length).toBeLessThanOrEqual(770);
+    expect(stopAsk(UUID, 1234).length).toBeLessThanOrEqual(770);
   });
 
   test("the chapter number is the store's, on every chapter including the first", () => {
@@ -763,6 +765,11 @@ describe("the one shape, end to end through the hook process", () => {
     expect(parsed["reason"]).toBeUndefined();
     expect(parsed["systemMessage"]).toBe(STOP_HUMAN_LINE);
     expect(feedbackOf(stop.stdout)).toEqual({ hookEventName: "Stop", additionalContext: stopAsk("s-json", 1) });
+    // The settlesWhen invitation reaches the model through the real hook (F1),
+    // spelled out here so a change to `OPEN_MEANS` cannot carry it away unseen.
+    expect(String(feedbackOf(stop.stdout)["additionalContext"])).toContain(
+      "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it;",
+    );
     expect(stop.stderr).not.toContain(STOP_ASK_OPENER);
     const refire = runHook(config, {
       hook_event_name: "Stop",
