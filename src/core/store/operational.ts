@@ -1434,13 +1434,19 @@ export function isPreRowsDatabase(path: string): boolean {
  * not open for them, so this is its own connection: `wal: false` (a WAL
  * conversion takes the write lock, and a newer writer may be migrating), one
  * SELECT, closed. The `meta` table is the one thing every schema has kept.
+ * Not quite "writes nothing": when this is the last connection to a WAL store,
+ * SQLite's close checkpoints the WAL into the file — harmless, and what the
+ * refused open just before it did on its own close too (review of #668).
+ * No wait for a lock (`busyTimeoutMs: 0`, set at the open, whose own pragmas
+ * would otherwise wait): a store held EXCLUSIVE (a rollback's copy, a
+ * migration) answers null at once instead of after `BUSY_TIMEOUT_MS`.
  * Null for a file that is not there, has no such key, or will not read; never throws.
  */
 export function peekMeta(path: string, key: string): string | null {
   if (!existsSync(path)) return null;
   let db;
   try {
-    db = openDb(path, { wal: false });
+    db = openDb(path, { wal: false, busyTimeoutMs: 0 });
     const value = db.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)?.value;
     return typeof value === "string" ? value : null;
   } catch {
