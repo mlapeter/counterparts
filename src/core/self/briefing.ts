@@ -51,6 +51,7 @@
 import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
 import { shortDay } from "../time.js";
+import { cutPhrase } from "../types.js";
 import type { SelfTunables } from "./tunables.js";
 import type { Kept, RescueCtx, Rescued } from "./briefing-room.js";
 import {
@@ -1198,15 +1199,27 @@ export function elementLine(item: Ranked, resolve: Resolve): string {
 const SETTLES_OPENERS = /^(when|after|once|if|by|on|before|until|as soon as)\b/i;
 
 /**
+ * The most code points of a settles-when the WAKE prints (review of #665):
+ * cut at a word with "…". Meta, `recall "still open"` and the night's bundle
+ * keep the whole phrase.
+ */
+export const WAKE_SETTLES_CHARS = 80;
+
+/**
  * WHAT WOULD SETTLE IT, AFTER THE ITEM (2026-10-27, S1; Ames's idea, lightly
  * held): ` · settles when Katie says how it went`. A phrase that already opens
- * with "after", "once", "when"… reads ` · settles after the 11-26 check`.
- * Empty when nothing was named.
+ * with "after", "once", "when"… reads ` · settles after the 11-26 check`, its
+ * first letter lowered ("When Katie…" → "when Katie…"); one that already says
+ * "settles" is not said twice. Kept to `WAKE_SETTLES_CHARS`. Empty when
+ * nothing was named.
  */
 export function settlesTail(settles: string | undefined): string {
-  const s = (settles ?? "").trim();
+  let s = (settles ?? "").trim().replace(/^settles\s+/i, "");
   if (s === "") return "";
-  return `${DATE_SEP}settles ${SETTLES_OPENERS.test(s) ? s : `when ${s}`}`;
+  s = cutPhrase(s, WAKE_SETTLES_CHARS);
+  const opener = SETTLES_OPENERS.test(s);
+  if (opener) s = `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
+  return `${DATE_SEP}settles ${opener ? s : `when ${s}`}`;
 }
 
 /**

@@ -3452,7 +3452,7 @@ export class McpServer {
       // WHAT WOULD SETTLE THEM (2026-10-27, S1): every open item, carried or
       // not, and how many name a trigger — counted so a "let it go" offer
       // for the rest can be decided later. Nothing acts on it yet.
-      openItems: { ...openSettlesCounts(store), note: "Open items (unresolved), carried or not, and how many name what would settle them (settlesWhen)." },
+      openItems: { ...openSettlesCounts(store), note: "Open items (unresolved), carried or not: how many name what would settle them (settlesWhen), how many have only a date (eventDate), and how many have neither." },
       stance: { observer: this.observer },
     };
   }

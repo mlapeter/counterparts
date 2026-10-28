@@ -22,6 +22,7 @@ import type { Recurrence } from "./time.js";
 import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
+import { headOf } from "./recall/standing.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -623,7 +624,15 @@ export function carrySettles(cp: Counterpart, p: Proposal): string | null {
   if (target === null) return null;
   try {
     const meta = cp.store.readProse(target).meta;
-    return meta[UNRESOLVED_META_KEY] === true ? settlesWhenOf(meta) : null;
+    if (meta[UNRESOLVED_META_KEY] === true) return settlesWhenOf(meta);
+    // A CHAIN (review of #665): `updates` named an item the thread already
+    // moved on from (a → b, then c updates a). The thread lives where the
+    // chain now ends — the memory that holds over it (`recall/standing.ts#headOf`,
+    // as a reminder is found where it now lives, `reminderHolder`).
+    const head = headOf(cp.store, target);
+    if (head === null || head === target) return null;
+    const at = cp.store.readProse(head).meta;
+    return at[UNRESOLVED_META_KEY] === true ? settlesWhenOf(at) : null;
   } catch {
     return null;
   }

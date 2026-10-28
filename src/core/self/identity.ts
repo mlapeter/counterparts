@@ -250,19 +250,23 @@ export function openThread(store: Store, id: string): boolean {
 
 /**
  * HOW MANY OPEN ITEMS NAME WHAT WOULD SETTLE THEM (2026-10-27, S1): every open
- * thread (`openThread`, carried or not), and how many carry a
- * `meta.settlesWhen`. Counted so a later "let it go" offer for items with no
+ * thread (`openThread`, carried or not), how many carry a `meta.settlesWhen`,
+ * how many only a date, and how many neither. Counted so a later "let it go" offer for items with no
  * trigger can be decided on numbers; nothing reads it to act. Never throws.
  */
-export function openSettlesCounts(store: Store): { open: number; withSettlesWhen: number; withoutSettlesWhen: number } {
+export function openSettlesCounts(store: Store): { open: number; withSettlesWhen: number; dated: number; withoutTrigger: number } {
   let open = 0;
   let named = 0;
+  let dated = 0;
   try {
     for (const id of store.openThreadIds()) {
       if (!openThread(store, id)) continue;
       open += 1;
       try {
-        if (settlesWhenOf(store.readProse(id).meta) !== null) named += 1;
+        const doc = store.readProse(id);
+        // A date is a trigger too (review of #665): counted apart, never twice.
+        if (settlesWhenOf(doc.meta) !== null) named += 1;
+        else if (doc.eventDate !== undefined && doc.eventDate.trim() !== "") dated += 1;
       } catch {
         /* unreadable: counted as none named */
       }
@@ -270,7 +274,7 @@ export function openSettlesCounts(store: Store): { open: number; withSettlesWhen
   } catch {
     /* no count read */
   }
-  return { open, withSettlesWhen: named, withoutSettlesWhen: open - named };
+  return { open, withSettlesWhen: named, dated, withoutTrigger: open - named - dated };
 }
 
 /**

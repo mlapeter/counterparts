@@ -19,7 +19,7 @@
  * carry. `protect`, `promote`, `schema.create` and friends are not "rejected" — the
  * minting function has nowhere to put them, and it counts what it dropped.
  */
-import { SETTLE_HOWS } from "../types.js";
+import { SETTLE_HOWS, cutPhrase } from "../types.js";
 import type { Kind, Salience, SettleHow } from "../types.js";
 import { hashText } from "../store/prose.js";
 import type { WriteFacts } from "../store/index.js";
@@ -265,14 +265,10 @@ export const DRAFT_FIELDS = [
  */
 export const SETTLES_WHEN_CHARS = 160;
 
-/** A `settlesWhen` as kept: one line, trimmed, at most `SETTLES_WHEN_CHARS`; null when blank. */
+/** A `settlesWhen` as kept: one line, trimmed, at most `SETTLES_WHEN_CHARS` code points; null when blank. */
 export function cleanSettlesWhen(v: string): string | null {
-  const one = v.replace(/\s+/g, " ").trim();
-  if (one.length === 0) return null;
-  if (one.length <= SETTLES_WHEN_CHARS) return one;
-  const cut = one.slice(0, SETTLES_WHEN_CHARS - 1);
-  const at = cut.lastIndexOf(" ");
-  return `${(at > SETTLES_WHEN_CHARS / 2 ? cut.slice(0, at) : cut).trimEnd()}…`;
+  const kept = cutPhrase(v, SETTLES_WHEN_CHARS);
+  return kept.length === 0 ? null : kept;
 }
 
 export type IntakeResult =

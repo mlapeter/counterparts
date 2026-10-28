@@ -301,7 +301,149 @@ describe("5. the counter", () => {
     await remember(s, { text: "Open: should the kiln log move to the shared folder?", unresolved: true });
     await remember(s, { text: "Open: is the glaze order late?", unresolved: true });
     await remember(s, { text: "The kiln holds twelve shelves." });
+    await remember(s, { text: "Open: the kiln inspection result is due on the first of December.", unresolved: true, eventDate: "2026-12-01" });
     const r = await s.call("status", {});
-    expect(r.structuredContent["openItems"]).toMatchObject({ open: 3, withSettlesWhen: 1, withoutSettlesWhen: 2 });
+    expect(r.structuredContent["openItems"]).toMatchObject({ open: 4, withSettlesWhen: 1, dated: 1, withoutTrigger: 2 });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("6. review of #665: the night does not over-close", () => {
+  /** A night on today's lived day, begun for `session`. */
+  function begin(s: McpServer, session: string): { rid: string; offered: string[] } {
+    recordSession(dir, { sessionId: session, scope: SCOPE, phase: "start" });
+    const begun = s.counterpart.reflections.begin({ session });
+    if (!begun.ok) throw new Error(begun.reason);
+    return { rid: begun.bundle.reflection, offered: (begun.bundle.settlesOpen ?? []).map((x) => x.id) };
+  }
+
+  test("(a) an item is offered only from the lived day after it was written", async () => {
+    const s = server("s-a");
+    nextDay(s);
+    const open = await remember(s, { text: "Open: has the pottery guild answered about the booth?", unresolved: true, settlesWhen: "the guild answers" });
+    expect(begin(s, "s-night-same").offered).not.toContain(open.id);
+    nextDay(s);
+    expect(begin(s, "s-night-next").offered).toContain(open.id);
+  });
+
+  test("(b) at most SETTLES_CLOSE settles items close a night; the rest are refused for the limit", async () => {
+    expect(REFLECT_TUNABLES.SETTLES_CLOSE).toBe(3);
+    const s = server("s-b");
+    nextDay(s);
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) ids.push((await remember(s, { text: `Open: has supplier ${String(i)} answered about the clay order?`, unresolved: true, settlesWhen: `supplier ${String(i)} answers` })).id);
+    nextDay(s);
+    const answer = await remember(s, { text: "Every clay supplier answered today about the order." });
+    const night = begin(s, "s-night-b");
+    expect(night.offered.length).toBe(5);
+    const done = s.counterpart.reflections.finish({
+      reflection: night.rid,
+      session: "s-night-b",
+      entry: "The suppliers all wrote back.",
+      closeNow: ids.map((id) => ({ id, why: "The supplier answered.", shows: answer.id })),
+    });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed.length).toBe(REFLECT_TUNABLES.SETTLES_CLOSE);
+    expect(done.outcome.close.refused.filter((r) => r.reason === "limit").length).toBe(5 - REFLECT_TUNABLES.SETTLES_CLOSE);
+    expect(ids.filter((id) => meta(s, id)["unresolved"] === false).length).toBe(REFLECT_TUNABLES.SETTLES_CLOSE);
+  });
+
+  test("(c) weak evidence still closes, and the share says so: no shows, the item itself, an older memory", async () => {
+    const s = server("s-c");
+    nextDay(s);
+    const older = await remember(s, { text: "The library hosts readings on the first Friday of the month." });
+    nextDay(s);
+    const none = await remember(s, { text: "Open: did the guild answer about the booth?", unresolved: true, settlesWhen: "the guild answers" });
+    const itself = await remember(s, { text: "Open: did the printer send the proofs?", unresolved: true, settlesWhen: "the printer sends the proofs" });
+    const old = await remember(s, { text: "Open: how did Katie's reading go?", unresolved: true, settlesWhen: KATIE });
+    nextDay(s);
+    const later = await remember(s, { text: "The printer sent the proofs this morning." });
+    const night = begin(s, "s-night-c");
+    const done = s.counterpart.reflections.finish({
+      reflection: night.rid,
+      session: "s-night-c",
+      entry: "Some things closed.",
+      closeNow: [
+        { id: none.id, why: "The guild answered." },
+        { id: itself.id, why: "The proofs came.", shows: itself.id },
+        { id: old.id, why: "The reading happened.", shows: older.id },
+      ],
+    });
+    if (!done.ok) throw new Error(done.reason);
+    for (const id of [none.id, itself.id, old.id]) expect(meta(s, id)["unresolved"]).toBe(false);
+    const notes = (done.outcome.close.notes ?? []).join("\n");
+    expect(notes).toContain(`${none.id}: closed, but I named no memory that shows it`);
+    expect(notes).toContain(`${itself.id}: closed, but the memory I pointed to is the open item itself`);
+    expect(notes).toContain(`${old.id}: closed, but the memory I pointed to is older than the open item`);
+    const share = s.counterpart.store.reflection(night.rid)?.share ?? "";
+    expect(share).toContain("(though I named no memory that shows it)");
+    expect(share).toContain("(though the memory I pointed to is the open item itself)");
+    expect(share).toContain("(though the memory I pointed to is older than the open item)");
+    expect(share).toContain("I'll reopen it");
+    // A later memory that shows it is not weak.
+    void later;
+  });
+
+  test("a good shows says nothing extra", async () => {
+    const s = server("s-good");
+    nextDay(s);
+    const open = await remember(s, { text: "Open: did the printer send the proofs?", unresolved: true, settlesWhen: "the printer sends the proofs" });
+    nextDay(s);
+    const later = await remember(s, { text: "The printer sent the proofs this morning." });
+    const night = begin(s, "s-night-good");
+    const done = s.counterpart.reflections.finish({ reflection: night.rid, session: "s-night-good", entry: "Proofs came.", closeNow: [{ id: open.id, why: "The proofs came.", shows: later.id }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(meta(s, open.id)["unresolved"]).toBe(false);
+    expect(done.outcome.close.notes ?? []).toEqual([]);
+    expect(s.counterpart.store.reflection(night.rid)?.share ?? "").not.toContain("though");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("7. review of #665: chains, the wake's cut, the tail's words", () => {
+  test("a → b → c: c updates a, which b already carried on, and the trigger still carries", async () => {
+    const s = server("s-chain");
+    nextDay(s);
+    const a = await remember(s, { text: "Open: is the Gilead thread waiting on the Kansas trip?", unresolved: true, settlesWhen: "after Kansas" });
+    const b = await remember(s, { text: "Open: the Gilead thread, still waiting on the Kansas trip, now the week after.", unresolved: true, updates: a.id });
+    expect(meta(s, b.id)["settlesWhen"]).toBe("after Kansas");
+    // a is closed now: the trigger is found where the thread lives (b), not on a.
+    expect(meta(s, a.id)["unresolved"]).toBe(false);
+    const c = await remember(s, { text: "Open: the Gilead thread, waiting on Kansas, pushed to November.", unresolved: true, updates: a.id });
+    expect(meta(s, c.id)["settlesWhen"]).toBe("after Kansas");
+  });
+
+  test("the wake cuts a long phrase at about 80 code points on a word; meta and recall keep it whole", async () => {
+    const long = "Katie writes back about the reading, the poems, the room, and whether the library wants her again in the spring 🌷 or not";
+    const s = server("s-long");
+    nextDay(s);
+    const open = await remember(s, { text: "Open: will the library ask Katie back?", unresolved: true, settlesWhen: long });
+    expect(meta(s, open.id)["settlesWhen"]).toBe(long);
+    const listed = await s.call("recall", { handle: "still open" });
+    expect((listed.structuredContent["items"] as { id: string; settlesWhen?: string }[]).find((i) => i.id === open.id)?.settlesWhen).toBe(long);
+    for (const text of wakes(s)) {
+      const line = lane(text, FRAMING.threads).find((l) => l.includes("library ask Katie back")) ?? "";
+      const tail = line.slice(line.indexOf(" · settles when ") + " · settles when ".length);
+      expect(tail.endsWith("…")).toBe(true);
+      expect([...tail].length).toBeLessThanOrEqual(80);
+      expect(long.startsWith(tail.slice(0, -1))).toBe(true);
+    }
+  });
+
+  test("cuts count code points, so an emoji is never split", () => {
+    const emoji = "🌷".repeat(200);
+    const kept = cleanSettlesWhen(emoji) ?? "";
+    expect([...kept].length).toBe(SETTLES_WHEN_CHARS);
+    expect(kept).toBe(`${"🌷".repeat(SETTLES_WHEN_CHARS - 1)}…`);
+    const tail = settlesTail(emoji);
+    expect(tail).toBe(` · settles when ${"🌷".repeat(79)}…`);
+  });
+
+  test("the tail lowers an opener's first letter, and never says 'settles' twice", () => {
+    expect(settlesTail("When Katie answers")).toBe(" · settles when Katie answers");
+    expect(settlesTail("After the 11-26 check")).toBe(" · settles after the 11-26 check");
+    expect(settlesTail("settles when Mike decides pricing")).toBe(" · settles when Mike decides pricing");
+    expect(settlesTail("Settles after Kansas")).toBe(" · settles after Kansas");
+    expect(settlesTail("Katie says")).toBe(" · settles when Katie says");
   });
 });

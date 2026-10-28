@@ -248,6 +248,11 @@ export const REFLECT_TUNABLES = {
    * `STALE_OPEN`'s. Rotated the same way. CAL.
    */
   SETTLES_OPEN: 8,
+  /**
+   * At most this many `settlesOpen` items closed or asked a night (review of
+   * #665): on top of `STALE_OPEN`'s, counted apart from them. CAL.
+   */
+  SETTLES_CLOSE: 3,
   /** The characters of one self-close's why (2026-10-20); longer is kept to it, and said. */
   CLOSE_WHY_CHARS: 300,
   /** Feelings shown per memory, and the characters of each one's carried_by. */
@@ -656,12 +661,13 @@ export interface ReflectFinish {
     readonly carried_by?: string;
   }[];
   readonly model?: string | null;
-  /** Stale open threads it thinks are done (2026-10-16, #489 D): ids from `staleOpen` only. Proposed, never closed here. */
+  /** Stale open threads it thinks are done (2026-10-16, #489 D): ids from `staleOpen` or `settlesOpen` (S1) only. Proposed, never closed here. */
   readonly close?: readonly string[];
   /**
    * Stale open threads plainly done (2026-10-20, an experiment): ids from
-   * `staleOpen` only, each with `why` (what shows it done) and, ideally,
-   * `shows` (the memory that does). Closed here, and said in the share.
+   * `staleOpen` or `settlesOpen` (S1) only, each with `why` (what shows it
+   * done) and, ideally, `shows` (the memory that does). Closed here, and
+   * said in the share.
    */
   readonly closeNow?: readonly { readonly id?: string; readonly why?: string; readonly shows?: string }[];
   /** The session's directory. (It once fed a folder check on closing; that went with the yours/guest split, 2026-10-21.) */
@@ -686,6 +692,8 @@ export interface SelfClose {
   readonly id: string;
   readonly why: string;
   readonly shows?: string;
+  /** A settles close on weak evidence (review of #665): what was weak, said in the share. */
+  readonly weak?: string;
 }
 
 /**
@@ -1131,6 +1139,8 @@ export class Reflections {
   /** How to answer, in plain words (returned beside the bundle). */
   private instructions(id: string, session: string, bundle: ReflectBundle): string {
     const who = bundle.owner ?? "the owner";
+    // Stale threads that name what would settle them (S1), for the wording's number.
+    const staleNamed = bundle.staleOpen.filter((x) => x.settlesWhen !== undefined).length;
     const L = REFLECT_TUNABLES.LIMITS;
     const open = acceptsReflectedFeeling(this.store);
     // THE PAGE, LEANING TOWARD WRITING (owner, 2026-09-29): he would like a
@@ -1220,9 +1230,9 @@ export class Reflections {
             // CLOSE WHAT IS PLAINLY DONE, ASK THE REST (2026-10-20, an
             // experiment agreed with Mike): the clear ones close tonight and
             // the share says so; the unsure ones are asked, as before.
-            `- closeNow and close (optional, ids from staleOpen only): staleOpen lists ${String(bundle.staleOpen.length)} open ${bundle.staleOpen.length === 1 ? "thread" : "threads"} nobody has touched for a while (untouched: lived days). Most are open only because nobody closed them. Read one whole with recall first if its line is not enough.`,
+            `- closeNow and close (optional, ids from staleOpen${(bundle.settlesOpen ?? []).length > 0 ? " or settlesOpen" : ""} only): staleOpen lists ${String(bundle.staleOpen.length)} open ${bundle.staleOpen.length === 1 ? "thread" : "threads"} nobody has touched for a while (untouched: lived days). Most are open only because nobody closed them. Read one whole with recall first if its line is not enough.`,
             `  closeNow: the ones a memory you have read plainly shows finished — each {id, why: what shows it done, in a line, shows: the id of the memory that shows it}. They close tonight; your share says which, and ${who} can have one reopened.`,
-            `  close: the ones that look done but you are not sure of — ids only. Nothing closes: your share asks ${who}, and a yes closes them. When in doubt, ask rather than close; never close one just because it is old, and leave out one you have no view on.${bundle.staleOpen.some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who} after a reflection closed it: ask, never close.` : ""}${bundle.staleOpen.some((x) => x.settlesWhen !== undefined) ? " One with settlesWhen names what would settle it: close it when a memory shows that happened." : ""}`,
+            `  close: the ones that look done but you are not sure of — ids only. Nothing closes: your share asks ${who}, and a yes closes them. When in doubt, ask rather than close; never close one just because it is old, and leave out one you have no view on.${bundle.staleOpen.some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who} after a reflection closed it: ask, never close.` : ""}${staleNamed === 0 ? "" : staleNamed === 1 ? " The one with settlesWhen names what would settle it: close it when a memory shows that happened." : " The ones with settlesWhen name what would settle them: close one when a memory shows that happened."}`,
           ]
         : []),
       // WHAT WOULD SETTLE IT (2026-10-27, S1; Ames's idea): open items that
@@ -1230,7 +1240,7 @@ export class Reflections {
       // trigger plainly happened, through the same doors.
       ...((bundle.settlesOpen ?? []).length > 0
         ? [
-            `- settlesOpen (optional; the same closeNow and close take these ids): ${String((bundle.settlesOpen ?? []).length)} open ${(bundle.settlesOpen ?? []).length === 1 ? "item names" : "items name"} what would settle ${(bundle.settlesOpen ?? []).length === 1 ? "it" : "them"} (settlesWhen) — an answer someone owes, a decision, an event. If a memory you have read plainly shows that it happened (the answer came, the decision was made, the page moved on), closeNow it: {id, why: what happened, shows: the memory that shows it}. If it may have happened and you are not sure, put its id in close and your share asks ${who}. If nothing shows it, leave it open: a trigger not yet met is no reason to close, and age is none either.${(bundle.settlesOpen ?? []).some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who}: ask, never close.` : ""}`,
+            `- settlesOpen (optional; the same closeNow and close take these ids): ${String((bundle.settlesOpen ?? []).length)} open ${(bundle.settlesOpen ?? []).length === 1 ? "item names" : "items name"} what would settle ${(bundle.settlesOpen ?? []).length === 1 ? "it" : "them"} (settlesWhen) — an answer someone owes, a decision, an event. If a memory you have read plainly shows that it happened (the answer came, the decision was made, the event it waited on is past), closeNow it: {id, why: what happened, shows: the memory that shows it — a later one, not the item itself}. At most ${String(REFLECT_TUNABLES.SETTLES_CLOSE)} of these close or are asked a night. If it may have happened and you are not sure, put its id in close and your share asks ${who}. If nothing shows it, leave it open: a trigger not yet met is no reason to close, and age is none either.${(bundle.settlesOpen ?? []).some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who}: ask, never close.` : ""}`,
           ]
         : []),
       // NO LONGER CARRIED (2026-10-22, the open-threads brief): the count, once, never the list.
@@ -1860,7 +1870,12 @@ export class Reflections {
     const closeNotes: string[] = [];
     let askedInstead = 0;
     const isClosed = (cid: string): boolean => priorSelfClosed.some((x) => x.id === cid) || toClose.some((x) => x.id === cid);
-    const full = (): boolean => proposed.length + priorSelfClosed.length + toClose.length >= T.STALE_OPEN + Math.min(offeredSettles.length, T.SETTLES_OPEN);
+    // Two allowances, counted apart (review of #665): the stale list's
+    // `STALE_OPEN`, and at most `SETTLES_CLOSE` of the settles list's.
+    const settlesOnly = new Set(offeredSettles.filter((x) => !stringIds(parseDetail(row.detail)["staleOpen"]).includes(x)));
+    const spentOn = (settles: boolean): number =>
+      [...proposed, ...priorSelfClosed.map((x) => x.id), ...toClose.map((x) => x.id)].filter((x) => settlesOnly.has(x) === settles).length;
+    const full = (cid: string): boolean => (settlesOnly.has(cid) ? spentOn(true) >= T.SETTLES_CLOSE : spentOn(false) >= T.STALE_OPEN);
     // Still open and showable here: the prose read, as the wake reads it.
     const stillOpen = (cid: string): { row: MemoryRow; meta: Record<string, unknown> } | null => {
       const r = this.store.row(cid);
@@ -1894,7 +1909,7 @@ export class Reflections {
         closeRefused.push({ id: cid, reason: `share-already-${row.share_state}` });
         continue;
       }
-      if (full()) {
+      if (full(cid)) {
         closeRefused.push({ id: cid, reason: "limit" });
         continue;
       }
@@ -1933,7 +1948,12 @@ export class Reflections {
       const shows = showsId.length > 0 && this.store.row(showsId) !== undefined ? showsId : null;
       if (showsId.length > 0 && shows === null) closeNotes.push(`${cid}: shows ${showsId} is not a memory, so only the why is kept.`);
       if (why.cut) closeNotes.push(`${cid}: its why was kept to its first ${String(T.CLOSE_WHY_CHARS)} characters.`);
-      toClose.push({ id: cid, why: why.text.replace(/\s+/g, " "), ...(shows === null ? {} : { shows }) });
+      // WEAK EVIDENCE, SAID (review of #665; warn, don't refuse): a settles
+      // close whose `shows` is missing, is the item itself, or is older than
+      // the item still closes, and the share says so, so the owner can reopen.
+      const weak = offeredSettles.includes(cid) ? this.weakShows(open.row, shows) : null;
+      if (weak !== null) closeNotes.push(`${cid}: closed, but ${weak}; the share says so.`);
+      toClose.push({ id: cid, why: why.text.replace(/\s+/g, " "), ...(shows === null ? {} : { shows }), ...(weak === null ? {} : { weak }) });
     }
     for (const cid of [...new Set(input.close ?? [])]) {
       if (typeof cid !== "string") continue;
@@ -1946,7 +1966,7 @@ export class Reflections {
         closeRefused.push({ id: cid, reason: `share-already-${row.share_state}` });
         continue;
       }
-      if (full()) {
+      if (full(cid)) {
         closeRefused.push({ id: cid, reason: "limit" });
         continue;
       }
@@ -3854,6 +3874,9 @@ export class Reflections {
       if (settles === null) continue;
       const v = see(mid);
       if (v === null) continue;
+      // From the lived day AFTER it was written (review of #665): the
+      // conversation that raised it is never its own evidence.
+      if (v.row.birth_day >= day) continue;
       const untouched = Math.max(0, day - Math.max(v.row.birth_day, v.row.last_used_day));
       const reopened = typeof meta[THREAD_REOPENED_BY_META_KEY] === "string";
       found.push({ id: mid, text: v.line, settlesWhen: settles, untouched, ...(reopened ? { reopened: true as const } : {}) });
@@ -3888,14 +3911,32 @@ export class Reflections {
   }
 
   /**
+   * WHAT WAS WEAK ABOUT A SETTLES CLOSE'S EVIDENCE (review of #665), in the
+   * share's words, or null when `shows` names a memory written after the item:
+   * none named, the item itself, or a memory older than the item (by its
+   * moment when both have one, else its lived day).
+   */
+  private weakShows(item: MemoryRow, shows: string | null): string | null {
+    if (shows === null) return "I named no memory that shows it";
+    if (shows === item.id) return "the memory I pointed to is the open item itself";
+    const r = this.store.row(shows);
+    if (r === undefined) return "I named no memory that shows it";
+    const older = r.created_at !== null && item.created_at !== null ? r.created_at < item.created_at : r.birth_day < item.birth_day;
+    return older ? "the memory I pointed to is older than the open item" : null;
+  }
+
+  /**
    * THE SHARE'S OPEN-THREAD LINES (2026-10-20), generated like the became-core
-   * line: what it closed itself, each with its why and the way back, then what
-   * it asks about. Null when neither.
+   * line: what it closed itself, each with its why and the way back — and,
+   * for a settles close on weak evidence (S1), what was weak — then what it
+   * asks about. Null when neither.
    */
   private closeSentences(closed: readonly SelfClose[], asked: readonly string[]): string | null {
     const lines: string[] = [];
     if (closed.length > 0) {
-      const named = closed.map((x) => `"${this.handle(x.id)}" (${x.id}) — ${x.why.replace(/[\s.;:,!]+$/u, "")}`).join("; ");
+      const named = closed
+        .map((x) => `"${this.handle(x.id)}" (${x.id}) — ${x.why.replace(/[\s.;:,!]+$/u, "")}${x.weak === undefined ? "" : ` (though ${x.weak})`}`)
+        .join("; ");
       lines.push(
         closed.length === 1
           ? `I closed one open thread that looked done: ${named}. If it isn't, say so and I'll reopen it.`
@@ -4402,7 +4443,7 @@ function selfClosedOf(v: unknown): SelfClose[] {
   const out: SelfClose[] = [];
   for (const x of v) {
     if (!isRecord(x) || typeof x["id"] !== "string" || typeof x["why"] !== "string") continue;
-    out.push({ id: x["id"], why: x["why"], ...(typeof x["shows"] === "string" ? { shows: x["shows"] } : {}) });
+    out.push({ id: x["id"], why: x["why"], ...(typeof x["shows"] === "string" ? { shows: x["shows"] } : {}), ...(typeof x["weak"] === "string" ? { weak: x["weak"] } : {}) });
   }
   return out;
 }
