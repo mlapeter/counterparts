@@ -74,8 +74,8 @@ export interface ProposalDraft {
   unresolved?: boolean;
   /**
    * WHAT WOULD SETTLE IT (2026-10-27, S1; Ames's idea, lightly held): a short
-   * plain phrase beside `unresolved: true` naming what closes the item — "Katie
-   * says how the reading went", "Mike decides pricing". A date is `eventDate`,
+   * plain phrase beside `unresolved: true` naming what closes the item — "the
+   * landlord replies", "the team decides pricing". A date is `eventDate`,
    * not this. Only beside an open flag; without one it is dropped and counted,
    * as `remind` is without a date. `null` on a revision drops the one it would
    * carry. Kept in `meta.settlesWhen` (no schema bump).
