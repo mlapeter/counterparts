@@ -705,7 +705,21 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   boundary that withheld a night from a non-owner was retired 2026-10-21, §5 G6.)
   Nights share the by-id answer's room (`RECALL_ID_RESULT_CHARS`, weighed as `boundById`
   weighs): one past it waits by id in `waiting`, as a memory does. An unknown night id is
-  `handle-unknown`. Under observer recall stands down, as for a memory.
+  `handle-unknown`. Under observer recall stands down, as for a memory. Every dream in
+  `nights` carries `label: "[dream]"` and `dreamed: "dreamed, not lived: …"` (D1,
+  2026-10-27), and opening one notes it recalled (a `dream.recalled` event, so it keeps its
+  reach — `dream/recalled.ts`); no memory is credited.
+- **[M]** A QUESTION reaches dreams by what they were about (OL1b 2026-10-26, extended by
+  D1 2026-10-27; `nights.ts#nightsForQuestion`, dream CONTRACT rule 2 and G6): beside the
+  answer in `nights`, and in the answer's own words — `[dream] <title> · drm_… · dreamed
+  <date> · <why>` and an excerpt after the answer's head, the "[dream] = dreamed, not
+  lived" gloss once at its end. A question naming dreaming: its content words or their
+  meaning (`DREAM_RECALL_NAMED_FLOOR`), and the newest journaled dream — first when it asks
+  when. Any other question: meaning alone, at `DREAM_RECALL_MEANING_BAR`, at most one; none
+  without an embedder. Only dreams within their reach answer by content; every path obeys
+  the folder rule (a dream from a folder set off or paused is not read from another; "last
+  dream" too). A dream that would carry the result past its ceiling stays out and the
+  answer is not cut for it.
 - **Deleted promises (Mike, 10-03):** "effort lowers the bar but never removes the hard
   gates: a memory the conversation did not reach stays dark"; "the lower-confidence tier is
   labeled"; "a question about time is answered with the session it means first, marked

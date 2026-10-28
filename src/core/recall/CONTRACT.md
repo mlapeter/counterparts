@@ -226,6 +226,15 @@ reply actually used reconsolidates, where in humans every retrieval does.
   decays — earns what it earned while it was shown; a chapter used off the wake or the
   `chapter` tool credits itself only. A copy whose chapter was not reached is shown as
   itself.
+- **A dream journal is recallable and is LABELED `[dream]`** (D1, 2026-10-27; Mike: "if
+  humans remember it then so should counterparts, humans talk a lot about what they
+  dreamed and think about it during the day"). It is not a memory row and never enters this
+  module's index or gate: a deliberate question reaches it beside its answer
+  (`adapters/mcp/nights.ts#nightsForQuestion`), by words and meaning, with its date, its
+  `drm_` id and "dreamed, not lived" — the chapter's label rule, applied to the night. A
+  question that does not name dreaming needs meaning past a higher bar and carries one at
+  most; a journal fades from that reach unless recalled or retold. Ambient recall does not
+  reach it (yet). The rules are the dream module's (CONTRACT rule 2, G6).
 
 ## 4. Drops / simplifies
 

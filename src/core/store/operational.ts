@@ -506,7 +506,9 @@ export const DDL: readonly string[] = [
   // v8: DREAMS (`core/dream/`). One row per dream: when, for which session, its
   // state (`begun`, `journaled`, `undone`), and its JOURNAL — the dream's own
   // entry, kept here and never as a memory, so it can never be mistaken for a
-  // lived event (no decay, no dedup, no prune, no recall). The latest row's day
+  // lived event (no decay, no dedup, no prune). Since 2026-10-27 (D1) recall
+  // reaches it by what it was about, labelled [dream] (`adapters/mcp/nights.ts`;
+  // no column: a recall is a `dream.recalled` event). The latest row's day
   // is "last dreamed".
   `CREATE TABLE IF NOT EXISTS dreams (
      id          TEXT PRIMARY KEY,
