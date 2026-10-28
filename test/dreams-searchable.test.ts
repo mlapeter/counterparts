@@ -277,6 +277,12 @@ describe("Ames's case: the newest dream, by date", () => {
     // 3. The ids it touched.
     const touched = whole["touched"] as Record<string, { ids: string[] }>;
     expect(touched["link"]?.ids.sort()).toEqual([...newest.touched].sort());
+    // The meaning path itself fails (the content words are embedded, and the
+    // embedder throws): the dream still comes, by its words, with its line.
+    const byWords = await recall(url, { question: "did you dream about the keys?", mode: "meaning" });
+    expect(byWords["semantic"]).toBe("embed-failed");
+    expect(nightsOf(byWords).map((n) => n["id"])).toContain(newest.id);
+    expect(String(byWords["answer"])).toContain(`${DREAM_LABEL} ${KEYS_TITLE} · ${newest.id} · dreamed 2026-10-27`);
   });
 });
 
@@ -326,7 +332,7 @@ describe("fading: gone in two lived days unless it is recalled", () => {
       expect(reach.inReach).toBe(true);
     });
     s = await door({ embedder: TOPIC_EMBEDDER });
-    // Three lived days past its last touch, and still reached by "locked doors".
+    // Two lived days past its last touch (reach 1 would have dropped it), and still reached by "locked doors".
     expect(nightsOf(await recall(s.url, { question: "locked doors", mode: "facts" })).map((n) => n["id"])).toEqual([keys]);
   });
 });

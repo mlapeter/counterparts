@@ -130,7 +130,7 @@ describe("last dream, whole, through the door", () => {
       expect(reflection["id"]).toBe(n.reflection);
       expect(reflection["entry"]).toBe(LONG_ENTRY.trim());
       expect(reflection["share"]).toBe("Last night I dreamed the seedlings kept sliding toward the cold glass.");
-      expect(String(p["nightsGloss"])).toContain("changes nothing");
+      expect(String(p["nightsGloss"])).toContain("changes no memory and credits nothing");
     }
     expect(counterpart.store.reflection(n.reflection)?.share_state).toBe("offered");
   });

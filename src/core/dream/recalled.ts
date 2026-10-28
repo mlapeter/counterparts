@@ -3,7 +3,7 @@
  *
  * Mike, 2026-10-27: "if humans remember it then so should counterparts,
  * humans talk a lot about what they dreamed and think about it during the
- * day." A journal is recalled by what it was about (`adapters/mcp/nights.ts`),
+ * day." A journal is recalled by what it was about (the recall tool's night reader),
  * and, like a person's dream, it slips out of reach fast unless it is used:
  * recalled (read whole, or asked about) or retold (its reflection's share
  * told). Each lived day it is touched widens its reach

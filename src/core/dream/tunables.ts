@@ -367,7 +367,7 @@ export const DREAM_TUNABLES = {
    * (the higher of the question against the title and against each passage of
    * the journal, `DREAM_RECALL_PASSAGE_CHARS` long), and at most
    * `DREAM_RECALL_UNNAMED_MAX` of them. CAL on potion-base-8M@256, 10-27
-   * (NOTES "D1"): "keys" 0.74 and "locked doors" 0.48 against the ring-of-keys
+   * (NOTES "D1"): "keys" 0.74 and "locked doors" 0.47 against the ring-of-keys
    * dream; the nearest ordinary misses 0.41 ("where did I leave my car keys"
    * against a work dream) and 0.35 ("what did I say about my sister"). With
    * no embedder, such a question reaches no dream (words alone pulled work

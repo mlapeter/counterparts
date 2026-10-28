@@ -1231,13 +1231,14 @@ now also in the answer's own words.
   dreaming still gets words and the newest.
 - **The bar, measured** on potion-base-8M@256 (the only embedder), 10-27, the best of the
   title and 1,500-character passages against a realistic ~1,000-character journal:
-  ring-of-keys dream — "keys" 0.74 (its title), "locked doors" 0.48, "who has a key to the
-  rooms" 0.42; a work dream (release, dashboard, PRs) — "pull requests to merge" 0.27, "did
-  the tests pass" 0.39, "where did I leave my car keys" 0.41; ordinary questions against
-  either — "what did I say about my sister" 0.35, "dentist" ≤ 0. The title carries a short
-  question; a whole-journal vector alone gave "keys" 0.41, under any bar that keeps the
-  misses out. 0.45 sits between the nearest miss (0.41) and "locked doors" (0.48): thin, and
-  CAL. A one-sentence journal cosines higher than a long one, so measure on real lengths.
+  ring-of-keys dream — "keys" 0.74 (its title), "locked doors" 0.47, "who has a key to the
+  rooms" 0.42, "where did I leave my car keys" 0.49 (a fair reminder); a work dream
+  (release, dashboard, PRs) — "pull requests to merge" 0.23, "did the tests pass" 0.38,
+  "where did I leave my car keys" 0.41; ordinary questions against either — "what did I say
+  about my sister" 0.35, "dentist" ≤ 0. The title carries a short question; a whole-journal
+  vector alone gave "keys" 0.41, under any bar that keeps the misses out. 0.45 sits between
+  the nearest miss (0.41) and "locked doors" (0.47): thin, and CAL. A one-sentence journal
+  cosines higher than a long one, so measure on real lengths.
 - **Vectors in memory, not in box 3.** Journal vectors are made on the fly with the
   question's own embedder (at most `QUESTION_NIGHTS_LOOKBACK` = 30 journals, fewer as they
   fade; the static table is microseconds a passage) and kept in the server for its life

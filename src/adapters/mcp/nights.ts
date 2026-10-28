@@ -50,7 +50,7 @@ export const NIGHT_WHOLE_WIRE_CHARS = 32_000;
 
 /** Said once on a result that carries a night, so `nights` is not a bare field. */
 export const NIGHTS_GLOSS =
-  "A night is a dream (drm_) or a reflection (rfl_) the nightly run made: a read-only summary, not a memory. Reading it changes nothing and credits nothing; the memory ids it names open by id as usual. Undoing a dream is the owner's, in the console.";
+  "A night is a dream (drm_) or a reflection (rfl_) the nightly run made: a read-only summary, not a memory. Reading it changes no memory and credits nothing (a dream read whole is noted, so it stays in reach); the memory ids it names open by id as usual. Undoing a dream is the owner's, in the console.";
 
 /** Is this handle a night's id — a dream's or a reflection's? */
 export function nightKindOf(handle: string): "dream" | "reflection" | null {
@@ -486,8 +486,8 @@ export interface QuestionNightsOptions {
  *
  * Every rule obeys the folder rule (`readable`). Summaries, at most
  * `QUESTION_NIGHTS_MAX`, each saying why it came. `words` is the content-word
- * reader (`reconsolidation.ts#contentWords`), handed in so this file reads no
- * core module it does not already. Never throws.
+ * reader (`reconsolidation.ts#contentWords`), handed in by the server. Reads
+ * only: the server notes a dream asked about as recalled. Never throws.
  */
 export function nightsForQuestion(
   counterpart: Counterpart,
