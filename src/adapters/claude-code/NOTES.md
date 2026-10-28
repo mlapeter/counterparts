@@ -2742,3 +2742,28 @@ It was a lost sign-in: the owner switched Claude Code accounts mid-run.
   scrub gained JSON, quoted and space-separated labels, Basic auth, whole cookies, `pw=`
   and the digitless prefixed keys (`ghp_`, `xox?-`, `AKIA`). STDERR prefers its last
   error-shaped line. OSC sequences are stripped, and home paths become `~`.
+
+## 2026-10-27 — the wake says so when search by meaning can't run (W1)
+
+A plugin install ran for days with no meaning weights (`NO_WEIGHTS`): the plugin's dependency
+step had not run, nothing self-heals (Bun auto-install is off on purpose), and only doctor's
+amber line said so. Now `doctor-meaning.ts#wakeMeaningLine` gives the session-start wake one
+line for the model to tell its person, under the clock beside the Code tab's line (outside the
+wake block, so the sentinel's byte count is untouched). Desktop's `wake` carries the same line
+in its notice slot (`mcp/bin/serve.ts#desktopWakeNotice`).
+
+- **Configured on and can't run, nothing else.** Off by choice, an observer, the headless
+  night and a resume's short wake say nothing.
+- **`missing`**: this process finds no whole table (both files). The hook's environment is the
+  worker's, so this is the look the worker makes, and it fires before any boundary too (a fresh
+  plugin install's first wake). A worker row that still says `NO_WEIGHTS`/`MISSING_FILE` while
+  the table is whole now reads as restored: silent until the next row.
+- **`unloadable`**: the newest row's refusal is any other code; it stands until the next row.
+- **`stopped`**: `adapter.runner.failed` with `step: "vectors"` newer than the newest backfill
+  row, or the newest three backfill rows all `ran`, embedded 0, memories waiting, count not
+  falling. Three is past `EMBED_SKIP_AFTER` by the run that matters (an unembeddable memory is
+  set aside on its third failure and `remaining` falls), so one bad memory never reads stuck.
+- **One route rule.** `byRoute`, `PLUGIN_UPDATE`, `PLUGIN_TABLE_UPDATE` and `TABLE_NPM_COMMAND`
+  moved here from `doctor.ts`, which now uses them for its own fix lines. `stopped` points at
+  doctor (`/counterparts:doctor`, or `counterparts doctor` in a terminal): its causes are many.
+- **Not covered**: `held` and `cache-ahead` (the store withdrawing the channel) stay doctor's.

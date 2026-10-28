@@ -36,7 +36,7 @@ export const TABLE_NPM_COMMAND = `bun add -g ${STATIC_WEIGHTS_PACKAGE}`;
 
 /** The plugin's way to the meaning table: its update reruns the dependency
  *  step, which needs npm (#396: a Bun-only computer has none). */
-export const PLUGIN_TABLE_UPDATE = `${PLUGIN_UPDATE}; the plugin installs the table with npm, so with no npm on this computer install Node.js (https://nodejs.org) first`;
+export const PLUGIN_TABLE_UPDATE = `${PLUGIN_UPDATE}; the plugin installs its files with npm, so with no npm on this computer install Node.js (https://nodejs.org) first`;
 
 /**
  * A fix that installs something, in the words of the route this copy came
