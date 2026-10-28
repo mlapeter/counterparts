@@ -36,8 +36,9 @@
 # loaded (`hooks module <id> loaded`), which is what draws a pane.
 #
 # NEVER the real HOME (the guard is run.sh's), never a real store: every
-# Counterparts process here gets COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 and a
-# COUNTERPARTS_CONFIG inside the scenario's own HOME.
+# Counterparts process here gets COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1,
+# COUNTERPARTS_UPDATE_CHECK=off and a COUNTERPARTS_CONFIG inside the
+# scenario's own HOME.
 
 set -uo pipefail
 
@@ -66,6 +67,9 @@ NPM_BIN="$(command -v npm || true)"
 export PATH="$(dirname "$BUN_BIN"):$(dirname "$NPM_BIN"):$(dirname "$GIT_BIN"):/usr/bin:/bin:/usr/sbin:/sbin"
 export DISABLE_AUTOUPDATER=1
 export COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1
+# The daily update check (U1b) asks registry.npmjs.org; a loop measures the
+# install, not npm, so it stays off in the clean room.
+export COUNTERPARTS_UPDATE_CHECK=off
 
 t() { perl -e 'alarm shift; exec @ARGV' "$@"; }
 claude() { t 300 "$CLAUDE_BIN" "$@"; }
