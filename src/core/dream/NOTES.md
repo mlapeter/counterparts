@@ -1281,3 +1281,40 @@ now also in the answer's own words.
   characters is 20 vectors, made once a process. The bar is one number for every embedder
   (only one exists); if another arrives it wants its own, as `SEMANTIC_BY_IDENTITY` does.
 
+### After the review of #663 (2026-10-27; supersedes the placement and touch bullets above)
+
+- **A question that names dreaming reaches any recent dream, faded or not** (HIGH). Fading
+  had gated the named path too, so "did you dream about the greenhouse?" two lived days
+  after the greenhouse dream found only the newest. Now the named path matches every
+  recent journal (`dreamCandidates(naming = true)`) and only the unnamed path is gated by
+  reach. A prompted match there (why `words` or `meaning`) is a touch, so asking about a
+  dream revives it for ordinary questions too. Test: greenhouse on day N, keys on N+1,
+  asked on N+2.
+- **Ordinary questions: one line, after the results** (HIGH; the coordinator's decision).
+  The 0.45 bar stays. A question that does not name dreaming shows a dream as the single
+  line `[dream] title · drm_ · dreamed date · why`: no excerpt, no gloss, after the
+  results (`withDreamLines(…, asked = false)`). The memories are that answer; the dream is
+  there and labelled, but not in front of what was asked. A question that names dreaming
+  keeps the excerpt, the place before the results and the gloss: there the dream is the
+  answer.
+- **Calibrating on live use.** The durable `mcp.recall` row now carries `dreams`: each
+  dream that came, why, and its meaning score (null when none was measured). The bar can
+  be read off real rows instead of invented journals. Ids and numbers only. The row's
+  `chars` is now the answer as shipped, dream lines included: the dreams are worked out
+  before the row is written.
+- **What counts as a touch, narrowed** (MEDIUM). Only a dream that came as `words` or
+  `meaning`, or the newest when the question asked when (`asked-when`, new). The fallback
+  newest on any question with a dream word (`names-dreams`) is not a touch: in this repo
+  "dream" is a product word, and that fallback would keep the newest alive on every
+  question about the dream feature. A dream beside an ordinary answer is still not a touch.
+- **The folder rule, said plainly**: it goes by where the dream ran (`dreams.scope`), not
+  by what it is about. It keeps a folder's nightly run in that folder, as a chapter or a
+  thread is kept. It is not content privacy. It is applied before the lookback limit now
+  (`readableDreams`), so a readable older dream is not hidden behind twenty from a folder
+  set off.
+- **The dream's own background agent gets no dream lines** (`dreamingNow`: a dream begun
+  under the session's id and not yet journaled). Otherwise a recall mid-dream could fold
+  old journals into tonight's merges.
+- `dreamCandidates` is computed once per recall and handed to both the embedder and the
+  matcher. A journal whose every passage failed to embed is not cached as "no meaning".
+

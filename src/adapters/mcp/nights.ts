@@ -323,11 +323,13 @@ export const LAST_NIGHT_WIRE_CHARS = 36_000;
 export function readLastNight(counterpart: Counterpart, room: number = LAST_NIGHT_WIRE_CHARS, readable?: DreamReadable): LastNight {
   const store = counterpart.store;
   try {
-    // The folder rule (D1): a dream from a folder this session may not read is not its last night.
-    const recent = store.dreams({ limit: 20 }).filter((d) => readableBy(readable, d.scope));
+    // The folder rule (D1): a dream from a folder this session may not read is
+    // not its last night — filtered before the limit, so twenty unreadable
+    // dreams do not hide a readable older one (review of #663).
+    const recent = readableDreams(store, readable, 20);
     const dream = recent.find((d) => d.journal !== null && d.journal.trim().length > 0 && d.state !== "undone") ?? recent[0];
     const dreamRead = dream === undefined ? null : readNight(counterpart, dream.id, { whole: true });
-    const after = dream === undefined ? store.reflections({ limit: 20 }).find((r) => readableBy(readable, r.scope)) : store.reflections({ dreamId: dream.id, limit: 1 })[0];
+    const after = dream === undefined ? readableReflection(store, readable) : store.reflections({ dreamId: dream.id, limit: 1 })[0];
     const reflectionRead = after === undefined ? null : readNight(counterpart, after.id, { whole: true });
     const d = dreamRead?.ok === true && dreamRead.night.kind === "dream" ? dreamRead.night : null;
     const r = reflectionRead?.ok === true && reflectionRead.night.kind === "reflection" ? reflectionRead.night : null;
@@ -411,19 +413,48 @@ function journaled(d: DreamRow): boolean {
 }
 
 /**
- * THE DREAMS A QUESTION MAY REACH BY WHAT THEY WERE ABOUT (D1, 2026-10-27):
- * the last `QUESTION_NIGHTS_LOOKBACK` dreams that wrote a journal, not undone,
- * readable here, and still within their reach (`dream/recalled.ts`: a dream
- * fades fast unless it is recalled or retold). The server embeds these and no
- * others. Newest first; never throws.
+ * The newest `n` dreams this session may read, newest first: the folder rule
+ * applied BEFORE the limit (review of #663), reading further back while the
+ * rows that came were not readable. Absent rule: the newest `n`. Throws only
+ * as the store does.
  */
-export function dreamsInReach(counterpart: Counterpart, readable?: DreamReadable): DreamRow[] {
+export function readableDreams(store: Store, readable: DreamReadable | undefined, n: number): DreamRow[] {
+  if (readable === undefined) return store.dreams({ limit: n });
+  for (let limit = n; ; limit *= 4) {
+    const rows = store.dreams({ limit });
+    const kept = rows.filter((d) => readableBy(readable, d.scope));
+    if (kept.length >= n || rows.length < limit) return kept.slice(0, n);
+  }
+}
+
+/** The newest reflection this session may read, by the same rule. */
+function readableReflection(store: Store, readable: DreamReadable | undefined): ReflectionRow | undefined {
+  if (readable === undefined) return store.reflections({ limit: 1 })[0];
+  for (let limit = 20; ; limit *= 4) {
+    const rows = store.reflections({ limit });
+    const found = rows.find((r) => readableBy(readable, r.scope));
+    if (found !== undefined || rows.length < limit) return found;
+  }
+}
+
+/**
+ * THE DREAMS A QUESTION MAY REACH BY WHAT THEY WERE ABOUT (D1, 2026-10-27),
+ * newest first, among the last `QUESTION_NIGHTS_LOOKBACK` this session may
+ * read that wrote a journal and were not undone. A question that NAMES
+ * dreaming reaches any of them, faded or not: a person asked about a dream
+ * remembers it (review of #663). Any other question reaches only those still
+ * within their reach (`dream/recalled.ts`: a dream fades fast unless it is
+ * recalled or retold). Computed once per recall: the server embeds these and
+ * no others, and `nightsForQuestion` matches against the same list. Never
+ * throws.
+ */
+export function dreamCandidates(counterpart: Counterpart, naming: boolean, readable?: DreamReadable): DreamRow[] {
   const store = counterpart.store;
   try {
     const today = store.livedDay();
-    return store
-      .dreams({ limit: QUESTION_NIGHTS_LOOKBACK })
-      .filter((d) => d.state !== "undone" && journaled(d) && readableBy(readable, d.scope) && dreamReach(store, d, today).inReach);
+    return readableDreams(store, readable, QUESTION_NIGHTS_LOOKBACK).filter(
+      (d) => d.state !== "undone" && journaled(d) && (naming || dreamReach(store, d, today).inReach),
+    );
   } catch {
     return [];
   }
@@ -449,7 +480,10 @@ export function dreamPassages(d: Pick<DreamRow, "title" | "journal">): string[] 
 }
 
 /** Why a dream rode beside a question's answer. */
-export type QuestionNightWhy = "reflection-shown" | "words" | "meaning" | "names-dreams";
+export type QuestionNightWhy = "reflection-shown" | "words" | "meaning" | "asked-when" | "names-dreams";
+
+/** The whys that count as recalling a dream (review of #663): a prompted match, or the newest when asked when. */
+export const TOUCHING_WHYS: ReadonlySet<QuestionNightWhy> = new Set<QuestionNightWhy>(["words", "meaning", "asked-when"]);
 
 export interface QuestionNightsOptions {
   /**
@@ -461,6 +495,16 @@ export interface QuestionNightsOptions {
   readonly meaning?: ReadonlyMap<string, number>;
   /** The folder rule (`DreamReadable`). Absent: every dream. */
   readonly readable?: DreamReadable;
+  /** `dreamCandidates` for this question, computed once by the caller. Absent: computed here. */
+  readonly candidates?: readonly DreamRow[];
+}
+
+/** One dream a question reached: its summary, why, and its meaning score when one was measured. */
+export interface QuestionNight {
+  readonly night: DreamSummary;
+  readonly why: QuestionNightWhy;
+  /** The cosine against the question (`QuestionNightsOptions.meaning`), rounded; null when none was measured. */
+  readonly score: number | null;
 }
 
 /**
@@ -470,14 +514,14 @@ export interface QuestionNightsOptions {
  * comes when:
  *
  *   1. the answer showed the entry of a reflection that followed it; or
- *   2. the question names dreaming and — among the dreams still in reach —
- *      its title or journal shares a content word with the question, or
- *      MEANS what the rest of the question asks at or above
- *      `DREAM_RECALL_NAMED_FLOOR`; or
+ *   2. the question names dreaming and — among its recent dreams, faded or
+ *      not (asked about, a dream is remembered) — its title or journal shares
+ *      a content word with the question, or MEANS what the rest of the
+ *      question asks at or above `DREAM_RECALL_NAMED_FLOOR`; or
  *   3. the question names dreaming: the newest dream that wrote a journal,
  *      faded or not — first when it asks WHEN (`asksWhenDreamed`: "when did
- *      you last dream?", Ames's case), else after what its content reached;
- *      or
+ *      you last dream?", Ames's case; why `asked-when`), else after what its
+ *      content reached (why `names-dreams`); or
  *   4. the question does NOT name dreaming (D1): a dream still in reach whose
  *      meaning clears `DREAM_RECALL_MEANING_BAR` — the best one, at most
  *      `DREAM_RECALL_UNNAMED_MAX`. Words alone never carry a dream here
@@ -495,22 +539,22 @@ export function nightsForQuestion(
   shownIds: readonly string[],
   words: (text: string) => Set<string>,
   opts: QuestionNightsOptions = {},
-): { night: DreamSummary; why: QuestionNightWhy }[] {
+): QuestionNight[] {
   const store = counterpart.store;
   const t = DREAM_TUNABLES;
   try {
-    const recent = store.dreams({ limit: QUESTION_NIGHTS_LOOKBACK }).filter((d) => d.state !== "undone" && readableBy(opts.readable, d.scope));
+    const recent = readableDreams(store, opts.readable, QUESTION_NIGHTS_LOOKBACK).filter((d) => d.state !== "undone");
     if (recent.length === 0) return [];
-    const today = store.livedDay();
-    const reach = recent.filter((d) => journaled(d) && dreamReach(store, d, today).inReach);
+    const naming = asksAboutDreams(question);
+    // Named: every recent journal; unnamed: only those still in reach (`dreamCandidates`).
+    const reach = opts.candidates ?? dreamCandidates(counterpart, naming, opts.readable);
     const meaning = opts.meaning ?? new Map<string, number>();
     const order: { id: string; why: QuestionNightWhy }[] = [];
     const add = (id: string, why: QuestionNightWhy): void => {
       if (!order.some((o) => o.id === id)) order.push({ id, why });
     };
-    const naming = asksAboutDreams(question);
     const newest = recent.find(journaled) ?? recent[0];
-    if (naming && newest !== undefined && asksWhenDreamed(question)) add(newest.id, "names-dreams");
+    if (naming && newest !== undefined && asksWhenDreamed(question)) add(newest.id, "asked-when");
     const shown = new Set(shownIds);
     if (shown.size > 0) {
       for (const r of store.reflections({ limit: QUESTION_NIGHTS_LOOKBACK })) {
@@ -545,10 +589,11 @@ export function nightsForQuestion(
         .slice(0, t.DREAM_RECALL_UNNAMED_MAX);
       for (const b of best) add(b.id, "meaning");
     }
-    const out: { night: DreamSummary; why: QuestionNightWhy }[] = [];
+    const out: QuestionNight[] = [];
     for (const o of order.slice(0, QUESTION_NIGHTS_MAX)) {
       const read = readNight(counterpart, o.id);
-      if (read.ok && read.night.kind === "dream") out.push({ night: read.night, why: o.why });
+      const m = meaning.get(o.id);
+      if (read.ok && read.night.kind === "dream") out.push({ night: read.night, why: o.why, score: m === undefined ? null : Math.round(m * 1_000) / 1_000 });
     }
     return out;
   } catch {
@@ -579,14 +624,15 @@ export function dreamedLine(night: { readonly date: string | null }): string {
 
 /**
  * The lines an answer gains for the dreams beside it: per dream, `[dream]
- * <title> · drm_… · dreamed <date> · <why>` and an excerpt of its journal.
- * Placed by `withDreamLines`.
+ * <title> · drm_… · dreamed <date> · <why>`, and — when the question asked
+ * about dreams — an excerpt of its journal. Placed by `withDreamLines`.
  */
-export function dreamAnswerLines(dreams: readonly { night: DreamSummary; why: string }[]): string[] {
+export function dreamAnswerLines(dreams: readonly { night: DreamSummary; why: string }[], excerpt = true): string[] {
   const out: string[] = [];
   for (const { night, why } of dreams) {
     const title = night.title?.trim() || "a dream with no title";
     out.push(`${DREAM_LABEL} ${title} · ${night.id} · dreamed ${night.date ?? "on an unknown date"} · ${why}`);
+    if (!excerpt) continue;
     const text = (night.journal ?? "").replace(/\s+/g, " ").trim();
     if (text.length > 0) out.push(`   ${text.length <= DREAM_ANSWER_EXCERPT_CHARS ? text : `${text.slice(0, DREAM_ANSWER_EXCERPT_CHARS - 1)}…`}`);
   }
@@ -594,16 +640,24 @@ export function dreamAnswerLines(dreams: readonly { night: DreamSummary; why: st
 }
 
 /**
- * THE ANSWER WITH ITS DREAMS IN IT (D1). Not at the bottom (Mike: dreams are
- * part of the day's thinking): after the answer's head — its first paragraph,
- * the count and what was asked — and before its first result, the way a
- * dream that came to mind would be said before the list; the gloss once at
- * the end, as `[journal]`'s is. An answer with no paragraph break takes them
- * after it. No dream: the answer unchanged.
+ * THE ANSWER WITH ITS DREAMS IN IT (D1; placement by the coordinator's
+ * decision on the review of #663).
+ *
+ * - A question that ASKS about dreams: the dream is the answer, so its lines
+ *   and excerpt come after the answer's head (its first paragraph, the count
+ *   and what was asked) and before the first result, with the gloss once at
+ *   the end, as `[journal]`'s is. An answer with no paragraph break takes
+ *   them after it.
+ * - Any other question: the memories are the answer, so a dream comes as one
+ *   line, no excerpt and no gloss, AFTER the results: there, and labelled,
+ *   but not standing in front of what was asked.
+ *
+ * No dream: the answer unchanged.
  */
-export function withDreamLines(answer: string, dreams: readonly { night: DreamSummary; why: string }[]): string {
+export function withDreamLines(answer: string, dreams: readonly { night: DreamSummary; why: string }[], asked = true): string {
   if (dreams.length === 0) return answer;
-  const block = dreamAnswerLines(dreams).join("\n");
+  const block = dreamAnswerLines(dreams, asked).join("\n");
+  if (!asked) return `${answer}\n\n${block}`;
   const cut = answer.indexOf("\n\n");
   const body = cut < 0 ? `${answer}\n\n${block}` : `${answer.slice(0, cut)}\n\n${block}${answer.slice(cut)}`;
   return `${body}\n${DREAM_ANSWER_GLOSS}`;

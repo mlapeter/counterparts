@@ -391,15 +391,15 @@ export const DREAM_TUNABLES = {
   DREAM_RECALL_PASSAGE_CHARS: 1_500,
   /**
    * FADING (D1, 2026-10-27; coordinator: "fast unless used, the way a human
-   * dream is gone by lunch unless someone tells it"). A journal is reached by
-   * what it was about only while the lived day is within its REACH of its
-   * last touch — the day it was dreamed, or the last lived day it was
+   * dream is gone by lunch unless someone tells it"). A question that does not
+   * name dreaming reaches a journal by what it was about only while the
+   * lived day is within its REACH of its last touch — the day it was dreamed, or the last lived day it was
    * recalled or retold (`dream/recalled.ts`). The reach starts at this many
    * lived days (the day after a dream is still in reach; the one after that
    * is not) and is multiplied by `DREAM_RECALL_REACH_GROWTH` for every lived
    * day it was touched, up to `DREAM_RECALL_REACH_MAX_DAYS`: spaced use keeps
-   * a dream, as it keeps a memory. A faded dream stays in the journal: "last
-   * dream", its id, and "when did you last dream?" still read it. Read at use.
+   * a dream, as it keeps a memory. A faded dream stays in the journal: a question
+   * that names dreaming, "last dream" and its id still reach it. Read at use.
    */
   DREAM_RECALL_REACH_DAYS: 1,
   /** The reach's growth for each lived day a dream was recalled or retold. CAL. */

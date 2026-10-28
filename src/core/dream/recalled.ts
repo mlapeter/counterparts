@@ -5,10 +5,12 @@
  * humans talk a lot about what they dreamed and think about it during the
  * day." A journal is recalled by what it was about (the recall tool's night reader),
  * and, like a person's dream, it slips out of reach fast unless it is used:
- * recalled (read whole, or asked about) or retold (its reflection's share
+ * recalled (read whole, or found by what it was about on a question that asks
+ * about dreams) or retold (its reflection's share
  * told). Each lived day it is touched widens its reach
  * (`DREAM_TUNABLES.DREAM_RECALL_REACH_*`). A faded dream stays in the journal
- * and opens by "last dream" or by its id; only the reach BY WHAT IT WAS ABOUT
+ * and opens by "last dream", by its id, or by a question that asks about
+ * dreams; only the reach of an ORDINARY question by what it was about
  * fades.
  *
  * No column (Mike's rule: batch store-format changes). A touch is an event
@@ -24,7 +26,7 @@ import { DREAM_TUNABLES } from "./tunables.js";
 /** The event a dream's recall writes (one per dream per lived day). */
 export const DREAM_RECALLED_EVENT = "dream.recalled";
 
-/** How a dream was touched: read whole, or delivered to a question that asked about dreams. */
+/** How a dream was touched: read whole, or matched by a question that asked about dreams (or asked when). */
 export type DreamTouch = "read" | "asked";
 
 /**

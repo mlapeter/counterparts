@@ -712,13 +712,19 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
 - **[M]** A QUESTION reaches dreams by what they were about (OL1b 2026-10-26, extended by
   D1 2026-10-27; `nights.ts#nightsForQuestion`, dream CONTRACT rule 2 and G6): beside the
   answer in `nights`, and in the answer's own words — `[dream] <title> · drm_… · dreamed
-  <date> · <why>` and an excerpt after the answer's head, the "[dream] = dreamed, not
-  lived" gloss once at its end. A question naming dreaming: its content words or their
+  <date> · <why>`; for a question that names dreaming, with an excerpt, after the answer's
+  head and before its results, and the "[dream] = dreamed, not lived" gloss once at its
+  end. A question naming dreaming: its content words or their
   meaning (`DREAM_RECALL_NAMED_FLOOR`), and the newest journaled dream — first when it asks
-  when. Any other question: meaning alone, at `DREAM_RECALL_MEANING_BAR`, at most one; none
-  without an embedder. Only dreams within their reach answer by content; every path obeys
-  the folder rule (a dream from a folder set off or paused is not read from another; "last
-  dream" too). A dream that would carry the result past its ceiling stays out and the
+  when — among its recent dreams, faded or not. Any other question: meaning alone, at
+  `DREAM_RECALL_MEANING_BAR`, at most one, only a dream still within its reach, shown as
+  one line (no excerpt, no gloss) AFTER the results; none without an embedder. The folder
+  rule goes by where the dream ran (`dreams.scope`), not what it is about: a dream run in a
+  folder set off or paused is not read from another by a question or "last dream",
+  filtered before the lookback limit; a `drm_` id opens anywhere. A session with a dream
+  begun (the dream's own background agent) gets no dreams beside its answers. The durable
+  `mcp.recall` row carries `dreams` (id, why, meaning score) and its `chars` is the answer
+  as shipped. A dream that would carry the result past its ceiling stays out and the
   answer is not cut for it.
 - **Deleted promises (Mike, 10-03):** "effort lowers the bar but never removes the hard
   gates: a memory the conversation did not reach stays dark"; "the lower-confidence tier is

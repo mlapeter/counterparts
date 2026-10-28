@@ -232,9 +232,11 @@ reply actually used reconsolidates, where in humans every retrieval does.
   module's index or gate: a deliberate question reaches it beside its answer
   (`adapters/mcp/nights.ts#nightsForQuestion`), by words and meaning, with its date, its
   `drm_` id and "dreamed, not lived" — the chapter's label rule, applied to the night. A
-  question that does not name dreaming needs meaning past a higher bar and carries one at
-  most; a journal fades from that reach unless recalled or retold. Ambient recall does not
-  reach it (yet). The rules are the dream module's (CONTRACT rule 2, G6).
+  question that does not name dreaming needs meaning past a higher bar, carries one at
+  most as a single line after the results, and reaches only a journal still in reach (it
+  fades unless recalled or retold); a question that names dreaming reaches any recent one.
+  Where a dream may be read goes by the folder it RAN in, not what it is about. Ambient
+  recall does not reach it (yet). The rules are the dream module's (CONTRACT rule 2, G6).
 
 ## 4. Drops / simplifies
 

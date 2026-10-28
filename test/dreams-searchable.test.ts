@@ -39,6 +39,7 @@ import { serveHttp } from "../src/adapters/remote/http.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { MCP_RECALL_EVENT } from "../src/core/counterpart-events.js";
 import { DREAM_MARK } from "../src/core/dream/mark.js";
 import { DREAM_RECALLED_EVENT, dreamReach } from "../src/core/dream/recalled.js";
 import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
@@ -192,12 +193,46 @@ describe("a dream is recalled by what it was about, without the word 'dream'", (
       expect(String(n["dreamed"])).toContain("dreamed, not lived");
       expect(String(n["why"])).toContain("by meaning");
       const answer = String(p["answer"]);
-      expect(answer).toContain(`${DREAM_LABEL} ${KEYS_TITLE} · ${keys} · dreamed 2026-10-27`);
-      expect(answer).toContain(DREAM_ANSWER_GLOSS);
-      // Not buried: the dream's line comes before the gloss at the end, after the answer's head.
-      expect(answer.indexOf(DREAM_LABEL)).toBeLessThan(answer.indexOf(DREAM_ANSWER_GLOSS));
-      expect(answer.split("\n")[0]).not.toContain(DREAM_LABEL);
+      // Not asked about dreams (the coordinator's decision on the review of
+      // #663): one line, no excerpt and no gloss, AFTER the results.
+      const line = `${DREAM_LABEL} ${KEYS_TITLE} · ${keys} · dreamed 2026-10-27 · ${String(n["why"])}`;
+      expect(answer.endsWith(`\n\n${line}`)).toBe(true);
+      expect(answer).not.toContain(DREAM_ANSWER_GLOSS);
+      expect(answer).not.toContain("doors only she can unlock. The hallway");
     }
+  });
+
+  test("asked about dreams, the dream leads: its line and excerpt after the answer's head, before the results, the gloss at the end", async () => {
+    let keys = "";
+    seed((c) => {
+      keys = dreamOn(c, "2026-10-27", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+      mem(c, "The spare keys to the shed hang on the hook by the back door.");
+    });
+    const { url } = await door({ embedder: TOPIC_EMBEDDER });
+    const p = await recall(url, { question: "did you dream about keys?", mode: "facts" });
+    const answer = String(p["answer"]);
+    const at = answer.indexOf(`${DREAM_LABEL} ${KEYS_TITLE} · ${keys}`);
+    expect(at).toBeGreaterThan(0);
+    expect(answer.split("\n")[0]).not.toContain(DREAM_LABEL);
+    expect(answer).toContain("   I dreamed of a ring of keys");
+    expect(answer.endsWith(DREAM_ANSWER_GLOSS)).toBe(true);
+    const memory = answer.indexOf("spare keys to the shed");
+    if (memory >= 0) expect(at).toBeLessThan(memory);
+  });
+
+  test("the durable recall row says which dream came, why, and at what score", async () => {
+    let keys = "";
+    seed((c) => {
+      keys = dreamOn(c, "2026-10-27", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+    });
+    const { url, counterpart } = await door({ embedder: TOPIC_EMBEDDER });
+    const p = await recall(url, { question: "locked doors", mode: "facts" });
+    const rows = counterpart.store.eventLog({ name: MCP_RECALL_EVENT, order: "desc", limit: 1 });
+    const row = JSON.parse(rows[0]?.payload ?? "{}") as { dreams?: { id: string; why: string; score: number | null }[]; chars?: number };
+    expect(row.dreams?.map((d) => [d.id, d.why])).toEqual([[keys, "meaning"]]);
+    expect(row.dreams?.[0]?.score ?? 0).toBeGreaterThanOrEqual(DREAM_TUNABLES.DREAM_RECALL_MEANING_BAR);
+    // Its chars are the answer as shipped, dream line included.
+    expect(row.chars).toBe(String(p["answer"]).length);
   });
 
   test("at most one dream beside a question that does not name dreaming, the best of them", async () => {
@@ -316,8 +351,10 @@ describe("fading: gone in two lived days unless it is recalled", () => {
       c.store.advanceClock("2026-10-21");
     });
     let s = await door({ embedder: TOPIC_EMBEDDER });
-    // Asked about the next day: told, so recalled.
+    // Any dream word brings the newest, but that fallback is no touch ("dream" is a product word, review of #663).
     await recall(s.url, { question: "what did you dream about?", mode: "facts" });
+    expect(s.counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: keys })).toEqual([]);
+    // Read whole the next day: recalled.
     await recall(s.url, { handle: "last dream" });
     expect(s.counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: keys }).length).toBe(1);
     for (const c of closers.splice(0).reverse()) await c();
@@ -334,6 +371,73 @@ describe("fading: gone in two lived days unless it is recalled", () => {
     s = await door({ embedder: TOPIC_EMBEDDER });
     // Two lived days past its last touch (reach 1 would have dropped it), and still reached by "locked doors".
     expect(nightsOf(await recall(s.url, { question: "locked doors", mode: "facts" })).map((n) => n["id"])).toEqual([keys]);
+  });
+
+  test("asked about by what it was about, a faded dream comes back, and that ask revives it (review of #663)", async () => {
+    let greenhouse = "";
+    let keys = "";
+    seed((c) => {
+      greenhouse = dreamOn(c, "2026-10-25", { title: GARDEN_TITLE, journal: GARDEN_JOURNAL }).id;
+      keys = dreamOn(c, "2026-10-26", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+      c.store.advanceClock("2026-10-27");
+    });
+    // Faded: untouched for two lived days, an ordinary question no longer reaches it.
+    const before = await door({ embedder: TOPIC_EMBEDDER });
+    expect((await recall(before.url, { question: "the greenhouse latch", mode: "facts" }))["nights"]).toBeUndefined();
+    for (const c of closers.splice(0).reverse()) await c();
+    // By words alone (no embedder) and by meaning, a question about dreaming reaches it.
+    for (const embedder of [undefined, TOPIC_EMBEDDER]) {
+      const s = await door(embedder === undefined ? {} : { embedder });
+      const p = await recall(s.url, { question: "did you dream about the greenhouse?", mode: "facts" });
+      const ids = nightsOf(p).map((n) => n["id"]);
+      expect(ids[0]).toBe(greenhouse);
+      expect(ids).toContain(keys);
+      for (const c of closers.splice(0).reverse()) await c();
+    }
+    // The prompted match was a touch: the greenhouse dream is in reach again for an ordinary question.
+    const s = await door({ embedder: TOPIC_EMBEDDER });
+    expect(s.counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: greenhouse }).length).toBe(1);
+    // ...and the newest, which only came as the fallback, was not touched.
+    expect(s.counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: keys })).toEqual([]);
+    expect(nightsOf(await recall(s.url, { question: "the greenhouse latch", mode: "facts" })).map((n) => n["id"])).toEqual([greenhouse]);
+  });
+
+  test("the newest is a touch only when the question asks when", async () => {
+    let keys = "";
+    seed((c) => {
+      keys = dreamOn(c, "2026-10-27", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+    });
+    const { url, counterpart } = await door();
+    await recall(url, { question: "do you dream?", mode: "facts" });
+    expect(counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: keys })).toEqual([]);
+    await recall(url, { question: "when did you last dream?", mode: "facts" });
+    expect(counterpart.store.eventLog({ name: DREAM_RECALLED_EVENT, ref: keys }).length).toBe(1);
+  });
+});
+
+describe("the dream's own background agent gets no dream lines (review of #663)", () => {
+  test("a session with a dream begun and not yet journaled: none; another session: the dream", async () => {
+    let keys = "";
+    seed((c) => {
+      keys = dreamOn(c, "2026-10-26", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+    });
+    const dreaming = openServer({ dir, host: CLAUDE_AI_HOST, env: {}, session: "s-dreaming", embedder: TOPIC_EMBEDDER, lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) }, manifestVersion: () => null });
+    closers.push(() => dreaming.counterpart.close());
+    const c = dreaming.counterpart;
+    c.store.advanceClock("2026-10-27");
+    mem(c, "On 2026-10-27 the greenhouse door stuck again.");
+    mem(c, "On 2026-10-27 the seedlings went back on the benches.");
+    const begun = c.dreams.begin({ session: "s-dreaming", at: "2026-10-27" });
+    if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+    const asked = (await dreaming.call("recall", { question: "locked doors", mode: "facts" })).structuredContent as Record<string, unknown>;
+    expect(asked["nights"]).toBeUndefined();
+    expect(String(asked["answer"])).not.toContain(DREAM_LABEL);
+    const named = (await dreaming.call("recall", { question: "when did you last dream?", mode: "facts" })).structuredContent as Record<string, unknown>;
+    expect(named["nights"]).toBeUndefined();
+    const other = openServer({ dir, host: CLAUDE_AI_HOST, env: {}, session: "s-awake", embedder: TOPIC_EMBEDDER, lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4243 }) }, manifestVersion: () => null });
+    closers.push(() => other.counterpart.close());
+    const awake = (await other.call("recall", { question: "locked doors", mode: "facts" })).structuredContent as Record<string, unknown>;
+    expect(nightsOf(awake).map((n) => n["id"])).toEqual([keys]);
   });
 });
 
@@ -369,6 +473,25 @@ describe("the folder rule: a dream from a folder set off is not read elsewhere",
     s = await door({ embedder: TOPIC_EMBEDDER, scope: here, scopesFile });
     expect(nightsOf(await recall(s.url, { question: "locked doors", mode: "facts" })).map((n) => n["id"])).toEqual([keys]);
     expect((await recall(s.url, { handle: "last dream" }))["dream"]).toMatchObject({ id: keys });
+  });
+
+  test("the folder rule is applied before the limit: a readable dream behind 22 unreadable newer ones is still found (review of #663)", async () => {
+    const secret = join(root, "secret");
+    const here = join(root, "here");
+    mkdirSync(secret, { recursive: true });
+    mkdirSync(here, { recursive: true });
+    let mine = "";
+    seed((c) => {
+      mine = dreamOn(c, "2026-09-30", { title: GARDEN_TITLE, journal: GARDEN_JOURNAL, scope: here }).id;
+      for (let day = 1; day <= 22; day += 1) {
+        dreamOn(c, `2026-10-${String(day).padStart(2, "0")}`, { title: KEYS_TITLE, journal: KEYS_JOURNAL, scope: secret });
+      }
+    });
+    const scopesFile = join(root, "scopes.json");
+    writeScopes(scopesFile, setScope(null, secret, "off", { at: new Date().toISOString() }));
+    const s = await door({ scope: here, scopesFile });
+    expect((await recall(s.url, { handle: "last dream" }))["dream"]).toMatchObject({ id: mine });
+    expect(nightsOf(await recall(s.url, { question: "when did you last dream?", mode: "facts" })).map((n) => n["id"])).toEqual([mine]);
   });
 });
 

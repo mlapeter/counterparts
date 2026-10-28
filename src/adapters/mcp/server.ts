@@ -65,7 +65,7 @@ import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
 import { CACHE_SCHEMA_VERSION, CORE_ABOUT_MARKS, SCHEMA_VERSION, StoreError, paths, schemaAhead } from "../../core/store/index.js";
-import type { AboutMark, FeelingInput, TraitInput } from "../../core/store/index.js";
+import type { AboutMark, DreamRow, FeelingInput, TraitInput } from "../../core/store/index.js";
 import { isLocked } from "../../core/store/db.js";
 import type { Band, Kind } from "../../core/types.js";
 import { UNBOUND_SESSION, isKnownSession } from "../../core/types.js";
@@ -159,11 +159,12 @@ import {
   NIGHTS_GLOSS,
   asksAboutDreams,
   dreamPassages,
+  dreamCandidates,
   dreamlessQuestion,
-  dreamsInReach,
   isLastNightHandle,
   nightsForQuestion,
   readLastNight,
+  TOUCHING_WHYS,
   withDreamLines,
 } from "./nights.js";
 import type { DreamReadable, QuestionNightWhy } from "./nights.js";
@@ -177,6 +178,7 @@ const QUESTION_NIGHT_WHY: Readonly<Record<QuestionNightWhy, string>> = {
   "reflection-shown": "the answer shows the reflection that followed this dream",
   words: "this dream's title or journal shares words with the question",
   meaning: "this dream was about what the question asks (by meaning)",
+  "asked-when": "the question asks when it last dreamed; this is the newest",
   "names-dreams": "the question asks about dreams; this is the newest",
 };
 import type { NightSummary } from "./nights.js";
@@ -2626,41 +2628,33 @@ export class McpServer {
       answer,
       ids: [...ids],
     };
-    this.emit("mcp.recall", undefined, {
-      path: "question",
-      mode,
-      reason: row.reason,
-      semantic: row.semantic,
-      returned: ids.length,
-      considered: row.considered,
-      chars: answer.length,
-      truncated: false,
-      droppedForBudget: 0,
-    });
-    this.noteRecall(row, 0, question, false, payload, ids, key);
-    this.markSeen(ids, key);
-    this.noteAsked(ids, key, question);
     // DREAMS THE QUESTION REACHES (2026-10-26, OL1b; by what they were about,
     // D1 2026-10-27): a dream is not a memory, so neither mode finds one; it
     // rides beside the answer, labelled [dream] in the answer's own words and
     // in `nights`, on its first page (`nights.ts#nightsForQuestion`). Credits
-    // no memory; a dream delivered to a question that asks about dreams is
-    // noted as recalled, so it keeps its reach (`dream/recalled.ts`).
+    // no memory. Worked out BEFORE the row is written (review of #663), so the
+    // row says which dream came, why and at what score, and its `chars` is the
+    // answer as shipped. Not for the dream's own background agent (review of
+    // #663): a session with a dream begun gets no dream lines, so old journals
+    // are not folded into tonight's merges.
+    const naming = asksAboutDreams(question);
     const readable = this.dreamReadable();
+    const candidates = page === 1 && !this.dreamingNow(ctx.sessionId) ? dreamCandidates(this.counterpart, naming, readable) : null;
     const dreams =
-      page === 1
-        ? nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t), {
-            meaning: await this.dreamMeaning(question, embedded.vector, readable),
+      candidates === null
+        ? []
+        : nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t), {
+            meaning: await this.dreamMeaning(question, embedded.vector, candidates),
+            candidates,
             ...(readable === undefined ? {} : { readable }),
-          })
-        : [];
+          });
     // The answer first (review of #645): a dream that would carry the result
     // past its ceiling stays out, so the net never cuts the answer for it.
     // Measured with the dream's lines in the answer, as it will ship.
     const dreamGloss = `${NIGHTS_GLOSS} recall with handle "last dream" reads the newest whole, and a dream's id alone reads that one whole.`;
     const withDreams = (): Record<string, unknown> => {
       const shown = dreams.map((d) => ({ night: d.night, why: QUESTION_NIGHT_WHY[d.why] }));
-      const text = withDreamLines(answer, shown);
+      const text = withDreamLines(answer, shown, naming);
       return {
         ...payload,
         chars: text.length,
@@ -2673,15 +2667,48 @@ export class McpServer {
       if (wireChars(JSON.stringify(withDreams())) <= this.resultCeilingChars) break;
       dreams.pop();
     }
-    if (dreams.length > 0) {
-      this.emit("mcp.recall.nights", undefined, { dreams: dreams.length, why: dreams.map((d) => d.why).join(",") });
-      // Asked about, a dream is told: recalled, and its reach widens. Riding
-      // beside an ordinary answer is a list shown, which credits nothing (the
-      // 09-14 rule for memories: opening or quoting credits, a list does not).
-      if (asksAboutDreams(question)) for (const d of dreams) this.noteDreamTouched(d.night.id, "asked");
-      return this.result(withDreams(), false);
+    const shipped = dreams.length > 0 ? withDreams() : payload;
+    const shippedChars = typeof shipped["chars"] === "number" ? shipped["chars"] : answer.length;
+    this.emit("mcp.recall", undefined, {
+      path: "question",
+      mode,
+      reason: row.reason,
+      semantic: row.semantic,
+      returned: ids.length,
+      considered: row.considered,
+      chars: shippedChars,
+      truncated: false,
+      droppedForBudget: 0,
+    });
+    // On the durable row (review of #663, to calibrate the bar on live use):
+    // each dream that came, why, and its meaning score.
+    const dreamRow = dreams.length === 0 ? row : { ...row, dreams: dreams.map((d) => ({ id: d.night.id, why: d.why, score: d.score })) };
+    this.noteRecall(dreamRow, 0, question, false, shipped, ids, key);
+    this.markSeen(ids, key);
+    this.noteAsked(ids, key, question);
+    if (dreams.length === 0) return this.result(payload, false);
+    this.emit("mcp.recall.nights", undefined, { dreams: dreams.length, why: dreams.map((d) => d.why).join(",") });
+    // A dream is recalled (its reach widens, `dream/recalled.ts`) when the
+    // question PROMPTED it — matched by words or meaning on a question that
+    // asks about dreams — or it is the newest and the question asked when.
+    // Not the fallback newest on any question with a dream word ("dream" is a
+    // product word here), and not a dream beside an ordinary answer: a list
+    // shown credits nothing (the 09-14 rule for memories). Review of #663.
+    if (naming) for (const d of dreams) if (TOUCHING_WHYS.has(d.why)) this.noteDreamTouched(d.night.id, "asked");
+    return this.result(shipped, false);
+  }
+
+  /**
+   * IS THIS SESSION DREAMING? A dream begun under its session id and not yet
+   * journaled or undone (the dream's own background agent, calling recall
+   * mid-dream). Never throws: a read that fails answers no.
+   */
+  private dreamingNow(session: string): boolean {
+    try {
+      return this.counterpart.store.dreams({ limit: 5 }).some((d) => d.state === "begun" && d.session === session);
+    } catch {
+      return false;
     }
-    return this.result(payload, false);
   }
 
   /**
@@ -2722,17 +2749,17 @@ export class McpServer {
    * against the question — or, for a question that names dreaming, against
    * what is left once the dream words are out (every journal says "I
    * dreamed", so those words would match them all). Embedded on the fly with
-   * the question's own embedder, at most `QUESTION_NIGHTS_LOOKBACK` dreams
-   * and fewer as they fade; kept in memory, never in box 3 (NOTES "D1": a
+   * the question's own embedder, over `dreamCandidates` (at most
+   * `QUESTION_NIGHTS_LOOKBACK` dreams; for a question that does not name
+   * dreaming, fewer as they fade), computed once per recall; kept in memory, never in box 3 (NOTES "D1": a
    * `drm_` row there would be read by every memory scan). No embedder, or
    * nothing left to embed: an empty map. Never throws.
    */
-  private async dreamMeaning(question: string, questionVector: number[] | null, readable: DreamReadable | undefined): Promise<Map<string, number>> {
+  private async dreamMeaning(question: string, questionVector: number[] | null, candidates: readonly DreamRow[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     const embedder = this.embedder;
     if (embedder === null) return out;
     try {
-      const candidates = dreamsInReach(this.counterpart, readable);
       if (candidates.length === 0) return out;
       let q: number[] | null = questionVector;
       if (asksAboutDreams(question)) {
@@ -2750,7 +2777,8 @@ export class McpServer {
             if (v !== null && v.length === q.length) made.push(v);
           }
           vecs = made;
-          this.dreamVectors.set(key, vecs);
+          // An embedder that failed for every passage is not remembered as "no meaning".
+          if (made.length > 0) this.dreamVectors.set(key, vecs);
         }
         let best = Number.NEGATIVE_INFINITY;
         for (const v of vecs) best = Math.max(best, cosine(q, v));
@@ -2847,6 +2875,8 @@ export class McpServer {
         // A night opened by its id (review of #538): counted apart, so a row
         // that opened a dream does not read as an address that held nothing.
         ...(row.nights === undefined ? {} : { nights: row.nights }),
+        // A question's dreams, why, and score (D1, review of #663).
+        ...(row.dreams === undefined ? {} : { dreams: row.dreams }),
         ...(row.matched === undefined ? {} : { matched: row.matched }),
         ...(row.faded === undefined ? {} : { faded: row.faded }),
         ...(row.page === undefined ? {} : { page: row.page }),

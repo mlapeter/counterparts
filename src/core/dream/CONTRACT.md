@@ -47,9 +47,10 @@ dreamer is the model (a background agent the session launches), outside this pro
    wherever recall shows it, it is labelled `[dream]` with its date and `drm_` id and the
    line "dreamed, not lived", so the counterpart says "I dreamed…" and never tells it as
    something that happened. Like a person's dream it is gone by lunch unless it is used:
-   untouched, it leaves the reach of what it was about within `DREAM_RECALL_REACH_DAYS`
+   untouched, an ordinary question stops reaching it after `DREAM_RECALL_REACH_DAYS`
    lived days; recalled or retold, its reach grows (`dream/recalled.ts`). It stays in the
-   journal either way: "last dream" and its id still read it. (Until 2026-10-27 the journal
+   journal either way: a question that names dreaming, "last dream" and its id still reach
+   it. (Until 2026-10-27 the journal
    was reached only by its id, "last dream", or a question that named dreaming.)
 3. **Nothing is lost to a dream.** A merge keeps its originals: since 2026-10-11 (Group 2b;
    decided by random-06, lightly held) each is settled `changed` under the merged memory
@@ -431,13 +432,19 @@ dreamer is the model (a background agent the session launches), outside this pro
    or prune touches it, and it is never a memory row. **Recall reaches it** (D1,
    2026-10-27, rewritten on Mike's line under rule 2): by words and by meaning, read-only,
    labelled `[dream]` with its date and id, beside an answer and never as one of its
-   memories; a question that does not name dreaming needs meaning at or above
-   `DREAM_RECALL_MEANING_BAR` and carries at most `DREAM_RECALL_UNNAMED_MAX`; a journal
-   past its reach (`dream/recalled.ts#dreamReach`) is reached only by "last dream", its
-   id, or a question asking when it last dreamed; and every reach obeys the folder rule (a
-   dream written in a folder set off or paused is not read from another folder). A recall
-   writes one `dream.recalled` event (latched per dream per lived day) and nothing else.
-   Tested through the door: `test/dreams-searchable.test.ts`.
+   memories. A question that does not name dreaming needs meaning at or above
+   `DREAM_RECALL_MEANING_BAR`, carries at most `DREAM_RECALL_UNNAMED_MAX`, shows it as one
+   line after the results, and reaches only a journal within its reach
+   (`dream/recalled.ts#dreamReach`). A journal past its reach is still reached by any
+   question that names dreaming (by its words or meaning, or as the newest), by the answer
+   showing its reflection's entry, by "last dream", and by its id. The folder rule goes by
+   WHERE THE DREAM RAN (`dreams.scope`), not by what it is about: a dream run in a folder
+   set off or paused is not read from another folder, by a question or by "last dream"; its
+   id (`drm_…`) still opens anywhere, as a memory's id does. A recall writes one
+   `dream.recalled` event (latched per dream per lived day) when the dream was read whole,
+   matched by words or meaning on a question that names dreaming, or is the newest and the
+   question asked when — and nothing else. Tested through the door:
+   `test/dreams-searchable.test.ts`.
 
 ### 5.4 Reflection — the waking self (2026-09-27, working defaults)
 
