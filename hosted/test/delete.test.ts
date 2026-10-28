@@ -1100,8 +1100,9 @@ describe("R9: the delete emails", () => {
     assert.deepEqual(called.map((c) => c.to), ["late@example.com"], "the send went to the address read before the purge");
     assert.deepEqual(events.filter(([n]) => n === "delete.mail.failed"), [["delete.mail.failed", storeTag(me.storeId)]]);
     const line = eventLine("delete.mail.failed", storeTag(me.storeId));
+    // \b502\b: the signup audit detail is a random hex hash, which can hold "502" by chance.
     for (const logged of [line, JSON.stringify(events), JSON.stringify(r.app.accounts.auditOf(me.personId))]) {
-      assert.doesNotMatch(logged, /@|late@|502|answered|quota|upstream/, "no address and no error text");
+      assert.doesNotMatch(logged, /@|late@|\b502\b|answered|quota|upstream/, "no address and no error text");
     }
   });
 
