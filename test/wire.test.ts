@@ -1777,6 +1777,44 @@ describe("install, at a terminal", () => {
     expect(said).toContain("`claude` is not on this PATH");
     expect(said).toContain("Done. Your memory lives at");
   });
+
+  /**
+   * W3 (10-28): ON A NARROW TERMINAL THE LINE TO PASTE IS STILL ONE LINE, and
+   * it is the line doctor prints for the same case. The stranger install test
+   * pasted a hard-wrapped `claude mcp add …` and it broke.
+   */
+  test("`claude` missing on a narrow terminal: the printed `claude mcp add` is one unwrapped line, the same as doctor's", async () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const emptyBin = join(home, "empty-bin");
+    mkdirSync(emptyBin, { recursive: true });
+    const env = { ...tableEnv(true), PATH: emptyBin, NO_COLOR: "1" };
+    const transcript: string[] = [];
+    const answers = ["Ada"];
+    const io: Io = {
+      out: (l) => transcript.push(l),
+      err: (l) => transcript.push(l),
+      prompt: async (): Promise<string> => answers.shift() ?? "",
+      promptHidden: async (): Promise<string> => "",
+      tty: { stdin: true, stdout: true, columns: 60 },
+    };
+    const code = await run(["install", "--config", configPath()], {
+      io, env, home, spawner: spawnerThat(() => MISSING).spawner, processes: noProcesses,
+    });
+    expect(code).toBe(EXIT.ok);
+    const added = transcript.filter((l) => l.includes("claude mcp add"));
+    expect(added).toHaveLength(1);
+    const pasted = (added[0] ?? "").trim();
+    expect(pasted.startsWith("claude mcp add ")).toBe(true);
+    expect(pasted.length).toBeGreaterThan(60); // it really would have folded
+
+    const doc: string[] = [];
+    await run(["doctor", "--config", configPath()], {
+      io: { out: (l) => doc.push(l), err: (l) => doc.push(l) },
+      env, home, spawner: spawnerThat(() => MISSING).spawner, processes: noProcesses,
+    });
+    const doctorSaid = doc.join("\n");
+    expect(doctorSaid).toContain(`— ${pasted} — then restart Claude Code`);
+  });
 });
 
 // ── small things that are load-bearing ──────────────────────────────────────
