@@ -18,6 +18,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+
+import { localDate } from "../src/core/time.js";
 
 import { ONBOARDING_MEET_KEY } from "../src/core/onboarding.js";
 import { Store } from "../src/core/store/index.js";
@@ -373,6 +376,65 @@ describe("the wake says it once per version", () => {
       s.close();
     }
   });
+});
+
+describe("end to end through the hook process: the published switch, where people set it", () => {
+  const HOOK = resolve(REPO, "src/adapters/claude-code/bin/hook.ts");
+
+  /**
+   * One SessionStart through `bin/hook.ts` itself, reading `claude-code.json`
+   * from disk. The worker it may start makes NO request: the record already
+   * says today was checked, and a dead proxy stands behind that anyway.
+   */
+  function hookWake(config: Record<string, unknown>): string {
+    const local = localDate(Date.now());
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, ...config }));
+    const at = new Date().toISOString();
+    writeFileSync(
+      updatesPath(configPath),
+      JSON.stringify({
+        switch: "none",
+        at,
+        checkedDate: local,
+        okAt: at,
+        latest: ahead(4),
+        latestSeen: local,
+        flags: { tellBelow: null, urgentBelow: null, tellBehind: 3, plugin: true },
+      }),
+    );
+    const home = join(root, "home");
+    mkdirSync(home, { recursive: true });
+    const r = spawnSync(process.execPath, ["run", HOOK, "--config", configPath], {
+      input: JSON.stringify({ cwd: project, hook_event_name: "SessionStart", session_id: `s-${Math.random().toString(36).slice(2)}`, source: "startup" }),
+      encoding: "utf8",
+      // No COUNTERPARTS_UPDATE_CHECK here: the switch under test is the file's.
+      env: {
+        PATH: "/usr/bin:/bin",
+        HOME: home,
+        USERPROFILE: home,
+        BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
+        COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+        HTTPS_PROXY: "http://127.0.0.1:9",
+        HTTP_PROXY: "http://127.0.0.1:9",
+      },
+      timeout: 60_000,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    const out = r.stdout ?? "";
+    if (!out.trimStart().startsWith("{")) return out;
+    return (JSON.parse(out) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? "";
+  }
+
+  test("newer on npm: the hook's wake says it, with the npm step", () => {
+    const lines = updateLines(hookWake({}));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`Counterparts ${ahead(4)} is out`);
+    expect(lines[0]).toContain("counterparts@latest");
+  }, 120_000);
+
+  test('"updateCheck": false in the file the hook reads: silent', () => {
+    expect(updateLines(hookWake({ updateCheck: false }))).toEqual([]);
+  }, 120_000);
 });
 
 describe("the auto-update offer (plugin, our marketplace), once", () => {
