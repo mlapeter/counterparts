@@ -1370,7 +1370,7 @@ const SCOPE_SUMMARY_BASE =
 const SCOPE: ToolSpec = {
   name: "scope",
   annotations: annotate("Directory scope", { readOnly: false }),
-  summary: `${SCOPE_SUMMARY_BASE} With \`updates\` alone it switches Counterparts' daily check for a newer version off or on — 'stop reminding me about updates', 'stop checking for updates'.`,
+  summary: `${SCOPE_SUMMARY_BASE} \`updates\` alone: off when they say stop reminding them about updates.`,
   admission:
     "Call it to READ when a session starts in a directory nothing is set for and the wake asks you to; call it to SET the moment the user answers 'remember here', 'just read', 'not here' or 'pause this'.",
   negativeExamples: [
@@ -1406,7 +1406,7 @@ const SCOPE: ToolSpec = {
     },
     {
       claim:
-        "`updates: \"off\"` is the person telling their Claude to stop: no process here asks npm for the newest version any more, and no wake or doctor line reminds them about updates, until `updates: \"on\"`. It is the one setting here that is not about this directory, and it is recorded as one store setting, beside no memory. Not offered on claude.ai, which is always current.",
+        "`updates: \"off\"` (the person saying stop): no daily request to npm and no update line in any wake or in doctor, until `updates: \"on\"`. One store setting, not about this directory; no memory. Not on claude.ai.",
       mechanizedBy: "src/adapters/mcp/server.ts#updatesTool -> src/adapters/update-check.ts#askedOff (runUpdateCheck, updateNoticeLine, urgentUpdateLine)",
     },
   ],

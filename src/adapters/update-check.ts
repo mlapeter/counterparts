@@ -42,6 +42,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, 
 import { dirname, join, relative, resolve, isAbsolute } from "node:path";
 
 import { lastOffer, offerDue } from "../core/onboarding.js";
+import { shortDay, yearOf } from "../core/time.js";
 import type { Store } from "../core/store/index.js";
 import type { AdapterConfig } from "./config.js";
 import { sidebarPluginRecorded } from "./host-wiring.js";
@@ -769,7 +770,8 @@ export function updateNoticeLine(input: UpdateLineInput): string | null {
     const failing = state?.failingSince !== undefined && daysBetween(state.failingSince, input.today) >= FAILING_DAYS;
     const noCheck = input.transpiled || sw === "nonessential" || failing;
     if (noCheck && DATE.test(input.released) && daysBetween(input.released, input.today) > AGE_DAYS) {
-      const when = new Date(`${input.released}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+      // `Oct 28`, or the date as written in another year (`time.ts#shortDay`: dates are time.ts's to format).
+      const when = shortDay(input.released, yearOf(input.today));
       const line = `${UPDATE_LEAD} "This Counterparts is from ${when}; a newer one may be out. If you'd like it: ${steps}." ${STOP_HINT}`;
       if (fits(line)) {
         const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
