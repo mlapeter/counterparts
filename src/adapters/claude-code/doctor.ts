@@ -118,7 +118,9 @@ import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
 import { LOG_DAYS, logReading } from "../log/index.js";
 import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } from "./doctor-finding.js";
-import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
+import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, RELOAD_STEP, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
+import { newerStoreWords } from "../update-words.js";
+import { installedVersion } from "../sessions.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
@@ -721,7 +723,7 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
       "amber",
       RECALL_TITLE,
       `off in this process — the store's cache was written by a newer Counterparts (cache v${v.found}; this build reads v${v.expected}). Recall still matches on words, but may miss words the newer build indexed in another form`,
-      `Either install the newer build again (${byInstall(input, "bun add -g counterparts@latest", "in Claude Code, /plugin → Installed → counterparts → Update now")}), or, to stay on this one, delete ${tilde(input.dir)}/cache/cache.sqlite* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors --dir ${tilde(input.dir)}\` to rebuild its word index — then in Claude Code run /mcp → Reconnect so the server opens it.`,
+      `Either install the newer build again (${byInstall(input, "bun add -g counterparts@latest", "in Claude Code, /plugin → Installed → counterparts → Update now")}), or, to stay on this one, delete ${tilde(input.dir)}/cache/cache.sqlite* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors --dir ${tilde(input.dir)}\` to rebuild its word index — then in Claude Code ${byInstall(input, "run /mcp → Reconnect", RELOAD_STEP)} so the server opens it.`,
       { cacheAhead: true, found: v.found, expected: v.expected },
     );
   }
@@ -3390,7 +3392,14 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
     // Read by the caller for the same reason, and answered beside the `Store`
     // line it qualifies: "there is a store here" and "it opens" are two facts.
-    ...(input.open === undefined ? [] : openFindings(input.open)),
+    // A store a newer copy upgraded gets the hook's and the server's own step
+    // (U1a, constitution 16). This console runs the code installed at its path,
+    // and reads no plugin record: the update words work whichever is newer.
+    ...(input.open === undefined
+      ? []
+      : openFindings(input.open, {
+          aheadFix: newerStoreWords({ route: input.install ?? "either", who: "hook", loaded: installedVersion(), recorded: null }),
+        })),
     // A rollback's hold (2026-10-11): one file read, and only when it is there.
     ...rollbackFindings(input.dir),
     // Who can read the store (R1): a few stats, no store read.

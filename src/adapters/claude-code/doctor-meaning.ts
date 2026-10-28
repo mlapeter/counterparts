@@ -34,7 +34,7 @@ import { payloadOf, str } from "./doctor-finding.js";
 // (`../update-words.ts`): the MCP server's refusal says them too, and it may
 // not import this adapter. Re-exported here, where doctor and the wake read them.
 import { PLUGIN_UPDATE, byRoute, npmTableCommand } from "../update-words.js";
-export { PLUGIN_UPDATE, byRoute, npmTableCommand, npmUpdateCommand } from "../update-words.js";
+export { PLUGIN_UPDATE, RELOAD_STEP, byRoute, npmTableCommand, npmUpdateCommand } from "../update-words.js";
 
 /** The plugin's way to the meaning table: its update reruns the dependency
  *  step, which needs npm (#396: a Bun-only computer has none). */
