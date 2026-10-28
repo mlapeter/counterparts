@@ -18,6 +18,9 @@
  *     in the next session's wake.
  *   - A dated item (eventDate) and an item naming what would settle it
  *     (settlesWhen) are never parked.
+ *   - P2b: a lane with no count line still says how many are parked — one
+ *     line under the items it lists, or the lane's one line when it carries
+ *     nothing — and the folded line keeps "· N parked"; within the budget.
  *
  * Hermetic: every store is a temp dir made and removed here; every word is
  * invented placeholder prose.
@@ -31,14 +34,18 @@ import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
+import { chatLanesFirst } from "../src/adapters/mcp/chat-wake.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import {
   COLLAPSED_WORDS,
+  FOLDED_WORDS,
   FRAMING,
+  NOTHING_CURRENT_WORDS,
   OPEN_TAIL_WORDS,
   PARKED_WORDS,
   SELF_TUNABLES,
+  byteLength,
   collapsedLane,
   collapsedLine,
   countedLanes,
@@ -424,5 +431,168 @@ describe("review of #674 — the line at exactly 14 lived days; a one-off date g
     const input = { configPath: config, configReason: "loaded" as const, config: { dataDir: storeDir }, dir: storeDir, store: w.c.store, today: w.today(), refusals: {} };
     expect(doctorFindings(input).find((x) => x.key === "open-items")?.data).toMatchObject({ open: 1, parked: 1 });
     expect(doctorFindings({ ...input, budgetMs: 5_000 }).find((x) => x.key === "open-items")).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P2b (2026-10-28): a lane with no count line still says what it parked —
+// under the items it lists, or as the lane's one line when it carries
+// nothing — and the folded line keeps its "· N parked". Through `remember`,
+// lived days advanced, the wake built at the turn-end (`rebrief`) and
+// assembled at SessionStart (`ClaudeCodeAdapter#sessionStart`).
+describe("P2b — the parked are counted whatever line the lane has", () => {
+  const OLD = ["the shed roof felt", "the pump house lock", "the fence post by the gate"];
+  const NOTHING_LINE = `${FRAMING.threads} ${NOTHING_CURRENT_WORDS} · 3 ${PARKED_WORDS} (recall "still open" lists them)`;
+  const UNDER_LINE = `(3 ${PARKED_WORDS}; recall "still open" lists them)`;
+
+  /** A session start's wake, assembled under `budget`. */
+  function sessionStartAt(w: World, session: string, budget: number): string {
+    const verdict = { mode: "on", matched: HERE, entry: null } as ScopeVerdict;
+    return new ClaudeCodeAdapter({
+      counterpart: w.c,
+      config: { dataDir: storeDir, injectionBudgetBytes: budget },
+      configPath: config,
+      now: () => w.now(),
+      scope: verdict,
+      command: "/bin/true",
+      args: ["runner"],
+      spawner: () => ({ pid: 4242 }),
+    }).sessionStart({ sessionId: session, scope: HERE, at: w.today(), source: "startup" } as HookInput).injection;
+  }
+
+  async function oldThree(s: McpServer): Promise<string[]> {
+    const ids: string[] = [];
+    for (const t of OLD) ids.push(await remember(s, { text: `Open: what is left to do about ${t}?`, unresolved: true }));
+    return ids;
+  }
+
+  /** Every line that speaks for "Still open": its heading, its own one line, or its part of the folded line. */
+  const saysOpen = (text: string): boolean =>
+    text.split("\n").some((l) => l.startsWith(FRAMING.threads) || (l.startsWith(`${FOLDED_WORDS} `) && l.includes(" still open (recall ids: ")));
+  const saysParked = (text: string): boolean => text.includes(` · 3 ${PARKED_WORDS}`) || text.includes(UNDER_LINE);
+
+  test("nothing carried: the lane is one line — nothing current, and how many are parked; nothing said before any is parked", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    const old = await oldThree(s);
+
+    // Lived day 14: 13 untouched, all carried — no parked word anywhere.
+    toDay(w, K);
+    let both = wakes(w, "s-p2b-a-14");
+    for (const text of [both.built, both.assembled]) {
+      for (const id of old) expect(inStillOpen(text, id)).toBe(true);
+      expect(text).not.toContain(PARKED_WORDS);
+      expect(text).not.toContain(NOTHING_CURRENT_WORDS);
+    }
+
+    // Lived day 40: all three parked, nothing carried. Before P2b the wake said nothing.
+    toDay(w, 40);
+    expect(openCarry(w.c.store, 40, K).carried).toEqual([]);
+    both = wakes(w, "s-p2b-a-40");
+    for (const text of [both.built, both.assembled]) {
+      const lines = text.split("\n");
+      expect(lines).toContain(NOTHING_LINE);
+      expect(byteLength(NOTHING_LINE)).toBe(72);
+      expect(lines.filter((l) => l.startsWith(FRAMING.threads))).toEqual([NOTHING_LINE]);
+      expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+      for (const id of old) expect(text).not.toContain(id);
+      // The lane's one line: the dashboard, the delivery and the chat wake read it as "Still open"'s…
+      expect(collapsedLane(NOTHING_LINE)).toBe("threads");
+      // …and it counts nothing the lane left out: the parked are not "more".
+      expect(countedLanes(text).threads).toBeUndefined();
+    }
+    // The claude.ai wake moves it first, as it moves the lane.
+    const chat = chatLanesFirst(both.built).split("\n");
+    expect(chat[chat.indexOf(FRAMING.context) + 2]).toBe(NOTHING_LINE);
+    // recall "still open" lists the three it counts.
+    const listed = await stillOpen(s);
+    expect(listed.parked).toBe(3);
+    expect(listed.items.filter((i) => i.parked === true).map((i) => i.id).sort()).toEqual([...old].sort());
+
+    // Its bytes count against the budget: at every ceiling the line is in the
+    // wake only when the wake fits, and a roomy wake always has it.
+    let first: number | null = null;
+    for (let b = 280; b <= 600; b += 4) {
+      const r = w.c.rebrief({ budgetBytes: b, at: w.today() });
+      const text = w.c.wake(b).text;
+      if (text.includes(NOTHING_LINE)) {
+        first ??= b;
+        expect(r.bytes).toBeLessThanOrEqual(r.composeBudget ?? 0);
+      } else expect(first).toBeNull();
+    }
+    expect(first).not.toBeNull();
+  });
+
+  test("some carried, no count line: one line under the items it lists", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    const old = await oldThree(s);
+    toDay(w, 30);
+    const fresh = [
+      await remember(s, { text: "Open: which day does the log splitter come back?", unresolved: true }),
+      await remember(s, { text: "Open: did the chimney sweep confirm Thursday?", unresolved: true }),
+    ];
+    toDay(w, 31);
+    expect(fresh.length).toBeLessThan(SELF_TUNABLES.THREADS_MAX);
+    const both = wakes(w, "s-p2b-b");
+    for (const text of [both.built, both.assembled]) {
+      const lines = lane(text, FRAMING.threads);
+      expect(lines.filter((l) => l.startsWith("- ")).length).toBe(2);
+      for (const id of fresh) expect(inStillOpen(text, id)).toBe(true);
+      for (const id of old) expect(inStillOpen(text, id)).toBe(false);
+      // No "more open" count: the lane lists all it carries, then says what it parked.
+      expect(lines.at(-1)).toBe(UNDER_LINE);
+      expect(byteLength(UNDER_LINE)).toBe(42);
+      expect(text).not.toContain("more open");
+      expect(countedLanes(text).threads).toBeUndefined();
+      expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+    }
+  });
+
+  test("collapsed and folded: the lane's one line and its part of the folded line keep '· N parked'; the lane is never said without it", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    await oldThree(s);
+    toDay(w, 30);
+    for (let i = 0; i < 7; i += 1) await remember(s, { text: `Open: does bed ${String(i)} want lime before the frost?`, unresolved: true });
+    for (let i = 0; i < 3; i += 1) await remember(s, { text: `Reminder: pay the feed store invoice number ${String(i)}.`, eventDate: "2026-11-01" });
+    toDay(w, 31);
+
+    // Every ceiling from a bare floor to a roomy wake, both roads: wherever
+    // "Still open" is said, its parked are said with it.
+    const seen = new Set<string>();
+    for (let b = 500; b <= 1000; b += 10) {
+      const r = w.c.rebrief({ budgetBytes: b, at: w.today() });
+      expect(r.published).toBe(true);
+      const built = w.c.wake(b).text;
+      const assembled = sessionStartAt(w, `s-p2b-c-${String(b)}`, b);
+      for (const [road, text] of [["built", built], ["assembled", assembled]] as const) {
+        if (!saysOpen(text)) continue;
+        expect(saysParked(text)).toBe(true);
+        // Said once: a folded "Still open" is not also given its own parked line.
+        expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+        const lines = text.split("\n");
+        const fold = lines.find((l) => l.startsWith(`${FOLDED_WORDS} `));
+        const collapsed = lines.find((l) => collapsedLane(l) === "threads");
+        if (fold?.includes(" still open (recall ids: ") === true) {
+          // The folded line: "Still open"'s part ends with the parked, and still reads its count.
+          expect(fold).toMatch(/; 7 still open \(recall ids: mem_\w+, mem_\w+, mem_\w+, and 4 more\) · 3 parked(?:;|$)/);
+          expect(countedLanes(fold).threads).toBe(7);
+          seen.add(`${road}:folded`);
+        } else if (collapsed !== undefined) {
+          expect(collapsed).toContain(COLLAPSED_WORDS);
+          expect(collapsed).toEndWith(` · 3 ${PARKED_WORDS}`);
+          expect(countedLanes(collapsed).threads).toBe(7);
+          seen.add(`${road}:collapsed`);
+        } else {
+          expect(lane(text, FRAMING.threads).at(-1)).toMatch(new RegExp(`^\\(\\d+ more open, .+\\) · 3 ${PARKED_WORDS}$`));
+          seen.add(`${road}:listed`);
+        }
+      }
+    }
+    for (const road of ["built", "assembled"]) for (const form of ["folded", "collapsed", "listed"]) expect(seen).toContain(`${road}:${form}`);
   });
 });

@@ -2887,8 +2887,8 @@ P2 is that rule retuned and said aloud, not a second mechanism beside it:
 - **Said**: "Still open"'s count line ends `· N parked` after its paren (`briefing.ts#
   parkedTail`; `countedLanes` reads the count before it as before), the collapsed line too;
   the count is per reader (another folder's work not counted, O2), set on `Lanes.parked` by
-  `Self` and carried on `BriefingRequest.threadsParked`. A lane that lists all it carries has
-  no count line and says nothing of what it parked — no new line was added to the wake.
+  `Self` and carried on `BriefingRequest.threadsParked`. (A lane with no count line said
+  nothing of what it parked; P2b below closed that.)
   `recall "still open"` lists the parked after the carried, `parked: true`, most recently
   touched first, with `parked` their count (it used to count them as `notCarried`). The
   reflection's share says "N open items nobody touched in 14 lived days are parked; recall
@@ -2902,3 +2902,25 @@ P2 is that rule retuned and said aloud, not a second mechanism beside it:
   is not a touch, and offering them nightly would turn parking into closing by another door.
 
 Revert: `OPEN_CARRY_DAYS` 21 (or `Infinity`); `parkedTail` returning "".
+
+**P2b, the same day — the parked are counted whatever line the lane has** (the brief: parked
+items are counted, not vanished; its main aim a clean list for a new user in week 3). P2 put
+`· N parked` only on the lane's own count line, so a lane listing fewer than `THREADS_MAX`
+said nothing, and a store carrying nothing said nothing at all (day 40, 3 parked: no word).
+Now (`briefing.ts#parkedLine`, placed by `briefing-room.ts#owedParked`):
+
+- a lane that lists items and counts none it left out ends `(3 parked; recall "still open"
+  lists them)` (42 bytes);
+- a wake carrying no open item gets the lane as one line, `Still open: nothing current · 3
+  parked (recall "still open" lists them)` (72 bytes). `collapsedLane` reads it as "Still
+  open"'s (the dashboard, the delivery, the claude.ai wake's lane move); `countedLanes` counts
+  nothing from it, since the parked are not "more";
+- the folded line's "Still open" part ends `· 3 parked` too (`foldedLine`'s `parked`; it
+  dropped it before).
+
+The line is reserved like a lane's count line: the trim loop composes with it, and with
+nothing else to pop it takes room as the lanes' lines do (`counting` in `render`) or goes with
+a bare floor; `tellLost` never accepts a composition over its limit for it and reports whether
+it was said (`parked`), so the top-item upgrade cannot drop it silently. Nothing when none is
+parked: a wake with no parked thread is byte for byte what it was. Revert: `parkedLine`
+returning null.
