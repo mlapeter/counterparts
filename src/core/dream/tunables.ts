@@ -379,12 +379,14 @@ export const DREAM_TUNABLES = {
   /**
    * A question that DOES name dreaming ("did you dream about the greenhouse?")
    * reaches a journal by a shared content word (as since OL1b) or by the
-   * meaning of what is left once the dream words are taken out, at or above
-   * this cosine. Lower than the unnamed bar: the question already asks for a
-   * dream. CAL (10-27: "the greenhouse seedlings" 0.29–0.42 against its own
-   * dream, below 0.15 against the others).
+   * meaning of its content words once the dream words and the asking are out
+   * (`nights.ts#dreamlessQuestion`), at or above this cosine. Lower than the
+   * unnamed bar: the question already asks for a dream. CAL on
+   * potion-base-8M@256, 10-27: "greenhouse seedlings" 0.48 against its own
+   * dream, 0.14 against the keys dream; "keys" 0.74 / 0.20; "release" 0.51
+   * against a work dream, 0.12 against the keys dream.
    */
-  DREAM_RECALL_NAMED_FLOOR: 0.25,
+  DREAM_RECALL_NAMED_FLOOR: 0.3,
   /** How much of a journal one vector reads: under the static table's 512-token cap (~2,000 characters). */
   DREAM_RECALL_PASSAGE_CHARS: 1_500,
   /**

@@ -26,6 +26,7 @@ import type { Counterpart } from "../../core/counterpart.js";
 import { clipWire, wireChars } from "../../core/fit/index.js";
 import { dreamReach } from "../../core/dream/recalled.js";
 import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
+import { STOPWORDS } from "../../core/recall/reference.js";
 import { rowTombstoned } from "../../core/store/index.js";
 import type { DreamChangeRow, DreamRow, ReflectionRow, Store } from "../../core/store/index.js";
 
@@ -346,9 +347,6 @@ export const QUESTION_NIGHTS_MAX = 2;
 /** How many recent dreams a question's words are matched against. */
 export const QUESTION_NIGHTS_LOOKBACK = 30;
 
-/** The words that ask ABOUT a night; never what it was about. */
-const DREAM_WORDS = /\b(dream|dreams|dreamed|dreamt|dreaming)\b/gi;
-
 /** Does the question name dreaming? */
 export function asksAboutDreams(question: string): boolean {
   return /\b(dream|dreams|dreamed|dreamt|dreaming)\b/i.test(question);
@@ -363,15 +361,29 @@ export function asksWhenDreamed(question: string): boolean {
   return asksAboutDreams(question) && /\b(last|latest|lately|recent|recently|newest|when|today|tonight|yesterday|anymore)\b/i.test(question);
 }
 
+/** Words that ask WHEN or HOW about a dream, never what it was about (beside `STOPWORDS`). */
+const ASKING_ABOUT_A_DREAM: ReadonlySet<string> = new Set([
+  "dream", "dreams", "dreamed", "dreamt", "dreaming", "last", "latest", "lately", "recent", "recently", "newest",
+  "night", "tonight", "today", "yesterday", "week", "ago", "anymore", "ever", "tell", "haven't", "havent", "didn't",
+  "didnt", "hasn't", "hasnt", "share", "remember",
+]);
+
 /**
- * What a question asks about once the dream words are out ("did you dream
- * about the greenhouse?" → "did you about the greenhouse?"): the text whose
- * MEANING a question that names dreaming is matched by. Empty when nothing is
- * left but the asking.
+ * What a question asks about once the dream words and the asking are out
+ * ("did you dream about the greenhouse?" → "greenhouse"): the text whose
+ * MEANING a question that names dreaming is matched by. Content words only:
+ * measured 10-27, the residue of "when did you last dream?" ("when did you
+ * last") cosined 0.49 against a work dream on the static table — function
+ * words carry a direction of their own. Empty when nothing is left but the
+ * asking.
  */
 export function dreamlessQuestion(question: string): string {
-  const left = question.replace(DREAM_WORDS, " ").replace(/\s+/g, " ").trim();
-  return /[a-z]{3,}/i.test(left) ? left : "";
+  const kept = question
+    .toLowerCase()
+    .split(/[^a-z']+/)
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !ASKING_ABOUT_A_DREAM.has(w));
+  return kept.join(" ");
 }
 
 /**

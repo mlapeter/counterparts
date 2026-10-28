@@ -396,17 +396,21 @@ describe.skipIf(WEIGHTS === null)("the meaning bar on the real static table (pot
     const model = loadStaticModel({ dir: (WEIGHTS as { dir: string }).dir });
     const real: QuestionEmbedder = { vector: async (t: string) => Array.from(model.embed(t) ?? []) };
     let keys = "";
+    let work = "";
     seed((c) => {
-      dreamOn(c, "2026-10-26", {
+      keys = dreamOn(c, "2026-10-26", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+      work = dreamOn(c, "2026-10-27", {
         title: "The release that kept slipping",
         journal: "I dreamed the release kept slipping: the dashboard work was half done, the tests went red one by one, and I was merging pull requests in a room with no clock.",
-      });
-      keys = dreamOn(c, "2026-10-27", { title: KEYS_TITLE, journal: KEYS_JOURNAL }).id;
+      }).id;
     });
     const { url } = await door({ embedder: real });
     for (const question of ["keys", "locked doors"]) {
       expect(nightsOf(await recall(url, { question, mode: "facts" })).map((n) => n["id"])).toEqual([keys]);
     }
+    // Naming dreams: what it was about leads, the newest after it; asking when, the newest leads.
+    expect(nightsOf(await recall(url, { question: "what did you dream about the keys?", mode: "facts" })).map((n) => n["id"])).toEqual([keys, work]);
+    expect((nightsOf(await recall(url, { question: "when did you last dream?", mode: "facts" }))[0] as Record<string, unknown>)["id"]).toBe(work);
     for (const question of ["when is the dentist appointment", "what did I say about my sister", "the database migration"]) {
       expect((await recall(url, { question, mode: "facts" }))["nights"]).toBeUndefined();
     }
