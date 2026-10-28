@@ -391,6 +391,16 @@ export interface AdapterConfig {
    */
   readonly debug?: { readonly nightTranscripts?: boolean };
   /**
+   * THE DAILY UPDATE CHECK (U1b, 2026-10-28): `"updateCheck": false` turns it
+   * off — no request to registry.npmjs.org, and no update line in any wake
+   * (`adapters/update-check.ts`). The durable switch /privacy names first,
+   * because it reaches every process that reads this file (the worker under
+   * Claude Code, Desktop's server, doctor in a terminal), where an environment
+   * variable does not. Read leniently: only `false` means off; any other value
+   * is ignored, never a reason to stand the configuration down.
+   */
+  readonly updateCheck?: false;
+  /**
    * SETTINGS THIS BUILD NO LONGER READS, phrased for a person — e.g.
    * `"credentialsFile" is no longer used …`. Present only when the file named
    * one. A REPORT, not a stance: the setting was ignored and nothing else
@@ -456,6 +466,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     dreaming?: { model?: string; timeoutMs?: number; maxTurns?: number; ignored?: string[] };
     retention?: { afterWriteUpDays?: number; maxDays?: number; ignored?: string[] };
     debug?: { nightTranscripts?: boolean };
+    updateCheck?: false;
     retired?: string[];
     timeZone?: string;
     timeZoneUnknown?: string;
@@ -639,6 +650,8 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (typeof debug === "object" && debug !== null && !Array.isArray(debug)) {
     out.debug = (debug as Record<string, unknown>)["nightTranscripts"] === true ? { nightTranscripts: true } : {};
   }
+  // THE UPDATE CHECK'S SWITCH (U1b): lenient — only `false` is read.
+  if (rec["updateCheck"] === false) out.updateCheck = false;
   const identity = rec["identity"];
   if (identity !== undefined) {
     const i = identity as Record<string, unknown>;

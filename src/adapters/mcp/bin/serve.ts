@@ -54,6 +54,7 @@ import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { SESSION_NOTICE_BUDGET_MS, doctorFindings, noticeMessage, wakeMeaningLine } from "../../claude-code/doctor.js";
 import { staleWindowsLine } from "../../claude-code/stale-windows.js";
+import { updateLineInputHere, updateNoticeLine, urgentUpdateLine } from "../../update-check.js";
 import { SPAWN_REFUSAL_PREFIX, SPAWN_START_COUNT_KEY, SPAWN_START_DATE_KEY } from "../../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../../spawn.js";
 import { claudeCodeEnvMarker } from "../../hosts.js";
@@ -264,9 +265,13 @@ export function desktopWakeNotice(input: {
   env?: Record<string, string | undefined>;
   /** This server's pid, whose own record is not an older window; absent, this process's. */
   selfPid?: number;
+  /** The home Claude Code's records are read under; absent, this process's. */
+  home?: string;
 }): string | null {
   let meaning: string | null = null;
   let stale: string | null = null;
+  let urgent: string | null = null;
+  let update: string | null = null;
   try {
     const env = input.env ?? process.env;
     meaning =
@@ -282,10 +287,26 @@ export function desktopWakeNotice(input: {
       input.night === true
         ? null
         : (staleWindowsLine({ store: input.store, fallback: { route: "either", codeTab: false }, now: Date.now(), selfPid: input.selfPid ?? process.pid })?.line ?? null);
+    // UPDATES (U1b, `adapters/update-check.ts`): the same lines a Claude Code
+    // start carries, in the same order and under the same cap of three
+    // maintenance lines — never on a night's own wake.
+    if (input.night !== true) {
+      const lineInput = updateLineInputHere({
+        store: input.store,
+        configPath: input.configPath,
+        config: input.config,
+        route: installRoute(env),
+        today: input.today,
+        env,
+        home: input.home ?? homedir(),
+      });
+      urgent = urgentUpdateLine(lineInput);
+      if ([stale, urgent, meaning].filter((l) => l !== null).length < 3) update = updateNoticeLine(lineInput);
+    }
   } catch {
     meaning = null;
   }
-  const lines = [desktopDoctorNotice(input), stale, meaning].filter((l): l is string => l !== null);
+  const lines = [desktopDoctorNotice(input), stale, urgent, meaning, update].filter((l): l is string => l !== null);
   return lines.length === 0 ? null : lines.join("\n");
 }
 

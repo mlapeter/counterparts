@@ -95,6 +95,9 @@ fi
 # variable; the loop measures a stranger. One step below arms it on purpose,
 # to prove the installed console and hook carry the refusal.
 unset COUNTERPARTS_REQUIRE_EXPLICIT_DIR
+# The daily update check (U1b) asks registry.npmjs.org; a loop measures the
+# install, not npm, so it stays off in the clean room.
+export COUNTERPARTS_UPDATE_CHECK=off
 
 FAKE_HOME="$WORK/home"
 rm -rf "$FAKE_HOME"

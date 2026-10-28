@@ -2779,3 +2779,32 @@ in its notice slot (`mcp/bin/serve.ts#desktopWakeNotice`).
   `resolveStaticWeights` looks. The table is "found" only with both files, as the loader needs.
   `stopped` points at doctor (`/counterparts:doctor`, or `counterparts doctor` in a terminal).
 - **Not covered**: `held` and `cache-ahead` (the store withdrawing the channel) stay doctor's.
+
+## 2026-10-28 — the daily update check and its lines (U1b)
+
+The design is `~/counterparts-notes/2026-10-27-briefs/U1-design-note.md` rev 2; the code is
+`../update-check.ts` (a leaf: the worker, this hook, Desktop's server and the MCP `scope` tool
+all use it).
+- **The request lives in the worker**, as step 6 after `counterpart.close()`, beside the
+  sidebar's file. "Stop" is read from the store before the close. No hook ever makes it.
+- **A timer of its own, not `AbortSignal.timeout`.** Under Node that timer is unref'd, so a
+  request holding nothing else open let the loop drain before the limit fired (the node smoke
+  test caught it). `setTimeout` + `AbortController`, cleared in `finally`.
+- **"Stop reminding me" is the whole switch, not a mute** (builder's call on Mike's Q4). The
+  /privacy draft says "tell your Claude to stop checking for updates", so it stops the request
+  too. It is `scope`'s `updates: "off"`, one store meta key (`adapter.update.check`), so the
+  worker, every wake and doctor see it wherever they run; no process rewrites
+  `claude-code.json` (a bad write there is observer, memory off).
+- **Differs from the note:** a person who said no (config key, telling their Claude, the env
+  switch) gets no age line either. The note kept it for the off switch; Mike's Q4 ("stop
+  reminding me") wins. Only Claude Code's no-traffic switch, the directory flavor and a check
+  failing for 14 days get it.
+- **"Not on the meeting day"** is approximated as "not while the meeting is pending"
+  (`meetPending`).
+- **Once-ness** is one meta key (`adapter.update.told`) claimed with `updateMeta`, as the
+  older-windows line is; the worker's try latches are files under `updates/` beside the
+  configuration (it has no store open by then).
+- **Unverified:** Update marketplace vs Update now (no throwaway-home run yet); whether
+  `known_marketplaces.json` carries `autoUpdate` at the default; which marketplace the
+  directory listing lands in (`claude-community` and `@synced` are both handled off the copy's
+  own path).

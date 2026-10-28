@@ -593,7 +593,12 @@ when the lockfile is `bun.lock`.
 
 > Counterparts runs on your computer. Its hooks read the transcript Claude Code
 > keeps for each session and store memories in `~/.counterparts`. Counterparts
-> itself sends nothing anywhere. Installing the plugin downloads one npm package,
+> sends nothing about you anywhere. Once a day it asks the npm registry
+> (`registry.npmjs.org`) for the newest version number, with no memory, no identifier and
+> not even which version you have; tell your Claude to stop checking for updates, or set
+> `"updateCheck": false` in `~/.counterparts/claude-code.json` (or
+> `COUNTERPARTS_UPDATE_CHECK=off`), to turn it off. It doesn't run under Claude Code's
+> `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. Installing the plugin downloads one npm package,
 > `counterparts-model-potion` (about 30 MB, a word-embedding table used to recall by
 > meaning), from the npm registry. Dreaming, the nightly consolidation, asks first by
 > default. If you choose `auto`, the first session of each day starts a background

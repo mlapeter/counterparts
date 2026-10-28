@@ -51,7 +51,7 @@ import { backfillVectors } from "../src/adapters/claude-code/vectors.js";
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
-const PLUGIN_STEP = "/plugin → Installed → counterparts → Update now";
+const PLUGIN_STEP = "/plugin → Marketplaces → counterparts → Update marketplace";
 /** Under bun, which runs this file; Node's step is checked on `npmTableCommand` itself. */
 const NPM_STEP = "in a terminal, run bun add -g counterparts";
 
@@ -338,8 +338,8 @@ describe("Desktop's wake carries the same line in its notice slot", () => {
 });
 
 describe("the npm route's step names the runtime", () => {
-  test("Node: npm install -g counterparts; Bun: bun add -g counterparts — never the weights package alone", () => {
-    expect(npmTableCommand("node")).toBe("npm install -g counterparts");
+  test("Node: npm install -g counterparts@latest; Bun: bun add -g counterparts — never the weights package alone", () => {
+    expect(npmTableCommand("node")).toBe("npm install -g counterparts@latest");
     expect(npmTableCommand("bun")).toBe("bun add -g counterparts");
   });
 });

@@ -1905,6 +1905,8 @@ its own small PR, after a look at its live use.
 - **Open check (review of #666, item 3; Q11):** "Update now" vs "Update marketplace". Whether Installed → counterparts
   → Update now refreshes the marketplace listing first, or answers "already at the latest" with auto-update off, needs
   a throwaway-home run in interactive Claude Code. Until then `PLUGIN_UPDATE` stays "Update now".
+  (U1b, 2026-10-28: changed to Update marketplace as the design note says, Mike's Q11 "yes"; the throwaway-home
+  run is still not done, so it stays unverified.)
 
 ## 2026-10-27 — the hook and doctor weigh the writer too (F1, after #666)
 

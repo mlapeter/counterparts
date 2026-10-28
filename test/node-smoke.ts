@@ -37,6 +37,7 @@ import { openNightCounterpart, runNight } from "../src/adapters/claude-code/nigh
 import { hookCommand, runCommand } from "../src/adapters/cli/install.js";
 import { isOurHookCommand } from "../src/adapters/cli/wire.js";
 import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
+import { fetchLatest } from "../src/adapters/update-check.js";
 import { NODE_HOOKS, currentRuntime, scriptArgs } from "../src/adapters/runtime.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { nightRunWords } from "../src/core/dream/index.js";
@@ -47,6 +48,8 @@ import { Store } from "../src/core/store/index.js";
 // `test/preload.ts`, so this is what keeps a forgotten path from reaching a real
 // `~/.counterparts`. Nothing above reads it at import time.
 process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
+// And no child asks npm for the newest version (U1b): the update check is off here.
+process.env["COUNTERPARTS_UPDATE_CHECK"] = "off";
 
 const HOOK = fileURLToPath(new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url));
 const SERVE = fileURLToPath(new URL("../src/adapters/mcp/bin/serve.ts", import.meta.url));
@@ -62,6 +65,7 @@ function childEnv(extra: Record<string, string> = {}): Record<string, string> {
     HOME: home,
     USERPROFILE: home,
     COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+    COUNTERPARTS_UPDATE_CHECK: "off",
     ...extra,
   };
 }
@@ -330,6 +334,17 @@ describe("under Node", () => {
     } finally {
       c.close();
     }
+  });
+
+  test("the update check's request runs under Node: a stub answer read, an endless body cut at the cap, a hang timed out (U1b)", async () => {
+    const answer = (body: BodyInit) => async () => new Response(body, { status: 200 });
+    const ok = await fetchLatest({ fetch: answer(JSON.stringify({ version: "0.9.1", counterparts: { updates: { tellBelow: "0.9.0" } } })) });
+    assert.deepEqual(ok, { ok: true, latest: "0.9.1", tellBelow: "0.9.0", urgentBelow: null, tellBehind: 3, plugin: true });
+    const endless = new ReadableStream<Uint8Array>({ pull: (c) => c.enqueue(new Uint8Array(4096)) });
+    assert.deepEqual(await fetchLatest({ fetch: answer(endless) }), { ok: false, code: "too-large" });
+    const hang = (_u: string, init: RequestInit) =>
+      new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+    assert.deepEqual(await fetchLatest({ fetch: hang, timeoutMs: 30 }), { ok: false, code: "timeout" });
   });
 
   test("meaning mode arranges a card's arc in this process", () => {

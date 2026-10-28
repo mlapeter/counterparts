@@ -59,7 +59,22 @@ In the same commit, or a second one:
 - **Store format:** check `SCHEMA_VERSION` (`src/core/store/operational.ts`) and
   `CACHE_SCHEMA_VERSION` (`src/core/store/cache.ts`) against the last release. When neither
   moved, the entry can say "no store-format change". When one did, the rollback below has
-  to say what the older version does with the newer store.
+  to say what the older version does with the newer store. When one did, the CHANGELOG
+  paragraph on top also says: after updating, run /reload-plugins in every open Claude Code
+  window, or restart Claude Code.
+- **Release date:** `RELEASE_DATE` in `src/adapters/update-check.ts` moves with
+  `SERVER_VERSION`, to the date in the CHANGELOG heading (`test/update-check.test.ts` holds
+  the two together). A copy that makes no update check says it is over 30 days old from it.
+- **Who hears of this release** (U1b): `package.json` `"counterparts": { "updates": … }`,
+  which npm's `/latest` returns to every install's daily check. Carry the floors forward;
+  they only move up. Raise `tellBelow` to this version when everyone below it should hear
+  once (a store-format change, a fix worth taking); raise `urgentBelow` for one they must
+  take soon. `tellBehind` (3) is how many releases behind is worth a line on its own. Set
+  `"plugin": false` when the plugin pin is not moving with this release, so plugin installs
+  aren't sent to an update that isn't there. Then copy the floors into `PREVIOUS_FLOORS` in
+  `test/update-check.test.ts`, which keeps the next release from lowering them.
+- **The gate:** if this release ships or changes the update check, the live
+  counterparts.ai/privacy page must already say so (check the page itself, not the site repo).
 - **ROADMAP "Now":** the npm row names the new version, and "On master, not released" is
   emptied.
 

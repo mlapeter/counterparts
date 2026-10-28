@@ -73,6 +73,11 @@ process.env["HOME"] = TEMP_HOME;
 process.env["USERPROFILE"] = TEMP_HOME;
 delete process.env["COUNTERPARTS_DATA_DIR"];
 process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
+// NO TEST ASKS NPM FOR THE NEWEST VERSION (U1b, 2026-10-28): the worker's daily
+// update check (`adapters/update-check.ts`) is switched off for the whole run, and
+// for every child spawned with this environment. A test of the check clears it in
+// its own body (and re-arms it in `finally`) and always injects its own `fetch`.
+process.env["COUNTERPARTS_UPDATE_CHECK"] = "off";
 
 mock.module("node:os", () => ({
   ...realOs,
