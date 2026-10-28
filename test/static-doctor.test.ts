@@ -291,7 +291,12 @@ describe("Recall by meaning on a FRESH static install — no worker row yet", ()
   function tableAt(present: boolean): string {
     const at = join(root, present ? "table" : "empty-table");
     mkdirSync(at, { recursive: true });
-    if (present) writeFileSync(join(at, "model.safetensors"), "");
+    // Both files: the loader refuses a folder missing either (`MISSING_FILE`),
+    // and so does doctor's look since 2026-10-27 (`doctor-meaning.ts#tableOnDisk`).
+    if (present) {
+      writeFileSync(join(at, "model.safetensors"), "");
+      writeFileSync(join(at, "vocab.txt"), "");
+    }
     process.env[STATIC_WEIGHTS_ENV] = at;
     return at;
   }

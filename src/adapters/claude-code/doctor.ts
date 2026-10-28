@@ -74,7 +74,6 @@ import {
   paths,
 } from "../../core/store/index.js";
 import { heldCorrections } from "../../core/reconsolidation.js";
-import { bundledModelDir } from "../runtime.js";
 import { CYCLE_LEASE_KEY, leaseStale, readLease, TUNABLES as SLEEP_TUNABLES, acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -104,7 +103,7 @@ import {
 } from "../snapshots.js";
 import { TUNABLES, resolveEmbedder, retentionClocks, withEmbedderDefault } from "../config.js";
 import type { EmbedderSource } from "../config.js";
-import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
+import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE } from "../../core/embed/static.js";
 import { DATABASE_FILE, heldExits, readRollbackHold, rollbackHeld, runningBuild } from "../../core/store/index.js";
 // Retention's own reading and its own week, so the Raw transcripts line cannot
 // promise a different number from the job that does the deleting. READ-ONLY:
@@ -119,7 +118,7 @@ import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
 import { LOG_DAYS, logReading } from "../log/index.js";
 import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } from "./doctor-finding.js";
-import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, TABLE_NPM_COMMAND, byRoute } from "./doctor-meaning.js";
+import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, TABLE_NPM_COMMAND, byRoute, tableOnDisk } from "./doctor-meaning.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
@@ -755,12 +754,12 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
-  const bundled = bundledModelDir();
-  const found = resolveStaticWeights(bundled === undefined ? {} : { packageDir: bundled });
-  // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
+  // THE TABLE'S FILES, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
   // naming an empty or wrong folder is found by name and holds nothing, and a
-  // green here would last until the first worker row said NO_WEIGHTS.
-  if (found === null || !existsSync(join(found.dir, MODEL_FILE))) {
+  // green here would last until the first worker row said NO_WEIGHTS. The
+  // same look the wake's meaning line takes (`doctor-meaning.ts#tableOnDisk`).
+  const { found, complete } = tableOnDisk();
+  if (found === null || !complete) {
     return finding(
       "embedder",
       "amber",
