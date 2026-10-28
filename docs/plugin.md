@@ -531,7 +531,11 @@ still loads, and `/plugin` notes the missing packages. Then, measured by the loo
   unpinned and undisclosed. `src/adapters/empty-bunfig.toml`, which every Bun launch names
   (the launcher, and the runner and embedding worker the hooks start), sets
   `[install] auto = "disable"`, so nothing is fetched. It sets no registry or other package
-  source. npm installs are unaffected, since their `node_modules` exists.
+  source. npm installs are unaffected, since their `node_modules` exists;
+- under either, every session's wake carries one line for the assistant to tell its person
+  (2026-10-27, `doctor-meaning.ts#wakeMeaningLine`): search by meaning is off because its files
+  didn't install, memories are still found by their words, and the same route's fix as
+  doctor's line. It goes once the table is found whole.
 
 Since 0.3.22 installs are served from the bundle repository: the marketplace entry's
 `url` is `https://github.com/counterparts-ai/counterparts-plugin.git`, with the same
