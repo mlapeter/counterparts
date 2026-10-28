@@ -38,7 +38,8 @@ import { assertSafeDataDir, isStoreError } from "../../core/store/index.js";
 import type { StoreErrorCode } from "../../core/store/index.js";
 import { SESSIONS_DIR, isSessionId } from "../sessions.js";
 
-/** The last words of every stand-down message, and the only ones never cut. */
+/** The last words of every general stand-down message, and the only ones never cut
+ *  (a fault with its own words, `StandDownFault.say`, ends in its own step instead). */
 export const STANDDOWN_TAIL = "Run: counterparts doctor";
 
 /**
