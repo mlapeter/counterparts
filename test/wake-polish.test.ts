@@ -137,7 +137,8 @@ describe("1. Still open leads with what is live", () => {
   test("composed: the shown items are this week's, and the rest are one calm count", () => {
     const s = store();
     const day = 40;
-    const old = Array.from({ length: 6 }, (_, i) => thread(s, `Old open question ${String(i)} about the glaze log.`, 20 + i));
+    // Older, but inside the parking line (P2: 14 lived days): born 27..32, 8..13 untouched on day 40.
+    const old = Array.from({ length: 6 }, (_, i) => thread(s, `Old open question ${String(i)} about the glaze log.`, 27 + i));
     const recent = Array.from({ length: 4 }, (_, i) => thread(s, `This week's open question ${String(i)} about the kiln.`, 35 + i));
     const out = new Self({ store: s }).build({ budgetBytes: 100_000, day });
     // THREADS_MAX (5) considered: the four recent, newest first, then one old.
