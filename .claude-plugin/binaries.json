@@ -2,9 +2,9 @@
   "version": "0.3.38",
   "url": "https://github.com/mlapeter/counterparts/releases/download/v0.3.38",
   "platforms": {
-    "darwin-arm64": { "file": "counterparts-0.3.38-darwin-arm64.gz", "bytes": 118216176, "sha256": "2014fe5e3c4276323dadfd6ddb71d47f574a986da207d2a1db26efa410232412", "gzBytes": 59164638, "gzSha256": "9ee05f616f2b94eda4c674e905e974d788308b6ee32496b02d570f97e7ae5378" },
-    "darwin-x64": { "file": "counterparts-0.3.38-darwin-x64.gz", "bytes": 123229936, "sha256": "b887a9c5bf24307bef56f3e2f83921248765432dc5cfd72f9453c1355054d590", "gzBytes": 61096140, "gzSha256": "6e84309dc87424d13c752c401ee2510ba25fc77b993e627d406efc709301f3b8" },
-    "linux-x64": { "file": "counterparts-0.3.38-linux-x64.gz", "bytes": 160372589, "sha256": "e45894886dbd6f5c9267afc0021ec8a67ee0b189c68607248bdf63273058ad9d", "gzBytes": 75814522, "gzSha256": "0bdd9bc9d034382a4deaabc910acb07533c36e296dd190abdbd3c80763b6d265" },
-    "linux-arm64": { "file": "counterparts-0.3.38-linux-arm64.gz", "bytes": 158232287, "sha256": "59a9b1bf878f6b7224881eec428408d2abc2b47573d0a8a6f7c2e5cb04f2220e", "gzBytes": 75893920, "gzSha256": "8e289559bba544424c53b4ca24588bf87eb94d30a9226da83c6b2346cf74580c" }
+    "darwin-arm64": { "file": "counterparts-0.3.38-darwin-arm64.gz", "bytes": 118216176, "sha256": "4fcd66bf6d244a85e1e6bcf4df9c9991a3dcbe75e6cf1c01e9b509331dee5e53", "gzBytes": 59164570, "gzSha256": "f2cf7d75170a44359f5f6355f4db7eaf78fd154b5b48c9f1ea6658be7fda094b" },
+    "darwin-x64": { "file": "counterparts-0.3.38-darwin-x64.gz", "bytes": 123229936, "sha256": "cc76ff6ae446a693e369072bfb3b757e1393fbea3a0188c6034cea75cd3b55da", "gzBytes": 61096179, "gzSha256": "77628b0e9ce7fae7aea944af942c592db4cf513ae83ca7da8ff4484f2223605e" },
+    "linux-x64": { "file": "counterparts-0.3.38-linux-x64.gz", "bytes": 160372566, "sha256": "5fff90e5d273e134593e2b8726c34b23f1aeca51855400ba7e9b79947bc4f97e", "gzBytes": 75814473, "gzSha256": "374e07b3b25e3defd81690c4bef4dc0519464a570e1462eee7bd80a0901d3089" },
+    "linux-arm64": { "file": "counterparts-0.3.38-linux-arm64.gz", "bytes": 158232264, "sha256": "89296c603ca35835858cfaecf732e6cf6e2a122b15a93eb0c126413c2179be4c", "gzBytes": 75893518, "gzSha256": "a2af8961530a618a39fae83c9ad1b4086693d552728fcf3c2d6bde26a1f93038" }
   }
 }
