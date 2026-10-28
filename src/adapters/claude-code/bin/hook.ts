@@ -58,7 +58,6 @@ import {
   writeMark,
 } from "../standdown.js";
 import { CODE_TAB_ENTRYPOINT } from "../../hosts.js";
-import { pluginVersionRecorded } from "../../host-wiring.js";
 import { newerStoreWords } from "../../update-words.js";
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
@@ -76,6 +75,7 @@ import {
   installRoute,
   markTwiceSaid,
   pluginOrigin,
+  recordedForThisCopy,
   runningAsPlugin,
   takeFirstRunNotice,
   twiceNoticePath,
@@ -631,7 +631,7 @@ function withNewerStoreWords(fault: StandDownFault | null, payload: Record<strin
       route,
       who: "hook",
       loaded: installedVersion(),
-      recorded: route === "npm" ? null : pluginVersionRecorded({ home: homedir(), env: process.env, cwd }),
+      recorded: route === "npm" ? null : recordedForThisCopy({ home: homedir(), env: process.env, cwd }),
       codeTab: (process.env["CLAUDE_CODE_ENTRYPOINT"] ?? "") === CODE_TAB_ENTRYPOINT,
     });
     return newerStoreSay(fault, words);

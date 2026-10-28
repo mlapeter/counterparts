@@ -88,9 +88,9 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 
 import { CLAUDE_AI_HOST, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, wordingFor } from "../hosts.js";
-import { PLUGIN_ROOT_ENV } from "../plugin.js";
+import { PLUGIN_ROOT_ENV, recordedForThisCopy } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
-import { pluginVersionRecorded, sidebarBeside, versionCore } from "../host-wiring.js";
+import { sidebarBeside, versionCore } from "../host-wiring.js";
 import { coreNewer, newerStoreRemedy } from "../update-words.js";
 import type { NewerStoreInput } from "../update-words.js";
 import {
@@ -447,7 +447,7 @@ export class McpServer {
     this.env = opts.env ?? process.env;
     this.pluginVersion =
       opts.pluginVersion ??
-      (() => pluginVersionRecorded({ home: homedir(), env: this.env, cwd: this.env["CLAUDE_PROJECT_DIR"] ?? null }));
+      (() => recordedForThisCopy({ home: homedir(), env: { ...this.env }, cwd: this.env["CLAUDE_PROJECT_DIR"] ?? null }));
     // A server TOLD it serves Desktop takes Desktop's place from the start; the
     // one a Desktop client reveals itself to takes it at `initialize`. A server
     // told it serves claude.ai (`adapters/remote/`) takes `claude-ai:` the same way.
@@ -1209,6 +1209,9 @@ export class McpServer {
       scope: canonicalScope(this.placeScope),
       startedAt: this.nowFn(),
       build: installedBuild(),
+      // So a newer window can name this one's step if it ends up older (U1a).
+      route: this.install,
+      ...((this.env["CLAUDE_CODE_ENTRYPOINT"] ?? "") === CODE_TAB_ENTRYPOINT ? { codeTab: true } : {}),
     };
     const record = this.beat(true);
     const every = opts.heartbeatMs ?? SERVER_HEARTBEAT_MS;
@@ -1257,6 +1260,8 @@ export class McpServer {
             pid: identity.pid,
             hostPid: identity.hostPid,
             at: identity.startedAt,
+            ...(identity.route === undefined ? {} : { route: identity.route }),
+            ...(identity.codeTab === true ? { codeTab: true } : {}),
           })
         : refreshServerLaunch(this.registryDir, identity)
           ? identity

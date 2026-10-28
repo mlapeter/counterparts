@@ -56,7 +56,7 @@ import { fileURLToPath } from "node:url";
 import { NEW_INSTALL_DREAMING_LINE_PLUGIN } from "../core/onboarding.js";
 import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
-import { pluginInstall, sidebarPluginRecorded } from "./host-wiring.js";
+import { pluginInstall, pluginVersionRecorded, sidebarPluginRecorded } from "./host-wiring.js";
 import type { NpmWiring } from "./host-wiring.js";
 import { BINARY, CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
 import type { Binary } from "./runtime.js";
@@ -185,6 +185,29 @@ export function pluginOrigin(input: {
   const recorded = record?.installPath ?? null;
   if (record !== null && recorded !== null && realOrResolved(recorded).replace(/\/+$/, "") === root) return { installed: true, root, id: record.id, ...sidebar() };
   return { installed: false, root };
+}
+
+/**
+ * WHAT `/reload-plugins` WOULD LOAD FOR THIS COPY (U1a, review of #666): the
+ * version Claude Code records for the plugin this copy was installed as
+ * (`pluginOrigin`'s id — not another marketplace's record), as `x.y.z`; null
+ * for a folder somebody pointed `--plugin-dir` at (a reload loads that same
+ * folder), for an install with no id, and when nothing is recorded. The
+ * newer-store words say reload only above it (`update-words.ts`). READ-ONLY;
+ * never throws.
+ */
+export function recordedForThisCopy(input: {
+  readonly home: string;
+  readonly env: Record<string, string | undefined>;
+  readonly cwd: string | null;
+}): string | null {
+  try {
+    const origin = pluginOrigin(input);
+    if (!origin.installed || origin.id === undefined) return null;
+    return pluginVersionRecorded({ ...input, id: origin.id });
+  } catch {
+    return null;
+  }
 }
 
 /** An install's origin, for a caller that has not read one (the tests' default). */

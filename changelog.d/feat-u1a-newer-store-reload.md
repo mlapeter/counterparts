@@ -8,3 +8,5 @@
   Store open line gives the same step.
 - **After an upgrade, the next session you start names the windows that still run the old version.** Once, with the
   step for each (reload, or `/mcp` and Reconnect for npm); Claude Desktop's wake says it too.
+- **"Counterparts was updated" names the right step for plugin users.** The once-a-session line after an update said
+  "Run /mcp and Reconnect" to everyone; a plugin window is now told to run `/reload-plugins` or start a new session.

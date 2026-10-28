@@ -428,6 +428,9 @@ export function pluginVersionRecorded(input: {
   readonly home: string;
   readonly env: Record<string, string | undefined>;
   readonly cwd: string | null;
+  /** Only this record (`counterparts@<marketplace>`, the running copy's —
+   *  `plugin.ts#pluginOrigin`); absent, every `counterparts@` record. */
+  readonly id?: string;
 }): string | null {
   try {
     const moved = (input.env["CLAUDE_CONFIG_DIR"] ?? "").trim();
@@ -440,6 +443,7 @@ export function pluginVersionRecorded(input: {
     let best: string | null = null;
     for (const id of Object.keys(plugins)) {
       if (!id.startsWith(`${NPM_MCP_NAME}@`)) continue;
+      if (input.id !== undefined && id !== input.id) continue;
       const raw = plugins[id];
       const records = Array.isArray(raw) ? (raw as unknown[]) : [raw];
       for (const r of records) {

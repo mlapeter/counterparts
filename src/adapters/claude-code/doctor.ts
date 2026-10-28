@@ -113,6 +113,7 @@ import type { LedgerEntry } from "../../core/coverage/index.js";
 import { DESKTOP_HOST } from "../hosts.js";
 import type { PluginInstallRead } from "../host-wiring.js";
 import type { InstallRoute } from "../plugin.js";
+import { recordedForThisCopy } from "../plugin.js";
 import { localStamp } from "../../core/time.js";
 import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
@@ -312,6 +313,13 @@ export interface DoctorInput {
    * its own environment. Absent: not known, and those lines name both routes.
    */
   readonly install?: InstallRoute;
+  /**
+   * What `/reload-plugins` would load for this copy
+   * (`plugin.ts#recordedForThisCopy`), asked only when the store is ahead of
+   * this build and the route is not npm (U1a). Injectable for a test;
+   * absent, read from this process's home and environment.
+   */
+  readonly pluginRecorded?: () => string | null;
 }
 
 /**
@@ -321,6 +329,20 @@ export interface DoctorInput {
  */
 function byInstall(input: DoctorInput, npm: string, plugin: string = PLUGIN_UPDATE): string {
   return byRoute(input.install, npm, plugin);
+}
+
+/** The Store open line's step for a store a newer copy upgraded, the hook's words (U1a). Never throws. */
+function aheadFix(input: DoctorInput): string {
+  const route = input.install ?? "either";
+  let recorded: string | null = null;
+  if (route !== "npm") {
+    try {
+      recorded = (input.pluginRecorded ?? (() => recordedForThisCopy({ home: homedir(), env: process.env, cwd: process.cwd() })))();
+    } catch {
+      recorded = null;
+    }
+  }
+  return newerStoreWords({ route, who: "hook", loaded: installedVersion(), recorded });
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
@@ -3393,13 +3415,14 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // Read by the caller for the same reason, and answered beside the `Store`
     // line it qualifies: "there is a store here" and "it opens" are two facts.
     // A store a newer copy upgraded gets the hook's and the server's own step
-    // (U1a, constitution 16). This console runs the code installed at its path,
-    // and reads no plugin record: the update words work whichever is newer.
+    // (U1a, constitution 16). This console runs the code installed at its path;
+    // the plugin record is read only for that line (review of #666).
     ...(input.open === undefined
       ? []
-      : openFindings(input.open, {
-          aheadFix: newerStoreWords({ route: input.install ?? "either", who: "hook", loaded: installedVersion(), recorded: null }),
-        })),
+      : openFindings(
+          input.open,
+          input.open.code === "SCHEMA_AHEAD" ? { aheadFix: aheadFix(input) } : {},
+        )),
     // A rollback's hold (2026-10-11): one file read, and only when it is there.
     ...rollbackFindings(input.dir),
     // Who can read the store (R1): a few stats, no store read.

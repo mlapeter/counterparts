@@ -81,6 +81,7 @@ import { TUNABLES as RECALL_TUNABLES } from "../../core/recall/tunables.js";
 import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout, wakeMeaningLine } from "./doctor.js";
 import type { CheckoutReading } from "./doctor.js";
 import { staleWindowsLine as staleWindowsSaid } from "./stale-windows.js";
+import { upperFirst, windowStep } from "../update-words.js";
 import { nightRowTimeoutMs, planNightRunner } from "./night-run.js";
 import { NOTHING_OWED_BEFORE_KEY, catchUpOf, catchUpWords, owedBefore } from "./night-catch-up.js";
 import type { NightKind } from "./night-run.js";
@@ -753,7 +754,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // OLDER WINDOWS AFTER AN UPGRADE (2026-10-27, U1a): above W1's line, said
       // once per store version by the first watched wake that finds older
       // servers still running (`stale-windows.ts`), under the same rule.
-      const stale = resumed || !watched ? null : this.staleWindowsLine();
+      const stale = resumed || !watched ? null : this.staleWindowsLine(input);
       const leadLines = [codeTab, stale, meaning].filter((l): l is string => l !== null);
       // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
       // the state word only, for the mod, which cannot reach the dashboard
@@ -1491,6 +1492,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const decision = decideUpdateNotice(this.counterpart.store.dir, {
         sessionId: input.sessionId,
         installed: installedBuild(),
+        // The route's step (U1a): Reconnect restarts a plugin's old folder.
+        // The npm install keeps the words it has always had, and so does an
+        // adapter told no route (a test, an embedder).
+        ...(this.install === undefined || this.install === "npm"
+          ? {}
+          : { remedy: `${upperFirst(windowStep(this.install, input.entrypoint === CODE_TAB_ENTRYPOINT))}.` }),
       });
       // Ring rows only when there is something to say; `bin/hook.ts` copies
       // them to stderr, because this process lives for one hook.
@@ -1885,13 +1892,20 @@ export class ClaudeCodeAdapter extends Lifecycle {
   /**
    * THE WAKE'S LINE ABOUT OLDER WINDOWS (2026-10-27, U1a;
    * `stale-windows.ts#staleWindowsLine`), or null: Claude Code windows still
-   * running a Counterparts older than the memory, with the step for this
-   * install's route. Claimed when composed, once per store version. An
-   * observer says nothing (and could not claim it).
+   * running a Counterparts older than the memory, each with its own route's
+   * step (this window's route and tab for a record that does not say). This
+   * window's own host is left out: it is the one being told. Claimed when
+   * composed, once per store version. An observer says nothing (and could
+   * not claim it).
    */
-  staleWindowsLine(): string | null {
+  staleWindowsLine(input: HookInput): string | null {
     if (this.observer) return null;
-    const said = staleWindowsSaid({ store: this.counterpart.store, route: this.install, now: this.nowFn() });
+    const said = staleWindowsSaid({
+      store: this.counterpart.store,
+      fallback: { route: this.install, codeTab: input.entrypoint === CODE_TAB_ENTRYPOINT },
+      now: this.nowFn(),
+      selfHostPid: process.ppid,
+    });
     if (said === null) return null;
     this.emit("adapter.update.stale-windows", { windows: said.found.windows, desktop: said.found.desktop });
     return said.line;

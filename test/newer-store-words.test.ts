@@ -46,8 +46,9 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { STALE_SERVER_REFUSAL, newerStoreRefusal, staleServerRefusal, SERVER_VERSION } from "../src/adapters/mcp/server.js";
 import type { InstallRoute } from "../src/adapters/plugin.js";
+import { recordedForThisCopy } from "../src/adapters/plugin.js";
 import { DESKTOP_SCOPE } from "../src/adapters/hosts.js";
-import { recordServerLaunch, serverRecordPath } from "../src/adapters/sessions.js";
+import { UPDATE_NOTICE, recordServerLaunch, serverRecordPath } from "../src/adapters/sessions.js";
 import { MEANING_OFF_LEAD } from "../src/adapters/claude-code/doctor-meaning.js";
 import { STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
 import {
@@ -151,6 +152,16 @@ describe("reload or update: decided by what Claude Code records", () => {
     }
   });
 
+  test("a record newer than this window but older than the writer: update, since a reload would load code that still refuses", () => {
+    const writer = patchPast(NEWER);
+    const words = newerStoreWords({ route: "plugin", who: "server", loaded: LOADED, recorded: NEWER, writer });
+    expect(words).toBe(
+      `A newer version of Counterparts (${writer}) upgraded this memory; this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`,
+    );
+    // A record as new as the writer: reload.
+    expect(newerStoreWords({ route: "plugin", who: "server", loaded: LOADED, recorded: `${writer}-${SHA}`, writer })).toBe(RELOAD_WORDS);
+  });
+
   test("Claude Desktop's Code tab leads with a new session: /reload-plugins leaves the plugin's server as it was there", () => {
     const words = newerStoreWords({ route: "plugin", who: "server", loaded: LOADED, recorded: NEWER, codeTab: true });
     expect(words).toContain(`and this window still runs the old one. Start a new session (in Claude Desktop's Code tab, /reload-plugins doesn't restart Counterparts' memory tools).`);
@@ -193,6 +204,25 @@ describe("what installed_plugins.json records", () => {
     // Nothing recorded, or unreadable: null.
     writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), "{ not json");
     expect(pluginVersionRecorded({ home, env: {}, cwd: project })).toBeNull();
+  });
+
+  test("only the running copy's own record counts: another marketplace's newer install is not what a reload loads", () => {
+    recordPlugin({
+      "counterparts@counterparts": coreRecord(`${LOADED}-${SHA}`),
+      "counterparts@claude-community": coreRecord("9.0.0"),
+    });
+    expect(pluginVersionRecorded({ home, env: {}, cwd: project, id: "counterparts@counterparts" })).toBe(LOADED);
+    // Through the copy's origin: a copy in the install cache is read by its own id.
+    const copy = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", LOADED);
+    mkdirSync(copy, { recursive: true });
+    expect(recordedForThisCopy({ home, env: { CLAUDE_PLUGIN_ROOT: copy }, cwd: project })).toBe(LOADED);
+  });
+
+  test("a --plugin-dir development copy has nothing a reload would load: null, so it gets update words", () => {
+    recordPlugin({ "counterparts@counterparts": coreRecord(NEWER) });
+    const devCopy = join(root, "checkout");
+    mkdirSync(devCopy, { recursive: true });
+    expect(recordedForThisCopy({ home, env: { CLAUDE_PLUGIN_ROOT: devCopy }, cwd: project })).toBeNull();
   });
 });
 
@@ -291,8 +321,19 @@ describe("through the real MCP door: an old plugin server process, a store migra
     }
   }
 
-  test("the plugin, a newer version recorded: tools/call answers the reload sentence", async () => {
+  test("a --plugin-dir copy (not where Claude Code installed it), a newer version recorded: the update sentence — a reload loads this same folder", async () => {
     recordPlugin({ "counterparts@counterparts": coreRecord(`${NEWER}-${SHA}`) });
+    await withServer({ CLAUDE_PLUGIN_ROOT: REPO_ROOT, CLAUDE_PLUGIN_DATA: join(root, "plugin-data") }, async (ask) => {
+      await ask({ method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "test" } } });
+      bumpStore();
+      const r = await ask({ method: "tools/call", params: { name: "remember", arguments: REMEMBER } });
+      const detail = String((r["result"] as { structuredContent?: Record<string, unknown> }).structuredContent?.["detail"]);
+      expect(detail).toContain(`this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`);
+    });
+  }, 120_000);
+
+  test("the plugin, a newer version recorded: tools/call answers the reload sentence", async () => {
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${NEWER}-${SHA}`, { installPath: REPO_ROOT }) });
     await withServer({ CLAUDE_PLUGIN_ROOT: REPO_ROOT, CLAUDE_PLUGIN_DATA: join(root, "plugin-data") }, async (ask) => {
       const init = await ask({ method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "test" } } });
       expect(init["result"]).toBeDefined();
@@ -306,7 +347,7 @@ describe("through the real MCP door: an old plugin server process, a store migra
   }, 120_000);
 
   test("the plugin, the same version recorded: the update sentence, so the reload can't loop", async () => {
-    recordPlugin({ "counterparts@counterparts": coreRecord(`${LOADED}-${SHA}`) });
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${LOADED}-${SHA}`, { installPath: REPO_ROOT }) });
     await withServer({ CLAUDE_PLUGIN_ROOT: REPO_ROOT, CLAUDE_PLUGIN_DATA: join(root, "plugin-data") }, async (ask) => {
       await ask({ method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "test" } } });
       bumpStore();
@@ -348,7 +389,7 @@ describe("through the real hook: an old hook against a newer store", () => {
   test("the plugin (CLAUDE_PLUGIN_ROOT is this copy), a newer version recorded: the person gets the reload step, the model a line too", () => {
     seedStore();
     bumpStore();
-    recordPlugin({ "counterparts@counterparts": coreRecord(`${NEWER}-${SHA}`) });
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${NEWER}-${SHA}`, { installPath: REPO_ROOT }) });
     const r = runHook("SessionStart", "sess-old-window-1", PLUGIN_ENV());
     expect(r.code).toBe(0);
     const { person, model } = parsed(r.stdout);
@@ -362,13 +403,15 @@ describe("through the real hook: an old hook against a newer store", () => {
     expect(r.stderr).toContain("hook stood down");
     // Told once: the next prompt in the same session is quiet; a new session is told.
     expect(runHook("UserPromptSubmit", "sess-old-window-1", PLUGIN_ENV()).stdout).toBe("");
-    expect(parsed(runHook("UserPromptSubmit", "sess-old-window-2", PLUGIN_ENV()).stdout).person).toStartWith("Counterparts memory is OFF in this window");
+    const prompt = parsed(runHook("UserPromptSubmit", "sess-old-window-2", PLUGIN_ENV()).stdout);
+    expect(prompt.person).toStartWith("Counterparts memory is OFF in this window");
+    expect(prompt.model).toBe(model);
   }, 120_000);
 
   test("the plugin, the same version recorded: update first", () => {
     seedStore();
     bumpStore();
-    recordPlugin({ "counterparts@counterparts": coreRecord(`${LOADED}-${SHA}`) });
+    recordPlugin({ "counterparts@counterparts": coreRecord(`${LOADED}-${SHA}`, { installPath: REPO_ROOT }) });
     const { person, model } = parsed(runHook("SessionStart", "sess-old-window-3", PLUGIN_ENV()).stdout);
     expect(person).toContain(`this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`);
     expect(model).toContain(PLUGIN_UPDATE);
@@ -409,10 +452,13 @@ describe("doctor's Store open line says the same step (constitution 16)", () => 
     bumpStore();
     const reading = readCounterpartOpen(dir);
     expect(reading.code).toBe("SCHEMA_AHEAD");
-    const plugin = doctorFindings(doctorInput({ open: reading, install: "plugin" })).find((f) => f.key === "store-open");
+    const plugin = doctorFindings(doctorInput({ open: reading, install: "plugin", pluginRecorded: () => null })).find((f) => f.key === "store-open");
     expect(plugin?.severity).toBe("red");
     expect(plugin?.fix).toContain(`this one is ${LOADED}. To use it here, update Counterparts: ${PLUGIN_UPDATE}; then ${RELOAD_STEP}.`);
     expect(plugin?.fix).not.toContain("Restore");
+    // With a newer plugin recorded for this copy: the shorter reload sentence.
+    const reload = doctorFindings(doctorInput({ open: reading, install: "plugin", pluginRecorded: () => NEWER })).find((f) => f.key === "store-open");
+    expect(reload?.fix).toContain(RELOAD_WORDS);
     const npm = doctorFindings(doctorInput({ open: reading, install: "npm" })).find((f) => f.key === "store-open");
     expect(npm?.fix).toContain(`update Counterparts: in a terminal, run ${npmUpdateCommand()}; then run /mcp and Reconnect.`);
   });
@@ -530,12 +576,85 @@ describe("the first watched wake after an upgrade names the older windows, once"
   });
 
   test("an older Claude Desktop is named in its own words", () => {
-    expect(staleWindowsWords({ windows: 0, desktop: true }, "npm")).toBe(
+    expect(staleWindowsWords({ windows: 0, desktop: true, route: "npm", codeTab: false })).toBe(
       `${STALE_WINDOWS_LEAD} "My memory was just upgraded to a newer version. Claude Desktop, open since before that, can't use it until you quit and reopen Claude Desktop."`,
     );
-    expect(staleWindowsWords({ windows: 0, desktop: false }, "npm")).toBeNull();
-    expect(staleWindowsWords({ windows: 1, desktop: false }, undefined)).toContain(`there, for the plugin, ${RELOAD_STEP}; for an npm install, run /mcp and Reconnect.`);
+    expect(staleWindowsWords({ windows: 0, desktop: false, route: "npm", codeTab: false })).toBeNull();
+    expect(staleWindowsWords({ windows: 1, desktop: false, route: "either", codeTab: false })).toContain(`there, for the plugin, ${RELOAD_STEP}; for an npm install, run /mcp and Reconnect.`);
     // Desktop's place counts as Desktop, not as a window.
     expect(DESKTOP_SCOPE).toBe("claude-desktop:");
   });
+
+  test("each window's own step: a record that says its route is told by it, whoever is telling", () => {
+    seedStore();
+    const older = { version: "0.3.30", storeSchema: SCHEMA_VERSION - 1, cacheSchema: CACHE_SCHEMA_VERSION };
+    // One plugin window, in the Code tab, told from an npm window.
+    recordServerLaunch(dir, { scope: project, build: older, pid: process.pid, hostPid: 101, route: "plugin", codeTab: true });
+    expect(lineOf(wake({ install: "npm" }))).toBe(
+      `${STALE_WINDOWS_LEAD} "My memory was just upgraded to a newer version. 1 Claude Code window opened before that can't use it until it's reloaded: there, ${RELOAD_STEP_CODE_TAB}."`,
+    );
+  });
+
+  test("windows on two routes: both steps", () => {
+    seedStore();
+    const older = { version: "0.3.30", storeSchema: SCHEMA_VERSION - 1, cacheSchema: CACHE_SCHEMA_VERSION };
+    recordServerLaunch(dir, { scope: project, build: older, pid: process.pid, hostPid: 101, route: "plugin" });
+    recordServerLaunch(dir, { scope: project, build: older, pid: process.ppid, hostPid: 202, route: "npm" });
+    expect(lineOf(wake({ install: "plugin" }))).toContain(`in each, for the plugin, ${RELOAD_STEP}; for an npm install, run /mcp and Reconnect.`);
+  });
+
+  test("Claude Desktop's wake: windows whose records don't say their route get both steps, not Desktop's npm words", () => {
+    seedStore();
+    olderServers();
+    const s = Store.open({ dir });
+    open.push(s);
+    const said = desktopWakeNotice({ store: s, config: { dataDir: dir }, configPath: join(root, "claude-code.json"), today: localDate(Date.now()), env: {}, selfPid: -1 });
+    expect(said).toContain(`in each, for the plugin, ${RELOAD_STEP}; for an npm install, run /mcp and Reconnect.`);
+  });
+
+  test("this window's own host is left out: it is the one being told", () => {
+    seedStore();
+    const older = { version: "0.3.30", storeSchema: SCHEMA_VERSION - 1, cacheSchema: CACHE_SCHEMA_VERSION };
+    // The adapter runs in this process, so its host is this process's parent.
+    recordServerLaunch(dir, { scope: project, build: older, pid: process.pid, hostPid: process.ppid, route: "plugin" });
+    expect(lineOf(wake({ install: "plugin" }))).toBeUndefined();
+    recordServerLaunch(dir, { scope: project, build: older, pid: process.ppid, hostPid: 202, route: "plugin" });
+    expect(lineOf(wake({ install: "plugin" }))).toContain("1 Claude Code window opened before that");
+  });
+
+  test("a store version already told is read first and not told again", () => {
+    seedStore();
+    olderServers();
+    expect(lineOf(wake({ install: "plugin" }))).toBeDefined();
+    const s = Store.open({ dir });
+    let told: string | undefined;
+    try {
+      told = s.getMeta(STALE_WINDOWS_TOLD_KEY);
+    } finally {
+      s.close();
+    }
+    expect(told).toBe(`${String(SCHEMA_VERSION)}.${String(CACHE_SCHEMA_VERSION)}`);
+    expect(lineOf(wake({ install: "plugin" }))).toBeUndefined();
+  });
+});
+
+describe("the prompt's 'Counterparts was updated' notice names the route's step", () => {
+  test("a plugin window whose server is older: reload, not Reconnect; npm keeps Reconnect", () => {
+    seedStore();
+    for (const [install, step] of [
+      ["plugin", `Counterparts was updated. Run /reload-plugins (if it warns about the cache, /reload-plugins --force), or start a new session.`],
+      ["npm", UPDATE_NOTICE],
+    ] as const) {
+      const a = openAdapter({ dataDir: dir }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null, install });
+      open.push(a.counterpart);
+      const sessionId = `s-${install}-${Math.random().toString(36).slice(2)}`;
+      a.sessionStart({ sessionId, scope: project, at: localDate(Date.now()), source: "startup" });
+      // This window's own server, started before the update.
+      recordServerLaunch(dir, { scope: project, build: { version: "0.0.1", storeSchema: SCHEMA_VERSION, cacheSchema: CACHE_SCHEMA_VERSION }, pid: process.pid, hostPid: process.ppid });
+      expect(a.updateNotice({ sessionId, scope: project })).toBe(step);
+      a.counterpart.close();
+      open.length = 0;
+    }
+  });
+
 });

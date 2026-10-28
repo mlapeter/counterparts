@@ -14,20 +14,31 @@
  * than this code's are the windows to reload.
  *
  * Counted by HOST PROCESS (`hostPid`), not by server: one window can hold
- * more than one record. Claude Desktop's app server (place `claude-desktop:`)
- * is named apart, in its own words. Said once per store version
- * (`STALE_WINDOWS_TOLD_KEY`, claimed with `Store.updateMeta`, so two windows
- * starting together say it once), and only at a start a person is watching —
- * the caller's rule, W1's: not the nightly run, `-p`, a compaction or a
- * resume, which would spend it on nobody. Whoever upgraded the memory (this
- * window, the nightly run, Desktop, the console), the line is the same.
+ * more than one record. This window's own host is left out (the hook's
+ * parent): it is the one being told. Claude Desktop's app server (place
+ * `claude-desktop:`) is named apart, in its own words.
+ *
+ * EACH WINDOW'S OWN STEP (review of #666): a server record says how its copy
+ * came and whether it runs in Desktop's Code tab (`ServerRecord.route`,
+ * `codeTab`), so a plugin window is told to reload and an npm one to
+ * reconnect, whoever is telling. A record from a build before that says
+ * neither, and is read with the caller's fallback (`fallback`): this
+ * window's route on Claude Code, both routes from Desktop's server. Windows
+ * on different routes get both routes' steps.
+ *
+ * Said once per store version (`STALE_WINDOWS_TOLD_KEY`, read first, then
+ * claimed with `Store.updateMeta`, so two windows starting together say it
+ * once and a told line writes nothing), and only at a start a person is
+ * watching — the caller's rule, W1's: not the nightly run, `-p`, a compaction
+ * or a resume, which would spend it on nobody. Whoever upgraded the memory
+ * (this window, the nightly run, Desktop, the console), the line is the same.
  */
 import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../../core/store/index.js";
 import type { Store } from "../../core/store/index.js";
-import { DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, isPseudoScope, wordingFor } from "../hosts.js";
+import { DESKTOP_HOST, DESKTOP_SCOPE, isPseudoScope, wordingFor } from "../hosts.js";
 import type { InstallRoute } from "../plugin.js";
 import { pidAlive, readServerRecords, serverBelieved } from "../sessions.js";
-import { RELOAD_STEP } from "./doctor-meaning.js";
+import { windowStep } from "../update-words.js";
 
 /** The store version the line was last said for (`<store>.<cache>`). */
 export const STALE_WINDOWS_TOLD_KEY = "adapter.update.staleWindows.told";
@@ -40,6 +51,16 @@ export interface StaleWindows {
   readonly windows: number;
   /** Claude Desktop's own server is one of them. */
   readonly desktop: boolean;
+  /** The route those windows' step is for: theirs when they share one, else `either`. */
+  readonly route: InstallRoute;
+  /** Every one of those windows is in Desktop's Code tab. */
+  readonly codeTab: boolean;
+}
+
+/** What a window that does not say is taken to be. */
+export interface WindowFallback {
+  readonly route: InstallRoute | undefined;
+  readonly codeTab: boolean;
 }
 
 /**
@@ -49,10 +70,14 @@ export interface StaleWindows {
 export function staleWindows(input: {
   readonly dataDir: string;
   readonly now: number;
+  readonly fallback: WindowFallback;
   readonly alive?: (pid: number) => boolean;
   /** A server's own pid, left out (Desktop's wake asks from inside one). */
   readonly selfPid?: number;
+  /** The asking window's host process, left out (the hook's parent). */
+  readonly selfHostPid?: number;
 }): StaleWindows {
+  const none: StaleWindows = { windows: 0, desktop: false, route: input.fallback.route ?? "either", codeTab: input.fallback.codeTab };
   try {
     const alive = input.alive ?? pidAlive;
     const older = readServerRecords(input.dataDir).filter(
@@ -61,31 +86,36 @@ export function staleWindows(input: {
         (r.build.storeSchema < SCHEMA_VERSION || r.build.cacheSchema < CACHE_SCHEMA_VERSION) &&
         serverBelieved(r.pid, r.refreshedAt, input.now, alive),
     );
+    const windows = new Map<number, { route: InstallRoute; codeTab: boolean }>();
+    for (const r of older) {
+      if (isPseudoScope(r.scope) || r.hostPid === input.selfHostPid) continue;
+      const seen = windows.get(r.hostPid);
+      const route = r.route ?? input.fallback.route ?? "either";
+      const codeTab = r.route === undefined ? input.fallback.codeTab : r.codeTab === true;
+      windows.set(r.hostPid, seen === undefined ? { route, codeTab } : { route: seen.route === route ? route : "either", codeTab: seen.codeTab && codeTab });
+    }
+    const each = [...windows.values()];
+    const routes = new Set(each.map((w) => w.route));
     return {
-      windows: new Set(older.filter((r) => !isPseudoScope(r.scope)).map((r) => r.hostPid)).size,
+      windows: each.length,
       desktop: older.some((r) => r.scope === DESKTOP_SCOPE),
+      route: routes.size === 1 ? (each[0]?.route ?? "either") : "either",
+      codeTab: each.length > 0 && each.every((w) => w.codeTab),
     };
   } catch {
-    return { windows: 0, desktop: false };
+    return none;
   }
 }
 
-/** How an older window loads the newer copy, by the route this one came by. */
-function windowStep(route: InstallRoute | undefined): string {
-  const reconnect = `${wordingFor(DEFAULT_HOST).reconnectFirst.charAt(0).toLowerCase()}${wordingFor(DEFAULT_HOST).reconnectFirst.slice(1)}`;
-  if (route === "npm") return reconnect;
-  if (route === "plugin") return RELOAD_STEP;
-  return `for the plugin, ${RELOAD_STEP}; for an npm install, ${reconnect}`;
-}
-
 /** The sentence, from what was found. Pure. */
-export function staleWindowsWords(found: StaleWindows, route: InstallRoute | undefined): string | null {
+export function staleWindowsWords(found: StaleWindows): string | null {
   if (found.windows === 0 && !found.desktop) return null;
   const parts: string[] = [];
+  const step = windowStep(found.route, found.codeTab);
   if (found.windows === 1) {
-    parts.push(`1 Claude Code window opened before that can't use it until it's reloaded: there, ${windowStep(route)}.`);
+    parts.push(`1 Claude Code window opened before that can't use it until it's reloaded: there, ${step}.`);
   } else if (found.windows > 1) {
-    parts.push(`${String(found.windows)} Claude Code windows opened before that can't use it until they're reloaded: in each, ${windowStep(route)}.`);
+    parts.push(`${String(found.windows)} Claude Code windows opened before that can't use it until they're reloaded: in each, ${step}.`);
   }
   if (found.desktop) {
     const quit = wordingFor(DESKTOP_HOST).reconnectFirst;
@@ -102,21 +132,26 @@ export function staleWindowsWords(found: StaleWindows, route: InstallRoute | und
  */
 export function staleWindowsLine(input: {
   readonly store: Store;
-  readonly route: InstallRoute | undefined;
+  readonly fallback: WindowFallback;
   readonly now: number;
   readonly alive?: (pid: number) => boolean;
   readonly selfPid?: number;
+  readonly selfHostPid?: number;
 }): { readonly line: string; readonly found: StaleWindows } | null {
   try {
+    const tag = `${String(SCHEMA_VERSION)}.${String(CACHE_SCHEMA_VERSION)}`;
+    // Told already: nothing to read further, and nothing written.
+    if (input.store.getMeta(STALE_WINDOWS_TOLD_KEY) === tag) return null;
     const found = staleWindows({
       dataDir: input.store.dir,
       now: input.now,
+      fallback: input.fallback,
       ...(input.alive === undefined ? {} : { alive: input.alive }),
       ...(input.selfPid === undefined ? {} : { selfPid: input.selfPid }),
+      ...(input.selfHostPid === undefined ? {} : { selfHostPid: input.selfHostPid }),
     });
-    const line = staleWindowsWords(found, input.route);
+    const line = staleWindowsWords(found);
     if (line === null) return null;
-    const tag = `${String(SCHEMA_VERSION)}.${String(CACHE_SCHEMA_VERSION)}`;
     const claimed = input.store.updateMeta(STALE_WINDOWS_TOLD_KEY, (current) => (current === tag ? undefined : tag));
     return claimed === tag ? { line, found } : null;
   } catch {

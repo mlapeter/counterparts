@@ -275,11 +275,13 @@ export function desktopWakeNotice(input: {
         : wakeMeaningLine({ config: input.config, store: input.store, install: installRoute(env), env, today: input.today });
     // OLDER WINDOWS AFTER AN UPGRADE (U1a, `claude-code/stale-windows.ts`):
     // the same once-per-store-version line a Claude Code start carries, above
-    // W1's, and never on a night's own wake.
+    // W1's, and never on a night's own wake. A window whose record does not
+    // say its route gets both routes' steps: this server is Desktop's (npm),
+    // and says nothing about how those windows came (review of #666).
     stale =
       input.night === true
         ? null
-        : (staleWindowsLine({ store: input.store, route: installRoute(env), now: Date.now(), selfPid: input.selfPid ?? process.pid })?.line ?? null);
+        : (staleWindowsLine({ store: input.store, fallback: { route: "either", codeTab: false }, now: Date.now(), selfPid: input.selfPid ?? process.pid })?.line ?? null);
   } catch {
     meaning = null;
   }

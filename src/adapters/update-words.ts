@@ -87,6 +87,19 @@ export function reloadStep(codeTab: boolean): string {
   return codeTab ? RELOAD_STEP_CODE_TAB : RELOAD_STEP;
 }
 
+/**
+ * How an older Claude Code window loads the newer copy, by that window's
+ * route: the plugin's reload, the npm server's Reconnect, or — not known —
+ * both. Lower-case, no closing stop. For the wake's line about older windows
+ * and the prompt's "Counterparts was updated" notice.
+ */
+export function windowStep(route: InstallRoute | undefined, codeTab: boolean): string {
+  const reconnect = lowerFirst(wordingFor(DEFAULT_HOST).reconnectFirst);
+  if (route === "npm") return reconnect;
+  if (route === "plugin") return reloadStep(codeTab);
+  return `for the plugin, ${reloadStep(codeTab)}; for an npm install, ${reconnect}`;
+}
+
 // ── a memory a newer copy upgraded ─────────────────────────────────────────
 
 /**
@@ -134,9 +147,17 @@ export function coreNewer(a: string | null, b: string | null): boolean {
   return false;
 }
 
-/** Which step, for one definite route (`either` asks both). Pure. */
-export function newerStoreStep(route: "npm" | "plugin", input: Pick<NewerStoreInput, "who" | "loaded" | "recorded">): NewerStoreStep {
-  if (route === "plugin") return coreNewer(input.recorded, input.loaded) ? "reload" : "update";
+/**
+ * Which step, for one definite route (`either` asks both). Pure. A plugin
+ * reloads only into a recorded version newer than this one AND at least as
+ * new as the writer, when the writer is known (review of #666): a record of
+ * 0.3.38 under a memory 0.3.39 upgraded would load code that still refuses.
+ */
+export function newerStoreStep(route: "npm" | "plugin", input: Pick<NewerStoreInput, "who" | "loaded" | "recorded" | "writer">): NewerStoreStep {
+  if (route === "plugin") {
+    const writer = input.writer ?? null;
+    return coreNewer(input.recorded, input.loaded) && !coreNewer(writer, input.recorded) ? "reload" : "update";
+  }
   return input.who === "server" ? "reconnect" : "update";
 }
 
@@ -144,7 +165,7 @@ function lowerFirst(s: string): string {
   return `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
 }
 
-function upperFirst(s: string): string {
+export function upperFirst(s: string): string {
   return `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 }
 
