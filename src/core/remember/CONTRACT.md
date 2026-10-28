@@ -163,7 +163,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   when a later memory declares `updates:` on it. This is v1's own recorded v2 direction
   (§6.3): "as a special structure outside the memory model it became the one data type in a
   forgetting-is-a-feature system that never forgets — and its exception tax was a whole bug
-  family."
+  family." Since 2026-10-27 it may also name what would settle it (`settlesWhen`, a short
+  phrase in the same meta), which "Still open" shows and the nightly reflection may close it on.
 - **Per-session gate state is persisted** rather than reconstructed per turn — see
   `recall/`, where the decision belongs. Named here because span capture and gate state
   share the session lifetime.
