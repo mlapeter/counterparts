@@ -106,6 +106,10 @@ function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
     session: SESSION,
     scope: projectDir,
     scopesFile: join(scopesDir, "scopes.json"),
+    // The npm route's words, which these tests pin (`/mcp` and Reconnect);
+    // the plugin's are `newer-store-words.test.ts`'s. No plugin record is read.
+    install: "npm",
+    pluginVersion: () => null,
     ...over,
   });
   open.push(s.counterpart);

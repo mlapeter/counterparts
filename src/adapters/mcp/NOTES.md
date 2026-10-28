@@ -1877,3 +1877,21 @@ its own small PR, after a look at its live use.
 - **Flags, recommendations only:** under off, a standalone reflect `launch` on the person's word stays available
   (awake, not a dream), while the night's reflection stops with the night. On claude.ai, `ask` behaves like `auto`
   (it has no dream line); no new value was added.
+
+## 2026-10-27 — an old window meeting an upgraded memory (U1a)
+
+- **Reconnect loops for the plugin.** Claude Code keeps a plugin's previous version folder (for 14 days,
+  `.orphaned_at`), and an open window's hooks and server keep its path until `/reload-plugins`. So the schema gate's
+  "Run /mcp and Reconnect" restarts the same old code there. Unmeasured in a throwaway home, but the docs and
+  `plugin-run.sh` (keyed by version) both point that way. The npm route keeps Reconnect: its install is replaced in
+  place.
+- **Reload vs update is read from `installed_plugins.json`** (`host-wiring.ts#pluginVersionRecorded`, the highest
+  `x.y.z` of the `counterparts@` records for this folder, `-<sha>` dropped). Newer than this server: reload. Anything
+  else (a newer npm or Desktop install wrote the store, a `--plugin-dir` copy, a rollback, no record): update, then
+  reload. A bare reload in those cases would load this same code again.
+- **`/reload-plugins` has two limits** (docs, quoted in the design review): a warning instead of a reload when the
+  prompt cache would be re-read (`--force`), and no plugin MCP server restart in non-terminal sessions (Desktop's
+  Code tab, which leads with "start a new session").
+- **A window left open past the 14-day orphan sweep** loses its old folder outright; the same reload fixes it.
+- **Not measured:** that Reconnect really restarts the old version; whether Update now refreshes the marketplace
+  listing first (so `PLUGIN_UPDATE` is unchanged; Q11 waits on that check).

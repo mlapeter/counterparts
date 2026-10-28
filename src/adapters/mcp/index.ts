@@ -165,6 +165,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.lifecycle === undefined ? {} : { lifecycle: opts.lifecycle }),
     ...(opts.wakeNotice === undefined ? {} : { wakeNotice: opts.wakeNotice }),
     ...(opts.manifestVersion === undefined ? {} : { manifestVersion: opts.manifestVersion }),
+    ...(opts.pluginVersion === undefined ? {} : { pluginVersion: opts.pluginVersion }),
     ...(opts.env === undefined ? {} : { env: opts.env }),
     ...(opts.launchObserver === undefined ? {} : { launchObserver: opts.launchObserver }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
