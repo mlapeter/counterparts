@@ -27,6 +27,7 @@ import { questionEmbedder } from "../src/adapters/mcp/bin/serve.js";
 import { Store } from "../src/core/store/index.js";
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import { openEmbedder } from "../src/adapters/claude-code/embed-client.js";
+import { npmTableCommand } from "../src/adapters/claude-code/doctor-meaning.js";
 
 let root: string;
 let configPath: string;
@@ -133,7 +134,7 @@ describe("doctor, on a configuration with no embedder block", () => {
     expect(f?.detail).toContain("a local table");
     // The table is pinned to an empty folder here, so the line is amber with its fix.
     expect(f?.severity).toBe("amber");
-    expect(f?.fix).toContain("counterparts-model-potion");
+    expect(f?.fix).toContain(npmTableCommand());
     // No credentials line of any kind: there are no keys.
     expect(findings.find((x) => x.key === "credentials")).toBeUndefined();
     expect(findings.find((x) => x.key === "credentials-mode")).toBeUndefined();

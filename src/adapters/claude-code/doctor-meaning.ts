@@ -8,7 +8,8 @@
  * wake carried one line. This is that line: written for the model to say to
  * its person, in words a regular user can act on, with the fix for the route
  * this copy came by (`plugin.ts#installRoute`) — the same route, and the same
- * plugin step, as doctor's own fix line, because both are built here.
+ * steps, as doctor's own fix line and `install`'s hint, because all three are
+ * built here.
  *
  * Cheap by construction (it is read on a hook's hot path): the durable rows
  * the worker already writes (`vectors.ts#backfillVectors`' row, the runner's
@@ -20,19 +21,28 @@ import { join } from "node:path";
 
 import { EMBED_BACKFILL_EVENT, RUNNER_FAILED_EVENT } from "../../core/counterpart.js";
 import type { Store } from "../../core/store/index.js";
-import { MODEL_FILE, STATIC_WEIGHTS_PACKAGE, VOCAB_FILE, resolveStaticWeights } from "../../core/embed/static.js";
-import { bundledModelDir } from "../runtime.js";
+import { MODEL_FILE, VOCAB_FILE, resolveStaticWeights } from "../../core/embed/static.js";
+import { bundledModelDir, currentRuntime } from "../runtime.js";
+import type { RuntimeKind } from "../runtime.js";
 import type { AdapterConfig } from "../config.js";
 import type { InstallRoute } from "../plugin.js";
-import { newestRows, num, payloadOf, str } from "./doctor-finding.js";
+import { payloadOf, str } from "./doctor-finding.js";
 
-// ── the install routes, shared with doctor.ts ──────────────────────────────
+// ── the install routes, shared with doctor.ts and `install` ────────────────
 
 /** The plugin's way to a newer or whole copy: Claude Code's plugin manager. */
 export const PLUGIN_UPDATE = "in Claude Code, /plugin → Installed → counterparts → Update now (or uninstall it and install it again)";
 
-/** The npm install's command for the meaning table. */
-export const TABLE_NPM_COMMAND = `bun add -g ${STATIC_WEIGHTS_PACKAGE}`;
+/**
+ * THE NPM INSTALL'S WAY TO THE MEANING TABLE: install Counterparts again with
+ * the runtime it runs on (README's two lines). The weights are the package's
+ * own dependency and are found beside it (`resolveStaticWeights`'
+ * `require.resolve`); a separate global `counterparts-model-potion` is not
+ * where that looks, so naming it was a fix that fixed nothing (review of #664).
+ */
+export function npmTableCommand(runtime: RuntimeKind = currentRuntime()): string {
+  return runtime === "node" ? "npm install -g counterparts" : "bun add -g counterparts";
+}
 
 /** The plugin's way to the meaning table: its update reruns the dependency
  *  step, which needs npm (#396: a Bun-only computer has none). */
@@ -56,7 +66,8 @@ export function byRoute(route: InstallRoute | undefined, npm: string, plugin: st
  * files are there — the same resolution the worker's embedder makes
  * (`embed-client.ts#openStaticEmbedder`), without reading a byte of either.
  * `found` is null when no rule names a directory at all; `complete` says both
- * files exist in the one that was named.
+ * files exist in the one that was named (the loader refuses a folder missing
+ * either, `MISSING_FILE`).
  */
 export function tableOnDisk(opts: { env?: Record<string, string | undefined>; packageDir?: string } = {}): {
   found: { dir: string; source: string } | null;
@@ -80,16 +91,16 @@ export function tableOnDisk(opts: { env?: Record<string, string | undefined>; pa
 const NOT_THERE: ReadonlySet<string> = new Set(["NO_WEIGHTS", "MISSING_FILE"]);
 
 /**
- * How many backfill runs in a row must embed nothing, with memories waiting
- * and the count not falling, before the wake calls it stuck. Three is past
- * `EMBED_SKIP_AFTER` (3) by the run that matters: a memory the table cannot
- * embed is set aside on its third failure, and that run's `remaining` falls —
- * so one unembeddable memory never reads as stuck.
+ * How many dates the worker's vector step must have failed on, with no
+ * backfill row since the earlier of them, before the wake says it stopped.
+ * The runner latches one `adapter.runner.failed` row per step per date, and
+ * its `vectors` step covers the lagged cue as well as the backfill, so one
+ * failure is one bad boundary — not a feature that has stopped.
  */
-export const MEANING_STUCK_RUNS = 3;
+export const MEANING_FAILED_DATES = 2;
 
-/** How many of the newest runner failures are read for a `vectors` one. */
-const RUNNER_FAILED_ROWS = 10;
+/** How many of the newest runner failures are read for `vectors` ones. */
+const RUNNER_FAILED_ROWS = 20;
 
 /** Why search by meaning is not running, for the person. */
 export type MeaningOff = "missing" | "unloadable" | "stopped";
@@ -104,6 +115,9 @@ export const MEANING_OFF_WORDS: Readonly<Record<MeaningOff, string>> = {
 /** What the line is introduced by, for the model. */
 export const MEANING_OFF_LEAD = "Counterparts — tell your person when it fits, once this session:";
 
+/** The date the `stopped` line was last told: it is said at most once a day. */
+export const MEANING_STOPPED_TOLD_KEY = "adapter.meaning.stopped.told";
+
 export interface MeaningOffInput {
   readonly config: AdapterConfig;
   readonly store: Store;
@@ -113,6 +127,8 @@ export interface MeaningOffInput {
   readonly env?: Record<string, string | undefined>;
   /** The single binary's carried table; absent, `runtime.ts#bundledModelDir`. */
   readonly packageDir?: string;
+  /** The runtime the npm step names; absent, this process's. */
+  readonly runtime?: RuntimeKind;
 }
 
 /**
@@ -126,10 +142,13 @@ export interface MeaningOffInput {
  *     restored: the wake says nothing, and the next boundary writes a new row.
  *   - `unloadable`: the worker's newest row says the table was there and
  *     would not load (any other refusal code). It stands until the next row.
- *   - `stopped`: the worker's vector step threw after its newest backfill row
- *     (`adapter.runner.failed`, `step: "vectors"`), or the newest
- *     `MEANING_STUCK_RUNS` backfill rows all ran, embedded nothing, and left
- *     memories waiting without the count falling.
+ *   - `stopped`: the worker's vector step threw on `MEANING_FAILED_DATES`
+ *     separate dates, with no backfill row since the earlier one.
+ *
+ * NOT A CASE: a backfill "stuck at 0". The static table blames every miss on
+ * the memory and sets it aside on its third (`EMBED_SKIP_AFTER`), so its
+ * `remaining` falls; what stays flat is the store refusing vectors (doctor's
+ * held / cache-ahead lines) or lost counter writes — not a person's fix.
  *
  * The hook's environment IS the worker's (the hook starts it), so the look at
  * the disk is the same look the worker makes. Never throws: a reading that
@@ -144,24 +163,21 @@ export function meaningOff(input: MeaningOffInput): MeaningOff | null {
     });
     if (!table.complete) return "missing";
     const store = input.store;
-    const read = newestRows(store, EMBED_BACKFILL_EVENT, MEANING_STUCK_RUNS, store.livedDay());
-    const rows = read.rows;
-    const newest = rows[rows.length - 1];
+    // The NEWEST backfill row, read straight off the log's end — never through
+    // a day window, which would stop at today's rows.
+    const newest = store.eventLog({ name: EMBED_BACKFILL_EVENT, order: "desc", limit: 1 })[0];
     const p = payloadOf(newest);
     if (newest !== undefined && str(p, "reason") === "embedder-unavailable") {
       const code = str(p, "codes") ?? "NO_WEIGHTS";
       return NOT_THERE.has(code) ? null : "unloadable";
     }
-    const failed = store
+    const failures = store
       .eventLog({ name: RUNNER_FAILED_EVENT, order: "desc", limit: RUNNER_FAILED_ROWS })
-      .find((r) => str(payloadOf(r), "step") === "vectors");
-    if (failed !== undefined && (newest === undefined || failed.seq > newest.seq)) return "stopped";
-    if (rows.length >= MEANING_STUCK_RUNS) {
-      const runs = rows.map((r) => payloadOf(r));
-      const nothing = runs.every((r) => str(r, "reason") === "ran" && (num(r, "embedded") ?? 0) === 0 && (num(r, "remaining") ?? 0) > 0);
-      const first = num(runs[0] ?? {}, "remaining") ?? 0;
-      const last = num(runs[runs.length - 1] ?? {}, "remaining") ?? 0;
-      if (nothing && last >= first) return "stopped";
+      .filter((r) => str(payloadOf(r), "step") === "vectors");
+    const dates = new Set(failures.map((r) => str(payloadOf(r), "date") ?? String(r.day)));
+    const earliest = failures[MEANING_FAILED_DATES - 1];
+    if (dates.size >= MEANING_FAILED_DATES && earliest !== undefined && (newest === undefined || newest.seq < earliest.seq)) {
+      return "stopped";
     }
     return null;
   } catch {
@@ -172,13 +188,26 @@ export function meaningOff(input: MeaningOffInput): MeaningOff | null {
 /**
  * THE WAKE'S ONE LINE, or null (`meaningOff`). The fix is the route's: the
  * table's install for `missing`, its reinstall for `unloadable` — doctor's own
- * steps (`PLUGIN_TABLE_UPDATE`, `PLUGIN_UPDATE`, `TABLE_NPM_COMMAND`) — and
- * doctor itself for `stopped`, whose reasons are many and are its to name.
+ * steps — and doctor itself for `stopped`, whose reasons are many and are its
+ * to name.
+ *
+ * `stopped` is said at most ONCE A DAY: with `today`, the first wake that
+ * says it records the date (`MEANING_STOPPED_TOLD_KEY`), and later wakes that
+ * day say nothing. `missing` and `unloadable` are said on every wake until
+ * fixed: they are one install away, and the person is the one who installs.
  */
-export function wakeMeaningLine(input: MeaningOffInput): string | null {
+export function wakeMeaningLine(input: MeaningOffInput & { readonly today?: string }): string | null {
   const why = meaningOff(input);
   if (why === null) return null;
-  const npm = `in a terminal, run ${TABLE_NPM_COMMAND}`;
+  if (why === "stopped" && input.today !== undefined) {
+    try {
+      if (input.store.getMeta(MEANING_STOPPED_TOLD_KEY) === input.today) return null;
+      input.store.setMeta(MEANING_STOPPED_TOLD_KEY, input.today);
+    } catch {
+      // A claim that could not be written costs the once-a-day, not the line.
+    }
+  }
+  const npm = `in a terminal, run ${npmTableCommand(input.runtime)}`;
   const fix =
     why === "missing"
       ? byRoute(input.install, npm, PLUGIN_TABLE_UPDATE)

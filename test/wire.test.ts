@@ -37,6 +37,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { npmTableCommand } from "../src/adapters/claude-code/doctor-meaning.js";
 
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
@@ -1404,7 +1405,11 @@ describe("install, at a terminal", () => {
   function tableEnv(present: boolean): Record<string, string | undefined> {
     const dir = join(home, present ? "table" : "no-table");
     mkdirSync(dir, { recursive: true });
-    if (present) writeFileSync(join(dir, "model.safetensors"), "");
+    // Both files: "found" is the two-file look doctor and the wake take too.
+    if (present) {
+      writeFileSync(join(dir, "model.safetensors"), "");
+      writeFileSync(join(dir, "vocab.txt"), "");
+    }
     return { ...ENV, COUNTERPARTS_STATIC_WEIGHTS_DIR: dir };
   }
 
@@ -1575,7 +1580,10 @@ describe("install, at a terminal", () => {
     expect(said).toContain("its table was not found");
     // Not "on": the line is said only when it is true.
     expect(said).not.toContain("Recall by meaning: on.");
-    expect(said).toContain("bun add -g counterparts-model-potion");
+    // The npm route's step, for the runtime this runs on (review of #664): the
+    // table is Counterparts' own dependency, so Counterparts is installed again.
+    expect(said).toContain(`Install it: ${npmTableCommand()} — or set`);
+    expect(said).not.toContain("counterparts-model-potion");
     expect(said).not.toContain("it should be all green");
     expect(said).toContain("everything but recall by meaning should be green");
     // The configuration still asks for it: the fix is the table, not the knob.

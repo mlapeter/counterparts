@@ -745,8 +745,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // SEARCH BY MEANING THAT CANNOT RUN (2026-10-27, W1): one line under the
       // clock, beside the Code tab's, for the model to tell its person — with
       // the fix for this install's route (`doctor-meaning.ts`). None on a
-      // resume (the replayed wake already holds it) or the headless night.
-      const meaning = resumed || input.nightRun === true ? null : this.meaningLine();
+      // resume (the replayed wake already holds it), and only where a person
+      // will see the reply (`watchedAtStart`: not the headless night, not
+      // `claude -p` or the SDK, not a compaction).
+      const meaning = resumed || !watched ? null : this.meaningLine(input);
       const leadLines = [codeTab, meaning].filter((l): l is string => l !== null);
       // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
       // the state word only, for the mod, which cannot reach the dashboard
@@ -1857,12 +1859,14 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * person's terminal and red only. An observer says nothing; a reading that
    * fails costs the line, never the wake, and leaves one ring row.
    */
-  meaningLine(): string | null {
+  meaningLine(input: HookInput): string | null {
     if (this.observer) return null;
     try {
       const line = wakeMeaningLine({
         config: this.config,
         store: this.counterpart.store,
+        // The day the `stopped` line is claimed for: said once a day at most.
+        today: input.at ?? localDate(this.nowFn(), this.counterpart.store.zone()),
         ...(this.install === undefined ? {} : { install: this.install }),
       });
       if (line !== null) this.emit("adapter.meaning.off", {});

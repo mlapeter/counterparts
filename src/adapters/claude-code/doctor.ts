@@ -118,7 +118,7 @@ import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
 import { LOG_DAYS, logReading } from "../log/index.js";
 import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } from "./doctor-finding.js";
-import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, TABLE_NPM_COMMAND, byRoute, tableOnDisk } from "./doctor-meaning.js";
+import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
@@ -198,7 +198,15 @@ export {
   noticeMessage,
 } from "./doctor-report.js";
 export type { GradeWord } from "./doctor-report.js";
-export { MEANING_OFF_LEAD, MEANING_OFF_WORDS, MEANING_STUCK_RUNS, meaningOff, wakeMeaningLine } from "./doctor-meaning.js";
+export {
+  MEANING_FAILED_DATES,
+  MEANING_OFF_LEAD,
+  MEANING_OFF_WORDS,
+  MEANING_STOPPED_TOLD_KEY,
+  meaningOff,
+  npmTableCommand,
+  wakeMeaningLine,
+} from "./doctor-meaning.js";
 export type { MeaningOff, MeaningOffInput } from "./doctor-meaning.js";
 
 /**
@@ -731,7 +739,7 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
  *     the first boundary will confirm it.
  */
 function staticFinding(input: DoctorInput, data: Record<string, string | number | boolean | null>): Finding {
-  const install = `Install the table: ${byInstall(input, TABLE_NPM_COMMAND, PLUGIN_TABLE_UPDATE)} — or set ${STATIC_WEIGHTS_ENV} in the environment Claude Code starts hooks with`;
+  const install = `Install the table: ${byInstall(input, npmTableCommand(), PLUGIN_TABLE_UPDATE)} — or set ${STATIC_WEIGHTS_ENV} in the environment Claude Code starts hooks with`;
   const row = newestBackfill(input);
   if (row !== null && str(row, "reason") === "embedder-unavailable") {
     const code = str(row, "codes") ?? "NO_WEIGHTS";
@@ -740,7 +748,7 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       "amber",
       RECALL_TITLE,
       `on (a local table), but the worker could not load its weights (${code}) — nothing is embedded; recall still matches on words`,
-      code === "HASH_MISMATCH" ? `The table on disk is not the one its package declares. Reinstall it: ${byInstall(input, TABLE_NPM_COMMAND)}` : install,
+      code === "HASH_MISMATCH" ? `The table on disk is not the one its package declares. Reinstall it: ${byInstall(input, npmTableCommand())}` : install,
       { ...data, kind: "static", code },
     );
   }

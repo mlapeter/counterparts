@@ -37,7 +37,9 @@ export {
   worstFirst,
   MEANING_OFF_LEAD,
   MEANING_OFF_WORDS,
-  MEANING_STUCK_RUNS,
+  MEANING_FAILED_DATES,
+  MEANING_STOPPED_TOLD_KEY,
+  npmTableCommand,
   meaningOff,
   wakeMeaningLine,
 } from "./doctor.js";

@@ -524,8 +524,9 @@ still loads, and `/plugin` notes the missing packages. Then, measured by the loo
   nothing will be embedded; recall still matches on words". Its fix line names
   the route for the install (`plugin.ts#installRoute`): for the plugin, `/plugin` →
   Installed → counterparts → Update now, with Node.js first where there is no npm, or
-  `COUNTERPARTS_STATIC_WEIGHTS_DIR`; for the npm install, `bun add -g
-  counterparts-model-potion`;
+  `COUNTERPARTS_STATIC_WEIGHTS_DIR`; for the npm install, Counterparts installed again
+  with the runtime it runs on (`npm install -g counterparts` under Node, `bun add -g
+  counterparts` under Bun), which brings the table as its dependency;
 - under Bun, the same amber line. With no `node_modules` above the plugin, Bun's runtime
   auto-install would fetch the package from the npm registry into `~/.bun/install/cache`,
   unpinned and undisclosed. `src/adapters/empty-bunfig.toml`, which every Bun launch names

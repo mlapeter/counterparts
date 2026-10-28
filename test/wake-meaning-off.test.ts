@@ -11,9 +11,12 @@
  *     command for an npm install;
  *   - weights restored → gone, even while the worker's last row still says
  *     NO_WEIGHTS;
- *   - meaning switched off → no line; healthy → no line;
- *   - the worker's vector step failing, or the backfill stuck at 0 with
- *     memories waiting → the "stopped" line, pointing at doctor.
+ *   - meaning switched off → no line; healthy → no line; nobody to tell
+ *     (`claude -p`, a compaction, the night) → no line;
+ *   - the worker's vector step failing on two dates with no backfill since →
+ *     the "stopped" line, pointing at doctor, at most once a day;
+ *   - a backfill "stuck at 0" is not a case: real backfills show the static
+ *     table setting an unembeddable memory aside, so the count falls.
  *
  * Driven through the real SessionStart path: `openAdapter(...).sessionStart`
  * (the adapter `bin/hook.ts` builds), the hook process itself for the install
@@ -32,16 +35,25 @@ import { EMBED_BACKFILL_EVENT, RUNNER_FAILED_EVENT } from "../src/core/counterpa
 import { STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
 import { Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
-import { MEANING_OFF_LEAD, MEANING_OFF_WORDS, openAdapter } from "../src/adapters/claude-code/index.js";
+import {
+  MEANING_OFF_LEAD,
+  MEANING_OFF_WORDS,
+  MEANING_STOPPED_TOLD_KEY,
+  npmTableCommand,
+  openAdapter,
+} from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig } from "../src/adapters/config.js";
 import type { InstallRoute } from "../src/adapters/plugin.js";
 import { desktopWakeNotice } from "../src/adapters/mcp/bin/serve.js";
+import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
+import { backfillVectors } from "../src/adapters/claude-code/vectors.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
 const PLUGIN_STEP = "/plugin → Installed → counterparts → Update now";
-const NPM_STEP = "in a terminal, run bun add -g counterparts-model-potion";
+/** Under bun, which runs this file; Node's step is checked on `npmTableCommand` itself. */
+const NPM_STEP = "in a terminal, run bun add -g counterparts";
 
 let root: string;
 let dir: string;
@@ -117,7 +129,17 @@ function backfill(over: Record<string, string | number | null>): { name: string;
 const NO_WEIGHTS_ROW = backfill({ reason: "embedder-unavailable", codes: "NO_WEIGHTS", weights: null, model: null });
 
 /** A session start the way `bin/hook.ts` makes one: the adapter, its install route, the hook's input. */
-function wake(opts: { install?: InstallRoute; embedder?: AdapterConfig["embedder"]; observer?: boolean; nightRun?: boolean } = {}): string {
+function wake(
+  opts: {
+    install?: InstallRoute;
+    embedder?: AdapterConfig["embedder"];
+    observer?: boolean;
+    nightRun?: boolean;
+    entrypoint?: string;
+    source?: string;
+    at?: string;
+  } = {},
+): string {
   const config: AdapterConfig = {
     dataDir: dir,
     ...(opts.embedder === undefined ? { embedder: ON } : { embedder: opts.embedder }),
@@ -134,8 +156,9 @@ function wake(opts: { install?: InstallRoute; embedder?: AdapterConfig["embedder
   const r = a.sessionStart({
     sessionId: `s-${Math.random().toString(36).slice(2)}`,
     scope: project,
-    at: localDate(Date.now()),
-    source: "startup",
+    at: opts.at ?? localDate(Date.now()),
+    source: opts.source ?? "startup",
+    ...(opts.entrypoint === undefined ? {} : { entrypoint: opts.entrypoint }),
     ...(opts.nightRun === true ? { nightRun: true } : {}),
   });
   a.counterpart.close();
@@ -210,6 +233,14 @@ describe("no line", () => {
     expect(lineOf(wake({ install: "plugin", observer: true }))).toBeUndefined();
     expect(lineOf(wake({ install: "plugin", nightRun: true }))).toBeUndefined();
   });
+
+  test("no person to tell: `claude -p` (sdk-cli) and a compaction say nothing; a person's next start does", () => {
+    seed([NO_WEIGHTS_ROW]);
+    expect(lineOf(wake({ install: "plugin", entrypoint: "sdk-cli" }))).toBeUndefined();
+    // A compaction fires mid-turn — a subagent's own compaction too.
+    expect(lineOf(wake({ install: "plugin", source: "compact" }))).toBeUndefined();
+    expect(lineOf(wake({ install: "plugin", entrypoint: "cli" }))).toContain(MEANING_OFF_WORDS.missing);
+  });
 });
 
 describe("the table is there and won't load", () => {
@@ -223,50 +254,76 @@ describe("the table is there and won't load", () => {
 });
 
 describe("the worker failing", () => {
-  test("the vector step threw after the newest backfill: the stopped line, pointing at doctor", () => {
+  const failedOn = (date: string, step = "vectors"): { name: string; payload: Record<string, string | number | null> } => ({
+    name: RUNNER_FAILED_EVENT,
+    payload: { code: "TypeError", step, date },
+  });
+  const ok = backfill({ embedded: 1, attempted: 1, remaining: 0 });
+
+  test("the vector step failed on two dates with no backfill since: the stopped line, pointing at doctor", () => {
     process.env[STATIC_WEIGHTS_ENV] = tableWeights;
-    seed([backfill({ embedded: 1, attempted: 1, remaining: 0 }), { name: RUNNER_FAILED_EVENT, payload: { code: "TypeError", step: "vectors", date: "2026-10-27" } }]);
-    const plugin = lineOf(wake({ install: "plugin" }));
+    seed([ok, failedOn("2026-10-26"), failedOn("2026-10-27")]);
+    const plugin = lineOf(wake({ install: "plugin", at: "2026-10-27" }));
     expect(plugin).toContain(MEANING_OFF_WORDS.stopped);
     expect(plugin).toContain("To see why: in Claude Code, run /counterparts:doctor.");
-    expect(lineOf(wake({ install: "npm" }))).toContain("To see why: in a terminal, run counterparts doctor.");
+    expect(lineOf(wake({ install: "npm", at: "2026-10-28" }))).toContain("To see why: in a terminal, run counterparts doctor.");
   });
 
-  test("a backfill that ran after the failure clears it; another step's failure never says it", () => {
+  test("ONE failed boundary is not a stopped feature (review of #664): silent", () => {
+    // The runner's `vectors` step covers the lagged cue as well as the
+    // backfill, so a single throw after a good backfill is one bad boundary.
     process.env[STATIC_WEIGHTS_ENV] = tableWeights;
-    seed([
-      { name: RUNNER_FAILED_EVENT, payload: { code: "TypeError", step: "vectors", date: "2026-10-26" } },
-      backfill({ embedded: 1, attempted: 1, remaining: 0 }),
-      { name: RUNNER_FAILED_EVENT, payload: { code: "TypeError", step: "terms", date: "2026-10-27" } },
-    ]);
-    expect(lineOf(wake({ install: "plugin" }))).toBeUndefined();
+    seed([ok, failedOn("2026-10-27")]);
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27" }))).toBeUndefined();
+  });
+
+  test("a backfill between the two failures clears it; another step's failures never say it", () => {
+    process.env[STATIC_WEIGHTS_ENV] = tableWeights;
+    seed([failedOn("2026-10-25"), ok, failedOn("2026-10-26"), failedOn("2026-10-26", "terms"), failedOn("2026-10-27", "terms")]);
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27" }))).toBeUndefined();
+  });
+
+  test("said at most once a day: the second wake that day is silent, the next day says it again", () => {
+    process.env[STATIC_WEIGHTS_ENV] = tableWeights;
+    seed([failedOn("2026-10-26"), failedOn("2026-10-27")]);
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27" }))).toContain(MEANING_OFF_WORDS.stopped);
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27" }))).toBeUndefined();
+    const s = Store.open({ dir });
+    try {
+      expect(s.getMeta(MEANING_STOPPED_TOLD_KEY)).toBe("2026-10-27");
+    } finally {
+      s.close();
+    }
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-28" }))).toContain(MEANING_OFF_WORDS.stopped);
+  });
+
+  test("an unattended start does not spend the day's telling", () => {
+    process.env[STATIC_WEIGHTS_ENV] = tableWeights;
+    seed([failedOn("2026-10-26"), failedOn("2026-10-27")]);
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27", entrypoint: "sdk-cli" }))).toBeUndefined();
+    expect(lineOf(wake({ install: "plugin", at: "2026-10-27" }))).toContain(MEANING_OFF_WORDS.stopped);
   });
 });
 
-describe("the backfill stuck", () => {
-  const stuck = backfill({ embedded: 0, failed: 4, attempted: 4, remaining: 4 });
-
-  test("three runs in a row embedded nothing with memories waiting: the stopped line", () => {
+describe("a backfill 'stuck at 0' is not a case: the static table sets a memory it cannot embed aside", () => {
+  test("three real backfills over a memory the table has no word for: remaining falls on the third, and the wake says nothing", async () => {
     process.env[STATIC_WEIGHTS_ENV] = tableWeights;
-    seed([stuck, stuck, stuck]);
-    expect(lineOf(wake({ install: "npm" }))).toContain(MEANING_OFF_WORDS.stopped);
-  });
-
-  test("two runs is not yet stuck; a count that falls is not stuck; a run that embedded clears it", () => {
-    process.env[STATIC_WEIGHTS_ENV] = tableWeights;
-    seed([stuck, stuck]);
-    expect(lineOf(wake({ install: "npm" }))).toBeUndefined();
-    rmSync(dir, { recursive: true, force: true });
-    seed([stuck, stuck, backfill({ embedded: 0, failed: 1, attempted: 4, remaining: 3, skipped: 1 })]);
-    expect(lineOf(wake({ install: "npm" }))).toBeUndefined();
-    rmSync(dir, { recursive: true, force: true });
-    seed([stuck, stuck, backfill({ embedded: 4, attempted: 4, remaining: 0 })]);
+    const embedder = openStaticEmbedder({ weightsDir: tableWeights });
+    expect(embedder.unavailable).toBeUndefined();
+    const a = openAdapter({ dataDir: dir, embedder: ON }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder });
+    open.push(a.counterpart);
+    a.counterpart.store.put({ type: "memory", kind: "fact", body: "zzz qqq xxx" });
+    const remaining: number[] = [];
+    for (let i = 0; i < 3; i += 1) remaining.push((await backfillVectors({ counterpart: a.counterpart, embedder })).remaining);
+    expect(remaining).toEqual([1, 1, 0]);
+    a.counterpart.close();
+    open.length = 0;
     expect(lineOf(wake({ install: "npm" }))).toBeUndefined();
   });
 });
 
 describe("Desktop's wake carries the same line in its notice slot", () => {
-  test("the route read from the server's own environment", () => {
+  test("the route read from the server's own environment; none on a night's own wake", () => {
     seed([NO_WEIGHTS_ROW]);
     const store = Store.open({ dir });
     open.push(store);
@@ -274,8 +331,16 @@ describe("Desktop's wake carries the same line in its notice slot", () => {
     const npm = desktopWakeNotice({ ...input, env: { [STATIC_WEIGHTS_ENV]: emptyWeights } });
     expect(npm).toContain(MEANING_OFF_WORDS.missing);
     expect(npm).toContain(NPM_STEP);
+    expect(desktopWakeNotice({ ...input, night: true, env: { [STATIC_WEIGHTS_ENV]: emptyWeights } })).toBeNull();
     expect(desktopWakeNotice({ ...input, env: { [STATIC_WEIGHTS_ENV]: tableWeights } })).toBeNull();
     expect(desktopWakeNotice({ ...input, config: { dataDir: dir, embedder: { enabled: false } }, env: { [STATIC_WEIGHTS_ENV]: emptyWeights } })).toBeNull();
+  });
+});
+
+describe("the npm route's step names the runtime", () => {
+  test("Node: npm install -g counterparts; Bun: bun add -g counterparts — never the weights package alone", () => {
+    expect(npmTableCommand("node")).toBe("npm install -g counterparts");
+    expect(npmTableCommand("bun")).toBe("bun add -g counterparts");
   });
 });
 
