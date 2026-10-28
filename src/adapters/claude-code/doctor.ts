@@ -139,7 +139,7 @@ import type { UpdateSwitch } from "../update-check.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
-import { openFindings, journalFindings, journalCopyFindings, chapterSummaryFindings } from "./doctor-open.js";
+import { openFindings, journalFindings, journalCopyFindings, chapterSummaryFindings, openItemsFindings } from "./doctor-open.js";
 import { aheadWriter } from "./standdown.js";
 import type { OpenReading, MigrationReading } from "./doctor-open.js";
 import {
@@ -3498,6 +3498,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["journal-copy", () => journalCopyFindings(store)],
     // 2026-10-15: written vs automatic chapter summaries this week. Silent without any.
     ["chapter-summaries", () => chapterSummaryFindings(store)],
+    // P2 (2026-10-28): open items, carried and parked. One read of the open rows; silent with none.
+    ["open-items", () => openItemsFindings(store)],
     // The process log (2026-09-30): one directory listing and today's file.
     // Not in the session-start reading: it is never red, and it reads a file.
     ...(input.budgetMs !== undefined ? [] : [["log", (): Finding[] => logFindings(input)] as const]),

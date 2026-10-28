@@ -219,7 +219,7 @@ describe("O1. recall \"still open\" lists what Still open carries", () => {
     expect(items.find((i) => i.id === plain)).not.toHaveProperty("date");
   });
 
-  test("a thread the carry let go is counted, not listed; listing it is not a touch; a touch lists it again", async () => {
+  test("a parked thread is listed last, marked (P2); listing it is not a touch; a touch carries it again", async () => {
     const w = world(at(D2, 9));
     const s = tools(w);
     toDay(w, 1);
@@ -235,9 +235,11 @@ describe("O1. recall \"still open\" lists what Still open carries", () => {
     };
     for (let k = 0; k < 3; k += 1) {
       const got = await stillOpen(s);
-      expect(itemsOf(got).map((i) => i.id)).toEqual([fresh]);
-      expect(got["notCarried"]).toBe(1);
-      expect(String(got["note"])).toContain(`Not listed: 1 open thread untouched for ${String(SELF_TUNABLES.OPEN_CARRY_DAYS)}+ lived days`);
+      expect(itemsOf(got).map((i) => i.id)).toEqual([fresh, old]);
+      expect(itemsOf(got).map((i) => (i as { parked?: boolean }).parked ?? false)).toEqual([false, true]);
+      expect(got["parked"]).toBe(1);
+      expect(got["total"]).toBe(2);
+      expect(String(got["note"])).toContain(`The last one is parked (parked: true): open, untouched for ${String(SELF_TUNABLES.OPEN_CARRY_DAYS)}+ lived days`);
     }
     // Asked three times: nothing written, nothing touched, the carry the same.
     expect({
@@ -253,7 +255,8 @@ describe("O1. recall \"still open\" lists what Still open carries", () => {
     expect(drew.structuredContent["drewOn"]).toEqual({ credited: [old] });
     const again = await stillOpen(s);
     expect(itemsOf(again).map((i) => i.id).sort()).toEqual([old, fresh].sort());
-    expect(again).not.toHaveProperty("notCarried");
+    expect(itemsOf(again).some((i) => (i as { parked?: boolean }).parked === true)).toBe(false);
+    expect(again).not.toHaveProperty("parked");
   });
 
   test("paged: STILL_OPEN_PAGE to a page, the last page clamps, a bad page is refused", async () => {

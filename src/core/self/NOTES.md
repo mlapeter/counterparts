@@ -2864,3 +2864,36 @@ random-5b's wake on 0.3.35 (8,981 B) had four rough spots; each is now a smaller
   `still-open-and-night.test.ts`'s sweep (1,600–3,000 B, 1 and 50 open, the night before
   and today's) keeps the item due today and Still open's first item at every budget, and
   fails at 1,600 B with the rescue reading only "Last night:".
+
+## 2026-10-28 — open threads parked at 14 lived days (P2; roadmap 10-28, Mike's "ok your lean sounds good"; lightly held)
+
+The brief asked the night to park an open item nobody touched for 2+ weeks. The carry rule of
+2026-10-22 (`identity.ts#openCarry`, 21 lived days) already did most of it — out of "Still
+open" and its count, not closed, a touch carries it again, the reflection told the count — so
+P2 is that rule retuned and said aloud, not a second mechanism beside it:
+
+- **14 lived days** (`OPEN_CARRY_DAYS`, was 21): the lived days "Still open" and the handle
+  already count age in (`livedDaysSinceTouched`). `STILL_OPEN_STALE_DAYS` is also 14, so it
+  now orders only what is never parked.
+- **Never parked**: a dated item (as before), an `asked` one (as before), and one naming what
+  would settle it (`meta.settlesWhen`, S1; read in the same SQL, `reads-memories.ts#
+  openThreadTouches`'s `settles`). Its door is the reflection's `settlesOpen`, which a parked
+  item would leave.
+- **Said**: "Still open"'s count line ends `· N parked` after its paren (`briefing.ts#
+  parkedTail`; `countedLanes` reads the count before it as before), the collapsed line too;
+  the count is per reader (another folder's work not counted, O2), set on `Lanes.parked` by
+  `Self` and carried on `BriefingRequest.threadsParked`. A lane that lists all it carries has
+  no count line and says nothing of what it parked — no new line was added to the wake.
+  `recall "still open"` lists the parked after the carried, `parked: true`, most recently
+  touched first, with `parked` their count (it used to count them as `notCarried`). The
+  reflection's share says "N open items nobody touched in 14 lived days are parked; recall
+  "still open" lists them." `status`'s `openItems` gains `parked`; doctor gains an Open items
+  line (green, silent with none).
+- **Read live, nothing written**: parked is computed from the store's own facts at every wake,
+  so a touch un-parks at once, and a host whose nights never run parks all the same. The night
+  records what it parked (`reflections.detail.notCarried`, the 10-22 name kept so rows written
+  since read the same).
+- **The reflection**: `staleOpen` and the close proposals still skip the parked — being offered
+  is not a touch, and offering them nightly would turn parking into closing by another door.
+
+Revert: `OPEN_CARRY_DAYS` 21 (or `Infinity`); `parkedTail` returning "".

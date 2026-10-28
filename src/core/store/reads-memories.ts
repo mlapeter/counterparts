@@ -3,6 +3,7 @@ import { calendarOverlaps, compareCalendarDates } from "../time.js";
 import { LATER_FEELING_SOURCES } from "./feelings.js";
 import { TUNABLES as PHYSICS_TUNABLES } from "../physics/index.js";
 import { StoreError } from "./errors.js";
+import { SETTLES_WHEN_META_KEY } from "../types.js";
 import {
   CLAIMS_ERA_CUTOFF_KEY,
   rowToPhysics,
@@ -423,18 +424,27 @@ function openTouchedSql(glimpses: boolean): string {
  * THE OPEN THREADS AND WHEN EACH WAS LAST TOUCHED (2026-10-22): every live
  * memory the loose `unresolved` match finds (`openThreadIds`'s match,
  * answered by `memories_open`), with the lived day it was last touched
- * (`openTouchedSql`) and the two facts the carry rule reads
- * (`self/identity.ts#openCarry`, which also decides which are threads at all).
+ * (`openTouchedSql`) and the facts the parking rule reads
+ * (`self/identity.ts#openCarry`, which also decides which are threads at all):
+ * dated, `asked`, and — since P2 (2026-10-28) — whether it names what would
+ * settle it (`meta.settlesWhen` as non-blank text, as `types.ts#settlesWhenOf`
+ * reads it). Meta is JSON on the row: no schema change.
  */
-export function openThreadTouches(store: Store, opts: { glimpses?: boolean } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
+export function openThreadTouches(
+  store: Store,
+  opts: { glimpses?: boolean } = {},
+): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
+  const settles = `CASE WHEN json_valid(m.meta) AND json_type(m.meta, '$.${SETTLES_WHEN_META_KEY}') = 'text'
+                         AND TRIM(json_extract(m.meta, '$.${SETTLES_WHEN_META_KEY}')) <> '' THEN 1 ELSE 0 END`;
   return store["ops"]
-    .all<{ id: string; touched: number; event_date: string | null; status: string | null }>(
-      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${openTouchedSql(opts.glimpses === true)} AS touched
+    .all<{ id: string; touched: number; event_date: string | null; status: string | null; settles: number }>(
+      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${openTouchedSql(opts.glimpses === true)} AS touched,
+              ${settles} AS settles
          FROM memories m
         WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
         ORDER BY m.birth_day, m.id`,
     )
-    .map((r) => ({ id: r.id, touchedDay: r.touched, dated: r.event_date !== null, asked: r.status === "asked" }));
+    .map((r) => ({ id: r.id, touchedDay: r.touched, dated: r.event_date !== null, asked: r.status === "asked", settles: r.settles === 1 }));
 }
 
 /**
