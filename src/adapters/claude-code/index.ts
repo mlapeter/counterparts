@@ -35,12 +35,19 @@ export {
   reportJson,
   reportLines,
   worstFirst,
+  MEANING_OFF_LEAD,
+  MEANING_OFF_WORDS,
+  MEANING_STUCK_RUNS,
+  meaningOff,
+  wakeMeaningLine,
 } from "./doctor.js";
 export type {
   CheckoutReading,
   DoctorInput,
   Finding,
   GitRunner,
+  MeaningOff,
+  MeaningOffInput,
   OpenReading,
   Severity,
 } from "./doctor.js";

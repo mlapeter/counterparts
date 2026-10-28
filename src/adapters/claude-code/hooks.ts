@@ -78,7 +78,7 @@ import { localDate } from "../../core/time.js";
 import { openThread } from "../../core/self/identity.js";
 import { TUNABLES } from "../config.js";
 import { TUNABLES as RECALL_TUNABLES } from "../../core/recall/tunables.js";
-import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
+import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout, wakeMeaningLine } from "./doctor.js";
 import type { CheckoutReading } from "./doctor.js";
 import { nightRowTimeoutMs, planNightRunner } from "./night-run.js";
 import { NOTHING_OWED_BEFORE_KEY, catchUpOf, catchUpWords, owedBefore } from "./night-catch-up.js";
@@ -742,6 +742,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // are Claude Desktop's server, which serves a call as this session only
       // when the call names it. A terminal session's wake is unchanged.
       const codeTab = codeTabSessionLine(input);
+      // SEARCH BY MEANING THAT CANNOT RUN (2026-10-27, W1): one line under the
+      // clock, beside the Code tab's, for the model to tell its person — with
+      // the fix for this install's route (`doctor-meaning.ts`). None on a
+      // resume (the replayed wake already holds it) or the headless night.
+      const meaning = resumed || input.nightRun === true ? null : this.meaningLine();
+      const leadLines = [codeTab, meaning].filter((l): l is string => l !== null);
       // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
       // the state word only, for the mod, which cannot reach the dashboard
       // before somebody starts it. The store marker beside it (2026-10-12)
@@ -752,7 +758,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // one tag of their own in front of a wake that has none (`tagLead`);
       // `ONE_TAG_LINE` off puts them back under the clock.
       const tags = tagLead(woke.tags ?? markers(), woke.text, woke.tagged === true);
-      const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${ONE_TAG_LINE ? "" : tags}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}${ONE_TAG_LINE ? tags : ""}`;
+      const lead = `${woke.text.length === 0 && plain.context.length === 0 && leadLines.length === 0 ? "" : `${this.nowLine()}\n`}${ONE_TAG_LINE ? "" : tags}${leadLines.map((l) => `${l}\n`).join("")}${plain.context}${ONE_TAG_LINE ? tags : ""}`;
       const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
       const rides =
         plain.due.length > 0 &&
@@ -1841,6 +1847,29 @@ export class ClaudeCodeAdapter extends Lifecycle {
       });
     } catch {
       /* the check runs again next turn; a hook may not fail the host (§5 G2) */
+    }
+  }
+
+  /**
+   * THE WAKE'S LINE WHEN SEARCH BY MEANING IS ON AND CANNOT RUN (2026-10-27,
+   * W1; `doctor-meaning.ts#wakeMeaningLine`), or null. For the model to tell
+   * its person, so it rides in the injection — unlike `notice`, which is the
+   * person's terminal and red only. An observer says nothing; a reading that
+   * fails costs the line, never the wake, and leaves one ring row.
+   */
+  meaningLine(): string | null {
+    if (this.observer) return null;
+    try {
+      const line = wakeMeaningLine({
+        config: this.config,
+        store: this.counterpart.store,
+        ...(this.install === undefined ? {} : { install: this.install }),
+      });
+      if (line !== null) this.emit("adapter.meaning.off", {});
+      return line;
+    } catch (err) {
+      this.emit("adapter.meaning.failed", { code: codeOf(err) });
+      return null;
     }
   }
 
