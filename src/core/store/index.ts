@@ -358,6 +358,7 @@ export {
   isPreRowsDatabase,
   OBSERVER_READ_FLOOR,
   pendingMigration,
+  peekMeta,
   SCHEMA_VERSION,
   V8_UPGRADE_KEY,
   V9_UPGRADE_KEY,

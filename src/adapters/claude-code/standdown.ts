@@ -34,9 +34,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { isLocked } from "../../core/store/db.js";
-import { assertSafeDataDir, isStoreError } from "../../core/store/index.js";
+import { WAKE_BUILD_KEY } from "../../core/self/behind.js";
+import { assertSafeDataDir, isStoreError, peekMeta } from "../../core/store/index.js";
 import type { StoreErrorCode } from "../../core/store/index.js";
+import { versionCore } from "../host-wiring.js";
 import { SESSIONS_DIR, isSessionId } from "../sessions.js";
+import { coreNewer } from "../update-words.js";
 
 /** The last words of every general stand-down message, and the only ones never cut
  *  (a fault with its own words, `StandDownFault.say`, ends in its own step instead). */
@@ -341,6 +344,27 @@ export function newerStoreSay(fault: StandDownFault, words: string): StandDownFa
         "here is remembered. Don't act as if you remember earlier sessions; tell the person this step.",
     },
   };
+}
+
+/**
+ * THE VERSION THAT UPGRADED A MEMORY THIS COPY REFUSED (F1, 2026-10-27, after
+ * the review of #666): the wake's build stamp, read on its own connection
+ * from the database the store refused (`store#peekMeta`) — the store would not
+ * open, so there is no `Store#getMeta` to ask. The MCP server's rule exactly
+ * (`mcp/server.ts#newerStoreRoute`): only a version-shaped stamp, and only
+ * when it is newer than this copy, so the plugin's reload is said only into a
+ * record at least as new as the writer (`update-words.ts#newerStoreStep`).
+ * Null when there is no path (the cache's own `SCHEMA_AHEAD` names none), no
+ * stamp, or nothing newer; never throws.
+ */
+export function aheadWriter(dbPath: string | null, loaded: string | null): string | null {
+  if (dbPath === null || dbPath.length === 0) return null;
+  try {
+    const wrote = versionCore(peekMeta(dbPath, WAKE_BUILD_KEY));
+    return coreNewer(wrote, loaded) ? wrote : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

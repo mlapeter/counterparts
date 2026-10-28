@@ -126,6 +126,7 @@ import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
 import { openFindings, journalFindings, journalCopyFindings, chapterSummaryFindings } from "./doctor-open.js";
+import { aheadWriter } from "./standdown.js";
 import type { OpenReading, MigrationReading } from "./doctor-open.js";
 import {
   metaJson,
@@ -331,18 +332,27 @@ function byInstall(input: DoctorInput, npm: string, plugin: string = PLUGIN_UPDA
   return byRoute(input.install, npm, plugin);
 }
 
-/** The Store open line's step for a store a newer copy upgraded, the hook's words (U1a). Never throws. */
+/**
+ * The Store open line's step for a store a newer copy upgraded, the hook's
+ * words (U1a). With the writer's version too (F1, after the review of #666):
+ * the wake's build stamp, read from the refused database on its own
+ * connection (`standdown.ts#aheadWriter`), so a plugin record newer than this
+ * copy but older than the writer says update, as the server does. Never throws.
+ */
 function aheadFix(input: DoctorInput): string {
   const route = input.install ?? "either";
+  const loaded = installedVersion();
   let recorded: string | null = null;
+  let writer: string | null = null;
   if (route !== "npm") {
     try {
       recorded = (input.pluginRecorded ?? (() => recordedForThisCopy({ home: homedir(), env: process.env, cwd: process.cwd() })))();
     } catch {
       recorded = null;
     }
+    writer = aheadWriter(input.open?.path ?? join(input.dir, DATABASE_FILE), loaded);
   }
-  return newerStoreWords({ route, who: "hook", loaded: installedVersion(), recorded });
+  return newerStoreWords({ route, who: "hook", loaded, recorded, writer });
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────

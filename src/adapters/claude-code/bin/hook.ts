@@ -14,10 +14,10 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { DATA_DIR_ENV, dataDir, describeGuardRefusal } from "../../../core/store/index.js";
+import { DATABASE_FILE, DATA_DIR_ENV, dataDir, describeGuardRefusal, isStoreError } from "../../../core/store/index.js";
 import {
   defaultConfigPath,
   implicitConfigRefusal,
@@ -51,6 +51,7 @@ import { NIGHT_RUN_ENV } from "../night-run.js";
 import {
   CONFIG_REFUSED,
   CONFIG_UNREADABLE,
+  aheadWriter,
   classifyStandDown,
   decideSay,
   newerStoreSay,
@@ -621,17 +622,33 @@ function standDown(
  * and `installed_plugins.json` says whether `/reload-plugins` would load a
  * newer one (reload) or not (update first). Read only when the fault is this
  * one; never throws — a fact it cannot read gives the update words.
+ *
+ * THE WRITER TOO (F1, after the review of #666): reload only into a record at
+ * least as new as the version that upgraded the memory. The store refused to
+ * open, so its wake stamp is read from the database file on its own
+ * connection (`standdown.ts#aheadWriter`): the path the refusal named, else
+ * the configured store's (the cache's refusal names none). Read off the npm
+ * route only, as the server does — npm's step is the update either way.
  */
-function withNewerStoreWords(fault: StandDownFault | null, payload: Record<string, unknown>): StandDownFault | null {
+function withNewerStoreWords(
+  fault: StandDownFault | null,
+  payload: Record<string, unknown>,
+  err: unknown,
+  storeDir: string | undefined,
+): StandDownFault | null {
   if (fault === null || fault.code !== "SCHEMA_AHEAD") return fault;
   try {
     const route = installRoute(process.env);
     const cwd = process.env["CLAUDE_PROJECT_DIR"] ?? eventDirectory(payload);
+    const loaded = installedVersion();
+    const named = isStoreError(err) ? err.detail["path"] : undefined;
+    const dbPath = typeof named === "string" ? named : storeDir === undefined ? null : join(storeDir, DATABASE_FILE);
     const words = newerStoreWords({
       route,
       who: "hook",
-      loaded: installedVersion(),
+      loaded,
       recorded: route === "npm" ? null : recordedForThisCopy({ home: homedir(), env: process.env, cwd }),
+      writer: route === "npm" ? null : aheadWriter(dbPath, loaded),
       codeTab: (process.env["CLAUDE_CODE_ENTRYPOINT"] ?? "") === CODE_TAB_ENTRYPOINT,
     });
     return newerStoreSay(fault, words);
@@ -752,7 +769,7 @@ async function main(): Promise<void> {
     const remedy = `Set "dataDir" in ${choice.path}, or set ${DATA_DIR_ENV}.`;
     standDown(said, {
       line: describeGuardRefusal(err, remedy) ?? detail,
-      fault: withNewerStoreWords(classifyStandDown(err), payload),
+      fault: withNewerStoreWords(classifyStandDown(err), payload, err, said.dataDir),
       marker: true,
     });
   }

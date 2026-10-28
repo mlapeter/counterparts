@@ -1427,6 +1427,34 @@ export function isPreRowsDatabase(path: string): boolean {
 }
 
 /**
+ * ONE META VALUE FROM A DATABASE THIS BUILD WOULD REFUSE (F1, 2026-10-27): the
+ * hook and doctor read the wake's build stamp (`self/behind.ts#WAKE_BUILD_KEY`)
+ * from a store a newer Counterparts upgraded (`SCHEMA_AHEAD`), to tell whether
+ * the plugin's recorded version is new enough to reload into. The store would
+ * not open for them, so this is its own connection: `wal: false` (a WAL
+ * conversion takes the write lock, and a newer writer may be migrating), one
+ * SELECT, closed. The `meta` table is the one thing every schema has kept.
+ * Null for a file that is not there, has no such key, or will not read; never throws.
+ */
+export function peekMeta(path: string, key: string): string | null {
+  if (!existsSync(path)) return null;
+  let db;
+  try {
+    db = openDb(path, { wal: false });
+    const value = db.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", key)?.value;
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      /* nothing to say about a handle that will not close */
+    }
+  }
+}
+
+/**
  * Is the database at `path` on an older schema that the next writer open will
  * migrate (and copy first)? `{ found }` when it is; null when it is absent,
  * current, ahead, unreadable, or a pre-rows database (refused, never migrated).
