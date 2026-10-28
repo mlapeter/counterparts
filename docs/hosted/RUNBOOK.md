@@ -61,6 +61,7 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    | `R2_ACCESS_KEY_ID` | the R2 token's access key id |
    | `R2_SECRET_ACCESS_KEY` | the R2 token's secret |
    | `LOG_FORWARDED_FOR` | `1`, **for the first deploy only** (section 5, step 3) |
+   | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `60`, so Litestream's last sync finishes before a redeploy kills the old container (unverified; check Railway's current name for it) |
 
    Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`.
 
@@ -127,11 +128,10 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
 
 Claude Code loads claude.ai's connectors. Once the hosted connector is in your claude.ai account, every Claude Code
 session would get a second memory server over a different store. So, first, in your `~/.claude/settings.json`,
-extend `deniedMcpServers`. Today it lists `*.trycloudflare.com` and `claude.ai counterparts-trial`; add the hosted URL
-and the name you'll give the connector:
+extend `deniedMcpServers`. It already lists `*.trycloudflare.com`, `claude.ai counterparts-trial` and
+`https://app.counterparts.ai/*` (checked 2026-10-28); add the name you'll give the connector:
 
 ```json
-{ "serverUrl": "https://app.counterparts.ai/*" },
 { "serverName": "claude.ai Counterparts" }
 ```
 
