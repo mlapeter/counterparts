@@ -57,6 +57,7 @@ import type { Kept, RescueCtx, Rescued } from "./briefing-room.js";
 import {
   foldParts,
   owedParked,
+  withoutParked,
   withoutNearby,
   arrivingHead,
   arrivingNear,
@@ -1622,7 +1623,9 @@ export function render(
   // (`Self#composeLanes`), give it nothing. Not a lane: no trim row.
   const elsewhereForms = elsewhereFormsOf(req.elsewhere, req.elsewhereShorter);
   let elsewhere: string | undefined = elsewhereForms[0];
-  const ctx: RescueCtx = { req, resolve, coreName, identity, head: arrivingHead(lanes.horizon), elsewhereForms };
+  // `let`: once the parked count gives way (`hush` below), the rescues
+  // compose without it too.
+  let ctx: RescueCtx = { req, resolve, coreName, identity, head: arrivingHead(lanes.horizon), elsewhereForms };
   // "Still open"'s last item left is its first, which outranks the line
   // with its count (`openFirst`, as `keepFirstOpen` restores them): the line
   // finds room for itself beside both, or steps down, before the trim loop
@@ -1652,9 +1655,26 @@ export function render(
   // COUNTERPARTS, 2026-10-12, lightly held).
   let fold = false;
   let bare = false;
+  // THE PARKED COUNT GIVES WAY FIRST (review of #675, 2026-10-28): "Still
+  // open"'s parked words — its parked line, or ` · N parked` on its count
+  // line or in the folded line — are an aside about what nobody touched in 14
+  // lived days. They take room as the lanes' lines do, but before the loop
+  // pops a "Who I am" item for them, and before a floor goes bare (every lane
+  // untold) for them, they go quiet (`withoutParked`), and the loop composes
+  // without them. `tellLost` still says them when the room turns out to hold
+  // them. Without this, a folded line 12 bytes longer than the room went
+  // bare: "Still open" untold, and the parked unsaid as well.
+  let hushed = false;
+  const lineReq = (): BriefingRequest => (hushed ? withoutParked(req) : req);
+  const parkedIn = (lost: Partial<Record<LaneName, readonly string[]>>): boolean =>
+    !hushed && (req.threadsParked ?? 0) >= 1 && ((lost.threads?.length ?? 0) > 0 || owedParked(lost, kept, req) !== null);
+  const hush = (): void => {
+    hushed = true;
+    ctx = { ...ctx, req: withoutParked(req) };
+  };
   const lostNow = (): Partial<Record<LaneName, string[]>> => withoutNearby(lostByLane(lanes.overflow, trimmed, held, suppressList));
   const linesFor = (lost: Partial<Record<LaneName, readonly string[]>>, k: Kept, folded: boolean): { more: Partial<Record<LaneName, string>>; fold?: string } =>
-    folded ? foldParts(lost, k, req) : { more: pinnedLines(lost, k, req) };
+    folded ? foldParts(lost, k, lineReq()) : { more: pinnedLines(lost, k, lineReq()) };
 
   for (;;) {
     const lost = lostNow();
@@ -1700,6 +1720,12 @@ export function render(
             break;
           }
         }
+        // Not a "Who I am" item for the parked count (review of #675).
+        if (lane === "identity" && parkedIn(lost)) {
+          hush();
+          stepped = true;
+          break;
+        }
         const dropped = items.pop();
         if (dropped === undefined) continue;
         cut = { lane, id: dropped.id, strength: dropped.strength };
@@ -1712,8 +1738,10 @@ export function render(
         // handoffs' room, "Today, elsewhere", Arriving past its head) — and
         // only when even that finds none do the lanes go untold (`bare`).
         // "Still open"'s parked line is a lane's line like these (P2b): it
-        // takes room the same way, and only a bare floor goes without it.
-        const counting = Object.keys(lost).length > 0 || owedParked(lost, kept, req) !== null;
+        // takes room the same way; when none is found the parked words go
+        // quiet first (`hush`), and the lanes try again without them before
+        // a bare floor goes without all of them.
+        const counting = Object.keys(lost).length > 0 || owedParked(lost, kept, lineReq()) !== null;
         if (counting && !fold) {
           fold = true;
           continue;
@@ -1722,7 +1750,8 @@ export function render(
           const from: Rescued = { kept, trimmed: [...trimmed], yesterday, elsewhere, pinned: lost, composed: c, lent: base - req.budgetBytes, fold: true };
           const got = takeRoom("arrivingFirst", from, kept, lost, trimmed, ctx, true);
           if (got === null) {
-            bare = true;
+            if (parkedIn(lost)) hush();
+            else bare = true;
           } else {
             for (const l of LANE_ORDER) kept[l] = got.kept[l];
             trimmed.splice(0, trimmed.length, ...got.trimmed);

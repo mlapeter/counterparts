@@ -128,6 +128,19 @@ export function owedParked(
   return parkedLine(kept.threads.length > 0, counted?.threadsParked);
 }
 
+/**
+ * The request with its parked count gone quiet (review of #675): no parked
+ * line, no ` · N parked` on a count line or the folded one. The render and
+ * `tellLost` compose with it once the parked count has given way — before a
+ * lane goes untold or an identity item is popped for it: an aside about what
+ * nobody touched in 14 lived days never costs a current lane its count.
+ */
+export function withoutParked(req: BriefingRequest): BriefingRequest {
+  if (req.threadsParked === undefined) return req;
+  const { threadsParked: _parked, ...rest } = req;
+  return rest;
+}
+
 function withParked(
   lines: Partial<Record<LaneName, string>>,
   pinned: Partial<Record<LaneName, readonly string[]>>,
@@ -601,21 +614,29 @@ export function tellLost(ctx: {
     return out;
   };
   const counts = countsOf(ctx.lost);
-  // Some threads parked: every try below says so — on the lane's own line, in
+  // Some threads parked: the tries below say so — on the lane's own line, in
   // the folded one, or in its parked line (`pinnedLines`) — so a try that
-  // lost nothing must still fit (P2b).
-  const parked = (ctx.req.threadsParked ?? 0) >= 1;
+  // lost nothing must still fit (P2b). Then the same tries without it
+  // (`withoutParked`, review of #675): the parked count is the first of the
+  // lanes' words to give way, before a lane goes untold.
+  const parkedNow = (ctx.req.threadsParked ?? 0) >= 1;
+  const quietReq = withoutParked(ctx.req);
   const reserved = withoutNearby(ctx.lost);
   const hints = ctx.lost.hints?.length ?? 0;
   const quiet: Partial<Record<LaneName, number>> = hints > 0 ? { hints } : {};
-  const tries: { lost: Partial<Record<LaneName, readonly string[]>>; fold: boolean }[] = [
+  const base: { lost: Partial<Record<LaneName, readonly string[]>>; fold: boolean }[] = [
     { lost: ctx.lost, fold: false },
     { lost: ctx.lost, fold: true },
     ...(hints > 0 ? [{ lost: reserved, fold: false }, { lost: reserved, fold: true }] : []),
     ...(ctx.pinned === undefined ? [] : [{ lost: ctx.pinned, fold: false }, { lost: ctx.pinned, fold: true }]),
   ];
+  const tries = [
+    ...base.map((t) => ({ ...t, req: ctx.req, parked: parkedNow })),
+    ...(parkedNow ? base.map((t) => ({ ...t, req: quietReq, parked: false })) : []),
+  ];
   for (const t of tries) {
-    const parts = t.fold ? foldParts(t.lost, ctx.kept, ctx.req) : { more: pinnedLines(t.lost, ctx.kept, ctx.req) };
+    const parked = t.parked;
+    const parts = t.fold ? foldParts(t.lost, ctx.kept, t.req) : { more: pinnedLines(t.lost, ctx.kept, t.req) };
     if (t.fold && parts.fold === undefined) continue;
     const c = at(parts.more, parts.fold);
     if ((Object.keys(counts).length === 0 && !parked) || c.bytes <= ctx.limit) {
@@ -650,7 +671,7 @@ export function tellLost(ctx: {
       continue;
     }
     current = candidate;
-    if (lane === "threads" && parked) saidParked = true;
+    if (lane === "threads" && parkedNow) saidParked = true;
     if (ids !== undefined && ids.length > 0) more[lane] = ids.length;
   }
   const untold: Partial<Record<LaneName, number>> = {};
