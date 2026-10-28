@@ -2887,8 +2887,8 @@ P2 is that rule retuned and said aloud, not a second mechanism beside it:
 - **Said**: "Still open"'s count line ends `· N parked` after its paren (`briefing.ts#
   parkedTail`; `countedLanes` reads the count before it as before), the collapsed line too;
   the count is per reader (another folder's work not counted, O2), set on `Lanes.parked` by
-  `Self` and carried on `BriefingRequest.threadsParked`. A lane that lists all it carries has
-  no count line and says nothing of what it parked — no new line was added to the wake.
+  `Self` and carried on `BriefingRequest.threadsParked`. (A lane with no count line said
+  nothing of what it parked; P2b below closed that.)
   `recall "still open"` lists the parked after the carried, `parked: true`, most recently
   touched first, with `parked` their count (it used to count them as `notCarried`). The
   reflection's share says "N open items nobody touched in 14 lived days are parked; recall
@@ -2902,3 +2902,42 @@ P2 is that rule retuned and said aloud, not a second mechanism beside it:
   is not a touch, and offering them nightly would turn parking into closing by another door.
 
 Revert: `OPEN_CARRY_DAYS` 21 (or `Infinity`); `parkedTail` returning "".
+
+**P2b, the same day — the parked are counted whatever line the lane has** (the brief: parked
+items are counted, not vanished; its main aim a clean list for a new user in week 3). P2 put
+`· N parked` only on the lane's own count line, so a lane listing fewer than `THREADS_MAX`
+said nothing, and a store carrying nothing said nothing at all (day 40, 3 parked: no word).
+Now (`briefing.ts#parkedLine`, placed by `briefing-room.ts#owedParked`):
+
+- a lane that lists items and counts none it left out ends `(3 parked; recall "still open"
+  lists them)` (42 bytes);
+- a wake carrying no open item gets the lane as one line, `Still open: nothing current · 3
+  parked (recall "still open" lists them)` (72 bytes). `collapsedLane` reads it as "Still
+  open"'s (the dashboard, the delivery, the claude.ai wake's lane move); `countedLanes` counts
+  nothing from it, since the parked are not "more";
+- the folded line's "Still open" part ends `· 3 parked` too (`foldedLine`'s `parked`; it
+  dropped it before).
+
+The line is reserved like a lane's count line: the trim loop composes with it, and with
+nothing else to pop it takes room as the lanes' lines do (`counting` in `render`) or goes with
+a bare floor; `tellLost` never accepts a composition over its limit for it and reports whether
+it was said (`parked`), so the top-item upgrade cannot drop it silently. Nothing when none is
+parked: a wake with no parked thread is byte for byte what it was. Revert: `parkedLine`
+returning null.
+
+**Review of #675, the same day — the parked words give way first.** As built, the parked words
+were reserved down to a bare floor, so ` · N parked` on the folded line could push the fold a
+few bytes past its room and the loop went bare: every lane untold, and the parked unsaid too
+(the PR's own sweep, 700 bytes: "Still open" and "Coming up" both gone; a 4,000-case render
+fuzz against master: 48 wakes told fewer lanes than #674's). And with no page they outranked
+"Who I am" items. Now (`render`'s `hush`, `briefing-room.ts#withoutParked`): before the loop
+pops a "Who I am" item for them, and before a floor that found no room (`takeRoom` to
+`arrivingFirst`) goes bare, the parked words go quiet — no parked line, no ` · N parked` tail
+— and the rescues compose without them too; `tellLost` tries every form with them, then every
+form without them, before its last resort. Where they are not said, the wake is byte for byte
+the wake with nothing parked (the fuzz checks it; `test/park-old-threads.test.ts` sweeps it).
+They still take room from "Work here", the Yesterday line's titles and the handoffs when that
+room is there, as the lanes' lines do. Still to see: in about 10 of the 4,000 cases a "Coming
+up" count goes untold while the parked are said; the same lanes with nothing parked go untold
+the same way a few bytes lower (a due-day head kept past its lane's count, #442), so that one
+is the old floor shifted by the parked words' bytes, not theirs.

@@ -18,6 +18,9 @@
  *     in the next session's wake.
  *   - A dated item (eventDate) and an item naming what would settle it
  *     (settlesWhen) are never parked.
+ *   - P2b: a lane with no count line still says how many are parked — one
+ *     line under the items it lists, or the lane's one line when it carries
+ *     nothing — and the folded line keeps "· N parked"; within the budget.
  *
  * Hermetic: every store is a temp dir made and removed here; every word is
  * invented placeholder prose.
@@ -31,20 +34,26 @@ import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
+import { chatLanesFirst } from "../src/adapters/mcp/chat-wake.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import {
   COLLAPSED_WORDS,
+  FOLDED_WORDS,
   FRAMING,
+  NOTHING_CURRENT_WORDS,
   OPEN_TAIL_WORDS,
   PARKED_WORDS,
   SELF_TUNABLES,
+  byteLength,
   collapsedLane,
   collapsedLine,
   countedLanes,
   moreLine,
   openCarry,
+  render,
 } from "../src/core/self/index.js";
+import type { BriefingRequest, LaneName, Lanes, PageBlock, Ranked, Resolve } from "../src/core/self/index.js";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -425,4 +434,266 @@ describe("review of #674 — the line at exactly 14 lived days; a one-off date g
     expect(doctorFindings(input).find((x) => x.key === "open-items")?.data).toMatchObject({ open: 1, parked: 1 });
     expect(doctorFindings({ ...input, budgetMs: 5_000 }).find((x) => x.key === "open-items")).toBeUndefined();
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// P2b (2026-10-28): a lane with no count line still says what it parked —
+// under the items it lists, or as the lane's one line when it carries
+// nothing — and the folded line keeps its "· N parked". Through `remember`,
+// lived days advanced, the wake built at the turn-end (`rebrief`) and
+// assembled at SessionStart (`ClaudeCodeAdapter#sessionStart`).
+describe("P2b — the parked are counted whatever line the lane has", () => {
+  const OLD = ["the shed roof felt", "the pump house lock", "the fence post by the gate"];
+  const NOTHING_LINE = `${FRAMING.threads} ${NOTHING_CURRENT_WORDS} · 3 ${PARKED_WORDS} (recall "still open" lists them)`;
+  const UNDER_LINE = `(3 ${PARKED_WORDS}; recall "still open" lists them)`;
+
+  /** A session start's wake, assembled under `budget`. */
+  function sessionStartAt(w: World, session: string, budget: number): string {
+    const verdict = { mode: "on", matched: HERE, entry: null } as ScopeVerdict;
+    return new ClaudeCodeAdapter({
+      counterpart: w.c,
+      config: { dataDir: storeDir, injectionBudgetBytes: budget },
+      configPath: config,
+      now: () => w.now(),
+      scope: verdict,
+      command: "/bin/true",
+      args: ["runner"],
+      spawner: () => ({ pid: 4242 }),
+    }).sessionStart({ sessionId: session, scope: HERE, at: w.today(), source: "startup" } as HookInput).injection;
+  }
+
+  async function oldThree(s: McpServer): Promise<string[]> {
+    const ids: string[] = [];
+    for (const t of OLD) ids.push(await remember(s, { text: `Open: what is left to do about ${t}?`, unresolved: true }));
+    return ids;
+  }
+
+  /** Every line that speaks for "Still open": its heading, its own one line, or its part of the folded line. */
+  const saysOpen = (text: string): boolean =>
+    text.split("\n").some((l) => l.startsWith(FRAMING.threads) || (l.startsWith(`${FOLDED_WORDS} `) && l.includes(" still open (recall ids: ")));
+  const saysParked = (text: string): boolean => text.includes(` · 3 ${PARKED_WORDS}`) || text.includes(UNDER_LINE);
+
+  test("nothing carried: the lane is one line — nothing current, and how many are parked; nothing said before any is parked", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    const old = await oldThree(s);
+
+    // Lived day 14: 13 untouched, all carried — no parked word anywhere.
+    toDay(w, K);
+    let both = wakes(w, "s-p2b-a-14");
+    for (const text of [both.built, both.assembled]) {
+      for (const id of old) expect(inStillOpen(text, id)).toBe(true);
+      expect(text).not.toContain(PARKED_WORDS);
+      expect(text).not.toContain(NOTHING_CURRENT_WORDS);
+    }
+
+    // Lived day 40: all three parked, nothing carried. Before P2b the wake said nothing.
+    toDay(w, 40);
+    expect(openCarry(w.c.store, 40, K).carried).toEqual([]);
+    both = wakes(w, "s-p2b-a-40");
+    for (const text of [both.built, both.assembled]) {
+      const lines = text.split("\n");
+      expect(lines).toContain(NOTHING_LINE);
+      expect(byteLength(NOTHING_LINE)).toBe(72);
+      expect(lines.filter((l) => l.startsWith(FRAMING.threads))).toEqual([NOTHING_LINE]);
+      expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+      for (const id of old) expect(text).not.toContain(id);
+      // The lane's one line: the dashboard, the delivery and the chat wake read it as "Still open"'s…
+      expect(collapsedLane(NOTHING_LINE)).toBe("threads");
+      // …and it counts nothing the lane left out: the parked are not "more".
+      expect(countedLanes(text).threads).toBeUndefined();
+    }
+    // The claude.ai wake moves it first, as it moves the lane.
+    const chat = chatLanesFirst(both.built).split("\n");
+    expect(chat[chat.indexOf(FRAMING.context) + 2]).toBe(NOTHING_LINE);
+    // recall "still open" lists the three it counts.
+    const listed = await stillOpen(s);
+    expect(listed.parked).toBe(3);
+    expect(listed.items.filter((i) => i.parked === true).map((i) => i.id).sort()).toEqual([...old].sort());
+
+    // Its bytes count against the budget: at every ceiling the line is in the
+    // wake only when the wake fits, and a roomy wake always has it.
+    let first: number | null = null;
+    for (let b = 280; b <= 600; b += 4) {
+      const r = w.c.rebrief({ budgetBytes: b, at: w.today() });
+      const text = w.c.wake(b).text;
+      if (text.includes(NOTHING_LINE)) {
+        first ??= b;
+        expect(r.bytes).toBeLessThanOrEqual(r.composeBudget ?? 0);
+      } else expect(first).toBeNull();
+    }
+    expect(first).not.toBeNull();
+  });
+
+  test("some carried, no count line: one line under the items it lists", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    const old = await oldThree(s);
+    toDay(w, 30);
+    const fresh = [
+      await remember(s, { text: "Open: which day does the log splitter come back?", unresolved: true }),
+      await remember(s, { text: "Open: did the chimney sweep confirm Thursday?", unresolved: true }),
+    ];
+    toDay(w, 31);
+    expect(fresh.length).toBeLessThan(SELF_TUNABLES.THREADS_MAX);
+    const both = wakes(w, "s-p2b-b");
+    for (const text of [both.built, both.assembled]) {
+      const lines = lane(text, FRAMING.threads);
+      expect(lines.filter((l) => l.startsWith("- ")).length).toBe(2);
+      for (const id of fresh) expect(inStillOpen(text, id)).toBe(true);
+      for (const id of old) expect(inStillOpen(text, id)).toBe(false);
+      // No "more open" count: the lane lists all it carries, then says what it parked.
+      expect(lines.at(-1)).toBe(UNDER_LINE);
+      expect(byteLength(UNDER_LINE)).toBe(42);
+      expect(text).not.toContain("more open");
+      expect(countedLanes(text).threads).toBeUndefined();
+      expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+    }
+  });
+
+  test("collapsed and folded: the lane's one line and its part of the folded line keep '· N parked'; short of room, the parked give way before a lane goes untold", async () => {
+    const w = world(at(D0, 9));
+    const s = tools(w);
+    toDay(w, 1);
+    await oldThree(s);
+    toDay(w, 30);
+    for (let i = 0; i < 7; i += 1) await remember(s, { text: `Open: does bed ${String(i)} want lime before the frost?`, unresolved: true });
+    for (let i = 0; i < 3; i += 1) await remember(s, { text: `Reminder: pay the feed store invoice number ${String(i)}.`, eventDate: "2026-11-01" });
+    toDay(w, 31);
+
+    // Every ceiling from a bare floor to a roomy wake, both roads: wherever
+    // "Still open" is said, its parked are said with it — unless the room
+    // holds the lanes' counts and not the parked words too: then the parked
+    // give way, and every lane is still told (review of #675: at the PR's
+    // head, a folded line 12 bytes over its room went bare instead, "Still
+    // open" and "Coming up" untold and the parked unsaid as well).
+    const seen = new Set<string>();
+    const untoldAt = (): number => {
+      const [row] = w.c.store.eventLog({ name: "self.briefing", order: "desc", limit: 1 });
+      const n = (JSON.parse(row?.payload ?? "{}") as { untold?: unknown }).untold;
+      return typeof n === "number" ? n : 0;
+    };
+    let told: number | null = null;
+    for (let b = 500; b <= 1000; b += 10) {
+      const r = w.c.rebrief({ budgetBytes: b, at: w.today() });
+      expect(r.published).toBe(true);
+      const untold = untoldAt();
+      // Once a ceiling tells every lane, no wider one leaves one untold.
+      if (untold === 0) told ??= b;
+      else expect(told).toBeNull();
+      const built = w.c.wake(b).text;
+      const assembled = sessionStartAt(w, `s-p2b-c-${String(b)}`, b);
+      for (const [road, text] of [["built", built], ["assembled", assembled]] as const) {
+        if (!saysOpen(text)) continue;
+        if (!saysParked(text)) {
+          // Gave way: the folded line counts "Coming up" and "Still open", nothing untold.
+          expect(untold).toBe(0);
+          const fold = text.split("\n").find((l) => l.startsWith(`${FOLDED_WORDS} `)) ?? "";
+          expect(fold).toMatch(/^More than this wake lists: 3 coming up \(recall ids: .+\); 7 still open \(recall ids: mem_\w+, mem_\w+, mem_\w+, and 4 more\)$/);
+          expect(text).not.toContain(PARKED_WORDS);
+          seen.add(`${road}:gave-way`);
+          continue;
+        }
+        // Said once: a folded "Still open" is not also given its own parked line.
+        expect(text.split(`3 ${PARKED_WORDS}`).length - 1).toBe(1);
+        const lines = text.split("\n");
+        const fold = lines.find((l) => l.startsWith(`${FOLDED_WORDS} `));
+        const collapsed = lines.find((l) => collapsedLane(l) === "threads");
+        if (fold?.includes(" still open (recall ids: ") === true) {
+          // The folded line: "Still open"'s part ends with the parked, and still reads its count.
+          expect(fold).toMatch(/; 7 still open \(recall ids: mem_\w+, mem_\w+, mem_\w+, and 4 more\) · 3 parked(?:;|$)/);
+          expect(countedLanes(fold).threads).toBe(7);
+          seen.add(`${road}:folded`);
+        } else if (collapsed !== undefined) {
+          expect(collapsed).toContain(COLLAPSED_WORDS);
+          expect(collapsed).toEndWith(` · 3 ${PARKED_WORDS}`);
+          expect(countedLanes(collapsed).threads).toBe(7);
+          seen.add(`${road}:collapsed`);
+        } else {
+          expect(lane(text, FRAMING.threads).at(-1)).toMatch(new RegExp(`^\\(\\d+ more open, .+\\) · 3 ${PARKED_WORDS}$`));
+          seen.add(`${road}:listed`);
+        }
+      }
+    }
+    for (const road of ["built", "assembled"]) for (const form of ["folded", "collapsed", "listed", "gave-way"]) expect(seen).toContain(`${road}:${form}`);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Review of #675 (2026-10-28): the parked count is the first of the lanes'
+// words to give way. At the PR's head its ` · N parked` on the folded line
+// could push the fold past its room by a few bytes, and the floor went bare —
+// lanes untold, the parked unsaid too — and with no page the trim loop popped
+// a "Who I am" item to keep the parked words. Now, over a sweep of ceilings,
+// against the same lanes with nothing parked: where the parked are not said
+// the wake is exactly that wake; no "Who I am" item is popped for them; a
+// fitting wake still fits; and they are said at most once.
+describe("review of #675 — the parked count gives way first", () => {
+  const ranked = (lane: LaneName, id: string): Ranked => ({
+    id,
+    lane,
+    kind: "fact",
+    band: lane === "horizon" ? "episodic" : "semantic",
+    strength: 0.9,
+    protected: false,
+    bornDay: 0,
+    personScoped: false,
+    lastRendered: -1,
+  });
+  const resolveIt: Resolve = (id) => ({ statement: `Placeholder ${id}: the long north field and its drainage.`, learnedOn: "2026-09-01" });
+  function shape(listed: Record<LaneName, number>, over: Record<LaneName, number>): Lanes {
+    const out: Record<string, unknown> = { overflow: {} };
+    for (const l of ["identity", "craft", "threads", "hints", "horizon"] as const) {
+      const ids = Array.from({ length: listed[l] + over[l] }, (_, i) => `mem_${l.slice(0, 2)}${String(i).padStart(10, "0")}`);
+      out[l] = ids.slice(0, listed[l]).map((id) => ranked(l, id));
+      (out["overflow"] as Record<string, string[]>)[l] = ids.slice(listed[l]);
+    }
+    return out as unknown as Lanes;
+  }
+  const PAGE: PageBlock = { text: "Placeholder page text. ".repeat(4), top: null, dateline: null, end: null, rung: "whole", truncated: false, wholeBytes: 92 };
+  const cases: { name: string; lanes: Lanes; req: Partial<BriefingRequest>; givesWay: boolean }[] = [
+    {
+      name: "no page, every lane listing: no 'Who I am' item popped for the parked",
+      lanes: shape({ identity: 3, craft: 2, threads: 2, hints: 1, horizon: 2 }, { identity: 1, craft: 1, threads: 4, hints: 1, horizon: 2 }),
+      req: { yesterday: "Yesterday: placeholder titles titles titles titles", yesterdayShorter: ["Yesterday: placeholder", "Yesterday: ids"] },
+      givesWay: true,
+    },
+    {
+      name: "a page, nothing carried: the nothing-current line only where it fits",
+      lanes: shape({ identity: 0, craft: 2, threads: 0, hints: 0, horizon: 1 }, { identity: 0, craft: 2, threads: 0, hints: 0, horizon: 2 }),
+      req: { page: PAGE },
+      givesWay: false,
+    },
+    {
+      name: "a page, lanes folded: the fold never goes bare for its parked tail",
+      lanes: shape({ identity: 0, craft: 0, threads: 0, hints: 0, horizon: 0 }, { identity: 0, craft: 3, threads: 6, hints: 0, horizon: 3 }),
+      req: { page: PAGE, yesterday: "Yesterday: placeholder titles titles", yesterdayShorter: ["Yesterday: ids"] },
+      givesWay: true,
+    },
+  ];
+  for (const k of cases) {
+    test(k.name, () => {
+      let gaveWay = 0;
+      let said = 0;
+      for (let b = 300; b <= 1600; b += 1) {
+        const req = { ...k.req, budgetBytes: b, day: 31 } as BriefingRequest;
+        const plain = render(structuredClone(k.lanes), req, resolveIt, SELF_TUNABLES);
+        const parked = render(structuredClone(k.lanes), { ...req, threadsParked: 3 }, resolveIt, SELF_TUNABLES);
+        const n = parked.text.split(`3 ${PARKED_WORDS}`).length - 1;
+        expect(n).toBeLessThanOrEqual(1);
+        if (n === 0) {
+          expect(parked.text).toBe(plain.text);
+          const open = plain.kept.threads.length > 0 || plain.more.threads !== undefined;
+          if (open && Object.keys(plain.untold).length === 0) gaveWay += 1;
+        } else said += 1;
+        expect(parked.kept.identity.length).toBeGreaterThanOrEqual(plain.kept.identity.length);
+        if (!plain.overBudget && plain.bytes <= plain.budgetBytes) expect(parked.bytes).toBeLessThanOrEqual(parked.budgetBytes);
+      }
+      // The sweep reaches both: said where there is room, given way where there is not.
+      expect(said).toBeGreaterThan(0);
+      if (k.givesWay) expect(gaveWay).toBeGreaterThan(0);
+    });
+  }
 });
