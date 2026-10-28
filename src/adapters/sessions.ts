@@ -1221,6 +1221,15 @@ export interface ServerRecord {
   readonly scope: string;
   readonly startedAt: number;
   readonly build: BuildStamp;
+  /**
+   * HOW THIS SERVER'S COPY CAME (U1a, review of #666): `npm`, `plugin` or
+   * `either` (`plugin.ts#installRoute`), and whether it runs in Claude
+   * Desktop's Code tab — so a newer window that finds it older can name the
+   * step for THAT window (`claude-code/stale-windows.ts`). Absent on records
+   * a build before this wrote: not known.
+   */
+  readonly route?: "npm" | "plugin" | "either";
+  readonly codeTab?: boolean;
 }
 
 /** A server record as read, with the file's mtime — its last heartbeat. */
@@ -1304,6 +1313,8 @@ export function recordServerLaunch(
     pid?: number;
     hostPid?: number;
     at?: number;
+    route?: ServerRecord["route"];
+    codeTab?: boolean;
   },
 ): ServerRecord | null {
   const pid = input.pid ?? process.pid;
@@ -1315,6 +1326,8 @@ export function recordServerLaunch(
     scope: canonicalScope(input.scope),
     startedAt: input.at ?? Date.now(),
     build: input.build,
+    ...(input.route === undefined ? {} : { route: input.route }),
+    ...(input.codeTab === true ? { codeTab: true } : {}),
   };
   try {
     mkdirSync(sessionsDir(dataDir), { recursive: true });
@@ -1396,7 +1409,16 @@ function parseServerRecord(raw: unknown): ServerRecord | null {
   if (typeof scope !== "string" || scope.length === 0) return null;
   if (typeof startedAt !== "number") return null;
   if (build === null) return null;
-  return { pid, hostPid, scope, startedAt, build };
+  const route = rec["route"];
+  return {
+    pid,
+    hostPid,
+    scope,
+    startedAt,
+    build,
+    ...(route === "npm" || route === "plugin" || route === "either" ? { route } : {}),
+    ...(rec["codeTab"] === true ? { codeTab: true } : {}),
+  };
 }
 
 /** Why the notice is, or is not, due this turn — for the hook's stderr line. */
@@ -1463,9 +1485,22 @@ export function decideUpdateNotice(
     /** Injected so a test can say which pids are running. */
     alive?: (pid: number) => boolean;
     now?: number;
+    /**
+     * The step that loads the newer build into this window, as a sentence
+     * (U1a, review of #666): absent, Claude Code's `/mcp` Reconnect — the npm
+     * install's, replaced in place. A plugin's server keeps its old folder,
+     * so its hook hands in `/reload-plugins` (`update-words.ts#windowStep`).
+     */
+    remedy?: string;
   },
 ): UpdateNoticeDecision {
   const hookPpid = input.hostPid ?? process.ppid;
+  const said = (older: boolean): string =>
+    input.remedy === undefined
+      ? older
+        ? CHANGED_NOTICE
+        : UPDATE_NOTICE
+      : `Counterparts was ${older ? "changed to an older version" : "updated"}. ${input.remedy}`;
   const quiet = (
     reason: UpdateNoticeReason,
     matchedBy: UpdateNoticeDecision["matchedBy"] = null,
@@ -1475,7 +1510,7 @@ export function decideUpdateNotice(
     compared: readonly ServerRecord[],
     matchedBy: NonNullable<UpdateNoticeDecision["matchedBy"]>,
   ): UpdateNoticeDecision => ({
-    message: compared.some((s) => serverIsNewer(s.build, input.installed)) ? CHANGED_NOTICE : UPDATE_NOTICE,
+    message: said(compared.some((s) => serverIsNewer(s.build, input.installed))),
     reason: "due",
     matchedBy,
     servers: compared.length,

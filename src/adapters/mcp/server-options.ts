@@ -145,6 +145,14 @@ export interface McpServerOptions {
   /** The package version on disk now (`sessions.ts#manifestVersionOnDisk`),
    *  injectable so the update line is provable without reinstalling. */
   manifestVersion?: () => string | null;
+  /**
+   * The newest Counterparts plugin version Claude Code records for this
+   * folder (`host-wiring.ts#pluginVersionRecorded`), read when a plugin
+   * server meets a newer store: newer than this server is "reload", anything
+   * else "update" (U1a). Injectable so the choice is provable without a real
+   * `installed_plugins.json`; absent, read from the home directory.
+   */
+  pluginVersion?: () => string | null;
   /** This process's environment, read once at `initialize` for Claude Code's
    *  markers (`hosts.ts#claudeCodeEnvMarker`). Injectable for a test; absent,
    *  `process.env`. */

@@ -568,8 +568,9 @@ describe("the wake's parts", () => {
 
     // Claude Code: the disk says nothing, but a newer build stamped the store —
     // another install. Reconnecting would load this same version, so no
-    // remedy is offered (review of #318).
-    const cc = server({ manifestVersion: () => null });
+    // remedy is offered (review of #318). The npm route's words: a plugin's
+    // server names its own step (U1a, `newer-store-words.test.ts`).
+    const cc = server({ manifestVersion: () => null, install: "npm" });
     expect(payload(await cc.call("status", {}))["updated"]).toBeUndefined();
     cc.counterpart.store.setMeta(WAKE_BUILD_KEY, "99.0.0");
     const other = String(payload(await cc.call("status", {}))["updated"]);

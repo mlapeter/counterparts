@@ -113,12 +113,15 @@ import type { LedgerEntry } from "../../core/coverage/index.js";
 import { DESKTOP_HOST } from "../hosts.js";
 import type { PluginInstallRead } from "../host-wiring.js";
 import type { InstallRoute } from "../plugin.js";
+import { recordedForThisCopy } from "../plugin.js";
 import { localStamp } from "../../core/time.js";
 import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
 import { LOG_DAYS, logReading } from "../log/index.js";
 import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } from "./doctor-finding.js";
-import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
+import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, RELOAD_STEP, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
+import { newerStoreWords } from "../update-words.js";
+import { installedVersion } from "../sessions.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
@@ -310,6 +313,13 @@ export interface DoctorInput {
    * its own environment. Absent: not known, and those lines name both routes.
    */
   readonly install?: InstallRoute;
+  /**
+   * What `/reload-plugins` would load for this copy
+   * (`plugin.ts#recordedForThisCopy`), asked only when the store is ahead of
+   * this build and the route is not npm (U1a). Injectable for a test;
+   * absent, read from this process's home and environment.
+   */
+  readonly pluginRecorded?: () => string | null;
 }
 
 /**
@@ -319,6 +329,20 @@ export interface DoctorInput {
  */
 function byInstall(input: DoctorInput, npm: string, plugin: string = PLUGIN_UPDATE): string {
   return byRoute(input.install, npm, plugin);
+}
+
+/** The Store open line's step for a store a newer copy upgraded, the hook's words (U1a). Never throws. */
+function aheadFix(input: DoctorInput): string {
+  const route = input.install ?? "either";
+  let recorded: string | null = null;
+  if (route !== "npm") {
+    try {
+      recorded = (input.pluginRecorded ?? (() => recordedForThisCopy({ home: homedir(), env: process.env, cwd: process.cwd() })))();
+    } catch {
+      recorded = null;
+    }
+  }
+  return newerStoreWords({ route, who: "hook", loaded: installedVersion(), recorded });
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
@@ -721,7 +745,7 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
       "amber",
       RECALL_TITLE,
       `off in this process — the store's cache was written by a newer Counterparts (cache v${v.found}; this build reads v${v.expected}). Recall still matches on words, but may miss words the newer build indexed in another form`,
-      `Either install the newer build again (${byInstall(input, "bun add -g counterparts@latest", "in Claude Code, /plugin → Installed → counterparts → Update now")}), or, to stay on this one, delete ${tilde(input.dir)}/cache/cache.sqlite* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors --dir ${tilde(input.dir)}\` to rebuild its word index — then in Claude Code run /mcp → Reconnect so the server opens it.`,
+      `Either install the newer build again (${byInstall(input, "bun add -g counterparts@latest", "in Claude Code, /plugin → Installed → counterparts → Update now")}), or, to stay on this one, delete ${tilde(input.dir)}/cache/cache.sqlite* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors --dir ${tilde(input.dir)}\` to rebuild its word index — then in Claude Code ${byInstall(input, "run /mcp → Reconnect", RELOAD_STEP)} so the server opens it.`,
       { cacheAhead: true, found: v.found, expected: v.expected },
     );
   }
@@ -3390,7 +3414,15 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(input.checkout === undefined ? [] : checkoutFindings(input.checkout)),
     // Read by the caller for the same reason, and answered beside the `Store`
     // line it qualifies: "there is a store here" and "it opens" are two facts.
-    ...(input.open === undefined ? [] : openFindings(input.open)),
+    // A store a newer copy upgraded gets the hook's and the server's own step
+    // (U1a, constitution 16). This console runs the code installed at its path;
+    // the plugin record is read only for that line (review of #666).
+    ...(input.open === undefined
+      ? []
+      : openFindings(
+          input.open,
+          input.open.code === "SCHEMA_AHEAD" ? { aheadFix: aheadFix(input) } : {},
+        )),
     // A rollback's hold (2026-10-11): one file read, and only when it is there.
     ...rollbackFindings(input.dir),
     // Who can read the store (R1): a few stats, no store read.

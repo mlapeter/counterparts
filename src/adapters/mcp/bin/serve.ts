@@ -53,6 +53,7 @@ import type { AdapterConfig } from "../../config.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
 import { SESSION_NOTICE_BUDGET_MS, doctorFindings, noticeMessage, wakeMeaningLine } from "../../claude-code/doctor.js";
+import { staleWindowsLine } from "../../claude-code/stale-windows.js";
 import { SPAWN_REFUSAL_PREFIX, SPAWN_START_COUNT_KEY, SPAWN_START_DATE_KEY } from "../../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../../spawn.js";
 import { claudeCodeEnvMarker } from "../../hosts.js";
@@ -251,7 +252,8 @@ export function desktopDoctorNotice(input: {
  * (`claude-code/doctor-meaning.ts#wakeMeaningLine`), with this copy's route.
  * Null when neither has anything to say. Never throws. A night's own wake
  * (`night`) carries no meaning line: no person reads it, and the `stopped`
- * line's once-a-day would be spent on nobody.
+ * line's once-a-day would be spent on nobody. Since U1a it carries the
+ * older-windows line too (`claude-code/stale-windows.ts`), between the two.
  */
 export function desktopWakeNotice(input: {
   store: Store;
@@ -260,18 +262,30 @@ export function desktopWakeNotice(input: {
   today: string;
   night?: boolean;
   env?: Record<string, string | undefined>;
+  /** This server's pid, whose own record is not an older window; absent, this process's. */
+  selfPid?: number;
 }): string | null {
   let meaning: string | null = null;
+  let stale: string | null = null;
   try {
     const env = input.env ?? process.env;
     meaning =
       input.night === true
         ? null
         : wakeMeaningLine({ config: input.config, store: input.store, install: installRoute(env), env, today: input.today });
+    // OLDER WINDOWS AFTER AN UPGRADE (U1a, `claude-code/stale-windows.ts`):
+    // the same once-per-store-version line a Claude Code start carries, above
+    // W1's, and never on a night's own wake. A window whose record does not
+    // say its route gets both routes' steps: this server is Desktop's (npm),
+    // and says nothing about how those windows came (review of #666).
+    stale =
+      input.night === true
+        ? null
+        : (staleWindowsLine({ store: input.store, fallback: { route: "either", codeTab: false }, now: Date.now(), selfPid: input.selfPid ?? process.pid })?.line ?? null);
   } catch {
     meaning = null;
   }
-  const lines = [desktopDoctorNotice(input), meaning].filter((l): l is string => l !== null);
+  const lines = [desktopDoctorNotice(input), stale, meaning].filter((l): l is string => l !== null);
   return lines.length === 0 ? null : lines.join("\n");
 }
 

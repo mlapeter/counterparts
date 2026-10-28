@@ -1877,3 +1877,31 @@ its own small PR, after a look at its live use.
 - **Flags, recommendations only:** under off, a standalone reflect `launch` on the person's word stays available
   (awake, not a dream), while the night's reflection stops with the night. On claude.ai, `ask` behaves like `auto`
   (it has no dream line); no new value was added.
+
+## 2026-10-27 — an old window meeting an upgraded memory (U1a)
+
+- **Reconnect loops for the plugin.** Claude Code keeps a plugin's previous version folder (for 14 days,
+  `.orphaned_at`), and an open window's hooks and server keep its path until `/reload-plugins`. So the schema gate's
+  "Run /mcp and Reconnect" restarts the same old code there. Unmeasured in a throwaway home, but the docs and
+  `plugin-run.sh` (keyed by version) both point that way. The npm route keeps Reconnect: its install is replaced in
+  place.
+- **Reload vs update is read from `installed_plugins.json`** (`plugin.ts#recordedForThisCopy`: the highest `x.y.z` of
+  the running copy's own `counterparts@<marketplace>` record for this folder, `-<sha>` dropped). Reload when it is
+  newer than this server AND at least as new as the version that wrote the memory, when that is known (review of
+  #666: a record of 0.3.38 under a memory 0.3.39 upgraded would reload into code that still refuses). Anything else
+  (a newer npm or Desktop install wrote the store, a `--plugin-dir` copy — not where Claude Code installed it, so it
+  has no record of its own — a rollback, no record): update, then reload. A bare reload in those cases would load
+  this same code again.
+- **Server records carry their route** (`ServerRecord.route`, `codeTab`, review of #666), so the wake's older-windows
+  line gives each window its own step. Records from before this say neither: the hook reads them as its own route,
+  Desktop's server as both routes.
+- **The prompt's "Counterparts was updated" notice** names the reload for a plugin window too (`decideUpdateNotice`'s
+  `remedy`); npm, and an adapter told no route, keep Reconnect.
+- **`/reload-plugins` has two limits** (docs, quoted in the design review): a warning instead of a reload when the
+  prompt cache would be re-read (`--force`), and no plugin MCP server restart in non-terminal sessions (Desktop's
+  Code tab, which leads with "start a new session").
+- **A window left open past the 14-day orphan sweep** loses its old folder outright; the same reload fixes it.
+- **Not measured:** that Reconnect really restarts the old version.
+- **Open check (review of #666, item 3; Q11):** "Update now" vs "Update marketplace". Whether Installed → counterparts
+  → Update now refreshes the marketplace listing first, or answers "already at the latest" with auto-update off, needs
+  a throwaway-home run in interactive Claude Code. Until then `PLUGIN_UPDATE` stays "Update now".

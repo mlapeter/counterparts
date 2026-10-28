@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 import { CLAUDE_AI_HOST, CLAUDE_AI_SCOPE, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, wordingFor } from "../hosts.js";
 import type { InstallRoute } from "../plugin.js";
+import { newerStoreRemedy, newerStoreWords, reloadStep } from "../update-words.js";
+import type { NewerStoreInput } from "../update-words.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import type { DreamBundle } from "../../core/dream/index.js";
 import { PRONOUN_RULE } from "../../core/onboarding.js";
@@ -39,6 +41,24 @@ export function staleServerRefusal(host: string = DEFAULT_HOST): string {
 export const STALE_SERVER_REFUSAL = staleServerRefusal(DEFAULT_HOST);
 
 /**
+ * THE SAME REFUSAL WITH THE ROUTE'S STEP (U1a, 2026-10-27). "Run /mcp and
+ * Reconnect" is right for an npm install, which is replaced in place, and
+ * Claude Desktop's and claude.ai's servers keep their own hosts' words. For
+ * the PLUGIN it loops: Claude Code keeps the old version's folder, and an
+ * open window's server keeps its path until `/reload-plugins`, so Reconnect
+ * starts the same old code. Those servers get the plugin's step
+ * (`update-words.ts#newerStoreWords`: reload when Claude Code records a newer
+ * version than this server runs, update first otherwise), and an `either`
+ * server names both. A plain sentence the model can pass on.
+ */
+export function newerStoreRefusal(input: Omit<NewerStoreInput, "who">): string {
+  const host = input.host ?? DEFAULT_HOST;
+  if (host !== DEFAULT_HOST || input.route === "npm") return staleServerRefusal(host);
+  const words = newerStoreWords({ ...input, who: "server" });
+  return `This tool did nothing: ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
+}
+
+/**
  * THE SAME GATE WHEN ONLY THE CACHE IS AHEAD (2026-10-11): the search cache
  * (`cache/cache.sqlite`, box 3) carries a newer build's stamp while the store
  * does not. "Was updated … reconnect" is not true there — after a rollback
@@ -56,10 +76,16 @@ export const STALE_SERVER_REFUSAL = staleServerRefusal(DEFAULT_HOST);
  * runs — there the newer build IS installed, and the reconnect alone loads
  * it. So the sentence says both, and deleting is offered only for going back.
  */
-export function cacheAheadRefusal(cacheFile: string, host: string = DEFAULT_HOST): string {
+export function cacheAheadRefusal(cacheFile: string, host: string = DEFAULT_HOST, route?: Omit<NewerStoreInput, "who" | "host">): string {
   const w = wordingFor(host);
   const lower = (s: string): string => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
-  return `The search cache was written by a newer Counterparts build than this server runs, so this tool did nothing. If that newer build is installed, ${lower(w.reconnect)} If you went back to an older build, delete ${cacheFile}* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors\` to rebuild its word index, then ${lower(w.reconnectFirst)}.`;
+  // A PLUGIN'S SERVER (U1a): Reconnect restarts its old folder, so both ways
+  // end in the route's step instead — update-or-reload for the newer build,
+  // a reload (or a new session) to let go of the deleted file.
+  const viaPlugin = host === DEFAULT_HOST && route !== undefined && route.route !== "npm";
+  const load = viaPlugin ? `${newerStoreRemedy({ ...route, who: "server", host })}.` : lower(w.reconnect);
+  const restart = viaPlugin ? reloadStep(route.codeTab === true) : lower(w.reconnectFirst);
+  return `The search cache was written by a newer Counterparts build than this server runs, so this tool did nothing. If that newer build is installed, ${load} If you went back to an older build, delete ${cacheFile}* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors\` to rebuild its word index, then ${restart}.`;
 }
 
 /** The gate's refusal when the stamps could not be read at all — the same
