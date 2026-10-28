@@ -2742,3 +2742,40 @@ It was a lost sign-in: the owner switched Claude Code accounts mid-run.
   scrub gained JSON, quoted and space-separated labels, Basic auth, whole cookies, `pw=`
   and the digitless prefixed keys (`ghp_`, `xox?-`, `AKIA`). STDERR prefers its last
   error-shaped line. OSC sequences are stripped, and home paths become `~`.
+
+## 2026-10-27 — the wake says so when search by meaning can't run (W1)
+
+A plugin install ran for days with no meaning weights (`NO_WEIGHTS`): the plugin's dependency
+step had not run, nothing self-heals (Bun auto-install is off on purpose), and only doctor's
+amber line said so. Now `doctor-meaning.ts#wakeMeaningLine` gives the session-start wake one
+line for the model to tell its person, under the clock beside the Code tab's line (outside the
+wake block, so the sentinel's byte count is untouched). Desktop's `wake` carries the same line
+in its notice slot (`mcp/bin/serve.ts#desktopWakeNotice`).
+
+- **Configured on and can't run, nothing else, and only to a person.** Off by choice, an
+  observer, a resume's short wake, and any start `watchedAtStart` refuses (the headless night,
+  `claude -p`/SDK, a compaction) say nothing; Desktop's `wake` with `night: true` neither.
+- **`missing`**: this process finds no whole table (both files). The hook's environment is the
+  worker's, so this is the look the worker makes, and it fires before any boundary too (a fresh
+  plugin install's first wake). A worker row that still says `NO_WEIGHTS`/`MISSING_FILE` while
+  the table is whole now reads as restored: silent until the next row.
+- **`unloadable`**: the newest row's refusal is any other code; it stands until the next row.
+- **`stopped`**: `adapter.runner.failed` with `step: "vectors"` on two separate dates, with no
+  backfill row since the earlier one. One failure is not enough (review of #664): the runner
+  latches one row per step per date, and its `vectors` step covers the lagged cue as well as
+  the backfill, so a single throw is one bad boundary. Said at most once a day
+  (`adapter.meaning.stopped.told`, the date; an unattended start does not spend it).
+  `missing`/`unloadable` are said every wake until fixed: the person is the fix.
+- **A backfill "stuck at 0" was dropped** (review of #664). The static table blames every miss on
+  the memory (`vectors.ts`, `isStatic`) and sets it aside on its third (`EMBED_SKIP_AFTER`), so
+  `remaining` falls — `test/wake-meaning-off.test.ts` runs three real backfills to show it. What
+  can stay flat is the store refusing vectors (`refused:` codes; doctor's held / cache-ahead
+  lines) or counter writes lost to a lock: neither is a person's fix, and both are doctor's.
+- **One route rule.** `byRoute`, `PLUGIN_UPDATE`, `PLUGIN_TABLE_UPDATE`, `npmTableCommand` and
+  `tableOnDisk` moved here from `doctor.ts`; doctor's fix lines and `install`'s hint use them
+  too. The npm route reinstalls Counterparts with the runtime it runs on (`npm install -g
+  counterparts` under Node, `bun add -g counterparts` under Bun): the table is its own
+  dependency, and a separate global `counterparts-model-potion` is not where
+  `resolveStaticWeights` looks. The table is "found" only with both files, as the loader needs.
+  `stopped` points at doctor (`/counterparts:doctor`, or `counterparts doctor` in a terminal).
+- **Not covered**: `held` and `cache-ahead` (the store withdrawing the channel) stay doctor's.

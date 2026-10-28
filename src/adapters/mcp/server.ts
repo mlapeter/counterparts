@@ -418,7 +418,7 @@ export class McpServer {
   private callAs: { session: string; scope: string } | null = null;
   private readonly lifecycleOpts: NonNullable<McpServerOptions["lifecycle"]>;
   private lifecycleInst: Lifecycle | null = null;
-  private readonly wakeNotice: (() => string | null) | undefined;
+  private readonly wakeNotice: ((opts: { night: boolean }) => string | null) | undefined;
   private readonly manifestVersion: () => string | null;
   private readonly env: Readonly<Record<string, string | undefined>>;
 
@@ -3138,7 +3138,7 @@ export class McpServer {
     const claudeAi = this.host === CLAUDE_AI_HOST;
     const dream = claudeAi || night ? null : this.wakeDreamLine(input);
     const share = night ? null : this.wakeShareLine(input);
-    const notices = [this.wakeUpdateLine(), this.wakeDoctorLine()].filter((l): l is string => l !== null);
+    const notices = [this.wakeUpdateLine(), this.wakeDoctorLine(night)].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
     // Or, when the wake has no head tag, as one tag in front of it (`tagLead`).
     const tags = tagLead(woke.tags ?? [lc.onboardingMarker(input)], woke.text, woke.tagged === true);
@@ -3332,10 +3332,11 @@ export class McpServer {
     return this.result({ ...result.structuredContent, updated: said }, result.isError === true);
   }
 
-  /** The doctor's red-only notice, from the entry point's closure. Never throws. */
-  private wakeDoctorLine(): string | null {
+  /** The doctor's red-only notice (and the search-by-meaning line), from the
+   *  entry point's closure. Never throws. */
+  private wakeDoctorLine(night: boolean): string | null {
     try {
-      return this.wakeNotice?.() ?? null;
+      return this.wakeNotice?.({ night }) ?? null;
     } catch {
       return null;
     }

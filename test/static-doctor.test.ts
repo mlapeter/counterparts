@@ -23,7 +23,7 @@ import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/stat
 import { CACHE_SCHEMA_VERSION, heldExits, Store, paths } from "../src/core/store/index.js";
 import type { EmbedderIdentity } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
-import { doctorFindings } from "../src/adapters/claude-code/index.js";
+import { doctorFindings, npmTableCommand } from "../src/adapters/claude-code/index.js";
 
 /** The removed Voyage key's name, which no line here may advise. */
 const EMBED_KEY_ENV = "VOYAGE_" + "API_KEY";
@@ -103,7 +103,10 @@ describe("Recall by meaning, for the local table", () => {
     opened.splice(0).forEach((s) => s.close());
     backfillRow({ embedded: 0, failed: 0, remaining: 1, attempted: 0, reason: "embedder-unavailable", codes: "NO_WEIGHTS", skipped: 0, kind: "static", weights: null, model: null });
     const npm = by(reading(STATIC, "npm"), "embedder");
-    expect(npm.fix).toContain("bun add -g counterparts-model-potion");
+    // Counterparts again, with the runtime this runs on: the table is its own
+    // dependency, and a separate global copy is not where it is looked for.
+    expect(npm.fix).toContain(npmTableCommand());
+    expect(npm.fix).not.toContain("counterparts-model-potion");
     expect(npm.fix).not.toContain("/plugin");
     const plugin = by(reading(STATIC, "plugin"), "embedder");
     expect(plugin.severity).toBe("amber");
@@ -116,7 +119,7 @@ describe("Recall by meaning, for the local table", () => {
     expect(plugin.fix).toContain("with no npm on this computer install Node.js");
     expect(plugin.fix).toContain(STATIC_WEIGHTS_ENV);
     const either = by(reading(STATIC, "either"), "embedder");
-    expect(either.fix).toContain("npm: bun add -g counterparts-model-potion");
+    expect(either.fix).toContain(`npm: ${npmTableCommand()}`);
     expect(either.fix).toContain("plugin: in Claude Code, /plugin → Installed → counterparts → Update now");
     expect(by(reading(STATIC), "embedder").fix).toBe(either.fix);
   });
@@ -135,7 +138,7 @@ describe("Recall by meaning, for the local table", () => {
     const f = by(reading(STATIC), "embedder");
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("NO_WEIGHTS");
-    expect(f.fix).toContain("bun add -g counterparts-model-potion");
+    expect(f.fix).toContain(npmTableCommand());
     expect(f.fix).toContain(STATIC_WEIGHTS_ENV);
     expect(`${f.detail} ${f.fix}`).not.toContain(EMBED_KEY_ENV);
   });
@@ -160,7 +163,7 @@ describe("Recall by meaning, for the local table", () => {
     }
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("weights were not found");
-    expect(f.fix).toContain("counterparts-model-potion");
+    expect(f.fix).toContain(npmTableCommand());
     expect(`${f.detail} ${f.fix}`).not.toContain(EMBED_KEY_ENV);
   });
 
@@ -291,7 +294,12 @@ describe("Recall by meaning on a FRESH static install — no worker row yet", ()
   function tableAt(present: boolean): string {
     const at = join(root, present ? "table" : "empty-table");
     mkdirSync(at, { recursive: true });
-    if (present) writeFileSync(join(at, "model.safetensors"), "");
+    // Both files: the loader refuses a folder missing either (`MISSING_FILE`),
+    // and so does doctor's look since 2026-10-27 (`doctor-meaning.ts#tableOnDisk`).
+    if (present) {
+      writeFileSync(join(at, "model.safetensors"), "");
+      writeFileSync(join(at, "vocab.txt"), "");
+    }
     process.env[STATIC_WEIGHTS_ENV] = at;
     return at;
   }
@@ -316,7 +324,7 @@ describe("Recall by meaning on a FRESH static install — no worker row yet", ()
     const f = by(reading(STATIC), "embedder");
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("weights were not found in");
-    expect(f.fix).toContain("bun add -g counterparts-model-potion");
+    expect(f.fix).toContain(npmTableCommand());
     expect(`${f.detail} ${f.fix}`).not.toContain(EMBED_KEY_ENV);
   });
 });

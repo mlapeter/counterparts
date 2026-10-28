@@ -74,7 +74,6 @@ import {
   paths,
 } from "../../core/store/index.js";
 import { heldCorrections } from "../../core/reconsolidation.js";
-import { bundledModelDir } from "../runtime.js";
 import { CYCLE_LEASE_KEY, leaseStale, readLease, TUNABLES as SLEEP_TUNABLES, acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -104,7 +103,7 @@ import {
 } from "../snapshots.js";
 import { TUNABLES, resolveEmbedder, retentionClocks, withEmbedderDefault } from "../config.js";
 import type { EmbedderSource } from "../config.js";
-import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
+import { STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE } from "../../core/embed/static.js";
 import { DATABASE_FILE, heldExits, readRollbackHold, rollbackHeld, runningBuild } from "../../core/store/index.js";
 // Retention's own reading and its own week, so the Raw transcripts line cannot
 // promise a different number from the job that does the deleting. READ-ONLY:
@@ -119,6 +118,7 @@ import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import type { AdapterConfig } from "../config.js";
 import { LOG_DAYS, logReading } from "../log/index.js";
 import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } from "./doctor-finding.js";
+import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, byRoute, npmTableCommand, tableOnDisk } from "./doctor-meaning.js";
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
@@ -198,6 +198,16 @@ export {
   noticeMessage,
 } from "./doctor-report.js";
 export type { GradeWord } from "./doctor-report.js";
+export {
+  MEANING_FAILED_DATES,
+  MEANING_OFF_LEAD,
+  MEANING_OFF_WORDS,
+  MEANING_STOPPED_TOLD_KEY,
+  meaningOff,
+  npmTableCommand,
+  wakeMeaningLine,
+} from "./doctor-meaning.js";
+export type { MeaningOff, MeaningOffInput } from "./doctor-meaning.js";
 
 /**
  * How long the session-start reading may take before it stops and says so.
@@ -302,18 +312,13 @@ export interface DoctorInput {
   readonly install?: InstallRoute;
 }
 
-/** The plugin's way to a newer or whole copy: Claude Code's plugin manager. */
-const PLUGIN_UPDATE = "in Claude Code, /plugin → Installed → counterparts → Update now (or uninstall it and install it again)";
-
 /**
  * A fix that installs something, in the words of the route this copy came
- * by: the npm command, the plugin's update, or — not known — both.
+ * by: the npm command, the plugin's update, or — not known — both. The rule
+ * lives in `doctor-meaning.ts#byRoute`, which the wake's meaning line uses too.
  */
 function byInstall(input: DoctorInput, npm: string, plugin: string = PLUGIN_UPDATE): string {
-  const route = input.install ?? "either";
-  if (route === "npm") return npm;
-  if (route === "plugin") return plugin;
-  return `npm: ${npm} · plugin: ${plugin}`;
+  return byRoute(input.install, npm, plugin);
 }
 
 // ── the groups ──────────────────────────────────────────────────────────────
@@ -734,7 +739,7 @@ function withdrawnFinding(input: DoctorInput): Finding | null {
  *     the first boundary will confirm it.
  */
 function staticFinding(input: DoctorInput, data: Record<string, string | number | boolean | null>): Finding {
-  const install = `Install the table: ${byInstall(input, `bun add -g ${STATIC_WEIGHTS_PACKAGE}`, `${PLUGIN_UPDATE}; the plugin installs the table with npm, so with no npm on this computer install Node.js (https://nodejs.org) first`)} — or set ${STATIC_WEIGHTS_ENV} in the environment Claude Code starts hooks with`;
+  const install = `Install the table: ${byInstall(input, npmTableCommand(), PLUGIN_TABLE_UPDATE)} — or set ${STATIC_WEIGHTS_ENV} in the environment Claude Code starts hooks with`;
   const row = newestBackfill(input);
   if (row !== null && str(row, "reason") === "embedder-unavailable") {
     const code = str(row, "codes") ?? "NO_WEIGHTS";
@@ -743,7 +748,7 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       "amber",
       RECALL_TITLE,
       `on (a local table), but the worker could not load its weights (${code}) — nothing is embedded; recall still matches on words`,
-      code === "HASH_MISMATCH" ? `The table on disk is not the one its package declares. Reinstall it: ${byInstall(input, `bun add -g ${STATIC_WEIGHTS_PACKAGE}`)}` : install,
+      code === "HASH_MISMATCH" ? `The table on disk is not the one its package declares. Reinstall it: ${byInstall(input, npmTableCommand())}` : install,
       { ...data, kind: "static", code },
     );
   }
@@ -757,12 +762,12 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
-  const bundled = bundledModelDir();
-  const found = resolveStaticWeights(bundled === undefined ? {} : { packageDir: bundled });
-  // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
+  // THE TABLE'S FILES, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
   // naming an empty or wrong folder is found by name and holds nothing, and a
-  // green here would last until the first worker row said NO_WEIGHTS.
-  if (found === null || !existsSync(join(found.dir, MODEL_FILE))) {
+  // green here would last until the first worker row said NO_WEIGHTS. The
+  // same look the wake's meaning line takes (`doctor-meaning.ts#tableOnDisk`).
+  const { found, complete } = tableOnDisk();
+  if (found === null || !complete) {
     return finding(
       "embedder",
       "amber",

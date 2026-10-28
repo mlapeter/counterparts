@@ -338,6 +338,7 @@ describe("install at a terminal and Claude Desktop's entry", () => {
     const table = join(work, "table");
     mkdirSync(table, { recursive: true });
     writeFileSync(join(table, "model.safetensors"), "");
+    writeFileSync(join(table, "vocab.txt"), "");
     const out: string[] = [];
     const err: string[] = [];
     const io: Io = {

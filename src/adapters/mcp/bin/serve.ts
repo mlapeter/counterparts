@@ -52,7 +52,7 @@ import { loadConfig, withEmbedderDefault } from "../../config.js";
 import type { AdapterConfig } from "../../config.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
-import { SESSION_NOTICE_BUDGET_MS, doctorFindings, noticeMessage } from "../../claude-code/doctor.js";
+import { SESSION_NOTICE_BUDGET_MS, doctorFindings, noticeMessage, wakeMeaningLine } from "../../claude-code/doctor.js";
 import { SPAWN_REFUSAL_PREFIX, SPAWN_START_COUNT_KEY, SPAWN_START_DATE_KEY } from "../../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../../spawn.js";
 import { claudeCodeEnvMarker } from "../../hosts.js";
@@ -242,6 +242,37 @@ export function desktopDoctorNotice(input: {
   } catch {
     return null;
   }
+}
+
+/**
+ * WHAT A HOOKLESS `wake` CARRIES IN ITS NOTICE SLOT: doctor's red line
+ * (`desktopDoctorNotice`) and — when search by meaning is on and cannot run —
+ * the same line a Claude Code session start carries
+ * (`claude-code/doctor-meaning.ts#wakeMeaningLine`), with this copy's route.
+ * Null when neither has anything to say. Never throws. A night's own wake
+ * (`night`) carries no meaning line: no person reads it, and the `stopped`
+ * line's once-a-day would be spent on nobody.
+ */
+export function desktopWakeNotice(input: {
+  store: Store;
+  config: AdapterConfig;
+  configPath: string;
+  today: string;
+  night?: boolean;
+  env?: Record<string, string | undefined>;
+}): string | null {
+  let meaning: string | null = null;
+  try {
+    const env = input.env ?? process.env;
+    meaning =
+      input.night === true
+        ? null
+        : wakeMeaningLine({ config: input.config, store: input.store, install: installRoute(env), env, today: input.today });
+  } catch {
+    meaning = null;
+  }
+  const lines = [desktopDoctorNotice(input), meaning].filter((l): l is string => l !== null);
+  return lines.length === 0 ? null : lines.join("\n");
 }
 
 /**
@@ -446,13 +477,16 @@ async function main(): Promise<void> {
       args: scriptArgs(WORKER_RUNNER_PATH),
     },
     // Called only from a `wake`, long after `server` below is assigned.
-    wakeNotice: () => {
+    // Doctor's red line, and the line for search by meaning that cannot run
+    // (2026-10-27, W1), each when it has something to say.
+    wakeNotice: ({ night }) => {
       const store = server.counterpart.store;
-      return desktopDoctorNotice({
+      return desktopWakeNotice({
         store,
         config,
         configPath: choice.path,
         today: localDate(Date.now(), store.zone()),
+        night,
       });
     },
   });

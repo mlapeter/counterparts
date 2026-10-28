@@ -100,7 +100,7 @@ import {
   run,
 } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
-import { MODEL_FILE, STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
+import { MODEL_FILE, STATIC_WEIGHTS_ENV, VOCAB_FILE } from "../src/core/embed/static.js";
 
 const SECRET = "sk-ant-not-a-real-key-0123456789";
 
@@ -124,7 +124,10 @@ beforeEach(() => {
   // and not whether this checkout has the weights package installed.
   const weights = join(root, "weights");
   mkdirSync(weights, { recursive: true });
+  // Both files: the loader refuses a folder missing either, and so does
+  // doctor's look (`doctor-meaning.ts#tableOnDisk`).
   writeFileSync(join(weights, MODEL_FILE), "a table");
+  writeFileSync(join(weights, VOCAB_FILE), "a vocabulary");
   savedWeights = process.env[STATIC_WEIGHTS_ENV];
   process.env[STATIC_WEIGHTS_ENV] = weights;
 });

@@ -138,9 +138,10 @@ export interface McpServerOptions {
   /**
    * THE DOCTOR NOTICE for Desktop's `wake` — `claude-code/doctor.ts`'s red-only
    * line, which this library may not import, so the entry point hands over a
-   * closure (`bin/serve.ts`). Null or absent: nothing to say.
+   * closure (`bin/serve.ts`). Null or absent: nothing to say. `night`: the
+   * wake is a night's own (`wake` with `night: true`), which no person reads.
    */
-  wakeNotice?: () => string | null;
+  wakeNotice?: (opts: { night: boolean }) => string | null;
   /** The package version on disk now (`sessions.ts#manifestVersionOnDisk`),
    *  injectable so the update line is provable without reinstalling. */
   manifestVersion?: () => string | null;
