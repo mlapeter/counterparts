@@ -300,6 +300,17 @@ export const UNRESOLVED_PROPERTY = {
 };
 
 /**
+ * `settlesWhen` beside `unresolved: true` (2026-10-27, S1; Ames's idea: "an
+ * open question needs either a trigger or a decision to let it go"). Invited,
+ * never demanded; a date goes in `eventDate`. Kept in the memory's meta.
+ */
+export const SETTLES_WHEN_PROPERTY = {
+  type: ["string", "null"],
+  description:
+    'Optional, with unresolved: true: what would settle it, in a short phrase ("Katie says how the reading went", "Mike decides pricing"). "Still open" shows it, and the nightly run can close the item once a memory shows it happened. A date goes in eventDate. Revising the item with unresolved: true keeps it unless you send a new one (null drops it).',
+} as const;
+
+/**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
  * door a model writes a feeling through (remember, session_end, a dream's
  * feeling-now, a reflection's feelings; remember's feelingsNow since 2026-10-02),
@@ -771,6 +782,7 @@ const REMEMBER: ToolSpec = {
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
+      settlesWhen: SETTLES_WHEN_PROPERTY,
       traits: TRAITS_PROPERTY,
       feelingsNow: FEELINGS_NOW_PROPERTY,
       remark: REMARK_PROPERTY,
@@ -1212,6 +1224,7 @@ const SESSION_END: ToolSpec = {
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,
+            settlesWhen: SETTLES_WHEN_PROPERTY,
             traits: TRAITS_PROPERTY,
           },
           required: ["content"],

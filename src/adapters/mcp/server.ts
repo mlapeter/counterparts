@@ -233,7 +233,7 @@ export function asksStillOpen(question: string): boolean {
   const folded = question.toLowerCase().replace(/[’']/g, "").replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
   return STILL_OPEN_QUESTIONS.has(folded);
 }
-import { STILL_OPEN_HANDLE, WAKE_BUILD_KEY } from "../../core/self/index.js";
+import { openSettlesCounts, STILL_OPEN_HANDLE, WAKE_BUILD_KEY } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { canonicalToolName, toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -1762,6 +1762,8 @@ export class McpServer {
     // AN OPEN THREAD, or the closing of one (2026-10-01, lane 8): a boolean
     // rides as sent — `false` matters beside an `updates` (`closeThread`).
     if (typeof args["unresolved"] === "boolean") draft["unresolved"] = args["unresolved"];
+    // What would settle it (2026-10-27, S1): intake keeps it beside the flag only.
+    if (args["settlesWhen"] !== undefined) draft["settlesWhen"] = args["settlesWhen"];
     Object.assign(draft, dated.fields);
 
     const model = this.sessionModel(session);
@@ -2529,6 +2531,7 @@ export class McpServer {
           touched: touched(i.livedDaysSinceTouched),
           ...(i.reconsidering === true ? { reconsidering: "a core memory being reconsidered: keep or retire it" } : {}),
           ...(i.date === undefined ? {} : { date: i.date }),
+          ...(i.settlesWhen === undefined ? {} : { settlesWhen: i.settlesWhen }),
         })),
         note:
           (items.length === 0
@@ -3446,6 +3449,10 @@ export class McpServer {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,
       },
+      // WHAT WOULD SETTLE THEM (2026-10-27, S1): every open item, carried or
+      // not, and how many name a trigger — counted so a "let it go" offer
+      // for the rest can be decided later. Nothing acts on it yet.
+      openItems: { ...openSettlesCounts(store), note: "Open items (unresolved), carried or not, and how many name what would settle them (settlesWhen)." },
       stance: { observer: this.observer },
     };
   }

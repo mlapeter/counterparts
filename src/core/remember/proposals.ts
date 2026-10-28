@@ -73,6 +73,15 @@ export interface ProposalDraft {
   /** An open loop is an ordinary memory with a flag, not a special structure (§4). */
   unresolved?: boolean;
   /**
+   * WHAT WOULD SETTLE IT (2026-10-27, S1; Ames's idea, lightly held): a short
+   * plain phrase beside `unresolved: true` naming what closes the item — "Katie
+   * says how the reading went", "Mike decides pricing". A date is `eventDate`,
+   * not this. Only beside an open flag; without one it is dropped and counted,
+   * as `remind` is without a date. `null` on a revision drops the one it would
+   * carry. Kept in `meta.settlesWhen` (no schema bump).
+   */
+  settlesWhen?: string | null;
+  /**
    * The calendar date this memory is ABOUT, when it is about a future one
    * (schema v7's `event_date`; 2026-09-26): a day `2026-10-15`, a month
    * `2026-10`, a year `2026`, or a range `2026-10-20..2026-10-31`. An explicit
@@ -130,6 +139,13 @@ export interface Proposal {
   /** True when the author SENT `how`; false when it was defaulted (2026-10-11, review 10 C6). Beside `how` only. */
   howSent?: boolean;
   unresolved: boolean;
+  /**
+   * What would settle it (`ProposalDraft.settlesWhen`): the phrase, cleaned,
+   * only beside `unresolved: true`. `null`: the author sent `null` (a
+   * revision's "no trigger now"). Absent: left out — a revision that carries
+   * the thread on carries the old one's (`counterpart-deposit.ts#carrySettles`).
+   */
+  settlesWhen?: string | null;
   /** The reminder date as the author wrote it (already read by `time.ts`), or null. */
   eventDate: string | null;
   /** Plain or quiet — null exactly when `eventDate` is. */
@@ -237,10 +253,27 @@ export const DRAFT_FIELDS = [
   "updates",
   "how",
   "unresolved",
+  "settlesWhen",
   "eventDate",
   "remind",
   "recurring",
 ] as const;
+
+/**
+ * The most characters a `settlesWhen` keeps (2026-10-27, S1): a phrase, not a
+ * note. Longer is cut at a word with "…", never refused (loose first).
+ */
+export const SETTLES_WHEN_CHARS = 160;
+
+/** A `settlesWhen` as kept: one line, trimmed, at most `SETTLES_WHEN_CHARS`; null when blank. */
+export function cleanSettlesWhen(v: string): string | null {
+  const one = v.replace(/\s+/g, " ").trim();
+  if (one.length === 0) return null;
+  if (one.length <= SETTLES_WHEN_CHARS) return one;
+  const cut = one.slice(0, SETTLES_WHEN_CHARS - 1);
+  const at = cut.lastIndexOf(" ");
+  return `${(at > SETTLES_WHEN_CHARS / 2 ? cut.slice(0, at) : cut).trimEnd()}…`;
+}
 
 export type IntakeResult =
   | {
@@ -376,6 +409,16 @@ export function intake(raw: unknown): IntakeResult {
     else dropped.push("how");
   }
   draft.unresolved = rec["unresolved"] === true;
+  // WHAT WOULD SETTLE IT (2026-10-27, S1): only beside an open flag. A phrase
+  // with no flag is dropped and counted; a blank or non-text one too; `null`
+  // beside the flag says "no trigger" to a revision that would carry one.
+  if (rec["settlesWhen"] !== undefined) {
+    const sw = rec["settlesWhen"];
+    const kept = typeof sw === "string" ? cleanSettlesWhen(sw) : null;
+    if (draft.unresolved && sw === null) draft.settlesWhen = null;
+    else if (draft.unresolved && kept !== null) draft.settlesWhen = kept;
+    else if (sw !== null) dropped.push("settlesWhen");
+  }
   // What was SAID, before the quiet default above: a revision carries over
   // whatever its author left out (review N7), so "left out" and "said quiet"
   // must stay two different answers. `eventDate: null` is the explicit drop.
@@ -699,6 +742,7 @@ export async function submitProposal(
     // An AUTHORED `updates` settles: `changed` when the author did not say.
     ...(draft.updates === undefined ? {} : { how: draft.how ?? "changed", howSent: draft.how !== undefined }),
     unresolved: draft.unresolved === true,
+    ...(draft.unresolved === true && draft.settlesWhen !== undefined ? { settlesWhen: draft.settlesWhen } : {}),
     eventDate: draft.eventDate ?? null,
     remind: draft.eventDate === undefined ? null : draft.remind ?? "quiet",
     recurring: draft.eventDate === undefined ? null : draft.recurring ?? null,

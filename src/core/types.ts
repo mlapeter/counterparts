@@ -77,6 +77,21 @@ export const SECOND_HAND_META_KEY = "secondHand";
 export const WRITTEN_UP_BY_META_KEY = "writtenUpBy";
 
 /**
+ * WHAT WOULD SETTLE AN OPEN ITEM (2026-10-27, S1; Ames's idea, lightly held):
+ * a short phrase beside `unresolved: true` ("Katie says how the reading
+ * went"), written by `mint.ts`. "Still open" shows it; the nightly reflection
+ * is handed it, so it can close an item whose trigger plainly happened.
+ * Absent: no trigger named.
+ */
+export const SETTLES_WHEN_META_KEY = "settlesWhen";
+
+/** An open item's settles-when, read off its meta: the phrase, or null. */
+export function settlesWhenOf(meta: Readonly<Record<string, unknown>>): string | null {
+  const v = meta[SETTLES_WHEN_META_KEY];
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+/**
  * THE DAY A MEMORY WAS LIVED (2026-10-01): its `happened_on` when it was
  * written up second-hand, else the day it was learned. What the page writer's
  * day reads (`self/writer.ts#isOfDay`).

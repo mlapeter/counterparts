@@ -820,6 +820,13 @@ export interface Resolved {
    * (`asLine`); absent, the statement prints whole as before.
    */
   readonly line?: string;
+  /**
+   * WHAT WOULD SETTLE AN OPEN ITEM (2026-10-27, S1): its `meta.settlesWhen`,
+   * read only while it is still open. "Still open" and "Coming up" print it
+   * after the item (`settlesTail`). Absent: nothing named, and the line is
+   * exactly as before.
+   */
+  readonly settles?: string;
 }
 
 export type Resolve = (id: string) => Resolved;
@@ -1183,7 +1190,23 @@ export function elementLine(item: Ranked, resolve: Resolve): string {
   // statement does not, and a standing qualifier would come between.
   const learned = (r.learnedOn ?? "").trim();
   if (standing === "" && learned !== "" && date === `${shortOrWhole(learned, r.year)}${DATE_SEP}` && statement.startsWith(learned)) date = "";
-  return `- ${date}${standing}${statement}${r.standing?.suffix ?? ""}`;
+  const settles = item.lane === "threads" || item.lane === "horizon" ? settlesTail(r.settles) : "";
+  return `- ${date}${standing}${statement}${r.standing?.suffix ?? ""}${settles}`;
+}
+
+/** Words a settles-when may open with that already say "when" (S1). */
+const SETTLES_OPENERS = /^(when|after|once|if|by|on|before|until|as soon as)\b/i;
+
+/**
+ * WHAT WOULD SETTLE IT, AFTER THE ITEM (2026-10-27, S1; Ames's idea, lightly
+ * held): ` · settles when Katie says how it went`. A phrase that already opens
+ * with "after", "once", "when"… reads ` · settles after the 11-26 check`.
+ * Empty when nothing was named.
+ */
+export function settlesTail(settles: string | undefined): string {
+  const s = (settles ?? "").trim();
+  if (s === "") return "";
+  return `${DATE_SEP}settles ${SETTLES_OPENERS.test(s) ? s : `when ${s}`}`;
 }
 
 /**

@@ -19,6 +19,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
+import { settlesWhenOf } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { ProseDoc, ReadOnlyStore, Store, WakeDisplayRow } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
@@ -245,6 +246,31 @@ export function openThread(store: Store, id: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * HOW MANY OPEN ITEMS NAME WHAT WOULD SETTLE THEM (2026-10-27, S1): every open
+ * thread (`openThread`, carried or not), and how many carry a
+ * `meta.settlesWhen`. Counted so a later "let it go" offer for items with no
+ * trigger can be decided on numbers; nothing reads it to act. Never throws.
+ */
+export function openSettlesCounts(store: Store): { open: number; withSettlesWhen: number; withoutSettlesWhen: number } {
+  let open = 0;
+  let named = 0;
+  try {
+    for (const id of store.openThreadIds()) {
+      if (!openThread(store, id)) continue;
+      open += 1;
+      try {
+        if (settlesWhenOf(store.readProse(id).meta) !== null) named += 1;
+      } catch {
+        /* unreadable: counted as none named */
+      }
+    }
+  } catch {
+    /* no count read */
+  }
+  return { open, withSettlesWhen: named, withoutSettlesWhen: open - named };
 }
 
 /**
