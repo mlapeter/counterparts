@@ -2802,7 +2802,10 @@ all use it).
 - **"Not on the meeting day"** is the day the meeting was last offered
   (`lastOffer(store)?.on === today`). Not "while the meeting is pending" (review of #672):
   `offered`/`later` outlive the offer days, so a person who put the meeting off never heard of
-  an update, urgent included.
+  an update, urgent included. A wake that makes the offer (or a re-offer) counts too
+  (`offerDue`, re-check of #672): the offer is recorded only after the wake is built, so a fresh
+  install's first wake otherwise carried "Enable auto-update" beside the meeting.
+- **An urgent day is the urgent line's alone**: a second window that day gets no tell/behind.
 - **Review of #672, the rest.** At most one request a day, failures included (a failed day tries
   again the next; doctor's amber counts failed days in a row, from the third). A U1 line is
   composed only where it fits: the wake, the lines above it and itself `UPDATE_ROOM_MARGIN`

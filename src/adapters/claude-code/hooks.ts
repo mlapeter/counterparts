@@ -779,7 +779,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
         const bytes = woke.bytes + Buffer.byteLength(`${this.nowLine()}\n${lines.join("\n")}\n${plain.context}`, "utf8");
         return bytes <= TUNABLES.HOST_OUTPUT_CHARS - UPDATE_ROOM_MARGIN;
       };
-      const urgent = resumed || !watched ? null : this.updateLine(input, "urgent", { fits: fitsUnder([stale]) });
+      const urgent = resumed || !watched ? null : this.updateLine(input, "urgent", { fits: fitsUnder([stale, meaning]) });
       const maintenance = [stale, urgent, meaning].filter((l) => l !== null).length;
       const update =
         resumed || !watched || maintenance >= 3 || (meaning !== null && this.install === "plugin")
@@ -1944,6 +1944,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
         home: homedir(),
         cwd: input.scope,
         codeTab: input.entrypoint === CODE_TAB_ENTRYPOINT,
+        session: input.sessionId,
       });
       const lineInput = {
         ...here,

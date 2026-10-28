@@ -22,7 +22,7 @@ import { spawnSync } from "node:child_process";
 
 import { localDate } from "../src/core/time.js";
 
-import { ONBOARDING_MEET_KEY, ONBOARDING_OFFERED_KEY } from "../src/core/onboarding.js";
+import { ONBOARDING_MEET_KEY, ONBOARDING_OFFERED_KEY, beginNewInstall } from "../src/core/onboarding.js";
 import { STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
 import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../src/core/store/index.js";
 import { STALE_WINDOWS_LEAD } from "../src/adapters/claude-code/stale-windows.js";
@@ -155,7 +155,7 @@ function wake(opts: { install?: InstallRoute; at: string; config?: Partial<Adapt
       at: opts.at,
       source: "startup",
     });
-    return r.injection ?? "";
+    return `${r.injection ?? ""}\n${r.ask ?? ""}`;
   } finally {
     a.counterpart.close();
   }
@@ -363,6 +363,35 @@ describe("the wake says it once per version", () => {
     expect(updateLines(wake({ at: "2026-11-05" }))).toEqual([]);
   });
 
+  test("a fresh install: the wake that makes the meeting offer carries no update line, nor do the re-offer days; the day after them does", async () => {
+    const s = Store.open({ dir });
+    try {
+      beginNewInstall(s);
+    } finally {
+      s.close();
+    }
+    await worker(stub(() => json(manifest(ahead(4)))), { date: "2026-11-01" });
+    const first = wake({ at: "2026-11-01" });
+    expect(first).toContain("<counterparts-meet>");
+    expect(updateLines(first)).toEqual([]);
+    for (const day of ["2026-11-02", "2026-11-03"]) {
+      const again = wake({ at: day });
+      expect(again).toContain("<counterparts-meet>");
+      expect(updateLines(again)).toEqual([]);
+    }
+    const after = wake({ at: "2026-11-04" });
+    expect(after).not.toContain("<counterparts-meet>");
+    expect(updateLines(after)).toHaveLength(1);
+  });
+
+  test("a second window on an urgent day gets nothing ordinary beside the first window's urgent line", async () => {
+    await worker(stub(() => json(manifest(ahead(4), { urgentBelow: ahead(1) }))), { date: "2026-11-01" });
+    const a = updateLines(wake({ at: "2026-11-01" }));
+    expect(a).toHaveLength(1);
+    expect(a[0]).toStartWith(UPDATE_URGENT_LEAD);
+    expect(updateLines(wake({ at: "2026-11-01" }))).toEqual([]);
+  });
+
   test("a person who put the meeting off ('later', weeks ago) still hears an urgent fix; the meeting's own day stays quiet", async () => {
     const s = Store.open({ dir });
     try {
@@ -378,7 +407,7 @@ describe("the wake says it once per version", () => {
     // The day the meeting is offered belongs to the meeting.
     const t = Store.open({ dir });
     try {
-      t.setMeta(ONBOARDING_OFFERED_KEY, JSON.stringify({ on: "2026-11-02", session: "s-new", days: 1 }));
+      t.setMeta(ONBOARDING_OFFERED_KEY, JSON.stringify({ on: "2026-11-02", session: "s-new", days: 3 }));
     } finally {
       t.close();
     }
@@ -418,7 +447,7 @@ describe("the wake says it once per version", () => {
     expect(updateLines(wake({ at: "2027-05-10" }))).toEqual([]);
   });
 
-  test("four lines due: older windows, urgent and W1's say; the fourth (behind) waits, unclaimed, for the next wake", async () => {
+  test("four lines due: older windows, urgent and W1's say; the fourth (behind) waits, unclaimed, until the urgent days are spent", async () => {
     const emptyWeights = join(root, "no-table");
     mkdirSync(emptyWeights, { recursive: true });
     const savedWeights = process.env[STATIC_WEIGHTS_ENV];
@@ -437,9 +466,26 @@ describe("the wake says it once per version", () => {
       expect(first.some((l) => l.includes("Please update Counterparts"))).toBe(true);
       expect(first.some((l) => l.startsWith(MEANING_OFF_LEAD) && l.includes("search by meaning"))).toBe(true);
       expect(first.some((l) => l.includes(" is out ("))).toBe(false);
+      const told = (): string => {
+        const s = Store.open({ dir, observer: true });
+        try {
+          return s.getMeta("adapter.update.told") ?? "";
+        } finally {
+          s.close();
+        }
+      };
+      expect(told()).not.toContain("behind");
+      // A second window the same day: nothing ordinary beside the urgent day.
       const second = wake({ at: "2026-11-01", config }).split("\n");
       expect(second.some((l) => l.startsWith(STALE_WINDOWS_LEAD))).toBe(false);
-      expect(second.some((l) => l.includes(`Counterparts ${ahead(4)} is out (`))).toBe(true);
+      expect(second.some((l) => l.includes(" is out ("))).toBe(false);
+      for (const day of ["2026-11-02", "2026-11-03"]) {
+        const lines = wake({ at: day, config }).split("\n");
+        expect(lines.some((l) => l.includes("Please update Counterparts"))).toBe(true);
+        expect(lines.some((l) => l.includes(" is out ("))).toBe(false);
+      }
+      const after = wake({ at: "2026-11-04", config }).split("\n");
+      expect(after.some((l) => l.includes(`Counterparts ${ahead(4)} is out (`))).toBe(true);
     } finally {
       if (savedWeights === undefined) delete process.env[STATIC_WEIGHTS_ENV];
       else process.env[STATIC_WEIGHTS_ENV] = savedWeights;

@@ -41,7 +41,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname, join, relative, resolve, isAbsolute } from "node:path";
 
-import { lastOffer } from "../core/onboarding.js";
+import { lastOffer, offerDue } from "../core/onboarding.js";
 import type { Store } from "../core/store/index.js";
 import type { AdapterConfig } from "./config.js";
 import { sidebarPluginRecorded } from "./host-wiring.js";
@@ -723,6 +723,11 @@ export function updateNoticeLine(input: UpdateLineInput): string | null {
         const urgentFloor = known.flags.urgentBelow;
         const offering = offerable && told.offered === undefined;
         const next: Told = { ...told, ...(offering ? { offered: input.today } : {}) };
+        // An urgent day already told (another window, earlier today): nothing
+        // ordinary beside it on the same day.
+        if (urgentFloor !== null && versionBelow(installed, urgentFloor) && told.urgent?.floor === urgentFloor && told.urgent.dates.includes(input.today)) {
+          return undefined;
+        }
         const urgentSpent =
           urgentFloor !== null &&
           versionBelow(installed, urgentFloor) &&
@@ -794,6 +799,22 @@ export function installedForRoute(route: InstallRoute, running: string | null, r
 }
 
 /**
+ * THE MEETING'S DAY: the day the first meeting was last offered, or a wake
+ * that makes the offer now (re-check of #672: the offer is recorded only after
+ * the wake is built, so a fresh install's first wake read as "no offer yet"
+ * and carried "Enable auto-update" beside the meeting). Never throws: a store
+ * that will not say is not the meeting's day.
+ */
+function meetingDay(store: Store, today: string, session: string): boolean {
+  try {
+    if (lastOffer(store)?.on === today) return true;
+    return offerDue(store, { on: today, session }).due;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * THE LINES' INPUT FOR THIS PROCESS — what the session-start hook and
  * Desktop's `wake` both pass: the version this person has installed (the
  * plugin's highest record, so an updated window that has not reloaded is not
@@ -813,6 +834,8 @@ export function updateLineInputHere(input: {
   readonly home: string;
   readonly cwd?: string | null;
   readonly codeTab?: boolean;
+  /** This session's id, for whether this very wake makes the meeting offer; absent, any session. */
+  readonly session?: string;
 }): UpdateLineInput {
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? null;
@@ -840,6 +863,6 @@ export function updateLineInputHere(input: {
     transpiled: TRANSPILED,
     sidebar,
     codeTab: input.codeTab === true,
-    meetingDay: lastOffer(input.store)?.on === input.today,
+    meetingDay: meetingDay(input.store, input.today, input.session ?? ""),
   };
 }
