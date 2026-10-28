@@ -1791,11 +1791,11 @@ const REFLECT: ToolSpec = {
       close: {
         type: "array",
         items: { type: "string" },
-        description: "`finish`, optional: ids from the bundle's staleOpen that look done but you are not sure of — asked in the share, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
+        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that look done but you are not sure of — asked in the share, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
       },
       closeNow: {
         type: "array",
-        description: "`finish`, optional: ids from the bundle's staleOpen that a memory you read plainly shows finished — closed now, and said in the share. When in doubt, use `close` instead.",
+        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that a memory you read plainly shows finished (for settlesOpen: that what would settle it happened) — closed now, and said in the share. When in doubt, use `close` instead.",
         items: {
           type: "object",
           properties: {

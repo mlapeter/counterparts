@@ -111,7 +111,7 @@ import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence, unsettledPairOf } f
 import { joinHow, joinProposalOf, joinSentence, pairKey, proposeJoin } from "./project-ask.js";
 import type { JoinProposal } from "./project-ask.js";
 import type { CoreAsk, CoreDecided } from "./core-ask.js";
-import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
+import { settlesWhenOf, THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
 import type { SettleOutcome } from "../reconsolidation.js";
 
 /** Every `reflect` knob, in one place. Working defaults of 2026-09-27; CAL = not yet measured. */
@@ -238,6 +238,16 @@ export const REFLECT_TUNABLES = {
   STALE_OPEN_DAYS: 4,
   STALE_OPEN: 5,
   STALE_OPEN_REST_NIGHTS: 3,
+  /**
+   * OPEN ITEMS THAT NAME WHAT WOULD SETTLE THEM (2026-10-27, S1; Ames's idea,
+   * lightly held): at most this many carried open items with a `settlesWhen`,
+   * touched lately or not, shown with it (`settlesOpen`), so the night can
+   * close one whose trigger plainly happened — the stale-thread case, where the
+   * page moved on and the thread did not. Same doors as `staleOpen`: `closeNow`
+   * with a why, `close` to ask. Their closes and asks are on top of
+   * `STALE_OPEN`'s. Rotated the same way. CAL.
+   */
+  SETTLES_OPEN: 8,
   /** The characters of one self-close's why (2026-10-20); longer is kept to it, and said. */
   CLOSE_WHY_CHARS: 300,
   /** Feelings shown per memory, and the characters of each one's carried_by. */
@@ -413,7 +423,15 @@ export interface ReflectBundle {
    * `reopened`: the owner reopened it after a reflection closed it, so it may
    * only be asked about. Empty when none.
    */
-  readonly staleOpen: readonly { readonly id: string; readonly text: string; readonly untouched: number; readonly reopened?: true }[];
+  readonly staleOpen: readonly { readonly id: string; readonly text: string; readonly untouched: number; readonly reopened?: true; readonly settlesWhen?: string }[];
+  /**
+   * OPEN ITEMS THAT NAME WHAT WOULD SETTLE THEM (2026-10-27, S1): carried open
+   * threads with a `settlesWhen`, not already in `staleOpen`, touched lately
+   * or not — a line each, the phrase, and how many lived days untouched. The
+   * same `closeNow` and `close` take their ids: closed when a memory plainly
+   * shows the trigger happened, asked when unsure. Absent when none.
+   */
+  readonly settlesOpen?: readonly { readonly id: string; readonly text: string; readonly settlesWhen: string; readonly untouched: number; readonly reopened?: true }[];
   /**
    * NO LONGER CARRIED (2026-10-22, the open-threads brief): how many open
    * threads stopped being carried since the last reflection whose share reached a session —
@@ -893,7 +911,7 @@ export class Reflections {
     // offered to mark, an empty list included — until then an empty offer
     // wrote no key, and 10-10 to 10-23 read as silence, not as "offered 0".
     this.store.updateReflection(id, {
-      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, lanes, ...(composed.chaptersAs === undefined ? {} : { chaptersAs: composed.chaptersAs }), ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), unmarked: composed.unmarked, ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(fitted.notCarried.length > 0 ? { notCarried: fitted.notCarried } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
+      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, lanes, ...(composed.chaptersAs === undefined ? {} : { chaptersAs: composed.chaptersAs }), ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), unmarked: composed.unmarked, ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...((composed.settlesOpen ?? []).length > 0 ? { settlesOpen: (composed.settlesOpen ?? []).map((x) => x.id) } : {}), ...(fitted.notCarried.length > 0 ? { notCarried: fitted.notCarried } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
     });
     writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap, ...(aliases === null ? {} : { aliases: aliases.toJSON() }) });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
@@ -1204,7 +1222,15 @@ export class Reflections {
             // the share says so; the unsure ones are asked, as before.
             `- closeNow and close (optional, ids from staleOpen only): staleOpen lists ${String(bundle.staleOpen.length)} open ${bundle.staleOpen.length === 1 ? "thread" : "threads"} nobody has touched for a while (untouched: lived days). Most are open only because nobody closed them. Read one whole with recall first if its line is not enough.`,
             `  closeNow: the ones a memory you have read plainly shows finished — each {id, why: what shows it done, in a line, shows: the id of the memory that shows it}. They close tonight; your share says which, and ${who} can have one reopened.`,
-            `  close: the ones that look done but you are not sure of — ids only. Nothing closes: your share asks ${who}, and a yes closes them. When in doubt, ask rather than close; never close one just because it is old, and leave out one you have no view on.${bundle.staleOpen.some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who} after a reflection closed it: ask, never close.` : ""}`,
+            `  close: the ones that look done but you are not sure of — ids only. Nothing closes: your share asks ${who}, and a yes closes them. When in doubt, ask rather than close; never close one just because it is old, and leave out one you have no view on.${bundle.staleOpen.some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who} after a reflection closed it: ask, never close.` : ""}${bundle.staleOpen.some((x) => x.settlesWhen !== undefined) ? " One with settlesWhen names what would settle it: close it when a memory shows that happened." : ""}`,
+          ]
+        : []),
+      // WHAT WOULD SETTLE IT (2026-10-27, S1; Ames's idea): open items that
+      // name their trigger, touched lately or not — the night closes one whose
+      // trigger plainly happened, through the same doors.
+      ...((bundle.settlesOpen ?? []).length > 0
+        ? [
+            `- settlesOpen (optional; the same closeNow and close take these ids): ${String((bundle.settlesOpen ?? []).length)} open ${(bundle.settlesOpen ?? []).length === 1 ? "item names" : "items name"} what would settle ${(bundle.settlesOpen ?? []).length === 1 ? "it" : "them"} (settlesWhen) — an answer someone owes, a decision, an event. If a memory you have read plainly shows that it happened (the answer came, the decision was made, the page moved on), closeNow it: {id, why: what happened, shows: the memory that shows it}. If it may have happened and you are not sure, put its id in close and your share asks ${who}. If nothing shows it, leave it open: a trigger not yet met is no reason to close, and age is none either.${(bundle.settlesOpen ?? []).some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who}: ask, never close.` : ""}`,
           ]
         : []),
       // NO LONGER CARRIED (2026-10-22, the open-threads brief): the count, once, never the list.
@@ -1822,7 +1848,10 @@ export class Reflections {
     // in the share with the way back (`reopen`); one the owner reopened is
     // only ever asked again. Both ride in the share, so a share already told
     // or carried takes neither, and together they keep to `STALE_OPEN`.
-    const offeredStale = new Set(stringIds(parseDetail(row.detail)["staleOpen"]));
+    // The open items that named what would settle them (S1, 2026-10-27) take
+    // the same doors, and add their own room to the night's limit.
+    const offeredSettles = stringIds(parseDetail(row.detail)["settlesOpen"]);
+    const offeredStale = new Set([...stringIds(parseDetail(row.detail)["staleOpen"]), ...offeredSettles]);
     const priorProposed = stringIds(prior["closeProposed"]);
     const priorSelfClosed = selfClosedOf(prior["selfClosed"]);
     const proposed = [...priorProposed];
@@ -1831,7 +1860,7 @@ export class Reflections {
     const closeNotes: string[] = [];
     let askedInstead = 0;
     const isClosed = (cid: string): boolean => priorSelfClosed.some((x) => x.id === cid) || toClose.some((x) => x.id === cid);
-    const full = (): boolean => proposed.length + priorSelfClosed.length + toClose.length >= T.STALE_OPEN;
+    const full = (): boolean => proposed.length + priorSelfClosed.length + toClose.length >= T.STALE_OPEN + Math.min(offeredSettles.length, T.SETTLES_OPEN);
     // Still open and showable here: the prose read, as the wake reads it.
     const stillOpen = (cid: string): { row: MemoryRow; meta: Record<string, unknown> } | null => {
       const r = this.store.row(cid);
@@ -2080,6 +2109,9 @@ export class Reflections {
     // The stale open list it was shown, and what it proposed closing (2026-10-16).
     const offeredStaleList = parseDetail(row.detail)["staleOpen"];
     if (Array.isArray(offeredStaleList)) detail["staleOpen"] = offeredStaleList;
+    // And the open items offered for what would settle them (S1): the next nights' rotation reads it.
+    const offeredSettlesList = parseDetail(row.detail)["settlesOpen"];
+    if (Array.isArray(offeredSettlesList)) detail["settlesOpen"] = offeredSettlesList;
     // The open threads not carried that night (2026-10-22): the next night counts only what is new.
     const notCarriedList = parseDetail(row.detail)["notCarried"];
     if (Array.isArray(notCarriedList)) detail["notCarried"] = notCarriedList;
@@ -3131,6 +3163,8 @@ export class Reflections {
     // `STALE_OPEN_DAYS` lived days, the longest untouched first, rotated like
     // the unmarked offer — a line each, offered to be proposed closed.
     const staleOpen = this.staleOpen(id, day, see);
+    // And the open items that name what would settle them (S1, 2026-10-27).
+    const settlesOpen = this.settlesOpen(id, day, see, new Set(staleOpen.map((x) => x.id)));
     const uncarried = this.noLongerCarried(id, day);
     // THE OFFER'S OWN ROOM (2026-10-11, the about-marks review): exactly what
     // the offered ids cost as lines, held back from the shared room — so a
@@ -3236,7 +3270,8 @@ export class Reflections {
       wireChars(dreamed?.journal ?? "") +
       earlier.reduce((n, e) => n + wireChars(e.entry), 0) +
       dreamSaw.reduce((n, s) => n + wireChars(s.text) + 30, 0) +
-      staleOpen.reduce((n, s) => n + wireChars(s.text) + 40, 0) +
+      staleOpen.reduce((n, s) => n + wireChars(s.text) + wireChars(s.settlesWhen ?? "") + 40, 0) +
+      settlesOpen.reduce((n, s) => n + wireChars(s.text) + wireChars(s.settlesWhen) + 40, 0) +
       (beliefs === null ? 0 : wireChars(JSON.stringify(beliefs))) +
       (spine === null ? 0 : wireChars(JSON.stringify(spine)));
     const avail = Math.max(0, T.ROOM_CHARS - spent - REFLECT_FURNITURE);
@@ -3337,6 +3372,7 @@ export class Reflections {
       feelingWeeks: weeks === null ? null : { ...weeks, restsOn: weeksRest.filter(kept) },
       unmarked: unmarkedIds.filter(kept),
       staleOpen,
+      ...(settlesOpen.length > 0 ? { settlesOpen } : {}),
       ...(uncarried.fresh > 0 ? { noLongerCarried: uncarried.fresh } : {}),
       // Off, the bundle is as it was before beliefs: no key at all.
       ...(beliefs === null ? {} : { beliefs }),
@@ -3743,9 +3779,9 @@ export class Reflections {
     id: string,
     day: number,
     see: (mid: string) => { row: MemoryRow; whole: string; line: string } | null,
-  ): { id: string; text: string; untouched: number; reopened?: true }[] {
+  ): { id: string; text: string; untouched: number; reopened?: true; settlesWhen?: string }[] {
     const T = REFLECT_TUNABLES;
-    const found: { id: string; text: string; untouched: number; reopened?: true }[] = [];
+    const found: { id: string; text: string; untouched: number; reopened?: true; settlesWhen?: string }[] = [];
     // Only the open threads still carried (2026-10-22, `self/identity.ts#openCarry`,
     // the wake's own rule and its one test of what a thread is — not dreamed,
     // not settled over, the flag confirmed on the prose): one nobody touched
@@ -3759,23 +3795,71 @@ export class Reflections {
       const untouched = day - Math.max(v.row.birth_day, v.row.last_used_day);
       if (untouched < T.STALE_OPEN_DAYS) continue;
       let reopened = false;
+      let settles: string | null = null;
       try {
         // Reopened by the owner after a reflection closed it (2026-10-20): it may only be asked about.
-        reopened = typeof this.store.readProse(mid).meta[THREAD_REOPENED_BY_META_KEY] === "string";
+        const meta = this.store.readProse(mid).meta;
+        reopened = typeof meta[THREAD_REOPENED_BY_META_KEY] === "string";
+        // What would settle it, when named (S1, 2026-10-27).
+        settles = settlesWhenOf(meta);
       } catch {
         continue;
       }
-      found.push({ id: mid, text: v.line, untouched, ...(reopened ? { reopened: true as const } : {}) });
+      found.push({ id: mid, text: v.line, untouched, ...(reopened ? { reopened: true as const } : {}), ...(settles === null ? {} : { settlesWhen: settles }) });
     }
+    found.sort((a, b) => b.untouched - a.untouched || (a.id < b.id ? -1 : 1));
+    return this.rotated(id, "staleOpen", found).slice(0, T.STALE_OPEN);
+  }
+
+  /** What the last few reflections were offered under `key` waits behind the rest (the unmarked offer's rotation). */
+  private rotated<X extends { id: string }>(id: string, key: "staleOpen" | "settlesOpen", found: readonly X[]): X[] {
+    const T = REFLECT_TUNABLES;
     const lately = new Set(
       this.store
         .reflections({ limit: T.STALE_OPEN_REST_NIGHTS + 1 })
         .filter((r) => r.id !== id)
         .slice(0, T.STALE_OPEN_REST_NIGHTS)
-        .flatMap((r) => stringIds(parseDetail(r.detail)["staleOpen"])),
+        .flatMap((r) => stringIds(parseDetail(r.detail)[key])),
     );
+    return [...found.filter((x) => !lately.has(x.id)), ...found.filter((x) => lately.has(x.id))];
+  }
+
+  /**
+   * OPEN ITEMS THAT NAME WHAT WOULD SETTLE THEM (2026-10-27, S1; Ames's idea:
+   * "an open question needs either a trigger or a decision to let it go"):
+   * the carried open threads (`openCarry`, as `staleOpen` reads them) with a
+   * `meta.settlesWhen`, showable here, not already offered as stale (`skip`),
+   * touched lately or not — a thread whose trigger just happened is usually
+   * not stale. The longest untouched first, rotated like `staleOpen`. At
+   * most `SETTLES_OPEN`. Being offered is not a touch.
+   */
+  private settlesOpen(
+    id: string,
+    day: number,
+    see: (mid: string) => { row: MemoryRow; whole: string; line: string } | null,
+    skip: ReadonlySet<string>,
+  ): { id: string; text: string; settlesWhen: string; untouched: number; reopened?: true }[] {
+    const T = REFLECT_TUNABLES;
+    const found: { id: string; text: string; settlesWhen: string; untouched: number; reopened?: true }[] = [];
+    const carry = openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS, SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH);
+    for (const mid of carry.carried) {
+      if (skip.has(mid)) continue;
+      let meta: Record<string, unknown>;
+      try {
+        meta = this.store.readProse(mid).meta;
+      } catch {
+        continue;
+      }
+      const settles = settlesWhenOf(meta);
+      if (settles === null) continue;
+      const v = see(mid);
+      if (v === null) continue;
+      const untouched = Math.max(0, day - Math.max(v.row.birth_day, v.row.last_used_day));
+      const reopened = typeof meta[THREAD_REOPENED_BY_META_KEY] === "string";
+      found.push({ id: mid, text: v.line, settlesWhen: settles, untouched, ...(reopened ? { reopened: true as const } : {}) });
+    }
     found.sort((a, b) => b.untouched - a.untouched || (a.id < b.id ? -1 : 1));
-    return [...found.filter((x) => !lately.has(x.id)), ...found.filter((x) => lately.has(x.id))].slice(0, T.STALE_OPEN);
+    return this.rotated(id, "settlesOpen", found).slice(0, T.SETTLES_OPEN);
   }
 
   /**
@@ -4505,7 +4589,12 @@ function leanReflectLines(b: ReflectBundle, aliases: AliasMap): string[] {
   out.push(`unmarked: ${list(b.unmarked)}`);
   out.push("## staleOpen");
   if (b.staleOpen.length === 0) out.push("none");
-  for (const x of b.staleOpen) out.push(`- ${s(x.id)} · untouched ${String(x.untouched)}${x.reopened === true ? " · reopened" : ""} · ${x.text}`);
+  for (const x of b.staleOpen) out.push(`- ${s(x.id)} · untouched ${String(x.untouched)}${x.reopened === true ? " · reopened" : ""} · ${x.text}${x.settlesWhen === undefined ? "" : ` · settlesWhen: ${x.settlesWhen}`}`);
+  // Open items that name what would settle them (S1, 2026-10-27); no heading when none.
+  if ((b.settlesOpen ?? []).length > 0) {
+    out.push("## settlesOpen");
+    for (const x of b.settlesOpen ?? []) out.push(`- ${s(x.id)} · untouched ${String(x.untouched)}${x.reopened === true ? " · reopened" : ""} · ${x.text} · settlesWhen: ${x.settlesWhen}`);
+  }
   if (b.noLongerCarried !== undefined) out.push(`noLongerCarried: ${String(b.noLongerCarried)}`);
   if (b.beliefs !== undefined && b.beliefs !== null) {
     out.push(`## beliefs (births ${String(b.beliefs.births)})`);
@@ -4530,6 +4619,7 @@ export function reflectBundleIds(b: ReflectBundle): string[] {
     ...Object.keys(b.memories),
     // Named outside `memories`: the open threads offered to close, and what a dream's belief candidate cites.
     ...b.staleOpen.map((x) => x.id),
+    ...(b.settlesOpen ?? []).map((x) => x.id),
     ...(b.beliefs?.candidates ?? []).flatMap((c) => c.sources),
     ...b.chapters.map((c) => c.id),
   ];
