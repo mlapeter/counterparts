@@ -39,7 +39,7 @@ CLEAN_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 # Every run of the binary goes through here: an EMPTY environment but for these.
 run() {
-  env -i HOME="$FAKE_HOME" PATH="$CLEAN_PATH" TMPDIR="$WORK" COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 "$@"
+  env -i HOME="$FAKE_HOME" PATH="$CLEAN_PATH" TMPDIR="$WORK" COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 COUNTERPARTS_UPDATE_CHECK=off "$@"
 }
 
 PASS=0

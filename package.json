@@ -23,6 +23,14 @@
     "bun": ">=1.3.0",
     "node": ">=22.15.0"
   },
+  "counterparts": {
+    "updates": {
+      "tellBelow": null,
+      "urgentBelow": null,
+      "tellBehind": 3,
+      "plugin": true
+    }
+  },
   "bin": {
     "counterparts": "./src/adapters/cli/bin/counterparts.mjs",
     "counterparts-hook": "./src/adapters/claude-code/bin/hook.mjs",

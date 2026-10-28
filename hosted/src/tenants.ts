@@ -45,6 +45,7 @@ import type { McpServer } from "../../src/adapters/mcp/index.js";
 import { serialQueue } from "../../src/adapters/remote/http.js";
 import type { McpTarget, Serial } from "../../src/adapters/remote/http.js";
 import { scopesPath } from "../../src/adapters/scopes.js";
+import { UPDATE_CHECK_ENV } from "../../src/adapters/update-check.js";
 import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
@@ -307,6 +308,9 @@ export class Tenants {
     const config: AdapterConfig = {
       dataDir: storeDir,
       ...(tenant.timeZone === undefined ? {} : { timeZone: tenant.timeZone }),
+      // HOSTED IS ALWAYS CURRENT (U1b): its workers never ask npm for a newer
+      // version. Here and in `workerEnv`, so either alone would hold.
+      updateCheck: false,
     };
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(configPath, 0o600);
@@ -433,6 +437,8 @@ export function workerEnv(plan: SpawnPlan): Record<string, string> {
   const dataDir = plan.env[DATA_DIR_ENV];
   if (dataDir !== undefined) env["HOME"] = join(dataDir, "..");
   env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
+  // No update check from a hosted worker (U1b): the service is always current.
+  env[UPDATE_CHECK_ENV] = "off";
   return env;
 }
 

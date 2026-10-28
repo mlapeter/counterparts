@@ -419,7 +419,37 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     // only under a per-run 192-bit secret path (everything else is 404), opens
     // no connection and resolves no host; pinned below the same way the
     // dashboard's server is. Its own CONTRACT is the review.
-    expect(callers.sort()).toEqual(["adapters/dashboard/web/probe.ts", "adapters/dashboard/web/server.ts", "adapters/remote/http.ts"]);
+    //
+    // THE FOURTH ENTRY IS OUTBOUND, AND THE FIRST TO LEAVE THE MACHINE
+    // (2026-10-28, U1b, on Mike's answers Q1–Q3 to the U1 design note): the
+    // detached worker's daily update check. `adapters/claude-code/bin/runner.ts`
+    // hands the runtime's own `fetch` to `adapters/update-check.ts#fetchLatest`,
+    // which makes ONE GET of npm's `/latest` for this package — no body, no
+    // query, no id, a constant User-Agent, redirects refused — and copies only
+    // validated scalars out. Off by `"updateCheck": false`, by telling the AI to
+    // stop, by `COUNTERPARTS_UPDATE_CHECK=off`, and under Claude Code's
+    // `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; disclosed on /privacy. Pinned
+    // below: one call site, one URL, a GET.
+    expect(callers.sort()).toEqual([
+      "adapters/claude-code/bin/runner.ts",
+      "adapters/dashboard/web/probe.ts",
+      "adapters/dashboard/web/server.ts",
+      "adapters/remote/http.ts",
+    ]);
+    const strip = (path: string): string =>
+      readFileSync(join(SRC, path), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/^\s*\/\/.*$/gm, " ");
+    const runner = strip("adapters/claude-code/bin/runner.ts");
+    expect(runner.match(/(^|[^.\w])fetch\s*\(/gm)?.length).toBe(1);
+    expect(runner).toContain("fetch: (url, init) => fetch(url, init)");
+    const check = strip("adapters/update-check.ts");
+    expect(check.match(/https?:\/\/[^`"'\s]*/g)).toEqual(["https://registry.npmjs.org/counterparts/latest"]);
+    expect(check.match(/input\.fetch\s*\(/g)?.length).toBe(1);
+    const init = /input\.fetch\(LATEST_URL, \{([^}]*)\}/.exec(check)?.[1] ?? "";
+    expect(init).toContain('method: "GET"');
+    expect(init).toContain('redirect: "error"');
+    expect(/\bbody\s*:/.test(init)).toBe(false);
     // (Only whole-line `//` comments stripped: a trailing-comment strip would eat the URL's own `//`.)
     const probe = readFileSync(join(SRC, "adapters/dashboard/web/probe.ts"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, " ")

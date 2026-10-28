@@ -174,7 +174,7 @@ describe("two people, two stores, one door", () => {
     await tool(r.url, "wake", {}, auth(r.tokens.b));
     const dir = tenantDir(r.tenants.root, r.callers.b.storeId);
     const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) as Record<string, unknown>;
-    assert.deepEqual(config, { dataDir: join(dir, "store"), timeZone: "Pacific/Kiritimati" });
+    assert.deepEqual(config, { dataDir: join(dir, "store"), timeZone: "Pacific/Kiritimati", updateCheck: false });
     assert.equal(statSync(join(dir, "config.json")).mode & 0o777, 0o600);
   });
 
@@ -400,6 +400,8 @@ describe("the worker pool", () => {
     assert.equal(env["COUNTERPARTS_WATCHDOG_MS"], "1000");
     assert.equal(env["HOME"], "/data/tenants/x");
     assert.equal(env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"], "1");
+    // Hosted is always current: its workers never ask npm (U1b).
+    assert.equal(env["COUNTERPARTS_UPDATE_CHECK"], "off");
   });
 
   test("COUNTERPARTS_* values pass by name, not by prefix: the server's own never steer or reach a child (review 10-26)", () => {
@@ -414,7 +416,7 @@ describe("the worker pool", () => {
         NODE_OPTIONS: "--require /tmp/evil.js",
       }),
     );
-    assert.deepEqual(Object.keys(env).sort(), ["COUNTERPARTS_CONFIG", "COUNTERPARTS_DATA_DIR", "COUNTERPARTS_REQUIRE_EXPLICIT_DIR", "COUNTERPARTS_SESSION", "HOME"]);
+    assert.deepEqual(Object.keys(env).sort(), ["COUNTERPARTS_CONFIG", "COUNTERPARTS_DATA_DIR", "COUNTERPARTS_REQUIRE_EXPLICIT_DIR", "COUNTERPARTS_SESSION", "COUNTERPARTS_UPDATE_CHECK", "HOME"]);
   });
 
   test("through a real wake: the pool hands the child only allow-listed variables, even with secrets in the server's environment", async () => {

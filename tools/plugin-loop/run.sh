@@ -132,6 +132,9 @@ done
 # install-loop gives: the stranger's path IS the defaults, in a HOME the guards
 # above have already made throwaway.
 unset COUNTERPARTS_REQUIRE_EXPLICIT_DIR
+# The daily update check (U1b) asks registry.npmjs.org; a loop measures the
+# install, not npm, so it stays off in the clean room.
+export COUNTERPARTS_UPDATE_CHECK=off
 
 CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude || true)}"
 if [ -z "$CLAUDE_BIN" ] || [ ! -x "$CLAUDE_BIN" ]; then

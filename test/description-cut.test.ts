@@ -208,7 +208,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +202 on 2026-10-15 (chapter summaries): the summary claim replaces the
       // ingestion one; the `about` claim still ends inside the cut, at 1,980.
       chapter: { total: 1980, beforeList: 761 },
-      scope: { total: 1514, beforeList: 755 },
+      // scope +281 on 2026-10-28 (U1b): `updates` alone, in the summary and its claim.
+      scope: { total: 1795, beforeList: 825 },
       // +63 on 2026-10-20 (the nightly writers held to the room): the wake
       // claim says a page past the room with a short version shows it. Past
       // the list's start; the head is untouched.
