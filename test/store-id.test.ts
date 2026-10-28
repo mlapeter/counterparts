@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,7 +13,7 @@ import { Store } from "../src/core/store/index.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
-import { installedVersion } from "../src/adapters/sessions.js";
+import { installedVersion, recordSession, sessionPath } from "../src/adapters/sessions.js";
 import { STORE_ID_RE, storeId, storeMarker } from "../src/adapters/store-id.js";
 import { expansionsSaltPath } from "../src/adapters/expansions.js";
 
@@ -115,5 +115,41 @@ describe("the store id", () => {
     expect(lines[at]).toContain(` store=${String(whoami(a).body["store"])} `);
     expect(lines[at]?.match(/<!--/g)?.length).toBe(1);
     expect(injection).not.toContain(storeId(b));
+  });
+
+  test("a month-old salt survives the session-start prune, so the store id does not change", () => {
+    // The salt is written once (`expansions.ts#expansionSalt`), so its mtime is
+    // its birthday. SessionStart's prune (`sessions.ts#pruneSessions`) once
+    // removed it a week after that, and the next wake minted another: a new
+    // store id, and every handle key orphaned (2026-10-28).
+    mkdirSync(join(root, "proj"), { recursive: true });
+    const before = storeId(a);
+    expect(before).toMatch(STORE_ID_RE);
+    const salt = readFileSync(expansionsSaltPath(a), "utf8");
+    recordSession(a, { sessionId: "s-old", scope: join(root, "proj"), phase: "end", at: Date.now() - 30 * 86_400_000 });
+    const oldRecord = sessionPath(a, "s-old") ?? "";
+    expect(existsSync(oldRecord)).toBe(true);
+    const month = new Date(Date.now() - 30 * 86_400_000);
+    for (const path of [expansionsSaltPath(a), oldRecord]) utimesSync(path, month, month);
+
+    const wake = (sessionId: string): string => {
+      const adapter = openAdapter(
+        { dataDir: a, injectionBudgetBytes: 9_000 },
+        { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), configPath: join(root, "trial", "claude-code.json") },
+      );
+      try {
+        return adapter.sessionStart({ sessionId, scope: join(root, "proj"), at: "2026-10-28" }).injection ?? "";
+      } finally {
+        adapter.counterpart.close();
+      }
+    };
+    const first = wake("s-one");
+    const second = wake("s-two");
+
+    expect(readFileSync(expansionsSaltPath(a), "utf8")).toBe(salt);
+    expect(storeId(a)).toBe(before);
+    for (const injection of [first, second]) expect(injection).toContain(` store=${String(before)} `);
+    // The prune still does its job on an ordinary old record.
+    expect(existsSync(oldRecord)).toBe(false);
   });
 });
