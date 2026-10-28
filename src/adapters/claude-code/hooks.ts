@@ -82,7 +82,7 @@ import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessa
 import type { CheckoutReading } from "./doctor.js";
 import { staleWindowsLine as staleWindowsSaid } from "./stale-windows.js";
 import { upperFirst, windowStep } from "../update-words.js";
-import { updateLineInputHere, updateNoticeLine, urgentUpdateLine } from "../update-check.js";
+import { UPDATE_ROOM_MARGIN, updateLineInputHere, updateNoticeLine, urgentUpdateLine } from "../update-check.js";
 import { nightRowTimeoutMs, planNightRunner } from "./night-run.js";
 import { NOTHING_OWED_BEFORE_KEY, catchUpOf, catchUpWords, owedBefore } from "./night-catch-up.js";
 import type { NightKind } from "./night-run.js";
@@ -769,10 +769,22 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // cap is not composed, so not claimed: it waits for the next wake. When
       // W1's step is the plugin's update, the fourth is skipped (doing W1's
       // step updates).
-      const urgent = resumed || !watched ? null : this.updateLine(input, "urgent");
+      //
+      // AND ONLY WHERE IT FITS (review of #672): lead lines are never deferred
+      // once composed, so a U1 line is composed only when the wake, the lines
+      // above it and itself stay `UPDATE_ROOM_MARGIN` under the host's ceiling
+      // (room left for the asks). One that does not fit is not claimed.
+      const fitsUnder = (above: readonly (string | null)[]) => (line: string): boolean => {
+        const lines = [codeTab, ...above, line].filter((l): l is string => l !== null);
+        const bytes = woke.bytes + Buffer.byteLength(`${this.nowLine()}\n${lines.join("\n")}\n${plain.context}`, "utf8");
+        return bytes <= TUNABLES.HOST_OUTPUT_CHARS - UPDATE_ROOM_MARGIN;
+      };
+      const urgent = resumed || !watched ? null : this.updateLine(input, "urgent", { fits: fitsUnder([stale]) });
       const maintenance = [stale, urgent, meaning].filter((l) => l !== null).length;
       const update =
-        resumed || !watched || maintenance >= 3 || (meaning !== null && this.install === "plugin") ? null : this.updateLine(input, "notice");
+        resumed || !watched || maintenance >= 3 || (meaning !== null && this.install === "plugin")
+          ? null
+          : this.updateLine(input, "notice", { fits: fitsUnder([stale, urgent, meaning]), urgentSaid: urgent !== null });
       const leadLines = [codeTab, stale, urgent, meaning, update].filter((l): l is string => l !== null);
       // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
       // the state word only, for the mod, which cannot reach the dashboard
@@ -1916,10 +1928,14 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * hears nothing. Reads the worker's small `updates.json` and two meta keys;
    * makes no request (a hook never does). Never throws.
    */
-  updateLine(input: HookInput, which: "urgent" | "notice"): string | null {
+  updateLine(
+    input: HookInput,
+    which: "urgent" | "notice",
+    opts: { readonly fits?: (line: string) => boolean; readonly urgentSaid?: boolean } = {},
+  ): string | null {
     if (this.observer) return null;
     try {
-      const lineInput = updateLineInputHere({
+      const here = updateLineInputHere({
         store: this.counterpart.store,
         configPath: this.configPath,
         config: this.config,
@@ -1929,6 +1945,11 @@ export class ClaudeCodeAdapter extends Lifecycle {
         cwd: input.scope,
         codeTab: input.entrypoint === CODE_TAB_ENTRYPOINT,
       });
+      const lineInput = {
+        ...here,
+        ...(opts.fits === undefined ? {} : { fits: opts.fits }),
+        ...(opts.urgentSaid === true ? { urgentSaid: true } : {}),
+      };
       const line = which === "urgent" ? urgentUpdateLine(lineInput) : updateNoticeLine(lineInput);
       if (line !== null) this.emit("adapter.update.notice", { which });
       return line;

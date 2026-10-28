@@ -2799,8 +2799,20 @@ all use it).
   switch) gets no age line either. The note kept it for the off switch; Mike's Q4 ("stop
   reminding me") wins. Only Claude Code's no-traffic switch, the directory flavor and a check
   failing for 14 days get it.
-- **"Not on the meeting day"** is approximated as "not while the meeting is pending"
-  (`meetPending`).
+- **"Not on the meeting day"** is the day the meeting was last offered
+  (`lastOffer(store)?.on === today`). Not "while the meeting is pending" (review of #672):
+  `offered`/`later` outlive the offer days, so a person who put the meeting off never heard of
+  an update, urgent included.
+- **Review of #672, the rest.** At most one request a day, failures included (a failed day tries
+  again the next; doctor's amber counts failed days in a row, from the third). A U1 line is
+  composed only where it fits: the wake, the lines above it and itself `UPDATE_ROOM_MARGIN`
+  (600 bytes) under the host's ceiling; otherwise it is not claimed and the next wake says it.
+  The urgent line's days spent, the release is told once more as an ordinary line. Desktop's
+  long-running server says no update line while the package on disk differs from what it
+  loaded. The worker reads "stop" fail-closed. The age line is said once per copy, softly.
+- **`counterparts start-fresh` does not carry the "stop"** (`adapter.update.check` is store meta,
+  and start-fresh carries no store meta across). After start-fresh,
+  a person who had said stop says it again, or sets `"updateCheck": false`.
 - **Once-ness** is one meta key (`adapter.update.told`) claimed with `updateMeta`, as the
   older-windows line is; the worker's try latches are files under `updates/` beside the
   configuration (it has no store open by then).

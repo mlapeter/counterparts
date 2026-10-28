@@ -22,7 +22,11 @@ import { spawnSync } from "node:child_process";
 
 import { localDate } from "../src/core/time.js";
 
-import { ONBOARDING_MEET_KEY } from "../src/core/onboarding.js";
+import { ONBOARDING_MEET_KEY, ONBOARDING_OFFERED_KEY } from "../src/core/onboarding.js";
+import { STATIC_WEIGHTS_ENV } from "../src/core/embed/static.js";
+import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../src/core/store/index.js";
+import { STALE_WINDOWS_LEAD } from "../src/adapters/claude-code/stale-windows.js";
+import { recordServerLaunch } from "../src/adapters/sessions.js";
 import { Store } from "../src/core/store/index.js";
 import { MEANING_OFF_LEAD, doctorFindings, openAdapter } from "../src/adapters/claude-code/index.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
@@ -157,8 +161,8 @@ function wake(opts: { install?: InstallRoute; at: string; config?: Partial<Adapt
   }
 }
 
-const updateLines = (text: string): string[] =>
-  text.split("\n").filter((l) => (l.startsWith(UPDATE_LEAD) || l.startsWith(UPDATE_URGENT_LEAD)) && l.includes("Counterparts"));
+/** The update lines in a wake: by their own words, not the lead W1's line shares. */
+const updateLines = (text: string): string[] => text.split("\n").filter((l) => l.includes(STOP_HINT) || l.includes("Please update Counterparts"));
 
 function doctor(config: AdapterConfig = { dataDir: dir }, today = "2026-11-02") {
   const s = Store.open({ dir, observer: true });
@@ -247,18 +251,37 @@ describe("the worker makes the request at most once a day", () => {
     expect(state?.switch).toBe("none");
   });
 
-  test("a failure waits an hour before the next try, and leaves no line and no alarm", async () => {
+  test("at most one request a day, failures included: a failed day tries again the next day; no line, and no alarm until the third failed day", async () => {
     const f = stub(() => Promise.reject(new TypeError("fetch failed")));
     expect((await worker(f, { date: "2026-11-01" })).updates?.reason).toBe("failed");
-    expect((await worker(f, { date: "2026-11-01" })).updates?.reason).toBe("waiting");
+    expect((await worker(f, { date: "2026-11-01" })).updates?.reason).toBe("checked-today");
     expect(f.calls).toHaveLength(1);
     expect(updateLines(wake({ at: "2026-11-01" }))).toEqual([]);
-    const d = doctor({ dataDir: dir }, "2026-11-02");
-    expect(d.severity).toBe("green");
-    // From the third day of failures, a quiet amber that says nothing else is affected.
-    const later = doctor({ dataDir: dir }, "2026-11-04");
-    expect(later.severity).toBe("amber");
-    expect(later.detail).toContain("Nothing else is affected");
+    expect(doctor({ dataDir: dir }, "2026-11-01").severity).toBe("green");
+    // A week away, then one more failure: two failed days, still green.
+    expect((await worker(f, { date: "2026-11-09" })).updates?.reason).toBe("failed");
+    expect(f.calls).toHaveLength(2);
+    expect(doctor({ dataDir: dir }, "2026-11-09").severity).toBe("green");
+    // The third failed day in a row: a quiet amber that says nothing else is affected.
+    await worker(f, { date: "2026-11-10" });
+    const third = doctor({ dataDir: dir }, "2026-11-10");
+    expect(third.severity).toBe("amber");
+    expect(third.detail).toContain("Nothing else is affected");
+    // One success clears it.
+    await worker(stub(() => json(manifest(INSTALLED))), { date: "2026-11-11" });
+    expect(doctor({ dataDir: dir }, "2026-11-11").severity).toBe("green");
+    expect(readUpdateState(configPath)?.failures).toBeUndefined();
+  });
+
+  test("a worker already stopping (its watchdog fired) makes no request and spends no try", async () => {
+    const stopped = new AbortController();
+    stopped.abort();
+    const f = stub(() => json(manifest(ahead(4))));
+    const r = await runOnce({ config: { dataDir: dir }, date: "2026-11-01", embedder: null, signal: stopped.signal, updateCheck: { configPath, fetch: f, env: {} } });
+    expect(r.updates?.reason).toBe("aborted");
+    expect(f.calls).toHaveLength(0);
+    expect((await worker(f, { date: "2026-11-01" })).updates?.reason).toBe("ok");
+    expect(f.calls).toHaveLength(1);
   });
 
   for (const [name, env, config] of [
@@ -288,9 +311,11 @@ describe("the worker makes the request at most once a day", () => {
     expect(f.calls).toHaveLength(1);
   });
 
-  test("the configuration key is read leniently: only false turns it off, and nothing else in the file is lost", () => {
-    expect(loadConfig({ dataDir: "/x", updateCheck: false }).config.updateCheck).toBe(false);
-    for (const v of [true, "no", 0, null]) {
+  test("the configuration key is read leniently: false, 0 and the environment's off words turn it off; nothing else does, and nothing in the file is lost", () => {
+    for (const v of [false, 0, "false", "off", "OFF", "0", "no", "disable", "disabled"]) {
+      expect(loadConfig({ dataDir: "/x", updateCheck: v }).config.updateCheck).toBe(false);
+    }
+    for (const v of [true, "yes", "on", 1, null]) {
       const read = loadConfig({ dataDir: "/x", updateCheck: v });
       expect(read.ok).toBe(true);
       expect(read.config.updateCheck).toBeUndefined();
@@ -307,7 +332,7 @@ describe("the wake says it once per version", () => {
     const lines = updateLines(wake({ at: "2026-11-01" }));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toStartWith(MEANING_OFF_LEAD);
-    expect(lines[0]).toContain(`Counterparts ${ahead(4)} is out; I'm on ${INSTALLED}.`);
+    expect(lines[0]).toContain(`Counterparts ${ahead(4)} is out (I'm on ${INSTALLED}).`);
     expect(lines[0]).toContain("counterparts@latest");
     expect(lines[0]).toEndWith(STOP_HINT);
     expect(updateLines(wake({ at: "2026-11-01" }))).toEqual([]);
@@ -330,6 +355,35 @@ describe("the wake says it once per version", () => {
     expect(Buffer.byteLength(lines[0]!, "utf8")).toBeLessThan(170);
     expect(updateLines(wake({ at: "2026-11-01" }))).toEqual([]);
     expect(updateLines(wake({ at: "2026-11-02" }))).toHaveLength(1);
+    expect(updateLines(wake({ at: "2026-11-03" }))).toHaveLength(1);
+    // Its days spent, the release is told once more as an ordinary line (design Q4: "then once per version").
+    const after = updateLines(wake({ at: "2026-11-04" }));
+    expect(after).toHaveLength(1);
+    expect(after[0]).toContain(`Counterparts ${ahead(1)} is out`);
+    expect(updateLines(wake({ at: "2026-11-05" }))).toEqual([]);
+  });
+
+  test("a person who put the meeting off ('later', weeks ago) still hears an urgent fix; the meeting's own day stays quiet", async () => {
+    const s = Store.open({ dir });
+    try {
+      s.setMeta(ONBOARDING_MEET_KEY, "later");
+      s.setMeta(ONBOARDING_OFFERED_KEY, JSON.stringify({ on: "2026-10-01", session: "s-old", days: 3 }));
+    } finally {
+      s.close();
+    }
+    await worker(stub(() => json(manifest(ahead(1), { urgentBelow: ahead(1) }))), { date: "2026-11-01" });
+    const lines = updateLines(wake({ at: "2026-11-01" }));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toStartWith(UPDATE_URGENT_LEAD);
+    // The day the meeting is offered belongs to the meeting.
+    const t = Store.open({ dir });
+    try {
+      t.setMeta(ONBOARDING_OFFERED_KEY, JSON.stringify({ on: "2026-11-02", session: "s-new", days: 1 }));
+    } finally {
+      t.close();
+    }
+    expect(updateLines(wake({ at: "2026-11-02" }))).toEqual([]);
+    expect(updateLines(wake({ at: "2026-11-03" }))).toHaveLength(1);
   });
 
   test("the plugin route hears a day later (npm goes live before the plugin tag), with Update marketplace; a held plugin release is not told", async () => {
@@ -354,14 +408,66 @@ describe("the wake says it once per version", () => {
     expect(updateLines(wake({ at: "2026-11-01" }))).toEqual([]);
   });
 
-  test("Claude Code's no-traffic switch: no check, but an old copy says it is old (local, once a month)", () => {
+  test("Claude Code's no-traffic switch: no check, but an old copy says once that a newer one may be out (local)", () => {
     process.env[NONESSENTIAL_TRAFFIC_ENV] = "1";
     expect(updateLines(wake({ at: RELEASE_DATE }))).toEqual([]);
-    const later = "2027-03-10";
-    const lines = updateLines(wake({ at: later }));
+    const lines = updateLines(wake({ at: "2027-03-10" }));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("over 30 days old");
-    expect(updateLines(wake({ at: later }))).toEqual([]);
+    expect(lines[0]).toContain("a newer one may be out. If you'd like it:");
+    expect(updateLines(wake({ at: "2027-03-10" }))).toEqual([]);
+    expect(updateLines(wake({ at: "2027-05-10" }))).toEqual([]);
+  });
+
+  test("four lines due: older windows, urgent and W1's say; the fourth (behind) waits, unclaimed, for the next wake", async () => {
+    const emptyWeights = join(root, "no-table");
+    mkdirSync(emptyWeights, { recursive: true });
+    const savedWeights = process.env[STATIC_WEIGHTS_ENV];
+    process.env[STATIC_WEIGHTS_ENV] = emptyWeights;
+    try {
+      recordServerLaunch(dir, {
+        scope: project,
+        build: { version: "0.3.30", storeSchema: SCHEMA_VERSION - 1, cacheSchema: CACHE_SCHEMA_VERSION },
+        pid: process.pid,
+        hostPid: 101,
+      });
+      await worker(stub(() => json(manifest(ahead(4), { urgentBelow: ahead(1) }))), { date: "2026-11-01" });
+      const config = { embedder: { enabled: true, kind: "static" as const } };
+      const first = wake({ at: "2026-11-01", config }).split("\n");
+      expect(first.some((l) => l.startsWith(STALE_WINDOWS_LEAD))).toBe(true);
+      expect(first.some((l) => l.includes("Please update Counterparts"))).toBe(true);
+      expect(first.some((l) => l.startsWith(MEANING_OFF_LEAD) && l.includes("search by meaning"))).toBe(true);
+      expect(first.some((l) => l.includes(" is out ("))).toBe(false);
+      const second = wake({ at: "2026-11-01", config }).split("\n");
+      expect(second.some((l) => l.startsWith(STALE_WINDOWS_LEAD))).toBe(false);
+      expect(second.some((l) => l.includes(`Counterparts ${ahead(4)} is out (`))).toBe(true);
+    } finally {
+      if (savedWeights === undefined) delete process.env[STATIC_WEIGHTS_ENV];
+      else process.env[STATIC_WEIGHTS_ENV] = savedWeights;
+    }
+  });
+
+  test("a line that does not fit the envelope is not claimed: the next wake with room says it", async () => {
+    await worker(stub(() => json(manifest(ahead(4)))), { date: "2026-11-01" });
+    const s = Store.open({ dir });
+    try {
+      const base = {
+        store: s,
+        configPath,
+        config: { dataDir: dir },
+        env: {},
+        home: root,
+        route: "npm" as const,
+        installed: INSTALLED,
+        released: RELEASE_DATE,
+        today: "2026-11-01",
+        transpiled: false,
+      };
+      expect(updateNoticeLine({ ...base, fits: () => false })).toBeNull();
+      expect(s.getMeta("adapter.update.told")).toBeUndefined();
+      expect(updateNoticeLine(base)).toContain(" is out (");
+    } finally {
+      s.close();
+    }
   });
 
   test("Desktop's wake carries the same line, once", async () => {
@@ -369,6 +475,8 @@ describe("the wake says it once per version", () => {
     const s = Store.open({ dir });
     try {
       const input = { store: s, config: { dataDir: dir, embedder: { enabled: false } } as AdapterConfig, configPath, today: "2026-11-01", env: {}, home: root };
+      // A long-running server whose package was replaced on disk says nothing about updates.
+      expect(updateLines(desktopWakeNotice({ ...input, onDisk: () => "9.9.9" }) ?? "")).toEqual([]);
       const first = desktopWakeNotice(input) ?? "";
       expect(updateLines(first)).toHaveLength(1);
       expect(updateLines(desktopWakeNotice(input) ?? "")).toEqual([]);
@@ -604,6 +712,8 @@ describe("the release flags publishing sets", () => {
     expect(RELEASE_DATE).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     const changelog = readFileSync(join(REPO, "CHANGELOG.md"), "utf8");
     const m = new RegExp(`^## ${SERVER_VERSION.replace(/\./g, "\\.")} — (\\d{4}-\\d{2}-\\d{2})`, "m").exec(changelog);
-    if (m !== null) expect(RELEASE_DATE).toBe(m[1]!);
+    // Loud, never a silent pass: the release commit adds this heading with SERVER_VERSION.
+    expect(m, `CHANGELOG.md has no "## ${SERVER_VERSION} — <date>" heading`).not.toBeNull();
+    expect(RELEASE_DATE).toBe(m?.[1] ?? "");
   });
 });

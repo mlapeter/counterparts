@@ -128,6 +128,7 @@ import {
   UPDATE_CHECK_ENV,
   askedOff,
   installedForRoute,
+  knownLatestFor,
   pluginMarket,
   readUpdateState,
   updateSteps,
@@ -3596,7 +3597,7 @@ export function updateFindings(input: DoctorInput, store: Store): Finding[] {
           "updates",
           "green",
           UPDATES_TITLE,
-          "This copy makes no update check and sends nothing anywhere; once it is over 30 days old, the wake says so.",
+          "This copy makes no update check and sends nothing anywhere; 30 days after its release, the wake says once that a newer one may be out.",
           "",
           { switch: "none", transpiled: true },
         ),
@@ -3622,7 +3623,7 @@ export function updateFindings(input: DoctorInput, store: Store): Finding[] {
           `To turn it back on, unset ${UPDATE_CHECK_ENV}.`,
         ],
         nonessential: [
-          `The update check is off (Claude Code's ${NONESSENTIAL_TRAFFIC_ENV} is set). Once this copy is over 30 days old, the wake says so instead.`,
+          `The update check is off (Claude Code's ${NONESSENTIAL_TRAFFIC_ENV} is set). 30 days after this copy's release, the wake says once that a newer one may be out.`,
           `To turn it back on, unset ${NONESSENTIAL_TRAFFIC_ENV}.`,
         ],
       };
@@ -3637,22 +3638,24 @@ export function updateFindings(input: DoctorInput, store: Store): Finding[] {
       (input.pluginRecorded ?? (() => recordedForThisCopy({ home: homedir(), env: process.env, cwd: process.cwd() })))(),
     );
     const latest = state?.latest ?? null;
-    if (latest !== null && installed !== null && versionBelow(installed, latest)) {
+    // The wake's own gate (`knownLatestFor`): a plugin install is not told of a
+    // version before the day after npm showed it, nor of a held plugin release.
+    const known = knownLatestFor(route, state, input.today);
+    if (known !== null && installed !== null && versionBelow(installed, known.latest)) {
       const steps = updateSteps({ route, market: route === "npm" ? null : pluginMarket({ home: homedir(), env: process.env }) });
       return [
-        finding("updates", "amber", UPDATES_TITLE, `${latest} is out (this is ${installed}).`, `To update: ${steps}.`, {
+        finding("updates", "amber", UPDATES_TITLE, `${known.latest} is out (this is ${installed}).`, `To update: ${steps}.`, {
           switch: "none",
-          latest,
+          latest: known.latest,
           installed,
           checked: state?.checkedDate ?? null,
         }),
       ];
     }
-    // A day or two offline is nothing to say: amber only from the third day
-    // of failures since the last success (a laptop on a plane stays green).
-    const failingDays =
-      state?.failingSince === undefined ? null : Math.round((Date.parse(`${input.today}T00:00:00Z`) - Date.parse(`${state.failingSince}T00:00:00Z`)) / 86_400_000);
-    if (state !== null && failingDays !== null && failingDays >= 2) {
+    // A day or two offline is nothing to say: amber only from the third failed
+    // day in a row (one try a day, so three failed requests; a laptop on a
+    // plane, or a week away, stays green).
+    if (state !== null && (state.failures ?? 0) >= 3) {
       return [
         finding(
           "updates",
@@ -3660,7 +3663,7 @@ export function updateFindings(input: DoctorInput, store: Store): Finding[] {
           UPDATES_TITLE,
           `No successful update check since ${state.failingSince ?? "?"} (${state.failCode ?? "unreachable"}). Nothing else is affected.`,
           "Counterparts can't reach registry.npmjs.org from here (a proxy or firewall?); nothing needs doing unless you want update notices.",
-          { switch: "none", failCode: state.failCode ?? null, failingSince: state.failingSince ?? null },
+          { switch: "none", failCode: state.failCode ?? null, failingSince: state.failingSince ?? null, failures: state.failures ?? 0 },
         ),
       ];
     }

@@ -398,6 +398,7 @@ export interface AdapterConfig {
    * Claude Code, Desktop's server, doctor in a terminal), where an environment
    * variable does not. Read leniently: only `false` means off; any other value
    * is ignored, never a reason to stand the configuration down.
+   * ("off", "no", "0" and 0 are read as false too.)
    */
   readonly updateCheck?: false;
   /**
@@ -650,8 +651,17 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (typeof debug === "object" && debug !== null && !Array.isArray(debug)) {
     out.debug = (debug as Record<string, unknown>)["nightTranscripts"] === true ? { nightTranscripts: true } : {};
   }
-  // THE UPDATE CHECK'S SWITCH (U1b): lenient — only `false` is read.
-  if (rec["updateCheck"] === false) out.updateCheck = false;
+  // THE UPDATE CHECK'S SWITCH (U1b): lenient. `false`, `0`, and the words
+  // `COUNTERPARTS_UPDATE_CHECK` takes ("off", "false", "0", "no", "disable",
+  // "disabled") all mean off; anything else is ignored, never refused.
+  const updateCheck = rec["updateCheck"];
+  if (
+    updateCheck === false ||
+    updateCheck === 0 ||
+    (typeof updateCheck === "string" && ["off", "false", "0", "no", "disable", "disabled"].includes(updateCheck.trim().toLowerCase()))
+  ) {
+    out.updateCheck = false;
+  }
   const identity = rec["identity"];
   if (identity !== undefined) {
     const i = identity as Record<string, unknown>;

@@ -7,7 +7,8 @@ binary each have their own detail, linked below rather than repeated.
 ## 1. The release commit
 
 Branch `release/<version>` from master at the commit being released. The release commit
-sets the version in four places, and moves one example:
+sets the version in four places, moves one example, and sets the release date in one
+(`RELEASE_DATE`, below):
 
 - `package.json` `"version"`;
 - `SERVER_VERSION` in `src/adapters/mcp/server-words.ts` (the version the memory server reports;
@@ -64,7 +65,7 @@ In the same commit, or a second one:
   window, or restart Claude Code.
 - **Release date:** `RELEASE_DATE` in `src/adapters/update-check.ts` moves with
   `SERVER_VERSION`, to the date in the CHANGELOG heading (`test/update-check.test.ts` holds
-  the two together). A copy that makes no update check says it is over 30 days old from it.
+  the two together). A copy that makes no update check says, 30 days after it, that a newer one may be out.
 - **Who hears of this release** (U1b): `package.json` `"counterparts": { "updates": … }`,
   which npm's `/latest` returns to every install's daily check. Carry the floors forward;
   they only move up. Raise `tellBelow` to this version when everyone below it should hear

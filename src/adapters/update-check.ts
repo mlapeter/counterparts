@@ -11,7 +11,7 @@
  * updates" (`mcp/server.ts`), and doctor reports it all.
  *
  * **The request.** One `GET https://registry.npmjs.org/counterparts/latest`,
- * at most once a day (a failure retries after an hour, three tries a day). No
+ * at most once a day, failures included (a failed day tries again the next). No
  * query, no cookie kept, no id, not even the installed version; the
  * User-Agent is the constant `counterparts`, and no `Accept` header asks for
  * npm's abbreviated document (which drops the release flags). It never runs
@@ -31,7 +31,7 @@
  * Any of them: no request. The first three are the person saying "no", so no
  * wake says anything about updates either (Mike's must-have, Q4: "stop
  * reminding me" must be enough). Only the last — which asked for no traffic,
- * not for silence — keeps the local "this copy is over 30 days old" line.
+ * not for silence — keeps the local "a newer one may be out" line.
  *
  * **Once-ness.** What has been told lives in one store meta key
  * (`UPDATE_TOLD_KEY`), claimed with `Store.updateMeta` the way
@@ -41,7 +41,7 @@
 import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname, join, relative, resolve, isAbsolute } from "node:path";
 
-import { meetPending } from "../core/onboarding.js";
+import { lastOffer } from "../core/onboarding.js";
 import type { Store } from "../core/store/index.js";
 import type { AdapterConfig } from "./config.js";
 import { sidebarPluginRecorded } from "./host-wiring.js";
@@ -73,10 +73,6 @@ export const FORCE_AUTO_UPDATE_ENV = "FORCE_AUTOUPDATE_PLUGINS";
 export const LATEST_URL = "https://registry.npmjs.org/counterparts/latest";
 export const UPDATE_CHECK_TIMEOUT_MS = 3_000;
 export const LATEST_BODY_CAP = 16 * 1024;
-/** A failed try is retried no sooner than this… */
-export const RETRY_AFTER_MS = 60 * 60 * 1000;
-/** …and at most this many tries a day. */
-export const TRIES_PER_DAY = 3;
 
 /** The worker's record, beside the configuration (`npm-live.json`'s neighbour). */
 export const UPDATES_FILE = "updates.json";
@@ -95,7 +91,7 @@ export const DEFAULT_TELL_BEHIND = 3;
 export const RETELL_DAYS = 14;
 /** An urgent line is said once a day on at most this many days. */
 export const URGENT_DAYS = 3;
-/** The age line: a copy older than this many days, said at most once a calendar month. */
+/** The age line: a copy older than this many days, said once per copy. */
 export const AGE_DAYS = 30;
 /** A check that has not succeeded for this many days counts as "no check" for the age line. */
 export const FAILING_DAYS = 14;
@@ -104,8 +100,14 @@ export const FAILING_DAYS = 14;
 export const UPDATE_LEAD = "Counterparts — tell your person when it fits, once this session:";
 /** The urgent line's lead: now, not "when it fits". */
 export const UPDATE_URGENT_LEAD = "Counterparts — tell your person now:";
+/**
+ * Room an update line leaves under the host's ceiling for what may follow it
+ * in the same envelope (the write-up pointer, the first-launch question): a
+ * line that would eat into it is not composed, and waits for a wake with room.
+ */
+export const UPDATE_ROOM_MARGIN = 600;
 /** For the model, after every non-urgent update line: how "stop reminding me" is done. */
-export const STOP_HINT = 'If they\'d rather not hear about updates, call scope with updates "off".';
+export const STOP_HINT = 'If they say stop: scope updates "off".';
 
 // ── the switch ────────────────────────────────────────────────────────────
 
@@ -121,12 +123,17 @@ export function envSet(value: string | undefined): boolean {
   return v.length > 0 && v !== "0" && v !== "false";
 }
 
-/** Did the person tell their Claude to stop? Never throws (unreadable: no). */
-export function askedOff(store: Pick<Store, "getMeta"> | null): boolean {
+/**
+ * Did the person tell their Claude to stop? Never throws. An unreadable store
+ * reads as "no" for a line (saying nothing is the quiet direction anyway) and
+ * as "yes" for the worker, which would otherwise make a request the person may
+ * have refused (`failClosed`).
+ */
+export function askedOff(store: Pick<Store, "getMeta"> | null, opts: { readonly failClosed?: boolean } = {}): boolean {
   try {
     return store?.getMeta(UPDATE_OFF_KEY) === "off";
   } catch {
-    return false;
+    return opts.failClosed === true;
   }
 }
 
@@ -305,6 +312,8 @@ export interface UpdateState {
   readonly failCode?: string;
   /** The first date of the failures since the last success; absent after a success. */
   readonly failingSince?: string;
+  /** Failed days in a row since the last success (one try a day). */
+  readonly failures?: number;
   /** The newest plain `x.y.z` npm reported, or null (a prerelease `latest`: no news). */
   readonly latest?: string | null;
   /** The date `latest` was first seen: a plugin install is told only from the next day on. */
@@ -338,6 +347,7 @@ export function readUpdateState(configPath: string): UpdateState | null {
     if (typeof r["failedAt"] === "string" && ISO.test(r["failedAt"])) out.failedAt = r["failedAt"];
     if (typeof r["failCode"] === "string" && CODE.test(r["failCode"])) out.failCode = r["failCode"];
     if (typeof r["failingSince"] === "string" && DATE.test(r["failingSince"])) out.failingSince = r["failingSince"];
+    if (typeof r["failures"] === "number" && Number.isInteger(r["failures"]) && r["failures"] > 0 && r["failures"] < 100_000) out.failures = r["failures"];
     if (r["latest"] === null || (typeof r["latest"] === "string" && PLAIN.test(r["latest"]))) out.latest = r["latest"];
     if (typeof r["latestSeen"] === "string" && DATE.test(r["latestSeen"])) out.latestSeen = r["latestSeen"];
     if (r["flags"] !== undefined) {
@@ -436,13 +446,12 @@ export function autoUpdateHidden(env: Record<string, string | undefined>): boole
 
 export interface UpdateCheckReport {
   readonly ran: boolean;
-  readonly reason: "observer" | "off" | "auto-update" | "checked-today" | "waiting" | "tries" | "ok" | "failed";
+  readonly reason: "observer" | "off" | "auto-update" | "checked-today" | "aborted" | "ok" | "failed";
   readonly switch: UpdateSwitch;
   readonly code?: string;
   readonly latest?: string | null;
 }
 
-const TRY = /^try-(\d{4}-\d{2}-\d{2})-(\d+)$/;
 
 /**
  * ONE WORKER'S TURN AT THE CHECK. Runs after the worker's store is closed
@@ -452,10 +461,11 @@ const TRY = /^try-(\d{4}-\d{2}-\d{2})-(\d+)$/;
  *   - any switch off: no request; the switch is recorded so doctor can say
  *     which (doctor in a terminal does not share the worker's environment);
  *   - Claude Code keeps this plugin updated (`autoUpdate`): no request;
- *   - already checked today: nothing;
- *   - otherwise a try, claimed with an exclusive latch file so two workers
- *     starting together make one request; a try made in the last hour (in
- *     flight, or failed) waits; at most `TRIES_PER_DAY` a day.
+ *   - a worker already stopping (its watchdog fired): nothing, no try spent;
+ *   - otherwise AT MOST ONE REQUEST A DAY, failures included (/privacy says
+ *     "once a day"): the day's try is claimed with an exclusive latch file,
+ *     so two workers starting together make one request, and a day that
+ *     failed simply tries again the next day.
  */
 export async function runUpdateCheck(input: {
   readonly configPath: string;
@@ -482,50 +492,38 @@ export async function runUpdateCheck(input: {
       if (prev?.autoUpdate !== true || prev.switch !== "none") writeUpdateState(input.configPath, { ...(prev ?? {}), switch: "none", at, autoUpdate: true });
       return { ran: false, reason: "auto-update", switch: sw };
     }
-    if (prev?.checkedDate === input.date) {
-      if (prev.switch !== "none" || prev.autoUpdate === true) {
+    if (input.signal?.aborted === true) return { ran: false, reason: "aborted", switch: sw };
+    // The day's one try: its latch, every other day's swept.
+    const dir = join(dirname(input.configPath), UPDATES_DIR);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    for (const name of readdirSync(dir)) {
+      const m = /^try-(\d{4}-\d{2}-\d{2})(?:-\d+)?$/.exec(name);
+      if (m !== null && m[1] !== input.date) rmSync(join(dir, name), { force: true });
+    }
+    try {
+      closeSync(openSync(join(dir, `try-${input.date}`), "wx", 0o600));
+    } catch {
+      // Today's try is taken — made, failed, or in flight in another worker.
+      if (prev !== null && (prev.switch !== "none" || prev.autoUpdate === true)) {
         const { autoUpdate: _drop, ...rest } = prev;
         writeUpdateState(input.configPath, { ...rest, switch: "none", at });
       }
       return { ran: false, reason: "checked-today", switch: sw };
     }
-    // The day's tries: the latch files, today's kept and every other day's swept.
-    const dir = join(dirname(input.configPath), UPDATES_DIR);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const tries: { n: number; mtime: number }[] = [];
-    for (const name of readdirSync(dir)) {
-      const m = TRY.exec(name);
-      if (m === null) continue;
-      if (m[1] !== input.date) {
-        rmSync(join(dir, name), { force: true });
-        continue;
-      }
-      try {
-        tries.push({ n: Number(m[2]), mtime: statSync(join(dir, name)).mtimeMs });
-      } catch {
-        /* swept by another worker */
-      }
-    }
-    if (tries.length >= TRIES_PER_DAY) return { ran: false, reason: "tries", switch: sw };
-    if (tries.some((t) => now - t.mtime < RETRY_AFTER_MS)) return { ran: false, reason: "waiting", switch: sw };
-    const n = tries.reduce((hi, t) => Math.max(hi, t.n), 0) + 1;
-    try {
-      closeSync(openSync(join(dir, `try-${input.date}-${String(n)}`), "wx", 0o600));
-    } catch {
-      // Another worker claimed this try first: it is making the request.
-      return { ran: false, reason: "waiting", switch: sw };
-    }
     const read = await fetchLatest({ fetch: input.fetch, ...(input.signal === undefined ? {} : { signal: input.signal }) });
     const latestPrev = readUpdateState(input.configPath) ?? prev;
     if (!read.ok) {
+      const { autoUpdate: _drop, ...rest } = latestPrev ?? { switch: "none" as const, at };
       writeUpdateState(input.configPath, {
-        ...(latestPrev ?? {}),
+        ...rest,
         switch: "none",
         at,
         failedAt: at,
         failCode: read.code,
-        // The first failing day since the last success: doctor turns amber, and
-        // the age line counts this copy as unchecked, only after a while.
+        // Failed days in a row (one try a day), and the first of them: doctor
+        // turns amber, and the age line counts this copy as unchecked, only
+        // after a while.
+        failures: (latestPrev?.failures ?? 0) + 1,
         failingSince: latestPrev?.failingSince ?? input.date,
       });
       return { ran: true, reason: "failed", switch: sw, code: read.code };
@@ -552,8 +550,11 @@ export async function runUpdateCheck(input: {
 interface Told {
   tell?: string;
   urgent?: { floor: string; dates: string[] };
+  /** The `latest` an exhausted urgent floor was last told as an ordinary line for (design Q4: "then once per version"). */
+  urgentAfter?: string;
   behind?: { latest: string; installed: string; gap: number; date: string };
   offered?: string;
+  /** The release date the age line was said for: once per copy. */
   age?: string;
 }
 
@@ -590,23 +591,34 @@ export interface UpdateLineInput {
   readonly sidebar?: boolean;
   readonly codeTab?: boolean;
   readonly runtime?: RuntimeKind;
-  /** Whether the person's first meeting is still to happen: nothing is said until it has. */
-  readonly meetPending?: boolean;
+  /** Today is the day the first meeting was (last) offered: that day belongs to the meeting. */
+  readonly meetingDay?: boolean;
+  /** This wake already carries the urgent line: no second update line beside it. */
+  readonly urgentSaid?: boolean;
+  /**
+   * Whether this line fits the envelope it would join. A line that does not
+   * fit is NOT claimed — nothing is marked told — so the next wake says it.
+   * Absent: it fits.
+   */
+  readonly fits?: (line: string) => boolean;
 }
 
-/** Steps for this install's route, lower-case, no closing stop. */
+const PLUGIN_STEP_SHORT = "/plugin → Marketplaces → counterparts → Update marketplace";
+
+/** Steps for this install's route, lower-case, no closing stop. Short: the wake is near its ceiling. */
 export function updateSteps(input: Pick<UpdateLineInput, "route" | "sidebar" | "codeTab" | "runtime"> & { readonly market: PluginMarket }): string {
-  const npm = `in a terminal, run ${npmUpdateCommand(input.runtime)}, then restart Claude Code`;
+  const npm = `run ${npmUpdateCommand(input.runtime)}, then restart Claude Code`;
+  const reload = input.codeTab === true ? "then start a new session" : "then /reload-plugins in each open window";
   const plugin =
     input.market === "synced"
       ? PLUGIN_UPDATE_SYNCED
-      : `${input.market === "claude-community" ? PLUGIN_UPDATE_COMMUNITY : PLUGIN_UPDATE_STEP}; then, in each open window, ${reloadStep(input.codeTab === true)}`;
-  if (input.route === "npm") return input.sidebar === true ? `${npm}; and for the sidebar, ${PLUGIN_UPDATE_STEP}` : npm;
+      : `${input.market === "claude-community" ? PLUGIN_UPDATE_COMMUNITY.replace(/^in Claude Code, /, "") : PLUGIN_STEP_SHORT}, ${reload}`;
+  if (input.route === "npm") return input.sidebar === true ? `${npm}; and ${PLUGIN_STEP_SHORT}` : npm;
   if (input.route === "plugin") return plugin;
   return `npm: ${npm} · plugin: ${plugin}`;
 }
 
-/** The urgent line's step: short. */
+/** The urgent line's step: shorter still. */
 function shortStep(route: InstallRoute, market: PluginMarket, runtime: RuntimeKind | undefined): string {
   const npm = npmUpdateCommand(runtime);
   const plugin = market === "synced" ? "restart Claude Code" : `/plugin → Marketplaces → ${market === "claude-community" ? "claude-community" : "counterparts"} → Update marketplace`;
@@ -624,40 +636,48 @@ function switchHere(input: UpdateLineInput): UpdateSwitch {
   return updateSwitch({ config: input.config, asked: askedOff(input.store), env: input.env });
 }
 
-/** What the worker's record lets this route be told: a plugin install waits a day (npm goes live before the plugin tag) and skips a held plugin release. */
-function knownLatest(input: UpdateLineInput, state: UpdateState | null): { latest: string; flags: ReleaseFlags } | null {
+/**
+ * WHAT THE WORKER'S RECORD LETS THIS ROUTE BE TOLD — the wake's rule, and
+ * doctor's (constitution 16: one vocabulary). A plugin install waits until the
+ * day after a version was first seen (npm goes live before the plugin tag),
+ * and is never told about a release whose plugin pin is held (`plugin: false`).
+ */
+export function knownLatestFor(route: InstallRoute, state: UpdateState | null, today: string): { latest: string; flags: ReleaseFlags } | null {
   if (state === null || state.latest === undefined || state.latest === null || state.flags === undefined) return null;
-  if (input.route !== "npm") {
+  if (route !== "npm") {
     if (state.flags.plugin === false) return null;
-    if (state.latestSeen === undefined || state.latestSeen >= input.today) return null;
+    if (state.latestSeen === undefined || state.latestSeen >= today) return null;
   }
   return { latest: state.latest, flags: state.flags };
 }
 
 function quiet(input: UpdateLineInput): boolean {
-  return input.config.observer === true || input.meetPending === true || input.installed === null;
+  return input.config.observer === true || input.meetingDay === true || input.installed === null;
 }
+
+const fitsOf = (input: UpdateLineInput) => (line: string): boolean => input.fits === undefined || input.fits(line);
 
 /**
  * THE URGENT LINE, or null: installed below the release's `urgentBelow`.
- * Once a day on at most `URGENT_DAYS` days per floor. Claimed here. Never throws.
+ * Once a day on at most `URGENT_DAYS` days per floor. Claimed here, and only
+ * when it fits. Never throws.
  */
 export function urgentUpdateLine(input: UpdateLineInput): string | null {
   try {
     if (quiet(input) || switchHere(input) !== "none" || input.configPath === undefined) return null;
-    const known = knownLatest(input, readUpdateState(input.configPath));
+    const known = knownLatestFor(input.route, readUpdateState(input.configPath), input.today);
     const installed = input.installed as string;
     const floor = known?.flags.urgentBelow ?? null;
     if (known === null || floor === null || !versionBelow(installed, floor)) return null;
+    const line = `${UPDATE_URGENT_LEAD} "Please update Counterparts soon (${installed} → ${known.latest}, a fix): ${shortStep(input.route, marketOf(input), input.runtime)}."`;
+    if (!fitsOf(input)(line)) return null;
     const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
       const told = readTold(current);
       const dates = told.urgent?.floor === floor ? told.urgent.dates : [];
       if (dates.length >= URGENT_DAYS || dates.includes(input.today)) return undefined;
       return JSON.stringify({ ...told, urgent: { floor, dates: [...dates, input.today] } });
     });
-    if (typeof claimed !== "string") return null;
-    const step = shortStep(input.route, marketOf(input), input.runtime);
-    return `${UPDATE_URGENT_LEAD} "Please update Counterparts soon (${installed} → ${known.latest}, a fix): ${step}."`;
+    return typeof claimed === "string" ? line : null;
   } catch {
     return null;
   }
@@ -665,47 +685,54 @@ export function urgentUpdateLine(input: UpdateLineInput): string | null {
 
 /**
  * THE ONE OTHER UPDATE LINE, or null, in this order:
- *   1. **tell** (installed below `tellBelow`, once per floor) or **behind**
+ *   1. **tell** (installed below `tellBelow`, once per floor), **behind**
  *      (`tellBehind` or more releases behind; again only at N more, or after
- *      `RETELL_DAYS`) — carrying the auto-update offer when it is due;
+ *      `RETELL_DAYS`), or an urgent floor whose `URGENT_DAYS` are spent (once
+ *      per newest version) — carrying the auto-update offer when it is due;
  *   2. **the auto-update offer**, once ever, for a plugin copy from our
  *      marketplace or the community one whose auto-update is not on and
  *      whose toggle is not hidden;
  *   3. **the age line**, for a copy that makes no check (the directory
  *      flavor, Claude Code's no-traffic switch, a check failing for
- *      `FAILING_DAYS`): over `AGE_DAYS` old, once a calendar month.
+ *      `FAILING_DAYS`): over `AGE_DAYS` old, once per copy.
  * Nothing at all when the person said no (`personSaidNo`), under observer,
- * or before the first meeting. Never said by an urgent wake (the urgent line
- * covers it). Claimed here. Never throws.
+ * on the meeting's day, or in a wake that already carries the urgent line.
+ * Claimed here, and only when it fits. Never throws.
  */
 export function updateNoticeLine(input: UpdateLineInput): string | null {
   try {
-    if (quiet(input)) return null;
+    if (quiet(input) || input.urgentSaid === true) return null;
     const sw = switchHere(input);
     if (personSaidNo(sw)) return null;
+    const fits = fitsOf(input);
     const installed = input.installed as string;
     const market = marketOf(input);
     const steps = updateSteps({ ...input, market });
     const state = input.configPath === undefined || input.transpiled ? null : readUpdateState(input.configPath);
     const autoOn = state?.autoUpdate === true || (!input.transpiled && market !== null && market !== "synced" && claudeAutoUpdate({ home: input.home, env: input.env, market }));
     const offerable = input.route === "plugin" && market !== null && market !== "synced" && !autoOn && !autoUpdateHidden(input.env);
-    const offer = offerable
-      ? `Claude Code can keep Counterparts current by itself: /plugin → Marketplaces → ${market} → Enable auto-update. After an update, other open windows need /reload-plugins.`
-      : null;
-    const known = sw === "none" ? knownLatest(input, state) : null;
+    const offerStep = `/plugin → Marketplaces → ${String(market)} → Enable auto-update`;
+    const known = sw === "none" ? knownLatestFor(input.route, state, input.today) : null;
 
-    // An urgent release covers everything else: its own line says it.
-    if (known !== null && known.flags.urgentBelow !== null && versionBelow(installed, known.flags.urgentBelow)) return null;
     if (known !== null) {
       const gap = releasesBehind(installed, known.latest);
       let said: string | null = null;
       const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
         const told = readTold(current);
         const tellFloor = known.flags.tellBelow;
-        const offering = offer !== null && told.offered === undefined;
+        const urgentFloor = known.flags.urgentBelow;
+        const offering = offerable && told.offered === undefined;
         const next: Told = { ...told, ...(offering ? { offered: input.today } : {}) };
+        const urgentSpent =
+          urgentFloor !== null &&
+          versionBelow(installed, urgentFloor) &&
+          told.urgent?.floor === urgentFloor &&
+          told.urgent.dates.length >= URGENT_DAYS &&
+          !told.urgent.dates.includes(input.today);
         if (tellFloor !== null && versionBelow(installed, tellFloor) && told.tell !== tellFloor) {
           next.tell = tellFloor;
+        } else if (urgentSpent && told.urgentAfter !== known.latest) {
+          next.urgentAfter = known.latest;
         } else if (gap >= known.flags.tellBehind) {
           const b = told.behind;
           const fresh = b === undefined || b.installed !== installed;
@@ -715,31 +742,36 @@ export function updateNoticeLine(input: UpdateLineInput): string | null {
         } else {
           return undefined;
         }
-        said = `${UPDATE_LEAD} "Counterparts ${known.latest} is out; I'm on ${installed}. To update: ${steps}.${offering ? ` ${offer}` : ""}" ${STOP_HINT}`;
+        const line = `${UPDATE_LEAD} "Counterparts ${known.latest} is out (I'm on ${installed}). To update: ${steps}.${offering ? ` Or turn on auto-update: ${offerStep}.` : ""}" ${STOP_HINT}`;
+        if (!fits(line)) return undefined;
+        said = line;
         return JSON.stringify(next);
       });
       if (typeof claimed === "string" && said !== null) return said;
     }
 
-    if (offer !== null) {
-      const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
-        const told = readTold(current);
-        return told.offered === undefined ? JSON.stringify({ ...told, offered: input.today }) : undefined;
-      });
-      if (typeof claimed === "string") return `${UPDATE_LEAD} "${offer}" ${STOP_HINT}`;
+    if (offerable) {
+      const line = `${UPDATE_LEAD} "Claude Code can keep me current: ${offerStep}." ${STOP_HINT}`;
+      if (fits(line)) {
+        const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
+          const told = readTold(current);
+          return told.offered === undefined ? JSON.stringify({ ...told, offered: input.today }) : undefined;
+        });
+        if (typeof claimed === "string") return line;
+      }
     }
 
     const failing = state?.failingSince !== undefined && daysBetween(state.failingSince, input.today) >= FAILING_DAYS;
     const noCheck = input.transpiled || sw === "nonessential" || failing;
     if (noCheck && DATE.test(input.released) && daysBetween(input.released, input.today) > AGE_DAYS) {
-      const month = input.today.slice(0, 7);
-      const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
-        const told = readTold(current);
-        return told.age === month ? undefined : JSON.stringify({ ...told, age: month });
-      });
-      if (typeof claimed === "string") {
-        const when = new Date(`${input.released}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-        return `${UPDATE_LEAD} "This Counterparts is from ${when}, over ${String(AGE_DAYS)} days old; there's likely a newer one. To update: ${steps}." ${STOP_HINT}`;
+      const when = new Date(`${input.released}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+      const line = `${UPDATE_LEAD} "This Counterparts is from ${when}; a newer one may be out. If you'd like it: ${steps}." ${STOP_HINT}`;
+      if (fits(line)) {
+        const claimed = input.store.updateMeta(UPDATE_TOLD_KEY, (current) => {
+          const told = readTold(current);
+          return told.age === input.released ? undefined : JSON.stringify({ ...told, age: input.released });
+        });
+        if (typeof claimed === "string") return line;
       }
     }
     return null;
@@ -767,7 +799,9 @@ export function installedForRoute(route: InstallRoute, running: string | null, r
  * plugin's highest record, so an updated window that has not reloaded is not
  * told to update), this copy's release date and flavor, the sidebar (npm
  * route only, full flavor only: the directory flavor reads nothing of Claude
- * Code's), and whether the first meeting is still to come.
+ * Code's), and whether today is the first meeting's day (the day it was last
+ * offered — not "still pending": a person who said "later" and never came back
+ * must still hear of an urgent fix).
  */
 export function updateLineInputHere(input: {
   readonly store: Store;
@@ -806,6 +840,6 @@ export function updateLineInputHere(input: {
     transpiled: TRANSPILED,
     sidebar,
     codeTab: input.codeTab === true,
-    meetPending: meetPending(input.store),
+    meetingDay: lastOffer(input.store)?.on === input.today,
   };
 }

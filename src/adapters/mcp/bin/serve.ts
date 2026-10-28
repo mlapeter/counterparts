@@ -67,7 +67,7 @@ import { serveStdio } from "../stdio.js";
 import { SidebarStatusWriter, keepPluginPresence, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
 import { stoodDownServer } from "../stood-down.js";
 import { noteNpmLive, npmWiringForGate } from "../../npm-live.js";
-import { installedVersion } from "../../sessions.js";
+import { installedVersion, manifestVersionOnDisk } from "../../sessions.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
@@ -267,6 +267,8 @@ export function desktopWakeNotice(input: {
   selfPid?: number;
   /** The home Claude Code's records are read under; absent, this process's. */
   home?: string;
+  /** The package version on disk now; absent, `sessions.ts#manifestVersionOnDisk`. */
+  onDisk?: () => string | null;
 }): string | null {
   let meaning: string | null = null;
   let stale: string | null = null;
@@ -290,7 +292,13 @@ export function desktopWakeNotice(input: {
     // UPDATES (U1b, `adapters/update-check.ts`): the same lines a Claude Code
     // start carries, in the same order and under the same cap of three
     // maintenance lines — never on a night's own wake.
-    if (input.night !== true) {
+    // DESKTOP'S SERVER LIVES AS LONG AS THE APP (review of #672): the version
+    // it loaded is not necessarily the one installed now. When the package on
+    // disk differs from this process's, its own "was updated" line
+    // (`wakeUpdateLine`) is the one to say, and an update line would tell the
+    // person to install what they already have: none is said.
+    const onDisk = (input.onDisk ?? manifestVersionOnDisk)();
+    if (input.night !== true && onDisk === installedVersion()) {
       const lineInput = updateLineInputHere({
         store: input.store,
         configPath: input.configPath,
@@ -301,7 +309,7 @@ export function desktopWakeNotice(input: {
         home: input.home ?? homedir(),
       });
       urgent = urgentUpdateLine(lineInput);
-      if ([stale, urgent, meaning].filter((l) => l !== null).length < 3) update = updateNoticeLine(lineInput);
+      if ([stale, urgent, meaning].filter((l) => l !== null).length < 3) update = updateNoticeLine({ ...lineInput, urgentSaid: urgent !== null });
     }
   } catch {
     meaning = null;

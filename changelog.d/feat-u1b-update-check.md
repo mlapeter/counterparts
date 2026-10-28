@@ -7,7 +7,7 @@
   reminding you about updates, or set `"updateCheck": false` in
   `~/.counterparts/claude-code.json` (or `COUNTERPARTS_UPDATE_CHECK=off`).** It doesn't
   run under Claude Code's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; a copy that checks
-  nothing says once a month when it's over 30 days old instead. `counterparts doctor` has
+  nothing says once, after 30 days, that a newer one may be out. `counterparts doctor` has
   an Updates line.
 - **Plugin users are offered Claude Code's own auto-update, once.** /plugin → Marketplaces →
   counterparts → Enable auto-update keeps Counterparts current without asking.

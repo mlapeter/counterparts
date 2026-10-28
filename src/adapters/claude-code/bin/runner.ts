@@ -386,7 +386,8 @@ export async function runOnce(input: {
   const today = input.date ?? counterpart.store.today();
   // Read now, while the store is open: the update check runs after `close()`
   // (it needs no store, and holds none open across its network wait).
-  const updatesAsked = input.updateCheck === undefined ? false : askedOff(counterpart.store);
+  // Fail closed: a store that will not say whether the person said stop is read as stop.
+  const updatesAsked = input.updateCheck === undefined ? false : askedOff(counterpart.store, { failClosed: true });
 
   let lag: LagReport | null = null;
   let backfill: BackfillReport | null = null;
