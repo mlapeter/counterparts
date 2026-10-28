@@ -19,7 +19,7 @@ bun add -g counterparts
 counterparts
 ```
 
-With Node instead: `npm install -g counterparts`, then `counterparts`. Whichever runtime
+With Node instead: `npm install -g counterparts@latest`, then `counterparts`. Whichever runtime
 runs the setup is the one Claude Code's hooks and memory tools are wired to.
 
 `counterparts` walks you through setup: your name and connecting Claude Code. No API

@@ -1,0 +1,2 @@
+- When `claude` isn't on PATH, setup and connect print the `claude mcp add …` line to paste on one line of its own, never wrapped, so pasting it works on a narrow terminal (it's the same line doctor prints). The `claude mcp remove …` line disconnect prints in the same case is on its own line too.
+- Install lines that say `npm install -g counterparts` now say `npm install -g counterparts@latest`: on Node 20 the bare form quietly installs 0.3.10.

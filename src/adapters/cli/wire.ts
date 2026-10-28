@@ -1635,7 +1635,7 @@ function registerMcp(input: WireInput, u: Ui, mcp: McpReading): WireResult["mcp"
   if (res.missing) {
     u.warn("`claude` is not on this PATH, so the MCP server was not registered.");
     u.hint("The hooks are in. Run this one line yourself, then restart Claude Code:");
-    u.hint(`  ${line}`);
+    u.command(line);
     return "printed";
   }
   let word: WireResult["mcp"] = "added";
@@ -1657,7 +1657,7 @@ function registerMcp(input: WireInput, u: Ui, mcp: McpReading): WireResult["mcp"
     const detail = `${res.err}${res.out}`.trim();
     if (detail.length > 0) for (const l of detail.split("\n").slice(0, 4)) u.hint(l);
     u.hint("Run this yourself, then restart Claude Code:");
-    u.hint(`  ${line}`);
+    u.command(line);
     return "printed";
   }
   return word;
@@ -2216,7 +2216,10 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       mcpWord = "absent";
     } else {
       u.warn("`claude` is not on this PATH, so the MCP server was not deregistered.");
-      u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+      {
+        u.hint("Run it yourself:");
+        u.command(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
+      }
       mcpWord = "printed";
     }
   } else if (res.code === 0) {
@@ -2233,7 +2236,10 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   } else {
     mcpConfirmed = !stillThere();
     u.warn(`\`claude mcp remove\` exited ${String(res.code ?? -1)}.`);
-    if (!mcpConfirmed) u.hint(`Run it yourself: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    if (!mcpConfirmed) {
+        u.hint("Run it yourself:");
+        u.command(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
+      }
     mcpWord = mcpConfirmed ? "absent" : "printed";
   }
 
