@@ -38,6 +38,16 @@ describe("the entry point", () => {
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://a.example/path" }, "serve").ok, false);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai" }, "serve").ok, true);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai", MAIL: "log" }, "serve").ok, false);
+    // TRUST_PROXY is a hop count: unset or 0 is none, a digit is that many, anything else is refused.
+    const hops = (v?: string): number | false => {
+      const r = readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai", ...(v === undefined ? {} : { TRUST_PROXY: v }) }, "serve");
+      return r.ok ? r.trustProxy : false;
+    };
+    assert.equal(hops(), 0);
+    assert.equal(hops("0"), 0);
+    assert.equal(hops("1"), 1);
+    assert.equal(hops("2"), 2);
+    for (const bad of ["true", "yes", "-1", "1.5", "12", " 2"]) assert.equal(hops(bad), false, bad);
     const noKek = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" }), encoding: "utf8", timeout: 30_000 });
     assert.equal(noKek.status, 1);
     assert.match(noKek.stderr, /HOSTED_KEKS/);

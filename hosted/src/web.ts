@@ -142,19 +142,23 @@ export function redirect(res: ServerResponse, location: string, headers: Record<
 }
 
 /**
- * The client's address. Behind a proxy we trust, the LAST X-Forwarded-For hop:
- * the one the proxy itself appended. The first hop is whatever the client sent,
- * so trusting it let anyone name a fresh "address" per request and walk past
- * every per-IP limit (review of #644). This assumes ONE proxy hop in front
- * (Railway's edge). If a deploy shows a second hop, every client lands in one
- * bucket — loud 429s, not a silent bypass — and this is the line to change.
+ * The client's address. Behind `hops` proxies we trust, the X-Forwarded-For
+ * entry `hops` from the end: each trusted proxy appends the address it saw, so
+ * the entry the outermost one appended is the client. Anything before it is
+ * whatever the client sent, and trusting it let anyone name a fresh "address"
+ * per request and walk past every per-IP limit (review of #644). Railway's
+ * first deploy (2026-10-29) showed two entries for a direct request: the
+ * client, then an edge hop (TRUST_PROXY=2). Too few entries for the hops means
+ * the header didn't come through the proxies we expect: the socket address,
+ * not a guess. With hops 0 the header is never read.
  */
-export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
+export function clientIp(req: IncomingMessage, hops: number): string {
+  if (hops >= 1) {
     const xff = req.headers["x-forwarded-for"];
     const joined = Array.isArray(xff) ? xff.join(",") : xff;
-    const last = joined?.split(",").at(-1)?.trim();
-    if (last !== undefined && last.length > 0 && last.length < 64) return last;
+    const parts = joined?.split(",") ?? [];
+    const pick = parts.length >= hops ? parts[parts.length - hops]?.trim() : undefined;
+    if (pick !== undefined && pick.length > 0 && pick.length < 64) return pick;
   }
   return req.socket.remoteAddress ?? "unknown";
 }

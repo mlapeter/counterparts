@@ -70,13 +70,13 @@ interface Rig {
   setNow: (t: number) => void;
 }
 
-async function rig(opts: { trustProxy?: boolean } = {}): Promise<Rig> {
+async function rig(opts: { trustProxy?: number } = {}): Promise<Rig> {
   let now = Date.UTC(2026, 9, 26, 12);
   const clock = (): number => now;
   const accounts = new Accounts({ path: join(tmp.root, "control", "accounts.sqlite"), now: clock });
   closers.push(() => accounts.close());
   const mail = memoryMailer();
-  const pages = accountPages({ accounts, mailer: mail, publicOrigin: "http://127.0.0.1", now: clock, ...(opts.trustProxy === true ? { trustProxy: true } : {}) });
+  const pages = accountPages({ accounts, mailer: mail, publicOrigin: "http://127.0.0.1", now: clock, ...(opts.trustProxy === undefined ? {} : { trustProxy: opts.trustProxy }) });
   const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: () => ({ pid: 1 }) });
   closers.push(() => tenants.closeAll());
   const server = createHostedServer({ tenants, publicOrigin: "http://127.0.0.1", authenticate: async () => null, routes: [pages.route] });
@@ -232,7 +232,7 @@ describe("signing up and signing in", () => {
   });
 
   test("review of #644: behind the proxy, the per-IP limit keys on the hop the proxy appended, not the one the client wrote", async () => {
-    const r = await rig({ trustProxy: true });
+    const r = await rig({ trustProxy: 1 });
     const b = new Browser(r.base);
     const statuses: number[] = [];
     for (let i = 0; i < 21; i++) {
@@ -244,6 +244,26 @@ describe("signing up and signing in", () => {
     }
     assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
     assert.equal(statuses[20], 429);
+  });
+
+  test("two hops (Railway: the client, then its edge): two people behind one edge get their own limits, and a forged prefix still isn't one", async () => {
+    const r = await rig({ trustProxy: 2 });
+    const EDGE = "203.0.113.7";
+    const ask = async (b: Browser, i: number, xff: string): Promise<number> => {
+      const form = await (await b.go("/login")).text();
+      const res = await b.form("/login", { csrf: csrfOf(form), email: `edge${String(i)}@example.com` }, { "x-forwarded-for": xff });
+      await res.text();
+      return res.status;
+    };
+    // Person A uses up their 20, forging a new first entry each time: the edge's entry for them stays the same.
+    const a = new Browser(r.base);
+    const aStatuses: number[] = [];
+    for (let i = 0; i < 21; i++) aStatuses.push(await ask(a, i, `198.51.100.${String(i)}, 192.0.2.1, ${EDGE}`));
+    assert.deepEqual(aStatuses.slice(0, 20), Array(20).fill(200));
+    assert.equal(aStatuses[20], 429);
+    // Person B, behind the same edge hop, still has all of theirs.
+    const b = new Browser(r.base);
+    for (let i = 0; i < 20; i++) assert.equal(await ask(b, 100 + i, `192.0.2.2, ${EDGE}`), 200);
   });
 
   test("review of #644: a refused ask costs the same commit as a sent one, and keeps no address", async () => {

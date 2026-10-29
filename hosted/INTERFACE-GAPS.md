@@ -26,10 +26,10 @@
 
 ## The first Railway deploy (`docs/hosted/RUNBOOK.md` walks each)
 
-4. **Check `X-Forwarded-For`.** `LOG_FORWARDED_FOR=1` logs the raw header of each `/readyz` request. Confirm it
-   carries exactly one appended hop. `web.ts#clientIp` takes the last hop. If Railway puts a second internal hop in
-   front, every client shares one rate-limit bucket. That shows up as loud 429s, not a silent bypass (#644 review).
-   Cloudflare's proxy must stay off for `app` (DNS only), or it adds a hop.
+4. **Check `X-Forwarded-For`.** `LOG_FORWARDED_FOR=1` logs the raw header of each `/readyz` request. Checked
+   2026-10-29: a direct request carries two entries, the client's address and then a Railway edge hop. So
+   `TRUST_PROXY` is now a hop count, set to `2` on Railway, and `web.ts#clientIp` takes the entry that many from the
+   end (the socket address when the header is shorter). The RUNBOOK keeps the check (§5.3): Railway could change it.
 5. **The real-binary restore drill.** The hermetic drill (`test/ops.test.ts`) drives a stand-in Litestream. It proves
    our side: the key objects, the configuration, the arguments, the layout, the cache rebuild, and the words back
    through `/mcp` with the same token. It doesn't prove Litestream's replication or its SSE-C against R2.

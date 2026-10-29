@@ -49,8 +49,8 @@ export interface OAuthOptions {
   readonly pages: Pages;
   /** `HOSTED_DATA_ROOT/control/oauth.sqlite`. */
   readonly storePath: string;
-  /** Behind Railway's proxy: trust X-Forwarded-Proto for cookies and URLs. */
-  readonly trustProxy?: boolean;
+  /** How many proxy hops in front to trust (TRUST_PROXY; web.ts#clientIp). At 1 or more, X-Forwarded-Proto is trusted for cookies and URLs too. */
+  readonly trustProxy?: number;
   /** Keys for oidc-provider's own signed cookies; random per process when absent (a restart drops in-flight sign-ins only). */
   readonly cookieKeys?: readonly string[];
   /** How CIMD documents are fetched (tests point it at a fixture). The library adds its own SSRF guard on Node. */
@@ -283,7 +283,12 @@ export function createOAuth(opts: OAuthOptions): OAuth {
   } as unknown as Configuration;
 
   const provider = new Provider(origin, configuration);
-  provider.proxy = opts.trustProxy === true;
+  // At 1 or more hops koa trusts X-Forwarded-Proto (`ctx.secure`, the cookies'
+  // `secure` flag). `maxIpsCount` makes koa's `ctx.ip` pick the same entry as
+  // clientIp; the library reads `ctx.ip` only for the device flow, which is off.
+  const hops = opts.trustProxy ?? 0;
+  provider.proxy = hops >= 1;
+  if (hops >= 1) provider.maxIpsCount = hops;
   const callback = provider.callback();
 
   // The library builds its endpoint URLs (discovery, the resume redirect) from
@@ -422,7 +427,7 @@ export function createOAuth(opts: OAuthOptions): OAuth {
       return true;
     }
     if (p.startsWith("/oauth/") && p !== "/oauth/allow" && !p.startsWith("/oauth/allow/")) {
-      const ip = clientIp(req, opts.trustProxy === true);
+      const ip = clientIp(req, hops);
       const starts = p === "/oauth/authorize" || p === "/oauth/par";
       if ((req.method === "POST" && ((p === "/oauth/register" && !registerLimit.take(ip)) || (p === "/oauth/token" && !tokenLimit.take(ip)))) || (starts && !authorizeLimit.take(ip))) {
         req.resume();
