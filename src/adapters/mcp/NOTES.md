@@ -1934,6 +1934,8 @@ its own small PR, after a look at its live use.
 - **The old name is still taken, never offered.** `MEET_STEP_ALIASES` serves `started` as `origin` (a meeting in flight
   across the deploy, an older script); the schema's enum lists only `origin`, since the enum is what invited the
   misread. An answer sent as `started` is recorded and answered as `origin`.
+  One window, accepted: a client still holding the old tool list has no `origin` in its enum while the new script
+  names it; a client that checks step names before sending can still send `started` with an answer (the alias).
 - **A bare `origin`/`started` gets its own refusal** (`begins-without-step`, `ORIGIN_WITHOUT_ANSWER`): the meeting
   begins with `meet` and no step, and Now records nothing. Every other bare question keeps `answer-required`. The
   script's opening says so too ("Now → no meet call: go on to the next step"): the root of the misread was that Now
