@@ -44,6 +44,7 @@
   (`schemas/index.ts#beliefsNamedIn`: "the self is the wake's page"). Two of those four are
   above the slot's 0.3 floor (0.378 and 0.348). The fifth, `sch_4faa5260842d` (about Mike, one
   support), is offered whenever a turn names Mike but stands at 0.203 against a strict 0.3
-  floor. This is not a bug against the slot's contract; whether beliefs about me or us should
-  have an ambient door is a design question for Mike. Details in `src/core/recall/NOTES.md`
+  floor. This is not a bug against the slot's contract. Decided 10-29: page-only stays (the self lives on the page, per the wave-2 design); the owner has it as an FYI; if any later earn an ambient door, the "us" beliefs are the likelier ones. The slot's
+  own read now waits until 3+ beliefs about other people pass the floor (`docs/CHECK-AFTER.md`).
+  Details in `src/core/recall/NOTES.md`
   ("The beliefs slot shows one belief").

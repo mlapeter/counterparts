@@ -1532,7 +1532,6 @@ supports), while 6 beliefs were held. Read on the 10-29 snapshot copy (lived day
 - **So:** not a bug against the slot's contract (lane E: beliefs on the cards a turn names,
   above the floor; the self is not one of them). The slot can only ever show a belief about a
   named card, and the reflection births mostly beliefs about me or us (4 of 6), so on this
-  store it is measuring one belief. Extending its read to 11-05 learns little more unless a
-  belief about another card is born and backed. Whether beliefs about me or us deserve an
-  ambient door (a turn about the counterpart, about working together) is a design question for
-  Mike; nothing here changes it.
+  store it is measuring one belief. A dated read learns little more unless a belief about
+  another card is born and backed, so the slot's read now waits until 3+ beliefs about other
+  people pass the floor (`docs/CHECK-AFTER.md`). Decided 10-29: page-only stays (the self lives on the page, per the wave-2 design); the owner has it as an FYI; if any later earn an ambient door, the "us" beliefs are the likelier ones.
