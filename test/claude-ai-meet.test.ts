@@ -22,7 +22,7 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { MEET_LINE_OPEN, ORIGIN_WITHOUT_ANSWER, RETENTION_LINE, WEB_RETENTION_LINE, WEB_UNINSTALL, beginNewInstall, finishText, meetingInstructions, offerLine } from "../src/core/onboarding.js";
+import { MEET_LINE_OPEN, MEET_NO_ANSWER, ONBOARDING_AHA_KEY, ONBOARDING_ANSWERS_KEY, ONBOARDING_DONE_KEY, ONBOARDING_MEET_KEY, ONBOARDING_OFFERED_KEY, RETENTION_LINE, WEB_RETENTION_LINE, WEB_UNINSTALL, beginNewInstall, finishText, meetingInstructions, offerLine } from "../src/core/onboarding.js";
 
 let root: string;
 let dir: string;
@@ -103,7 +103,7 @@ describe("a cold first chat on claude.ai meets", () => {
     expect(again.text).toContain("meet=done");
   });
 
-  test("H1: the misread `started` right after Now gets plain words, not answer-required; the meeting goes on through `origin`", async () => {
+  test("H1/H1b: the misread `started` right after Now is no error (no red Failed card): nothing stored, plainly; the meeting goes on through `origin`", async () => {
     const c = Counterpart.open({ dir });
     beginNewInstall(c.store, { dreaming: false });
     c.close();
@@ -114,13 +114,25 @@ describe("a cold first chat on claude.ai meets", () => {
     expect(script.text).toContain('origin: "What got you started building things?"');
 
     // What claude.ai's Claude sent on 2026-10-28, after "Now (about 5 minutes)".
+    const rows = (): (string | null)[] => {
+      const c = Counterpart.open({ dir });
+      try {
+        return [ONBOARDING_MEET_KEY, ONBOARDING_ANSWERS_KEY, ONBOARDING_OFFERED_KEY, ONBOARDING_DONE_KEY, ONBOARDING_AHA_KEY].map((k) => c.store.getMeta(k) ?? null);
+      } finally {
+        c.close();
+      }
+    };
+    const before = rows();
     const misread = await call(url, "meet", { session, step: "started" });
-    expect(misread.isError).toBe(true);
-    expect(misread.structured["reason"]).toBe("begins-without-step");
-    expect(misread.structured["reason"]).not.toBe("answer-required");
-    expect(misread.structured["detail"]).toBe(ORIGIN_WITHOUT_ANSWER);
-    expect(misread.text).toContain("the meeting begins with meet and no step");
-    expect((await call(url, "meet", { session, step: "origin" })).structured["reason"]).toBe("begins-without-step");
+    expect(misread.isError).toBe(false);
+    expect(misread.text).toBe(MEET_NO_ANSWER);
+    expect(misread.structured).toMatchObject({ step: "origin", stored: 0, meet: "offered" });
+    expect(misread.structured["reason"]).toBeUndefined();
+    expect(misread.structured["recorded"]).toBeUndefined();
+    const bare = await call(url, "meet", { session, step: "origin" });
+    expect(bare.isError).toBe(false);
+    expect(bare.structured["stored"]).toBe(0);
+    expect(rows()).toEqual(before);
 
     expect((await call(url, "meet", { session, step: "name", answer: "Wren" })).structured).toMatchObject({ recorded: "name", stored: 1 });
     expect((await call(url, "meet", { session, step: "origin", answer: "Wren started building things with a broken radio." })).structured).toMatchObject({ recorded: "origin", stored: 1 });

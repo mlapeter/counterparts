@@ -1941,6 +1941,24 @@ its own small PR, after a look at its live use.
   script's opening says so too ("Now → no meet call: go on to the next step"): the root of the misread was that Now
   had no instruction while Later had a call.
 - It is still a refusal (`isError`), so a client that draws refusals red still will; the words are what changed.
+  (Superseded the same day by H1b, below.)
+
+## 2026-10-29 — a bare answer step is not an error (H1b)
+
+- **Why.** claude.ai draws every error result as a red "Failed" card, so H1's reworded refusal still showed one.
+- **What changed.** Every answer step (`ANSWER_STEPS`, and the `started` alias) sent with no answer, or a blank one,
+  now returns an ordinary result: the text is `MEET_NO_ANSWER` ("Nothing stored: no answer came with this step. ..."),
+  and `structuredContent` is `{ step, stored: 0, meet, where, style, next }`. `stored: 0` is the count shape the
+  answered steps already use (`stored: 1`), and there is no `recorded`, so neither words nor fields read as a save.
+  It replaces `answer-required` and `begins-without-step` for these cases only; `address` with no answer, an unknown
+  step, a bad `style`, the night run and an observer still refuse as before.
+- **Not progress either.** The check sits before the offer mark, so a bare step on a meeting nobody has read leaves
+  `not_started` as it was (before, a refusal there still marked it `offered`). It writes no memory, no
+  `onboarding.answers` entry (so `ahaDue` has nothing new to pace), and no `mcp.meet.step` event; it emits
+  `mcp.meet.unanswered`, which is not durable. The one row it may touch is `onboarding.active`, the hold that any
+  `meet` call in a session sets: the meeting really is still going.
+- **What the hosted request log loses.** It records a refusal's `reason`; these calls are now `ok` with no reason,
+  so a bare step no longer shows there as a refusal. Accepted: it isn't one.
 
 ## 2026-10-29 — readOnlyHint on a chat's copy (H1)
 

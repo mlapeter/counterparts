@@ -97,7 +97,8 @@ import { coreNewer, newerStoreRemedy } from "../update-words.js";
 import type { NewerStoreInput } from "../update-words.js";
 import {
   MEET_STEPS,
-  ORIGIN_WITHOUT_ANSWER,
+  ANSWER_STEPS,
+  MEET_NO_ANSWER,
   STYLE_CHOICES,
   addressMemory,
   answerText,
@@ -1625,11 +1626,18 @@ export class McpServer {
     if (typeof step !== "string" || !(MEET_STEPS as readonly string[]).includes(step)) {
       return this.refuse("meet", "step-unknown", { detail: `step is one of ${MEET_STEPS.join(", ")} — or omit it for the script.` });
     }
+    const answer = typeof args["answer"] === "string" ? args["answer"].trim() : "";
+    // AN ANSWER STEP WITH NO ANSWER (H1b): not an error (claude.ai draws those
+    // as a red Failed card), and not progress either: it comes before the
+    // offer mark, so it moves no meeting state, and nothing is written.
+    if (answer.length === 0 && (ANSWER_STEPS as readonly string[]).includes(step as string)) {
+      this.emit("mcp.meet.unanswered", undefined, { step });
+      return { content: [{ type: "text", text: MEET_NO_ANSWER }], structuredContent: { step, stored: 0, ...onboardingView(store), next: MEET_NO_ANSWER } };
+    }
     // A step taken is an offer made: the mod and the wake stop offering.
     // An answer after a "later" is the meeting resumed: offered again, so it holds.
     const before = meetState(store);
     if (before === "not_started" || (before === "later" && step !== "later" && step !== "skipped" && step !== "done")) noteOffered(store, { on, session, state: true });
-    const answer = typeof args["answer"] === "string" ? args["answer"].trim() : "";
     const done = (extra: Record<string, unknown>): ToolResult => {
       this.emit("mcp.meet.step", undefined, { step, stored: typeof extra["stored"] === "number" ? extra["stored"] : null });
       return this.result({ recorded: step, ...onboardingView(store), ...extra }, false);
@@ -1687,12 +1695,7 @@ export class McpServer {
         return done({ stored: ids.length, ids });
       }
       default: {
-        // An answer: name, week, work, love, saturday, origin.
-        if (answer.length === 0) {
-          // The misread (H1): `origin`/`started` sent bare to say "the meeting has begun".
-          if (step === "origin") return this.refuse("meet", "begins-without-step", { detail: ORIGIN_WITHOUT_ANSWER });
-          return this.refuse("meet", "answer-required", { detail: "Send the answer, in your words. A skipped question is never sent: nothing is stored for it." });
-        }
+        // An answer: name, week, work, love, saturday, origin (a bare one was answered above).
         const text = step === "name" ? `They like to be called ${answer}.` : answer;
         const ids = await this.meetWrite([answerText(text)]);
         if (ids[0] !== undefined) recordAnswer(store, step as AnswerStep, ids[0]);
