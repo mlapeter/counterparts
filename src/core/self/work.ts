@@ -503,11 +503,6 @@ export function workHereBytes(lines: readonly string[]): number {
 }
 
 /**
- * THE WAKE'S PROJECT LINE'S HEADING (wave 2 lane E, 2026-10-22; an
- * experiment): what this folder's project is held to be, named, so its lines
- * read as beliefs about the project and not as work done here.
- */
-/**
  * THE PROJECT LINE'S OWN ROW (the 10-29 read: until now it left only ring
  * events, so whether it showed could not be read): one durable row per wake
  * delivered in a folder that belongs to a project, with the line on. `shown`,
@@ -527,6 +522,11 @@ export const PROJECT_LINE_EVENT = "self.project.line";
 /** Why a project line showed or did not (`PROJECT_LINE_EVENT`'s `reason`). */
 export type ProjectLineReason = "shown" | "below-floor" | "no-room" | "no-sentinel";
 
+/**
+ * THE WAKE'S PROJECT LINE'S HEADING (wave 2 lane E, 2026-10-22; an
+ * experiment): what this folder's project is held to be, named, so its lines
+ * read as beliefs about the project and not as work done here.
+ */
 export function projectLineHeading(name: string): string {
   const n = name.trim();
   return n.length === 0 ? "This project, as I hold it:" : `This project (${n}), as I hold it:`;
