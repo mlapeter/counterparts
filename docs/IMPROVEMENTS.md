@@ -4112,6 +4112,63 @@ replay compare read 0 lines differing).
 - Also: the Catch-up fix line said a stretch "lapses after two more days of use"; it is
   `LAPSE_DAYS_OF_USE` (14) since 2026-10-10, and now reads it.
 
+### Decided by the P2 builder, 2026-10-28, lightly held (open threads parked at 14 lived days)
+
+- Decided by the P2 builder, 2026-10-28, lightly held: parking is the 10-22 carry rule
+  (`openCarry`) retuned from 21 to 14 lived days and named "parked", read live at every wake,
+  not a flag the night writes. Why: that rule already left untouched items out of Still open
+  and its count without closing them, and a touch already brought them back; a second rule or
+  a stored flag beside it could disagree with it, would need a write path, and would park
+  nothing on a host whose nights don't run. The night records what was parked on the
+  reflection's row and its share says the count.
+- Decided by the P2 builder, 2026-10-28, lightly held: lived days, as "Still open" and
+  `recall "still open"` already count age.
+- Decided by the P2 builder, 2026-10-28, lightly held: "touched" is what the carry already
+  reads (`Store#openThreadTouches`): born, used beyond a glimpse (a rating of 1–3, a quote,
+  drewOn, an opened id the Stop credits), or revised. A glimpse, a recall answer only shown,
+  being listed, a dream's or a reflection's return are not.
+- Decided by the P2 builder, 2026-10-28, lightly held: a dated item and an item with a
+  `settlesWhen` are never parked. Why: a date is its own trigger and the wake's "Coming up"
+  handles it; a `settlesWhen` item's door is the reflection's `settlesOpen`, which a parked item
+  would leave.
+- Decided in the review of #674, 2026-10-28, lightly held: "dated" means a date still to
+  come — ahead, inside its grace week after (`HOLD_GRACE_DAYS`, while "Coming up" still says it
+  was due), or repeating. A one-off whose date and grace are behind it parks like any other
+  open item once untouched 14 lived days. Why: the brief scoped the exemption to "eventDate in
+  the future"; past its grace "Coming up" has let the item go, and exempt it sat in "Still
+  open" for good (probe: a 10-05 vet visit still listed on 11-10, 38 lived days untouched).
+- Decided by the P2 builder, 2026-10-28, lightly held: the reflection's `staleOpen` and close
+  proposals keep skipping parked items. Why: being offered is not a touch, and offering them
+  each night would make parking a slower path to closing.
+- Decided by the P2 builder, 2026-10-28, lightly held: the wake says `· N parked` only on
+  "Still open"'s existing count line (the "more" line or the collapsed one); a lane that lists
+  everything it carries adds no line for its parked. Why: no new furniture in the wake's room;
+  on a store with 115 open items the lane always has a count line.
+
+### Decided by the P2b builder, 2026-10-28, lightly held (the parked counted whatever line "Still open" has)
+
+- Decided by the P2b builder, 2026-10-28, lightly held: "Still open" says how many threads are
+  parked even when it has no count line — `(3 parked; recall "still open" lists them)` under
+  the items it lists, or `Still open: nothing current · 3 parked (recall "still open" lists
+  them)` when it carries nothing — and the folded line keeps `· N parked`. This replaces P2's
+  "only on the existing count line". Why: the brief said parked items are counted, not
+  vanished, and its main aim was a clean list for a new user in week 3, whose lane is short; a
+  store with 3 parked items and nothing carried woke on day 40 with no word of them.
+- Decided by the P2b builder, 2026-10-28, lightly held: the line is reserved like a lane's
+  count line (the trim loop pays for it before the lanes' items), and only a bare floor goes
+  without it. Why: unreserved, it would drop on most real wakes, which fill to the budget.
+- Decided by the #675 reviewer, 2026-10-28, lightly held: the parked words are the first of
+  the lanes' words to give way. They take room as the lanes' lines do, but before the trim
+  loop pops a "Who I am" item for them, and before a floor goes bare for them, they go quiet
+  and the wake is the one it would be with nothing parked; the last check (`tellLost`) tries
+  every form without them before it leaves a lane untold. This revises the line above ("only
+  a bare floor goes without it") and answers the PR's open question (no page, a tight budget:
+  the parked line no longer outranks identity items). Why: as built, ` · 3 parked` on the
+  folded line could push the fold a few bytes past its room, and the floor went bare — "Still
+  open" and "Coming up" untold, the parked unsaid as well (a 4,000-case fuzz: 48 wakes told
+  fewer lanes than #674's; the real path at a 700-byte ceiling); an aside about what nobody
+  touched in 14 lived days should never cost a current lane its count.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
