@@ -136,7 +136,7 @@ export interface Resolved {
   /** True for a quiet pointer (`Candidate.linkOnly`), which renders with
    *  `FRAMING.linked` in front of it. Absent reads as false. */
   readonly linked?: boolean;
-  /** True for a memory a shown one named (`see-also.ts`), which renders with
+  /** True for a memory a shown one named (`activate.ts#seeAlso`), which renders with
    *  `FRAMING.seeAlso` in front of it. Absent reads as false. */
   readonly seeAlso?: boolean;
   /** A tighter title clip for this line (see-also's `SEE_ALSO_TITLE_BYTES`);

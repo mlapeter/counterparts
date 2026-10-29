@@ -1510,7 +1510,7 @@ The ping/pong miss of 10-25 (the 10-29 read, item 8): the rule (`mem_0ca7f032368
 wired `ping → mem_66bb7d836201` (the note ABOUT the miss, 0.727) and nothing to the rule: cue
 learning trains a turn's words only to what the turn showed, so every "pong" answered from the
 note trained the note. The planned "(b) see-also" was through links; there is no link from the
-note to the rule, but the note NAMES its id. So `see-also.ts` reads ids named in text.
+note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids named in text.
 
 - **What it is.** After the gate, the texts (title and body) of what the turn shows — the loud
   line and the cued footnotes, in the gate's order; never a quiet pointer and never a see-also
@@ -1560,3 +1560,6 @@ note to the rule, but the note NAMES its id. So `see-also.ts` reads ids named in
   turn, not one: a turn whose loud line and a footnote both name one keeps both.
 - **Not handled.** A reminder said outright this turn (`withhold`, temporal arrivals only) could
   ride along if a shown memory names it — rare, and the Turn does not carry the set.
+- **Where it lives.** In `activate.ts` (`seeAlso`, beside `recallableRow`), not a module of its
+  own: first built as `see-also.ts`, it took the directory plugin flavor to 511 files, past
+  `plugin-bundle.test.ts`'s 510 margin under the directory's 512 limit.

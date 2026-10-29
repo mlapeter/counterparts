@@ -249,7 +249,7 @@ export interface RecallTunables {
   HOP_CEILING: number;
 
   // ── see-also from named ids (PP1, 2026-10-29, an experiment) ─────────────
-  // Trying a memory that names another's id bringing it along (`see-also.ts`),
+  // Trying a memory that names another's id bringing it along (`activate.ts#seeAlso`),
   // to see the 10-25 ping/pong miss close and stay closed. Revert by setting
   // `SEE_ALSO_NAMED_IDS` to false (the turn is then composed as before).
   /** Does a shown memory whose text names another memory's id bring it along

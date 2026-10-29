@@ -105,7 +105,7 @@ export interface CandidateVerdict {
   /** `"link"` for a QUIET POINTER — a memory only links reached (2026-09-28,
    *  `activate.ts#Candidate.linkOnly`). Its verdict is one of the ordinary ones;
    *  this says which lane it came by. Absent for everything the conversation
-   *  reached. `"see-also"` (2026-10-29, `see-also.ts`): brought along because
+   *  reached. `"see-also"` (2026-10-29, `activate.ts#seeAlso`): brought along because
    *  a memory the turn shows NAMES its id; `seeAlso.by` is that memory. */
   readonly via?: "link" | "see-also";
   /** SEE-ALSO (2026-10-29): the shown memory whose text named this one. Set
