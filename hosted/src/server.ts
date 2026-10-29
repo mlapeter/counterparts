@@ -106,6 +106,7 @@ export function resourceUrl(publicOrigin: string): string {
 
 const BASE_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
+  // Text and JSON only: no form is served from here. HTML pages (web.ts page()) need same-origin.
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
 };
