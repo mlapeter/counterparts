@@ -338,6 +338,19 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    G9). For that lane gate (a) is CHECKED
    rather than structural (the memory is fetched); for every other uncued memory it is
    structural as before. Tests: `association-build2.test.ts` › "1. quiet pointers".*
+   *A SECOND named lane since 2026-10-29 (PP1, an experiment; switch
+   `SEE_ALSO_NAMED_IDS`): SEE-ALSO. A memory whose id the TEXT of a memory this turn shows
+   (loud or a cued footnote, never a quiet pointer or another see-also) names joins the quiet
+   tier as `See also:`: one per shown memory, `SEE_ALSO_MAX` (2) a turn, after the cued
+   footnotes and pointers (the first lines the byte budget trims), never the loud tier. The
+   named id is resolved to the memory that holds now (`headOf`), and held to what the turn
+   could show at all (`activate.ts#recallableRow`, the candidates' own test: not removed,
+   archived, superseded, below reach, the self page, a handoff, a card or a belief) and would
+   not show again (this turn or this session already showed it, this session wrote it,
+   another project's under `RECALL_BY_PROJECT`, habituated, or inhibited by the gate). Its
+   verdict is an ordinary footnote's (`trains` true, `via: "see-also"`, `seeAlso.by` the
+   memory that named it), so a use of it trains the turn's words to it. Tests:
+   `see-also-named-ids.test.ts`.*
 6. **[M]** Tiers are disjoint and capped. *(Quiet pointers have their own cap,
    `LINK_POINTERS_MAX`, beside `MAX_FOOTNOTES`; 2026-09-28.)* *(2026-10-10, Group 1, review
    03 C2: no tier — surfaced, footnote or quiet pointer — offers a memory BELOW REACH,

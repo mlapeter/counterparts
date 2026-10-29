@@ -508,6 +508,51 @@ export function gatedSal(p: MemoryPhysics, selfFelt: boolean): number {
   return selfFelt ? salArm(p) : curveSal(p);
 }
 
+/**
+ * The row, when this id is live memory that may be recalled at all: not
+ * denied (removed), not archived, not superseded, not the self page, a
+ * handoff, an entity card or a belief, and (ambient) not BELOW REACH —
+ * `"below-reach"` says that one, so the turn can count it. One test for a
+ * candidate, a link-only pointer and a memory a shown one names
+ * (see-also, 2026-10-29). Reads only.
+ */
+export function recallableRow(
+  store: Store,
+  id: string,
+  opts: { readonly denied: ReadonlySet<string>; readonly ambient: boolean; readonly day: number },
+): ReturnType<Store["row"]> | "below-reach" {
+  if (opts.denied.has(id)) return undefined;
+  const row = store.row(id);
+  // Archive is a state, not a deletion: it keeps its id and simply never
+  // surfaces (§4.2 G3). A superseded head forwards; the successor is reached
+  // on its own merits, never by dragging the old id along.
+  if (row === undefined || row.archived === 1 || row.superseded_by !== null) return undefined;
+  // The self page, which is delivered at wake and never here (`isSelfPage`).
+  // The prose read is gated on the row's own columns, so only a SCHEMA row of
+  // the self kind pays for it — the page, the identity core, and the handful
+  // of beliefs held about the self.
+  if (row.type === "schema" && row.kind === "self" && isPageRow(store, id)) return undefined;
+  // The per-directory handoff (E1), for the page's reason and one of its own:
+  // it is already delivered as a pointer at the wake of the directory it
+  // belongs to, and it has no project scope of its own that a search could
+  // honour — so left in the pool it would surface one directory's working
+  // context inside another's turn. Gated on the row's own columns, as above,
+  // so only a SCHEMA row of the place kind pays for the prose read.
+  if (row.type === "schema" && row.kind === "place" && isHandoffRow(store, id)) return undefined;
+  // An entity CARD (2026-10-11, Group 3 part D): the index a name reaches
+  // its memories through, a stub that asserts nothing itself. Once cards were
+  // born from the names the memories say, a turn naming someone surfaced
+  // the stub as a footnote. Off the row's meta column; no prose read.
+  if (row.type === "schema" && isEntityCardRow(row)) return undefined;
+  // A belief (wave 2 lane C): never a candidate; lane E's slot shows it (`isBeliefRow`).
+  if (isBeliefRow(row)) return undefined;
+  // BELOW REACH, exactly (2026-10-10): the ranking cache's prefilter is a
+  // pass stale at most; this is the day's own number. Ambient only; never a
+  // chapter, a chapter's copy or an entity card (`reachExempt`).
+  if (opts.ambient && !reachExempt(row) && belowReach(rowToPhysics(row), opts.day)) return "below-reach";
+  return row;
+}
+
 export function activate(
   store: Store,
   input: ActivationInput,
@@ -844,41 +889,15 @@ export function activate(
     readonly prime?: CandidatePrime;
   }
   /** The row, when this id is live memory that may be recalled at all; the
-   *  same test for a candidate and for a link-only pointer. */
+   *  same test for a candidate, a link-only pointer and a named one
+   *  (`recallableRow`, see-also 2026-10-29). */
   const recallable = (id: string): ReturnType<Store["row"]> => {
-    if (denied.has(id)) return undefined;
-    const row = store.row(id);
-    // Archive is a state, not a deletion: it keeps its id and simply never
-    // surfaces (§4.2 G3). A superseded head forwards; the successor is reached
-    // on its own merits, never by dragging the old id along.
-    if (row === undefined || row.archived === 1 || row.superseded_by !== null) return undefined;
-    // The self page, which is delivered at wake and never here (`isSelfPage`).
-    // The prose read is gated on the row's own columns, so only a SCHEMA row of
-    // the self kind pays for it — the page, the identity core, and the handful
-    // of beliefs held about the self.
-    if (row.type === "schema" && row.kind === "self" && isPageRow(store, id)) return undefined;
-    // The per-directory handoff (E1), for the page's reason and one of its own:
-    // it is already delivered as a pointer at the wake of the directory it
-    // belongs to, and it has no project scope of its own that a search could
-    // honour — so left in the pool it would surface one directory's working
-    // context inside another's turn. Gated on the row's own columns, as above,
-    // so only a SCHEMA row of the place kind pays for the prose read.
-    if (row.type === "schema" && row.kind === "place" && isHandoffRow(store, id)) return undefined;
-    // An entity CARD (2026-10-11, Group 3 part D): the index a name reaches
-    // its memories through, a stub that asserts nothing itself. Once cards were
-    // born from the names the memories say, a turn naming someone surfaced
-    // the stub as a footnote. Off the row's meta column; no prose read.
-    if (row.type === "schema" && isEntityCardRow(row)) return undefined;
-    // A belief (wave 2 lane C): never a candidate; lane E's slot shows it (`isBeliefRow`).
-    if (isBeliefRow(row)) return undefined;
-    // BELOW REACH, exactly (2026-10-10): the ranking cache's prefilter is a
-    // pass stale at most; this is the day's own number. Ambient only; never a
-    // chapter, a chapter's copy or an entity card (`reachExempt`).
-    if (ambient && !reachExempt(row) && belowReach(rowToPhysics(row), input.day)) {
+    const r = recallableRow(store, id, { denied, ambient, day: input.day });
+    if (r === "below-reach") {
       belowReachCount += 1;
       return undefined;
     }
-    return row;
+    return r;
   };
 
   // ── a question about feeling: stamps nominate (2026-09-30, U13) ─────────
