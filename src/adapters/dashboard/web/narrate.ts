@@ -767,8 +767,15 @@ export const NARRATORS = {
     const lines = n(t, "lines") ?? 0;
     const why = s(t, "reason") ?? "shown";
     if (why === "shown") return calm(`This wake carried the project line: ${num(lines, 0)} ${lines === 1 ? "belief" : "beliefs"} about this folder's project.`);
-    if (why === "below-floor") return calm(`This folder's project holds ${num(n(t, "held") ?? 0, 0)} ${(n(t, "held") ?? 0) === 1 ? "belief" : "beliefs"}, none strong enough yet for the wake's project line.`);
-    if (why === "no-room") return calm(`There was no room in this wake for the project line (the wake was ${num(n(t, "was") ?? 0, 0)} bytes against a ceiling of ${num(n(t, "budget") ?? 0, 0)}), so it was left off.`);
+    const held = n(t, "held") ?? 0;
+    if (why === "below-floor") {
+      if (held === 0) return calm("This folder's project holds no beliefs yet, so the wake had no project line to give.");
+      return calm(`This folder's project holds ${num(held, 0)} ${held === 1 ? "belief" : "beliefs"}, none strong enough yet for the wake's project line.`);
+    }
+    // No room: at the reported ceiling, or inside the line's own byte budget
+    // (`WAKE_PROJECT_LINE_BYTES`); a wake with no reported ceiling records 0.
+    const budget = n(t, "budget") ?? 0;
+    if (why === "no-room") return calm(`There was no room in this wake for the project line, so it was left off${budget > 0 ? ` (the wake was ${num(n(t, "was") ?? 0, 0)} bytes, its ceiling ${num(budget, 0)})` : ""}.`);
     return calm("The wake's project line had nowhere to go in this wake, so it was left off.");
   },
 
