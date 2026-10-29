@@ -16,11 +16,12 @@
  * Hermetic: every store is a fresh temp dir, removed after.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openAdapter } from "../src/adapters/claude-code/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { TUNABLES as RECALL, FRAMING, namedIds } from "../src/core/recall/index.js";
@@ -291,5 +292,40 @@ describe("PP1 — see-also from named ids", () => {
     const full = (decisionRow(a, "sess-bytes") as unknown as { bytes: number }).bytes;
     const short = a.counterpart.recall.build({ sessionId: "sess-bytes-short", text: "in the kitchen: quince jelly, damson gin, medlar curd", budgetBytes: full - 1 }).decision;
     expect(short.trimmed[0]).toEqual({ lane: "footnote", id: along[along.length - 1]?.id as string });
+  });
+});
+
+describe("PP1 — another project's work, named by a shown memory (review of #681)", () => {
+  test("RECALL_BY_PROJECT on: never rides along; the lift's count never counts what see-also showed", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-pp1-project-")));
+    const bakery = join(root, "bakery");
+    const garage = join(root, "garage");
+    for (const d of [bakery, garage]) mkdirSync(d, { recursive: true });
+    const c = Counterpart.open({ dir: join(root, "store") });
+    const tunables = c.recall.tunables as { RECALL_BY_PROJECT: boolean; CROSS_PROJECT_BAR_LIFT: number };
+    try {
+      const store = findable(c.store);
+      for (let i = 0; i < 60; i++) store.put({ type: "memory", kind: "fact", body: `Unrelated record ${String(i)} about item${String(i)} and widget${String(i)}.` });
+      const work = (body: string, title: string, scope: string): string =>
+        store.put({ type: "memory", kind: "fact", title, body, about: "work", aboutBy: "writer", origin: { scope } });
+      // The bakery's memory is reached by the turn's words, and only the lift keeps it back.
+      const theirs = work("The starter jar on the workbench feeds the bakery's flour order.", "Bakery starter jar", bakery);
+      const ours = work(`The starter jar sits on the workbench now; see ${theirs}.`, "Workbench starter jar", garage);
+      tunables.CROSS_PROJECT_BAR_LIFT = 1_000;
+      const lifted = c.recallForTurn({ sessionId: "s-lift", text: "the starter jar on the workbench" }, { scope: garage });
+      expect([...lifted.decision.surfaced, ...lifted.decision.footnotes]).toContain(ours);
+      // Kept back, or shown: never both.
+      expect(lifted.decision.crossProjectLifted).toBe(lifted.decision.footnotes.includes(theirs) ? 0 : 1);
+      tunables.RECALL_BY_PROJECT = true;
+      const held = c.recallForTurn({ sessionId: "s-held", text: "the starter jar on the workbench" }, { scope: garage });
+      expect([...held.decision.surfaced, ...held.decision.footnotes]).toContain(ours);
+      expect(held.decision.footnotes).not.toContain(theirs);
+      expect(held.decision.verdicts.some((v) => v.via === "see-also")).toBe(false);
+    } finally {
+      tunables.RECALL_BY_PROJECT = RECALL.RECALL_BY_PROJECT;
+      tunables.CROSS_PROJECT_BAR_LIFT = RECALL.CROSS_PROJECT_BAR_LIFT;
+      c.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

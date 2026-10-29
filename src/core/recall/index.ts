@@ -892,7 +892,8 @@ export class Recall {
       moodMatchedIds: moodLifted.slice(0, MOOD_MATCHED_IDS_CAP),
       echoSkipped: verdicts.filter((v) => v.verdict === "echo-skipped").length,
       projectSkipped: verdicts.filter((v) => v.verdict === "project-skipped").length,
-      crossProjectLifted: gated.crossLifted.length,
+      // What the lift alone kept back, less what see-also then showed.
+      crossProjectLifted: alongIds.size === 0 ? gated.crossLifted.length : gated.crossLifted.filter((id) => !alongIds.has(id)).length,
       ...this.stops(turn.sessionId, () => stopCounts(verdicts, gated.crossLifted, rendered.trimmed, this.tunables)),
       ...(competing === null ? {} : { pairsCompeted: gated.competed.length }),
       primed,
