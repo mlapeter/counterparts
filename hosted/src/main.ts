@@ -13,7 +13,8 @@
  *   HOSTED_DATA_ROOT   absolute path of the volume (required; refused inside a live store)
  *   PUBLIC_ORIGIN      https://app.counterparts.ai (required; every published URL is built from it)
  *   PORT               the port to bind on 0.0.0.0 (serve; default 8080)
- *   TRUST_PROXY        "1" behind Railway's proxy (X-Forwarded-For / -Proto)
+ *   TRUST_PROXY        how many proxy hops are in front (X-Forwarded-For / -Proto): "2" on Railway (its edge
+ *                      adds a hop; RUNBOOK §5.3); unset or "0" trusts neither header; anything else is refused
  *   RESEND_API_KEY     the mail provider's key (serve; required unless MAIL=log)
  *   MAIL_FROM          e.g. "Counterparts <memory@counterparts.ai>"
  *   MAIL               "log" prints login links to stderr instead of sending (local runs only)
@@ -55,7 +56,7 @@ import { KeyStore, kekRingFromEnv } from "./keys.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
 
-export function readEnv(env: Record<string, string | undefined>, command: string): { ok: true; dataRoot: string; origin: string; port: number } | { ok: false; refusal: string } {
+export function readEnv(env: Record<string, string | undefined>, command: string): { ok: true; dataRoot: string; origin: string; port: number; trustProxy: number } | { ok: false; refusal: string } {
   const dataRoot = env["HOSTED_DATA_ROOT"];
   if (dataRoot === undefined || !isAbsolute(dataRoot)) return { ok: false, refusal: "refused: set HOSTED_DATA_ROOT to the volume's absolute path. This server never picks a default." };
   const origin = env["PUBLIC_ORIGIN"]?.replace(/\/+$/, "");
@@ -66,9 +67,14 @@ export function readEnv(env: Record<string, string | undefined>, command: string
   if (command === "serve" && origin.startsWith("https://") && env["MAIL"] === "log") return { ok: false, refusal: "refused: MAIL=log is for a local http run; an https PUBLIC_ORIGIN must send real email." };
   const port = Number(env["PORT"] ?? "8080");
   if (command === "serve" && (!Number.isInteger(port) || port <= 0 || port > 65535)) return { ok: false, refusal: "refused: PORT is a whole number from 1 to 65535." };
+  // A hop count, refused rather than ignored when it isn't one: "true" or "yes"
+  // quietly meaning "no proxy" would put every client in one rate-limit bucket.
+  const hopsRaw = env["TRUST_PROXY"] ?? "";
+  if (command === "serve" && hopsRaw !== "" && !/^[0-9]$/.test(hopsRaw)) return { ok: false, refusal: "refused: TRUST_PROXY is how many proxy hops are in front of the server, 0 to 9 (2 on Railway; unset or 0 means none)." };
+  const trustProxy = /^[0-9]$/.test(hopsRaw) ? Number(hopsRaw) : 0;
   const live = livePathRefusal(dataRoot, "HOSTED_DATA_ROOT");
   if (live !== null) return { ok: false, refusal: live.replace(/^\[counterparts\] /, "") };
-  return { ok: true, dataRoot, origin, port };
+  return { ok: true, dataRoot, origin, port, trustProxy };
 }
 
 function mailerFrom(env: Record<string, string | undefined>): Mailer | string {
@@ -657,7 +663,7 @@ async function main(): Promise<void> {
     dataRoot: read.dataRoot,
     publicOrigin: read.origin,
     mailer,
-    trustProxy: env["TRUST_PROXY"] === "1",
+    trustProxy: read.trustProxy,
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),

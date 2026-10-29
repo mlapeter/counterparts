@@ -42,7 +42,8 @@ export interface PagesOptions {
   readonly accounts: Accounts;
   readonly mailer: Mailer;
   readonly publicOrigin: string;
-  readonly trustProxy?: boolean;
+  /** How many proxy hops in front to trust (TRUST_PROXY; web.ts#clientIp). 0 or absent: none. */
+  readonly trustProxy?: number;
   readonly csrf?: Csrf;
   /** The person's connected AIs, and how to disconnect one (step 4). */
   readonly connections?: {
@@ -238,7 +239,7 @@ ${
       }
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
-      if (!perIp.take(clientIp(req, opts.trustProxy === true)) || (email.length > 0 && !perEmail.take(email))) {
+      if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
         message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
         return true;
       }

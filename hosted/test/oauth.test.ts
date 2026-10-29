@@ -102,7 +102,7 @@ interface Rig {
   fetched: { url: string; init: RequestInit | undefined }[];
 }
 
-async function rig(opts: { trustProxy?: boolean } = {}): Promise<Rig> {
+async function rig(opts: { trustProxy?: number } = {}): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
@@ -114,7 +114,7 @@ async function rig(opts: { trustProxy?: boolean } = {}): Promise<Rig> {
     mailer: mail,
     embedder: null,
     spawner: () => ({ pid: 1 }),
-    ...(opts.trustProxy === true ? { trustProxy: true } : {}),
+    ...(opts.trustProxy === undefined ? {} : { trustProxy: opts.trustProxy }),
     cimdFetch: async (input, init) => {
       fetched.push({ url: String(input), init });
       const doc = cimd.get(String(input));
@@ -527,6 +527,21 @@ describe("limits on the open endpoints", () => {
     assert.deepEqual(statuses.slice(0, 30), Array(30).fill(201));
     assert.equal(statuses[30], 429);
   });
+
+  test("behind two hops (TRUST_PROXY=2), two clients behind one edge register on their own limits", async () => {
+    const r = await rig({ trustProxy: 2 });
+    const body = JSON.stringify({ redirect_uris: [CALLBACK], token_endpoint_auth_method: "none" });
+    const post = async (xff: string): Promise<number> => {
+      const res = await fetch(`${r.origin}/oauth/register`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": xff }, body });
+      await res.text();
+      return res.status;
+    };
+    const a: number[] = [];
+    for (let i = 0; i < 31; i++) a.push(await post(`198.51.100.${String(i)}, 192.0.2.1, 203.0.113.7`));
+    assert.deepEqual(a.slice(0, 30), Array(30).fill(201));
+    assert.equal(a[30], 429);
+    assert.equal(await post("192.0.2.2, 203.0.113.7"), 201);
+  });
 });
 
 describe("review of #646: the attacker's cases", () => {
@@ -627,7 +642,7 @@ describe("review of #646: the attacker's cases", () => {
   });
 
   test("a forged Host or X-Forwarded-Host never reaches a URL the library publishes", async () => {
-    const r = await rig({ trustProxy: true });
+    const r = await rig({ trustProxy: 1 });
     const viaXfh = await (await fetch(`${r.origin}/.well-known/oauth-authorization-server`, { headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" } })).text();
     assert.doesNotMatch(viaXfh, /evil\.example/);
     assert.match(viaXfh, new RegExp(`"token_endpoint":"${r.origin}/oauth/token"`));

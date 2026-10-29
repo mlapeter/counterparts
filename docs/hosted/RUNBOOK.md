@@ -3,8 +3,8 @@
 For `app.counterparts.ai`: the first deploy, the checks after it, restores, key rotation and rollback. The design is
 in `DESIGN.md`, the guarantees in `hosted/CONTRACT.md`, what is still owed in `hosted/INTERFACE-GAPS.md`.
 
-Written 2026-10-26 (OL2b). Nothing here has been run against Railway or R2 yet. Each step that hasn't been verified
-says so, and the first deploy is where it gets checked.
+Written 2026-10-26 (OL2b). The first deploy to Railway and R2 was 2026-10-29: sections 2 to 5 are corrected from
+it, and the steps it checked say VERIFIED. A step that hasn't been run yet says so.
 
 Never paste a secret into a chat, a commit or an issue. Every value below goes into Railway's variables page, a
 password manager, or (the KEK only) its paper copy, and nowhere else.
@@ -35,22 +35,29 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
 ## 2. Railway (about 15 minutes)
 
 1. Create a new project with one service, built **from this GitHub repo**.
-   - Settings → Build: the builder is **Dockerfile**, the Dockerfile path is `hosted/Dockerfile`, and the root
-     directory stays the repo root. (`RAILWAY_DOCKERFILE_PATH=hosted/Dockerfile` as a variable does the same.)
+   - Settings → Scale: a new service starts in **EU West**. Set the region to **US West**.
+   - The builder: the easiest way is the variable `RAILWAY_DOCKERFILE_PATH=hosted/Dockerfile` (in step 3's table).
+     Settings → Build then shows "Dockerfile, set via variable". The root directory stays the repo root.
+     VERIFIED 2026-10-29.
    - Settings → Deploy:
      - healthcheck path `/readyz`;
      - **one replica**: the rate limits live in memory, and the stores must have one writer.
-2. Add a **volume** to the service, mounted at `/data`.
-   - Railway mounts volumes owned by root, and the image runs as the `node` user. If the first boot logs
-     `EACCES` under `/data`, add the variable `RAILWAY_RUN_UID=0`. That's Railway's documented switch for this
-     (unverified here).
+   - Railway turns on **auto-deploy on every push to master**. That's fine for family use. Before non-family users,
+     it should wait for CI ("Wait for CI") or deploy from a branch of its own. Which one is the owner's call; not
+     decided yet.
+   - Leave Railway's **Edge** section (CDN caching, edge rules, Under Attack Mode) off. Caching in front of sign-in
+     pages and `/mcp` isn't something this server expects, and any of it could change the hops in section 5, step 3.
+2. Add a **volume** to the service, mounted at `/data`, and set the variable `RAILWAY_RUN_UID=0` from the start.
+   - Railway mounts volumes owned by root, and the image runs as the `node` user. Without it the first boot
+     restart-loops on `[hosted] did not start: EACCES: permission denied, mkdir '/data/control'`. VERIFIED
+     2026-10-29: that was the first boot, and `RAILWAY_RUN_UID=0` fixed it.
 3. Add the **variables**. These are names only; the values come from step 1 and step 3 of this runbook.
 
    | name | value |
    |---|---|
    | `HOSTED_DATA_ROOT` | `/data` |
    | `PUBLIC_ORIGIN` | `https://app.counterparts.ai` |
-   | `TRUST_PROXY` | `1` |
+   | `TRUST_PROXY` | `2`: the number of proxy hops in front. Railway adds an edge hop (section 5, step 3) |
    | `RESEND_API_KEY` | Resend's key |
    | `MAIL_FROM` | `Counterparts <memory@counterparts.ai>` |
    | `COOKIE_KEYS` | the cookie key from 1.2 |
@@ -61,6 +68,8 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    | `R2_ACCESS_KEY_ID` | the R2 token's access key id |
    | `R2_SECRET_ACCESS_KEY` | the R2 token's secret |
    | `LOG_FORWARDED_FOR` | `1`, **for the first deploy only** (section 5, step 3) |
+   | `RAILWAY_RUN_UID` | `0` (step 2) |
+   | `RAILWAY_DOCKERFILE_PATH` | `hosted/Dockerfile` (step 1) |
    | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `60`, so Litestream's last sync finishes before a redeploy kills the old container (unverified; check Railway's current name for it) |
 
    Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`.
@@ -80,12 +89,24 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
 
 ## 4. DNS (5 minutes, then a wait)
 
-1. In Railway: service → Settings → Networking → Custom domain → `app.counterparts.ai`. It shows a CNAME target.
-2. In Cloudflare DNS for `counterparts.ai`: a `CNAME` record `app` → that target, **proxy off (DNS only, grey
-   cloud)**.
-   - With the proxy on, Cloudflare adds a hop in front of Railway's, and every person would share one rate-limit
-     bucket (section 5, step 3).
-   - Railway issues the TLS certificate itself once the record resolves.
+`counterparts.ai`'s DNS is at **Namecheap**, not Cloudflare. R2 lives in a Cloudflare account, but it doesn't need
+the domain on Cloudflare.
+
+1. In Railway: service → Settings → Networking → Custom domain → `app.counterparts.ai`. It asks for **two records**:
+   a CNAME and a TXT.
+2. In Namecheap: Domain List → `counterparts.ai` → Advanced DNS. Add both, typing only the host part, because
+   Namecheap appends the domain:
+
+   | type | host | value |
+   |---|---|---|
+   | `CNAME` | `app` | `<id>.up.railway.app` (the target Railway shows) |
+   | `TXT` | `_railway-verify.app` | `railway-verify=…` (the value Railway shows) |
+
+   - Namecheap has no proxy toggle, so nothing adds a hop here.
+   - VERIFIED 2026-10-29: both resolved within a minute. Railway issued the TLS certificate itself a few minutes
+     after that.
+   - If the DNS ever moves to Cloudflare, keep `app`'s proxy off (DNS only, grey cloud). With it on, Cloudflare adds
+     another hop in front of Railway's, and `TRUST_PROXY` would be wrong (section 5, step 3).
 
 ## 5. First boot checks
 
@@ -97,17 +118,22 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    curl -s https://app.counterparts.ai/readyz
    ```
 
-   Expect `{"ready":true,"checks":{"started":"ok","control":"ok","keys":"ok","backups":"ok"}}`.
+   Expect `{"ready":true,"checks":{"started":"ok","control":"ok","keys":"ok","backups":"ok"}}`. VERIFIED 2026-10-29:
+   exactly that body.
    - `backups: "down"` means the Litestream child isn't running. Look in the log for its own lines.
    - The body never holds an id or a key. If it ever does, that's a bug.
 3. **The proxy's hops** (INTERFACE-GAPS §4). Find your own IP (`curl -s https://ifconfig.me`), then run the
-   `/readyz` curl again. The log shows `[hosted] /readyz X-Forwarded-For: …`.
-   - **Exactly your IP**, alone: good. The server takes the last hop, which is the one Railway appended.
-   - **Your IP, then another address**: Railway put a second hop in. Every person would then share the last
-     address's rate-limit bucket. Tell the coordinator before inviting anyone; it's a one-line change in
-     `web.ts#clientIp`.
+   `/readyz` curl again. The log shows `[hosted] /readyz X-Forwarded-For: …`. `TRUST_PROXY` is the number of
+   addresses in that line when you curl directly: the server takes that many from the end, so the entry it uses is
+   yours, and nothing a client writes in front of it counts.
+   - Found 2026-10-29: **your IP, then a Railway edge address** (`<your IP>, <Railway edge IP>`). That is two hops,
+     so `TRUST_PROXY=2`. With `1`, every person would have shared the edge address's rate-limit bucket.
+   - Keep doing this check after a change on Railway's side (or any proxy put in front): Railway could change its
+     hops. Your IP alone would mean `1`; three addresses would mean `3`. If your IP isn't in the line at all, tell
+     the coordinator before inviting anyone.
    - Then **delete `LOG_FORWARDED_FOR`** and redeploy.
 4. **The bucket**: after a minute, R2's object browser shows `keys/control.wrapped` and `control/accounts.sqlite/…`.
+   VERIFIED 2026-10-29: the bucket showed `control/` and `keys/`.
 5. **Litestream's own words**: the log has Litestream's start lines, and no repeated `sidecar.backoff`.
 
 ## 6. Your invite, and you

@@ -55,7 +55,8 @@ export interface AppOptions {
   /** `https://app.counterparts.ai` in production. */
   readonly publicOrigin: string;
   readonly mailer: Mailer;
-  readonly trustProxy?: boolean;
+  /** How many proxy hops in front to trust (TRUST_PROXY; web.ts#clientIp). 0 or absent: none. */
+  readonly trustProxy?: number;
   readonly embedder?: SharedEmbedder;
   readonly spawner?: Spawner;
   readonly cookieKeys?: readonly string[];
