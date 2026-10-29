@@ -20,7 +20,13 @@ import {
   MEET_LINE_OPEN,
   ONBOARDING_ANSWERS_KEY,
   ONBOARDING_MEET_KEY,
-  ORIGIN_WITHOUT_ANSWER,
+  ANSWER_STEPS,
+  MEET_NO_ANSWER,
+  ONBOARDING_AHA_KEY,
+  ONBOARDING_DONE_KEY,
+  ONBOARDING_OFFERED_KEY,
+  ONBOARDING_STYLE_KEY,
+  ONBOARDING_WHERE_KEY,
   ahaDue,
   PRONOUN_RULE,
   pushbackBaseline,
@@ -402,7 +408,7 @@ describe("the meet tool", () => {
     expect(meetState(s.counterpart.store)).toBe("offered");
     // Nothing is stored for a question with no answer.
     const before = s.counterpart.store.list({ type: "memory" }).length;
-    expect((await s.call("meet", { step: "love" })).structuredContent["reason"]).toBe("answer-required");
+    expect((await s.call("meet", { step: "love" })).structuredContent).toMatchObject({ stored: 0 });
     expect(s.counterpart.store.list({ type: "memory" }).length).toBe(before);
   });
 
@@ -908,21 +914,54 @@ describe("the `origin` step (was `started`), over Claude Code's stdio door", () 
     expect(script).toContain("Now → no meet call: go on to the next step.");
   });
 
-  test("the misread call — `started` (or `origin`) with no answer, right after Now — gets plain words, not answer-required, and stores nothing", async () => {
+  // Every onboarding meta row but the hold's (`onboarding.active`: any meet
+  // call in a session is the meeting still going, and holds its write-up ask).
+  const onboardingRows = (s: McpServer): Record<string, string | null> => {
+    const out: Record<string, string | null> = {};
+    for (const key of [ONBOARDING_MEET_KEY, ONBOARDING_ANSWERS_KEY, ONBOARDING_OFFERED_KEY, ONBOARDING_DONE_KEY, ONBOARDING_AHA_KEY, ONBOARDING_WHERE_KEY, ONBOARDING_STYLE_KEY]) {
+      out[key] = s.counterpart.store.getMeta(key) ?? null;
+    }
+    return out;
+  };
+
+  test("H1b: every answer step sent with no answer, over stdio, is NOT an error: it says nothing was stored (stored 0) and moves no state", async () => {
     newInstallStore();
     const s = server();
     await meet(s, {});
-    const before = s.counterpart.store.list({ type: "memory" }).length;
-    for (const step of ["started", "origin"]) {
-      const r = await meet(s, { session: "sess-meet-1", step });
-      expect(r.isError).toBe(true);
-      expect(r.structured["reason"]).toBe("begins-without-step");
-      expect(r.structured["detail"]).toBe(ORIGIN_WITHOUT_ANSWER);
-      expect(r.text).toContain("the meeting begins with meet and no step");
+    expect((await meet(s, { session: "sess-meet-1", step: "name", answer: "Ada" })).structured).toMatchObject({ recorded: "name", stored: 1 });
+    const memories = s.counterpart.store.list({ type: "memory" }).length;
+    const rows = onboardingRows(s);
+    for (const step of [...ANSWER_STEPS, "started"]) {
+      for (const answer of [undefined, "", "   "]) {
+        const r = await meet(s, { session: "sess-meet-1", step, ...(answer === undefined ? {} : { answer }) });
+        expect(r.isError).toBe(false);
+        expect(r.text).toBe(MEET_NO_ANSWER);
+        expect(r.text.startsWith("Nothing stored")).toBe(true);
+        expect(r.structured["stored"]).toBe(0);
+        expect(r.structured["recorded"]).toBeUndefined();
+        expect(r.structured["reason"]).toBeUndefined();
+        expect(r.structured["step"]).toBe(step === "started" ? "origin" : step);
+      }
     }
-    expect(s.counterpart.store.list({ type: "memory" }).length).toBe(before);
-    // Every other question keeps its own refusal.
-    expect((await meet(s, { step: "love" })).structured["reason"]).toBe("answer-required");
+    expect(s.counterpart.store.list({ type: "memory" }).length).toBe(memories);
+    expect(onboardingRows(s)).toEqual(rows);
+    // Any other refusal stays an error.
+    const unknown = await meet(s, { step: "nope" });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.structured["reason"]).toBe("step-unknown");
+    expect((await meet(s, { step: "address" })).structured["reason"]).toBe("answer-required");
+    expect((await meet(s, { step: "style", answer: "" })).structured["reason"]).toBe("style-unknown");
+  });
+
+  test("H1b: a bare answer step on a meeting nobody has read yet is no offer made: the state stays not_started", async () => {
+    newInstallStore();
+    const s = server();
+    const rows = onboardingRows(s);
+    const r = await meet(s, { session: "sess-meet-1", step: "started" });
+    expect(r.isError).toBe(false);
+    expect(r.structured).toMatchObject({ stored: 0, meet: "not_started" });
+    expect(onboardingRows(s)).toEqual(rows);
+    expect(meetState(s.counterpart.store)).toBe("not_started");
   });
 
   test("a whole meeting through `origin`; `started` with an answer is still taken, recorded as `origin`", async () => {

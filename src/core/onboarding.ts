@@ -75,11 +75,15 @@ export function meetStepOf(sent: unknown): unknown {
 }
 
 /**
- * THE MISREAD, ANSWERED IN PLAIN WORDS (H1): `origin` (or `started`) with no
- * answer is almost always a Claude that took it for "the meeting has begun".
+ * AN ANSWER STEP SENT WITH NO ANSWER (H1, then H1b, 2026-10-29): plain words,
+ * and NOT a refusal. claude.ai draws every error result as a red "Failed"
+ * card, and the call is almost always a Claude that took a question for "the
+ * meeting has begun" (`started`/`origin` right after Now), or sent a question
+ * the person skipped. So it comes back as an ordinary result whose first words
+ * are that nothing was stored (`stored: 0`), so it can't be taken for a save.
  */
-export const ORIGIN_WITHOUT_ANSWER =
-  "`origin` is one of the meeting's questions (\"What got you started building things?\") and takes their answer. It doesn't start the meeting: the meeting begins with meet and no step, which returns the script. When they choose Now, nothing is recorded: go on to the next step of the script.";
+export const MEET_NO_ANSWER =
+  "Nothing stored: no answer came with this step. If they answered, send it again with `answer`; a question they skipped needs no call. Starting the meeting needs no call either: just ask the first question.";
 
 /** Every step `meet` takes. */
 export const MEET_STEPS = ["where", ...ANSWER_STEPS, "style", "address", "later", "skipped", "done"] as const;
