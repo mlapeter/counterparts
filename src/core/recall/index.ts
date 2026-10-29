@@ -769,7 +769,12 @@ export class Recall {
       verdicts: gated.verdicts,
       seen: state.surfaced,
       ...(turn.echo === undefined ? {} : { echo: turn.echo }),
-      ...(turn.elsewhere !== undefined && this.tunables.RECALL_BY_PROJECT ? { elsewhere: turn.elsewhere } : {}),
+      // Never another project's work, under the hard filter OR the higher bar
+      // (review of #681): a named id is no way round Mike's "slightly higher
+      // bar" for crossing work; personal memories cross as ever.
+      ...(turn.elsewhere !== undefined && (this.tunables.RECALL_BY_PROJECT || this.tunables.CROSS_PROJECT_BAR_LIFT > 1)
+        ? { elsewhere: turn.elsewhere }
+        : {}),
       ...(habituated.size === 0 ? {} : { habituated }),
       background: gated.background.bar,
       t: this.tunables,

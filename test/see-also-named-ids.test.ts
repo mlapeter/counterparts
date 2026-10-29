@@ -296,7 +296,7 @@ describe("PP1 — see-also from named ids", () => {
 });
 
 describe("PP1 — another project's work, named by a shown memory (review of #681)", () => {
-  test("RECALL_BY_PROJECT on: never rides along; the lift's count never counts what see-also showed", () => {
+  test("another project's work never rides along, under the higher bar or the hard filter; the lift counts it kept back", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-pp1-project-")));
     const bakery = join(root, "bakery");
     const garage = join(root, "garage");
@@ -314,8 +314,10 @@ describe("PP1 — another project's work, named by a shown memory (review of #68
       tunables.CROSS_PROJECT_BAR_LIFT = 1_000;
       const lifted = c.recallForTurn({ sessionId: "s-lift", text: "the starter jar on the workbench" }, { scope: garage });
       expect([...lifted.decision.surfaced, ...lifted.decision.footnotes]).toContain(ours);
-      // Kept back, or shown: never both.
-      expect(lifted.decision.crossProjectLifted).toBe(lifted.decision.footnotes.includes(theirs) ? 0 : 1);
+      // Under the higher bar alone (the default shape), see-also does not carry it either: kept back, and counted so.
+      expect(lifted.decision.footnotes).not.toContain(theirs);
+      expect(lifted.decision.verdicts.some((v) => v.via === "see-also")).toBe(false);
+      expect(lifted.decision.crossProjectLifted).toBe(1);
       tunables.RECALL_BY_PROJECT = true;
       const held = c.recallForTurn({ sessionId: "s-held", text: "the starter jar on the workbench" }, { scope: garage });
       expect([...held.decision.surfaced, ...held.decision.footnotes]).toContain(ours);

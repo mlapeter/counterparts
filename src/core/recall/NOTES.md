@@ -1564,3 +1564,9 @@ note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids 
 - **Where it lives.** In `activate.ts` (`seeAlso`, beside `recallableRow`), not a module of its
   own: first built as `see-also.ts`, it took the directory plugin flavor to 511 files, past
   `plugin-bundle.test.ts`'s 510 margin under the directory's 512 limit.
+- **Never another project's work (review of #681, coordinator's call 10-29).** At default settings
+  (`RECALL_BY_PROJECT` off, `CROSS_PROJECT_BAR_LIFT` 1.25) the first build let a shown memory that named
+  another project's work memory bring it along, past the higher bar the lift exists to hold. `seeAlso` now
+  gets `elsewhere` whenever either is on, so a named id carries within the project and personal memories
+  (owner/us) cross as ever. Tested: under the lift alone the crossing memory is kept back and counted in
+  `crossProjectLifted`; it fails without the change.

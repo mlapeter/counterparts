@@ -12,7 +12,7 @@
   that holds now, and only a memory the turn could show at all rides along — the candidates'
   own test (removed, archived, superseded, below reach, the self page, handoffs, cards and
   beliefs never), and not one already shown this turn or session, written by this session,
-  another project's under `RECALL_BY_PROJECT`, habituated, or inhibited by the gate.
+  another project's work (under `RECALL_BY_PROJECT` or the higher bar `CROSS_PROJECT_BAR_LIFT` > 1: a named id is no way round the crossing bar; review of #681), habituated, or inhibited by the gate.
   Confidentiality is not a test: the column has been inert since 10-21. Why: see-also is a
   second lane past "uncued is dark" (beside quiet pointers), and it should not show what the
   turn's own rules hold back.
