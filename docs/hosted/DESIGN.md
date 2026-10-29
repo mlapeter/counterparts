@@ -35,7 +35,9 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 
 Lanes others own, where this lane takes the plan's defaults:
 
-- **readOnly honesty** (OL1b): `recall` and `wake` record use credit, so they are not marked readOnly.
+- **readOnly honesty** (OL1b): `recall` and `wake` record use credit, so they are not marked readOnly. Since H1
+  (2026-10-29) no tool is on claude.ai: its copy of `status` takes `session`, and a call naming it touches the
+  session's record (`mcp/tools.ts#chatAnnotations`).
 - **One surface or a night URL** (OL1b): one surface, `/mcp`.
 
 ---

@@ -1939,3 +1939,24 @@ its own small PR, after a look at its live use.
   script's opening says so too ("Now → no meet call: go on to the next step"): the root of the misread was that Now
   had no instruction while Later had a call.
 - It is still a refusal (`isError`), so a client that draws refusals red still will; the words are what changed.
+
+## 2026-10-29 — readOnlyHint on a chat's copy (H1)
+
+- **The ask.** claude.ai asked Mike once per tool on first use. The brief: check `status`, `self_page` and `wake`
+  against `annotate`'s contract (read-only = never changes the store, a file or a setting), and claim nothing about
+  claude.ai that can't be tested.
+- **`self_page` stays false**: one tool reads and writes (`body`), and an annotation is per tool. **`wake` stays false**:
+  it mints a session. **`recall` stays false**: its use credit is a real write.
+- **`status` was not honest on a chat host.** Checked through the claude.ai HTTP door with a snapshot of every table in
+  both databases and every file under the store: a `status` naming no session changes nothing, but a `status` that
+  names its session, which the chat copy's schema offers and the unbound result's `bindNote` asks for, rewrites that
+  session's record (`afterDesktopCall` -> `touchDesktopSession`: liveness and the write-up pacer, which decides a later
+  call's `writeUpAsk`). That is a file a later call reads, not telemetry. Desktop's tests pin that a named `status`
+  refreshes and counts (`desktop-chat.test.ts`, review of #294), so the write is by design and the hint was wrong.
+- **So a chat's copy of a read-only tool is not read-only** (`tools.ts#chatAnnotations`, in `withDesktopSession` and
+  `withClaudeAiSession`): claude.ai and Desktop now mark no tool read-only, and Claude Code's `status`, which takes
+  no session and touches nothing (tested the same way), keeps `readOnlyHint: true`. The other road, a `status` that
+  moves no record, would change Desktop's pacing on purpose and was left alone.
+- **Not tested, not claimed:** whether claude.ai skips a permission prompt for a read-only tool at all. Nothing here can
+  observe claude.ai's prompts. If Mike was asked about Memory status too on that first use, the hint wasn't what
+  decided it. The real fix for the prompts (an "Always allow" line on the setup page) is the site's.

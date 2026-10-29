@@ -17,7 +17,7 @@
  * worker is started (a stub spawner); every word is invented.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,7 @@ import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
 import { FRAMING } from "../src/core/self/index.js";
+import { openDb } from "../src/core/store/db.js";
 
 let root: string;
 const closers: (() => unknown)[] = [];
@@ -277,7 +278,9 @@ describe("4. the tool words for chat", () => {
       expect(spec.negativeExamples.length).toBeGreaterThanOrEqual(1);
       for (const negative of spec.negativeExamples) expect(negative.toLowerCase()).toContain("do not");
       expect(spec.privileges).toEqual(base?.privileges ?? []);
-      expect(spec.annotations).toEqual(base?.annotations as never);
+      // The same annotations, but a chat copy is never read-only: it takes `session` (H1, `tools.ts#chatAnnotations`).
+      const b = base?.annotations;
+      expect(spec.annotations).toEqual((b?.readOnlyHint === true ? { ...b, readOnlyHint: false, idempotentHint: false } : b) as never);
       if (CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS] === undefined) {
         expect(renderDescription(spec)).toBe(renderDescription(base as never));
       }
@@ -286,11 +289,78 @@ describe("4. the tool words for chat", () => {
     expect(toolDefinitions(false).map((t) => t["description"])).toEqual(TOOLS.map((t) => renderDescription(t)));
   });
 
-  test("annotations: on claude.ai only Memory status is read-only (readOnly honesty is open; recall and wake record use)", () => {
-    const readOnly = toolDefinitions(CLAUDE_AI_HOST)
-      .filter((t) => (t["annotations"] as { readOnlyHint: boolean }).readOnlyHint)
-      .map((t) => (t["annotations"] as { title: string }).title);
-    expect(readOnly).toEqual(["Memory status"]);
+  // H1 (2026-10-29): the honesty question, closed by the door test below. Whether claude.ai skips its
+  // per-tool permission prompt for a read-only tool is NOT tested anywhere, and nothing here claims it.
+  test("annotations: nothing is read-only on claude.ai or Desktop (a named call touches the session record); Claude Code's status is", () => {
+    const readOnlyOn = (host: boolean | string): string[] =>
+      toolDefinitions(host)
+        .filter((t) => (t["annotations"] as { readOnlyHint: boolean }).readOnlyHint)
+        .map((t) => (t["annotations"] as { title: string }).title);
+    expect(readOnlyOn(CLAUDE_AI_HOST)).toEqual([]);
+    expect(readOnlyOn(DESKTOP_HOST)).toEqual([]);
+    // recall (its use credit), wake, and self_page (it has a write mode) are never read-only anywhere.
+    expect(readOnlyOn(false)).toEqual(["Memory status"]);
+  });
+});
+
+describe("H1: Memory status's readOnlyHint is true to what a status call does", () => {
+  /** Every row of every table in the store's two databases, and every other file under it, as text. */
+  function snapshot(dir: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const file of [join(dir, "counterparts.sqlite"), join(dir, "cache", "cache.sqlite")]) {
+      const db = openDb(file);
+      try {
+        for (const { name } of db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")) {
+          out.set(`${file}#${name}`, JSON.stringify(db.all(`SELECT * FROM "${name}" ORDER BY rowid`)));
+        }
+      } finally {
+        db.close();
+      }
+    }
+    const walk = (d: string): void => {
+      for (const n of readdirSync(d)) {
+        const f = join(d, n);
+        if (statSync(f).isDirectory()) walk(f);
+        else if (!/\.sqlite(-wal|-shm)?$/.test(n)) out.set(f, readFileSync(f, "utf8"));
+      }
+    };
+    walk(dir);
+    return out;
+  }
+  const changed = (a: Map<string, string>, b: Map<string, string>): string[] =>
+    [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).map((k) => k.replace(root, "<root>"));
+
+  test("through the claude.ai door: a status call naming no session changes no row and no file; one naming it touches the session record, so the chat copy is not read-only", async () => {
+    const { http, s } = await door();
+    const session = String(((await rpc(http.url, "tools/call", { name: "wake", arguments: {} }))["result"] as { structuredContent: Record<string, unknown> }).structuredContent["session"]);
+    await rpc(http.url, "tools/call", { name: "remember", arguments: { session, text: "Wren keeps bees on the roof of the library." } });
+    const dir = s.counterpart.store.dir;
+    const before = snapshot(dir);
+    const r = (await rpc(http.url, "tools/call", { name: "status", arguments: {} }))["result"] as { isError?: boolean; structuredContent: Record<string, unknown> };
+    expect(r.isError === true).toBe(false);
+    expect(typeof r.structuredContent["live"]).toBe("number");
+    // The snapshot sees what a write would touch: the memory, the session's registry record.
+    expect([...before.keys()].some((k) => k.includes(`sessions/${session}.json`))).toBe(true);
+    expect(before.get(`${join(dir, "counterparts.sqlite")}#memories`)).toContain("Wren keeps bees");
+    expect(changed(before, snapshot(dir))).toEqual([]);
+    // The call the chat copy asks for: `session` named (its schema has it; the result's bindNote asks for it).
+    expect(String(r.structuredContent["bindNote"])).toContain('pass the id wake gave this conversation');
+    const named = snapshot(dir);
+    await rpc(http.url, "tools/call", { name: "status", arguments: { session } });
+    expect(changed(named, snapshot(dir))).toEqual([`<root>/store-claude-ai/sessions/${session}.json`]);
+    const status = ((await rpc(http.url, "tools/list"))["result"] as { tools: { name: string; annotations: { readOnlyHint: boolean } }[] }).tools.find((t) => t.name === "status");
+    expect(status?.annotations.readOnlyHint).toBe(false);
+  });
+
+  test("Claude Code's status, which takes no session, changes no row and no file, and stays read-only", async () => {
+    const s = server("claude-code");
+    await s.call("remember", { text: "Wren keeps bees on the roof of the library." });
+    const dir = s.counterpart.store.dir;
+    const before = snapshot(dir);
+    expect(before.get(`${join(dir, "counterparts.sqlite")}#memories`)).toContain("Wren keeps bees");
+    expect((await s.call("status", {})).isError === true).toBe(false);
+    expect(changed(before, snapshot(dir))).toEqual([]);
+    expect((toolDefinitions(false).find((t) => t["name"] === "status")?.["annotations"] as { readOnlyHint: boolean }).readOnlyHint).toBe(true);
   });
 });
 
