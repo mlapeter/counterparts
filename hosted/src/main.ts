@@ -18,7 +18,9 @@
  *   RESEND_API_KEY     the mail provider's key (serve; required unless MAIL=log)
  *   MAIL_FROM          e.g. "Counterparts <memory@counterparts.ai>"
  *   MAIL               "log" prints login links to stderr instead of sending (local runs only)
- *   COOKIE_KEYS        comma-separated keys for the OAuth library's cookies (optional)
+ *   COOKIE_KEYS        comma-separated keys for the OAuth library's cookies, newest first, each 32+ characters
+ *                      (optional); the first also seeds the forms' CSRF key, so open forms survive a restart.
+ *                      Unset: both are random per process, and every open form expires on a restart
  *   HOSTED_KEKS        the KEK ring, version:base64 (keys.ts; the beta's KEK holder)
  *   HOSTED_KEK_CURRENT the version new wraps use
  *   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   one bucket, objects only
@@ -659,6 +661,7 @@ async function main(): Promise<void> {
   // One embedder for every store (the static table, ~30 MB).
   const embedder = openEmbedder(withEmbedderDefault({}));
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
+  if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
   const app = createApp({
     dataRoot: read.dataRoot,
     publicOrigin: read.origin,

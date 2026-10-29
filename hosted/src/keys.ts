@@ -124,6 +124,18 @@ export function kekRingFromEnv(env: Record<string, string | undefined>): EnvKeyW
   return new EnvKeyWrapper(ring, current);
 }
 
+/** The HKDF info label of the forms' CSRF key: a key family of its own, apart from `deriveKey`'s. */
+export const CSRF_KEY_INFO = "counterparts csrf v1";
+
+/**
+ * THE FORMS' CSRF KEY from the current cookie key (H1, 2026-10-29): HKDF-SHA256,
+ * no salt, so every process given the same COOKIE_KEYS checks the same tokens
+ * and a restart keeps the open forms. Here because every KDF lives in this file.
+ */
+export function csrfKey(cookieKey: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", Buffer.from(cookieKey, "utf8"), Buffer.alloc(0), Buffer.from(CSRF_KEY_INFO, "utf8"), 32));
+}
+
 /** A purpose-bound key from a DEK. Never the DEK itself. */
 export function deriveKey(dek: Buffer, purpose: string): Buffer {
   return Buffer.from(hkdfSync("sha256", dek, Buffer.alloc(0), Buffer.from(`counterparts/${purpose}`, "utf8"), 32));
