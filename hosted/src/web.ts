@@ -121,7 +121,10 @@ export function page(res: ServerResponse, status: number, opts: { title: string;
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
+    // same-origin, not no-referrer: under no-referrer a browser sends `Origin: null` on our own
+    // form POSTs, and sameOrigin() refuses every one (the first deploy, 2026-10-29). Other sites
+    // still get no referrer.
+    "Referrer-Policy": "same-origin",
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": csp,
     ...(opts.headers ?? {}),
