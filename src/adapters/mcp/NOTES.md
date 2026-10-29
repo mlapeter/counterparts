@@ -1921,3 +1921,21 @@ its own small PR, after a look at its live use.
 - **What it can't see.** A newer writer that migrated the store but hasn't published a wake yet leaves the old stamp
   (or none), so the words fall back to what they said before: reload when the record is newer. Unmeasured how often
   a migration lands without a wake following it in the same process.
+
+## 2026-10-29 — `meet`'s `started` step is `origin` now (H1)
+
+- **The misread.** On Mike's first hosted meeting, claude.ai's Claude, right after he picked "Now (about 5 minutes)",
+  called `meet {session, step: "started"}` with no answer: it read the step as "the meeting has started". It got
+  `answer-required`, and he saw a red Failed card.
+- **Renamed, because nothing held the old name hard.** The only stored trace is the `onboarding.answers` meta row
+  (`{ <step>: <memory id> }`), read by `ahaDue` alone, which already keeps a list of old step names for exactly this
+  (0.3.18/0.3.19's `loved`, `outside`, ...). `started` joins it beside `origin`. The memories carry no step name; the
+  dashboard, the sidebar and the plugin bundle never name a step. `MEET_STATES`' `not_started` is unrelated.
+- **The old name is still taken, never offered.** `MEET_STEP_ALIASES` serves `started` as `origin` (a meeting in flight
+  across the deploy, an older script); the schema's enum lists only `origin`, since the enum is what invited the
+  misread. An answer sent as `started` is recorded and answered as `origin`.
+- **A bare `origin`/`started` gets its own refusal** (`begins-without-step`, `ORIGIN_WITHOUT_ANSWER`): the meeting
+  begins with `meet` and no step, and Now records nothing. Every other bare question keeps `answer-required`. The
+  script's opening says so too ("Now → no meet call: go on to the next step"): the root of the misread was that Now
+  had no instruction while Later had a call.
+- It is still a refusal (`isError`), so a client that draws refusals red still will; the words are what changed.

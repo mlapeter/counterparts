@@ -97,11 +97,13 @@ import { coreNewer, newerStoreRemedy } from "../update-words.js";
 import type { NewerStoreInput } from "../update-words.js";
 import {
   MEET_STEPS,
+  ORIGIN_WITHOUT_ANSWER,
   STYLE_CHOICES,
   addressMemory,
   answerText,
   finishText,
   meetState,
+  meetStepOf,
   meetingHold,
   meetingInstructions,
   noteActive,
@@ -1556,7 +1558,7 @@ export class McpServer {
    * script and the state, and the offer is recorded (`offered`), so neither
    * the wake's line nor the mod offers it again today. With a step:
    *
-   *   - an answer (name, work, loved, problem, peeves, outside) becomes ONE
+   *   - an answer (name, week, work, love, saturday, origin) becomes ONE
    *     memory through `remember`'s own door — about the owner, said by the
    *     owner, marked "(from onboarding)" — and its id is kept for the second
    *     session's line; a skipped question is never sent, so nothing is stored;
@@ -1585,7 +1587,8 @@ export class McpServer {
     const named = typeof args["session"] === "string" ? args["session"].trim() : "";
     const session = (named.length > 0 && this.corroborate(named) ? named : null) ?? this.session ?? this.hostSession() ?? UNBOUND_SESSION;
     const on = this.today();
-    const step = args["step"];
+    // An old step name is served as its new one (`started` is `origin`, H1).
+    const step = meetStepOf(args["step"]);
     // EVERY CALL IS THE MEETING STILL GOING (2026-10-12, onboarding round 1, A):
     // while it is, this session's write-up ask and the day's dream wait.
     if (!this.observer && session !== UNBOUND_SESSION) {
@@ -1684,8 +1687,10 @@ export class McpServer {
         return done({ stored: ids.length, ids });
       }
       default: {
-        // An answer: name, work, loved, problem, peeves, outside.
+        // An answer: name, week, work, love, saturday, origin.
         if (answer.length === 0) {
+          // The misread (H1): `origin`/`started` sent bare to say "the meeting has begun".
+          if (step === "origin") return this.refuse("meet", "begins-without-step", { detail: ORIGIN_WITHOUT_ANSWER });
           return this.refuse("meet", "answer-required", { detail: "Send the answer, in your words. A skipped question is never sent: nothing is stored for it." });
         }
         const text = step === "name" ? `They like to be called ${answer}.` : answer;
