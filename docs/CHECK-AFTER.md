@@ -76,6 +76,10 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
 | P2: open items untouched 14 lived days are parked (the 10-22 carry rule at 14, was 21): out of Still open and its count, `· N parked` on its count line, listed last and marked by `recall "still open"`; never a date still to come (ahead, in its grace week, repeating), `asked` or `settlesWhen` item; doctor's Open items line | not released, 10-28 (#674) | ~3 mornings after install: doctor's open/carried/parked, the first night's share count (every item 14–20 days untouched counts as newly parked once), whether a parked thread Mike still wanted came back by a touch or had to be found | `docs/decisions.d/feat-p2-park-old-threads.md` |
+| K1 (the 10-29 read): context priming's train share 0 (`recall.PRIME_TRAIN_SHARE`, was 0.5): the train scores nothing, the row says `primed.train: false`; link and tag priming unchanged | not released, 10-29 (ships after 0.3.40) | ~2 weeks after the release that carries it (~2026-11-13): footnote noise/useful by build, the link-lifted and tag-lifted groups, shown per person turn | "Due ~2 weeks after the 10-29 knobs" below; `docs/decisions.d/chore-read-1029-knobs.md` |
+| K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
+| K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
+| K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | 2026-11-05 with the beliefs slot's extended read: still one belief? any new belief on a named card? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -89,6 +93,35 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~2 weeks after the 10-29 knobs (K1, the 10-29 read, coordinator's call marked for review — `recall.PRIME_TRAIN_SHARE`, `schemas.TAGS_KINDS_PER_NIGHT`, `self.project.line`)
+
+**What changed.** (1) Context priming's train of thought gives no head start (`PRIME_TRAIN_SHARE` 0, was 0.5); links
+and tags still prime. (2) The night's kinds ask covers 30 cards a night (was 10). (3) The wake's project line leaves a
+durable row, `self.project.line`. Plus a finding, no change: why the beliefs slot only ever shows `sch_305a1aabc8fa`.
+Reasons and costs: `docs/decisions.d/chore-read-1029-knobs.md`.
+
+**What to look at, by build (read-only), from the release that carries it; re-check ~2026-11-13.**
+- *Priming.* Footnote ratings by build and by priming source, the read's split: train-lifted was 44% noise / 11% useful
+  (n 199; person turns 48% / 6%), link-lifted 22% / 50% (n 18), tag-primed 18% / 29%, unprimed 44% / 17%. **Bar:**
+  `primed.byTrain` 0 on every row of the new build (anything else is a setting that didn't take); overall footnote
+  noise not up and useful not down against 10-26..28 (noise 38–43%, useful 15–22%); shown per person turn not below
+  ~1.1. Revert (`recall.PRIME_TRAIN_SHARE=0.5`) if useful falls with nothing else to explain it.
+- *Kinds.* `SELECT COUNT(*) FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND archived=0 AND body != '' AND subject_kind IS NULL`
+  each morning (144 on 10-29), and each night's record in `meta` (`tags.night.<run>`: what the night set). **Bar:** the kindless
+  count falls by ~20 a night until it reaches the ~10 born a day; the tags child doesn't time out (`dream.night`
+  children, `code`), no `mcp.result.oversize` for phase `tags`; spot-check ten kinds the night set (people a person,
+  Counterparts a project). Too many wrong → back to 10, or a smaller model ask.
+- *Project line.* `SELECT json_extract(payload,'$.reason') r, COUNT(*) FROM events WHERE name='self.project.line' GROUP BY r`,
+  and `ids` of the shown ones. **Bar:** it can now be read at all; if it shows on most project wakes, read whether
+  sessions drew on it (ratings, quotes of the ids); if it is mostly `below-floor`, it has nothing to say yet; if it is
+  mostly `no-room`, it costs nothing and shows nothing. Keep or retire it on that read (`self.WAKE_PROJECT_LINE=false`).
+- *Beliefs slot (finding).* With the slot's extended read on 11-05: still one belief? Any belief born on a named card
+  (not about me or us), and did it show? If the slot can only ever show one or two beliefs, the question for Mike is
+  whether beliefs about me or us get an ambient door (`src/core/recall/NOTES.md`, 2026-10-29).
+
+**Revert.** `recall.PRIME_TRAIN_SHARE=0.5`; `TAGS_KINDS_PER_NIGHT` back to 10 in `src/core/schemas/tunables.ts`; the
+project line's row goes with the line (`self.WAKE_PROJECT_LINE=false` writes none).
 
 ## Due 3–4 nights after the page split (2026-10-23, Mike's go, very lightly held, an experiment — `self.PAGE_SPLIT`)
 

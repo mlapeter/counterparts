@@ -919,3 +919,11 @@ everywhere else), and each awake repeat, filed or held, writes a durable `belief
 (the schemas' own events live only in the ring and the process log), so the check after can tell
 awake filings from the reflection's. Switch
 `AWAKE_SUPPORT_ON_DUPLICATE`; off is the old reply, byte for byte.
+
+## 2026-10-29 — why the beliefs slot shows one belief (a pointer)
+
+The 10-29 read found recall's beliefs slot showed one belief in 62 showings. The reason is on
+this module's side of the seam: `beliefsNamedIn` never offers the self subject (no name, and
+left out by id), and 4 of the 6 beliefs held are about me or us; the fifth, on the Mike card,
+is under recall's floor. The table and the reading are in `src/core/recall/NOTES.md` ("the
+beliefs slot shows one belief"). No change.

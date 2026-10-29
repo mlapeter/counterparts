@@ -23,7 +23,7 @@ import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { RECALL_DECISION_EVENT } from "../src/core/counterpart-events.js";
-import { PRIME_KIND, TRAIN_REF, clearIdleCarries, loadGateState, loadTrain, noteWakeOpen, wakeOpenIds } from "../src/core/recall/index.js";
+import { PRIME_KIND, TRAIN_REF, TUNABLES as RECALL, clearIdleCarries, loadGateState, loadTrain, noteWakeOpen, wakeOpenIds } from "../src/core/recall/index.js";
 import type { CandidateVerdict, RecallDecision } from "../src/core/recall/index.js";
 import { findable } from "./store-fixture.js";
 
@@ -31,6 +31,14 @@ const ENV = "COUNTERPARTS_DATA_DIR";
 const EXPLICIT = "COUNTERPARTS_REQUIRE_EXPLICIT_DIR";
 let dir: string;
 let priorEnv: string | undefined;
+/**
+ * THE TRAIN'S SHARE AS SHIPPED (0 since the 10-29 read). The mechanism tests
+ * below pin the train ON at its old start (0.5) for every store this file
+ * opens, so they keep proving how the train behaves for a revert; the shipped
+ * default is tested in its own block, through the real turn, with `SHIPPED`.
+ */
+const SHIPPED_TRAIN_SHARE = RECALL.PRIME_TRAIN_SHARE;
+const MECHANISM_TRAIN_SHARE = 0.5;
 let priorExplicit: string | undefined;
 const open: { close(): void }[] = [];
 
@@ -40,9 +48,11 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-priming-"));
   process.env[ENV] = dir;
   process.env[EXPLICIT] = "1";
+  (RECALL as { PRIME_TRAIN_SHARE: number }).PRIME_TRAIN_SHARE = MECHANISM_TRAIN_SHARE;
 });
 
 afterEach(() => {
+  (RECALL as { PRIME_TRAIN_SHARE: number }).PRIME_TRAIN_SHARE = SHIPPED_TRAIN_SHARE;
   for (const c of open.splice(0)) {
     try {
       c.close();
@@ -295,6 +305,81 @@ describe("context priming: the train of thought", () => {
       share.push(norm > 0 ? head.reduce((x, y, i) => x + y * (bread[i] ?? 0), 0) / norm : 0);
     }
     for (let i = 1; i < share.length; i++) expect(share[i] ?? 0).toBeLessThan(share[i - 1] ?? 0);
+  });
+});
+
+describe("context priming: the train's share as shipped (0, the 10-29 read)", () => {
+  // The same bread talk and probe as the train block above: with the train on,
+  // the flour probe gets a train head start there. As shipped it gets none.
+  const FLOUR = "Bought a sack of strong white flour from the mill.";
+  const BASIL = "The basil on the windowsill needs repotting soon.";
+  const PROBE = "remind me about the flour and the basil";
+  const BREAD = ["the sourdough starter smells sour today", "the loaf needs a longer proof in the oven"];
+
+  function shipped(sub: string): Counterpart {
+    const c = Counterpart.open({ dir: join(dir, sub), embed: topicVector, recallTunables: { PRIME_TRAIN_SHARE: SHIPPED_TRAIN_SHARE } });
+    findable(c.store);
+    open.push(c);
+    return c;
+  }
+
+  test("0 truly turns the train off through the real turn: nothing scored against it, no head start, the row says no train; the train is still kept, and links still prime", () => {
+    expect(SHIPPED_TRAIN_SHARE).toBe(0);
+    // The control: the train on, the same turns, and the flour probe is train-primed.
+    const on = brain("train-on");
+    seed(on);
+    const onFlour = fact(on, FLOUR);
+    fact(on, BASIL);
+    for (const t of BREAD) turn(on, "s-bread", t);
+    const onProbe = turn(on, "s-bread", PROBE);
+    expect(verdict(onProbe, onFlour)?.primed?.train ?? 0).toBeGreaterThan(0);
+    expect(onProbe.primed?.train).toBe(true);
+
+    // As shipped: the same store's content, the same turns.
+    const c = shipped("train-off");
+    seed(c);
+    const flour = fact(c, FLOUR);
+    const basil = fact(c, BASIL);
+    const turns = [...BREAD.map((t) => turn(c, "s-bread", t)), turn(c, "s-bread", PROBE)];
+    for (const d of turns) {
+      // Priming still ran (links and tags are on), but no train went to scoring.
+      expect(d.primed).not.toBeNull();
+      expect(d.primed?.train).toBe(false);
+      expect(d.primed?.trainCentre).toBeNull();
+      expect(d.primed?.byTrain).toBe(0);
+      for (const v of d.verdicts) {
+        expect(v.primed?.train ?? 0).toBe(0);
+        expect(Number.isFinite(v.activation)).toBe(true);
+        expect(Number.isFinite(v.bar)).toBe(true);
+      }
+    }
+    const probe = turns[turns.length - 1] as RecallDecision;
+    expect(verdict(probe, flour)?.primed?.train ?? 0).toBe(0);
+    expect(verdict(probe, basil)?.primed?.train ?? 0).toBe(0);
+    // The durable row the read counts from says the same.
+    const rows = c.store.eventLog({ name: RECALL_DECISION_EVENT, ref: "s-bread", order: "desc", limit: 1 });
+    const row = JSON.parse(rows[0]?.payload ?? "{}") as {
+      primed?: { train: boolean; byTrain: number; trainCentre: number | null } | null;
+      footnotes?: { id: string; primed?: { train?: number } }[];
+      surfaced?: { id: string; primed?: { train?: number } }[];
+    };
+    expect(row.primed?.train).toBe(false);
+    expect(row.primed?.byTrain).toBe(0);
+    expect(row.primed?.trainCentre ?? null).toBeNull();
+    for (const f of [...(row.footnotes ?? []), ...(row.surfaced ?? [])]) expect(f.primed?.train ?? 0).toBe(0);
+    // Kept, so a revert to a share above 0 starts warm.
+    expect(loadTrain(c.store, "s-bread")?.mass ?? 0).toBeGreaterThan(1);
+
+    // Links still prime as shipped: a used memory's linked partner is lifted.
+    const k = shipped("links-on");
+    const { a, b } = basketStore(k);
+    useA(k, "s-used", a, [b]);
+    const linked = turn(k, "s-used", ASK_BASKET);
+    expect(shown(linked)).toContain(b);
+    expect(verdict(linked, b)?.primed?.link ?? 0).toBeGreaterThan(0);
+    expect(verdict(linked, b)?.primed?.train ?? 0).toBe(0);
+    expect(linked.primed?.byLink).toBeGreaterThanOrEqual(1);
+    expect(linked.primed?.train).toBe(false);
   });
 });
 
