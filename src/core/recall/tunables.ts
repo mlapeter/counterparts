@@ -248,6 +248,24 @@ export interface RecallTunables {
    *  memory, however many paths reach it. Counted when it binds. CAL. */
   HOP_CEILING: number;
 
+  // ── see-also from named ids (PP1, 2026-10-29, an experiment) ─────────────
+  // Trying a memory that names another's id bringing it along (`activate.ts#seeAlso`),
+  // to see the 10-25 ping/pong miss close and stay closed. Revert by setting
+  // `SEE_ALSO_NAMED_IDS` to false (the turn is then composed as before).
+  /** Does a shown memory whose text names another memory's id bring it along
+   *  as a `See also:` footnote? */
+  SEE_ALSO_NAMED_IDS: boolean;
+  /** How many a turn may bring along, at most one per shown memory. Their own
+   *  slots after the footnotes and pointers, and the first lines the byte
+   *  budget trims. Why 2: on the 10-29 store 42 of 1,711 footnotes (2.5%)
+   *  named an id that could have ridden along, so a second slot rarely binds,
+   *  and a turn whose loud line and a footnote both name one keeps both. CAL. */
+  SEE_ALSO_MAX: number;
+  /** A see-also line's title, in bytes (the label, id and standing ride
+   *  outside it). Tighter than `FOOTNOTE_TITLE_BYTES`: it is a pointer to a
+   *  pointer. CAL. */
+  SEE_ALSO_TITLE_BYTES: number;
+
   // ── habituation (an experiment, 2026-10-19, light; check ~10-22) ─────────
   // Trying a raised bar for memories rated 0 twice to see whether footnote
   // noise drops. Revert by setting `HABITUATION_BAR_LIFT` to 0.
@@ -769,6 +787,10 @@ export const TUNABLES: RecallTunables = {
   LINK_POINTER_MIN_FRACTION: 0.05,
   SPREAD_SEEDS: 24,
   HOP_CEILING: 1,
+
+  SEE_ALSO_NAMED_IDS: true,
+  SEE_ALSO_MAX: 2,
+  SEE_ALSO_TITLE_BYTES: 100,
 
   HABITUATION_WINDOW_DAYS: 7,
   HABITUATION_MIN_SESSIONS: 2,

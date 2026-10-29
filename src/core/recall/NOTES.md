@@ -1503,6 +1503,74 @@ counts flat (the near miss as `nearMissCount`), `turn`, and `startedBy` (`person
   the five keys (as off) and rings `recall.stopcounts.failed`, rather than reaching the adapter's
   guard and costing the turn its recall.
 
+## PP1 — see-also from named ids (2026-10-29, an experiment; switch `recall.SEE_ALSO_NAMED_IDS`)
+
+The ping/pong miss of 10-25 (the 10-29 read, item 8): the rule (`mem_0ca7f032368a`) lost a bare
+"ping" to its bar (6.59 against 8.05), "ping" is in 90 live memories now, and cue learning had
+wired `ping → mem_66bb7d836201` (the note ABOUT the miss, 0.727) and nothing to the rule: cue
+learning trains a turn's words only to what the turn showed, so every "pong" answered from the
+note trained the note. The planned "(b) see-also" was through links; there is no link from the
+note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids named in text.
+
+- **What it is.** After the gate, the texts (title and body) of what the turn shows — the loud
+  line and the cued footnotes, in the gate's order; never a quiet pointer and never a see-also
+  (no chains) — are read for `mem_…` ids, at most `SEE_ALSO_NAMES_READ` (4) a memory. The first
+  that may ride along is brought as one footnote line, `See also: <title> [id]`, title clipped at
+  `SEE_ALSO_TITLE_BYTES` (100). One per shown memory, `SEE_ALSO_MAX` (2) a turn, after the cued
+  footnotes and the pointers, so `TRIM_ORDER`'s pop drops them first among footnotes (the
+  beliefs slot, first in `TRIM_ORDER`, goes before them).
+- **What may ride along.** The named id resolved to the memory that holds now (`headOf`: a
+  corrected one brings its head, never itself), then held to the candidates' own test
+  (`activate.ts#recallableRow`, factored out of the `recallable` closure for this: not removed,
+  archived, superseded, below reach, the self page, a handoff, a card or a belief), then to what
+  the turn would not show again: already shown this turn or this session, written by this
+  session (`echo`), another project's under `RECALL_BY_PROJECT`, habituated (rated 0 in two
+  sessions this week: it rests, as its raised bar would have it), or a candidate the gate
+  inhibited (a near-duplicate of something shown, an earlier version). Confidential is not a
+  test: the column is inert since 10-21 (CONTRACT item 9).
+- **Its verdict, and why that is the whole credit path.** A brought-along candidate's own verdict
+  (below its bar, say) is REPLACED by `footnoted`, `trains` true, `via: "see-also"`, `seeAlso.by`
+  the memory that named it, its numbers kept (so `activation < bar` still says it would not have
+  shown on its own); a memory no channel reached gets one with 0s and the turn's background bar.
+  The record step then writes an ordinary footnote's gate record (`trains` from the verdict —
+  without the replacement `trainsOf` would read the old one, or default) with `via` in the row's
+  `value` column (`SEE_ALSO_VALUE`, no schema change), and the turn's cue record is written
+  because the turn showed something. So `resolveUse` and `cueTraining` need nothing new: an open,
+  a quote or a rating 1–3 trains this turn's words to it at its tier, exactly as for a footnote;
+  a 0 on the NOTE depresses `ping → note` through `cueDepress`, as before (confirmed in the
+  test, not built). Ratings file it under `footnotes` (`rateableSet`: `via` other than `link`);
+  the durable row tells it apart (`footnotes[].via` / `seeAlso.by`, as primed footnotes are
+  told apart), which is what the CHECK-AFTER read joins on.
+- **Measured on the demo fixture** (`see-also-named-ids.test.ts`: 120 topic notes, 300
+  unrelated, 12 "ping" memories, the rule, the note naming it, `ping → note` seeded at 0.727).
+  Fresh "ping": the note LOUD at 26.2 (bar 4.3), the rule below its own bar at 3.4 (bar 18.3),
+  brought along. Rated 3 (and the note 0): `ping → rule` 0.5, `ping → note` 0.227. The next fresh
+  "ping": the rule a footnote on its own pair at 19.5 (bar 8.2), no see-also; the note below its
+  bar (10.0 against 14.1). One use turned the miss around on this fixture; the live store is
+  bigger and the bar there is different, which is the CHECK-AFTER row's question.
+- **Bytes.** A see-also line is `- See also: ` (12) + title (≤ 100) + ` [mem_…]` (19 for a
+  minted 12-hex id, ≤ 23) + a newline: ≤ 132 bytes for the ids the store mints. Two a turn, and
+  the footnote header with its blank line (76) when nothing else was a footnote (the loud note
+  alone): ≤ 342 bytes, plus a sentinel digit. A standing label (`Unsettled — …`, `(disagrees
+  with …)`) costs what it costs on any footnote. Always inside the turn's budget: the render
+  trims them first among footnotes, after any belief line. The "Since you started" line takes what recall leaves of the budget, so a
+  see-also line can delay it a prompt, as any footnote can. The wake is untouched.
+- **Judgment calls, lightly held.** The loud line names ids too (the brief said "a footnote
+  surfaces"; the task said "surfaces ambiently"): a loud note naming its rule is the live case
+  (the note was loud for "ping" on the fixture). A habituated memory does not ride along. Two a
+  turn, not one: a turn whose loud line and a footnote both name one keeps both.
+- **Not handled.** A reminder said outright this turn (`withhold`, temporal arrivals only) could
+  ride along if a shown memory names it — rare, and the Turn does not carry the set.
+- **Where it lives.** In `activate.ts` (`seeAlso`, beside `recallableRow`), not a module of its
+  own: first built as `see-also.ts`, it took the directory plugin flavor to 511 files, past
+  `plugin-bundle.test.ts`'s 510 margin under the directory's 512 limit.
+- **Never another project's work (review of #681, coordinator's call 10-29).** At default settings
+  (`RECALL_BY_PROJECT` off, `CROSS_PROJECT_BAR_LIFT` 1.25) the first build let a shown memory that named
+  another project's work memory bring it along, past the higher bar the lift exists to hold. `seeAlso` now
+  gets `elsewhere` whenever either is on, so a named id carries within the project and personal memories
+  (owner/us) cross as ever. Tested: under the lift alone the crossing memory is kept back and counted in
+  `crossProjectLifted`; it fails without the change.
+
 ## 2026-10-29 — the beliefs slot shows one belief (a finding, no change; K1 from the 10-29 read)
 
 The 10-29 read: the slot (`BELIEFS_IN_RECALL`) fired on 62 turns, every time with the same

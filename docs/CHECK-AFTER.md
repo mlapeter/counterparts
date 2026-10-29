@@ -76,6 +76,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
 | P2: open items untouched 14 lived days are parked (the 10-22 carry rule at 14, was 21): out of Still open and its count, `· N parked` on its count line, listed last and marked by `recall "still open"`; never a date still to come (ahead, in its grace week, repeating), `asked` or `settlesWhen` item; doctor's Open items line | 0.3.40, 10-29 (#674, #675) | ~3 mornings after install: doctor's open/carried/parked, the first night's share count (every item 14–20 days untouched counts as newly parked once), whether a parked thread Mike still wanted came back by a touch or had to be found | `docs/decisions.d/feat-p2-park-old-threads.md` |
+| PP1: a memory whose text names another's id brings it along (`See also:`, one per shown memory, two a turn); used, it gets the turn's cue credit (the ping/pong fix) | not released, 10-29 | ~3 lived days after install: see-also'd footnotes rated at least as well as plain ones; the ping demo holds on the live store | "Due ~3 lived days after see-also from named ids" below; `docs/decisions.d/feat-see-also-named-ids.md` |
 | K1 (the 10-29 read): context priming's train share 0 (`recall.PRIME_TRAIN_SHARE`, was 0.5): the train scores nothing, the row says `primed.train: false`; link and tag priming unchanged | not released, 10-29 (ships after 0.3.40) | ~2 weeks after the release that carries it (~2026-11-13): footnote noise/useful by build, the link-lifted and tag-lifted groups, shown per person turn | "Due ~2 weeks after the 10-29 knobs" below; `docs/decisions.d/chore-read-1029-knobs.md` |
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
@@ -311,6 +312,32 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`)
+
+What: a memory a turn shows (loud or a cued footnote) whose text names another memory's id (`mem_…`) brings the
+memory that holds now along as one `See also:` footnote, one per shown memory, two a turn, after every other
+footnote; never one the turn could not show (removed, archived, superseded, below reach, a belief…), already shown
+this turn or session, written by this session, habituated, or inhibited. It is credited and rated as an ordinary
+footnote: a use trains the turn's words to it. Estimated from the 10-29 snapshot: 42 of 1,711 footnotes would have
+brought one along (~2.5%).
+
+Read (read-only, by build):
+- how many ride along, and how they are rated against plain footnotes, joined by session and id:
+  `SELECT json_extract(f.value,'$.via') AS via, COUNT(*) FROM events e, json_each(e.payload,'$.footnotes') f WHERE e.name='recall.decision' AND json_extract(e.payload,'$.build')='<build>' GROUP BY via;`
+  then the `recall.rated` rows' scores for the see-also'd ids (`seeAlso.by` names the memory that brought each)
+  against the footnotes of the same days. **Bar: see-also'd memories rated at least as well as footnotes**
+  (mean score, share rated 0);
+- the ping demo on the live store: after install, a bare "ping" in a fresh session shows the rule
+  `mem_0ca7f032368a` — by see-also beside the note `mem_66bb7d836201` the first time; once a session has used
+  the rule, `cue_edges` has `ping → mem_0ca7f032368a`, and a later fresh "ping" shows the rule with no `via`.
+  `SELECT token, memory_id, weight FROM cue_edges WHERE token='ping';`
+- bytes: `bytes` and `budgetTrimmed` on turns with a see-also'd footnote against the rest; a see-also line is
+  ≤ 132 bytes, ≤ 342 for two with the footnote header.
+
+Changes it: see-also'd memories rated worse than footnotes (noise: lower `SEE_ALSO_MAX` to 1, or read only the
+footnotes' texts), or the rule still missing "ping" after a credited use (look at the turn's `seeAlso.by` and the
+rule's verdict). Revert: `recall.SEE_ALSO_NAMED_IDS=false`.
 
 ## Due ~3 nights after S2 (2026-10-26, Mike: "sounds good", lightly held — `coverage.UNRECORDED_OWED_PIECES`, `dream.OWED_COUNTS_AS_NEW`)
 

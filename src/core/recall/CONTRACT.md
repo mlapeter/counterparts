@@ -338,15 +338,36 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    G9). For that lane gate (a) is CHECKED
    rather than structural (the memory is fetched); for every other uncued memory it is
    structural as before. Tests: `association-build2.test.ts` › "1. quiet pointers".*
+   *A SECOND named lane since 2026-10-29 (PP1, an experiment; switch
+   `SEE_ALSO_NAMED_IDS`): SEE-ALSO. A memory whose id the TEXT of a memory this turn shows
+   (loud or a cued footnote, never a quiet pointer or another see-also) names joins the quiet
+   tier as `See also:`: one per shown memory, `SEE_ALSO_MAX` (2) a turn, after the cued
+   footnotes and pointers (the first footnote lines the byte budget trims; the beliefs slot,
+   first in `TRIM_ORDER`, goes before them), never the loud tier. The
+   named id is resolved to the memory that holds now (`headOf`), and held to what the turn
+   could show at all (`activate.ts#recallableRow`, the candidates' own test: not removed,
+   archived, superseded, below reach, the self page, a handoff, a card or a belief) and would
+   not show again (this turn or this session already showed it, this session wrote it,
+   another project's under `RECALL_BY_PROJECT`, habituated, or inhibited by the gate). Its
+   verdict is an ordinary footnote's (`trains` true, `via: "see-also"`, `seeAlso.by` the
+   memory that named it), so a use of it trains the turn's words to it. Tests:
+   `see-also-named-ids.test.ts`.*
 6. **[M]** Tiers are disjoint and capped. *(Quiet pointers have their own cap,
    `LINK_POINTERS_MAX`, beside `MAX_FOOTNOTES`; 2026-09-28.)* *(2026-10-10, Group 1, review
    03 C2: no tier — surfaced, footnote or quiet pointer — offers a memory BELOW REACH,
    strength under physics' `REACH` (0.15), the identity band excepted. Prefiltered on box
    3's ranking in the token and semantic top-K, rechecked exactly per candidate;
    deliberate recall still lists such a memory after its main results, labelled faded.
-   `NOTES.md` §29.)*
+   `NOTES.md` §29.)* *(2026-10-29, PP1: see-also lines are the quiet tier's too, with their own
+   cap, `SEE_ALSO_MAX`, beside `MAX_FOOTNOTES`; a candidate the footnote cap turned away
+   (`capped`) may still ride along on a named id, so a turn's quiet tier holds at most
+   `MAX_FOOTNOTES` + `LINK_POINTERS_MAX` + `SEE_ALSO_MAX` lines.)*
 7. **[M]** Ambiguous handles fire at reduced weight AND train nothing — both halves, with a
-   test that greps for the consumer, not the comment (scar §2.6).
+   test that greps for the consumer, not the comment (scar §2.6). *(2026-10-29, PP1: a
+   candidate an ambiguous handle reached that then rides along as see-also is shown because a
+   shown memory names its ID, not because of the handle, so its verdict trains (item 5's
+   see-also lane). The handle itself still trains nothing: `index.ts#cueWordsOf` drops every
+   ambiguous cue word from the turn's cue record.)*
 8. **[M]** A deliberate SEARCH trains nothing and deposits no memory (2026-10-03: stated
    as the owner's rule of 09-16 — exposure never strengthens, retrieval does). Opening a
    memory by id or title, or quoting the words a deliberate answer showed (`asked` gate
