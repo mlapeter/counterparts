@@ -22,7 +22,7 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { MEET_LINE_OPEN, RETENTION_LINE, WEB_RETENTION_LINE, WEB_UNINSTALL, beginNewInstall, finishText, meetingInstructions, offerLine } from "../src/core/onboarding.js";
+import { MEET_LINE_OPEN, ORIGIN_WITHOUT_ANSWER, RETENTION_LINE, WEB_RETENTION_LINE, WEB_UNINSTALL, beginNewInstall, finishText, meetingInstructions, offerLine } from "../src/core/onboarding.js";
 
 let root: string;
 let dir: string;
@@ -101,6 +101,31 @@ describe("a cold first chat on claude.ai meets", () => {
     const again = await call(url, "wake", {});
     expect(again.text).not.toContain(MEET_LINE_OPEN);
     expect(again.text).toContain("meet=done");
+  });
+
+  test("H1: the misread `started` right after Now gets plain words, not answer-required; the meeting goes on through `origin`", async () => {
+    const c = Counterpart.open({ dir });
+    beginNewInstall(c.store, { dreaming: false });
+    c.close();
+    const url = await door();
+    const session = String((await call(url, "wake", {})).structured["session"]);
+    const script = await call(url, "meet", { session });
+    expect(script.text).toContain("Now → no meet call: go on to the next step.");
+    expect(script.text).toContain('origin: "What got you started building things?"');
+
+    // What claude.ai's Claude sent on 2026-10-28, after "Now (about 5 minutes)".
+    const misread = await call(url, "meet", { session, step: "started" });
+    expect(misread.isError).toBe(true);
+    expect(misread.structured["reason"]).toBe("begins-without-step");
+    expect(misread.structured["reason"]).not.toBe("answer-required");
+    expect(misread.structured["detail"]).toBe(ORIGIN_WITHOUT_ANSWER);
+    expect(misread.text).toContain("the meeting begins with meet and no step");
+    expect((await call(url, "meet", { session, step: "origin" })).structured["reason"]).toBe("begins-without-step");
+
+    expect((await call(url, "meet", { session, step: "name", answer: "Wren" })).structured).toMatchObject({ recorded: "name", stored: 1 });
+    expect((await call(url, "meet", { session, step: "origin", answer: "Wren started building things with a broken radio." })).structured).toMatchObject({ recorded: "origin", stored: 1 });
+    expect((await call(url, "meet", { session, step: "started", answer: "Wren also fixed bikes as a kid." })).structured).toMatchObject({ recorded: "origin", stored: 1 });
+    expect((await call(url, "meet", { session, step: "done" })).structured).toMatchObject({ recorded: "done", meet: "done" });
   });
 
   test("with dreaming on, the first dream is the routine's, never an ask", () => {

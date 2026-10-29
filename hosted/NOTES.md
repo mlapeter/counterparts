@@ -449,3 +449,19 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
   database is never an unhandled rejection.
 - The 24 h email gained the pending page's "Until then your memory isn't read, shown or used", after the deadline
   sentence so "then" has its antecedent. DESIGN §5.2 says the mail provider sees the address and keeps its own logs.
+
+## H1: after the first deploy (10-29)
+
+### The forms' CSRF key survives a restart
+
+- **Every deploy expired every open form.** `Csrf` took `randomBytes(32)` per process, so a sign-in page (or an Allow
+  page, which checks through the same `pages.csrf`) opened before a deploy answered "This form expired" after it.
+- **The key is now HKDF-SHA256 of COOKIE_KEYS' first key** (`keys.ts#csrfKey`, info `"counterparts csrf v1"`, no
+  salt; in `keys.ts` because the KEK-seam test keeps every KDF there), made in `app.ts` and handed to the pages. The binding to the browser cookie is unchanged. No `/data` file.
+- **COOKIE_KEYS unset (or no key 32+ characters long):** the old random key, and one boot line saying open forms expire
+  on every restart (`main.ts serve`).
+- **Rotation:** putting a new key first changes the CSRF key, so a form opened before that deploy expires once. That is
+  acceptable: it is one "Start again" per open form, on a deploy that rotates keys on purpose. The OAuth library's own
+  cookies keep verifying under the older keys behind it; the forms don't try to.
+- The test restarts the real app on the same data root and port (`accounts.test.ts`, H1): same keys post, other keys
+  or a rotated ring answer 403, no keys answer 403 as before.

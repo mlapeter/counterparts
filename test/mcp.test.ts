@@ -703,12 +703,16 @@ describe("the tool-description audit", () => {
   });
 
   test("the annotation table: what is read-only, what is destructive", () => {
-    const table = Object.fromEntries(
-      toolDefinitions(true).map((t) => {
+    const tableOf = (desktop: boolean): Record<string, boolean[]> => Object.fromEntries(
+      toolDefinitions(desktop).map((t) => {
         const a = t["annotations"] as { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean };
         return [t["name"] as string, [a.readOnlyHint, a.destructiveHint, a.idempotentHint]];
       }),
     );
+    // Claude Code's `status` is read-only; a chat's copy takes `session`, and a call naming it
+    // touches that session's record (H1, `tools.ts#chatAnnotations`), so Desktop's is not.
+    expect(tableOf(false)["status"]).toEqual([true, false, true]);
+    const table = tableOf(true);
     // [readOnly, destructive, idempotent]. `recall` is not read-only: what it
     // delivers is recorded for the session (`noteAsked`), and the boundary's
     // credit pass strengthens a memory opened or quoted from it. `dream` is
@@ -717,7 +721,7 @@ describe("the tool-description audit", () => {
     expect(table).toEqual({
       remember: [false, false, false],
       recall: [false, false, false],
-      status: [true, false, true],
+      status: [false, false, false],
       session_end: [false, false, false],
       chapter: [false, false, false],
       scope: [false, false, false],
