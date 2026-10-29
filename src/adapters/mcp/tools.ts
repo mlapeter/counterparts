@@ -958,8 +958,11 @@ const STATUS: ToolSpec = {
   ],
   privileges: [
     {
-      claim: "It writes nothing and trains nothing.",
-      mechanizedBy: "src/adapters/mcp/server.ts#census (Store reads only)",
+      // Not "writes nothing" (review of #679): on a chat host a call naming its
+      // session refreshes that session's record, which is why the chat copy is
+      // not read-only (`chatAnnotations`). The claim is every host's, so it says that.
+      claim: "It writes no memory and trains nothing; on a chat host, a call naming its session refreshes that session's record.",
+      mechanizedBy: "src/adapters/mcp/server.ts#census (Store reads only) + src/adapters/mcp/server.ts#afterDesktopCall -> src/adapters/sessions.ts#touchDesktopSession",
     },
     {
       claim:
