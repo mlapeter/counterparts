@@ -10,13 +10,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { Accounts, normalizeEmail, validTimeZone } from "../src/accounts.js";
+import { createApp } from "../src/app.js";
 import { memoryMailer, resendMailer, RESEND_ENDPOINT } from "../src/egress.js";
 import { accountPages } from "../src/pages.js";
 import { createHostedServer } from "../src/server.js";
 import { Tenants } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
-import { listen, tempRoot } from "./helpers.js";
+import { freePort, listen, tempRoot } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -393,5 +394,73 @@ describe("egress", () => {
       if (/\b\w*[fF]etch\s*\(|from\s+"node:(https|net|tls|dgram)"|\.request\s*\(|new\s+WebSocket/.test(text)) callers.push(f);
     }
     assert.deepEqual(callers.sort(), ["egress.ts"]);
+  });
+});
+
+// ── H1: a restart keeps the open forms ─────────────────────────────────────────
+
+describe("a form opened before a restart (H1: the CSRF key comes from COOKIE_KEYS)", () => {
+  /** The whole app on one data root and port, as `main.ts serve` composes it with BACKUPS=off. */
+  async function serve(port: number, cookieKeys?: readonly string[]): Promise<{ mail: ReturnType<typeof memoryMailer>; stop: () => Promise<void> }> {
+    const mail = memoryMailer();
+    const app = createApp({
+      dataRoot: join(tmp.root, "data"),
+      publicOrigin: `http://127.0.0.1:${String(port)}`,
+      mailer: mail,
+      embedder: null,
+      spawner: () => ({ pid: 1 }),
+      ...(cookieKeys === undefined ? {} : { cookieKeys }),
+    });
+    await app.start();
+    await new Promise<void>((r) => app.server.listen(port, "127.0.0.1", () => r()));
+    let stopped = false;
+    const stop = async (): Promise<void> => {
+      if (stopped) return;
+      stopped = true;
+      await new Promise<void>((r) => {
+        app.server.close(() => r());
+        app.server.closeAllConnections?.();
+      });
+      await app.close();
+    };
+    closers.push(stop);
+    return { mail, stop };
+  }
+  const KEYS = ["k".repeat(40), "o".repeat(40)];
+  const SENT = "a sign-in link is on its way";
+
+  /** Open /login on one server, restart it with `after`'s keys, and post the form there, as the browser does. */
+  async function acrossRestart(before: readonly string[] | undefined, after: readonly string[] | undefined): Promise<{ status: number; body: string; mailed: number }> {
+    const port = await freePort();
+    const first = await serve(port, before);
+    const b = new Browser(`http://127.0.0.1:${String(port)}`);
+    const form = await (await b.go("/login")).text();
+    assert.ok(csrfOf(form).length > 0);
+    await first.stop();
+    const second = await serve(port, after);
+    const res = await b.form("/login", { csrf: csrfOf(form), email: "restart@example.com", next: "/account" }, { origin: `http://127.0.0.1:${String(port)}` });
+    return { status: res.status, body: await res.text(), mailed: second.mail.sent.length };
+  }
+
+  test("the same COOKIE_KEYS: the form posts after the restart", async () => {
+    const out = await acrossRestart(KEYS, KEYS);
+    assert.equal(out.status, 200);
+    assert.ok(out.body.includes(SENT), out.body);
+    assert.doesNotMatch(out.body, /expired/);
+  });
+
+  test("other keys, or a rotation that put a new key first: the form has expired", async () => {
+    for (const after of [["x".repeat(40)], ["n".repeat(40), ...KEYS]]) {
+      const out = await acrossRestart(KEYS, after);
+      assert.equal(out.status, 403);
+      assert.match(out.body, /This form expired or came from somewhere else/);
+      assert.equal(out.mailed, 0);
+    }
+  });
+
+  test("no COOKIE_KEYS: the form expires on a restart, as before", async () => {
+    const out = await acrossRestart(undefined, undefined);
+    assert.equal(out.status, 403);
+    assert.match(out.body, /This form expired/);
   });
 });

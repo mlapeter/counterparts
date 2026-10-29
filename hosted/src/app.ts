@@ -26,6 +26,7 @@ import type { OAuth } from "./oauth.js";
 import { accountPages } from "./pages.js";
 import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
+import { Csrf } from "./web.js";
 import type { HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
@@ -35,7 +36,7 @@ import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
-import { KeyStore } from "./keys.js";
+import { KeyStore, csrfKey } from "./keys.js";
 import type { KeyWrapper } from "./keys.js";
 import type { SharedEmbedder } from "./tenants.js";
 import type { Spawner } from "../../src/adapters/spawn.js";
@@ -59,6 +60,7 @@ export interface AppOptions {
   readonly trustProxy?: number;
   readonly embedder?: SharedEmbedder;
   readonly spawner?: Spawner;
+  /** The OAuth library's cookie keys, newest first; the first also seeds the forms' CSRF key (`keys.ts#csrfKey`). */
   readonly cookieKeys?: readonly string[];
   readonly cimdFetch?: CimdFetch;
   readonly allowedOrigins?: readonly string[];
@@ -214,6 +216,8 @@ export function createApp(opts: AppOptions): App {
     accounts,
     mailer: opts.mailer,
     publicOrigin,
+    // The forms' key from the current cookie key, so a restart keeps them (H1); none named: random per process.
+    csrf: opts.cookieKeys?.[0] === undefined ? new Csrf() : new Csrf(csrfKey(opts.cookieKeys[0])),
     ...(opts.trustProxy === undefined ? {} : { trustProxy: opts.trustProxy }),
     connections: {
       list: (personId: string): Promise<ConnectionView[]> => oauth?.connections.list(personId) ?? Promise.resolve([]),

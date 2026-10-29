@@ -200,7 +200,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // −39 on 2026-10-21 (confidential memories removed): "with the same
       // confidentiality boundary" out of the ids claim.
       recall: { total: 4606, beforeList: 1200 },
-      status: { total: 1212, beforeList: 501 },
+      // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
+      status: { total: 1289, beforeList: 501 },
       session_end: { total: 2485, beforeList: 1088 },
       // chapter +33 on 2026-10-11 (chapter wording): "a diary of what
       // happened" in the summary and the diary-vs-log Do NOT line. The

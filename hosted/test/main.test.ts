@@ -89,6 +89,9 @@ describe("the entry point", () => {
         child.once("exit", () => rejectUp(new Error(`exited: ${err}`)));
       });
       assert.equal((await fetch(`http://127.0.0.1:${String(port)}/healthz`)).status, 200);
+      // H1: no COOKIE_KEYS here, so one line says the forms expire on a restart.
+      assert.equal(err.split("COOKIE_KEYS is not set").length - 1, 1, err);
+      assert.match(err, /open sign-in and account forms expire on every restart/);
       const unauth = await fetch(`http://127.0.0.1:${String(port)}/mcp`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
       assert.equal(unauth.status, 401);
       assert.match(String(unauth.headers.get("www-authenticate")), /resource_metadata=/);

@@ -33,7 +33,8 @@
   moved up whole), and no dream line — its nights are the person's routine. Its tool
   words describe and never command: the directory's review refuses "call this first",
   so wake-first lives in the person's instruction block. Its one MCP prompt is "Wake
-  Counterparts" (the + menu). readOnly stays on Memory status alone: recall records what
+  Counterparts" (the + menu). readOnly stays on Memory status alone (since H1, 2026-10-29,
+  not even there: see mcp NOTES "readOnlyHint on a chat's copy"): recall records what
   it delivered (a gate record the credit pass reads) and wake mints a session, so the
   hint would be stretched; the honest route to a read-only recall is one that records
   nothing (an observer read), which is a design change, not an annotation.

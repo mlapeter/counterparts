@@ -1753,7 +1753,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   being offered the meeting and saying nothing has no dream on those days (three at most, the offer cap).
 - Decided by the onboarding round-1 core builder, 2026-10-12, lightly held: the five research questions replace
   work/loved/problem/peeves/outside. "When Claude Code goes wrong for you" (peeves) is dropped too: it is not one
-  of Mike's five and not a settings question. Step names are `week`, `work`, `love`, `saturday`, `started`. The
+  of Mike's five and not a settings question. Step names are `week`, `work`, `love`, `saturday`, `started` (`origin` since 2026-10-29, H1). The
   second session's line still reads a 0.3.18/0.3.19 meeting's answers under their old names.
 - Decided by the onboarding round-1 core builder, 2026-10-12, lightly held: the close leaves out retention and
   uninstalling. The script keeps both for when the person asks, and retention as one exact line

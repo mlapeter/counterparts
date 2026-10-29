@@ -30,6 +30,9 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    ```
 
    Save it too. It is less precious: losing it only ends sign-ins that are in progress.
+   The first key also derives the sign-in forms' CSRF key, so forms survive a redeploy. To rotate, put the new key
+   first (comma-separated, newest first) and keep the old one after it for a while; each form open at that moment
+   expires once ("This form expired"), which a reload fixes.
 3. **Resend.** The sending domain (`counterparts.ai`) must be verified. You'll need an API key that can send only.
 
 ## 2. Railway (about 15 minutes)

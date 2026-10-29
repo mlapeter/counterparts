@@ -59,7 +59,14 @@ export async function readForm(req: IncomingMessage, max = MAX_FORM_BYTES): Prom
   return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
 }
 
-/** CSRF: a token bound to this browser's cookie under a server key. */
+/**
+ * CSRF: a token bound to this browser's cookie under a server key.
+ *
+ * THE KEY OUTLIVES A RESTART (H1, 2026-10-29): `app.ts` passes `keys.ts#csrfKey`
+ * of the current cookie key (COOKIE_KEYS' first), so a deploy no longer expires
+ * every open form, and it rotates when the cookie keys do. With no key
+ * (COOKIE_KEYS unset) it is random per process, as before: forms expire on restart.
+ */
 export class Csrf {
   private readonly key: Buffer;
   constructor(key?: Buffer) {

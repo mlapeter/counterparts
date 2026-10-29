@@ -1921,3 +1921,44 @@ its own small PR, after a look at its live use.
 - **What it can't see.** A newer writer that migrated the store but hasn't published a wake yet leaves the old stamp
   (or none), so the words fall back to what they said before: reload when the record is newer. Unmeasured how often
   a migration lands without a wake following it in the same process.
+
+## 2026-10-29 — `meet`'s `started` step is `origin` now (H1)
+
+- **The misread.** On Mike's first hosted meeting, claude.ai's Claude, right after he picked "Now (about 5 minutes)",
+  called `meet {session, step: "started"}` with no answer: it read the step as "the meeting has started". It got
+  `answer-required`, and he saw a red Failed card.
+- **Renamed, because nothing held the old name hard.** The only stored trace is the `onboarding.answers` meta row
+  (`{ <step>: <memory id> }`), read by `ahaDue` alone, which already keeps a list of old step names for exactly this
+  (0.3.18/0.3.19's `loved`, `outside`, ...). `started` joins it beside `origin`. The memories carry no step name; the
+  dashboard, the sidebar and the plugin bundle never name a step. `MEET_STATES`' `not_started` is unrelated.
+- **The old name is still taken, never offered.** `MEET_STEP_ALIASES` serves `started` as `origin` (a meeting in flight
+  across the deploy, an older script); the schema's enum lists only `origin`, since the enum is what invited the
+  misread. An answer sent as `started` is recorded and answered as `origin`.
+  One window, accepted: a client still holding the old tool list has no `origin` in its enum while the new script
+  names it; a client that checks step names before sending can still send `started` with an answer (the alias).
+- **A bare `origin`/`started` gets its own refusal** (`begins-without-step`, `ORIGIN_WITHOUT_ANSWER`): the meeting
+  begins with `meet` and no step, and Now records nothing. Every other bare question keeps `answer-required`. The
+  script's opening says so too ("Now → no meet call: go on to the next step"): the root of the misread was that Now
+  had no instruction while Later had a call.
+- It is still a refusal (`isError`), so a client that draws refusals red still will; the words are what changed.
+
+## 2026-10-29 — readOnlyHint on a chat's copy (H1)
+
+- **The ask.** claude.ai asked Mike once per tool on first use. The brief: check `status`, `self_page` and `wake`
+  against `annotate`'s contract (read-only = never changes the store, a file or a setting), and claim nothing about
+  claude.ai that can't be tested.
+- **`self_page` stays false**: one tool reads and writes (`body`), and an annotation is per tool. **`wake` stays false**:
+  it mints a session. **`recall` stays false**: its use credit is a real write.
+- **`status` was not honest on a chat host.** Checked through the claude.ai HTTP door with a snapshot of every table in
+  both databases and every file under the store: a `status` naming no session changes nothing, but a `status` that
+  names its session, which the chat copy's schema offers and the unbound result's `bindNote` asks for, rewrites that
+  session's record (`afterDesktopCall` -> `touchDesktopSession`: liveness and the write-up pacer, which decides a later
+  call's `writeUpAsk`). That is a file a later call reads, not telemetry. Desktop's tests pin that a named `status`
+  refreshes and counts (`desktop-chat.test.ts`, review of #294), so the write is by design and the hint was wrong.
+- **So a chat's copy of a read-only tool is not read-only** (`tools.ts#chatAnnotations`, in `withDesktopSession` and
+  `withClaudeAiSession`): claude.ai and Desktop now mark no tool read-only, and Claude Code's `status`, which takes
+  no session and touches nothing (tested the same way), keeps `readOnlyHint: true`. The other road, a `status` that
+  moves no record, would change Desktop's pacing on purpose and was left alone.
+- **Not tested, not claimed:** whether claude.ai skips a permission prompt for a read-only tool at all. Nothing here can
+  observe claude.ai's prompts. If Mike was asked about Memory status too on that first use, the hint wasn't what
+  decided it. The real fix for the prompts (an "Always allow" line on the setup page) is the site's.

@@ -18,7 +18,10 @@ import { AUTO_RESET_KEY, DREAMING_SETTING_KEY, dreamingSetting } from "../src/co
 import {
   FROM_ONBOARDING,
   MEET_LINE_OPEN,
+  ONBOARDING_ANSWERS_KEY,
   ONBOARDING_MEET_KEY,
+  ORIGIN_WITHOUT_ANSWER,
+  ahaDue,
   PRONOUN_RULE,
   pushbackBaseline,
   RETENTION_LINE,
@@ -44,8 +47,8 @@ import { dreamingFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
-import { openServer } from "../src/adapters/mcp/index.js";
-import type { McpServer } from "../src/adapters/mcp/index.js";
+import { encodeMessage, openServer, serveStdio } from "../src/adapters/mcp/index.js";
+import type { McpServer, Response } from "../src/adapters/mcp/index.js";
 import { TOOLS, renderDescription } from "../src/adapters/mcp/tools.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../src/adapters/scopes.js";
 import { firstRunLine } from "../src/adapters/plugin.js";
@@ -871,5 +874,94 @@ describe("the meeting binds to the session the model names", () => {
     const next = String(fin.structuredContent["next"]);
     expect(next).toContain("session: <your session id, as the wake names it>");
     expect(next).toContain("What would you like to work on today?");
+  });
+});
+
+// ── H1 (2026-10-29): `started` is `origin`, and the misread gets plain words ──
+
+describe("the `origin` step (was `started`), over Claude Code's stdio door", () => {
+  let id = 1;
+  /** One JSON-RPC exchange through the real stdio pump, as Claude Code sends it. */
+  async function wire(s: McpServer, method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const out: Response[] = [];
+    const line = encodeMessage({ jsonrpc: "2.0", id: id++, method, ...(params === undefined ? {} : { params }) } as never);
+    await serveStdio(s, (async function* () {
+      yield line;
+    })(), { write: (chunk) => { for (const l of chunk.trim().split("\n")) out.push(JSON.parse(l) as Response); } });
+    return (out[0] as unknown as { result: Record<string, unknown> }).result;
+  }
+  const meet = async (s: McpServer, args: Record<string, unknown>): Promise<{ structured: Record<string, unknown>; text: string; isError: boolean }> => {
+    const r = await wire(s, "tools/call", { name: "meet", arguments: args });
+    return { structured: r["structuredContent"] as Record<string, unknown>, text: (r["content"] as { text: string }[])[0]?.text ?? "", isError: r["isError"] === true };
+  };
+
+  test("the schema offers `origin`, never `started`; the script names `origin` and says Now needs no call", async () => {
+    newInstallStore();
+    const s = server();
+    const tools = (await wire(s, "tools/list"))["tools"] as { name: string; inputSchema: { properties: { step: { enum: string[] } } } }[];
+    const steps = tools.find((t) => t.name === "meet")!.inputSchema.properties.step.enum;
+    expect(steps).toContain("origin");
+    expect(steps).not.toContain("started");
+    const script = (await meet(s, {})).text;
+    expect(script).toContain('origin: "What got you started building things?"');
+    expect(script).not.toContain("   started:");
+    expect(script).toContain("Now → no meet call: go on to the next step.");
+  });
+
+  test("the misread call — `started` (or `origin`) with no answer, right after Now — gets plain words, not answer-required, and stores nothing", async () => {
+    newInstallStore();
+    const s = server();
+    await meet(s, {});
+    const before = s.counterpart.store.list({ type: "memory" }).length;
+    for (const step of ["started", "origin"]) {
+      const r = await meet(s, { session: "sess-meet-1", step });
+      expect(r.isError).toBe(true);
+      expect(r.structured["reason"]).toBe("begins-without-step");
+      expect(r.structured["detail"]).toBe(ORIGIN_WITHOUT_ANSWER);
+      expect(r.text).toContain("the meeting begins with meet and no step");
+    }
+    expect(s.counterpart.store.list({ type: "memory" }).length).toBe(before);
+    // Every other question keeps its own refusal.
+    expect((await meet(s, { step: "love" })).structured["reason"]).toBe("answer-required");
+  });
+
+  test("a whole meeting through `origin`; `started` with an answer is still taken, recorded as `origin`", async () => {
+    newInstallStore();
+    const s = server();
+    await meet(s, {});
+    for (const [step, answer] of [
+      ["name", "Ada"],
+      ["week", "Ada's week was all tide tables."],
+      ["work", "Ada is building a tide-chart app."],
+      ["love", "Ada loves the moment a model finally matches the sea."],
+      ["saturday", "Ada's good Saturday is a long walk on the harbour wall."],
+      ["origin", "Ada started building things by taking apart a barometer at nine."],
+    ] as const) {
+      const r = await meet(s, { step, answer });
+      expect(r.isError).toBe(false);
+      expect(r.structured).toMatchObject({ recorded: step, stored: 1 });
+    }
+    const answers = JSON.parse(s.counterpart.store.getMeta(ONBOARDING_ANSWERS_KEY) ?? "{}") as Record<string, string>;
+    expect(Object.keys(answers).sort()).toEqual(["love", "name", "origin", "saturday", "week", "work"]);
+    // The old name, with an answer (a meeting in flight across the update, an older script): served as `origin`.
+    const old = await meet(s, { step: "started", answer: "Ada started with a soldering iron, really." });
+    expect(old.structured).toMatchObject({ recorded: "origin", stored: 1 });
+    const after = JSON.parse(s.counterpart.store.getMeta(ONBOARDING_ANSWERS_KEY) ?? "{}") as Record<string, string>;
+    expect(after["origin"]).toBe(String(old.structured["id"]));
+    expect(after["started"]).toBeUndefined();
+    expect((await meet(s, { step: "style", answer: "friendly" })).structured["recorded"]).toBe("style");
+    expect((await meet(s, { step: "done" })).structured).toMatchObject({ recorded: "done", meet: "done" });
+  });
+
+  test("a meeting recorded before the rename still gives the second session its memory", () => {
+    newInstallStore();
+    withStore((st) => {
+      st.setMeta(ONBOARDING_MEET_KEY, "done");
+      st.setMeta("onboarding.done", JSON.stringify({ on: DAY1, session: "s1" }));
+      st.setMeta(ONBOARDING_ANSWERS_KEY, JSON.stringify({ started: "mem-old" }));
+      expect(ahaDue(st, "s2")).toEqual({ memoryId: "mem-old", step: "started" });
+      st.setMeta(ONBOARDING_ANSWERS_KEY, JSON.stringify({ started: "mem-old", origin: "mem-new" }));
+      expect(ahaDue(st, "s2")).toEqual({ memoryId: "mem-new", step: "origin" });
+    });
   });
 });
