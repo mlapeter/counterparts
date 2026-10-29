@@ -1502,3 +1502,36 @@ counts flat (the near miss as `nearMissCount`), `turn`, and `startedBy` (`person
   `below-bar` verdicts they name. And the count runs guarded: a throw in it leaves the row without
   the five keys (as off) and rings `recall.stopcounts.failed`, rather than reaching the adapter's
   guard and costing the turn its recall.
+
+## 2026-10-29 — the beliefs slot shows one belief (a finding, no change; K1 from the 10-29 read)
+
+The 10-29 read: the slot (`BELIEFS_IN_RECALL`) fired on 62 turns, every time with the same
+belief, `sch_305a1aabc8fa` ("Mike would rather ship once something is tested…", about Mike, 5
+supports), while 6 beliefs were held. Read on the 10-29 snapshot copy (lived day 38) through
+`Schemas#beliefStanding` and `Schemas#beliefsNamedIn`, the code paths the slot uses:
+
+| belief | subject | about | strength | supports | why it never shows |
+|---|---|---|---|---|---|
+| `sch_305a1aabc8fa` | Mike (person card) | — | 0.521 | 5 | shows: Mike named, above the floor |
+| `sch_4faa5260842d` | Mike (person card) | — | 0.203 | 1 | offered whenever "Mike" is named, but under the strict 0.3 floor (`BELIEFS_SLOT_FLOOR`; born at the 0.3 ceiling, fading since, one support) |
+| `sch_0ce801b0a9ea` | the self subject | me | 0.378 | 5 | never offered: the self subject is left out |
+| `sch_215f0850cb74` | the self subject | us | 0.348 | 2 | never offered: the self subject is left out |
+| `sch_d30a699eaa63` | the self subject | us | 0.229 | 2 | never offered (and under the floor) |
+| `sch_e4b2b893ff80` | the self subject | me | 0.157 | 2 | never offered (and under the floor) |
+
+- **Why four never pass, whatever a turn says.** A belief about me or us attaches to the self
+  subject (`store#ensureSelfSubject`), an entity card with no name, so the alias index links no
+  word to it, and `beliefsNamedIn` also deletes it from a turn's subjects by name
+  ("the self is the wake's page"). Two of the four are above the floor, so the floor is not what
+  holds them; their subject is. The "us" belief `sch_215f0850cb74` says "Mike" in its text, but
+  the slot reads a belief's subject, never its words.
+- **Why the fifth never passes.** `sch_4faa5260842d` is on the Mike card, so every turn naming
+  Mike offers it beside `sch_305a1aabc8fa`; its strength (0.228 on the 10-28 copy, 0.203 on
+  10-29) is under the floor, which is strict (`>`). A second support would lift it; nothing
+  else will.
+- **So:** not a bug against the slot's contract (lane E: beliefs on the cards a turn names,
+  above the floor; the self is not one of them). The slot can only ever show a belief about a
+  named card, and the reflection births mostly beliefs about me or us (4 of 6), so on this
+  store it is measuring one belief. A dated read learns little more unless a belief about
+  another card is born and backed, so the slot's read now waits until 3+ beliefs about other
+  people pass the floor (`docs/CHECK-AFTER.md`). Decided 10-29: page-only stays (the self lives on the page, per the wave-2 design); the owner has it as an FYI; if any later earn an ambient door, the "us" beliefs are the likelier ones.

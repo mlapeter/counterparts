@@ -40,6 +40,8 @@ import { PHASES, phaseReport, runBirths } from "../src/core/sleep/index.js";
 import { V14_UPGRADE_KEY } from "../src/core/store/index.js";
 import type { Store } from "../src/core/store/index.js";
 import { upgradeV14Findings } from "../src/adapters/claude-code/doctor.js";
+import { MCP_OVERSIZE_EVENT } from "../src/core/counterpart-events.js";
+import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
 
 let root: string;
 let clock = Date.parse("2026-10-21T09:00:00Z");
@@ -730,5 +732,112 @@ describe("the kinds a card's birth kind gave go back to the night (2026-10-22)",
     await c.sessionEnd({ date: "2026-10-21" });
     expect(c.store.row(katie)?.subject_kind).toBe("person");
     expect(c.store.getMeta(KINDS_REPAIR_KEY)).toBeUndefined();
+  });
+});
+
+describe("thirty kinds a night (the 10-29 read: TAGS_KINDS_PER_NIGHT 10 → 30)", () => {
+  // THE NIGHT AS IT RUNS: `runNight` asks the tags child, and the scripted
+  // seat answers the way the child does — through the dream tool's `tags`
+  // phase on an MCP server opened as that child, with the run's id.
+  const FIRST = ["Ash", "Bram", "Cor", "Dun", "Elm", "Fen", "Gil"];
+  const SECOND = ["wick", "more", "ford", "ton", "bury"];
+  const NAMES = FIRST.flatMap((a) => SECOND.map((b) => `${a}${b}`));
+  const KINDS = ["person", "project", "place", "topic"] as const;
+
+  function cards(c: Counterpart, n: number): string[] {
+    return NAMES.slice(0, n).map((name) => c.schemas.mention({ name, kind: "entity", source: name, chunkRef: `t:${name}`, day: 0 }).id as string);
+  }
+
+  function kindsChild(dir: string, kinds: Map<string, string>): Seat<NightAnswer> {
+    return {
+      name: "test",
+      async answer(ask) {
+        if (ask.act === "tags") {
+          const c = Counterpart.open({ dir, budgetBytes: 9_000 });
+          try {
+            const child = new McpServer({ counterpart: c, session: ask.session, scope: ask.scope, now: () => clock, env: { COUNTERPARTS_NIGHT_CHILD: "tags", COUNTERPARTS_NIGHT_RUN: ask.run } });
+            const read = (await child.call("dream", { phase: "tags", session: ask.session })).structuredContent;
+            const listed = [...String(read["read"]).matchAll(/^- (sch_[0-9a-f]+) \| /gm)].map((m) => m[1] as string);
+            const answer = listed.map((id, i) => ({ id, kind: KINDS[i % KINDS.length] as string }));
+            for (const a of answer) kinds.set(a.id, a.kind);
+            const done = (await child.call("dream", { phase: "tags", session: ask.session, kinds: answer })).structuredContent;
+            expect(done["kinds"]).toBe(listed.length);
+          } finally {
+            c.close();
+          }
+        }
+        return { refused: null, started: true, code: 0, timedOut: false, error: null, ms: 1 };
+      },
+    };
+  }
+
+  function night(dir: string, run: string, seat: Seat<NightAnswer>): ReturnType<typeof runNight> {
+    return runNight({
+      open: () => Counterpart.open({ dir, budgetBytes: 9_000 }),
+      config: { dataDir: dir, injectionBudgetBytes: 9_000 },
+      run,
+      session: "ses-kinds",
+      scope: root,
+      kind: { kind: "night" },
+      seat,
+    });
+  }
+
+  test("35 kindless cards: one night sorts 30 through the dream tool, recorded as the night's; the next night the other 5", async () => {
+    expect(SCHEMAS.TAGS_KINDS_PER_NIGHT).toBe(30);
+    const dir = join(root, "kinds");
+    mkdirSync(dir, { recursive: true });
+    const c = Counterpart.open({ dir, budgetBytes: 9_000 });
+    const ids = cards(c, 35);
+    expect(tagsBundle(c.store).unkinded).toBe(35);
+    c.close();
+
+    const first = new Map<string, string>();
+    const out = await night(dir, "nrn_kinds1", kindsChild(dir, first));
+    expect(out.children?.map((x) => x.child)).toContain("tags");
+    expect(first.size).toBe(30);
+
+    const after = Counterpart.open({ dir, budgetBytes: 9_000 });
+    for (const [id, kind] of first) {
+      expect(after.store.row(id)?.subject_kind).toBe(kind);
+      // Who set it, and in which run: the night's, so the night can be undone.
+      expect(JSON.parse(after.store.getMeta(`${SUBJECT_KIND_BY_PREFIX}${id}`) ?? "{}")).toMatchObject({ by: "night", run: "nrn_kinds1" });
+    }
+    const left = ids.filter((id) => !first.has(id));
+    expect(left.length).toBe(5);
+    for (const id of left) expect(after.store.row(id)?.subject_kind ?? null).toBeNull();
+    expect(tagsBundle(after.store).cards.map((k) => k.id).sort()).toEqual([...left].sort());
+    after.close();
+
+    const second = new Map<string, string>();
+    await night(dir, "nrn_kinds2", kindsChild(dir, second));
+    expect([...second.keys()].sort()).toEqual([...left].sort());
+    const done = Counterpart.open({ dir, budgetBytes: 9_000 });
+    open.push(done);
+    expect(tagsBundle(done.store).unkinded).toBe(0);
+  });
+
+  test("at its widest (40 long memories, look-alike pairs, 30 cards each named in four long titles) the ask still fits the tool result's ceiling, uncut", async () => {
+    const c = brain("widest");
+    const long = (i: number): string => `Memory ${String(i)} about "quoted" things & more: ${"a fairly long sentence with words in it, ".repeat(10)}`;
+    for (let i = 0; i < 40; i++) mem(c.store, long(i), { day: 3, title: `A long memory title number ${String(i)} that runs on` });
+    for (const w of ["castle", "garden", "ferry", "lantern", "harbour", "orchard", "bakery", "library", "chapel", "market"]) {
+      mem(c.store, `${w} one`, { tags: [w] });
+      mem(c.store, `${w} two`, { tags: [w] });
+      mem(c.store, `${w} three`, { tags: [`${w} trip`] });
+    }
+    for (const name of NAMES.slice(0, 30)) {
+      c.schemas.mention({ name, kind: "entity", source: name, chunkRef: `t:${name}`, day: 0 });
+      for (let k = 0; k < 4; k++) mem(c.store, `${name} came up again.`, { title: `${name} ${"and a very long title that keeps going ".repeat(4)}${String(k)}` });
+    }
+    const child = new McpServer({ counterpart: c, session: "sess_wide", scope: "/proj/one", now: () => clock, env: { COUNTERPARTS_NIGHT_CHILD: "tags", COUNTERPARTS_NIGHT_RUN: "nrn_wide" } });
+    const r = await child.call("dream", { phase: "tags", session: "sess_wide" });
+    const read = String(r.structuredContent["read"]);
+    expect(r.structuredContent["cut"]).toBeUndefined();
+    expect(c.store.eventLog({ name: MCP_OVERSIZE_EVENT }).length).toBe(0);
+    expect(read).toContain("CARDS WITH NO KIND (30 of");
+    const wire = wireChars(r.content[0]?.text ?? "");
+    if (process.env["DEBUG_KINDS"] === "1") console.log({ wire, readBytes: new TextEncoder().encode(read).length, pairs: (read.match(/^- "/gm) ?? []).length });
+    expect(wire).toBeLessThan(TOOL_RESULT_CEILING.CHARS);
   });
 });

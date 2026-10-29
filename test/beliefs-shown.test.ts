@@ -29,7 +29,7 @@ import { FRAMING, TUNABLES as RECALL, beliefLine, planPrime, primeChannel, ratea
 import type { BeliefOffer, PrimeInput, RecallDecision } from "../src/core/recall/index.js";
 import { freshGateState } from "../src/core/recall/session.js";
 import { tagPartners, topicsNamedIn } from "../src/core/schemas/tags.js";
-import { SELF_TUNABLES } from "../src/core/self/index.js";
+import { PROJECT_LINE_EVENT, SELF_TUNABLES } from "../src/core/self/index.js";
 import { parseSetting } from "../tools/harness/settings.js";
 import { findable } from "./store-fixture.js";
 
@@ -654,5 +654,77 @@ describe("the wake's project line (an experiment)", () => {
     // Its own byte budget too small for a line: none, and the wake is the off wake.
     (c.self.tunables as { WAKE_PROJECT_LINE_BYTES: number }).WAKE_PROJECT_LINE_BYTES = 20;
     expect(wake(c, folder)).toBe(off);
+  });
+
+  // ── its durable row (the 10-29 read: the line was unmeasurable) ──────────
+  type LineRow = { scope: string; session?: string; shown: boolean; reason: string; lines: number; of: number; held: number; bytes: number; budget: number; was: number; ids: string[] };
+  function lineRows(c: Counterpart): { ref: string | null; p: LineRow }[] {
+    return c.store.eventLog({ name: PROJECT_LINE_EVENT, order: "asc" }).map((r) => ({ ref: r.ref ?? null, p: JSON.parse(r.payload ?? "{}") as LineRow }));
+  }
+
+  test("each wake in a project's folder leaves one durable row: shown, its bytes and the beliefs it showed; another folder, none", () => {
+    const { c, folder, project, belief, other } = projectWorld();
+    const before = lineRows(c).length;
+    const text = wake(c, folder);
+    const rows = lineRows(c).slice(before);
+    expect(rows.length).toBe(1);
+    const row = rows[0] as { ref: string | null; p: LineRow };
+    expect(row.ref).toBe(project);
+    expect(row.p).toMatchObject({ scope: folder, session: "s-reader", shown: true, reason: "shown", lines: 1, of: 1, held: 1, budget: BUDGET, ids: [belief] });
+    // The bytes it added are the bytes of the block it spliced.
+    const block = text.slice(text.indexOf("This project (Lantern)"), text.indexOf(`[${belief}]`) + belief.length + 2);
+    expect(row.p.bytes).toBeGreaterThanOrEqual(new TextEncoder().encode(block).length);
+    expect(row.p.was).toBeGreaterThan(0);
+    // Ids, counts and bytes only: no belief text on the row.
+    expect(JSON.stringify(row.p)).not.toContain("reviewed steps");
+    // The dashboard can say it.
+    expect(NARRATORS["self.project.line"]({ store: null as never, row: {} as never, p: row.p }).text).toContain("1 belief");
+    // Another folder: no project, no row.
+    wake(c, other);
+    expect(lineRows(c).length).toBe(before + 1);
+    // Each delivery is its own showing: a second wake, a second row.
+    wake(c, folder);
+    expect(lineRows(c).length).toBe(before + 2);
+  });
+
+  test("not shown, and why: no room at the ceiling, its own byte budget too small, no belief above the floor; off writes no row", () => {
+    const { c, folder, belief } = projectWorld();
+    (c.self.tunables as { WAKE_PROJECT_LINE: boolean }).WAKE_PROJECT_LINE = false;
+    const off = wake(c, folder);
+    // Off: the line is not asked, so there is nothing to record.
+    expect(lineRows(c).length).toBe(0);
+    (c.self.tunables as { WAKE_PROJECT_LINE: boolean }).WAKE_PROJECT_LINE = true;
+
+    // At a ceiling with no room past the off wake: no-room.
+    const tight = new TextEncoder().encode(off).length;
+    wake(c, folder, tight);
+    const noRoom = lineRows(c).at(-1)?.p;
+    expect(noRoom).toMatchObject({ shown: false, reason: "no-room", lines: 0, of: 1, held: 1, bytes: 0, budget: tight, ids: [] });
+
+    // Its own byte budget too small for one line: no-room too.
+    (c.self.tunables as { WAKE_PROJECT_LINE_BYTES: number }).WAKE_PROJECT_LINE_BYTES = 20;
+    wake(c, folder);
+    expect(lineRows(c).at(-1)?.p).toMatchObject({ shown: false, reason: "no-room", of: 1, ids: [] });
+    (c.self.tunables as { WAKE_PROJECT_LINE_BYTES: number }).WAKE_PROJECT_LINE_BYTES = 480;
+
+    // A floor above the belief: below-floor, with what the project holds.
+    (c.self.tunables as { WAKE_PROJECT_LINE_FLOOR: number }).WAKE_PROJECT_LINE_FLOOR = 0.99;
+    const quiet = wake(c, folder);
+    expect(quiet).not.toContain("as I hold it");
+    expect(lineRows(c).at(-1)?.p).toMatchObject({ shown: false, reason: "below-floor", lines: 0, of: 0, held: 1, bytes: 0, ids: [] });
+    expect(JSON.stringify(lineRows(c))).not.toContain(`"ids":["${belief}"]`);
+  });
+
+  test("an observer writes no row", () => {
+    const { c, folder } = projectWorld();
+    c.rebrief({ budgetBytes: BUDGET, at: DATE });
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const obs = Counterpart.open({ dir: join(root, "store"), now: () => clock, timeZone: "UTC", observer: true });
+    open.push(obs);
+    const before = obs.store.eventLog({ name: PROJECT_LINE_EVENT }).length;
+    const text = obs.wake(BUDGET, { date: DATE }, { scope: folder, session: "s-obs", exportsFrom: () => true }).text;
+    expect(text).toContain("as I hold it");
+    expect(obs.store.eventLog({ name: PROJECT_LINE_EVENT }).length).toBe(before);
   });
 });
