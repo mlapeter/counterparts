@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.40 — 2026-10-29
+
+Open items nobody has touched for two weeks are now parked: they leave the wake's "Still open", which says how many are parked (`· 12 parked`), and nothing is deleted or closed. `recall "still open"` still lists every one (the parked last, marked), a question about one still finds it, and using one again brings it back. Items with a date still to come, a `settlesWhen`, or `status: "asked"` (a question or request still waiting) are never parked. The first wake after upgrading may count a lot of parked items at once on a store that has gathered many; that's the backlog of two-week-old threads, all still there. `counterparts doctor` has an Open items line. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.39 needs no store restore: `counterparts disconnect`, 0.3.39's install, then `counterparts connect`.
+
+- **Open items nobody has touched for two weeks are parked.** An open item untouched for 14
+  lived days (it was 21) leaves the wake's "Still open", and the list's count line ends with
+  how many are parked (`· 12 parked`). Parked isn't closed: `recall "still open"` lists parked
+  items last, marked, a question about the thing still finds one, and using one again (opening
+  it and working with it, quoting it, revising it) brings it back. Items with a date still
+  to come (or a week past it, or repeating), or that say what would settle them
+  (`settlesWhen`), are never parked; a one-off date that has gone by parks like the rest. `counterparts doctor` has an
+  Open items line counting open, carried and parked.
+- **The wake says how many open items are parked, even when "Still open" is short or empty.**
+  When "Still open" lists everything it carries, it now ends with `(3 parked; recall "still
+  open" lists them)`; when nothing is carried at all it reads `Still open: nothing current · 3
+  parked (recall "still open" lists them)`. The one-line summary a tight wake folds its lanes
+  into keeps the parked count too. Nothing is added when nothing is parked.
+
 ## 0.3.39 — 2026-10-28
 
 Counterparts now tells you when an update is out: once a day it asks the npm registry for the newest version number (nothing about you or your memory goes with it), and when you're a few releases behind, or a release is worth taking, your Claude says so once, with the steps for how you installed. **To turn it off,** tell your Claude to stop reminding you about updates, or set `"updateCheck": false` in `~/.counterparts/claude-code.json`, or `COUNTERPARTS_UPDATE_CHECK=off`; it never runs under Claude Code's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. A store now keeps its id after its first week (the session-start cleanup no longer deletes its handle salt). When `claude` isn't on PATH, the `claude mcp add …` line to paste sits on one line of its own. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.38 needs no store restore: `counterparts disconnect`, 0.3.38's install, then `counterparts connect`.
