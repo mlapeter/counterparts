@@ -2,7 +2,7 @@
 
 One page for awareness, not rules. Every check we have, what it looks at, roughly what it costs, and when it tends to earn its keep. Drafted 2026-10-26. Details live in the files named in each row.
 
-**Quick picks.** Any code change: typecheck and the touched area's tests, then `bun test` before the PR. Dates or
+**Quick picks.** Any code change: typecheck, the touched area's tests and one real-path test, then push and let CI run the suite (§2). Dates or
 clocks: a second time zone. Physics or tunables: harness `replay` (free). Dream or reflection prompts: `night`
 (recorded, free), then `night --model` if quality matters. Wake, recall, writing or boundaries: the harness `week`,
 cheapest tier that shows the effect (§9). A release: §3. After a release: `docs/CHECK-AFTER.md`. Writer or recall
@@ -15,7 +15,7 @@ Two safety facts hold for everything below (`CLAUDE.md`): tests build and remove
 | Name | What it checks | Cost | When | Command |
 |---|---|---|---|---|
 | Typecheck | `tsc --noEmit`, strict | seconds | any code change | `bun run typecheck` |
-| Suite | ~290 test files: core modules, adapters, hooks, MCP, CLI, dashboard, harness, plugin/bundle, install loop | a few minutes; slower on a busy machine (hook tests have timed out under load; rerun a timed-out file alone) | before a PR; the touched area's file while working | `bun test` (CI adds `--timeout 30000`) |
+| Suite | ~290 test files: core modules, adapters, hooks, MCP, CLI, dashboard, harness, plugin/bundle, install loop | a few minutes; slower on a busy machine (hook tests have timed out under load; rerun a timed-out file alone) | CI on every PR; the touched area's file while working; locally at most once, for a broad PR (§2) | `bun test` (CI adds `--timeout 30000`) |
 | Time zones | same suite where the local date and the UTC date disagree | one suite run per zone | when a change touches days, dates or the clock; CI does it every PR | `TZ=Pacific/Kiritimati bun test --timeout 30000` (also `America/Denver`, `UTC`) |
 | Live dashboard tests | `test/dashboard-*-live.test.ts`: real browser, real server (playwright chromium in a child process; skipped with a line if chromium can't launch) | a minute or so | dashboard changes; releases run them on their own | `bun test test/dashboard-home-live.test.ts` |
 | Node smoke | the TypeScript runs on Node 22.15 and 24 through `node-hooks.mjs` | seconds | runtime/store-binding changes; CI does it | `bun run test:node` |
@@ -30,6 +30,20 @@ Two safety facts hold for everything below (`CLAUDE.md`): tests build and remove
 |---|---|---|
 | `tests.yml` | typecheck + stitch check; suite on Linux in two zones and macOS in Denver; Node smoke on 22.15 and 24; the hosted tests under Node 24 and bun | every PR and push to master |
 | `single-binary.yml` | builds the single binary on 4 platforms (Windows is allowed to fail), then `smoke.sh` and `launcher-e2e.ts` | PRs touching the binary, plugin launcher, host wiring, `package.json` or `bun.lock` |
+
+**How builders and reviewers test (2026-10-29).** What heats the laptop is repeated full suites and the temp-dir
+churn that comes with them, not testing as such, and CI already runs the whole suite (three OS and time-zone combos,
+the hosted tests on bun and Node 24, the Node smokes, the typecheck). So a builder runs the tests of the files and
+modules it touches while working, plus the one real-path test the change needs, through the door (MCP, `remember`, a
+hook, a browser-like client). Then it pushes and fixes from CI's log, with no local full suite. A broad PR touching
+many modules may run one full suite before pushing, under `nice -n 15`. A reviewer doesn't rerun the full suite when
+CI is green on the head it reviews; that effort goes into breaking the change (scratch tests, awkward states, the real
+path), and review and merge wait on CI. At most two agents run tests at once; check `uptime` before a test-heavy step
+and wait if the load is high. A worktree symlinks `node_modules` (and `hosted/node_modules`) from the main checkout
+while the lockfile is unchanged, and runs `bun install` only when dependencies change. The expensive checks (the
+harness, upgrade-from-last, the plugin loop, a fresh new-user run) happen once a release, on the release sheet, and a
+token-heavy run (a meaningful week, a fresh new-user run, a benchmark pass) waits for the owner's yes, with its cost
+and what it would tell us. Cheap tier-0 checks need no asking. Reports paste counts, not logs.
 
 ## 3. Release checks (`docs/RELEASING.md` is the source)
 
