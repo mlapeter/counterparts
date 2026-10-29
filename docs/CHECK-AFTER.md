@@ -51,7 +51,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Facts title tail (the next 20 matches as title · id · date lines after the 10 bodies; credits nothing) + soft time words ("lately" ranks recent first, doesn't filter); from the benchmark loss read | in review 10-20, unreleased | ~10-27 on the live store: how often a tail title gets opened, whether the tail is noise | "Due ~2026-10-27 (the facts title tail …)" below; `docs/decisions.d/feat-facts-title-tail-1020.md` |
 | Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | not released, 10-21 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
-| Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
+| Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments (read 10-29: slot and tag priming kept); **the beliefs slot's own read: when 3+ beliefs about other people pass the 0.3 floor** (beliefs about me or us are page-only by design, so it has only ever shown one belief) | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
 | Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21; 14 once P2 #674 ships, and a one-off date past its grace no longer exempt — read a check after that release against 14) lived days — out of Still open, its count and `staleOpen`; the share says the count once | not released, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
@@ -79,7 +79,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | K1 (the 10-29 read): context priming's train share 0 (`recall.PRIME_TRAIN_SHARE`, was 0.5): the train scores nothing, the row says `primed.train: false`; link and tag priming unchanged | not released, 10-29 (ships after 0.3.40) | ~2 weeks after the release that carries it (~2026-11-13): footnote noise/useful by build, the link-lifted and tag-lifted groups, shown per person turn | "Due ~2 weeks after the 10-29 knobs" below; `docs/decisions.d/chore-read-1029-knobs.md` |
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | not released, 10-29 | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
-| K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | 2026-11-05 with the beliefs slot's extended read: still one belief? any new belief on a named card? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
+| K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | when 3+ beliefs about other people pass the 0.3 floor, with the beliefs slot's own read: did they show, and how were they rated? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -116,9 +116,9 @@ Reasons and costs: `docs/decisions.d/chore-read-1029-knobs.md`.
   and `ids` of the shown ones. **Bar:** it can now be read at all; if it shows on most project wakes, read whether
   sessions drew on it (ratings, quotes of the ids); if it is mostly `below-floor`, it has nothing to say yet; if it is
   mostly `no-room`, it costs nothing and shows nothing. Keep or retire it on that read (`self.WAKE_PROJECT_LINE=false`).
-- *Beliefs slot (finding).* With the slot's extended read on 11-05: still one belief? Any belief born on a named card
-  (not about me or us), and did it show? If the slot can only ever show one or two beliefs, the question for Mike is
-  whether beliefs about me or us get an ambient door (`src/core/recall/NOTES.md`, 2026-10-29).
+- *Beliefs slot (finding).* Not dated: read it when 3+ beliefs about other people pass the 0.3 floor. Did they
+  show, and how were they rated against the footnotes? Beliefs about me or us stay page-only, as designed: no ambient
+  door (decided 10-29; `src/core/recall/NOTES.md`, 2026-10-29).
 
 **Revert.** `recall.PRIME_TRAIN_SHARE=0.5`; `TAGS_KINDS_PER_NIGHT` back to 10 in `src/core/schemas/tunables.ts`; the
 project line's row goes with the line (`self.WAKE_PROJECT_LINE=false` writes none).
@@ -1412,6 +1412,11 @@ page past the room with a short version shows that in the wake. Revert: `PAGE_HE
   this page).
 
 ## Due ~2026-10-29 (beliefs shown, and priming changed again — wave 2 lane E, 2026-10-22, experiments)
+
+**Re-dated 2026-10-29 (the beliefs slot only).** Read the slot when 3+ beliefs about other people pass the 0.3 floor,
+not on a date. Why the read so far is thin: beliefs about me or us are page-only by design (the self lives on the page,
+per the wave-2 design), so the slot has only ever shown one belief (`sch_305a1aabc8fa`, 62 showings to 10-29). Page-only
+stays as it is.
 
 **What we're trying.** Beliefs (lane C) reach a session for the first time, and priming gains a source.
 
