@@ -107,7 +107,7 @@ Reasons and costs: `docs/decisions.d/chore-read-1029-knobs.md`.
   `primed.byTrain` 0 on every row of the new build (anything else is a setting that didn't take); overall footnote
   noise not up and useful not down against 10-26..28 (noise 38–43%, useful 15–22%); shown per person turn not below
   ~1.1. Revert (`recall.PRIME_TRAIN_SHARE=0.5`) if useful falls with nothing else to explain it.
-- *Kinds.* `SELECT COUNT(*) FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND archived=0 AND body != '' AND subject_kind IS NULL`
+- *Kinds.* `SELECT COUNT(*) FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND kind != 'self' AND archived=0 AND body != '' AND subject_kind IS NULL`
   each morning (144 on 10-29), and each night's record in `meta` (`tags.night.<run>`: what the night set). **Bar:** the kindless
   count falls by ~20 a night until it reaches the ~10 born a day; the tags child doesn't time out (`dream.night`
   children, `code`), no `mcp.result.oversize` for phase `tags`; spot-check ten kinds the night set (people a person,
