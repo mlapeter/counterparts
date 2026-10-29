@@ -1517,7 +1517,8 @@ note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids 
   (no chains) — are read for `mem_…` ids, at most `SEE_ALSO_NAMES_READ` (4) a memory. The first
   that may ride along is brought as one footnote line, `See also: <title> [id]`, title clipped at
   `SEE_ALSO_TITLE_BYTES` (100). One per shown memory, `SEE_ALSO_MAX` (2) a turn, after the cued
-  footnotes and the pointers, so `TRIM_ORDER`'s pop drops them first.
+  footnotes and the pointers, so `TRIM_ORDER`'s pop drops them first among footnotes (the
+  beliefs slot, first in `TRIM_ORDER`, goes before them).
 - **What may ride along.** The named id resolved to the memory that holds now (`headOf`: a
   corrected one brings its head, never itself), then held to the candidates' own test
   (`activate.ts#recallableRow`, factored out of the `recallable` closure for this: not removed,
@@ -1552,7 +1553,7 @@ note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids 
   the footnote header with its blank line (76) when nothing else was a footnote (the loud note
   alone): ≤ 342 bytes, plus a sentinel digit. A standing label (`Unsettled — …`, `(disagrees
   with …)`) costs what it costs on any footnote. Always inside the turn's budget: the render
-  trims them first. The "Since you started" line takes what recall leaves of the budget, so a
+  trims them first among footnotes, after any belief line. The "Since you started" line takes what recall leaves of the budget, so a
   see-also line can delay it a prompt, as any footnote can. The wake is untouched.
 - **Judgment calls, lightly held.** The loud line names ids too (the brief said "a footnote
   surfaces"; the task said "surfaces ambiently"): a loud note naming its rule is the live case

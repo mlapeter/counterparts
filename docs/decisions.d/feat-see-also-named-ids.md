@@ -3,7 +3,7 @@
 - Decided by the PP1 builder, 2026-10-29, lightly held (ROADMAP go 10-29 13:09): a memory the
   turn shows whose text names another memory's id brings that memory along as one `See also:`
   footnote, one per shown memory, two a turn (`recall.SEE_ALSO_MAX`), after every other
-  footnote so the byte budget trims them first, its title clipped at 100 bytes. Why: the 10-25
+  footnote so the byte budget trims them first among footnotes (a belief line goes before), its title clipped at 100 bytes. Why: the 10-25
   ping/pong miss — the note about the miss names the rule, and there is no link between them,
   so see-also "through existing links" would never fire; 159 of 5,214 live memories name an id,
   and 42 of 1,711 footnotes would have brought one along. An experiment: switch

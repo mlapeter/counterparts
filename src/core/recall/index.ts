@@ -755,7 +755,7 @@ export class Recall {
     // SEE-ALSO FROM NAMED IDS (PP1, 2026-10-29, an experiment): a shown
     // memory whose text names another's id brings it along, one each,
     // `SEE_ALSO_MAX` a turn, after everything the gate admitted (so the byte
-    // budget trims them first). Its verdict becomes an ordinary footnote's,
+    // budget trims them first among footnotes; a belief line goes before). Its verdict becomes an ordinary footnote's,
     // `trains` true, marked `via: "see-also"` — the record step and the
     // credit pass then treat it as any footnote: a use trains this turn's
     // words to it. Off, or nothing named: the turn is as before.
