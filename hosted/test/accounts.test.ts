@@ -187,6 +187,19 @@ describe("signing up and signing in", () => {
     assert.equal(r.mail.sent.length, 0);
   });
 
+  test("the first deploy: our pages' referrer policy lets a browser name our origin on its own form POSTs", async () => {
+    // Under no-referrer, Chrome sends `Origin: null` on a same-origin form POST, and every
+    // sign-in was refused as "This form expired". A null Origin stays refused (a sandboxed frame
+    // sends one), so the page must not ask for it.
+    const r = await rig();
+    const b = new Browser(r.base);
+    const page = await b.go("/login");
+    assert.equal(page.headers.get("referrer-policy"), "same-origin");
+    const form = await page.text();
+    assert.equal((await b.form("/login", { csrf: csrfOf(form), email: "x@example.com" }, { origin: "null" })).status, 403);
+    assert.equal((await b.form("/login", { csrf: csrfOf(form), email: "x@example.com" }, { origin: "http://127.0.0.1" })).status, 200);
+  });
+
   test("rate limits: five emails an hour per address", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite({ maxUses: 10 });
