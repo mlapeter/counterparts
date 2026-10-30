@@ -179,8 +179,8 @@ describe("the `chapter` call writes ONE summary memory per chapter, in the copy'
     expect(doc.meta["chapter"]).toBe(1);
     expect(doc.meta["chapterSummary"]).toBe("written");
     expect(doc.meta["claimedDefault"]).toBe(true);
-    // An ordinary self-kind memory's floor, so it is in reach from its first day.
-    expect(c.store.read(id).physics.salience.claimed).toBe(0.4);
+    // Its own default (F1, 2026-10-30, was 0.4), in reach from its first day.
+    expect(c.store.read(id).physics.salience.claimed).toBe(0.25);
     expect(belowReach(rowToPhysics(row!), c.store.livedDay())).toBe(false);
   });
 

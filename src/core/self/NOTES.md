@@ -2104,7 +2104,11 @@ The design check is in the owner's notes (2026-10-15, "journal storage ramificat
   self-kind memory gets (`defaultClaimFor`, 0.4, recorded `claimedDefault`) — at the copy's
   zero it would have been below reach on its first day — and decays, leaves reach and is
   pruned like one. Measured on the physics: unused, it stays in reach about three weeks
-  and reaches the prune floor in about nine months. **The frozen full copies keep their
+  and reaches the prune floor in about nine months. **Since F1 (2026-10-30, ROADMAP's
+  decision for Mike's review) a new one starts at 0.25 (`CHAPTER_SUMMARY_CLAIM`): about 3
+  lived days in reach, 49 to the floor. Nothing that reads a summary by its chapter asks
+  about reach: `chapterSummaries`, and through it the dream, the reflection, the page writer's
+  journal and the Yesterday line. Recall does, and the prune.** **The frozen full copies keep their
   exemption** (CONTRACT §3 says why: they are their chapters' only memory, they carry the
   marks and links, and at zero salience they would all leave in one wave).
 - **No regrowth.** `findIngested`, `memoriesForEpisode`, the regrow window and

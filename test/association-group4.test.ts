@@ -341,6 +341,8 @@ describe("3. replay deposits (review 06 C2)", () => {
     const begun = JSON.parse(c.store.eventLog({ name: "dream.begun" }).at(-1)?.payload ?? "{}") as Record<string, unknown>;
     expect(begun["replayPairs"]).toBe(pairs.length);
     expect(begun["replayLinks"]).toBe(pairs.length);
+    // F1: how far down the queue the night reached.
+    expect(begun["freshCutP"]).toBeGreaterThan(0);
     expect(c.store.dreamChanges(out.bundle.dream)).toEqual([]);
   });
 

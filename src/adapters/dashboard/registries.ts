@@ -317,7 +317,7 @@ export const DURABLE_EVENTS = {
   // be answered from the store at all.
   "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
   "sleep.cycle.held": "a boundary's cycle stood aside for another holding the store, at the start (its flush ran, no phase did) or part-way when its lease was taken over (the holder's pid, how long it had held)",
-  "self.briefing": "the wake briefing was re-rendered (what rendered per lane, and which elements the trim dropped)",
+  "self.briefing": "the wake briefing was re-rendered (what rendered per lane, which ids each kept, how many the trim dropped and, but for a refresh, which)",
   // The page's two (2026-09-18, S1). The refusal has a row of its own because a
   // cap reports what it refused where the owner will see it (owner ruling 2's
   // corollary): the 196 refused asks sat in the events table unseen.

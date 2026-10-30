@@ -147,6 +147,13 @@ export const LANE_ORDER: readonly LaneName[] = [
 export const BRIEFING_TRIM_LOG_CAP = 64;
 
 /**
+ * How many KEPT ids per lane the same row carries (F1, 2026-10-30): what a wake
+ * room listed, so it can be scored without a transcript. The lane's `counts`
+ * stand beside it, so a capped list is never mistaken for the whole of it.
+ */
+export const BRIEFING_KEPT_LOG_CAP = 16;
+
+/**
  * The declared trim order — v1's, verbatim (contract §3): hints → craft →
  * threads → horizon → identity LAST. Craft before threads so craft can never
  * displace core; identity last because identity is the thing the briefing is for.

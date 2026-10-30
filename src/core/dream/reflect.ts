@@ -2127,6 +2127,12 @@ export class Reflections {
     detail["counts"] = counts;
     const allRefused = [...(Array.isArray(prior["refusedCites"]) ? (prior["refusedCites"] as string[]) : []), ...refusedCites];
     if (allRefused.length > 0) detail["refusedCites"] = allRefused.slice(0, 20);
+    // WHY A CITE EARNED NO RETURN (F1, 2026-10-30), by reason, across finishes:
+    // until now the hand-back said it and no row kept it.
+    const refusedReturns: Record<string, number> = {};
+    if (isRecord(prior["refusedReturns"])) for (const [k, v] of Object.entries(prior["refusedReturns"])) if (typeof v === "number") refusedReturns[k] = v;
+    for (const r of returned) if (!r.counted) refusedReturns[r.reason] = (refusedReturns[r.reason] ?? 0) + 1;
+    if (Object.keys(refusedReturns).length > 0) detail["refusedReturns"] = refusedReturns;
     detail["title"] = title;
     if (ownLine.line !== null) detail["line"] = ownLine.line;
     if (ownLine.refused > 0) detail["lineRefused"] = ownLine.refused;

@@ -591,7 +591,7 @@ export const RESUME_WAKE_LINE =
   "Counterparts: this session was resumed; the wake it was handed when it started (above) still holds.";
 
 /** What `sessionStart` hands the host: a composed wake, or a resume's line. */
-type WokeHere = Pick<ReturnType<Lifecycle["composeWake"]>, "text" | "ok" | "bytes" | "sentinel" | "preface" | "lined" | "tags" | "tagged"> & {
+type WokeHere = Pick<ReturnType<Lifecycle["composeWake"]>, "text" | "ok" | "bytes" | "sentinel" | "preface" | "lined" | "tags" | "tagged" | "shape"> & {
   readonly reason: string;
 };
 
@@ -843,6 +843,16 @@ export class ClaudeCodeAdapter extends Lifecycle {
         // wake writes no ledger (`Lifecycle#noteWakeIndex`), so its lines
         // could never count as looked up (review of #508).
         ...(input.nightRun === true ? {} : { lined: woke.lined?.length ?? 0 }),
+        // WHERE ITS BYTES WENT AND WHAT FORM IT REACHED (F1, 2026-10-30): per
+        // section, at the start itself, where the turn-end's row can't say.
+        // Absent on a resume's short wake: nothing was composed.
+        ...(woke.shape === undefined
+          ? {}
+          : {
+              ...Object.fromEntries(Object.entries(woke.shape.sections).map(([k, n]) => [`sec_${k}`, n] as const)),
+              pageRung: woke.shape.page,
+              assembled: woke.shape.assembled,
+            }),
       });
       // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
       // FITS.

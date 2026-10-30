@@ -50,6 +50,7 @@ import { TUNABLES as CLAUDE_CODE_TUNABLES } from "../src/adapters/config.js";
 import { SWEEP_REASONS, TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
 import type { InterpretFn, SweepChunk } from "../src/core/remember/index.js";
 import { BOOTSTRAP, LANE_ORDER, PREFACE_RESERVE_BYTES } from "../src/core/self/index.js";
+import { BRIEFING_KEPT_LOG_CAP } from "../src/core/self/briefing.js";
 import { CycleKilled, PHASES } from "../src/core/sleep/index.js";
 import { Store, holdsNoData } from "../src/core/store/index.js";
 
@@ -2217,6 +2218,12 @@ describe("the sleep cycle and the wake render each leave one durable row", () =>
     expect(row["trimmed"]).toEqual(
       trims.map((e) => ({ id: e.ref ?? null, lane: e.data?.["lane"] ?? null })),
     );
+    // F1: and what each lane kept, ids only, a capped list beside the count.
+    const kept = (row["kept"] ?? {}) as Record<string, string[]>;
+    for (const [lane, ids] of Object.entries(kept)) {
+      expect(ids.length).toBe(Math.min(counts[lane] as number, BRIEFING_KEPT_LOG_CAP));
+      for (const id of ids) expect(id).toMatch(/^[a-z]+_[0-9a-f]+$/);
+    }
     // And the cycle row's `trimmed` count is the same reading.
     expect((rowsOf(c, SLEEP_CYCLE_EVENT)[0] as Record<string, unknown>)["trimmed"]).toBe(
       trims.length,

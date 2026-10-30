@@ -502,6 +502,14 @@ export interface SelfTunables {
    * history is in self NOTES, "The cap moved off the lived day"). CAL.
    */
   MAX_ASKS_PER_SESSION: number;
+  /**
+   * WHAT A NEW CHAPTER SUMMARY IS BORN CLAIMING (F1, 2026-10-30; decided by
+   * ROADMAP, marked for Mike's review; was the self-kind default, 0.4). New
+   * rows only: a summary already written keeps its claim. The replay on the
+   * 10-30 store: 379 never-used summaries leave reach, 0 use-days lost.
+   * `docs/CHECK-AFTER.md`. Back to 0.4 to revert. CAL.
+   */
+  CHAPTER_SUMMARY_CLAIM: number;
 }
 
 export const SELF_TUNABLES: SelfTunables = {
@@ -547,6 +555,7 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_WRITER_MEMORY_MAX: 40,
   DAYS_END_INPUT: true,
   DAYS_END_MEMORIES: 12,
+  CHAPTER_SUMMARY_CLAIM: 0.25,
   DAY_SUMMARY: true,
   DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
