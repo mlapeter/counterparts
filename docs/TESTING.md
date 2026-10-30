@@ -28,7 +28,7 @@ Two safety facts hold for everything below (`CLAUDE.md`): tests build and remove
 
 | Workflow | What it runs | When |
 |---|---|---|
-| `tests.yml` | typecheck + stitch check; suite on Linux in two zones and macOS in Denver, with per-file test times (the slowest 20 in the log and job summary, the junit file as an artifact; test bodies only, imports and `beforeAll` aren't counted); Node smoke on 22.15 and 24; the hosted tests under Node 24 and bun | every PR, and every push to master or `release/*` |
+| `tests.yml` | typecheck + stitch check; suite on Linux in two zones and macOS in Denver, with per-file test times (the slowest 20 in the log and job summary, the junit file as an artifact; test bodies with their `beforeEach` and `afterEach`, imports and `beforeAll` aren't counted); Node smoke on 22.15 and 24; the hosted tests under Node 24 and bun | every PR, and every push to master or `release/*` |
 | `tests.yml`, `release` jobs | one tarball packed once, then on that file: the package scan against the last release, the install loop on Linux and macOS; the live dashboard tests with chromium; the tarball and its sha256 kept as an artifact (RELEASING §2, §4) | a push to `release/*`, on that exact commit, after the jobs above pass; a manual run |
 | `single-binary.yml` | builds the single binary on 4 platforms (Windows is allowed to fail), then `smoke.sh` and `launcher-e2e.ts` | PRs touching the binary, plugin launcher, host wiring, `package.json` or `bun.lock` |
 

@@ -19,8 +19,10 @@
  * prints classes, counts and file paths and NEVER a matched string or a line of text.
  * It compares a packed tarball with the previous release's and exits 1 on what should
  * stop a release: a file that doesn't belong, or a new hit in a HARD class or for a
- * key. New files, gone files, sizes, exports and new hits in the SOFT classes are
- * listed for the release agent to read. The soft classes can't fail: `~/.counterparts`
+ * key. A hit is new when the last release didn't have that string in that file (for a
+ * key, that line), so a swap that leaves the count alone is still new. New files, gone
+ * files, sizes, exports and new hits in the SOFT classes are listed for the release
+ * agent to read. The soft classes can't fail: `~/.counterparts`
  * is the product's own path and the owner's name is all over the comments (0.3.41:
  * 478 and 405 hits), so an absolute rule would be red every release. It knows only
  * the owner's name: a list of other people's names can't live in a public repository.
@@ -151,14 +153,30 @@ const HARD_CLASSES: ReadonlySet<string> = new Set([
 
 /** Paths inside the package that don't belong in it (RELEASING §2). */
 const STOWAWAY =
-  /^(?:test|hooks|commands|dist|hosted|scratch[^/]*|\.claude[^/]*|\.github|docs\/harvest)\/|^tools\/(?!install-loop\/)|\.(?:sqlite3?|db)(?:-wal|-shm)?$|(?:^|\/)\.(?:env(?:\.[^/]*)?|npmrc)$/;
+  /^(?:test|hooks|commands|dist|hosted|scratch[^/]*|\.claude[^/]*|\.github|docs\/harvest)\/|^tools\/(?!install-loop\/)|\.(?:sqlite3?|db)(?:-wal|-shm)?$|(?:^|\/)\.(?:env(?:\.[^/]*)?|npmrc)$|\.(?:tgz|tar|gz|zip)$/;
+
+/** What a failed scan tells the release agent. Plain words only: the log is public. */
+const WHEN_IT_FAILS = `What to do. Nothing was uploaded, and fetch-tarball.sh stops on this run. A rerun packs the
+same commit and fails the same way, so don't rerun it.
+1. Read each line named above in your own checkout of this commit. This log never prints them.
+2. A real key, mailbox, path or id: it's already public on this pushed branch. Take it out of
+   the source, tell the owner, and if it's a key, have it replaced.
+3. Not a real one (an example, or code that only looks like one): reword the line until it stops
+   matching, with a placeholder like <session id>. There's no list of exceptions. A moved file
+   counts as new hits at its new path, so its old lines need the same rewording.
+4. A file that doesn't belong: drop it from "files" in package.json, or delete it.
+5. Commit and push the release branch. The new commit gets its own run.`;
 
 interface Unpacked {
   /** Path inside the package -> size in bytes. */
   files: Map<string, number>;
   bytes: number;
-  /** `class|file` (or `key:family|file`) -> hits. */
-  hits: Map<string, number>;
+  /**
+   * `class|file` (or `key:family|file`) -> what hit -> the lines it's on. What hit is
+   * the matched string, or a key's whole line (the scan gives only a family and count).
+   * It stays in this process: nothing that prints reads the keys of the inner map.
+   */
+  hits: Map<string, Map<string, number[]>>;
   exports: string;
 }
 
@@ -168,7 +186,7 @@ function unpack(tarball: string): Unpacked {
     sh(["tar", "-xzf", tarball, "-C", dir]);
     const root = join(dir, "package");
     const files = new Map<string, number>();
-    const hits = new Map<string, number>();
+    const hits = new Map<string, Map<string, number[]>>();
     const walk = (d: string) => {
       for (const name of readdirSync(d)) {
         const path = join(d, name);
@@ -180,12 +198,29 @@ function unpack(tarball: string): Unpacked {
         const file = relative(root, path);
         files.set(file, st.size);
         const text = readFileSync(path, "utf8");
+        const lines = text.split("\n");
+        const hit = (key: string, what: string, line: number) => {
+          const whats = hits.get(key) ?? new Map<string, number[]>();
+          whats.set(what, [...(whats.get(what) ?? []), line]);
+          hits.set(key, whats);
+        };
         for (const k of CLASSES) {
-          const n = text.match(new RegExp(k.re.source, k.re.flags))?.length ?? 0;
-          if (n > 0) hits.set(`${k.name}|${file}`, n);
+          if (!new RegExp(k.re.source, k.re.flags).test(text)) continue;
+          lines.forEach((line, i) => {
+            for (const m of line.match(new RegExp(k.re.source, k.re.flags)) ?? []) hit(`${k.name}|${file}`, m, i + 1);
+          });
         }
-        for (const f of scanSecrets(text).findings) {
-          hits.set(`key:${f.family}|${file}`, f.count);
+        const keys = scanSecrets(text).findings;
+        if (keys.length > 0) {
+          lines.forEach((line, i) => {
+            for (const f of scanSecrets(line).findings) hit(`key:${f.family}|${file}`, line, i + 1);
+          });
+          // A key the line-by-line pass can't see (a block over several lines, a copy
+          // that's one only beside its first mention) still counts, with no line to name.
+          for (const f of keys) {
+            const seen = [...(hits.get(`key:${f.family}|${file}`)?.values() ?? [])].reduce((sum, at) => sum + at.length, 0);
+            for (let i = seen; i < f.count; i++) hit(`key:${f.family}|${file}`, `(whole file) ${i}`, 0);
+          }
         }
       }
     };
@@ -223,16 +258,26 @@ function packageScan(tarball: string, against: string): number {
 
   const stowaways = [...now.files.keys()].filter((f) => STOWAWAY.test(f)).sort();
   const newHits = [...now.hits]
-    .map(([key, n]) => ({ key, more: n - (was.hits.get(key) ?? 0) }))
-    .filter((h) => h.more > 0)
+    .map(([key, whats]) => {
+      const before = was.hits.get(key);
+      const lines = [...whats].flatMap(([what, at]) => at.slice(before?.get(what)?.length ?? 0));
+      return { key, lines: lines.sort((a, b) => a - b) };
+    })
+    .filter((h) => h.lines.length > 0)
     .map((h) => {
       const [klass, file] = h.key.split("|") as [string, string];
-      return { klass, file, more: h.more, hard: klass.startsWith("key:") || HARD_CLASSES.has(klass) };
+      return { klass, file, more: h.lines.length, lines: h.lines, hard: klass.startsWith("key:") || HARD_CLASSES.has(klass) };
     })
     .sort((a, b) => a.klass.localeCompare(b.klass) || a.file.localeCompare(b.file));
+  const at = (h: { lines: number[] }) => {
+    const known = [...new Set(h.lines)].filter((n) => n > 0);
+    return known.length > 0 ? `  line ${known.slice(0, 20).join(", ")}${known.length > 20 ? ", ..." : ""}` : "";
+  };
 
   const totals = (u: Unpacked, klass: string) =>
-    [...u.hits].filter(([key]) => key.startsWith(`${klass}|`)).reduce((sum, [, n]) => sum + n, 0);
+    [...u.hits]
+      .filter(([key]) => key.startsWith(`${klass}|`))
+      .reduce((sum, [, whats]) => sum + [...whats.values()].reduce((n, lines) => n + lines.length, 0), 0);
   const families = [...new Set([...now.hits.keys(), ...was.hits.keys()].map((k) => k.split("|")[0]!).filter((k) => k.startsWith("key:")))];
   say();
   say(`${"class".padEnd(28)}${"now".padStart(6)}${"was".padStart(6)}  on a new hit`);
@@ -245,15 +290,19 @@ function packageScan(tarball: string, against: string): number {
   const hard = newHits.filter((h) => h.hard);
   say();
   say(`new hits to read (${soft.length}):`);
-  for (const h of soft) say(`  ${h.klass} +${h.more}  ${h.file}`);
+  for (const h of soft) say(`  ${h.klass} +${h.more}  ${h.file}${at(h)}`);
   say(`new hits that stop the release (${hard.length}):`);
-  for (const h of hard) say(`  ${h.klass} +${h.more}  ${h.file}`);
+  for (const h of hard) say(`  ${h.klass} +${h.more}  ${h.file}${at(h)}`);
   say(`files that don't belong (${stowaways.length}):`);
   for (const f of stowaways) say(`  ${f}`);
 
   const pass = hard.length === 0 && stowaways.length === 0;
   say();
   say(`PACKAGE SCAN: ${pass ? "PASS" : "FAIL"}`);
+  if (!pass) {
+    say();
+    say(WHEN_IT_FAILS);
+  }
 
   const text = lines.join("\n");
   console.log(text);

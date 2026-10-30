@@ -64,15 +64,16 @@ jobs:
   suite:
     name: suite (${{ matrix.os }}, ${{ matrix.tz }})
     runs-on: ${{ matrix.os }}
-    # TIMEOUT_NOTE
-    timeout-minutes: 20
+    # macOS runners take this suite anywhere from 9 to 15 minutes so far: 30 there, so
+    # a slow runner doesn't read as a failed release.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, tz: America/Denver, slug: linux-denver }
-          - { os: ubuntu-latest, tz: Pacific/Kiritimati, slug: linux-kiritimati }
-          - { os: macos-latest, tz: America/Denver, slug: macos-denver }
+          - { os: ubuntu-latest, tz: America/Denver, slug: linux-denver, timeout: 20 }
+          - { os: ubuntu-latest, tz: Pacific/Kiritimati, slug: linux-kiritimati, timeout: 20 }
+          - { os: macos-latest, tz: America/Denver, slug: macos-denver, timeout: 30 }
     env:
       TZ: ${{ matrix.tz }}
     steps:

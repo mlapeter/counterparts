@@ -80,6 +80,30 @@ describe("the package scan", () => {
     expect(r.out).toContain("new hits that stop the release (0)");
   });
 
+  test("a swap that leaves the count alone is still new", () => {
+    const other = `${SOMEONE_HOME}-other`;
+    const swapped = scan(tarball({ ...base, "src/a.ts": `// ${other}\n` }), tarball({ ...base, "src/a.ts": `// ${SOMEONE_HOME}\n` }));
+    expect(swapped.code).toBe(1);
+    expect(swapped.out).toContain("absolute-home-path +1  src/a.ts  line 1");
+    expect(swapped.out).not.toContain("someone-private");
+
+    const keyWas = "api_" + 'key = "' + "h4Vt8Kw3".repeat(5) + '"';
+    const key = scan(tarball({ ...base, "src/b.ts": `${API_KEY_LINE}\n` }), tarball({ ...base, "src/b.ts": `${keyWas}\n` }));
+    expect(key.code).toBe(1);
+    expect(key.out).toMatch(/key:[a-z-]+ \+1 {2}src\/b\.ts {2}line 1/);
+    expect(key.out).not.toContain("q7Zp2Lx9");
+    expect(key.out).not.toContain("h4Vt8Kw3");
+  });
+
+  test("a failure names the line, says what to do, and a pass doesn't", () => {
+    const r = scan(tarball({ ...base, "src/a.ts": `// fine\n// ${MAILBOX}\n` }), tarball(base));
+    expect(r.out).toContain("owner-email +1  src/a.ts  line 2");
+    expect(r.out).toContain("What to do.");
+    expect(r.out).toContain("Commit and push the release branch");
+    expect(r.out).not.toContain("someone.private");
+    expect(scan(tarball(base), tarball(base)).out).not.toContain("What to do.");
+  });
+
   test("a new soft hit is listed to read and doesn't stop it", () => {
     const r = scan(tarball({ ...base, "src/a.ts": `// ${NAME} said so\n` }), tarball(base));
     expect(r.code).toBe(0);
@@ -88,7 +112,7 @@ describe("the package scan", () => {
   });
 
   test("files that don't belong stop it; only the install loop's tools ship", () => {
-    for (const path of ["test/x.test.ts", "hosted/server.ts", ".claude-plugin/binaries.json", "tools/audit/x.ts", "src/store.sqlite", "src/.env"]) {
+    for (const path of ["test/x.test.ts", "hosted/server.ts", ".claude-plugin/binaries.json", "tools/audit/x.ts", "src/store.sqlite", "src/.env", "src/old-release.tgz"]) {
       const r = scan(tarball({ ...base, [path]: "x\n" }), tarball(base));
       expect([path, r.code]).toEqual([path, 1]);
       expect(r.out).toContain(`  ${path}`);
@@ -154,8 +178,60 @@ describe("fetching the tested tarball", () => {
   const SHA = "a".repeat(40);
   let serial = 0;
 
-  /** A stand-in `gh` serving one run and one artifact; `tweak` breaks what a test wants broken. */
-  function fetch(tweak: { conclusion?: string; tamper?: boolean; loggedHash?: string; commit?: string; repoVersion?: string; noArtifact?: boolean } = {}) {
+  interface Run {
+    id: number;
+    status: string;
+    conclusion: string | null;
+    head_branch: string | null;
+    event: string;
+    created_at: string;
+    html_url: string;
+  }
+  const run = (over: Partial<Run> = {}): Run => ({
+    id: 77,
+    status: "completed",
+    conclusion: "success",
+    head_branch: "release/9.9.9",
+    event: "push",
+    created_at: "2026-10-30T10:00:00Z",
+    html_url: "https://example.test/run/77",
+    ...over,
+  });
+  /** Newer than the release run, green, and not one to take: a fork's PR, and master. */
+  const DECOYS = [
+    run({ id: 66, event: "pull_request", created_at: "2026-10-30T12:00:00Z" }),
+    run({ id: 65, head_branch: "master", created_at: "2026-10-30T11:00:00Z" }),
+    run({ id: 64, head_branch: null, event: "pull_request", created_at: "2026-10-30T11:30:00Z" }),
+  ];
+  const JOBS = [
+    { id: 81, conclusion: "success", name: "typecheck" },
+    { id: 82, conclusion: "success", name: "suite (ubuntu-latest, America/Denver)" },
+    { id: 83, conclusion: "success", name: "node smoke (24)" },
+    { id: 84, conclusion: "success", name: "hosted (bun)" },
+    { id: 88, conclusion: "success", name: "release (pack, scan, install loop, live dashboard)" },
+    { id: 89, conclusion: "success", name: "release (install loop, macOS)" },
+  ];
+
+  /**
+   * A stand-in `gh` serving what the API would send, with the script's own `--jq`
+   * filters run on it through jq; `tweak` breaks what a test wants broken.
+   */
+  function fetch(
+    tweak: {
+      runs?: Run[];
+      jobs?: typeof JOBS;
+      branchHead?: string | null;
+      tamper?: boolean;
+      loggedHash?: string;
+      commit?: string;
+      repoVersion?: string;
+      noArtifact?: boolean;
+      fileName?: string;
+      secondTarball?: boolean;
+      sha256Names?: string;
+      relativeFolder?: boolean;
+    } = {},
+  ) {
     const dir = join(WORK, `fetch${++serial}`);
     const artifact = join(dir, "artifact");
     const pkg = join(dir, "pkg", "package");
@@ -163,20 +239,29 @@ describe("fetching the tested tarball", () => {
     mkdirSync(pkg, { recursive: true });
     mkdirSync(join(dir, "bin"));
     writeFileSync(join(pkg, "package.json"), '{\n  "name": "counterparts",\n  "version": "9.9.9"\n}\n');
-    const name = "counterparts-9.9.9.tgz";
+    const name = tweak.fileName ?? "counterparts-9.9.9.tgz";
     expect(Bun.spawnSync(["tar", "-czf", join(artifact, name), "-C", join(dir, "pkg"), "package"]).exitCode).toBe(0);
     const hash = new Bun.CryptoHasher("sha256").update(readFileSync(join(artifact, name))).digest("hex");
-    writeFileSync(join(artifact, "SHA256"), `${hash}  ${name}\n`);
+    writeFileSync(join(artifact, "SHA256"), `${hash}  ${tweak.sha256Names ?? name}\n`);
     writeFileSync(join(artifact, "COMMIT"), `${tweak.commit ?? SHA}\n`);
     if (tweak.tamper) writeFileSync(join(artifact, name), "not the file that was tested");
+    if (tweak.secondTarball) writeFileSync(join(artifact, "counterparts-9.9.8.tgz"), "another");
     writeFileSync(join(dir, "log"), `x TARBALL_SHA256=${tweak.loggedHash ?? hash} ${name} commit ${SHA}\n`);
     writeFileSync(join(dir, "repo-package.json"), `{\n  "version": "${tweak.repoVersion ?? "9.9.9"}"\n}\n`);
-    // `--jq` isn't evaluated here: each call answers with what the real filter would print.
+    writeFileSync(join(dir, "runs.json"), JSON.stringify({ workflow_runs: tweak.runs ?? [...DECOYS, run()] }));
+    writeFileSync(join(dir, "jobs.json"), JSON.stringify({ jobs: tweak.jobs ?? JOBS }));
+    const head = tweak.branchHead === undefined ? SHA : tweak.branchHead;
+    writeFileSync(join(dir, "ref.json"), JSON.stringify({ object: { sha: head } }));
     const gh = `#!/bin/bash
+args=("$@")
+filter=""
+for ((i = 0; i < $#; i++)); do [ "\${args[i]}" = "--jq" ] && filter="\${args[i + 1]}"; done
+answer() { jq -r "$filter" "$1"; }
 case "$*" in
-  *"workflows/tests.yml/runs"*) echo "77 completed ${tweak.conclusion ?? "success"} https://example.test/run/77" ;;
+  *"workflows/tests.yml/runs"*) answer "${join(dir, "runs.json")}" ;;
   *"run download"*) ${tweak.noArtifact ? "exit 1" : `cp -R "${artifact}" "\${@: -1}"`} ;;
-  *"/runs/77/jobs"*) echo 88 ;;
+  *"/runs/77/jobs"*) answer "${join(dir, "jobs.json")}" ;;
+  *"git/ref/heads/release/9.9.9"*) ${head === null ? "exit 1" : `answer "${join(dir, "ref.json")}"`} ;;
   *"/jobs/88/logs"*) cat "${join(dir, "log")}" ;;
   *"contents/package.json"*) cat "${join(dir, "repo-package.json")}" ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
@@ -184,7 +269,8 @@ esac
 `;
     writeFileSync(join(dir, "bin", "gh"), gh, { mode: 0o755 });
     const folder = join(dir, "release-folder");
-    const r = Bun.spawnSync(["bash", join(ROOT, "tools/release/fetch-tarball.sh"), SHA, folder], {
+    const r = Bun.spawnSync(["bash", join(ROOT, "tools/release/fetch-tarball.sh"), SHA, tweak.relativeFolder ? "release-folder" : folder], {
+      cwd: dir,
       env: { ...process.env, PATH: `${join(dir, "bin")}:${process.env["PATH"]}` },
       stdout: "pipe",
       stderr: "pipe",
@@ -202,8 +288,31 @@ esac
     expect(check.exitCode).toBe(0);
   });
 
+  test("a relative folder is relative to where it's run, not to the temp folder that goes away", () => {
+    const r = fetch({ relativeFolder: true });
+    expect(r.code).toBe(0);
+    expect(existsSync(join(r.folder, "SHA256"))).toBe(true);
+  });
+
+  const withJob = (name: string, conclusion: string) => JOBS.map((j) => (j.name === name ? { ...j, conclusion } : j));
+
   for (const [what, tweak, says] of [
-    ["a run that didn't pass", { conclusion: "failure" }, "didn't pass"],
+    ["a run that didn't pass", { runs: [run({ conclusion: "failure" })] }, "didn't pass"],
+    ["a run still going", { runs: [run({ status: "in_progress", conclusion: null })] }, "hasn't finished"],
+    ["only runs that aren't a release branch's push", { runs: DECOYS }, "no release run"],
+    [
+      "a green run, when a newer one on the commit is red",
+      { runs: [run({ id: 76 }), run({ conclusion: "failure", created_at: "2026-10-30T11:00:00Z" })] },
+      "didn't pass",
+    ],
+    ["a failed job under a green run (continue-on-error)", { jobs: withJob("release (install loop, macOS)", "failure") }, "'release (install loop, macOS)' (failure)"],
+    ["a skipped job under a green run", { jobs: withJob("suite (ubuntu-latest, America/Denver)", "skipped") }, "(skipped)"],
+    ["a run missing a job the workflow should have", { jobs: JOBS.filter((j) => !j.name.startsWith("suite")) }, "no job called 'suite ("],
+    ["a branch that has moved on", { branchHead: "d".repeat(40) }, "has moved on"],
+    ["a branch that's gone", { branchHead: null }, "is gone"],
+    ["two tarballs in the artifact", { secondTarball: true }, "one tarball"],
+    ["a SHA256 naming another file", { sha256Names: "COMMIT" }, "should name"],
+    ["a file named for another version", { fileName: "counterparts-9.9.7.tgz" }, "is called"],
     ["a file that doesn't match its SHA256", { tamper: true }, "doesn't match"],
     ["a file that doesn't match the job's log", { loggedHash: "b".repeat(64) }, "the job's log says"],
     ["an artifact packed from another commit", { commit: "c".repeat(40) }, "was packed from"],

@@ -91,12 +91,14 @@ committed (section 3). The push run is:
 - then, once those pass, the `release` jobs, all on one tarball packed once in the run:
   - the package scan (`tools/audit/scan-personal.ts --tarball`), against the highest version
     below this one on npm. Its verdict is at the bottom of the step and in the summary. A new
-    key, a new hit in a hard class (a mailbox, a home path, a session or run id) or a file
-    that doesn't belong (`.claude-plugin/`, `hooks/`, `commands/`, `test/`, `hosted/`,
-    `dist/`, a scratch folder, a store) fails the job, printing the class and the file and
-    never the text. New and missing files, sizes, exports and new soft hits (the owner's
-    name, `~/` paths) are listed, and reading them is the release agent's job: every new or
-    missing file should have a reason;
+    key, a new hit in a hard class (a mailbox, a home path, a session or run id, a scratchpad
+    or transcript path) or a file that doesn't belong (`.claude-plugin/`, `.github/`,
+    `hooks/`, `commands/`, `test/`, `hosted/`, `dist/`, `docs/harvest/`, tools other than the
+    install loop, a scratch folder, a store, `.env`, `.npmrc`, an archive) fails the job,
+    printing the class, the file and the line and never the text, then what to do about it.
+    New and missing files, sizes, exports and new soft hits (the owner's name, `~/` paths) are
+    listed, and reading them is the release agent's job: every new or missing file should
+    have a reason;
   - the install loop on that file, on Linux and macOS (`INSTALL_LOOP_TARBALL`): a stranger's
     install in a throwaway HOME;
   - the live dashboard tests (`test/dashboard-*-live.test.ts`), with chromium installed. A
@@ -224,9 +226,10 @@ tools/release/fetch-tarball.sh <full commit sha> <release folder>
 ```
 
 That writes `counterparts-<version>.tgz`, `SHA256` and `COMMIT` into the release folder. It
-stops, writing nothing, unless the run is on a `release/` branch and fully green, and the
-file's hash matches both the `SHA256` beside it and the line the job printed in its log. A
-mismatch stops the release; find out why before going on. There's no need to pack on the
+stops, writing nothing, unless the run is on a `release/` branch, every job in it passed, and
+the branch is still at that commit, and the file's hash matches both the `SHA256` beside it
+and the line the job printed in its log. A mismatch stops the release; find out why before
+going on. There's no need to pack on the
 laptop, since the file to publish is the tested one. A laptop pack of the same commit has
 matched CI's hash (npm 10 and npm 11, 2026-10-30), so it can serve as a cross-check. Artifacts
 last 30 days, and a rerun of the `release` job makes a new one.
