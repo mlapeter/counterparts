@@ -597,7 +597,10 @@ describe("retention reads the same rule, on its own clocks", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the handoff pointer says how current it is", () => {
-  const LINE = /Where I left off in this directory \(([^)]*)\): /;
+  // Since WK1 (2026-10-30) the handoff may lead the block or follow a newer
+  // mention, so this reads its own opening: when it was written, and any
+  // staleness in parentheses would break the match.
+  const LINE = /[Hh]andoff(?: from session \w+)?,? (written \S+ \S+) \(sch_[0-9a-f]+\)/;
 
   function wake(c: Counterpart): string {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-29" });
@@ -615,17 +618,17 @@ describe("the handoff pointer says how current it is", () => {
     const k = clocked(T0 + 47 * MIN); // 12:47 UTC
     k.c.writeHandoff("The relief valve is seated. The loop test is next, then the gauges.", { scope: PROJ, session: "writer" });
     // 1. Nothing captured here since.
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    expect(wake(k.c)).toBe("written 09-29 12:47");
     // 2. Three hours of work here since, not written up.
     const t = talker(k, "later");
     for (let i = 0; i <= 6; i++) t.piece(T0 + 47 * MIN + MIN + i * 30 * MIN);
     k.set(T0 + 4 * HOUR);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    expect(wake(k.c)).toBe("written 09-29 12:47");
     const owed = workSince(k.c.spans, PROJ, T0 + 47 * MIN, { writer: "writer" });
     expect([owed.overFloor, owed.unwritten > 0]).toEqual([true, true]);
     // 3. The same work, written up.
     k.c.spans.claimCoverage({ scope: PROJ, session: "later", proposalId: "prp_later" });
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    expect(wake(k.c)).toBe("written 09-29 12:47");
     expect(workSince(k.c.spans, PROJ, T0 + 47 * MIN, { writer: "writer" }).unwritten).toBe(0);
   });
 
@@ -646,7 +649,7 @@ describe("the handoff pointer says how current it is", () => {
     // coverage, and still not said on the pointer's line (2026-10-18).
     w.piece(T0 + HOUR + 20 * MIN);
     expect(since().overFloor).toBe(true);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    expect(wake(k.c)).toBe("written 09-29 12:47");
   });
 
   test("the excerpt skips a list marker and will not stop at a short run — \"1.\", \"Step 2.\", \"e.g.\" (review of #289)", () => {
@@ -664,11 +667,16 @@ describe("the handoff pointer says how current it is", () => {
   });
 
   test("the excerpt is the FIRST SENTENCE of the first substantive line, still capped", () => {
-    const k = clocked();
-    k.c.writeHandoff("# Handoff\n\nThe relief valve is seated. The loop test is next, then the gauges.", { scope: PROJ });
+    // Since WK1 (2026-10-30) the newest handoff has a lead of several lines;
+    // the excerpt is what every other live handoff's one line says.
+    const k = clocked(T0);
+    k.c.writeHandoff("# Handoff\n\nThe relief valve is seated. The loop test is next, then the gauges.", { scope: PROJ, session: "older" });
+    k.set(T0 + HOUR);
+    k.c.writeHandoff("Fresh word on the gauges.", { scope: PROJ, session: "newer" });
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-29" });
     const text = k.c.wake(9_000, { date: "2026-09-29" }, { scope: PROJ }).text;
-    expect(text).toContain("): The relief valve is seated.\n");
+    expect(text).toMatch(/^- session older, 09-29: The relief valve is seated\. \(sch_[0-9a-f]+\)$/m);
+    expect(text).not.toContain("# Handoff");
     expect(text).not.toContain("The loop test is next");
   });
 });

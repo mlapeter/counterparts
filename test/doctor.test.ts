@@ -3051,6 +3051,8 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
         type: "memory",
         kind: "person",
         body: `Something warm about the owner, number ${String(i)}: he likes the bench tidy at the end of a day.`,
+        // Open, so it fills the wake: warm facts left a store-with-a-page's wake (WK1).
+        meta: { unresolved: true },
         salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
       });
     }

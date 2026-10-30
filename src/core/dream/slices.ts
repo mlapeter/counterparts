@@ -14,6 +14,7 @@ import { clipBytes, fit, lineOf, offeredOf } from "../fit/index.js";
 import type { AliasMap, Fidelity, FitCandidate, FitReport, Placed } from "../fit/index.js";
 import { readChapterLead } from "../self/episodes.js";
 import { automaticSummaryText, chapterSummaries } from "../self/summaries.js";
+import { liveHandoffRows } from "../handoff/index.js";
 import { MERGE_DEPTH } from "../self/writer.js";
 import type { ReadOnlyStore, Store } from "../store/index.js";
 import { localDate, readableDate } from "../time.js";
@@ -506,6 +507,9 @@ export function leanEntry(e: ShownEntry, chapterId: string, aliases: AliasMap, m
  * This decides reading and writing from now on. It changes no row: what is in
  * the store stays there, and an ordinary session's recall does not come here.
  */
+/** How much of a closed row's opening counts as naming it (`namesClosed`). */
+const OPENING_CHARS = 24;
+
 /** The host's word on one folder (`adapters/scopes.ts#foldersOn`). */
 export type FolderOn = (scope: string) => boolean;
 
@@ -569,16 +573,23 @@ function restsOnClosed(store: Pick<Store, "row">, meta: string, shut: (scope: st
 }
 
 /**
- * DOES THIS TEXT NAME A CLOSED ROW, by id or title? For the published wake a
- * dream is handed: it was composed for no reader, so its Yesterday line and its
- * lists may name any folder's. Never throws.
+ * DOES THIS TEXT NAME A CLOSED ROW, by id, title or its opening words? For the
+ * published wake a dream is handed: it was composed for no reader, so its
+ * Yesterday line and its lists may name any folder's, and since the wake stopped
+ * printing bare ids (#687) a line quoting an untitled row has only its words.
+ * A short opening is passed over: too little to tell it from anything else. Never throws.
  */
 export function namesClosed(store: Pick<Store, "row">, text: string, closed: ReadonlySet<string>): boolean {
+  const flat = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const wake = flat(text);
   for (const id of closed) {
     if (text.includes(id)) return true;
     try {
-      const title = store.row(id)?.title ?? null;
+      const row = store.row(id);
+      const title = row?.title ?? null;
       if (title !== null && title.trim().length > 0 && text.includes(title)) return true;
+      const opening = flat(row?.body ?? "").slice(0, OPENING_CHARS);
+      if (opening.length === OPENING_CHARS && wake.includes(opening)) return true;
     } catch {
       continue;
     }
@@ -588,7 +599,8 @@ export function namesClosed(store: Pick<Store, "row">, text: string, closed: Rea
 
 /**
  * EVERY MEMORY AND CHAPTER CLOSED TO THE NIGHT under `on`, archived and merged
- * rows included. A walk of the store, so one read per night call, never per
+ * rows included, and each live handoff, by the folder it was left in (a schema
+ * row, which is on my mind's open loops and has no folder of its own). A walk of the store, so one read per night call, never per
  * turn: only the night's doors ask. Never throws row by row.
  */
 export function closedToNight(store: Store, on: FolderOn): ReadonlySet<string> {
@@ -612,6 +624,11 @@ export function closedToNight(store: Store, on: FolderOn): ReadonlySet<string> {
         continue;
       }
     }
+  }
+  try {
+    for (const h of liveHandoffRows(store)) if (shut(h.scope)) closed.add(h.id);
+  } catch {
+    /* no handoffs to close */
   }
   return closed;
 }

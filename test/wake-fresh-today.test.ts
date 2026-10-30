@@ -232,7 +232,7 @@ describe("a session started before any turn-end today reads today's lanes", () =
     // session start (2026-10-16); the published bundle's, below, is dated.
     expect(text).toContain("Yesterday: ");
     expect(text.split("\n").find((l) => l.startsWith("Yesterday: "))).toContain("Seedlings potted on");
-    expect(text.split("\n").find((l) => l.startsWith("Last here: "))).toContain("Bread for the market stall");
+    expect(text.split("\n").find((l) => l.startsWith("Where this folder stands: "))).toContain("Bread for the market stall");
     expect(text.split("Bread for the market stall").length - 1).toBe(1);
     // Still open and Arriving, as of now.
     expect(lane(text, FRAMING.threads).some((l) => l.endsWith("Whether the north bed needs a second load of compost before the frost."))).toBe(true);
@@ -335,7 +335,7 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     // episode once): named there, and not again here. The about-me chapter is
     // this line's, so the about-me line below leaves it out.
     expect(lineOf(text)).toBe(`Yesterday: "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); and a session in ${placeWords(YON)}.`);
-    expect(text.split("\n").find((l) => l.startsWith("Last here: "))).toContain(`(${y.ids["own"]})`);
+    expect(text.split("\n").find((l) => l.startsWith("Where this folder stands: "))).toContain(`(${y.ids["own"]})`);
     for (const once of [y.ids["own"] ?? "?", y.ids["aboutme"] ?? "?"]) expect(text.split(once).length - 1).toBe(1);
     expect(lineOf(text)).not.toContain(placeWords(FAR));
     for (const never of ["WORKTITLE", "OFFTITLE", y.ids["work"] ?? "?", y.ids["off"] ?? "?"]) {
@@ -351,7 +351,7 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     // This directory's own title is "Last here"'s (2026-10-20), so with nothing
     // else nameable there is no Yesterday line; the chapter is named once.
     expect(lineOf(alone)).toBeUndefined();
-    expect(alone.split("\n").find((l) => l.startsWith("Last here: "))).toContain(`"OWNTITLE chapter" (${y.ids["own"]})`);
+    expect(alone.split("\n").find((l) => l.startsWith("Where this folder stands: "))).toContain(`"OWNTITLE chapter" (${y.ids["own"]})`);
     expect(alone.split(y.ids["own"] ?? "?").length - 1).toBe(1);
     // Somewhere that wrote nothing yesterday, with every directory closed.
     const NONE = join(root, "shed");

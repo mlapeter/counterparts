@@ -35,8 +35,6 @@ import {
   handoffRows,
   handoffTitle,
   isHandoffRow,
-  HANDOFF_WAKE_LISTED,
-  HANDOFF_WAKE_SHOWN,
   PLAN_STATUSES,
   SINCE_READ,
   SINCE_SHOWN,
@@ -44,14 +42,13 @@ import {
   planWord,
   sinceLine,
   modelWords,
-  pointerBlock,
-  pointerBlockMany,
-  pointerLadder,
   readHandoff,
   reserveBytes,
   WIDEST_POINTER_SINCE,
 } from "../src/core/handoff/index.js";
 import type { Handoff, PlanSince } from "../src/core/handoff/index.js";
+import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
+import type { StandsRung } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -74,11 +71,16 @@ const BODY_TWO = "Placeholder: the parser rewrite landed; next is the error mess
 // Pinning it to the day these tests were written made them fail the next morning.
 const WRITTEN_ON = localDate(Date.now()); // the person's day since 2026-09-25 (docs/time.md)
 // Since 2026-09-30 the line says WHEN it was written, to the minute, in the
-// store's zone — "written 09-30 14:05" — computed at delivery (`PointerSince`),
-// and, when the row names its session, WHO: "… by session sess_a".
+// store's zone — "written 09-30 14:05" — computed at delivery (`PointerSince`).
+// Since WK1 (2026-10-30) the block's entry says WHO first, then when, then its id.
 const WRITTEN_LINE = new RegExp(
-  `Where I left off in this directory \\(written ${WRITTEN_ON.slice(5)} \\d{2}:\\d{2}(?: by [^)]*)?\\): `,
+  `Where this folder stands: a handoff from [^\\n]*, written ${WRITTEN_ON.slice(5)} \\d{2}:\\d{2} \\(sch_[0-9a-f]+\\): `,
 );
+
+/** The block's ladder for one folder's live handoffs, as the delivery builds it (`handoff/#standsLadder`), with no "how current" words. */
+function ladderOf(s: Store, h: Handoffs, scope: string, day: number = s.livedDay()): StandsRung[] {
+  return standsLadder({ handoffs: h.readAll(scope, day).map((handoff) => ({ handoff, at: h.writtenAt(handoff), since: null })), day });
+}
 
 let dir: string;
 let priorEnv: string | undefined;
@@ -407,7 +409,7 @@ describe("the pointer at the wake", () => {
     expect(woke.text).toMatch(WRITTEN_LINE);
     expect(woke.text).toContain(BODY);
     expect(woke.text).toContain(id);
-    expect(woke.text).toContain("expand it with the counterparts recall tool");
+    expect(woke.text).toContain("Expand it by its id with recall");
   });
 
   test("another directory's wake carries nothing of it", () => {
@@ -415,7 +417,7 @@ describe("the pointer at the wake", () => {
     c.writeHandoff(BODY, { scope: HERE });
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const woke = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE });
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
     expect(woke.text).not.toContain(BODY);
   });
 
@@ -455,7 +457,7 @@ describe("the pointer at the wake", () => {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const text = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE }).text;
     const lines = text.split("\n");
-    const pointerAt = lines.findIndex((l) => l.startsWith("Where I left off"));
+    const pointerAt = lines.findIndex((l) => l.startsWith("Where this folder stands"));
     expect(pointerAt).toBeGreaterThan(0);
     expect(lines[lines.length - 1]).toContain("counterparts:wake/end");
     expect(pointerAt).toBeLessThan(lines.length - 1);
@@ -468,7 +470,7 @@ describe("the pointer at the wake", () => {
     // The dashboard and replay read this way: no `delivery`, no preface, and so
     // no pointer either — a bundle nobody is being handed is nobody's directory.
     const woke = c.wake(9_000);
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
   });
 
   test("shown writes ONE durable row, after the splice, naming the age and the cost", () => {
@@ -477,7 +479,7 @@ describe("the pointer at the wake", () => {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const before = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE });
     expect(eventNames(c.store)).not.toContain(HANDOFF_SHOWN_EVENT);
-    expect(before.text).not.toContain("Where I left off");
+    expect(before.text).not.toContain("Where this folder stands");
 
     c.wake(9_000, { date: "2026-09-20" }, { scope: HERE, session: "s2" });
     const row = c.store.eventLog({ limit: 200 }).find((r) => r.name === HANDOFF_SHOWN_EVENT);
@@ -503,11 +505,11 @@ describe("the pointer at the wake", () => {
       session: "s1",
       version: 9,
     };
-    const block = pointerBlock(widest, 999_999) as string;
-    expect(block).not.toBeNull();
+    const block = standsLadder({ handoffs: [{ handoff: widest, at: null, since: null }], day: 999_999 })[0]?.block as string;
+    expect(block).toBeDefined();
     expect(new TextEncoder().encode(block).length).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
     // …with the widest "how current" words the delivery can add, too.
-    const current = pointerBlock(widest, 999_999, HANDOFF_LIFE_DAYS, WIDEST_POINTER_SINCE) as string;
+    const current = standsLadder({ handoffs: [{ handoff: widest, at: null, since: WIDEST_POINTER_SINCE }], day: 999_999 })[0]?.block as string;
     expect(new TextEncoder().encode(current).length).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
     // And the excerpt itself stays inside its own cap.
     expect(new TextEncoder().encode(excerpt(widest.body)).length).toBeLessThanOrEqual(
@@ -526,7 +528,7 @@ describe("the pointer at the wake", () => {
     // lag, which is how every wake fact behaves.
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const woke = c.wake(300, { date: "2026-09-20" }, { scope: HERE });
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
     expect(eventNames(c.store)).not.toContain(HANDOFF_SHOWN_EVENT);
     expect(c.events("counterpart.handoff.noroom")).toHaveLength(1);
   });
@@ -563,7 +565,7 @@ describe("it expires, in lived days", () => {
     expect(c.store.livedDay()).toBeGreaterThan(HANDOFF_LIFE_DAYS);
     c.rebrief({ budgetBytes: 9_000, at: "2026-10-20" });
     const woke = c.wake(9_000, { date: "2026-10-20" }, { scope: HERE });
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
     expect(eventNames(c.store)).not.toContain(HANDOFF_SHOWN_EVENT);
   });
 
@@ -644,7 +646,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     expect(a.handoffs.liveBlockBytes()).toHaveLength(1);
     // A session in ANOTHER directory is handed nothing and has lost nothing.
     const woke = a.wake(1_200, { date: "2026-09-20" }, { scope: THERE });
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
   });
 
   test("the share rule is one comparison, and it is stated where it is decided", () => {
@@ -693,7 +695,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     for (const budget of [3_640, 4_096, 9_000]) {
       c.rebrief({ budgetBytes: budget, at: "2026-09-20" });
       const woke = c.wake(budget, { date: "2026-09-20" }, { scope: HERE });
-      expect(woke.text).toContain("Where I left off in this directory");
+      expect(woke.text).toContain("Where this folder stands");
       expect(woke.bytes).toBeLessThanOrEqual(budget);
     }
   });
@@ -1040,12 +1042,12 @@ describe("the review's findings, each with the thing that was wrong", () => {
     );
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const text = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE }).text;
-    expect(text).toContain("Where I left off");
+    expect(text).toContain("Where this folder stands");
     expect(text).not.toContain("\u0000");
     expect(text).not.toContain("\u001b");
     expect(text).not.toContain("‮");
     // And the line-injection block the scar asks for is untouched.
-    expect(text.split("\n").filter((l) => l.startsWith("Where I left off"))).toHaveLength(1);
+    expect(text.split("\n").filter((l) => l.startsWith("Where this folder stands"))).toHaveLength(1);
   });
 
   test("MINOR-6: a TITLED handoff still points at its substance", () => {
@@ -1235,7 +1237,7 @@ describe("the review's findings, each with the thing that was wrong", () => {
     const s = store();
     const h = handoffs(s);
     h.write({ body: BODY, scope: HERE, day: 0 });
-    const shown = (day: number): string | null => h.pointer(HERE, day)?.block ?? null;
+    const shown = (day: number): string | null => ladderOf(s, h, HERE, day)[0]?.block ?? null;
     expect(shown(0) ?? "").toContain(`${HANDOFF_LIFE_DAYS} more days`);
     expect(shown(HANDOFF_LIFE_DAYS - 2) ?? "").toContain("2 more days");
     expect(shown(HANDOFF_LIFE_DAYS - 1) ?? "").toContain("one more day");
@@ -1309,7 +1311,7 @@ describe("a handoff row whose words are gone", () => {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const woke = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE });
     expect(woke.ok).toBe(true);
-    expect(woke.text).not.toContain("Where I left off");
+    expect(woke.text).not.toContain("Where this folder stands");
   });
 
   test("FAULTED (blank body, real hash): the session stands down — and `remove` is the exit", async () => {
@@ -1431,7 +1433,7 @@ describe("the session that writes it and the session that reads it", () => {
         scope: canonicalScope(there),
         at: "2026-09-20",
       });
-      expect(out.injection).not.toContain("Where I left off");
+      expect(out.injection).not.toContain("Where this folder stands");
       expect(eventNames(a.counterpart.store)).not.toContain(HANDOFF_SHOWN_EVENT);
     } finally {
       rmSync(here, { recursive: true, force: true });
@@ -1517,19 +1519,19 @@ describe("several sessions leave handoffs in one directory", () => {
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-21" });
     const text = c.wake(9_000, { date: "2026-09-21" }, { scope: HERE, session: "sess_cccccccc_3" }).text;
     const lines = text.split("\n");
-    const head = lines.findIndex((l) => l.startsWith("Where the work in this directory was left off"));
+    const head = lines.findIndex((l) => l.startsWith("Where this folder stands"));
     expect(head).toBeGreaterThan(0);
-    expect(lines[head]).toContain("2 handoffs");
-    const [newest, older] = [lines[head + 1] as string, lines[head + 2] as string];
-    expect(newest.startsWith("1) From session sess_bbb")).toBe(true);
+    const newest = lines[head] as string;
+    expect(newest).toStartWith("Where this folder stands: a handoff from session sess_bbb");
     expect(newest).toContain(BODY_TWO);
     expect(newest).toContain(c.readHandoffs(HERE)[0]?.id as string);
-    expect(older.startsWith("2) From session sess_aaa")).toBe(true);
-    expect(older).toContain("on Opus 5.5");
+    expect(lines[head + 1]).toBe(STANDS_OTHERS);
+    const older = lines[head + 2] as string;
+    expect(older.startsWith("- session sess_aaa")).toBe(true);
     expect(older).toContain(BODY);
-    expect(lines[head + 3]).toContain("counterparts recall tool");
-    // Still furniture: no bullet, and the sentinel's counts are true.
-    expect(lines.slice(head, head + 4).some((l) => l.startsWith("- "))).toBe(false);
+    expect(older).toContain(c.readHandoffs(HERE)[1]?.id as string);
+    expect(lines[head + 3]).toContain("Expand one by its id with recall");
+    // Still furniture: the sentinel's counts are true.
     expect(readSentinel(text).intact).toBe(true);
     // Each handoff shown gets its own row, and their bytes sum to the cost.
     const shown = c.store.eventLog({ name: HANDOFF_SHOWN_EVENT, limit: 10 });
@@ -1546,10 +1548,10 @@ describe("several sessions leave handoffs in one directory", () => {
     c.writeHandoff(BODY, { scope: HERE, session: "sess_mine" });
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     const text = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE, session: "sess_mine" }).text;
-    expect(text).toMatch(/Where I left off in this directory \(written [^)]* by this session\): /);
+    expect(text).toMatch(/Where this folder stands: a handoff from this session, written [^\n]* \(sch_[0-9a-f]+\): /);
   });
 
-  test("past three, the newest three are shown and the rest are named by id", () => {
+  test("every live one has a line, newest first, whatever how many; none is named by bare id (no cap since WK1, 2026-10-30)", () => {
     const s = store();
     const { h, tick } = clocked(s);
     const ids: string[] = [];
@@ -1557,22 +1559,18 @@ describe("several sessions leave handoffs in one directory", () => {
       ids.push(h.write({ body, scope: HERE, session: `sess_${i}` }).id as string);
       tick();
     }
-    const block = h.pointer(HERE)?.block as string;
-    const lines = block.split("\n");
-    expect(lines[0]).toContain("5 handoffs");
-    expect(lines.filter((l) => /^\d\) From /.test(l))).toHaveLength(HANDOFF_WAKE_SHOWN);
-    // Newest first: the last written is entry 1.
-    expect(lines[1]).toContain(ids[4] as string);
-    const rest = lines.find((l) => l.startsWith("+2 older here: ")) as string;
-    expect(rest).toContain(ids[1] as string);
-    expect(rest).toContain(ids[0] as string);
-    // Past the listed count, a number rather than more ids.
-    for (let i = 5; i < HANDOFF_WAKE_SHOWN + HANDOFF_WAKE_LISTED + 2; i++) {
-      h.write({ body: BODY_TWO, scope: HERE, session: `sess_${i}` });
-      tick();
-    }
-    const many = (h.pointer(HERE)?.block as string).split("\n").find((l) => l.includes("older here")) as string;
-    expect(many).toContain(", and 2 more.");
+    const rung = ladderOf(s, h, HERE)[0] as StandsRung;
+    expect(rung.shown.map((x) => x.id)).toEqual([...ids].reverse().slice(0, 3));
+    const lines = rung.block.split("\n");
+    // Newest first: the last written leads, the next two a line each, the rest counted.
+    expect(lines[0]).toContain(ids[4] as string);
+    const others = lines.filter((l) => l.startsWith("- session "));
+    expect(others).toHaveLength(2);
+    expect(others[0]).toContain(ids[3] as string);
+    expect(others[1]).toContain(ids[2] as string);
+    expect(rung.block).toContain('+2 older handoffs: recall "handoffs here" lists them.');
+    expect(rung.block).not.toContain(ids[1] as string);
+    expect(rung.block).not.toContain("older here");
   });
 
   test("a blank field retires only the caller's OWN handoff; the others stand", () => {
@@ -1662,10 +1660,10 @@ describe("several sessions leave handoffs in one directory", () => {
     const s = store();
     const { h, tick } = clocked(s);
     h.write({ body: BODY, scope: HERE, session: "sess_1" });
-    expect(h.pointer(HERE)?.block).toContain("retireHandoff: [id]");
+    expect(ladderOf(s, h, HERE)[0]?.block).toContain("retire it once done with session_end's retireHandoff: [id]");
     tick();
     h.write({ body: BODY_TWO, scope: HERE, session: "sess_2" });
-    expect(h.pointer(HERE)?.block).toContain("retire one whose work is done with session_end's retireHandoff: [id]");
+    expect(ladderOf(s, h, HERE)[0]?.block).toContain("retire a finished one with session_end's retireHandoff: [id]");
   });
 
   test("retiring by id takes the race's duplicates of that row's key with it (review of #295, NIT-1)", () => {
@@ -1693,7 +1691,8 @@ describe("several sessions leave handoffs in one directory", () => {
     c.wake(plain + 8, { date: "2026-09-20" }, { scope: HERE });
     const row = c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 1 })[0];
     const reported = (JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)["bytes"] as number;
-    const rungs = c.handoffs.pointerChoices(HERE).map((r) => bytesOf(r.block));
+    // The delivery's own smallest rung carrying a handoff: the newest, a line.
+    const rungs = ladderOf(c.store, c.handoffs, HERE).filter((r) => r.shown.length > 0).map((r) => bytesOf(r.block));
     const smallest = Math.min(...rungs);
     // The spliced bundle with the smallest rung: the plain one, the block and
     // its separating lines, and a byte count that may gain a digit.
@@ -1719,18 +1718,22 @@ describe("several sessions leave handoffs in one directory", () => {
     });
     const h = handoffs(s);
     // Alone, the old row reads as it did, with its author added.
-    expect(pointerBlock(h.readAny(HERE, "sess_old_writer") as Handoff, s.livedDay())).toContain(
-      `(${s.today()} by session sess_old)`,
+    // (The two rows tie on time, so either may lead the ladder: each is asked alone.)
+    expect(standsLadder({ handoffs: [{ handoff: h.readAll(HERE).find((x) => x.session === null) as Handoff, at: null, since: null }], day: s.livedDay() })[0]?.block).toContain(
+      `a handoff from an earlier session, on ${s.today()} (`,
+    );
+    expect(ladderOf(s, h, HERE)[0]?.shown).toHaveLength(2);
+    expect(standsLadder({ handoffs: [{ handoff: h.readAny(HERE, "sess_old_writer") as Handoff, at: null, since: null }], day: s.livedDay() })[0]?.block).toContain(
+      `a handoff from session sess_old, on ${s.today()} (`,
     );
     // The new session writes its own row beside it, rather than over it.
     const fresh = h.write({ body: BODY_TWO, scope: HERE, session: "sess_new", model: "claude-opus-5-5" });
     expect(fresh.reason).toBe("created");
     expect(s.row(legacy)?.archived).toBe(0);
-    const block = h.pointer(HERE)?.block as string;
-    expect(block).toContain("3 handoffs");
-    expect(block).toContain("1) From session sess_new on Opus 5.5");
-    expect(block).toContain("From session sess_old, on ");
-    expect(block).toContain("From an earlier session, on ");
+    const block = ladderOf(s, h, HERE)[0]?.block as string;
+    expect(block).toStartWith("Where this folder stands: a handoff from session sess_new on Opus 5.5");
+    expect(block).toContain(`- session sess_old, ${s.today().slice(5)}: `);
+    expect(block).toContain(`- an earlier session, ${s.today().slice(5)}: `);
     expect(block).toContain(nameless);
     // And the writer the old row names revises it, as it always did.
     expect(h.write({ body: BODY_FOUR, scope: HERE, session: "sess_old_writer" }).id).toBe(legacy);
@@ -1754,9 +1757,8 @@ describe("several sessions leave handoffs in one directory", () => {
     const oneWake = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE });
     c.writeHandoff(BODY_TWO, { scope: HERE, session: "sess_2", model: "claude-opus-5-5" });
     c.writeHandoff(BODY_THREE, { scope: HERE, session: "sess_3", model: "claude-opus-5-5" });
-    // Three live here: the ladder is three rungs of the several-handoff block
-    // and the newest alone.
-    expect(c.handoffs.liveBlockBytes()).toHaveLength(4);
+    // Three live here: the widest, an older one given up, and the other (no lead lines to give, no chapter).
+    expect(c.handoffs.liveBlockBytes()).toHaveLength(3);
     const three = c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     // Never more than an eighth of the ceiling, however many there are.
     expect(9_000 - PREFACE_RESERVE_BYTES - (three.composeBudget as number)).toBeLessThanOrEqual(9_000 / 8);
@@ -1767,8 +1769,8 @@ describe("several sessions leave handoffs in one directory", () => {
     expect(readSentinel(threeWake.text).statedElements).toBe(readSentinel(oneWake.text).statedElements);
     // And the directory that holds them is handed all three, inside the ceiling.
     const here = c.wake(9_000, { date: "2026-09-20" }, { scope: HERE });
-    expect(here.text).toContain("3 handoffs");
-    expect(here.text.split("\n").filter((l) => /^\d\) From /.test(l))).toHaveLength(3);
+    expect(here.text.match(/\(sch_[0-9a-f]+\)/g)).toHaveLength(3);
+    expect(here.text).toContain(STANDS_OTHERS);
     expect(here.bytes).toBeLessThanOrEqual(9_000);
   });
 
@@ -1783,29 +1785,31 @@ describe("several sessions leave handoffs in one directory", () => {
     // At 9,000 the wake is assembled; at any other ceiling it is the
     // published bundle, whose preface says so (`PUBLISHED_WORDS`, 2026-10-16).
     const plain = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE }).bytes + Buffer.byteLength(PUBLISHED_WORDS);
-    const ladder = c.handoffs.pointerChoices(HERE);
-    expect(ladder).toHaveLength(3); // two shown, one shown, the newest alone
-    const [full, , alone] = ladder.map((r) => bytesOf(r.block));
+    const ladder = ladderOf(c.store, c.handoffs, HERE);
+    expect(ladder.map((r) => r.shown.length)).toEqual([2, 1]);
+    const [full, alone] = ladder.map((r) => bytesOf(r.block));
     // Room for the newest alone and not for the several-handoff block.
     const ceiling = plain + (alone as number) + 16;
     expect(ceiling).toBeLessThan(plain + (full as number));
     const woke = c.wake(ceiling, { date: "2026-09-20" }, { scope: HERE });
     expect(woke.bytes).toBeLessThanOrEqual(ceiling);
     expect(woke.text).toContain(BODY_TWO);
-    expect(woke.text).not.toContain("2 handoffs");
+    expect(woke.text).not.toContain(STANDS_OTHERS);
+    expect(woke.text).toContain('+1 older handoff: recall "handoffs here" lists it.');
     expect(c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 5 })).toHaveLength(0);
     expect(c.store.eventLog({ name: HANDOFF_SHOWN_EVENT, limit: 5 })).toHaveLength(1);
     // Below even that, the pointer is dropped whole and the drop is a row.
     const tight = c.wake(plain + 8, { date: "2026-09-20" }, { scope: HERE });
-    expect(tight.text).not.toContain("Where I left off");
+    expect(tight.text).not.toContain("Where this folder stands");
     expect(c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 5 })).toHaveLength(1);
   });
 
-  test("the widest several-handoff block stays inside the reserve's ceiling", () => {
+  test("however many and however wide, the block is bounded by the room, and the reserve by its ceiling (WK1, 2026-10-30)", () => {
     const widest = (i: number): Handoff => ({
       id: `sch_${String(i).padStart(12, "f")}`,
       scope: HERE,
-      body: "Ω".repeat(HANDOFF_MAX_BYTES / 2),
+      // Lines past the lead's cap: five of them is the widest lead.
+      body: Array.from({ length: 8 }, () => "Ω".repeat(125)).join("\n"),
       bytes: HANDOFF_MAX_BYTES,
       writtenOn: "2026-09-20",
       writtenDay: 999_999,
@@ -1814,15 +1818,14 @@ describe("several sessions leave handoffs in one directory", () => {
       model: "a".repeat(64),
       version: 9,
     });
-    const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
-    // Every entry may say why it may be out of date (2026-10-01), in the same
-    // sentence since 2026-10-18 — and the reserve is sized to the whole ladder,
-    // not the one a wake shows when every one is stale (`collapseStale`).
-    const since = hs.map(() => WIDEST_POINTER_SINCE);
-    const ladder = pointerLadder(hs, 999_999, { since, collapseStale: false });
-    expect(ladder).toHaveLength(HANDOFF_WAKE_SHOWN + 1);
-    for (const rung of ladder) expect(bytesOf(rung.block)).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
-    expect(bytesOf(pointerBlockMany(hs, 999_999, { since }) as string)).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
+    const hs = Array.from({ length: 40 }, (_, i) => ({ handoff: widest(i), at: null, since: i === 0 ? WIDEST_POINTER_SINCE : null }));
+    const ladder = standsLadder({ handoffs: hs, day: 999_999 });
+    // Wider than the reserve's ceiling at its widest, and the ladder steps down under it.
+    expect(bytesOf(ladder[0]?.block as string)).toBeGreaterThan(HANDOFF_RESERVE_MAX_BYTES);
+    expect(bytesOf(ladder.at(-1)?.block as string)).toBeLessThan(HANDOFF_RESERVE_MAX_BYTES);
+    // The reserve takes the widest rung the share rule allows, and never past its ceiling.
+    expect(reserveBytes(ladder.map((r) => bytesOf(r.block)), 1_000_000)).toBe(HANDOFF_RESERVE_MAX_BYTES);
+    expect(reserveBytes(ladder.map((r) => bytesOf(r.block)), 9_000)).toBeLessThanOrEqual(9_000 / 8);
   });
 
   test("over the wire: two sessions, two handoffs; a blank field and retireHandoff each take only what they name", async () => {
@@ -1923,39 +1926,26 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
     expect(planWord("asked", true)).toBe("asked");
   });
 
-  test("every rung comes once with the line, widest first, then as it was, byte for byte", () => {
-    const hs = [h(2), h(1, BODY_TWO)];
-    const plain = pointerLadder(hs, 10);
-    const ladder = pointerLadder(hs, 10, { plans: { items: [plan(1)], more: 0 } });
-    expect(ladder).toHaveLength(plain.length * 2);
-    expect(ladder.slice(plain.length)).toEqual(plain);
-    ladder.slice(0, plain.length).forEach((rung, i) => {
-      expect(rung.plans).toEqual(["mem_000000000001"]);
-      expect(rung.block.startsWith(`${plain[i]?.block as string}\n`)).toBe(true);
-    });
-    // The several-handoff rungs say which one the line counts from; the
-    // newest's own block says "this handoff".
+  test("the line stays through the older handoffs' give-way, then goes, before the newest's own lead does", () => {
+    const hs = [h(2), h(1, BODY_TWO)].map((handoff, i) => ({ handoff, at: 10 - i, since: null }));
+    const plain = standsLadder({ handoffs: hs, day: 10 });
+    const ladder = standsLadder({ handoffs: hs, day: 10, plans: { items: [plan(1)], more: 0 } });
+    // Both handoffs with the line; the newest with the line; the newest alone.
+    expect(ladder.map((r) => [r.shown.length, r.plans.length])).toEqual([
+      [2, 1],
+      [1, 1],
+      [1, 0],
+    ]);
+    expect(ladder.at(-1)?.block).toBe(plain.at(-1)?.block as string);
+    // The line says which it counts from: the newest, when there are several here.
     expect(ladder[0]?.block.split("\n").at(-1)).toStartWith("Since the newest handoff here:");
-    expect(ladder[plain.length - 1]?.block.split("\n").at(-1)).toStartWith("Since this handoff:");
-    // With nothing planned, the ladder is today's.
-    expect(pointerLadder(hs, 10, { plans: { items: [], more: 0 } })).toEqual(plain);
+    expect(ladder[1]?.block.split("\n").at(-1)).toStartWith("Since the newest handoff here:");
+    // With nothing planned, the ladder has no such line.
+    expect(standsLadder({ handoffs: hs, day: 10, plans: { items: [], more: 0 } })).toEqual(plain);
     for (const rung of plain) expect(rung.plans).toEqual([]);
   });
 
-  test("the widest block with the widest line is the reserve's ceiling", () => {
-    const widest = (i: number): Handoff => ({
-      id: `sch_${String(i).padStart(12, "f")}`,
-      scope: HERE,
-      body: "Ω".repeat(HANDOFF_MAX_BYTES / 2),
-      bytes: HANDOFF_MAX_BYTES,
-      writtenOn: "2026-09-20",
-      writtenDay: 999_999,
-      session: "ffffffff-ffff-ffff-ffff-ffffffffffff",
-      model: "a".repeat(64),
-      version: 9,
-    });
-    const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
-    const since = hs.map(() => WIDEST_POINTER_SINCE);
+  test("what the line adds to a block, with its newline: at its widest, and in the typical case", () => {
     // Three at the title cap, the widest word, a real id's width, and as many
     // more as one read can find.
     const title = excerpt("x".repeat(200), SINCE_TITLE_BYTES);
@@ -1964,10 +1954,6 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
       items: Array.from({ length: SINCE_SHOWN }, (_, i) => ({ id: `mem_${String(i).padStart(12, "f")}`, title, word: "proposed" })),
       more: SINCE_READ - SINCE_SHOWN,
     };
-    const ladder = pointerLadder(hs, 999_999, { since, plans, collapseStale: false });
-    expect(Math.max(...ladder.map((r) => bytesOf(r.block)))).toBe(HANDOFF_RESERVE_MAX_BYTES);
-    // What the line adds to a block, with its newline: at its widest, and in
-    // the typical case — one plan with a short title.
     expect(bytesOf(sinceLine(plans, true) as string) + 1).toBe(317);
     const typical = sinceLine({ items: [{ id: "mem_0123456789ab", title: "Publishing waits until Monday", word: "planned" }], more: 0 }, false);
     expect(bytesOf(typical as string) + 1).toBe(79);

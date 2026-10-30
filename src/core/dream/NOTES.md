@@ -1341,7 +1341,9 @@ Not fenced, and said in the PR, each writing already done, so it thins as the ni
 journal or a reflection's entry (by id, by `last dream`, beside a question's answer to anyone but a dream under
 way, and the last few entries in the reflection's bundle); a belief, which reads as its card, whatever it rests
 on; a card's name, when any open row names it too; the page as it stands. The published wake is checked for a
-closed row's id and title, not its words.
+closed row's id, title and opening words: since #687 it prints no bare ids, and a quoted untitled row got past an
+id-and-title check. A handoff left in a closed folder is in the set too: it's a schema row with its folder in its
+meta, and it reached the night's on-my-mind as an open loop.
 
 A setting file that won't read holds the night rather than close everything and go on (Mike, through the
 roadmap, 10-30): through the doors, a night then got the page and whatever had no folder, stored a thinner page

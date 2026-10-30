@@ -405,8 +405,10 @@ describe("review of #674 — the line at exactly 14 lived days; a one-off date g
     const woke = sessionStart(w, "s-day-15");
     expect(inStillOpen(woke, plain)).toBe(false);
     expect(woke).not.toContain("vet visit");
-    // The repeating one rides "Coming up" (its next week), the one still ahead "Still open".
-    expect(woke).toContain(weekly);
+    // The repeating one rides "Coming up" (its next week; counted, and the door
+    // the count names lists it: WK1, 2026-10-30), the one still ahead "Still open".
+    expect(woke).toMatch(/^Coming up: 1 — none due today; recall "still open" lists them$/m);
+    expect(((await s.call("recall", { handle: "still open" })).structuredContent["comingUp"] as { id: string }[]).map((x) => x.id)).toContain(weekly);
     expect(inStillOpen(woke, grace)).toBe(true);
 
     // Lived day 35 (11-05): the fence survey's day is behind but its grace week is not — still not parked.
@@ -470,7 +472,7 @@ describe("P2b — the parked are counted whatever line the lane has", () => {
 
   /** Every line that speaks for "Still open": its heading, its own one line, or its part of the folded line. */
   const saysOpen = (text: string): boolean =>
-    text.split("\n").some((l) => l.startsWith(FRAMING.threads) || (l.startsWith(`${FOLDED_WORDS} `) && l.includes(" still open (recall ids: ")));
+    text.split("\n").some((l) => l.startsWith(FRAMING.threads) || (l.startsWith(`${FOLDED_WORDS} `) && /\d still open/.test(l)));
   const saysParked = (text: string): boolean => text.includes(` · 3 ${PARKED_WORDS}`) || text.includes(UNDER_LINE);
 
   test("nothing carried: the lane is one line — nothing current, and how many are parked; nothing said before any is parked", async () => {
@@ -591,7 +593,7 @@ describe("P2b — the parked are counted whatever line the lane has", () => {
           // Gave way: the folded line counts "Coming up" and "Still open", nothing untold.
           expect(untold).toBe(0);
           const fold = text.split("\n").find((l) => l.startsWith(`${FOLDED_WORDS} `)) ?? "";
-          expect(fold).toMatch(/^More than this wake lists: 3 coming up \(recall ids: .+\); 7 still open \(recall ids: mem_\w+, mem_\w+, mem_\w+, and 4 more\)$/);
+          expect(fold).toBe(`${FOLDED_WORDS} 3 coming up, 7 still open (recall "still open" lists them)`);
           expect(text).not.toContain(PARKED_WORDS);
           seen.add(`${road}:gave-way`);
           continue;
@@ -601,9 +603,9 @@ describe("P2b — the parked are counted whatever line the lane has", () => {
         const lines = text.split("\n");
         const fold = lines.find((l) => l.startsWith(`${FOLDED_WORDS} `));
         const collapsed = lines.find((l) => collapsedLane(l) === "threads");
-        if (fold?.includes(" still open (recall ids: ") === true) {
+        if (fold !== undefined && /\d still open/.test(fold)) {
           // The folded line: "Still open"'s part ends with the parked, and still reads its count.
-          expect(fold).toMatch(/; 7 still open \(recall ids: mem_\w+, mem_\w+, mem_\w+, and 4 more\) · 3 parked(?:;|$)/);
+          expect(fold).toContain(`7 still open · 3 ${PARKED_WORDS} (recall "still open" lists them)`);
           expect(countedLanes(fold).threads).toBe(7);
           seen.add(`${road}:folded`);
         } else if (collapsed !== undefined) {

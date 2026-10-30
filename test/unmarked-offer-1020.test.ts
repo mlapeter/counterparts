@@ -55,8 +55,8 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function brain(): Counterpart {
-  const c = Counterpart.open({ dir, identity: { name: "Dana" }, now: () => NOW, timeZone: "UTC" });
+function brain(selfTunables?: { HINTS_IN_WAKE: boolean }): Counterpart {
+  const c = Counterpart.open({ dir, identity: { name: "Dana" }, now: () => NOW, timeZone: "UTC", ...(selfTunables === undefined ? {} : { selfTunables }) });
   open.push(c);
   return c;
 }
@@ -251,14 +251,16 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
       for (let i = at + 1; at >= 0 && i < lines.length && (lines[i] ?? "").length > 0; i++) out.push(lines[i] as string);
       return out.join("\n");
     };
-    let c = brain();
+    // The lane this door is read through: off the wake by default since WK1 (2026-10-30), on for this test.
+    const HINTS_ON = { HINTS_IN_WAKE: true };
+    let c = brain(HINTS_ON);
     const visit = mem(c, "Dana was worn out after her sister's visit, and slept most of Sunday.", { origin: { scope: WORKSHOP } });
     expect(nearby(wakeIn(c, LIBRARY))).not.toContain("worn out after her sister");
     expect(wakeIn(c, WORKSHOP)).toContain(visit);
     closeAll();
 
     // The night: not the owner.
-    c = brain();
+    c = brain(HINTS_ON);
     const b = begin(c);
     expect(b.bundle.unmarked).toContain(visit);
     const done = c.reflections.finish({
@@ -270,7 +272,7 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
     if (!done.ok) throw new Error(done.reason);
     closeAll();
 
-    c = brain();
+    c = brain(HINTS_ON);
     expect(nearby(wakeIn(c, LIBRARY))).toContain("worn out after her sister");
     closeAll();
     const s = openServer({ dir, session: "s-library", scope: LIBRARY, timeZone: "UTC" });

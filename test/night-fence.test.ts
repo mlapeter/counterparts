@@ -291,6 +291,17 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(titled.structuredContent, OPEN_WORDS)).toBe(true);
   });
 
+  test("something coming up, written in a closed folder, isn't in the night's still open", async () => {
+    const c = brain();
+    clock = at(D1, 10);
+    const left = new McpServer({ counterpart: c, session: WRITER, scope: SHUT, registryDir: join(root, "registry"), now: () => clock });
+    await left.call("remember", { text: `Open: the rota where the quarter ${SECRET_WORDS}.`, unresolved: true, eventDate: "2026-10-30", recurring: "weekly", about: "owner" });
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    expect(says(await child(c, null).call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(true);
+    expect(says(await child(c, "dream").call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(false);
+  });
+
   test("a memory written from a closed chapter, with no folder of its own, reads as the chapter's", async () => {
     const c = brain();
     const chapter = await chapterIn(c, SHUT);
@@ -400,6 +411,42 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
     clock += HOUR;
     expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(true);
+  });
+
+  test("the published wake quoting a closed row with no title and, since the wake has no bare ids, no id: the dream goes without it", async () => {
+    const c = brain();
+    clock = at(D1, 10);
+    c.store.put({ type: "memory", kind: "fact", body: `Has the quarter ${SECRET_WORDS}? Nobody has said.`, about: "owner", meta: { unresolved: true }, origin: { session: WRITER, scope: SHUT } });
+    worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    c.rebrief({ budgetBytes: BUDGET, at: D2 });
+    expect(c.store.getMeta("self.briefing") ?? "").toContain(SECRET_WORDS);
+    const began = await child(c, "dream").call("dream", { phase: "begin", session: NIGHT });
+    expect(says(began.structuredContent, OPEN_WORDS)).toBe(true);
+    expect(says(began.structuredContent, SECRET_WORDS)).toBe(false);
+  });
+
+  test("a handoff left in a closed folder isn't on the dream's or the reflection's mind; an open folder's is", async () => {
+    const c = brain();
+    clock = at(D1, 10);
+    const left = new McpServer({ counterpart: c, session: WRITER, scope: SHUT, registryDir: join(root, "registry"), now: () => clock });
+    await left.call("session_end", { session: WRITER, handoff: `Next: the figures ${SECRET_WORDS} want a second look.`, memories: [] });
+    const here = new McpServer({ counterpart: c, session: "a7a7a7a7-0000-4000-8000-000000000003", scope: HERE, registryDir: join(root, "registry"), now: () => clock });
+    await here.call("session_end", { session: "a7a7a7a7-0000-4000-8000-000000000003", handoff: `Next: the beans ${OPEN_WORDS} want staking.`, memories: [] });
+    worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const s = child(c, "dream");
+    const began = await s.call("dream", { phase: "begin", session: NIGHT });
+    expect(says(began.structuredContent, "the beans")).toBe(true);
+    expect(says(began.structuredContent, SECRET_WORDS)).toBe(false);
+    const dream = String(began.structuredContent["dream"]);
+    await s.call("dream", { phase: "journal", session: NIGHT, dream, title: "A night", text: "A short dream." });
+    clock = at(D2, 4);
+    const reflected = await child(c, "reflection").call("reflect", { phase: "begin", session: NIGHT, dream });
+    expect(says(reflected.structuredContent, "the beans")).toBe(true);
+    expect(says(reflected.structuredContent, SECRET_WORDS)).toBe(false);
   });
 
   test("a session with a dream begun, no child's mark on it, reads the same", async () => {

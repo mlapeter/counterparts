@@ -444,7 +444,7 @@ describe("the Arriving line says when it is due (2026-10-01)", () => {
     // Nor listed in another lane: a date counted under "Coming up" is that lane's.
     expect(before).not.toContain("(due Oct 3)");
     expect(before).not.toContain("The Portland move");
-    expect(before).toMatch(/^Coming up: 1 — none due today; recall ids: mem_[0-9a-f]+$/m);
+    expect(before).toMatch(/^Coming up: 1 — none due today; recall "still open" lists them$/m);
   });
 
   test("due on the day it was learned: one date, stated once — as the due date (2026-10-09)", () => {

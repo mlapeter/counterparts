@@ -137,13 +137,15 @@ import {
   isHandoffRow,
   staleWords,
 } from "./handoff/index.js";
-import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
+import type { Handoff, HandoffRefusal, HandoffWrite, PlansSince, PointerSince } from "./handoff/index.js";
+import { chapterRungBytes, handoffsListed, standsLadder } from "./handoff/index.js";
+import type { HandoffListed, LastHereFacts, StandsHandoff, StandsRung, StandsSaid } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { DAY_SUMMARY_HELD_EVENT, ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, LATER_HERE_TRIED, laterHereLadder, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
+import { DAY_SUMMARY_HELD_EVENT, ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, LATER_HERE_TRIED, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
 import type { DaySummaryHeldWhat, DaySummaryHeldWhy } from "./handoff/last-here.js";
 import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, LaterHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
-import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
+import { LAST_EXCHANGE_HANDLE, LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, quoteOf } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
 import { addDays, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
 import type { Recurrence } from "./time.js";
@@ -196,6 +198,7 @@ import type {
   PageWriterStatus,
   ProjectLineReason,
   SelfPage,
+  ComingUpItem,
   StillOpenItem,
   ThreadReader,
   WakeDelivery,
@@ -1058,7 +1061,7 @@ export class Counterpart {
       const chapters = this.chaptersInWindow(this.store.livedDay());
       // The chapter the "About me, from another directory" line names — with
       // the chapters "Last here" names in this directory set aside, as that
-      // line sets them aside (`lastHereLadder`) — is not named twice.
+      // line sets them aside (`lastHereFacts`) — is not named twice.
       const hereIds = new Set(this.chaptersHereFor(here?.scope ?? "", reader, chapters).map((f) => f.chapter.id));
       const aboutMe = this.selfChapterElsewhere(chapters, hereIds, reader, here?.exportsFrom);
       for (const c of chapters.values()) {
@@ -1326,64 +1329,58 @@ export class Counterpart {
    * says a pointer was DELIVERED rather than that one existed.
    *
    * SEVERAL HANDOFFS (2026-09-30): a directory holds one per writing session,
-   * and the pointer shows up to three newest-first. The blocks come as a
-   * ladder, widest first (`handoff/#pointerLadder`), and the first that fits
-   * the ceiling is delivered — so a reserve sized for fewer than the directory
-   * now holds (the one-boundary lag, when a new author appears) shows fewer
-   * rather than none. `no-room` is written only when not even the last rung
-   * fits. Each handoff shown in full gets its own `handoff.shown` row; the
-   * block's cost is split so the rows sum to it — each its own line's bytes,
-   * and the newest the rest (the header and the door).
+   * and the block shows them newest first (WK1, 2026-10-30: with "Last here" and
+   * "Last said here", the newest's lead up to five lines and the others a line
+   * each, `handoff/#standsLadder`). The rungs
+   * come widest first, and the first that fits the ceiling is delivered — so a
+   * reserve sized for fewer than the directory now holds (the one-boundary lag,
+   * when a new author appears) shows fewer rather than none. `no-room` is
+   * written when the rung carried no handoff, or nothing fit. Each handoff shown
+   * in full gets its own `handoff.shown` row; each its own words' bytes, and the
+   * newest the rest of the line's cost that is not "Last here"'s.
    */
   private addHandoffPointer(result: WakeResult, here?: WakeHere): WakeResult {
     const plan = this.pointerPlan(result, here);
     if (plan.kind === "as-found") return result;
     if (plan.kind === "work-only") return this.withWorkHere(result, null, plan.work, plan.budget, plan.scope);
-    const { scope, lastHere, exchange, lastHereId, newest, budget, work, tries, smallest, fits } = plan;
-    for (const { rung, above } of tries) {
-      const block = [above, rung?.block ?? null].filter((b): b is string => b !== null).join("\n");
-      const spliced = fits(block);
+    const { scope, rungs, hasLastHere, exchangeBytes, lastHereId, newest, budget, work, smallest, fits } = plan;
+    for (const rung of rungs) {
+      const spliced = fits(rung.block);
       if (spliced === null) continue;
       const total = spliced.bytes - result.bytes;
-      const aboveBytes = above === null ? 0 : (rung === null ? total : new TextEncoder().encode(above).length + 1);
-      if (rung !== null) {
-        const cost = total - aboveBytes;
-        const lines = rung.block.split("\n");
-        const own = (i: number): number =>
-          rung.shown.length === 1 ? cost : new TextEncoder().encode(lines[i + 1] ?? "").length + 1;
-        const others = rung.shown.slice(1).reduce((n, _, i) => n + own(i + 1), 0);
+      if (rung.shown.length > 0) {
+        // Each shown handoff its own words; the newest the rest of the line's
+        // cost (the head, the door, the "since" line), less "Last here"'s part
+        // and the about-me line, which are not the handoff's.
+        const others = rung.handoffBytes.slice(1).reduce((n, b) => n + b, 0);
+        const notHandoff = rung.chapterBytes + rung.aboutMeBytes;
         rung.shown.forEach((h, i) => {
           this.handoffs.noteShown(h, {
-            bytes: i === 0 ? cost - others : own(i),
+            bytes: i === 0 ? Math.max(rung.handoffBytes[0] ?? 0, total - others - notHandoff) : (rung.handoffBytes[i] ?? 0),
             session: here?.session ?? null,
             among: rung.live,
             ...(i === 0 ? { plans: rung.plans.length } : {}),
           });
         });
       } else if (newest !== undefined) {
-        this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
+        this.noteHandoffNoRoom(newest, smallest?.bytes ?? result.bytes, budget, result.bytes);
       }
-      // The exchange line rides at the foot of `above` when it was carried.
-      const saidShown = exchange !== null && above !== null && (above === exchange || above.endsWith(`\n${exchange}`));
-      const hereShown = above !== null && above !== exchange;
-      if (hereShown) {
-        // Its own bytes and lines, without the exchange line at its foot.
-        const said = saidShown ? byteLength(exchange) + 1 : 0;
-        this.emit("counterpart.lasthere.shown", undefined, { bytes: aboveBytes - said, lines: above.split("\n").length - (saidShown ? 1 : 0) });
-      } else if (lastHere.length > 0) {
-        // The handoff was carried and the line above it was not.
-        this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
+      if (rung.chapter) {
+        this.emit("counterpart.lasthere.shown", undefined, { bytes: rung.chapterBytes, lines: 1 });
+      } else if (hasLastHere) {
+        // The handoff was carried and "Last here"'s part was not.
+        this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: rung.shown.length > 0 });
       }
-      if (exchange !== null) this.emit(saidShown ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
+      if (exchangeBytes !== null) this.emit(rung.said ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: exchangeBytes });
       // A memory the "since" line names is not named again in the work lines
       // above it (2026-10-09).
-      const named = rung?.plans ?? [];
+      const named = rung.plans;
       const lines = work.lines.filter((l) => !named.some((id) => l.endsWith(`(${id})`)));
-      return this.withWorkHere(result, block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
+      return this.withWorkHere(result, rung.block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
     }
-    if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
-    if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    if (exchange !== null) this.emit("counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
+    if (newest !== undefined) this.noteHandoffNoRoom(newest, smallest?.bytes ?? result.bytes, budget, result.bytes);
+    if (hasLastHere) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
+    if (exchangeBytes !== null) this.emit("counterpart.lastexchange.noroom", undefined, { bytes: exchangeBytes });
     return this.withWorkHere(result, null, work, budget, scope);
   }
 
@@ -1397,11 +1394,10 @@ export class Counterpart {
   private carriesLastHere(result: WakeResult, here?: WakeHere): boolean {
     try {
       const plan = this.pointerPlan(result, here);
-      if (plan.kind !== "full") return plan.kind === "as-found" || !plan.lastHere.some((b) => b.startsWith("Last here:"));
-      for (const { rung, above } of plan.tries) {
-        const block = [above, rung?.block ?? null].filter((b): b is string => b !== null).join("\n");
-        if (plan.fits(block) === null) continue;
-        return above !== null && above.split("\n").some((l) => l.startsWith("Last here:"));
+      if (plan.kind !== "full" || !plan.hasLastHere) return true;
+      for (const rung of plan.rungs) {
+        if (plan.fits(rung.block) === null) continue;
+        return rung.chapter;
       }
       return false;
     } catch {
@@ -1419,18 +1415,20 @@ export class Counterpart {
     here?: WakeHere,
   ):
     | { kind: "as-found" }
-    | { kind: "work-only"; scope: string; budget: number | null; work: { lines: string[]; found: number }; lastHere: string[] }
+    | { kind: "work-only"; scope: string; budget: number | null; work: { lines: string[]; found: number } }
     | {
         kind: "full";
         scope: string;
-        ladder: ReturnType<Handoffs["pointerChoices"]>;
-        lastHere: string[];
-        exchange: string | null;
+        /** "Where this folder stands", widest first (`handoff/#standsLadder`). */
+        rungs: StandsRung[];
+        /** There is a chapter (or a later session) here for "Last here"'s part. */
+        hasLastHere: boolean;
+        /** The last exchange's own words, in bytes, or null when there is none. */
+        exchangeBytes: number | null;
         lastHereId: string | null;
-        newest: ReturnType<Handoffs["pointerChoices"]>[number] | undefined;
+        newest: Handoff | undefined;
         budget: number | null;
         work: { lines: string[]; found: number };
-        tries: { rung: ReturnType<Handoffs["pointerChoices"]>[number] | null; above: string | null }[];
         smallest: ReturnType<typeof spliceBeforeSentinel> | null;
         fits: (block: string) => ReturnType<typeof spliceBeforeSentinel> | null;
       } {
@@ -1447,47 +1445,70 @@ export class Counterpart {
       chapters = new Map();
       allHere = [];
     }
-    let ladder: ReturnType<Handoffs["pointerChoices"]> = [];
+    // THIS FOLDER'S HANDOFFS, newest first, each with when it was written, the
+    // newest with how current it is, and what was planned here since.
+    let handoffs: StandsHandoff[] = [];
+    let plans: PlansSince | null = null;
     try {
-      ladder = this.handoffs.pointerChoices(
-        scope,
-        undefined,
-        (h) => this.handoffSince(h, scope, here, allHere),
-        here?.session ?? null,
-      );
+      const hs = this.handoffs.readAll(scope);
+      handoffs = hs.map((h, i) => {
+        let since: PointerSince | null = null;
+        if (i === 0) {
+          try {
+            since = this.handoffSince(h, scope, here, allHere);
+          } catch {
+            since = null;
+          }
+        }
+        return { handoff: h, at: this.handoffs.writtenAt(h), since };
+      });
+      const first = hs[0];
+      plans = first === undefined ? null : this.handoffs.plansSince(scope, first);
     } catch {
       // A store that will not answer is not a reason to fail a wake (§1 G7).
-      ladder = [];
+      handoffs = [];
+      plans = null;
     }
     // LAST HERE (2026-09-30): the session that last wrote a chapter in this
-    // directory, finished or not — above the handoff, and the first thing
-    // given up when there is not room for both (`handoff/last-here.ts`).
-    // An episode the body above already names (the Yesterday line) is not
-    // named again below it (2026-10-20, each episode once).
-    // A session nobody attended (`claude -p`, the SDK) is never the line's
-    // (review of #636): the host's registry says which, read once here.
+    // directory, finished or not. An episode the body above already names
+    // (the Yesterday line) is not named again below it (2026-10-20, each
+    // episode once). A session nobody attended (`claude -p`, the SDK) is never
+    // the line's (review of #636): the host's registry says which, read once here.
     const headless = this.headlessHere(here);
-    const lastHereFound = this.lastHereBlocks(scope, here?.session ?? null, chapters, here?.exportsFrom, (id) => result.text.includes(id), headless);
-    const lastHere = lastHereFound.blocks;
-    // LAST SAID HERE (2026-10-11): the last exchange in this directory, one
-    // line at the foot of the blocks above the handoff — the first thing they
-    // give up, at each of their widths (`withExchange`).
-    const exchange = here === undefined ? null : this.lastExchangeLine(here);
-    const aboveLadder = withExchange(lastHere, exchange);
+    const named = (id: string): boolean => result.text.includes(id);
+    const facts = this.lastHereFacts(scope, here?.session ?? null, chapters, here?.exportsFrom, named, headless);
+    // LAST SAID HERE (2026-10-11): the last exchange in this directory — the
+    // first thing given up after the about-me line (`handoff/#standsLadder`).
+    // Not a session nobody attended (review of #636): quoted beside "Last here" it
+    // was a lesser line, and in this block it would lead (WK1).
+    const exchange = here === undefined ? null : this.lastExchangeSaid(here);
+    const said = exchange !== null && headless.has(exchange.session) ? null : exchange;
     // Which chapter the line would name first, for its durable no-room row.
     const reader = here?.session ?? null;
-    // Only for a "Last here" line proper: the about-me line alone names no
+    // Only for "Last here"'s own part: the about-me line alone names no
     // chapter here, and its drop is not this row's (review of #311, NIT).
-    const named = lastHere.some((b) => b.startsWith("Last here:"));
+    const hasLastHere = facts.chapter !== null || facts.later !== null;
     // A later session with no chapter is named first, so its no-room row is
     // that session's, not the chapter's below it (review of #636).
-    const lastHereId = !named
+    const lastHereId = !hasLastHere
       ? null
-      : lastHereFound.later !== null
-        ? lastHereFound.later.session
+      : facts.later !== null
+        ? facts.later.later.session
         : (allHere.find((c) => reader === null || c.chapter.session !== reader)?.chapter.id ?? null);
-    const newest = ladder[0];
+    const newest = handoffs[0]?.handoff;
     const budget = this.reportedBudget;
+    // WHERE THIS FOLDER STANDS (WK1, 2026-10-30; ROADMAP's call, for Mike's
+    // review): the handoffs, "Last here" and "Last said here" are one line,
+    // grouped by session and led by the newest (`handoff/#standsLadder`).
+    const rungs = standsLadder({
+      handoffs,
+      plans,
+      ...facts,
+      said,
+      day: this.store.livedDay(),
+      reader,
+      named,
+    });
     // THIS DIRECTORY'S WORK (2026-10-01, lane 8): the craft lane, composed
     // here because the stored bundle has no directory. It goes ABOVE whatever
     // handoff block is chosen, in the room that block leaves — the handoff and
@@ -1498,28 +1519,20 @@ export class Counterpart {
     // Craft from another folder only where the host's setting lets that
     // folder be named elsewhere; with no way to ask, none (2026-10-21).
     const work = this.workHereLines(scope, elsewhereNamedIn(result.text), here?.exportsFrom ?? (() => false));
-    if (newest === undefined && aboveLadder.length === 0) return { kind: "work-only", scope, budget, work, lastHere };
+    if (rungs.length === 0) return { kind: "work-only", scope, budget, work };
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
     };
-    // THE HANDOFF FIRST (review of #300 MAJOR-1): the widest handoff rung that
-    // fits ALONE is the one carried — unfinished work outranks orientation —
-    // and only then is the line tried above it, widest first, with that rung
-    // alone as the fallback. The line alone only when no handoff rung fits.
-    // With no chapter here this is the handoff ladder as it was, rung for rung.
-    // A bundle that is not a clean render is delivered as found.
-    if (!spliceBeforeSentinel(result.text, ladder[0]?.block ?? aboveLadder[0] ?? "").applied) return { kind: "as-found" };
-    const best = ladder.find((rung) => fits(rung.block) !== null) ?? null;
-    const tries: { rung: (typeof ladder)[number] | null; above: string | null }[] =
-      best !== null
-        ? [...aboveLadder.map((above) => ({ rung: best, above })), { rung: best, above: null }]
-        : aboveLadder.map((above) => ({ rung: null, above }));
-    // What `no-room` reports: the SMALLEST handoff rung, which is the one that
-    // decided there was no room for it (review of #295, NIT-3).
-    const last = ladder[ladder.length - 1];
+    // The rungs give way in `handoff/#standsLadder`'s order. A bundle that is not a
+    // clean render is delivered as found.
+    if (!spliceBeforeSentinel(result.text, rungs[0]?.block ?? "").applied) return { kind: "as-found" };
+    // What `no-room` reports: the SMALLEST rung with a handoff, which is the
+    // one that decided there was no room for it (review of #295, NIT-3).
+    const last = [...rungs].reverse().find((r) => r.shown.length > 0);
     const smallest = last === undefined ? null : spliceBeforeSentinel(result.text, last.block);
-    return { kind: "full", scope, ladder, lastHere, exchange, lastHereId, newest, budget, work, tries, smallest, fits };
+    const exchangeBytes = said === null ? null : byteLength(`Last said ${said.when}: "${said.quote}" — recall "${said.handle}".`);
+    return { kind: "full", scope, rungs, hasLastHere, exchangeBytes, lastHereId, newest, budget, work, smallest, fits };
   }
 
   /**
@@ -1561,11 +1574,47 @@ export class Counterpart {
    * 2026-10-26): the folder asking and the host's setting, read as the wake
    * there reads them (`threadReader`); absent, every folder's threads.
    */
-  stillOpen(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { items: StillOpenItem[]; parked: number } {
+  stillOpen(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { items: StillOpenItem[]; parked: number; comingUp: ComingUpItem[] } {
+    let open: { items: StillOpenItem[]; parked: number };
     try {
-      return this.self.stillOpen(this.store.livedDay(), here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom));
+      open = this.self.stillOpen(this.store.livedDay(), here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom));
     } catch {
-      return { items: [], parked: 0 };
+      open = { items: [], parked: 0 };
+    }
+    return { ...open, comingUp: this.comingUpList() };
+  }
+
+  /**
+   * "COMING UP"'S DATED ITEMS FOR TODAY, by title (WK1, 2026-10-30): the
+   * horizon a session start asks for (`horizonFor`, read today), listed or
+   * counted alike — the door the wake's "Coming up" count names, beside
+   * "Still open"'s. Empty on a store that cannot answer; never throws.
+   */
+  private comingUpList(): ComingUpItem[] {
+    try {
+      const at = this.store.today();
+      const day = this.store.livedDay();
+      const asked = horizonFor(this.prospective, at, day, { readToday: READ_TODAY_AT_START });
+      return this.self.comingUpList([...asked.items, ...asked.moreItems], at, day);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * THIS FOLDER'S LIVE HANDOFFS, newest first (WK1, 2026-10-30): what the
+   * `handoffs here` recall handle lists, so the wake's line can count the rest
+   * and still leave each one reachable to expand or retire, without printing
+   * bare ids. Reads only. Empty on a store that cannot answer; never throws.
+   */
+  handoffsHere(scope: string): HandoffListed[] {
+    const s = scope.trim();
+    if (s.length === 0) return [];
+    try {
+      const day = this.store.livedDay();
+      return handoffsListed(this.handoffs.readAll(s, day), day);
+    } catch {
+      return [];
     }
   }
 
@@ -1583,14 +1632,22 @@ export class Counterpart {
     return { folders: projectFolders(this.store, own, this.self.tunables.PROJECTS_TRAVEL, exportsFrom) };
   }
 
-  /** The wake's "Last said here" line for `here`, or null. Never throws. Any
-   *  session in the folder gets it — except under observer, whose wake must
-   *  not point at a handle that stands down (review of #392). */
-  private lastExchangeLine(here: WakeHere): string | null {
+  /** The wake's last exchange for `here`, in the words "where this folder
+   *  stands" says it (`handoff/#standsLadder`), or null. Never throws. Any session
+   *  in the folder gets it — except under observer, whose wake must not point
+   *  at a handle that stands down (review of #392). */
+  private lastExchangeSaid(here: WakeHere): StandsSaid | null {
     if (this.observer) return null;
     try {
       const ex = this.lastExchange(here);
-      return ex === null ? null : lastExchangeLine(ex, { zone: this.store.zone(), now: this.nowFn() });
+      if (ex === null) return null;
+      return {
+        session: ex.session,
+        at: ex.said.at,
+        when: localStampAfter(ex.said.at, this.nowFn(), this.store.zone()),
+        quote: quoteOf(ex.said.text),
+        handle: LAST_EXCHANGE_HANDLE,
+      };
     } catch {
       return null;
     }
@@ -1840,36 +1897,23 @@ export class Counterpart {
   }
 
   /**
-   * THE "LAST HERE" BLOCKS for this directory, widest first, or none: the
-   * chapters inside the fortnight written here — by the row's directory, the
-   * chapter claims in this directory's coverage file, or failing both, the
-   * session's turn-ends (`handoff/last-here.ts#chaptersHere`) — with when
-   * each session was here. `chapters` is passed by a caller asking for every
-   * directory at once, so the episode walk is one. Never throws.
+   * WHAT "LAST HERE" KNOWS, as facts for "where this folder stands"
+   * (`handoff/#standsLadder`): the newest chapter here (from a session other than
+   * the reader's), or the later session with none of its own and that chapter
+   * before it, and the about-me line from another folder. `chapters` is passed
+   * by a caller asking for every directory at once, so the episode walk is
+   * one; `headless` is the sessions the host says nobody attended, which the
+   * line passes over. Never throws.
    */
-  private lastHereLadder(
-    scope: string,
-    reader: string | null,
-    chapters?: ReadonlyMap<string, ChapterHere>,
-    exportsFrom?: (scope: string) => boolean,
-    named?: (id: string) => boolean,
-  ): string[] {
-    return this.lastHereBlocks(scope, reader, chapters, exportsFrom, named).blocks;
-  }
-
-  /**
-   * `lastHereLadder`'s blocks, with the later session the line names first
-   * when it names one (its no-room row's ref). `headless` is the sessions the
-   * host says nobody attended, which the line passes over. Never throws.
-   */
-  private lastHereBlocks(
+  private lastHereFacts(
     scope: string,
     reader: string | null,
     chapters?: ReadonlyMap<string, ChapterHere>,
     exportsFrom?: (scope: string) => boolean,
     named?: (id: string) => boolean,
     headless?: ReadonlySet<string>,
-  ): { blocks: string[]; later: LaterHere | null } {
+  ): LastHereFacts {
+    const none: LastHereFacts = { chapter: null, later: null, aboutMe: null };
     try {
       const all = chapters ?? this.chaptersInWindow(this.store.livedDay());
       // ONE WALK of this folder's sessions for the chapters and the later
@@ -1877,15 +1921,15 @@ export class Counterpart {
       const here = sessionsHere(this.spans, scope);
       const found = this.chaptersHereFor(scope, reader, all, here);
       const zone = this.store.zone();
-      const entries: LastHere[] = found.map((f) => ({
-        chapter: f.chapter,
-        when: `${stampWords(localStamp(f.firstAt, zone))}–${stampWords(localStampAfter(f.lastAt, f.firstAt, zone))}`,
-        // `09-30 17:50` → `Sep 30`.
-        date: stampWords(localStamp(f.chapter.writtenAt, zone).split(" ")[0] ?? ""),
+      const entries = found.map((f) => ({
+        entry: {
+          chapter: f.chapter,
+          when: `${stampWords(localStamp(f.firstAt, zone))}–${stampWords(localStampAfter(f.lastAt, f.firstAt, zone))}`,
+          // `09-30 17:50` → `Sep 30`.
+          date: stampWords(localStamp(f.chapter.writtenAt, zone).split(" ")[0] ?? ""),
+        },
+        at: f.lastAt,
       }));
-      // EACH EPISODE ONCE (2026-10-20): what the wake's body already names
-      // (the Yesterday line) is not named again in "Before it", "+N more" or
-      // the about-me line below.
       // When this delivery found no room for the line and its Yesterday line
       // took the newest episode back (`yesterdayKeepsNewest`), the line is
       // not tried again: room the re-assembly freed would only repeat it.
@@ -1894,20 +1938,18 @@ export class Counterpart {
       // first — with what of it is written up — and the newest chapter after
       // it, rather than that chapter as if nothing happened since.
       const later = this.yesterdayKeepsNewest ? null : this.laterHere(scope, reader, found, all, here, headless);
-      const base =
-        later !== null
-          ? laterHereLadder(later, entries[0] ?? null, reader, named)
-          : entries.length === 0 || this.yesterdayKeepsNewest
-            ? []
-            : lastHereLadder(entries, reader, named);
-      // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
-      // widest rungs, given up first; alone when nothing was written here.
+      const first = entries[0] ?? null;
+      // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line, given up
+      // first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
-      if (away === null || named?.(away.id) === true) return { blocks: base, later };
-      const line = elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader);
-      return { blocks: base.length === 0 ? [line] : [...base.map((b) => `${b}\n${line}`), ...base], later };
+      const aboutMe = away === null || named?.(away.id) === true ? null : elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader);
+      return {
+        chapter: later !== null || this.yesterdayKeepsNewest ? null : first,
+        later: later === null ? null : { later, at: later.at ?? 0, before: first },
+        aboutMe,
+      };
     } catch {
-      return { blocks: [], later: null };
+      return none;
     }
   }
 
@@ -1986,7 +2028,7 @@ export class Counterpart {
       // session that only ended a turn here (nothing captured) is passed over.
       if (!s.held && memory === null) continue;
       const zone = this.store.zone();
-      return { session: s.session, when: `${stampWords(localStamp(s.firstAt, zone))}–${stampWords(localStampAfter(s.lastAt, s.firstAt, zone))}`, memory };
+      return { session: s.session, when: `${stampWords(localStamp(s.firstAt, zone))}–${stampWords(localStampAfter(s.lastAt, s.firstAt, zone))}`, memory, at: s.lastAt };
     }
     return null;
   }
@@ -2499,8 +2541,8 @@ export class Counterpart {
   /**
    * THE EPISODE "LAST HERE" NAMES FIRST in a wake for `here` — the newest
    * chapter written in its directory by another session, as
-   * `lastHereLadder` reads it — or null: no directory, none here, or a store
-   * that will not answer. Every rung of that line names it. Never throws.
+   * `lastHereFacts` reads it — or null: no directory, none here, or a store
+   * that will not answer. Never throws.
    */
   private lastHereNewest(here: WakeHere | undefined): string | null {
     const scope = here?.scope?.trim() ?? "";
@@ -2775,7 +2817,7 @@ export class Counterpart {
         // session may be the line's, a headless one too: the reserve is a
         // bound, and the boundary cannot read the host's scope setting or
         // its registry.
-        const lines = this.lastHereLadder(scope, null, chapters, () => true).map((b) => byteLength(b));
+        const lines = chapterRungBytes(this.lastHereFacts(scope, null, chapters, () => true), this.store.livedDay(), null);
         for (const l of lines) {
           blocks.push(l);
           for (const h of handoffBytes.get(norm(scope)) ?? []) blocks.push(l + 1 + h);

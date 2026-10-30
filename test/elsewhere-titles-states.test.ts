@@ -331,7 +331,7 @@ describe("the room", () => {
       expect(busy.bytes).toBeLessThanOrEqual(budget);
       expect(readSentinel(busy.text).intact).toBe(true);
       expect(busy.text).toContain("Here, also open");
-      expect(busy.text.includes("Last here: ")).toBe(quiet.text.includes("Last here: "));
+      expect(busy.text.includes("Where this folder stands: ")).toBe(quiet.text.includes("Where this folder stands: "));
       if (quiet.text.includes(newest)) expect(busy.text).toContain(newest);
       for (const id of dated) expect(busy.text.includes(id)).toBe(quiet.text.includes(id));
       const line = elsewhereOf(busy.text);

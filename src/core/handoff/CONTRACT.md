@@ -153,8 +153,9 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
 10. **[A] The wording of the pointer's lines is advisory.** What is mechanized is that a
     pointer states WHO wrote it when the row names a session (the short session id, "this
     session" for the reader's own, and the model when the host recorded one), that
-    several live handoffs are shown newest first with at most `HANDOFF_WAKE_SHOWN` in full
-    and the rest named by id, that a
+    several live handoffs are shown newest first, the newest's lead at up to
+    `HANDOFF_LEAD_LINES` lines and the next `HANDOFF_OTHERS_SHOWN` a line each (`standsLadder`,
+    WK1 2026-10-30), the rest by count and the `handoffs here` recall handle, that a
     pointer states when it was written (since 2026-09-30 to the minute; from 2026-09-30 to
     2026-10-18 the newest also said when work here ran after it and how far that was written
     up — "work here 16:01–17:53 since, written up to 17:48 (chapter), 3 pieces after" — which
@@ -166,7 +167,9 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     names the door to the whole of it, and carries no control or bidi-override character
     into the bundle.
 
-11. **[M] Last here (2026-09-30).** A wake in a directory where some session wrote a chapter
+11. **[M] Last here (2026-09-30; since WK1, 2026-10-30, part of the one block `standsLadder`
+    renders: its head names the guarantees that changed, and "Before it" and "+N more here"
+    below are gone).** A wake in a directory where some session wrote a chapter
     within `LAST_HERE_LIFE_DAYS` lived days (the handoff's fortnight) carries a "Last here"
     line: who (the short session id and the model, `sessionWords`), when that session was
     at work here (its first and last `stop` turn-end and piece in this directory, never the
@@ -374,6 +377,12 @@ true:
   keep all 24 of their elements at each — but that fixture composes to about 2,860 bytes,
   so the lane caps bind before the byte ceiling does; on a store whose lanes fill the
   ceiling, the compose-budget difference is what the lanes give up, never past an eighth.
+
+- **WK1 (2026-10-30):** the handoffs, "Last here" and "Last said here" are one block
+  (`standsLadder`), and its head gives the order things give way in. The handoff is still carried
+  first (review of #300 MAJOR-1), a newer chapter under it by title; the paragraph below is the arrangement it replaced, and the
+  reserve's two terms are measured from the new block's own rungs (`handoffRungBytes`,
+  `chapterRungBytes`).
 
 - **The "Last here" line (2026-09-30)** is a candidate in the same reserve: per directory,
   each of its rungs (every session of that day, the newest with a count, the newest alone)

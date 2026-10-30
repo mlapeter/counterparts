@@ -727,7 +727,7 @@ child of the run, a session with a dream or reflection begun or holding day's en
 and chapters are in no bundle, block or ask, come back from no recall however it is put, and can't go into
 a merge, gist or fold. A night row whose originals include one reads as closed. The tagging ask lists no
 tag or card only closed rows carry, and no closed row under a card; a day summary citing a closed row
-isn't in the reflection's timeline. No setting file closes nothing. It writes nothing and removes nothing:
+isn't in the reflection's timeline; a handoff left in a closed folder isn't an open loop on the night's mind. No setting file closes nothing. It writes nothing and removes nothing:
 stored rows, merges already made, and an ordinary session's recall are as they were. A session reads as the
 night while its run is alive: a dream or reflection it left behind, quiet past `ABANDONED_AFTER_MS`, doesn't
 fence it.

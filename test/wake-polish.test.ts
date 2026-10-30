@@ -10,8 +10,9 @@
  *      count with no ids, `OPEN_TAIL_WORDS`.)
  *   2. A handoff says its staleness in one sentence ("2 days old, with a
  *      newer chapter here since; release 0.3.9 then, 0.3.10 now", the words
- *      since 2026-10-25), and when every one listed is stale, the newest is
- *      shown and the rest counted.
+ *      since 2026-10-25). (Until WK1, 2026-10-30, when every one listed was
+ *      stale the newest was shown and the rest counted; now every other live
+ *      handoff keeps a line of its own, `handoff/#standsLadder`.)
  *   3. (The Yesterday line's folders are in `wake-fresh-today.test.ts`.)
  *
  * Hermetic: every store is a fresh temp dir, removed after.
@@ -27,8 +28,9 @@ import { SELF_TUNABLES, Self, rankLanes, scanOne } from "../src/core/self/index.
 import type { Scanned } from "../src/core/self/identity.js";
 import { OPEN_TAIL_WORDS, STALE_OPEN_WORDS, countedLanes, moreLine } from "../src/core/self/briefing.js";
 import { unsettledAmong } from "../src/core/recall/standing.js";
-import { pointerBlock, pointerLadder, staleWords } from "../src/core/handoff/index.js";
+import { staleWords } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
+import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -131,7 +133,7 @@ describe("1. Still open leads with what is live", () => {
     // A bundle stored before 2026-10-25 still reads.
     expect(countedLanes(`(3 more still open, 2 ${STALE_OPEN_WORDS}; recall ids: mem_a, mem_b, mem_c)`)).toEqual({ threads: 3 });
     // Another lane: the line as before.
-    expect(moreLine("hints", ["mem_a"])).toBe("(1 more might be relevant; recall ids: mem_a)");
+    expect(moreLine("hints", ["mem_a"])).toBe("(1 more might be relevant)");
   });
 
   test("composed: the shown items are this week's, and the rest are one calm count", () => {
@@ -150,7 +152,7 @@ describe("1. Still open leads with what is live", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("2. a handoff's staleness is one sentence; when all are stale, one is shown", () => {
+describe("2. a handoff's staleness is one sentence", () => {
   const h = (i: number, extra: Partial<Handoff> = {}): Handoff => ({
     id: `sch_00000000000${String(i)}`,
     scope: "/tmp/kiln",
@@ -172,38 +174,25 @@ describe("2. a handoff's staleness is one sentence; when all are stale, one is s
   });
 
   test("a fresh handoff's line is what it was: when and who, then its first sentence", () => {
-    expect(pointerBlock(h(0), 10, 14, { written: "10-17 13:26", stale: null })?.split("\n")[0]).toBe(
-      "Where I left off in this directory (written 10-17 13:26 by session kiln-ses): Handoff 0: the glaze tiles dry on rack two.",
+    const first = (written: string, stale: string | null): string | undefined =>
+      standsLadder({ handoffs: [{ handoff: h(0), at: 1, since: { written, stale } }], day: 10 })[0]?.block.split("\n")[0];
+    expect(first("10-17 13:26", null)).toBe(
+      "Where this folder stands: a handoff from session kiln-ses, written 10-17 13:26 (sch_000000000000): Handoff 0: the glaze tiles dry on rack two.",
     );
-    expect(pointerBlock(h(0), 10, 14, { written: "10-12 09:24", stale: STALE })?.split("\n")[0]).toBe(
-      `Where I left off in this directory (written 10-12 09:24 by session kiln-ses — ${STALE ?? ""}): Handoff 0: the glaze tiles dry on rack two.`,
+    expect(first("10-12 09:24", STALE)).toBe(
+      `Where this folder stands: a handoff from session kiln-ses, written 10-12 09:24 (${STALE ?? ""}) (sch_000000000000): Handoff 0: the glaze tiles dry on rack two.`,
     );
   });
 
-  test("every one listed stale: the widest block shows the newest whole and counts the rest", () => {
+  test("the newest says its sentence; the next two a line each, dated, with no sentence of their own; the rest counted", () => {
     const hs = [h(0), h(1), h(2), h(3)];
-    const since = hs.map(() => ({ written: "10-12 09:24", stale: STALE }));
-    const ladder = pointerLadder(hs, 10, { since });
-    const widest = ladder[0]?.block ?? "";
-    expect(ladder[0]?.shown.map((x) => x.id)).toEqual([hs[0]?.id ?? "?"]);
-    expect(widest).toContain(`1) From session kiln-ses, written 10-12 09:24 (${STALE ?? ""}): Handoff 0`);
-    expect(widest).not.toContain("2) From");
-    expect(widest).toContain(`+3 older here: ${hs[1]?.id ?? ""} (10-12), ${hs[2]?.id ?? ""} (10-12), ${hs[3]?.id ?? ""} (10-12).`);
-  });
-
-  test("the newest fresh: up to three listed, each older one with its own sentence", () => {
-    const hs = [h(0), h(1), h(2), h(3)];
-    const since = hs.map((_, i) => ({ written: "10-12 09:24", stale: i === 0 ? null : STALE }));
-    const widest = pointerLadder(hs, 10, { since })[0];
+    const widest = standsLadder({ handoffs: hs.map((handoff, i) => ({ handoff, at: 100 - i, since: i === 0 ? { written: "10-12 09:24", stale: STALE } : null })), day: 10 })[0];
     expect(widest?.shown.map((x) => x.id)).toEqual(hs.slice(0, 3).map((x) => x.id));
-    expect(widest?.block).toContain("1) From session kiln-ses, written 10-12 09:24: Handoff 0");
-    expect(widest?.block).toContain(`2) From session kiln-ses, written 10-12 09:24 (${STALE ?? ""}): Handoff 1`);
-  });
-
-  test("the reserve is sized to the whole ladder, not the collapsed one", () => {
-    const hs = [h(0), h(1), h(2), h(3)];
-    const since = hs.map(() => ({ written: "10-12 09:24", stale: STALE }));
-    expect(pointerLadder(hs, 10, { since, collapseStale: false })[0]?.shown).toHaveLength(3);
+    const lines = (widest?.block ?? "").split("\n");
+    expect(lines[0]).toContain(`written 10-12 09:24 (${STALE ?? ""}) (sch_000000000000): Handoff 0`);
+    expect(lines[1]).toBe(STANDS_OTHERS);
+    expect(lines[2]).toBe("- session kiln-ses, 10-12: Handoff 1: the glaze tiles dry on rack two. (sch_000000000001)");
+    expect(lines.filter((l) => l.includes(STALE ?? "?"))).toHaveLength(1);
   });
 
   test("delivered: three handoffs, all from an older release with a newer chapter since, read days later", () => {
@@ -220,11 +209,14 @@ describe("2. a handoff's staleness is one sentence; when all are stale, one is s
     c.rebrief({ budgetBytes: 9_000, at: "2026-10-15" });
     const text = c.wake(9_000, { date: "2026-10-15" }, { scope: HERE, session: "reader", installed: "0.3.10" }).text;
     const lines = text.split("\n");
-    expect(lines.filter((l) => /^\d\) From /.test(l))).toHaveLength(1);
-    expect(lines.find((l) => l.startsWith("1) From "))).toContain("(3 days old; release 0.3.9 then, 0.3.10 now): Handoff 2");
-    expect(lines.some((l) => l.startsWith("+2 older here: "))).toBe(true);
-    // Read with the release they were written on: not stale, all three listed.
+    // The newest says how stale it is, once; the other two keep a line each.
+    const head = lines.find((l) => l.startsWith("Where this folder stands: ")) ?? "";
+    expect(head).toMatch(/\(3 days old; release 0\.3\.9 then, 0\.3\.10 now\) \(sch_[0-9a-f]+\): Handoff 2/);
+    expect(lines.filter((l) => l.includes("release 0.3.9 then"))).toHaveLength(1);
+    expect(lines.filter((l) => /^- session kiln-ses, 10-1[23]: Handoff [01]: /.test(l))).toHaveLength(2);
+    // Read with the release they were written on: not stale, all three still there.
     const same = c.wake(9_000, { date: "2026-10-15" }, { scope: HERE, session: "reader", installed: "0.3.9" }).text;
-    expect(same.split("\n").filter((l) => /^\d\) From /.test(l))).toHaveLength(3);
+    expect(same).not.toContain("release 0.3.9 then");
+    expect(same.match(/\(sch_[0-9a-f]+\)/g)).toHaveLength(3);
   });
 });

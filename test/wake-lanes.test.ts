@@ -152,7 +152,7 @@ describe("what is work (self/work.ts#isWorkMemory)", () => {
 
 describe("Nearby is personal; work waits for its directory", () => {
   test("a work-marked memory and an unmarked fact from a directory leave Nearby; the personal ones stay", () => {
-    const c = counterpart();
+    const c = counterpart({ HINTS_IN_WAKE: true });
     put(c, "Dana's sister is moving to the coast in the spring.", { kind: "person", scope: WORKSHOP });
     put(c, "Lunch by the window was the best part of the week.", { scope: "claude-desktop:" });
     const work = put(c, "The parser rejects a trailing comma in the config file.", { about: "work", scope: WORKSHOP });
@@ -183,7 +183,7 @@ describe("Nearby is personal; work waits for its directory", () => {
 
   test("the switch off is the lanes as they were: skill above the warm floor is craft, a fact is Nearby", () => {
     // And the craft lane in the wake, as it was before 2026-10-16 (`CRAFT_IN_WAKE`).
-    const c = counterpart({ CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true });
+    const c = counterpart({ CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true, HINTS_IN_WAKE: true });
     put(c, "The build cache lives under the project's tmp folder.", { scope: WORKSHOP, about: "work" });
     put(c, "I run the narrow test file before the whole suite.", { kind: "skill" });
     const text = wake(c, WORKSHOP);
@@ -317,7 +317,7 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     c.writeHandoff("The cabinet doors are hung; the drawers still need runners.", { scope: WORKSHOP, session: "s-writer-0000" });
     const text = wake(c, WORKSHOP);
     const work = text.indexOf(WORK_HERE_HEADING);
-    const handoff = text.indexOf("Where I left off");
+    const handoff = text.indexOf("Where this folder stands");
     expect(work).toBeGreaterThan(0);
     expect(handoff).toBeGreaterThan(work);
     // A ceiling with room for the handoff and not for the work: the handoff stays.
@@ -329,7 +329,7 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     const tight = full.bytes - workBytes + 45;
     const squeezed = c.wake(tight, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
     expect(squeezed.bytes).toBeLessThanOrEqual(tight);
-    expect(squeezed.text).toContain("Where I left off");
+    expect(squeezed.text).toContain("Where this folder stands");
     expect(under(squeezed.text, WORK_HERE_HEADING).length).toBeLessThan(4);
     expect(readSentinel(squeezed.text).intact).toBe(true);
   });

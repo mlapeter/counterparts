@@ -85,8 +85,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/** The hints lane is this file's subject: on, though it is off the wake by default since WK1 (2026-10-30). */
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir: storeDir, snapshotsDir: join(root, "snaps"), budgetBytes: BUDGET, now: () => clock, timeZone: "UTC" });
+  const c = Counterpart.open({ dir: storeDir, snapshotsDir: join(root, "snaps"), budgetBytes: BUDGET, now: () => clock, timeZone: "UTC", selfTunables: { HINTS_IN_WAKE: true } });
   open.push(c);
   return c;
 }

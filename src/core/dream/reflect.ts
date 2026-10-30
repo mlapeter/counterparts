@@ -3141,6 +3141,7 @@ export class Reflections {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
+      ...(this.ctx.closed === undefined ? {} : { closed: this.ctx.closed() }),
     });
     const onMind = mindRead.items.filter((item) => item.ids.every(take(3)));
 

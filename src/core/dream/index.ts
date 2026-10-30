@@ -3123,6 +3123,7 @@ export class Dreams {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
+      ...(this.ctx.closed === undefined ? {} : { closed: this.ctx.closed() }),
       slots: true,
     });
     const mindAll = mindRead.items;
@@ -3917,7 +3918,7 @@ const PART_FURNITURE = 1_500;
 export const DREAM_LOOKUP =
   'Every memory shown has a line at least; the most important come whole. "fidelity" says which: whole, excerpt or line; "chars" is the whole text\'s length. ' +
   "Read any you have only in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. A journal entry shown as a line is read the same way, by its chapter's id. " +
-  'The self page is read whole with the self_page tool ("selfPageChars" is its length). The wake is the page first, then its lanes — craft, open threads, what is coming, hints.';
+  'The self page is read whole with the self_page tool ("selfPageChars" is its length). The wake is the page first, then its lanes — craft, open threads, what is coming.';
 
 /**
  * THE LOOKUP WHILE THE PAGE IS SPLIT (2026-10-23, `self.PAGE_SPLIT`): the
@@ -3949,7 +3950,7 @@ export const DREAM_LEAN_LEGEND =
   "Words shown in part (fidelity line or excerpt) end with the whole length (chars) in parentheses — (1005) is a line of a 1,005-character memory, (excerpt of 5000) an excerpt; no parentheses: whole. " +
   "Read any shown in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. " +
   "A journal is a c line and its chapters, each by its summary — or a shorter line, marked (line; N), when the room is short — ending with the chapter's whole length; read a chapter whole with recall, ids: [\"c2#3\"], or a journal's every chapter with ids: [\"c2\"]. \"summary mX\": that summary is memory mX too. " +
-  "The self page is read whole with the self_page tool. The wake is the page first, then its lanes — craft, open threads, what is coming, hints.";
+  "The self page is read whole with the self_page tool. The wake is the page first, then its lanes — craft, open threads, what is coming.";
 
 /** The lean legend while the page is split: as `DREAM_LOOKUP_SPLIT`, no pointer at a tool the dream's child is not given. */
 export const DREAM_LEAN_LEGEND_SPLIT = DREAM_LEAN_LEGEND.replace("The self page is read whole with the self_page tool.", "The self page is shown as far as it fits.");

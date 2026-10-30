@@ -147,9 +147,9 @@ describe("Today so far here", () => {
     expect(today).not.toContain(newest);
     expect(today).not.toContain(away);
     // "Last here" names the newest, and its block repeats none of the others.
-    expect(lineStarting(text, "Last here: ")).toContain(`(${newest})`);
-    expect(text).not.toMatch(/^Before it: /m);
-    expect(text).not.toMatch(/^\+\d+ more here on /m);
+    expect(lineStarting(text, "Where this folder stands: ")).toContain(`(${newest})`);
+    expect(text).not.toMatch(/^Before that: /m);
+    expect(text).not.toContain("more here");
     // "Today, elsewhere" says the other folder; its chapter, not about me, is not named.
     expect(lineStarting(text, "Today, elsewhere: ")).toContain("site");
     for (const id of [morning, noon, newest]) expect(count(text, id)).toBe(1);
@@ -166,7 +166,7 @@ describe("Today so far here", () => {
     const only = episode(k, { session: S2, scope: HERE, title: "This morning's sowing", date: D2, hour: 9 });
     const { text } = wakeFor(k, HERE);
     expect(text).not.toContain(TODAY_SO_FAR_HEAD);
-    expect(lineStarting(text, "Last here: ")).toContain(`(${only})`);
+    expect(lineStarting(text, "Where this folder stands: ")).toContain(`(${only})`);
   });
 
   test("3. another folder's chapter is never this line's; not nameable, it is not named, and its folder is said only where 'Today, elsewhere' may say it", () => {
@@ -455,15 +455,15 @@ describe("the room", () => {
     expect(off).not.toContain(TODAY_SO_FAR_HEAD);
     expect(off).not.toContain(YESTERDAY_SUMMARY_WORDS);
     expect(lineStarting(off, "Yesterday: ")).toContain("Sowing the broad beans");
-    // "Last here" names the newest and, as before, the one before it.
-    expect(lineStarting(off, "Last here: ")).toContain(newest);
-    expect(lineStarting(off, "Before it: ")).toContain(morning);
+    // The line names the newest; the one before it is "Today so far"'s job (WK1).
+    expect(lineStarting(off, "Where this folder stands: ")).toContain(newest);
+    expect(off).not.toMatch(/^Before that: /m);
     // The same store, switched on, moves the earlier chapter to its own line.
     S.TODAY_SO_FAR = true;
     S.YESTERDAY_FROM_SUMMARY = true;
     const on = wakeFor(k, HERE).text;
     expect(lineStarting(on, `${TODAY_SO_FAR_HEAD} `)).toContain(morning);
-    expect(on).not.toMatch(/^Before it: /m);
+    expect(on).not.toMatch(/^Before that: /m);
     expect(lineStarting(on, "Yesterday")).toStartWith(`Yesterday, ${YESTERDAY_SUMMARY_WORDS} A garden day.`);
   });
 
