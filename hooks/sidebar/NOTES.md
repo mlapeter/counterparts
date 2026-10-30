@@ -37,7 +37,10 @@ and npm carry no art and did not change. Older sections that say "PNG files" or
     140 B/s). The commands are otherwise the same (`a=T,U=1,f=100,c=30,r=16`). Claude
     Code's CPU over the window didn't move (2.70 and 2.65 s against 2.71 and 2.81 s). A
     terminal now gets the bytes instead of opening a file, and decodes the same PNG; a
-    real Ghostty or kitty was not on hand to time that side.
+    real Ghostty or kitty was not on hand to time that side. Those 40 s are the fox's
+    first, liveliest stretch, and he never stops: the real director over a simulated
+    24 hours left alone comes to 0.39 changes a second, about 1.1 KB/s, or 95 MB a day
+    against about 8 for a path (review, not measured on a pty).
   - **Bytes draw where a file never did:** iTerm2 3.5 or later under fullscreen, tmux
     with passthrough on, and over ssh. So `auto` would have turned the sextant fox into
     a picture in iTerm2. `fox.ts#keepsFallback` keeps iTerm2's and tmux's fox as it was,
@@ -48,9 +51,12 @@ and npm carry no art and did not change. Older sections that say "PNG files" or
     half-blocks. WezTerm and VS Code stay as they were: the engine (2.1.314) draws
     pictures only for a terminal naming itself kitty, Ghostty or iTerm2 3.5+.
 - **The sheet is read once, when a tier first draws a PNG** (about 82 KB, 109 KB held as
-  base64 for the module's life); sextants and half-blocks never read it, which used to be
-  true only of the desktop's reads. One that can't be read, or isn't the size the table
-  was written for, counts as none: no pictures, and the desktop's Svg keeps its rects.
+  base64 for the module's life); sextants, half-blocks and the avatar off never read it,
+  which used to be true only of the desktop's reads. One that can't be read, isn't the
+  size the table was written for, or has no PNG signature where a frame should start
+  (`fox.ts#sheetFits`) counts as none: no pictures, and the desktop's Svg keeps its rects.
+  Without that signature check the engine refuses the whole tree, and the pane draws
+  nothing.
 - **Also gone:** in iTerm2 the two refused blits at the start, and the dim `a small fox`
   they showed for about two drawings.
 - **Old versions:** a sidebar release carries its own art, in its own versioned folder,
@@ -70,7 +76,12 @@ and npm carry no art and did not change. Older sections that say "PNG files" or
   byte for byte.
 - **What the validator's report does not cover:** the directory's own safety scan and
   policy review. A `.pngs` file is a binary it has not seen from us, read and handed to an
-  `Image` as base64.
+  `Image` as base64. The portal's checklist (claude.com/docs/plugins/pre-submission-checklist,
+  read 2026-10-30) allows text, complete PNG, JPEG, GIF and WebP images, and fonts; "any
+  other binary file" is a policy hold, **Files or downloads the validator couldn't
+  inspect**, raised again on each new version. Expect one here: a hold, not a block. The
+  portal's **Validate** on a test branch would settle it; `claude plugin validate` can't.
+  The reviewer notes should name the file and `--unpack`.
 
 ## The fox at work (2026-10-20, later; an experiment)
 

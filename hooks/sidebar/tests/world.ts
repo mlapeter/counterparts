@@ -167,6 +167,8 @@ export type WorldOptions = {
   scopesUnreadable?: boolean;
   /** The fox's sheet is there, but can't be read. */
   sheetUnreadable?: boolean;
+  /** What the fox's sheet holds (base64), in place of the stand-in. */
+  sheetBase64?: string;
   /** Where the registry is (`SCOPES_FILE` unless given): beside the configuration a settings hook names. */
   registryAt?: string;
   /** Other files the sidebar may read (a settings file), by absolute path. */
@@ -348,7 +350,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('fs.exists', (_$, e) => ({ value: e.path === registryAt || e.path in files || isPng(e.path) || (e.path === statusPath && !w.noStatus) }))
   on('fs.read', (_$, e) => {
     w.fsReads.push(e.path)
-    if (isPng(e.path)) return opts.sheetUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: { base64: sheetText() } }
+    if (isPng(e.path)) return opts.sheetUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: { base64: opts.sheetBase64 ?? sheetText() } }
     if (e.path === registryAt) return opts.scopesUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: registry() }
     if (e.path === statusPath && !w.noStatus) return { value: statusText() }
     const text = files[e.path]

@@ -30,7 +30,7 @@
 
 import { encodeCells } from './cells'
 import { FOX_FINAL } from './fox-art'
-import { SHEET_FRAMES } from './fox-sheet'
+import { SHEET_BYTES, SHEET_FRAMES } from './fox-sheet'
 
 const ART = FOX_FINAL
 
@@ -51,9 +51,10 @@ export function normDetail(v: unknown): FoxDetail {
 
 /**
  * The environment variables the fallback reads, once at session start: which
- * terminals' fonts draw sextants. Pictures need none (the engine says); these
- * four only choose sextants over half-blocks where a picture can't show
- * (Mike, 2026-10-15: the best fox each terminal can draw).
+ * terminals' fonts draw sextants. Whether a picture shows needs none (the engine
+ * says); these four choose sextants over half-blocks where a picture can't show
+ * (Mike, 2026-10-15: the best fox each terminal can draw), and two of them say
+ * where `auto` doesn't try one (`keepsFallback`).
  */
 export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXECUTABLE'] as const
 
@@ -87,7 +88,7 @@ export function sextantsLikely(env: TierEnv): boolean {
  * says so by refusing the blit. `noImages`: an Image here drew its alt, so
  * `auto` draws the next best: sextants where the terminal's font is known to
  * have them (`sextantsLikely`), else half-blocks, which every terminal draws.
- * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
+ * `hasPngs` false (no sheet found): never a picture, whatever was asked.
  */
 export function pickTier(surface: string, detail: FoxDetail, env: TierEnv = {}, noImages = false, hasPngs = true): FoxTier {
   if (surface !== 'terminal') return 'svg'
@@ -783,7 +784,7 @@ export function runs(line: readonly FineCell[]): FineCell[] {
   return out
 }
 
-// ── image: the PNG files ────────────────────────────────────────────────────
+// ── image: the PNGs in the sheet ────────────────────────────────────────────
 
 /**
  * The PNGs `tools/fox-art/build.ts` packs into the sheet: every frame, and every frame + effects pair a moment draws
@@ -813,6 +814,15 @@ export function frameBase64(sheet: string, key: string): string {
   const start = (at / 3) * 4
   const pad = (3 - (len % 3)) % 3
   return sheet.slice(start, start + Math.ceil(len / 3) * 4 - pad) + '='.repeat(pad)
+}
+
+/**
+ * Whether a sheet (base64) is the one the table was written for: its size, and a PNG's signature where each frame
+ * starts. The engine refuses a whole tree over an Image whose `{ png }` doesn't start as a PNG does, which would leave
+ * the pane blank, so a sheet that fails this counts as none.
+ */
+export function sheetFits(sheet: string): boolean {
+  return sheet.length === (SHEET_BYTES / 3) * 4 && Object.values(SHEET_FRAMES).every(([at]) => sheet.startsWith('iVBORw0KGgo', (at / 3) * 4))
 }
 
 /** The scale the build writes the PNGs at: art pixels x 3. */

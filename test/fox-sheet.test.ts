@@ -12,8 +12,9 @@ import { SHEET_BYTES, SHEET_FILE, SHEET_FRAMES } from "../hooks/sidebar/hooks/fo
 import { packFrames } from "../tools/fox-art/build.js";
 
 // By a computed path: the mod has its own tsconfig (no file extensions), so the repository's typecheck stays out of it.
-const { frameBase64, PNG_FRAMES, PNG_SIZE } = (await import(join(import.meta.dir, "..", "hooks/sidebar/hooks/fox.ts"))) as {
+const { frameBase64, sheetFits, PNG_FRAMES, PNG_SIZE } = (await import(join(import.meta.dir, "..", "hooks/sidebar/hooks/fox.ts"))) as {
   frameBase64: (sheet: string, key: string) => string;
+  sheetFits: (sheet: string) => boolean;
   PNG_FRAMES: ReadonlySet<string>;
   PNG_SIZE: readonly [number, number];
 };
@@ -39,6 +40,16 @@ describe("the fox's sheet", () => {
       expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([PNG_SIZE[0], PNG_SIZE[1]]);
       expect(frameBase64(sheet64, key)).toBe(png.toString("base64"));
     }
+  });
+
+  test("fits its table; shortened, or moved at the same length, it doesn't", () => {
+    expect(sheetFits(sheet64)).toBe(true);
+    expect(sheetFits(sheet64.slice(0, -4))).toBe(false);
+    expect(sheetFits(sheet64.slice(4) + "AAAA")).toBe(false);
+    // One frame's start damaged, the rest whole.
+    const [lastAt] = Object.values(SHEET_FRAMES).at(-1) as readonly [number, number];
+    const at = (lastAt / 3) * 4;
+    expect(sheetFits(`${sheet64.slice(0, at)}AAAA${sheet64.slice(at + 4)}`)).toBe(false);
   });
 
   test("a key it doesn't hold draws the idle frame", () => {

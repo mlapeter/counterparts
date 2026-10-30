@@ -38,7 +38,7 @@ type Rgba = { w: number; h: number; px: Uint8Array };
 
 const NATIVE = FOX_FINAL.png.scale; // the export's art pixel, in PNG pixels
 
-export function decode(buf: Uint8Array): Rgba {
+function decode(buf: Uint8Array): Rgba {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 8;
   let w = 0, h = 0, depth = 8, type = 6;

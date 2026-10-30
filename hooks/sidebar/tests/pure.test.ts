@@ -930,7 +930,7 @@ describe('the fox', () => {
     const zs = [['zSmall', 'zSmall'], ['z', 'z']] as const
     expect(fineCells({ frame: 'nap1', fx: zs }).flat().some(c => c.fg === textHex('#9be') || c.bg === textHex('#9be'))).toBe(true)
     expect([...decodeCells(halfCells({ frame: 'nap1', fx: zs }))].some((v, i) => i % 3 !== 0 && v === 0x99bbee)).toBe(true)
-    // the picture tier's files (art/fox/<key>.png): a frame with its effects, else the frame, else idle
+    // the picture tier's frames (keys in the sheet's table): a frame with its effects, else the frame, else idle
     expect(pngKey(idle)).toBe('idle')
     expect(pngKey({ frame: 'perk', fx: [['spark0', 'spark']] })).toBe('perk+spark0')
     expect(pngKey({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk')

@@ -113,13 +113,14 @@ import {
   pngKey,
   frameBase64,
   runs,
+  sheetFits,
   stage,
   stageRows,
   stepKey,
   trigger,
 } from './fox'
 import type { FoxDetail, FoxEvent, FoxTier, Step } from './fox'
-import { SHEET_BYTES, SHEET_FILE } from './fox-sheet'
+import { SHEET_FILE } from './fox-sheet'
 import { foxSvg } from './fox-svg'
 import { footer, footerRows, frame, pausedBanner, plainBody } from './pane'
 import type { PaneEls } from './pane'
@@ -1005,8 +1006,7 @@ async function findSheet($: EngineInterface): Promise<string | null> {
 
 /**
  * Reads the sheet once, the first time a tier draws a PNG (sextants and half-blocks never do). One that can't be read,
- * or isn't the size this module's table was written for, counts as none: no pictures, and the desktop's Svg keeps its
- * rects.
+ * or doesn't fit this module's table (`sheetFits`), counts as none: no pictures, and the desktop's Svg keeps its rects.
  */
 async function loadSheet($: EngineInterface): Promise<void> {
   if (stage.sheet !== '' || stage.sheetPath === null) return
@@ -1016,7 +1016,7 @@ async function loadSheet($: EngineInterface): Promise<void> {
   } catch {
     data = ''
   }
-  if (data.length === (SHEET_BYTES / 3) * 4) stage.sheet = data
+  if (sheetFits(data)) stage.sheet = data
   else stage.sheetPath = null
 }
 
@@ -1420,7 +1420,7 @@ export const register: Register = on => {
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
     let tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.sheetPath !== null)
-    if (tier === 'image' || tier === 'svg') {
+    if (mode === 'fox' && (tier === 'image' || tier === 'svg')) {
       await loadSheet($)
       if (stage.sheetPath === null) tier = pickTier(e.surface, stage.detail, stage.env, true, false)
     }
