@@ -392,19 +392,20 @@ describe("5. How I work: leaves the wake; a craft memory is still a footnote", (
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("6. Coming up lists what is due today, and counts the rest — overdue and later — in one line", () => {
-  test("a real session start: today's listed; the overdue and the later one counted by id, the overdue said so, and in no other lane", () => {
+  test("a real session start: today's listed, then the oldest overdue by title and age; the later one counted, and in no other lane", () => {
     expect(SELF_TUNABLES.COMING_UP_TODAY_ONLY).toBe(true);
     const w = world();
     expect(w.c.rebrief({ budgetBytes: BUDGET, at: TODAY }).published).toBe(true);
     const wake = sessionStart(w);
     const coming = lane(wake, FRAMING.horizon);
     const listed = coming.filter((l) => l.startsWith("- "));
-    expect(listed.length).toBe(1);
+    expect(listed.length).toBe(2);
     expect(listed.some((l) => l.includes("The seed order closes at noon; the list is in the green folder. [mem_"))).toBe(true);
-    expect(coming[coming.length - 1]).toBe(`(1 overdue, 1 more coming up; recall ids: ${w.ids["past"] ?? ""}, ${w.ids["later"] ?? ""})`);
-    expect(wake).not.toContain("compost heap");
-    expect(wake).not.toContain("borrowed tiller");
-    expect(countedLanes(wake).horizon).toBe(2);
+    expect(listed[1]).toContain(`[${w.ids["past"] ?? ""}]`);
+    expect(listed[1]).toContain("was due");
+    expect(coming[coming.length - 1]).toBe(`(1 more coming up; recall "still open" lists them)`);
+    expect(wake).not.toContain(w.ids["later"] ?? "");
+    expect(countedLanes(wake).horizon).toBe(1);
     // A later date counted is the lane doing its job, not a dated item left
     // out for want of room: doctor's Wake line says nothing about it.
     const f = wakeArrivalFindings(w.c.store).find((x) => x.key === "wake");
@@ -412,13 +413,13 @@ describe("6. Coming up lists what is due today, and counts the rest — overdue 
     expect(f?.data["datedUnlisted"] ?? 0).toBe(0);
   });
 
-  test("nothing due today: one line says so, with the ids — read back by the dashboard's lane reader", () => {
+  test("nothing due today: one line says so, with the door — read back by the dashboard's lane reader", () => {
     const s = freshStore();
     const me = new Self({ store: s });
     const a = s.put({ type: "memory", kind: "person", body: "Check the compost heat.", learnedOn: "2026-10-15", eventDate: "2026-10-18", salience: SALIENT });
     const b = s.put({ type: "memory", kind: "person", body: "Order the garlic.", learnedOn: "2026-10-15", eventDate: "2026-10-19", salience: SALIENT });
     const out = me.build({ budgetBytes: 40_000, day: 1, at: TODAY, horizon: [{ id: a, due: "2026-10-18" }, { id: b, due: "2026-10-19" }] });
-    const line = `${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}; recall ids: ${a}, ${b}`;
+    const line = `${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}; recall "still open" lists them`;
     expect(out.text.split("\n")).toContain(line);
     expect(out.counts.horizon).toBe(0);
     expect(out.trimmed).toEqual([]);
@@ -428,12 +429,12 @@ describe("6. Coming up lists what is due today, and counts the rest — overdue 
     expect(collapsedLine("horizon", [a, b], { horizonLater: [b] })).toContain(COLLAPSED_WORDS);
     // Nothing due today, one of them overdue: said so, and still read back.
     const late = collapsedLine("horizon", [a, b], { horizonLater: [a, b], horizonOverdue: [a] });
-    expect(late).toBe(`${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: ${a}, ${b}`);
+    expect(late).toBe(`${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}, 1 overdue; recall "still open" lists them`);
     expect(collapsedLane(late)).toBe("horizon");
     expect(countedLanes(late).horizon).toBe(2);
     // Only overdue, under a listed item: `(2 overdue; …)`, counted as 2.
     const only = moreLine("horizon", [a, b], [a, b]);
-    expect(only).toBe(`(2 overdue; recall ids: ${a}, ${b})`);
+    expect(only).toBe(`(2 overdue; recall "still open" lists them)`);
     expect(countedLanes(only).horizon).toBe(2);
     // Another lane never says overdue.
     expect(moreLine("threads", [a], [a])).toBe(`(1 more open, ${OPEN_TAIL_WORDS})`);
@@ -449,7 +450,7 @@ describe("6. Coming up lists what is due today, and counts the rest — overdue 
     const due = s.put({ type: "memory", kind: "person", body: "Pay the water bill.", learnedOn: "2026-10-15", eventDate: TODAY, salience: SALIENT });
     const out = me.build({ budgetBytes: 40_000, day: 1, at: TODAY, horizon: [{ id: later, due: "2026-10-17" }], horizonMore: [due], horizonMoreItems: [{ id: due, due: TODAY, today: true }] });
     expect(out.kept.horizon).toEqual([due]);
-    expect(out.text).toContain(`(1 more coming up; recall ids: ${later})`);
+    expect(out.text).toContain(`(1 more coming up; recall "still open" lists them)`);
   });
 
   test("what returns on its own: a plain reminder is said outright on its day, and a date cues recall around it", () => {
@@ -493,8 +494,8 @@ describe("at production scale, 9,000 bytes", () => {
     // The open items are born on lived day 0 and read on day 25: past
     // `OPEN_CARRY_DAYS` (2026-10-22), so the carry is held off here — this
     // measures the trims, not the carry (`open-threads-carry.test.ts`).
-    const before = build(5_525, { CRAFT_IN_WAKE: true, COMING_UP_TODAY_ONLY: false, OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY });
-    const after = build(4_600, { OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY });
+    const before = build(5_525, { CRAFT_IN_WAKE: true, COMING_UP_TODAY_ONLY: false, OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY, HINTS_IN_WAKE: true });
+    const after = build(4_600, { OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY, HINTS_IN_WAKE: true });
     for (const out of [before, after]) {
       expect(readSentinel(out.text).intact).toBe(true);
       expect(out.bytes).toBeLessThanOrEqual(COMPOSE);
@@ -505,8 +506,9 @@ describe("at production scale, 9,000 bytes", () => {
     // open, 8 nearby, today's 1) — "before" here has the trims' header and
     // dates already, so the real gain is larger. 7 before since 2026-10-25:
     // "Still open"'s count names no ids now (`OPEN_TAIL_WORDS`), and the
-    // room its five ids took lists two more items.
-    expect(before.elements).toBe(7);
+    // room its five ids took lists two more items. 8 before since WK1
+    // (2026-10-30): "Coming up"'s count names no ids either.
+    expect(before.elements).toBe(8);
     expect(after.elements).toBe(14);
     expect(after.elements).toBeGreaterThan(before.elements);
     expect(after.counts.craft).toBe(0);

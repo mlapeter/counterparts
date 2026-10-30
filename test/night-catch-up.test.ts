@@ -1621,15 +1621,15 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
     // The wake the next session here would get (the session start composes it so; read here so no meeting begins).
     const before = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
-    expect(before).toMatch(/Last here: session checkinB, [^\n]*, no chapter, not written up yet\./);
-    expect(before).toContain(`\nBefore it: session meetingX`);
+    expect(before).toMatch(/Where this folder stands: session checkinB, [^\n]*, no chapter, not written up yet\./);
+    expect(before).toContain(`\nBefore that: session meetingX`);
     expect(before).toContain(`(${ep})`);
     // The night writes both up (the catch-up alone: nothing saved, two owed).
     prompt(a, "day2-1");
     await nightOf(nightPlans()[0] as SpawnPlan, [], []);
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
     const after = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-2" }).text;
-    expect(after).toMatch(/Last here: session checkinB, [^\n]*, no chapter — "Written up from checkinB, part 1[^"]*" \(mem_[0-9a-f]+\)\./);
+    expect(after).toMatch(/Where this folder stands: session checkinB, [^\n]*, no chapter — "Written up from checkinB, part 1[^"]*" \(mem_[0-9a-f]+\)\./);
     expect(after).toContain(`(${ep})`);
   });
 
@@ -1810,8 +1810,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     const plain = bytes(a.counterpart.wake(9_000, { date: TODAY() }).text);
     const at = (budget: number): string => a.counterpart.wake(budget, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
     const full = at(9_000);
-    expect(full).toMatch(/Last here: session checkinB, [^\n]*, no chapter, not written up yet\.\nBefore it: session meetingY/);
-    const lines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Last here:") || l.startsWith("Before it:"));
+    expect(full).toMatch(/Where this folder stands: session checkinB, [^\n]*, no chapter, not written up yet\.[^\n]*\nBefore that: session meetingY/);
+    const lines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Where this folder stands:") || l.startsWith("Before that:"));
     let sawHeadAlone = false;
     // From the ceiling the stored bundle itself needs (under it the bundle is delivered as found, S2 or not).
     const floor = bytes(at(plain));
@@ -1819,8 +1819,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
       const t = at(budget);
       expect(bytes(t)).toBeLessThanOrEqual(budget);
       const got = lines(t);
-      // Never "Before it" without the line it follows.
-      if (got.some((l) => l.startsWith("Before it:"))) expect(got[0]).toMatch(/^Last here: session checkinB, /);
+      // Never "Before that" without the line it follows.
+      if (got.some((l) => l.startsWith("Before that:"))) expect(got[0]).toMatch(/^Where this folder stands: session checkinB, /);
       if (got.length === 1) sawHeadAlone = true;
     }
     expect(lines(at(floor))).toEqual([]);
@@ -1842,8 +1842,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
     const text = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
-    const line = text.split("\n").find((l) => l.startsWith("Last here:")) ?? "";
-    expect(line).toMatch(/^Last here: session both, /);
+    const line = text.split("\n").find((l) => l.startsWith("Where this folder stands:")) ?? "";
+    expect(line).toMatch(/^Where this folder stands: session both, /);
     expect(line).not.toContain("4417");
     expect(line).toContain("not written up yet");
   });
@@ -1855,7 +1855,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(out.ok).toBe(true);
     return out.injection;
   }
-  const lastHereLines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Last here:") || l.startsWith("Before it:"));
+  const lastHereLines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Where this folder stands:") || l.startsWith("Before that:"));
   /** Enough to fill the lanes at the ceiling: long identity elements past the lane's count, and "Nearby" memories. */
   function fullLanes(c: Counterpart): void {
     for (let i = 0; i < 40; i++) {
@@ -1887,9 +1887,9 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const text = wokeHere(a, "morning-1");
-    // "Last here" only: "Last said here" (inside about a day, so by the clock) may quote the run (review of #638).
+    // Not named at all (WK1: its last words would lead the block; until then a lesser line, review of #638).
     expect(lastHereLines(text).join("\n")).not.toContain("sdk-run");
-    expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, [^\n]*, no chapter, not written up yet\.$/);
+    expect(lastHereLines(text)[0]).toMatch(/^Where this folder stands: session person-1, [^\n]*, no chapter, not written up yet\.(?: Last said [^\n]*)?$/);
   });
 
   test("review of #636: a folder whose only later session is a `claude -p` run shows no Last here for it; a person's chapterless one alone shows", () => {
@@ -1901,7 +1901,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     // The same shape, a person's session: it is named.
     quick("cli-only", proj, 6, YESTERDAY_10() + 8 * HOUR, "cli");
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
-    expect(lastHereLines(wokeHere(a, "morning-2"))[0]).toMatch(/^Last here: session cli-only, /);
+    expect(lastHereLines(wokeHere(a, "morning-2"))[0]).toMatch(/^Where this folder stands: session cli-only, /);
   });
 
   test("review of #636: no chapter, full lanes, a 9,000 B wake — the boundary reserves the chapterless line's room, and SessionStart carries it inside the ceiling", () => {
@@ -1917,9 +1917,10 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(bytes(text)).toBeGreaterThan(BUDGET - 1_000);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
     const got = lastHereLines(text);
-    expect(got).toEqual([expect.stringMatching(/^Last here: session checkinB, [^\n]*, no chapter, not written up yet\.$/)]);
+    expect(got).toEqual([expect.stringMatching(/^Where this folder stands: session checkinB, [^\n]*, no chapter, not written up yet\.(?: Last said [^\n]*)?$/)]);
     // The lanes gave up the line's room at the boundary (before this, with no chapter, the reserve was zero).
-    expect(bare - reserved).toBeGreaterThanOrEqual(bytes(got[0] as string));
+    // The reserve is for the session's own words; its last words ride on the line only if they fit.
+    expect(bare - reserved).toBeGreaterThanOrEqual(bytes((got[0] as string).replace(/ Last said .*$/, "")));
     expect(a.counterpart.store.eventLog({ name: LAST_HERE_NOROOM_EVENT })).toHaveLength(0);
   });
 
@@ -1942,7 +1943,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
       if (got.length === 0) dropped++;
       else {
         shown++;
-        expect(got).toEqual([expect.stringMatching(/^Last here: session checkinB, /)]);
+        expect(got).toEqual([expect.stringMatching(/^Where this folder stands: session checkinB, /)]);
       }
     }
     expect(dropped).toBeGreaterThan(0);
@@ -1962,7 +1963,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const text = wokeHere(a, "morning-1");
     expect(lastHereLines(text).join("\n")).not.toMatch(/sdk-\d/);
-    expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, /);
+    expect(lastHereLines(text)[0]).toMatch(/^Where this folder stands: session person-1, /);
   });
 
   test("review of #638: a `claude -p` run whose registry record was pruned reads as a person's — named, inside the ceiling", () => {
@@ -1975,7 +1976,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const text = wokeHere(a, "morning-1");
     expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(BUDGET);
-    expect(lastHereLines(text)[0]).toMatch(/^Last here: session sdkprune, [^\n]*, no chapter, not written up yet\.$/);
+    // Its last words, once a line of their own, now ride on its entry (WK1, 2026-10-30).
+    expect(lastHereLines(text)[0]).toMatch(/^Where this folder stands: session sdkprune, [^\n]*, no chapter, not written up yet\.(?: Last said [^\n]*)?$/);
   });
 
   test("review of #638: nothing crosses folders — a headless run and a person's session in another folder change neither folder's line", () => {
@@ -1988,12 +1990,12 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const inProj = lastHereLines(wokeHere(a, "morning-1"));
     expect(inProj).toHaveLength(1);
-    expect(inProj[0]).toMatch(/^Last here: session pproj, /);
+    expect(inProj[0]).toMatch(/^Where this folder stands: session pproj, /);
     const out = a.sessionStart({ sessionId: "morning-2", scope: other, at: TODAY(), entrypoint: "cli" } as HookInput);
     expect(out.ok).toBe(true);
     const inOther = lastHereLines(out.injection);
     expect(inOther).toHaveLength(1);
-    expect(inOther[0]).toMatch(/^Last here: session pother, /);
+    expect(inOther[0]).toMatch(/^Where this folder stands: session pother, /);
   });
 
   test("review of #638: a brand-new user's first days — the second session is told of the first, and the reserve trims nothing on a store that does not fill the wake", () => {
@@ -2008,7 +2010,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     // ...and costs this store nothing: the bundle sits far under the budget, so no lane gave anything up.
     expect(after.bytes).toBeLessThan((after.composeBudget as number) / 2);
     expect(after.elements).toBeGreaterThanOrEqual(bare.elements);
-    expect(lastHereLines(wokeHere(a, "second"))[0]).toMatch(/^Last here: session first, /);
+    expect(lastHereLines(wokeHere(a, "second"))[0]).toMatch(/^Where this folder stands: session first, /);
   });
 
   test("review of #638: a folder whose only later session is headless leaves the bound's room unused — no line, no row, inside the ceiling", () => {
@@ -2087,7 +2089,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
     const line = lastHereLines(wokeHere(a, "morning-1"))[0] ?? "";
-    expect(line).toMatch(/^Last here: session ownnote, [^\n]*, no chapter — "Loop three's sticky valve" \(mem_[0-9a-f]+\)\.$/);
+    expect(line).toMatch(/^Where this folder stands: session ownnote, [^\n]*, no chapter — "Loop three's sticky valve" \(mem_[0-9a-f]+\)\.(?: Last said [^\n]*)?$/);
     expect(line).not.toContain("Reflected:");
     expect(line).not.toContain("Dreamed:");
   });
@@ -2098,7 +2100,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     const a = hooksAt();
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
-    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session nightrun, [^\n]*, no chapter, not written up yet\.$/);
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Where this folder stands: session nightrun, [^\n]*, no chapter, not written up yet\.(?: Last said [^\n]*)?$/);
   });
 
   /** A write-up of `session` as `mint.ts` files it: under the session it writes up, in `scope`, its ref the proposal's id. */
@@ -2123,7 +2125,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     const a = hooksAt();
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
-    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session split, [^\n]*, no chapter — "Written up from split: the ward rota" \(mem_[0-9a-f]+\)\.$/);
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Where this folder stands: session split, [^\n]*, no chapter — "Written up from split: the ward rota" \(mem_[0-9a-f]+\)\.(?: Last said [^\n]*)?$/);
   });
 
   test("L2 review: only the night's rows here and a write-up from another folder — 'not written up yet'", () => {
@@ -2133,6 +2135,6 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     const a = hooksAt();
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
-    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session split2, [^\n]*, no chapter, not written up yet\.$/);
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Where this folder stands: session split2, [^\n]*, no chapter, not written up yet\.(?: Last said [^\n]*)?$/);
   });
 });

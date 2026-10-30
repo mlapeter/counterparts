@@ -64,6 +64,9 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/** "Nearby" is what these lanes tests are of: on, though it is off the wake by default since WK1 (2026-10-30). */
+const HINTS_ON = { ...SELF_TUNABLES, HINTS_IN_WAKE: true };
+
 function afternoon(): {
   c: Counterpart;
   set(t: number): void;
@@ -166,7 +169,7 @@ describe("'Last here' pairs the title with the chapter it names (item 3)", () =>
         { date: "Wed 30 Sep 2026", text: "Later we checked that a new session could find the plan." },
       ],
     });
-    const line = wake(k.c, B).split("\n").find((l) => l.startsWith("Last here:"));
+    const line = wake(k.c, B).split("\n").find((l) => l.startsWith("Where this folder stands:"));
     expect(line).toContain(`— "${TITLE}" (${epi}). We planned the autumn beds: garlic first, broad beans after.`);
     expect(line).not.toContain("Later we checked");
   });
@@ -234,7 +237,7 @@ describe("the lanes: an answered question is not shown alone, and nothing shows 
     s.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.95, emotional: 0.9, predictive: 0.9 } });
   const horizonOf = (id: string): Ranked => ({ id, lane: "horizon", kind: "fact", band: "episodic", strength: 1, protected: false, bornDay: 0, personScoped: false, lastRendered: -1 });
   const shownBy = (s: Store, horizon: Ranked[] = []): string[] => {
-    const lanes = rankLanes(scanActive(s, s.livedDay()), horizon, SELF_TUNABLES, { settledOver: settledOver(s) });
+    const lanes = rankLanes(scanActive(s, s.livedDay()), horizon, HINTS_ON, { settledOver: settledOver(s) });
     return [...lanes.hints, ...lanes.threads, ...lanes.craft, ...lanes.horizon].map((r) => r.id);
   };
   const changed = (s: Store, holds: string, over: string): void => {
@@ -300,7 +303,7 @@ describe("the lanes: an answered question is not shown alone, and nothing shows 
     stores.push(s);
     const due = hint(s, "Pay the flour supplier before the fifteenth.");
     const plain = hint(s, "The cold frame lid needs a new hinge.");
-    const lanes = rankLanes(scanActive(s, s.livedDay()), [horizonOf(due)], SELF_TUNABLES);
+    const lanes = rankLanes(scanActive(s, s.livedDay()), [horizonOf(due)], HINTS_ON);
     expect(lanes.horizon.map((r) => r.id)).toEqual([due]);
     expect(lanes.hints.map((r) => r.id)).toEqual([plain]);
   });
@@ -317,11 +320,11 @@ describe("a 'Last here' line dropped for room leaves a durable row (item 9)", ()
     const ch = await k.server(A).call("chapter", { session: A, title: "Autumn beds", text: "We planned the autumn beds and wrote the plan down here." });
     const epi = (ch.structuredContent as Record<string, unknown>)["episodeId"] as string;
     const tight = new TextEncoder().encode(k.c.wake(9_000).text).length;
-    for (let i = 0; i < 2; i++) expect(wake(k.c, B, tight)).not.toContain("Last here:");
+    for (let i = 0; i < 2; i++) expect(wake(k.c, B, tight)).not.toContain("Where this folder stands:");
     const logged = k.c.store.eventLog({ name: LAST_HERE_NOROOM_EVENT });
     expect(logged.length).toBe(1);
     expect(logged[0]?.ref).toBe(epi);
-    expect(wake(k.c, B)).toContain("Last here:");
+    expect(wake(k.c, B)).toContain("Where this folder stands:");
     expect(k.c.store.eventLog({ name: LAST_HERE_NOROOM_EVENT }).length).toBe(1);
   });
 
@@ -365,7 +368,7 @@ describe("a chapter about me reaches a wake in another directory, and only what 
     const line = wake(k.c, B, 9_000, HERE, () => true).split("\n").find((l) => l.startsWith("A chapter about me from "));
     expect(line).toBe(`A chapter about me from ${tilde(THERE)}: session a1b2c3d4, Sep 30 — "Naming the garden beds" (${epi}).`);
     const there = wake(k.c, B, 9_000, THERE, () => true);
-    expect(there).toContain("Last here: session a1b2c3d4");
+    expect(there).toContain("Where this folder stands: session a1b2c3d4");
     expect(there).not.toContain("A chapter about me from");
   });
 
@@ -389,13 +392,13 @@ describe("a chapter about me reaches a wake in another directory, and only what 
       const owner = afternoon();
       const { THERE } = bakery(owner, "me", { confidential: where });
       expect(wake(owner.c, B, 9_000, HERE, () => true)).toContain("Naming the garden beds");
-      expect(wake(owner.c, B, 9_000, THERE, () => true)).toContain("Last here:");
+      expect(wake(owner.c, B, 9_000, THERE, () => true)).toContain("Where this folder stands:");
       owner.c.close();
       // The same store, read by a session that is not the owner's.
       const guest = Counterpart.open({ dir: storeDir, now: () => at(17, 0), timeZone: ZONE });
       open.push(guest);
       expect(wake(guest, B, 9_000, HERE, () => true)).toContain("Naming the garden beds");
-      expect(wake(guest, B, 9_000, THERE, () => true)).toContain("Last here:");
+      expect(wake(guest, B, 9_000, THERE, () => true)).toContain("Where this folder stands:");
       guest.close();
       rmSync(storeDir, { recursive: true, force: true });
     }
@@ -421,7 +424,7 @@ describe("a chapter about me reaches a wake in another directory, and only what 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("a handoff says when it may be out of date (item 1)", () => {
   function pointer(text: string): string | undefined {
-    return text.split("\n").find((l) => l.startsWith("Where I left off in this directory"));
+    return text.split("\n").find((l) => l.startsWith("Where this folder stands"));
   }
   const here = (installed: string | null, openedWith?: (s: string) => string | null): Parameters<Counterpart["wake"]>[2] => ({
     scope: HERE,
@@ -443,14 +446,14 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
     const stale = pointer(k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.10")).text);
     // Read the day it was written: no age, only the release.
-    expect(stale).toContain("(written 09-30 18:45 by session c9cacbcc \u2014 release 0.3.9 then, 0.3.10 now): Waiting on the irrigation fix");
+    expect(stale).toMatch(/a handoff from session c9cacbcc, written 09-30 18:45 \(release 0\.3\.9 then, 0\.3\.10 now\) \(sch_[0-9a-f]+\): Waiting on the irrigation fix/);
     expect(pointer(k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.9")).text)).not.toContain(" now)");
     expect(pointer(k.c.wake(9_000, { date: "2026-09-30" }, here(null)).text)).not.toContain(" now)");
     // Two days later it says how old it is, first.
     k.set(at(9, 0) + 2 * 24 * 60 * MIN);
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-10-02" });
     expect(pointer(k.c.wake(9_000, { date: "2026-10-02" }, here("0.3.10")).text)).toContain(
-      "(written 09-30 18:45 by session c9cacbcc \u2014 2 days old; release 0.3.9 then, 0.3.10 now): ",
+      "a handoff from session c9cacbcc, written 09-30 18:45 (2 days old; release 0.3.9 then, 0.3.10 now) (sch_",
     );
   });
 
@@ -468,7 +471,7 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     }
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
     const text = k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.10", (s) => (s === C ? "0.3.9" : null))).text;
-    expect(pointer(text)).toContain("by session c9cacbcc \u2014 release 0.3.9 then, 0.3.10 now");
+    expect(pointer(text)).toContain("a handoff from session c9cacbcc, written 09-30 18:45 (release 0.3.9 then, 0.3.10 now) (sch_");
   });
 
   test("another session wrote a chapter here after it: 'a newer chapter here since'; the writer's own does not count", async () => {
@@ -486,7 +489,10 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     k.set(at(16, 30));
     const r = await k.server(A).call("chapter", { session: A, title: "Autumn beds", text: "We planned the autumn beds: garlic first, broad beans after, and the frost dates." });
     expect(r.isError).not.toBe(true);
-    expect(pointer(wake(k.c, B))).toContain("(written 09-30 15:19 by session c9cacbcc \u2014 a newer chapter here since): ");
+    // The handoff still leads, saying a newer chapter is here; the chapter is under it, by title.
+    const text = wake(k.c, B);
+    expect(pointer(text)).toContain("a handoff from session c9cacbcc, written 09-30 15:19 (a newer chapter here since) (sch_");
+    expect(text.split("\n").find((l) => l.startsWith("Since then: "))).toContain("Autumn beds");
   });
 
   test("versions compare by number, a pre-release before its release", () => {
@@ -545,7 +551,7 @@ describe("Nearby leaves out what the page already says (item 6)", () => {
       const put = (body: string): string => s.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.95, emotional: 0.9, predictive: 0.9 } });
       const a = put("The rye starter came from a family kitchen and is kept as a promise.");
       const b = put("The cold frame lid needs a new hinge before the frost.");
-      const lanes = rankLanes(scanActive(s, s.livedDay()), [], SELF_TUNABLES, { coveredByPage: new Set([a]) });
+      const lanes = rankLanes(scanActive(s, s.livedDay()), [], HINTS_ON, { coveredByPage: new Set([a]) });
       expect(lanes.hints.map((r) => r.id)).toEqual([b]);
     } finally {
       s.close();

@@ -221,10 +221,10 @@ test("a night the gate launches runs its catch-up through the real door and a sc
   expect(morning.lines).toContain("Last here");
   // The handoff its `session_end` left stands on the next morning's wake, as its pointer line.
   expect(morning.lines).toContain("Handoff");
-  // S2: day 2's second session finds a NEWER session than that chapter (the hello): it is named first, the chapter after it.
+  // S2: day 2's second session finds a NEWER session than that chapter (the hello): named under the handoff, which leads.
   const afternoon = r.wakes.find((k) => k.label === "d2s2")!;
   expect(afternoon.lastHere).toEqual({ episode: null, session: "d2s1" });
-  expect(afternoon.lines).toContain("Before it");
+  expect(afternoon.lines).toContain("Handoff");
   // Nothing owed at the end: the nights wrote it all up.
   expect(r.owedAtEnd).toEqual([]);
   expect(JSON.stringify(r)).not.toContain("tomatoes");

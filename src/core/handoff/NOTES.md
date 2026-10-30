@@ -709,3 +709,35 @@ previous check-in.
 - Harness (finding 6): night children's tokens are tallied by act (`recordUsage(output, act)`),
   each night's asks carry their child's tokens, and `renderWeek` prints them per night, so a
   model-seat week can say what each catch-up cost.
+
+## 2026-10-30 — one block for where this folder stands (WK1)
+
+- **What comes next is kept by its word.** `handoffLead` looks for a handoff's last `next…:` (`next:`, `Next for me:`, `Next
+  step:`). A handoff with its next step in other words has no such guard: its first lines are what shows.
+
+- **Why one renderer, not a reorder.** Three ladders spliced in a fixed order is what let an older handoff read as the
+  latest word; sorting them would still have said who and when three times. `standsLadder` groups by session, so one session's
+  chapter, last words and newest handoff are one entry. Older entries are judged by session and time, never by text.
+- **Removed with it:** `pointerLine`, `pointerDoor`, `pointerBlock`, `pointerBlockMany`, `pointerLadder`, `Handoffs#pointer`,
+  `#pointerChoices`, `lastHereBlock`, `lastHereLadder`, `laterHereLadder`, `withExchange`, `lastExchangeLine`, and the limits
+  `HANDOFF_WAKE_SHOWN`, `HANDOFF_WAKE_LISTED`, `LAST_HERE_SHOWN`, `LAST_HERE_LISTED`. "Before it" and "+N more here" are
+  "Today so far"'s and the Yesterday line's job. The all-stale collapse went too: every other handoff is now a short line
+  with no staleness sentence, its day says it. The newest says its own, "with a newer chapter here since", and the chapter
+  is named under it.
+- **The shape changed mid-build** (Mike's markup and ROADMAP's review of the numbers, 10-30): first one line with the newest
+  mention leading; then the newest handoff's lead at up to five lines and every other live handoff a line, which took "Work
+  here" down to nothing on a tight wake; then two other handoffs, and the handoff leading whatever is newer, as review of
+  #300 MAJOR-1 asked. Measured on the 10-30 copy, the last step gave ~/random back 1–2 "Work here" lines and ~/counterparts
+  back all of its. A lead line stays flat and indented, so a body cannot read as a line
+  of the wake's own, and the markers are refused at write as before.
+- **The events keep their meanings.** `handoff.shown` is a handoff with a line in the wake, `counterpart.lasthere.shown` and
+  `handoff.lasthere.noroom` the chapter's part, `counterpart.lastexchange.*` the quote. Doctor and the dashboard still call
+  it the "Last here" line: words to change with WK2's look at the block, not here.
+- **The corpus copy has no `spans/`** (backups hold no conversation text), so the real-path run there shows no last exchange
+  and no later session: `test/wake-room-wk1.test.ts` covers both through the door.
+- **Found by the tests' pass, fixed:** `index.ts` importing `standsLadder` made a load cycle through `last-here.ts`'s constant
+  (`LAST_HERE_TITLE_BYTES` moved to `index.ts`; a test loads each module first). A session nobody attended no longer has its
+  last words in the block: as a lesser line it could quote one, and here it would have led. The `last exchange` handle still
+  answers with it. `LAST_EXCHANGE_LINE_MAX_BYTES` is 176 for the exchange as the block's whole entry.
+- **`hintsForReader` reads the new count lines too:** a store with no page keeps the hints lane, so a count with no ids reaches
+  the published-bundle road. It names nothing a reader may not see, so it stands, where it would have been dropped as unreadable.

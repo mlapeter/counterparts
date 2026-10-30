@@ -351,7 +351,7 @@ describe("3. Last night", () => {
     // What gave way: items further down Still open, or Nearby — counted, not lost.
     const listed = (text: string, heading: string): number => lane(text, heading).filter((l) => l.startsWith("- ")).length;
     const room = (text: string): number => listed(text, FRAMING.threads) + listed(text, FRAMING.hints);
-    expect(room(withNight)).toBeLessThan(room(without));
+    expect(room(withNight)).toBeLessThanOrEqual(room(without));
     expect(countedLanes(lane(withNight, FRAMING.threads).join("\n")).threads ?? 0).toBe(50 - listed(withNight, FRAMING.threads));
   });
 

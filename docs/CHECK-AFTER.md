@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
@@ -1568,3 +1569,25 @@ dream with less whole text get thinner (fewer links made, shorter gists, fewer c
 Fresh still ~44 → a setting didn't take (check `build.<version>.settings` and the values in the shipped
 tunables). The queue still grows either way; draining it needs `FRESH_SHARE` or `NIGHT_CHARS`, which costs
 tokens and is Mike's call. **Revert.** Both values back in `src/core/dream/tunables.ts`.
+
+## The wake's room (WK1)
+
+**Trying (in review 10-30, unreleased; split any read by `build`):** "Might be relevant" off the wake; no bare ids; the
+handoffs, "Last here" and "Last said here" as one block, the newest handoff leading at up to 5 lines with a newer chapter
+under it by title, and the next 2 live handoffs a line each; the 2 oldest overdue listed by title and age. Why: the bare-id complaint
+came back in four wake reads, and the "here" threads disagreed in two.
+
+**Look (~11-06):** the next ~/random wake read, by a session that says how it read. A week of `self.briefing`:
+`trimmedTotal` per render and `trimmedLanes`. Most of the drop in trimmed counts is hints no longer being candidates, so
+read `trimmedLanes.threads` beside it. `self.work.overflow` and `adapter.wake.injected` bytes per folder: the wider block
+takes its room from "Work here" first, and from bytes over 8,700. `handoff.lasthere.noroom` per day, against 13 in the
+week before.
+
+**Open-threads read:** overdue going to titled items is the one overlap, and they step back before they cost "Still open"
+an item. Split by the build that carries this.
+
+**What would change it:** a wake read that still finds the block long, or "Work here" gone on most folder-days: cut the
+other handoffs' lines first (`HANDOFF_OTHERS_SHOWN`), then the lead (`HANDOFF_LEAD_LINES`). Sessions recalling less now that no bare ids are offered
+is expected, not a fault: `recall.credit`'s expansions would show it.
+
+**Revert:** `HINTS_IN_WAKE` true for the lane; the rest by reverting the PR. The ids in count lines are not behind a switch.

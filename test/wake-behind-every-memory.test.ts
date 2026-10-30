@@ -183,7 +183,8 @@ describe("a memory written with note reaches the wake at the next turn-end", () 
     // (The folder as the hook names it: the server wrote it canonical.)
     expect(b).not.toContain("THREAD-MARK");
     expect(wakeOf("B2", canonicalScope("proj-a"), d1)).toContain("THREAD-MARK");
-    expect(b).toContain("NEARBY-MARK");
+    // "Might be relevant" left the wake (WK1, 2026-10-30): recall finds it, per turn.
+    expect(b).not.toContain("NEARBY-MARK");
     expect(b).toContain("ARRIVING-MARK");
 
     // Nothing new since: the next turn-end renders nothing.

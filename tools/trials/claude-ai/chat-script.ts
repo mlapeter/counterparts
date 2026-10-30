@@ -456,8 +456,9 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
   );
   add("chat 7: share told", o.store.share.afterTold === "told", `share_state ${String(o.store.share.afterTold)}`);
   const comingUp = (w7?.text ?? "").split("\n").find((l) => l.startsWith("Coming up:")) ?? "";
-  const plan7 = o.ids["plan"] !== null && o.ids["plan"] !== undefined && comingUp.includes(o.ids["plan"]);
-  add("chat 7: the plan in Coming up", plan7, plan7 ? comingUp : `no Coming up line naming the plan (${comingUp.length === 0 ? "no line" : comingUp})`);
+  // Counted behind the door since WK1 (2026-10-30): the wake lists no bare ids, and the plan is not due today.
+  const plan7 = o.ids["plan"] !== null && o.ids["plan"] !== undefined && /^Coming up: 1 .*recall "still open" lists them/.test(comingUp);
+  add("chat 7: the plan in Coming up", plan7, plan7 ? comingUp : `no Coming up line counting the plan (${comingUp.length === 0 ? "no line" : comingUp})`);
   const lastNight = (w7?.text ?? "").split("\n").find((l) => l.startsWith("Last night:")) ?? "";
   const night7 = o.dream !== null && o.reflection !== null && lastNight.includes(o.dream) && lastNight.includes(o.reflection);
   add("chat 7: last night in the wake", night7, night7 ? lastNight : `no Last night line naming the dream and the reflection (${lastNight.length === 0 ? "no line" : lastNight})`);

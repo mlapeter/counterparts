@@ -2941,3 +2941,27 @@ room is there, as the lanes' lines do. Still to see: in about 10 of the 4,000 ca
 up" count goes untold while the parked are said; the same lanes with nothing parked go untold
 the same way a few bytes lower (a due-day head kept past its lane's count, #442), so that one
 is the old floor shifted by the parked words' bytes, not theirs.
+
+## WK1, 2026-10-30: the wake's room (ROADMAP's call, for Mike's review)
+
+Removed: "Might be relevant" from the wake of a store with a page (`HINTS_IN_WAKE`, as `CRAFT_IN_WAKE` did for craft) and every
+bare id in a count line (`MORE_LINE_IDS`, `FOLD_LINE_IDS`). Kept, on purpose:
+
+- **The lane on a store with no page yet.** The case for dropping it was measured on a store whose page holds 53% of the room.
+  With no page, the lane is the only place a wake carries memories at all, and with it off a new user's wake was empty
+  (`elements=0`) until the first page: the full suite found this, on 20-odd tests of fresh stores. It goes on the first page.
+
+- **What the hints computation feeds.** `hintReading` and `wake_display` feed only this lane and physics' `on-display`
+  refusal (`Store#shownInHints`). With the lane off a publish closes every open row, so nothing is refused `on-display`
+  any more. On the 10-30 store copy: 0 open rows, last showing on lived day 34, no `on-display` payload in any event. A
+  session start's hints were never recorded as showing anyway, only the turn-end's. So the mechanism goes quiet and the
+  measured effect is about nil. `hintsForReader` stays for a bundle published before the switch (one boundary's lag).
+- **Echo skip and glimpse credit are untouched.** The echo set is what this session wrote (`Counterpart#echoOf`), and a
+  glimpse (`W_SHOWN`) is an ambient showing recall recorded in the gate state (`scoreShowings`). No wake line enters either.
+  One indirect path: an id expanded off the wake is a `referenced` use, and there are fewer bare ids to expand.
+- **The lane's count survives without ids.** The never-silent guarantee stands; the count now names a door or nothing.
+  `countedLanes` and `collapsedLane` still read the old words off a stored bundle.
+
+Overdue step back through `Self#composeLanes`, not through `ROOM_ORDER`: a dated line outranks "Still open"'s items there,
+and a new rung for "dated but old" would touch every rescue. The cost is up to three extra renders, only on a wake where the
+render trimmed "Still open" and an overdue is listed.

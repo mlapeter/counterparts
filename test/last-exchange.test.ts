@@ -2,11 +2,12 @@
  * "LAST SAID HERE" AND `recall` "last exchange" (2026-10-11; Mike's design of
  * 2026-10-10, "pull, not push"; details the builder's, lightly held).
  *
- * A fresh session in a folder gets one line pointing at the last exchange in
- * that folder — the most recently active OTHER session there, within about a
- * day:
+ * A fresh session in a folder gets words pointing at the last exchange in that
+ * folder — the most recently active OTHER session there, within about a day.
+ * Since WK1 (2026-10-30) they are part of that session's entry in "where this
+ * folder stands" (`handoff/#standsLadder`), not a line of their own:
  *
- *   Last said here, 09:10 (session a1b2c3d4): "<first words>…" — recall "last exchange"
+ *   Where this folder stands: session a1b2c3d4, last said 09:10: "<first words>…" — recall "last exchange".
  *
  * and the handle returns both messages, each cut at a sentence. Pinned here,
  * through the real hooks (`ClaudeCodeAdapter`) and the real recall tool:
@@ -51,11 +52,11 @@ import {
   LAST_EXCHANGE_TEXT_MAX_CHARS,
   LAST_EXCHANGE_WORDS,
   headAtSentence,
-  lastExchangeLine,
   ownerWords,
+  quoteOf,
   tailAtSentence,
-  withExchange,
 } from "../src/core/handoff/last-exchange.js";
+import { standsLadder } from "../src/core/handoff/index.js";
 import { FRAMING, PAGE_END_LINES, readSentinel } from "../src/core/self/index.js";
 import { readableDate } from "../src/core/time.js";
 
@@ -219,8 +220,14 @@ function wakeOf(w: World, t: number, opts: { session?: string; scope?: string; d
   return w.hooks().sessionStart({ sessionId: session, scope: opts.scope ?? HERE, at: opts.date ?? D, transcriptPath: join(PROJECT, `${session}.jsonl`) } as HookInput).injection;
 }
 
+/** The block's line that carries the last exchange: an entry with its session, and "last said". */
 function lineOf(text: string): string | undefined {
-  return text.split("\n").find((l) => l.startsWith("Last said here"));
+  return text.split("\n").find((l) => /[Ll]ast said .*? — recall "last exchange"\./.test(l));
+}
+
+/** The exchange's own words on that line, from "said" to the handle. */
+function saidOf(line: string | undefined): string {
+  return /said .*? — recall "last exchange"\./.exec(line ?? "")?.[0] ?? "";
 }
 
 /** The recall tool over the same store and clock, bound to `session` in `scope`. */
@@ -255,12 +262,13 @@ describe("the line names the latest other session in this folder", () => {
     new Session(w, C, THERE).add(typed("THEREWORDS the rye starter wants feeding."), said("THEREWORDS fed.")).stop(at(9, 30));
 
     const line = lineOf(wakeOf(w, at(9, 45)));
-    expect(line).toBe(`Last said here, 09:10 (session a1b2c3d4): "Let's fix the reserve for the handoff block first, then…" — recall "last exchange"`);
-    expect(bytes(line ?? "")).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
+    expect(line).toStartWith("Where this folder stands: session a1b2c3d4, ");
+    expect(saidOf(line)).toBe(`said 09:10: "Let's fix the reserve for the handoff block first, then…" — recall "last exchange".`);
+    expect(bytes(saidOf(line))).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
 
     // THERE's wake names THERE's session, not HERE's.
     const there = lineOf(wakeOf(w, at(9, 50), { session: "d0d0d0d0-0000-4000-8000-00000000000d", scope: THERE }));
-    expect(there).toContain("(session c9cacbcc)");
+    expect(there).toContain("session c9cacbcc");
     expect(there).toContain("THEREWORDS");
     expect(there).not.toContain("reserve");
 
@@ -273,7 +281,9 @@ describe("the line names the latest other session in this folder", () => {
     new Session(w, A, HERE).add(typed("The older session's words about the north bed.")).add(said("Noted.")).stop(at(8, 10)).end(at(8, 15));
     w.set(at(9));
     new Session(w, A2, HERE).add(typed("The newer session's words about the south bed.")).add(said("Noted too.")).stop(at(9, 5));
-    expect(lineOf(wakeOf(w, at(9, 30)))).toContain(`(session a2a2a2a2): "The newer session's words about the south bed."`);
+    const line = lineOf(wakeOf(w, at(9, 30)));
+    expect(line).toContain("session a2a2a2a2");
+    expect(saidOf(line)).toContain(`"The newer session's words about the south bed."`);
   });
 
   test("no exchange here, no line — the wake is what it was", () => {
@@ -288,7 +298,9 @@ describe("the line names the latest other session in this folder", () => {
     const w = world(at(9));
     new Session(w, A, HERE).add(typed("Words from yesterday morning about the hedge.")).add(said("Yes.")).stop(at(9));
     // The next morning, inside the day: the line, with its date.
-    expect(lineOf(wakeOf(w, at(8, 30, D2), { date: D2 }))).toStartWith("Last said here, 10-11 09:00 (session a1b2c3d4)");
+    const line = lineOf(wakeOf(w, at(8, 30, D2), { date: D2 }));
+    expect(line).toContain("session a1b2c3d4");
+    expect(saidOf(line)).toStartWith("said 10-11 09:00: ");
     // Past it: nothing.
     expect(lineOf(wakeOf(w, at(9, 30, D2), { date: D2 }))).toBeUndefined();
   });
@@ -300,7 +312,7 @@ describe("the line names the latest other session in this folder", () => {
     w.c.rebrief({ budgetBytes: BUDGET, at: D });
     for (const mode of ["off", "paused"] as const) {
       const out = w.hooks({ mode }).sessionStart({ sessionId: B, scope: HERE, at: D } as HookInput);
-      expect(out.injection).not.toContain("Last said here");
+      expect(out.injection).not.toContain('recall "last exchange"');
       expect(out.injection).not.toContain("Words that would be named");
     }
     // An observer folder: the entry point opens the store as an observer
@@ -320,7 +332,7 @@ describe("the line names the latest other session in this folder", () => {
     });
     const seen = hooks.sessionStart({ sessionId: B, scope: HERE, at: D } as HookInput).injection;
     expect(seen).toContain("counterparts:wake");
-    expect(seen).not.toContain("Last said here");
+    expect(seen).not.toContain('recall "last exchange"');
     expect(seen).not.toContain("Words that would be named");
   });
 });
@@ -402,7 +414,7 @@ describe("the caps hold", () => {
     const reply = `Let me look first. ${"I checked the beds one by one and wrote each down. ".repeat(40)}The last word: lime on the north bed.`;
     new Session(w, A, HERE).add(typed(long), said(reply)).stop(at(9, 5));
     const line = lineOf(wakeOf(w, at(9, 30))) ?? "";
-    expect(bytes(line)).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
+    expect(bytes(saidOf(line))).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
     const quote = /: "(.*)" — recall/.exec(line)?.[1] ?? "";
     expect(quote.replace(/…$/, "").split(" ").length).toBeLessThanOrEqual(LAST_EXCHANGE_WORDS);
     const got = await lastExchangeOf(recallServer(w));
@@ -420,10 +432,11 @@ describe("the caps hold", () => {
   });
 
   test("the widest line there can be is within the bound the boundary reserves", () => {
-    const now = at(9, 0, D2);
     for (const text of ["ü".repeat(400), "wörterbuch-ähnlich ".repeat(30), "a b c d e f g h i j k l m n"]) {
-      const line = lastExchangeLine({ session: A, scope: HERE, said: { text, at: at(18) }, reply: null }, { zone: ZONE, now });
-      expect(line).toStartWith("Last said here, 10-11 18:00 (session a1b2c3d4): ");
+      const said = { session: A, at: at(18), when: "10-11 18:00", quote: quoteOf(text), handle: "last exchange" };
+      // Its widest form: the exchange alone, as the block's whole entry.
+      const line = standsLadder({ handoffs: [], said, day: 1 })[0]?.block ?? "";
+      expect(line).toStartWith("Where this folder stands: session a1b2c3d4, last said 10-11 18:00: ");
       expect(bytes(line)).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
     }
   });
@@ -457,7 +470,8 @@ describe("a crashed session: what its last turn-end captured, and nothing after"
     s.add(typed("UNCAPTURED final words about the gate.", at(9, 20)), said("UNCAPTURED half a reply", at(9, 21)));
     recordSession(storeDir, { sessionId: A, scope: HERE, phase: "boundary", at: at(9, 20) });
     const line = lineOf(wakeOf(w, at(9, 40)));
-    expect(line).toBe(`Last said here, 09:03 (session a1b2c3d4): "The first question about the hedge." — recall "last exchange"`);
+    expect(line).toContain("session a1b2c3d4");
+    expect(saidOf(line)).toBe(`said 09:03: "The first question about the hedge." — recall "last exchange".`);
     const got = JSON.stringify(await lastExchangeOf(recallServer(w)));
     expect(got).toContain("The first question about the hedge.");
     expect(got).toContain("The first answer.");
@@ -575,7 +589,8 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     expect(lineOf(quiet)).toBeUndefined();
     expect(readSentinel(text.slice(text.indexOf("<!-- counterparts:wake "))).intact).toBe(true);
     const line = lineOf(text);
-    expect(line).toBe(`Last said here, 10-10 18:30 (session a1b2c3d4): "Tomorrow we finish the seed-tray ladder and then the watering…" — recall "last exchange"`);
+    expect(line).toContain("session a1b2c3d4");
+    expect(saidOf(line)).toBe(`said 10-10 18:30: "Tomorrow we finish the seed-tray ladder and then the watering…" — recall "last exchange".`);
     // The page whole and as long as without the line; the due reminder listed; Still open's first item.
     expect(pageBytes(text)).toBe(pageBytes(quiet));
     expect(lane(text, FRAMING.horizon).some((l) => l.includes("the seed order closes at noon"))).toBe(true);
@@ -592,12 +607,12 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     const listed = (ls: readonly string[]): string[] => which(ls.filter((l) => l.startsWith("- ")));
     for (const item of listed(lane(quiet, FRAMING.threads))) expect(listed(lane(text, FRAMING.threads))).toContain(item);
     expect(lane(text, FRAMING.horizon)).toEqual(lane(quiet, FRAMING.horizon));
-    // Last here and the handoffs still point the way, the line between them.
+    // The chapter and the handoffs still point the way, the words on the chapter's own entry.
     const ls = text.split("\n");
-    const here = ls.findIndex((l) => l.startsWith("Last here: "));
-    const said = ls.findIndex((l) => l.startsWith("Last said here"));
-    expect(here).toBeGreaterThan(-1);
-    expect(said).toBe(here + 1);
+    // Under the handoff, which leads: a different session's chapter and its words.
+    const here = ls.find((l) => l.includes("The seed-tray ladder") && l.startsWith("Since then: ")) ?? "";
+    expect(here).toContain("The seed-tray ladder");
+    expect(here).toBe(line ?? "?");
     expect(text).toContain("garden-b");
     expect(text.split("\n").some((l) => l.startsWith("Today, elsewhere: "))).toBe(true);
   });
@@ -616,16 +631,11 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     expect(lineOf(text)).toBeUndefined();
     expect(text).toContain(PAGE_END_LINES.whole);
     expect(pageBytes(text)).toBe(pageBytes(quiet));
-    expect(text.split("\n").some((l) => l.startsWith("Last here: "))).toBe(true);
+    expect(text.split("\n").some((l) => l.startsWith("Where this folder stands: "))).toBe(true);
     expect(text).toContain("garden-b");
     expect(lane(text, FRAMING.horizon).some((l) => l.includes("the seed order closes at noon"))).toBe(true);
   });
 
-  test("the delivery's ladder: each width of the blocks above the handoff with the line, then without it", () => {
-    expect(withExchange(["wide\nabout", "narrow"], "X")).toEqual(["wide\nabout\nX", "wide\nabout", "narrow\nX", "narrow"]);
-    expect(withExchange([], "X")).toEqual(["X"]);
-    expect(withExchange(["only"], null)).toEqual(["only"]);
-  });
 });
 
 // ── the handle ──────────────────────────────────────────────────────────────
@@ -712,7 +722,7 @@ describe("the handle", () => {
       spawner: () => ({ pid: 4242 }),
     });
     const text = hooks.sessionStart({ sessionId: B, scope: HERE, at: D } as HookInput).injection;
-    expect(text).toContain("Last said here");
+    expect(text).toContain('recall "last exchange"');
     expect(text).toContain("Words only the owner hears");
   });
 });
@@ -833,8 +843,8 @@ describe("S2 review: a session in an off, paused or observer folder owes nothing
     expect(entries.find((e) => e.session === A)).toMatchObject({ owed: true, recorded: false });
     for (const id of Object.values(ids)) expect(entries.find((e) => e.session === id)).toBeUndefined();
     const text = wakeOf(w, at(11), { date: D });
-    const line = text.split("\n").find((l) => l.startsWith("Last here:")) ?? "";
-    expect(line).toMatch(/^Last here: session a1b2c3d4, /);
+    const line = text.split("\n").find((l) => l.startsWith("Where this folder stands:")) ?? "";
+    expect(line).toMatch(/^Where this folder stands: session a1b2c3d4, /);
     expect(text).not.toContain("THEREWORDS");
     expect(text).not.toContain("0000000000c2");
     expect(text).not.toContain("0000000000c3");

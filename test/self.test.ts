@@ -212,11 +212,15 @@ const PASS_GATE: EpisodeGate = () => ({ ok: true });
  * switch leaves as it was; the craft lane composed at delivery is tested in
  * `test/wake-lanes.test.ts`.
  */
-const STORE_WIDE_CRAFT = { CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true } as const;
+const STORE_WIDE_CRAFT = { CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true, HINTS_IN_WAKE: true } as const;
 
-/** The craft lane in the wake, as before 2026-10-16 (`CRAFT_IN_WAKE`): the
- *  render tests below rank it to exercise the share and the trim order. */
-const CRAFT_LANE = withTunables({ CRAFT_IN_WAKE: true });
+/** The craft lane in the wake, as before 2026-10-16 (`CRAFT_IN_WAKE`), and the
+ *  hints lane, as before WK1 (`HINTS_IN_WAKE`, 2026-10-30): the render tests
+ *  below rank them to exercise the share and the trim order. */
+const CRAFT_LANE = withTunables({ CRAFT_IN_WAKE: true, HINTS_IN_WAKE: true });
+
+/** The lane a plain warm memory reaches the wake by, for the date-prefix tests below. */
+const HINTS_ON = { HINTS_IN_WAKE: true } as const;
 
 /** A store clock in 2026, so a 2026 date prints short (`Sep 4`) whatever
  *  year the suite runs in (`time.ts#shortDay`, 2026-10-16). */
@@ -406,9 +410,9 @@ describe("the wake briefing — the day-0 lane", () => {
     expect(out.trimmed.map((t) => t.lane)).toEqual(["identity", "identity"]);
     expect(out.text).not.toContain(identityCoreLine("Dana"));
     expect(out.text).not.toContain("We've only just met");
-    // What the lane says instead (2026-09-29): that it left two out, and where
-    // they are — never that there is nothing.
-    expect(out.text).toContain(`${FRAMING.identity}\n(2 more about who I am; recall ids: id_one, id_two)`);
+    // What the lane says instead (2026-09-29): that it left two out — never
+    // that there is nothing. No ids since WK1 (2026-10-30).
+    expect(out.text).toContain(`${FRAMING.identity}\n(2 more about who I am)`);
     expect(out.more).toEqual({ identity: 2 });
   });
 
@@ -845,7 +849,7 @@ describe("the wake briefing — every element carries its date", () => {
       learnedOn: "2026-09-01",
       happenedOn: "2026-09-01",
     });
-    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
+    const lines = statementLines(new Self({ store: s, tunables: HINTS_ON }).build({ budgetBytes: 100_000, day: 0 }).text);
     expect(lines).toContain(
       "- Sep 1 (of Oct 14) · The dentist appointment is on the fourteenth.",
     );
@@ -869,7 +873,7 @@ describe("the wake briefing — every element carries its date", () => {
       salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 },
       learnedOn: "2026-09-01",
     });
-    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
+    const lines = statementLines(new Self({ store: s, tunables: HINTS_ON }).build({ budgetBytes: 100_000, day: 0 }).text);
     expect(lines).toContain("- 2026-09-01: the standup moved to ten.");
     // Another date in front is the statement's own, not the learned one: both stay.
     expect(lines).toContain("- Sep 1 · 2026-08-30: the old standup time was nine.");
@@ -984,7 +988,7 @@ describe("the wake briefing — every element carries its date", () => {
       happenedOn: "2026-07-26",
       source: "migrated",
     });
-    const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
+    const lines = statementLines(new Self({ store: s, tunables: HINTS_ON }).build({ budgetBytes: 100_000, day: 2 }).text);
     expect(lines).toEqual([
       "- Sep 3 (of Jul 26) · The credential incident took a Saturday to unpick.",
     ]);

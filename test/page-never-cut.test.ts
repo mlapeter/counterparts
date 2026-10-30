@@ -173,8 +173,10 @@ function workBlock(a: ReturnType<typeof openAdapter>): number {
  */
 function widestReserves(a: ReturnType<typeof openAdapter>): void {
   const c = a.counterpart;
+  // Lines under the first since WK1: the newest handoff's lead is up to five of them.
+  const under = ["The second line says where the kiln log is kept.", "The third line says who reads the cones.", "The fourth line says which shelf is free."].join("\n");
   const sentence = (i: number, extra: number): string =>
-    `Handoff ${String(i)}: the glaze tiles dry on rack two${"x".repeat(extra)}. Then the kiln log needs the cone readings.`;
+    `Handoff ${String(i)}: the glaze tiles dry on rack two${"x".repeat(extra)}. Then the kiln log needs the cone readings.\n${under}`;
   for (let i = 0; i < 3; i += 1) c.writeHandoff(sentence(i, 0), { scope: SCOPE, session: `h${String(i)}` });
   const short = WIDEST_BLOCK - widestHandoff(a);
   expect(short).toBeGreaterThan(0);
@@ -250,7 +252,7 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
         expect(readSentinel(text).intact).toBe(true);
         expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
         // The room the delivery held was used: this directory's handoffs and work.
-        expect(text).toContain("Where the work in this directory was left off");
+        expect(text).toContain("Where this folder stands");
         expect(text).toContain(WORK_HERE_HEADING);
         // Doctor: green, and it says the last wake showed it whole.
         const f = selfPageFindings(a.counterpart.store)[0];
@@ -352,7 +354,7 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
         expect(readSentinel(text).intact).toBe(true);
         expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
         // The handoff is chosen before "Work here" and never gives way to it.
-        expect(text).toContain("Where the work in this directory was left off");
+        expect(text).toContain("Where this folder stands");
         // Whole is green, past its room or not; the detail says the room.
         const f = selfPageFindings(a.counterpart.store)[0];
         expect(f?.severity).toBe("green");

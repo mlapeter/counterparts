@@ -279,8 +279,9 @@ proposals and their archive; render and delivery telemetry.
    after it (`…; Unsettled — may be out of date, see [b]: `) — both, never one for the
    other. **A lane that lost elements says so** (2026-09-29,
    a working default): what its cap (`rankLanes`' `overflow`), the identity share or the
-   trim left out gets one furniture line under the lane — how many more, and up to
-   `MORE_LINE_IDS` ids the recall tool reads whole (`briefing.ts#moreLine`). **Nothing is
+   trim left out gets one furniture line under the lane — how many more, and the recall
+   handle that lists them by title where the lane has one; no bare ids since WK1, 2026-10-30
+   (`briefing.ts#moreLine`, `HANDLE_WORDS`). **Nothing is
    dropped without a word** (2026-10-12, Mike's principle; the minimal version, chosen via
    RANDOM, lightly held): the line's room is RESERVED — the trim loop composes with the
    line of every lane that has lost something and pops until items and lines fit together
@@ -743,6 +744,8 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WORK_HERE_CRAFT_MAX` | 2 | With `PROJECTS_TRAVEL`: places of the work pool held by craft from outside the project, taking turns by lived day among the newest. CAL. |
 | `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
+| `HINTS_IN_WAKE` | false | Whether "Might be relevant:" (the hints lane) is a lane of the wake (WK1, 2026-10-30, ROADMAP's call for Mike's review). Off: empty in every composition on a store with a page — no list, no count line, no fold part; ambient recall does that job per turn. A store with no page yet keeps the lane: it is all that wake has of its memories. A publish closes every open `wake_display` showing. On: the lane as before. |
+| `COMING_UP_OVERDUE_LISTED` | 2 | The oldest overdue items "Coming up" lists, by title and age (WK1, the brief's 1–2). They step back when they would cost "Still open" an item (`Self#composeLanes`). The rest are counted behind `recall "still open"`. 0: all counted. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |
 | `HINT_RECOVERY_DAYS` | 3 | Lived days for that load to fall to 1/e once the memory stops being shown. |
 | `HINT_HABITUATION` | 1 | The pull a load leaves: `1 / (1 + HINT_HABITUATION × load)`. |
