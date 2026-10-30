@@ -5530,7 +5530,7 @@ export class Store {
     this.assertWritable("coverPostingsIndex");
     if (postingsCovered(this.cache) || cacheAhead(this.cache) !== null) return { built: false, ms: 0 };
     const started = performance.now();
-    coverPostings(this.cache);
+    if (!coverPostings(this.cache)) return { built: false, ms: 0 };
     return { built: true, ms: Math.round(performance.now() - started) };
   }
 

@@ -544,6 +544,13 @@ describe("subject links", () => {
     expect(idx.matchesIn("\u212Aevin").map((h) => h.term)).toEqual(["kevin"]);
     expect(idx.matchesIn("οδος").map((h) => h.term)).toEqual(["ΟΔΟΣ"]);
     expect(idx.matchesIn("σοφοσ").map((h) => h.term)).toEqual(["σοφος"]);
+    // A letter outside the BMP is a word character on both runtimes here, whatever
+    // bun's lookbehind says on its own; an emoji is still a boundary.
+    for (const t of ["\u{10400}Oskar", "\u{1D400}Oskar", "\u{20000}Oskar"]) {
+      expect(idx.matchesIn(t)).toEqual([]);
+      expect(scan(t)).toEqual([]);
+    }
+    expect(idx.matchesIn("\u{1F600}Oskar").map((h) => h.term)).toEqual(["Oskar"]);
   });
 
   test("matchesIn holds the every-term rule on random texts, and follows register and unregister", () => {

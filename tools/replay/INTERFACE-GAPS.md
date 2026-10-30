@@ -292,7 +292,9 @@ it cannot drift apart without failing `tsc`. Proof: `test/counterpart.test.ts`,
 - **`needs-rater` stays `needs-rater`.** A hashable surface set is the precondition
   for a human verdict to CARRY across a change; it is not a rater. A2 and PR-F
   still return `needs-rater` until the parallel run supplies one.
-- **A latency abort writes nothing at all** — no row, and no in-process event
+- *(Since LT1, 2026-10-30, there is no latency abort: a late turn is shown and written
+  with its `lateMs`, recall §5 G2. What follows is how it stood.)*
+  **A latency abort writes nothing at all** — no row, and no in-process event
   either (`recall/` §5 G2: *nothing injected, buffered, logged, or spent*; a
   subconscious that lost its race must not then pay for a durable write to say so).
   So the surfacing race's WIN arm is in the store and its TIMEOUT arm is not: the

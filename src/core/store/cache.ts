@@ -137,7 +137,8 @@ const DDL: readonly string[] = [
  * NOT A FORMAT CHANGE, and no version moves. Every build reads and maintains
  * either index the same way (the planner finds them by table, not by name), so
  * an older build on a covered cache works and a rebuild there puts the old index
- * back; `coverPostings` then swaps it again. Keyed on the SHAPE, in `sqlite_master`.
+ * back; `coverPostings` then swaps it again. Keyed on its NAME in `sqlite_master`,
+ * so a later change to its columns needs a new name.
  */
 const POSTINGS_COVER = "doc_tokens_cover";
 /** What it replaces: every query it served, the covering index serves. */
@@ -156,10 +157,15 @@ export function postingsCovered(db: Db): boolean {
 /**
  * Build the covering index on a cache that has words already, and drop the one it
  * replaces, in one transaction. The worker's: on a large store this is seconds
- * of writing, and a hook cannot pay for it.
+ * of writing, and a hook cannot pay for it. False when another process built it
+ * while this one waited for the lock, so only the one that built it says it did.
  */
-export function coverPostings(db: Db): void {
-  db.transaction(() => makePostingsCover(db));
+export function coverPostings(db: Db): boolean {
+  return db.transaction(() => {
+    if (postingsCovered(db)) return false;
+    makePostingsCover(db);
+    return true;
+  });
 }
 
 const TABLES = ["doc_tokens", "doc_lens", "embeddings", "cache_meta", "ranking", "neighbours"] as const;
@@ -1396,8 +1402,9 @@ export function searchIndex(
  * test and grew with the store.
  *
  * `doc_tokens` is keyed `(memory_id, token)`, so `COUNT(*)` per token IS the
- * document count — no `DISTINCT` needed, and the index on the token covers it. One grouped query for the whole turn: measured 8–36 ms cold and
- * 2–4 ms warm for 72 tokens on that same index.
+ * document count — no `DISTINCT` needed, and the index on the token covers it.
+ * One grouped query for the whole turn: measured 8–36 ms cold and 2–4 ms warm for
+ * 72 tokens on that same index.
  */
 export function docFrequency(db: Db, tokens: readonly string[]): Map<string, number> {
   // v7: each KEY is read as a cue — one word, or several surface words that

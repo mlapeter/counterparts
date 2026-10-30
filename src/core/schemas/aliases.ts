@@ -34,6 +34,13 @@ import { nameRegex, occursAsName, unpossessed, wordTokens } from "../encode/word
  * `toLowerCase` (the long s; the Kelvin sign lower-cases to `k`), so a term with
  * an ASCII first word is safe once that one is mapped. A first word with anything
  * else in it is simply always tried, which is what every term cost before.
+ *
+ * Two inputs where the hits do move, neither on a real card or text so far. Under
+ * bun, `nameRegex`'s lookbehind doesn't see a letter outside the BMP as a word
+ * character, so the rule alone finds "kim" in "\u{10400}kim"; node's doesn't, and
+ * now neither does bun here, since that text's word is the whole run. And a term
+ * with U+0345 touching its first word: it folds to iota and is no word character,
+ * the one such character there is.
  */
 function wordsIn(text: string): Set<string> {
   return new Set(wordTokens(text.replace(/\u017f/gu, "s")).flatMap((t) => [t, unpossessed(t)]));

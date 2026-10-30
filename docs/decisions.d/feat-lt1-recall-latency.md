@@ -17,4 +17,6 @@
   is still tried on every prompt. `toLowerCase` and the regex's case folding disagree outside ASCII, and
   trying it is what every term cost before, so such a store is no slower than today and no faster there.
   The scanner the v12 backfill uses had this same gap, on a long s or a final sigma; it goes through the
-  same two functions now.
+  same two functions now. On a copy's 222 cards and 5,420 texts neither `matchesIn` nor the scanner moved.
+  What does move: under bun, a letter outside the BMP right before a name no longer counts as a boundary,
+  which is what node's regex always did (`schemas/aliases.ts`).

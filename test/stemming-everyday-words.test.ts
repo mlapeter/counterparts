@@ -25,6 +25,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { activate } from "../src/core/recall/activate.js";
 import { buildCues, everydayFactor } from "../src/core/recall/cues.js";
 import { TUNABLES } from "../src/core/recall/tunables.js";
+import { coverPostings } from "../src/core/store/cache.js";
 import { openDb } from "../src/core/store/db.js";
 import {
   CACHE_SCHEMA_VERSION,
@@ -93,6 +94,10 @@ describe("the covering index on the word index (LT1, 2026-10-30)", () => {
       const built = s.coverPostingsIndex();
       expect(built.built).toBe(true);
       expect(look()).toEqual(["doc_tokens_cover"]);
+      // The one who waited for the lock finds it built, and doesn't say it built it.
+      const other = openDb(cache, { wal: true });
+      expect(coverPostings(other)).toBe(false);
+      other.close();
       // Every score, to the last bit, and the order ties break in.
       expect(s.search("harbour", 10)).toEqual(before.one);
       expect(s.search("sourdough harbour baking", 10)).toEqual(before.two);
