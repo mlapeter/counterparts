@@ -295,7 +295,7 @@ describe("closed to day's end, the dream and the reflection", () => {
     const c = brain();
     clock = at(D1, 10);
     const left = new McpServer({ counterpart: c, session: WRITER, scope: SHUT, registryDir: join(root, "registry"), now: () => clock });
-    await left.call("remember", { text: `Open: the rota where the quarter ${SECRET_WORDS}.`, unresolved: true, eventDate: "2026-10-30", recurring: "weekly", about: "owner" });
+    await left.call("remember", { text: `Open: the rota where the quarter ${SECRET_WORDS}.`, unresolved: true, eventDate: "2026-10-25", recurring: "weekly", about: "owner" });
     setting({ [HERE]: "on", [SHUT]: "off" });
     night();
     expect(says(await child(c, null).call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(true);
