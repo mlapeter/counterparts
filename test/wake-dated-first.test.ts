@@ -384,7 +384,7 @@ function lower(text: string): { handoffs: number; work: number; yesterday: strin
 
 /** Every live handoff is accounted for: a line of its own, or the door's count. */
 function handoffsTold(text: string): number {
-  return lower(text).handoffs + Number(/\+(\d+) (?:older )?handoffs?: recall "handoffs here" lists them\./.exec(text)?.[1] ?? 0);
+  return lower(text).handoffs + Number(/\+(\d+) (?:older )?handoffs?: recall "handoffs here" lists (?:them|it)\./.exec(text)?.[1] ?? 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
