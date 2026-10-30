@@ -404,12 +404,12 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
 14. **[M]** The per-turn surfacing decision record is content-by-reference and exists from day
     one — it is the richest replay comparison surface (§17.3).
 15. **[M]** That record is **durable**: the composition root appends one `recall.decision` row
-    per non-aborted turn to the store's event log, and exports the record's ordered field list
+    per turn to the store's event log, and exports the record's ordered field list
     (`surfaceSetFields()`) as the surface set's schema — so a run's surfacing numbers are
     recomputable from the store it leaves behind rather than from a live event ring, and a
     human rating can be carried across a change only when that set provably matches (parallel
-    CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
-    abort writes nothing at all, which is guarantee 2 unchanged. Since 2026-10-25 (N1) the
+    CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer. A late
+    turn is written like any other (guarantee 2, since LT1). Since 2026-10-25 (N1) the
     row also counts what each mechanism kept from showing (`habituationCut`, `nearMiss`
     with its margin, `capped`, `budgetTrimmed`, `inhibited`, beside `echoSkipped` and
     `projectSkipped`), read off the verdicts and the render's trims after the turn is
@@ -731,9 +731,9 @@ nothing about what is recallable or ranked moves. Episodes record their director
    (owner ruling): no — and it does not rank one either.** v1's did, inside its own
    latency race (`~/bansai/hooks/surface.ts:82-88`, "a cold cache calls Voyage and the
    latency race covers it"), which is how "no second LLM call" quietly became untrue
-   there. v2 cannot even do that much: `recall.build` is a synchronous pass with budget
-   checkpoints rather than a race, so an overrun aborts the turn instead of degrading the
-   channel, and every hook is a fresh process already spending 700-1000 ms cold against
+   there. v2 cannot even do that much: `recall.build` is a synchronous pass rather than a
+   race, so nothing could interrupt a slow channel (until LT1 an overrun dropped the whole
+   turn instead), and every hook is a fresh process already spending 700-1000 ms cold against
    1200 ms. The cue is computed by the detached worker after a turn and used on the next
    one (§5 G17). The deliberate ask is the exception and embeds in line
    (`mcp/deliberate.ts#embedQuestion`; since 2026-10-03 it ranks in its own mode, not
