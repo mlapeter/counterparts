@@ -2187,6 +2187,12 @@ describe("hook records", () => {
     }
     expect(typeof rows("adapter.wake.injected")[0]?.["bytes"]).toBe("number");
     expect(typeof rows("adapter.recall")[0]?.["surfaced"]).toBe("number");
+    // F1: where the wake's bytes went, at the start itself; they sum to the wake.
+    const woke = rows("adapter.wake.injected")[0] as Record<string, unknown>;
+    expect(typeof woke["assembled"]).toBe("boolean");
+    const secs = Object.entries(woke).filter(([k]) => k.startsWith("sec_"));
+    expect(secs.length).toBeGreaterThan(0);
+    expect(secs.reduce((n, [, v]) => n + (v as number), 0)).toBe(woke["bytes"] as number);
   });
 
   test("every session-ending path leaves a DURABLE boundary row — session-end and pre-compact included", () => {

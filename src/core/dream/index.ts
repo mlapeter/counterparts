@@ -1881,6 +1881,7 @@ export class Dreams {
     const b = c.bundle;
     return {
       fresh: b.fresh.length,
+      freshCutP: c.freshCutP,
       shown: c.shown.length,
       chapters: b.chapters.length,
       queue: b.queue.new,
@@ -3305,6 +3306,11 @@ export class Dreams {
     }
     const fresh = freshOut.filter((f) => !left.has(f.id)).map((f) => ({ id: f.id, neighbours: f.neighbours.filter((n) => !left.has(n)) }));
     const tonight = fresh.length;
+    // HOW FAR DOWN THE QUEUE TONIGHT REACHED (F1, 2026-10-30): the priority of
+    // the last memory taken, in the order they were taken (a carried fold's
+    // parts go first, so with one in the queue this need not be the lowest).
+    const lastTaken = fresh[fresh.length - 1];
+    const freshCutP = lastTaken === undefined ? null : round(priority.get(lastTaken.id) ?? 0);
     const notShown = [...left].filter((mid) => role.get(mid) !== "new").length + chaptersFit.notShown;
 
     const owner = ownerNames(this.store);
@@ -3369,6 +3375,7 @@ export class Dreams {
       reads: chaptersFit.reads,
       unread: chaptersFit.unread,
       lineCap: chaptersFit.summaryBytes,
+      freshCutP,
       freshMarked: fresh.filter((f) => dayRead.marks.has(f.id)).length,
     };
   }
@@ -3898,6 +3905,8 @@ interface Composed {
   readonly unread: Record<string, number[]>;
   /** The longest a chapter's summary was as a line (2026-10-15), so `part` renders what the fit measured. */
   readonly lineCap: number;
+  /** The priority of the last new memory taken (F1, `dream.begun`); null when none was. */
+  readonly freshCutP: number | null;
   /** Of tonight's fresh, how many the day marked (used, rated or shown; part E). */
   readonly freshMarked: number;
 }

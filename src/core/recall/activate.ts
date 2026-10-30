@@ -87,6 +87,9 @@ export interface Candidate {
   readonly temporal: number;
   readonly semantic: number;
   readonly arrival: number;
+  /** The part of `cue` learned pairs gave (R3; F1, 2026-10-30, for the row's
+   *  "why it showed"), never past `cue` itself. Absent: none. */
+  readonly pair?: number;
   /** Spreading activation from `associate/`. In `activation`, never in
    *  `cueFraction`'s numerator, and never able to mint a candidate. */
   readonly hops: number;
@@ -722,6 +725,8 @@ export function activate(
   // `recallable` (denied, archived, superseded, below reach), the doc cap,
   // the gate — applies as to any cue. Absent reader: nothing here runs.
   const learnedReached = new Set<string>();
+  /** What learned pairs gave each memory: one running sum, only for the row. */
+  const pairScore = new Map<string, number>();
   if (input.learned !== undefined && t.CUE_PAIR_UNITS > 0) {
     const pairUnit = t.CUE_PAIR_UNITS * informativeness(1, storeSize);
     const own = cues.filter((c) => !c.carried && c.weight > 0);
@@ -759,6 +764,7 @@ export function activate(
         const add = weight * share * pairUnit * (cue.ambiguous ? t.AMBIGUOUS_WEIGHT : 1);
         if (!(add > 0)) continue;
         cueScore.set(id, (cueScore.get(id) ?? 0) + add);
+        pairScore.set(id, (pairScore.get(id) ?? 0) + add);
         bestCue.set(id, Math.max(bestCue.get(id) ?? 0, add));
         // One cue, one match: a word that also matched the text is not counted twice.
         if (byDoc?.has(id) !== true) matchCount.set(id, (matchCount.get(id) ?? 0) + 1);
@@ -1090,6 +1096,8 @@ export function activate(
       if (copy === undefined || chapter === undefined) continue;
       const cue = Math.max(chapter.cue, copy.cue);
       const temporal = Math.max(chapter.temporal, copy.temporal);
+      const pairShare = Math.max(pairScore.get(chapterId) ?? 0, pairScore.get(copyId) ?? 0);
+      if (pairShare > 0) pairScore.set(chapterId, pairShare);
       const semantic = Math.max(chapter.semantic, copy.semantic);
       const arrival = cue + semantic > 0 ? t.ARRIVAL_WEIGHT * chapter.strength : 0;
       const activation = cue + semantic + arrival;
@@ -1386,6 +1394,7 @@ export function activate(
       temporal,
       semantic,
       arrival,
+      ...((pairScore.get(id) ?? 0) > 0 ? { pair: Math.min(pairScore.get(id) ?? 0, cue) } : {}),
       hops,
       activation,
       // Hops are in NEITHER half (2026-09-28): they can raise a candidate's

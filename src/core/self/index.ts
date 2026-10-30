@@ -86,6 +86,7 @@ import type {
   SchemaBytesReport,
 } from "./identity.js";
 import {
+  BRIEFING_KEPT_LOG_CAP,
   BRIEFING_TRIM_LOG_CAP,
   FRAMING,
   LANE_ORDER,
@@ -2814,6 +2815,11 @@ export class Self {
       hints: briefing.counts.hints,
       horizon: briefing.counts.horizon,
       trimmed: briefing.trimmed.length,
+      // WHICH IDS EACH LANE KEPT (F1, 2026-10-30), for the durable row; this
+      // ring's fields are flat, so a list goes as `untoldLanes` does.
+      ...Object.fromEntries(
+        LANE_ORDER.filter((l) => briefing.kept[l].length > 0).map((l) => [`kept:${l}`, briefing.kept[l].slice(0, BRIEFING_KEPT_LOG_CAP).join(",")] as const),
+      ),
       // WHAT THE WAKE COUNTS RATHER THAN LISTS, AND WHAT IT LEFT UNSAID
       // (2026-10-12): `counted` is the step-downs ("N more", a collapsed or
       // the folded line), never a fault; `untold` is ids no line names —
@@ -3634,10 +3640,12 @@ export class Self {
    * that shape keeps working): a self-kind memory, `source: episode`,
    * `origin_ref` the chapter's id, `meta.episodeId`, plus `meta.chapter` and
    * `meta.chapterSummary`. It FADES like an ordinary memory (Mike,
-   * 2026-10-15), so it is born with an ordinary memory's default floor for
-   * its kind (`physics.defaultClaimFor`, recorded `claimedDefault` like a
-   * note's) rather than the copy's zero, which would have put it below reach
-   * from its first day. Its title is the episode's, with the chapter's number
+   * 2026-10-15), so it is born with a default floor, recorded `claimedDefault`
+   * like a note's since nobody claimed it, rather than the copy's zero, which
+   * would have put it below reach from its first day. The floor goes by its
+   * chapter's mark as written (F1, 2026-10-30): me, us, owner or world keep the
+   * self-kind default (`physics.defaultClaimFor`, 0.4); unmarked or work start
+   * at `CHAPTER_SUMMARY_CLAIM`. A later re-mark moves the mark and never the claim. Its title is the episode's, with the chapter's number
    * after the first. Its mark: its own chapter's (the episode's latest only for an episode from before per-chapter marks).
    */
   private putSummary(input: {
@@ -3678,7 +3686,9 @@ export class Self {
       },
       source: "episode",
       origin: { session: input.sessionId, ref: input.episodeId, ...(folder === null || folder.length === 0 ? {} : { scope: folder }) },
-      salience: { claimed: defaultClaimFor({ about: mark, kind: "self" }).claim },
+      // Unmarked or work: its own lower start (F1, 2026-10-30). Any other mark:
+      // the self-kind default, as before. Read off the mark above, once, at birth.
+      salience: { claimed: mark === null || mark === "work" ? this.tunables.CHAPTER_SUMMARY_CLAIM : defaultClaimFor({ about: mark, kind: "self" }).claim },
     };
     // THE TITLE, THROUGH THE SECRETS SCAN ONLY (review of #293, B3): the
     // battery's content floor is for bodies, and a title that is nothing but

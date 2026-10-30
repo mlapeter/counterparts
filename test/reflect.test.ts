@@ -494,6 +494,9 @@ describe("reflect: dream → journal → reflect", () => {
     if (!done.ok) throw new Error(String(done.reason));
     expect(done.outcome.returned).toContainEqual({ id: d.gist, counted: false, reason: "dreamed-rises-only-awake" });
     expect(c.store.returnsOf(d.gist)).toEqual([]);
+    // F1: and the row keeps why, by reason, where only the hand-back said it.
+    const refusedReturns = JSON.parse(c.store.reflections({ limit: 1 })[0]?.detail ?? "{}")["refusedReturns"] as Record<string, number>;
+    expect(refusedReturns["dreamed-rises-only-awake"]).toBe(1);
     const entry = done.outcome.entryId as string;
     nextDay(c);
     const next = c.reflections.begin({ session: SESSION });

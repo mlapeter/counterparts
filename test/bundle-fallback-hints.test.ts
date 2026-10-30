@@ -19,6 +19,7 @@
  * invented placeholder prose.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,7 +64,12 @@ let FARM: string;
 let clock = at(D0, 7);
 const open: { close(): void }[] = [];
 
+// Warm enough for the Nearby lane these tests turn on (`WARM_FLOOR`, 0.35): the
+// lane's gate is what's under test. Since F1 an unmarked or work summary is born below it.
+const claimWas = SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM;
+
 beforeEach(() => {
+  (SELF_TUNABLES as { CHAPTER_SUMMARY_CLAIM: number }).CHAPTER_SUMMARY_CLAIM = 0.4;
   root = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "cp-p1-")));
   storeDir = join(root, "store");
   config = join(root, "claude-code.json");
@@ -75,6 +81,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  (SELF_TUNABLES as { CHAPTER_SUMMARY_CLAIM: number }).CHAPTER_SUMMARY_CLAIM = claimWas;
   for (const c of open.splice(0)) {
     try {
       c.close();

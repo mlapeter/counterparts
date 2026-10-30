@@ -827,6 +827,7 @@ export class Counterpart {
     // them for this session, as part of what is open here.
     let threads: readonly string[] = [];
     let tagged = false;
+    let assembledHere = false;
     this.delivering = delivery !== undefined;
     try {
       this.yesterdayLeftOut = null;
@@ -867,6 +868,7 @@ export class Counterpart {
       }
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
+      assembledHere = assembled !== null;
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
       // THE PROJECT LINE (lane E, an experiment): last, in what room is left.
       if (delivery !== undefined) withPointer = this.withProjectLine(withPointer, here);
@@ -902,7 +904,14 @@ export class Counterpart {
       preface: withPointer.preface !== null,
       budgetBytes: this.reportedBudget,
     });
-    return { ...withPointer, budgetBytes: this.reportedBudget, lined, threads, ...(tagged ? { tagged } : {}) };
+    return {
+      ...withPointer,
+      budgetBytes: this.reportedBudget,
+      lined,
+      threads,
+      ...(tagged ? { tagged } : {}),
+      ...(delivery === undefined ? {} : { shape: { ...boundaryPart.wakeShape(withPointer.text), assembled: assembledHere } }),
+    };
   }
 
   /**
@@ -4014,6 +4023,7 @@ export class Counterpart {
           // credited and why, and the pairs sent to be linked.
           credited: used.credited,
           notCredited: used.notCredited,
+          returnRefused: used.returnRefused,
           coUse: used.coUse,
           together: used.together,
         },
@@ -4081,6 +4091,7 @@ export class Counterpart {
     const refuse = (why: string): void => {
       notCredited[why] = (notCredited[why] ?? 0) + 1;
     };
+    const returnRefused: Record<string, number> = {};
     /** Ids that may be linked: their row passed, and nothing said they train nothing. */
     const linkable = new Set<string>();
     const rowRefusal = (id: string): string | null => {
@@ -4110,6 +4121,8 @@ export class Counterpart {
       try {
         const r = this.resolveUse(sessionId, c.id, c.tier, beliefSlot ? { beliefSlot: true } : {});
         if (r.credited || linksDespite(r)) linkable.add(c.id);
+        const ret = r.outcome?.ret ?? null;
+        if (ret !== null && !ret.counted) returnRefused[ret.reason] = (returnRefused[ret.reason] ?? 0) + 1;
         if (r.credited && (c.tier === "shown" || c.tier === "ontopic" || c.tier === "useful" || c.tier === "referenced")) {
           credited[c.tier] += 1;
         } else if (!r.credited) {
@@ -4157,6 +4170,7 @@ export class Counterpart {
     return {
       credited,
       notCredited,
+      returnRefused,
       coUse: { members: members.length, capped: plan.coUseCapped, pairs: sent[0] ?? 0, ids: members },
       together: sent[1] ?? 0,
       habituated: null,

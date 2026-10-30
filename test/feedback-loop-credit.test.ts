@@ -282,6 +282,24 @@ describe("A + B. rateShown credits the stretch and links what was co-used", () =
     expect(r.used.notCredited["archived"]).toBe(1);
   });
 
+  test("F1: a use credited whose return was refused is on the row, by reason", () => {
+    const c = brain();
+    c.store.advanceClock(date(0));
+    const old = fact(c, "This one came back the next day.");
+    c.store.advanceClock(date(1));
+    const today = c.store.put({ type: "memory", kind: "fact", body: "This one was written today, by another session.", origin: { session: "writer" } });
+    shown(c, "s1", 1, [old, today]);
+    const r = c.rateShown("s1", [
+      { id: old, score: 3 },
+      { id: today, score: 3 },
+    ]);
+    expect(r.used.credited.referenced).toBe(2);
+    // The old one's return counted; today's has no gap from its birth.
+    expect(r.used.returnRefused).toEqual({ "birth-day": 1 });
+    const row = JSON.parse(c.store.eventLog({ name: "recall.rated", ref: "s1" })[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(row["returnRefused"]).toEqual({ "birth-day": 1 });
+  });
+
   test("two co-uses reach the quiet-pointer weight; one does not; the row says what was linked", () => {
     const c = brain();
     c.store.advanceClock(date(0));

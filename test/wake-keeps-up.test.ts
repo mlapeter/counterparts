@@ -164,6 +164,9 @@ describe("the mark: set by the writes, caught by a render that read it first", (
     expect(out).toMatchObject({ reason: "rendered", triggers: ["page", "write-up"] });
     expect(wakeBehind(c.store)).toBe(null);
     expect(briefingRows().at(-1)).toMatchObject({ reason: "refresh", triggers: ["page", "write-up"] });
+    // F1: a refresh row keeps the count and the lanes, not the list of ids.
+    expect(briefingRows().at(-1)).not.toHaveProperty("trimmed");
+    expect(typeof briefingRows().at(-1)?.["trimmedTotal"]).toBe("number");
     // Caught up: nothing to do, and no row.
     expect(c.refreshWake({ at: "2026-09-30" }).reason).toBe("current");
     expect(briefingRows().length).toBe(1);

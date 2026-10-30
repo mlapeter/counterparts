@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | in review 10-30, unreleased | ~2 weeks after release (~2026-11-14, if it goes out in the next cut): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | in review 10-30, unreleased | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
@@ -119,6 +120,45 @@ change during a batch is allowed for, anything else is a bug. A debt that doctor
 the two readers disagree, fix the reader. Text from off folders staying too long to be comfortable: Mike's call on a
 shorter clock for `off` (`docs/decisions.d/fix-catch-up-respects-off.md`). **Revert.** The commits are small; nothing to
 migrate.
+
+## Due ~2 weeks after summaries started lower (2026-10-30, F1, ROADMAP's decision marked for Mike's review)
+
+**What we're trying.** A new unmarked or work chapter summary starts at 0.25, not 0.4; one marked me, us or owner keeps 0.4
+(35 of the 464 live ones on the 10-30 copy). The claim is read once, at birth, from the chapter's `about` as written, and a
+later re-mark moves the mark, not the claim. The 10-30 replay of the last 15 days, with every summary lowered, took 379
+never-used summaries out of reach and lost no use-days (14 showings lost: 7 rated 0, 1 rated 1, none useful); keeping the
+marked ones leaves below reach at 324 of 464, not 355, so about 350 of the 379 (an estimate). An unused unmarked or work one
+stays in reach about 3 lived days (was 24) and reaches the prune floor at 49 (was 267), so it is let go about 63 lived days
+in. Checked on a corpus copy with every live summary lowered, the harder case: the reflection's bundle, part 1's bytes and
+three session-start wakes came out identical, and the dream differed only by its seeded mixing, as a control run with
+nothing changed did. Those paths read a summary by its chapter and never ask about reach. A store with no page yet does
+ask, in "Might be relevant" (`WARM_FLOOR`, 0.35): an unmarked or work summary is no longer listed there.
+
+**What to look at (read-only).** By build, on rows from the build that carries it (`$.build`):
+- Summaries in reach and in use: live `meta.chapterSummary` rows by `claimed`, with `uses`, against strength. Ratings of a
+  summary from `recall.rated`, born before and after.
+- Whether what was lost was wanted: a deliberate recall or an expanded id on a summary below reach.
+- The first ones let go, ~9 lived weeks after release: `memory.pruned` on a summary, and what a chapter's line says with
+  no summary behind it (the chapter is still there; a dream, a reflection or the Yesterday line reads its own words).
+- The fields, a week's read:
+  `SELECT j.value, COUNT(*) FROM events e, json_each(e.payload,'$.nearMiss.ids') j WHERE e.name='recall.decision' GROUP BY 1 ORDER BY 2 DESC`
+  (who keeps almost showing; join to later ratings and uses);
+  `SELECT AVG(json_extract(f.value,'$.cue')), AVG(json_extract(f.value,'$.sem')), AVG(json_extract(f.value,'$.bar')), SUM(json_extract(f.value,'$.pair') IS NOT NULL), SUM(json_extract(f.value,'$.standsFor') IS NOT NULL) FROM events e, json_each(e.payload,'$.footnotes') f WHERE e.name='recall.decision'`
+  (why footnotes show);
+  `SELECT json_extract(payload,'$.pageRung'), AVG(json_extract(payload,'$.sec_page')), AVG(json_extract(payload,'$.sec_threads')), AVG(json_extract(payload,'$.sec_horizon')), AVG(json_extract(payload,'$.sec_stands')) FROM events WHERE name='adapter.wake.injected' GROUP BY 1`
+  (where a session start's bytes go);
+  `SELECT j.key, SUM(j.value) FROM events e, json_each(e.payload,'$.returnRefused') j WHERE e.name='recall.rated' GROUP BY 1`
+  (why a used memory earned no return; `reflections.detail` has `refusedReturns` the same way);
+  `SELECT day, json_extract(payload,'$.freshCutP'), json_extract(payload,'$.waiting') FROM events WHERE name='dream.begun'`
+  (how far down the queue each night reached).
+- The log's size per day: about +14 KB on about 1 MB, measured on a replay.
+
+**What would change it.** Summaries rated useful on more than a few days after they left reach, or a deliberate recall of one
+that recall had stopped offering: raise the claim. Summaries re-marked me, us or owner while at 0.25 and then wanted: have a
+re-mark raise the claim. No loss after 2
+weeks: consider the existing rows, which keep 0.4 unless the era read learns to tell summaries apart. Fields nobody read in
+a month: drop them, starting with the loudest (`cue`, `sem`, `bar`, about 13 KB a day).
+**Revert.** `SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM` back to 0.4; rows born at 0.25 stay at it unless a store's owner says.
 
 ## Due a week after the night's own line (2026-10-30, NL1, ROADMAP's decision marked for Mike's review — no switch)
 

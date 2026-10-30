@@ -26,7 +26,7 @@ import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { deliverTurn } from "../src/adapters/claude-code/envelope.js";
 import { RECALL_DECISION_EVENT, RECALL_DECISION_FIELDS, RECALL_DELIVERED_EVENT } from "../src/core/counterpart-events.js";
 import type { RecallResult } from "../src/core/recall/index.js";
-import { TUNABLES as RECALL, stopCounts } from "../src/core/recall/index.js";
+import { NEAR_MISS_IDS_CAP, TUNABLES as RECALL, stopCounts } from "../src/core/recall/index.js";
 import type { CandidateVerdict } from "../src/core/recall/gate.js";
 import { findable } from "./store-fixture.js";
 
@@ -222,7 +222,22 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
     expect(row["capped"] as number).toBeGreaterThan(0);
     expect(row["inhibited"]).toBe(of("inhibited").length);
     const near = of("below-bar").filter((v) => v.habituated !== true && v.activation >= 0.5 * v.bar).length;
-    expect(row["nearMiss"]).toEqual({ margin: 0.5, count: near });
+    // F1: the closest of them by id, capped; the count stays the whole of it.
+    const nearIds = d.verdicts
+      .filter((v) => v.verdict === "below-bar" && v.bar > 0 && v.activation >= 0.5 * v.bar)
+      .sort((a, b) => b.activation / b.bar - a.activation / a.bar || (a.id < b.id ? -1 : 1))
+      .slice(0, NEAR_MISS_IDS_CAP)
+      .map((v) => v.id);
+    expect(row["nearMiss"]).toEqual({ margin: 0.5, count: near, ids: nearIds });
+    // F1: and why each one that showed showed: words, meaning and the bar, rounded.
+    const whys = [...(row["surfaced"] as Record<string, unknown>[]), ...(row["footnotes"] as Record<string, unknown>[])];
+    expect(whys.length).toBeGreaterThan(0);
+    for (const w of whys) {
+      for (const k of ["cue", "sem", "bar"]) {
+        expect(typeof w[k]).toBe("number");
+        expect(Math.round((w[k] as number) * 100) / 100).toBe(w[k] as number);
+      }
+    }
     expect(row["habituationCut"]).toBe(0);
     expect(row["budgetTrimmed"]).toBe(d.trimmed.filter((x) => x.lane !== "belief" && x.lane !== "affect").length);
     // The keys sit beside the skips, in the surface set's order.
@@ -348,7 +363,14 @@ describe("stopCounts: attribution, read off the verdicts", () => {
       v("floor", "below-floor", 0.1, 1),
     ];
     const c = stopCounts(verdicts, ["cross", "both"], [{ lane: "footnote" }, { lane: "belief" }, { lane: "surfaced" }, { lane: "affect" }], t);
-    expect(c).toEqual({ habituationCut: 1, nearMiss: { margin: 0.1, count: 2 }, capped: 1, budgetTrimmed: 2, inhibited: 1 });
+    expect(c).toEqual({ habituationCut: 1, nearMiss: { margin: 0.1, count: 2, ids: ["near", "near-2"] }, capped: 1, budgetTrimmed: 2, inhibited: 1 });
+  });
+
+  test("the near misses it names: closest to the bar first, at most the cap, the count still whole", () => {
+    const close = [0.91, 0.99, 0.95, 0.93, 0.97].map((a, i) => v(`m${String(i)}`, "below-bar", a, 1));
+    const c = stopCounts(close, [], [], t);
+    expect(c.nearMiss).toEqual({ margin: 0.1, count: 5, ids: ["m1", "m4", "m2"] });
+    expect(NEAR_MISS_IDS_CAP).toBe(3);
   });
 
   test("nothing decided, nothing counted", () => {
