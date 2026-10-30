@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | in review 10-30, unreleased | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
@@ -118,6 +119,25 @@ change during a batch is allowed for, anything else is a bug. A debt that doctor
 the two readers disagree, fix the reader. Text from off folders staying too long to be comfortable: Mike's call on a
 shorter clock for `off` (`docs/decisions.d/fix-catch-up-respects-off.md`). **Revert.** The commits are small; nothing to
 migrate.
+
+## Due a week after the night's own line (2026-10-30, NL1, ROADMAP's decision marked for Mike's review — no switch)
+
+**What we're trying.** After the page, the reflection may send one or two whole sentences for whoever wakes tomorrow:
+what stays from the night that the page doesn't say, as what happened. A fresh writer met the brief on 7 of 7 past
+nights, 228-280 B, no morals. That was one pass by a writer given only the brief, so it says nothing yet about the nightly
+run, where the line is one field among many.
+
+**What to look at (read-only).** ROADMAP reads a week of real lines:
+`SELECT date, page_version, json_extract(detail,'$.build') b, json_extract(detail,'$.lineRefused') refused, json_extract(detail,'$.line') line FROM reflections WHERE state='reflected' ORDER BY date DESC LIMIT 7`.
+A NULL `line` on a new build means it wasn't sent; `''` means left empty, or sent back twice when `refused` is 2. For each
+line: does it state a lesson, does it say what that night's page version already says (`versions` for the self page), does it
+carry a bare id like `m32` (ids in words aren't rewritten), and how many bytes. Also count nights with no page written.
+
+**What would change it.** Morals on more than about 2 of 7: tune the ask. Repeats of the page on more than about 2 of 7, or
+mostly NULL: move the ask to its own step after the first `finish`, and fence that step (`server.ts#nightReading` stops at
+`begun`). Sent back often: 300 B is too tight or the wording undersells it. Bare ids: strip or spell them where WK2 reads
+it. Empty often is fine in itself, as long as those nights were quiet ones. **Revert.** Take the `line` bullet out of
+`Reflections#instructions`; nothing is sent after that, and what's on old rows does nothing.
 
 ## Due ~1 week after recall stopped dropping late turns (2026-10-30, LT1, ROADMAP's decision marked for Mike's review — a fix, no switch)
 

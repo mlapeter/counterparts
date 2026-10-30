@@ -60,7 +60,7 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
 }
 
 /** One night: a dream with a long journal, then a reflection after it with a long entry and a share. */
-function night(o: { journal?: string; entry?: string; share?: string; reflect?: boolean } = {}): { dream: string; reflection: string } {
+function night(o: { journal?: string; entry?: string; share?: string; line?: string; reflect?: boolean } = {}): { dream: string; reflection: string } {
   const c = Counterpart.open({ dir, identity: { name: "Wren" } });
   try {
     c.store.advanceClock("2026-09-20");
@@ -84,6 +84,7 @@ function night(o: { journal?: string; entry?: string; share?: string; reflect?: 
       entry: o.entry ?? LONG_ENTRY,
       cites: [a],
       share: { text: o.share ?? "Last night I dreamed the seedlings kept sliding toward the cold glass.", cites: [a] },
+      ...(o.line === undefined ? {} : { line: o.line }),
     });
     if (!done.ok) throw new Error(`reflect finish refused: ${done.reason}`);
     return { dream, reflection: r.bundle.reflection };
@@ -204,6 +205,24 @@ describe("a question reaches a dream", () => {
 });
 
 describe("last night, the awkward states (review of #645)", () => {
+  test("the night's own line (NL1) comes with the reflection over the same door", async () => {
+    const line = "The latch stuck again on Sunday, and Wren laughed when I blamed the wind.";
+    night({ line });
+    const { url, counterpart } = await door();
+    const p = await recall(url, { handle: "last night" });
+    expect((p["reflection"] as Record<string, unknown>)["line"]).toBe(line);
+    const before = counterpart.store.reflections({ limit: 1 })[0];
+    expect(JSON.parse(before?.detail ?? "{}")["line"]).toBe(line);
+  });
+
+  test("a reflection with no line says none over the door", async () => {
+    night();
+    const { url } = await door();
+    const p = await recall(url, { handle: "last night" });
+    expect(p["reflection"]).toBeDefined();
+    expect("line" in (p["reflection"] as Record<string, unknown>)).toBe(false);
+  });
+
   test("a dream with no reflection: the dream whole, no reflection", async () => {
     const n = night({ reflect: false });
     const { url } = await door();

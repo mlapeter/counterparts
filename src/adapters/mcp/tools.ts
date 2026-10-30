@@ -1878,6 +1878,10 @@ const REFLECT: ToolSpec = {
         description: "`finish`, optional: two or three sentences for the owner this morning, and the memory ids they rest on.",
         properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
       },
+      line: {
+        type: "string",
+        description: "`finish`, optional: one or two whole sentences under 300 bytes, for whoever wakes tomorrow. Never cut: past 300 bytes it comes back once, then stays empty.",
+      },
       feelings: {
         type: "array",
         description: "`finish`, optional: how a memory feels to you now.",
