@@ -570,6 +570,8 @@ by the budgeted session-start reading.
 ## A bad scopes entry fails open; a bad file fails closed (2026-10-30, restating #92's ruling)
 
 `parseRegistry` refuses an entry it can't read, by name, and that folder reads `unset`, which is on.
+The night holds on such a file too (2026-10-30, review of #688): `runNight` ends `could-not-start`, reason
+`folder-setting`, no child asked, and doctor's `night-held` is red until it's fixed.
 A file that won't read at all closes every folder for a background writer (`scopes.ts#foldersOn`:
 the catch-up, the night's fence), while a hook still fails towards on. So a typo in one entry of an
 off folder opens that folder to the night until the file is fixed. That is the #92 ruling, kept on

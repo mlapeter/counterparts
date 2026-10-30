@@ -260,7 +260,7 @@ export type DeliberateReason =
   | "expanded"
   | "handle-unknown"
   | "handle-ambiguous"
-  /** The night asked for a row from a folder that doesn't export (`core/dream/fence.ts`). */
+  /** The night asked for a row from a folder that doesn't export (`core/dream/slices.ts`). */
   | "closed-to-the-night"
   | "no-argument"
   | "both-arguments"
@@ -320,7 +320,7 @@ export interface DeliberateInput {
 
 export interface DeliberateOptions {
   readonly sessionId: string;
-  /** What a night's reader may not open (`core/dream/fence.ts`); absent for everyone else. */
+  /** What a night's reader may not open (`core/dream/slices.ts`); absent for everyone else. */
   readonly closed?: ReadonlySet<string>;
 }
 

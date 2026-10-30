@@ -128,7 +128,7 @@ export interface MeaningContext {
   readonly asker?: FeelingWhose;
   /** The lived day, for a test; the store's own otherwise. */
   readonly day?: number;
-  /** What a night's reader may not be shown (`core/dream/fence.ts`): read as removed. */
+  /** What a night's reader may not be shown (`core/dream/slices.ts`): read as removed. */
   readonly closed?: ReadonlySet<string>;
 }
 

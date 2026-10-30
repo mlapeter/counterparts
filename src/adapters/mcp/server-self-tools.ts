@@ -34,7 +34,12 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
   const bound = server["requireBoundSession"](args["session"], "dream");
   if (bound !== null) return bound;
   const session = server.session as string;
-  // THE NIGHT'S FENCE (`core/dream/fence.ts`): a folder that doesn't export is closed to this call.
+  // A SETTING THAT WON'T READ HOLDS THE NIGHT, before anything is claimed or begun.
+  if (phase === "launch" || phase === "writer" || phase === "begin" || phase === "tags") {
+    const held = server["nightHeld"]("dream", phase);
+    if (held !== null) return held;
+  }
+  // THE NIGHT'S FENCE (`core/dream/slices.ts`): a folder that doesn't export is closed to this call.
   const closed = server.counterpart.fenceNight(server["folderOn"]());
   const dreams = server.counterpart.dreams;
   const at = server.counterpart.store.today();
@@ -369,6 +374,10 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
   const bound = server["requireBoundSession"](sent["session"], "reflect");
   if (bound !== null) return bound;
   const session = server.session as string;
+  if (phase === "launch" || phase === "begin") {
+    const held = server["nightHeld"]("reflect", phase);
+    if (held !== null) return held;
+  }
   server.counterpart.fenceNight(server["folderOn"]());
   const reflections = server.counterpart.reflections;
   const refused = (reason: string, detail: string): ToolResult => server["refuse"]("reflect", reason, { phase, detail });

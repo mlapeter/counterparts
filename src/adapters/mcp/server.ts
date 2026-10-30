@@ -74,6 +74,7 @@ import {
   canonicalScopePath,
   foldersOn,
   lookupScope,
+  nightHeldWords,
   readScopes,
   ownEntry,
   resumeTarget,
@@ -124,7 +125,8 @@ import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
-import { NOTHING_CLOSED } from "../../core/dream/fence.js";
+import { NOTHING_CLOSED } from "../../core/dream/slices.js";
+import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
@@ -1318,6 +1320,17 @@ export class McpServer {
     return this.scopesFile === null ? undefined : foldersOn(this.scopesFile);
   }
 
+  /**
+   * A NIGHT'S DOOR WHILE THE FOLDER SETTING WON'T READ (2026-10-30): the refusal,
+   * or null. Everything with a folder is closed to the night then, so it holds
+   * rather than write the page or a dream from what's left (`nightHeldWords`).
+   */
+  private nightHeld(tool: string, phase: unknown): ToolResult | null {
+    if (this.scopesFile === null) return null;
+    const read = readScopes(this.scopesFile);
+    return read.error === null ? null : this.refuse(tool, "folder-setting-unreadable", { phase, detail: nightHeldWords(this.scopesFile, read.error) });
+  }
+
   /** The named refusal every tool but `scope` gets in a directory set `off`. */
   private refuseScopeOff(tool: string, verdict: ScopeVerdict): ToolResult {
     this.emit("mcp.scope.off", undefined, { tool, matched: verdict.matched, mode: verdict.mode });
@@ -2369,7 +2382,7 @@ export class McpServer {
 
   /**
    * WHAT THIS RECALL MAY NOT OPEN, when the asker is the night (2026-10-30,
-   * `core/dream/fence.ts`): a child of the nightly run, a session with a dream or
+   * `core/dream/slices.ts`): a child of the nightly run, a session with a dream or
    * a reflection begun, or one holding day's end's claim. They write what every
    * session reads. Empty for anyone else: an ordinary session's recall is not
    * fenced. Asked once per recall.
@@ -2383,7 +2396,13 @@ export class McpServer {
     const session = this.session;
     if (session === null) return false;
     try {
-      return this.dreamingNow(session) || this.counterpart.store.reflections({ limit: 5 }).some((r) => r.state === "begun" && r.session === session) || this.counterpart.nightClaimFor(session) !== null;
+      // A marker left by a run that crashed doesn't fence the session for good: quiet past
+      // `ABANDONED_AFTER_MS`, it's a dream left behind, as `Dreams.begin` reads it.
+      return (
+        this.counterpart.dreams.busyIn(session) ||
+        this.counterpart.store.reflections({ limit: 5 }).some((r) => r.state === "begun" && r.session === session && this.counterpart.store.now() - r.started_at <= DREAM_TUNABLES.ABANDONED_AFTER_MS) ||
+        this.counterpart.nightClaimFor(session) !== null
+      );
     } catch {
       return false;
     }

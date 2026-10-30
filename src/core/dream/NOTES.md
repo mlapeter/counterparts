@@ -1318,7 +1318,7 @@ now also in the answer's own words.
 - `dreamCandidates` is computed once per recall and handed to both the embedder and the
   matcher. A journal whose every passage failed to embed is not cached as "no meaning".
 
-## 2026-10-30 — the night doesn't read a folder that doesn't export (`fence.ts`)
+## 2026-10-30 — the night doesn't read a folder that doesn't export (`slices.ts`)
 
 Through the real doors, before this: day's end's block, the dream's bundle, the reflection's bundle and
 the tagging ask all showed an off, observer or paused folder's memories and chapters, and each child's
@@ -1334,5 +1334,16 @@ Direction, on purpose the other way from the wake's gate: a row with no folder, 
 are gone, stays readable. The gate fails closed because it holds back one line for a morning; failing closed
 here would hide every pre-folder memory from every night. A stored merge of a closed row reads as closed.
 
-Not fenced, and said in the PR: entity cards (their names, and the titles a tagging ask lists under them), a
-past dream's journal or a reflection's entry opened by id, the page as it already stands.
+The review of #688 ran the doors these left, and found the tagging ask's cards and tags and the reflection's
+timeline still carrying closed words; they read the set now too.
+
+Not fenced, and said in the PR, each writing already done, so it thins as the nights go on: a past dream's
+journal or a reflection's entry (by id, by `last dream`, beside a question's answer to anyone but a dream under
+way, and the last few entries in the reflection's bundle); a belief, which reads as its card, whatever it rests
+on; a card's name, when any open row names it too; the page as it stands. The published wake is checked for a
+closed row's id and title, not its words.
+
+A setting file that won't read holds the night rather than close everything and go on (Mike, through the
+roadmap, 10-30): through the doors, a night then got the page and whatever had no folder, stored a thinner page
+as `revised`, journaled a dream of nothing, and finished a reflection on it, with nothing said anywhere. A folder
+that doesn't export is a choice; every folder closing at once is a fault.

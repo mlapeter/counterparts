@@ -1,5 +1,5 @@
 /**
- * THE NIGHT DOESN'T READ A FOLDER THAT DOESN'T EXPORT (2026-10-30, `core/dream/fence.ts`).
+ * THE NIGHT DOESN'T READ A FOLDER THAT DOESN'T EXPORT (2026-10-30, `core/dream/slices.ts`).
  * Day's end, the dream, the reflection and the tagging write what every session
  * reads, so a folder set off, paused or to observe, and anything under one, is
  * closed to them: not in what they're handed, not from their recall however the
@@ -14,10 +14,14 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { nightHeldFindings } from "../src/adapters/claude-code/doctor-write-ups.js";
+import { runNight } from "../src/adapters/claude-code/night-run.js";
+import type { NightAnswer } from "../src/adapters/claude-code/night-run.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
-import { setScope, writeScopes } from "../src/adapters/scopes.js";
+import { scopesPath, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import type { Seat } from "../src/core/counterpart.js";
 
 const HOUR = 3_600_000;
 const BUDGET = 9_000;
@@ -240,6 +244,88 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(began.structuredContent, CHAPTER_TITLE)).toBe(false);
   });
 
+  test("recall's other asks: what's still open, and ids asked together with an open one", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET);
+    const own = worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const s = child(c, "dream");
+    const both = await s.call("recall", { ids: [secret, own] });
+    expect(says(both.structuredContent, SECRET_WORDS)).toBe(false);
+    expect(says(await s.call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(false);
+  });
+
+  test("the tagging ask: a closed row isn't under a card, a card only it names isn't listed, its tags aren't offered", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET);
+    const own = worked(c, HERE, OPENED);
+    clock = at(D1, 12);
+    const day = c.store.livedDay();
+    const both = c.schemas.mention({ name: "Quillon", kind: "entity", source: "Quillon", chunkRef: "t:1", day }).id as string;
+    const theirs = c.schemas.mention({ name: "Sparhawk", kind: "entity", source: "Sparhawk", chunkRef: "t:2", day }).id as string;
+    c.store.linkSubjects([{ memoryId: secret, subjectId: both }, { memoryId: own, subjectId: both }, { memoryId: secret, subjectId: theirs }], "birth");
+    for (const body of ["One shut row.", "Two shut rows."]) worked(c, SHUT, body);
+    c.store.put({ type: "memory", kind: "fact", body: "A third shut row.", tags: ["bread crust ledger"], origin: { session: WRITER, scope: SHUT } });
+    c.store.put({ type: "memory", kind: "fact", body: "A fourth shut row.", tags: ["bread crust ledger"], origin: { session: WRITER, scope: SHUT } });
+    c.store.put({ type: "memory", kind: "fact", body: "A garden row.", tags: ["bean row"], origin: { session: WRITER, scope: HERE } });
+    c.store.put({ type: "memory", kind: "fact", body: "Another garden row.", tags: ["bean row", "bean"], origin: { session: WRITER, scope: HERE } });
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const read = String((await child(c, "tags").call("dream", { phase: "tags", session: NIGHT })).structuredContent["read"]);
+    expect(read).toContain("Quillon");
+    expect(read).toContain(OPEN_WORDS);
+    expect(read).not.toContain(SECRET_WORDS);
+    expect(read).not.toContain("Sparhawk");
+    expect(read).not.toContain("bread crust ledger");
+    expect(read).toContain("bean row");
+    // No setting: the ask is as it was.
+    const all = String((await child(c, "tags", { scopes: null }).call("dream", { phase: "tags", session: NIGHT })).structuredContent["read"]);
+    expect(all).toContain("Sparhawk");
+    expect(all).toContain("bread crust ledger");
+  });
+
+  test("a past day's summary resting on a closed row isn't in the reflection's timeline", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET, D0);
+    const told = worked(c, HERE, OPENED, D1);
+    clock = at(D1, 12);
+    c.recordPageWriterRun({ about: D0, mode: "session", outcome: "nothing-to-say", summary: `A day that ${SECRET_WORDS}.`, summaryCites: [secret], session: NIGHT, run: "old" });
+    c.recordPageWriterRun({ about: D1, mode: "session", outcome: "nothing-to-say", summary: `A day ${OPEN_WORDS}.`, summaryCites: [told], session: NIGHT, run: "old" });
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const s = child(c, "dream");
+    const dream = String((await s.call("dream", { phase: "begin", session: NIGHT })).structuredContent["dream"]);
+    await s.call("dream", { phase: "journal", session: NIGHT, dream, title: "A night", text: "A short dream." });
+    clock = at(D2, 4);
+    const reflected = await child(c, "reflection").call("reflect", { phase: "begin", session: NIGHT, dream });
+    expect(says(reflected.structuredContent, OPEN_WORDS)).toBe(true);
+    expect(says(reflected.structuredContent, SECRET_WORDS)).toBe(false);
+  });
+
+  test("a session reads as the night only while its run is alive: a dream or reflection it left behind doesn't fence it for good", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET);
+    worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const s = child(c, null);
+    await s.call("dream", { phase: "begin", session: NIGHT });
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
+    clock += HOUR;
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(true);
+    // It came back to it: the night again.
+    clock += HOUR;
+    const dream = String((await s.call("dream", { phase: "begin", session: NIGHT })).structuredContent["dream"]);
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
+    await s.call("dream", { phase: "journal", session: NIGHT, dream, title: "A night", text: "A short dream." });
+    const r = await s.call("reflect", { phase: "begin", session: NIGHT, dream });
+    expect(r.isError ?? false).toBe(false);
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
+    clock += HOUR;
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(true);
+  });
+
   test("a session with a dream begun, no child's mark on it, reads the same", async () => {
     const c = brain();
     const secret = worked(c, SHUT, SECRET);
@@ -252,6 +338,88 @@ describe("closed to day's end, the dream and the reflection", () => {
     const began = await s.call("dream", { phase: "begin", session: NIGHT });
     expect(says(began.structuredContent, SECRET_WORDS)).toBe(false);
     await asksEveryWay(s, { secret, chapter });
+  });
+});
+
+describe("a setting file that won't read holds the night", () => {
+  const PAGE = "## Core\n\nI keep a garden.\n\n## Lately\n\nThe beans.\n\n## How I work\n\nSteadily.";
+
+  async function brokenDay(c: Counterpart): Promise<void> {
+    worked(c, HERE, OPENED);
+    worked(c, HERE, "A second row of the garden, staked and tied.");
+    worked(c, HERE, "A third row of the garden, watered at dusk.");
+    const seed = new McpServer({ counterpart: c, session: WRITER, scope: HERE, registryDir: join(root, "registry"), now: () => clock });
+    expect((await seed.call("self_page", { body: PAGE, reason: "the first" })).structuredContent["stored"]).toBe(true);
+    night();
+  }
+
+  for (const [name, content] of [["junk", "{ not json"], ["empty", ""], ["the wrong shape", "[]"]] as const) {
+    test(`${name}: every door that would begin something refuses by name, nothing is claimed, begun or rewritten`, async () => {
+      const c = brain();
+      await brokenDay(c);
+      writeFileSync(scopesFile, content);
+      const asks: [string, string, string | null, Record<string, unknown>][] = [
+        ["dream", "writer", "writer", {}],
+        ["dream", "begin", "dream", {}],
+        ["dream", "launch", null, {}],
+        ["dream", "tags", "tags", {}],
+        ["reflect", "begin", "reflection", {}],
+        ["reflect", "launch", null, {}],
+      ];
+      for (const [tool, phase, kind, args] of asks) {
+        const got = await child(c, kind).call(tool, { phase, session: NIGHT, ...args });
+        expect(`${tool} ${phase}: ${String(got.structuredContent["reason"])}`).toBe(`${tool} ${phase}: folder-setting-unreadable`);
+        expect(got.isError).toBe(true);
+        expect(String(got.structuredContent["detail"])).toContain(scopesFile);
+      }
+      expect(c.nightClaimFor(NIGHT)).toBeNull();
+      expect(c.dreams.lastDream()).toBeNull();
+      expect(c.store.reflections({ limit: 5 })).toEqual([]);
+      expect(c.selfPage()?.body).toBe(PAGE);
+    });
+  }
+
+  test("the nightly run asks nobody, its row says why, and doctor is red until the file is fixed", async () => {
+    const c = brain();
+    await brokenDay(c);
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const config = join(root, "claude-code.json");
+    const seen: string[] = [];
+    const seat: Seat<NightAnswer> = {
+      name: "test",
+      answer: async (ask) => {
+        seen.push(ask.act);
+        return { refused: null, started: true, code: 0, timedOut: false, error: null, ms: 1 };
+      },
+    };
+    const go = (run: string): ReturnType<typeof runNight> =>
+      runNight({ open: () => brain(), config: { dataDir: storeDir, injectionBudgetBytes: BUDGET }, configPath: config, run, session: NIGHT, scope: HERE, kind: { kind: "night" }, seat });
+    writeFileSync(scopesPath(config), "{ not json");
+    expect(nightHeldFindings(config)[0]?.severity).toBe("red");
+    const held = await go("nrn_held");
+    expect(held.state).toBe("could-not-start");
+    expect(held.reason).toBe("folder-setting");
+    expect(seen.filter((a) => a !== "catch-up")).toEqual([]);
+    const after = brain();
+    expect(after.dreams.nightRun()?.reason).toBe("folder-setting");
+    expect(after.selfPage()?.body).toBe(PAGE);
+    expect(after.dreams.lastDream()).toBeNull();
+
+    // Fixed: nothing red, and the night goes on to ask.
+    rmSync(scopesPath(config));
+    expect(nightHeldFindings(config)).toEqual([]);
+    const ran = await go("nrn_after");
+    expect(ran.reason).not.toBe("folder-setting");
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  test("a single bad entry doesn't hold it: the file read", async () => {
+    const c = brain();
+    await brokenDay(c);
+    writeFileSync(scopesFile, JSON.stringify({ version: 1, scopes: { [HERE]: { mode: "on", at: D1 }, [SHUT]: { mode: "sideways", at: D1 } } }));
+    const got = await child(c, "writer").call("dream", { phase: "writer", session: NIGHT });
+    expect(got.structuredContent["reason"]).not.toBe("folder-setting-unreadable");
   });
 });
 
@@ -297,7 +465,7 @@ describe("what stays as it was", () => {
     expect(says(await child(c, "dream").call("recall", { ids: [foldless] }), SECRET_WORDS)).toBe(true);
   });
 
-  test("a setting file that won't read closes every folder to the night", async () => {
+  test("a setting file that won't read closes every folder to a reader already at work", async () => {
     const c = brain();
     const secret = worked(c, HERE, SECRET);
     writeFileSync(scopesFile, "{ not json");

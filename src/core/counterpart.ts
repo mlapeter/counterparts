@@ -209,8 +209,8 @@ import { chapterSummaries } from "./self/summaries.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
-import { NOTHING_CLOSED, closedToNight, isNightRow, memoryFolder } from "./dream/fence.js";
-import type { FolderOn } from "./dream/fence.js";
+import { NOTHING_CLOSED, closedToNight, isNightRow, memoryFolder } from "./dream/slices.js";
+import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
@@ -2253,7 +2253,7 @@ export class Counterpart {
    * and the day's strongest memories, whatever folder wrote them
    * (`dream/slices.ts#dayJournal`, `pageWriterInput`; its recall reaches the
    * store too), short of a folder that doesn't export at the night it ran
-   * (`dream/fence.ts`, 2026-10-30) — so what it cites does not bound what its
+   * (`dream/slices.ts`, 2026-10-30) — so what it cites does not bound what its
    * words drew on, and a folder set off since was read while it was on. It is
    * shown only when ALL of:
    *
@@ -2287,7 +2287,7 @@ export class Counterpart {
    * pick by when a row was written. What it cannot see: a memory erased since
    * (its row is gone), and whatever day's end's recall reached, on any day, in
    * a folder that was on that night — a summary's cites are the only bound on
-   * that. A folder closed that night was not readable at all (`dream/fence.ts`).
+   * that. A folder closed that night was not readable at all (`dream/slices.ts`).
    *
    * One rule for all three: a folder the owner has turned off, paused or set
    * to observe (`exportsFrom` false) holds the summary back wherever it shows
@@ -5251,7 +5251,7 @@ export class Counterpart {
   }
 
   /**
-   * THE NIGHT'S FENCE (2026-10-30, `dream/fence.ts`): the host's word on which
+   * THE NIGHT'S FENCE (2026-10-30, `dream/slices.ts`): the host's word on which
    * folders export, read by the door of each night call (the dream and reflect
    * tools, a night's recall), and what that closes. Day's end, the dream, the
    * reflection and the tagging read it. No word (a host with no folder setting):

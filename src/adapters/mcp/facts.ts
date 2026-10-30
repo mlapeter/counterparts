@@ -252,7 +252,7 @@ export interface FactsContext {
   readonly semantic: SemanticSource;
   /** Not read by facts mode; here so one context object serves both modes. */
   readonly asker?: FeelingWhose;
-  /** What a night's reader may not be shown (`core/dream/fence.ts`): read as removed. */
+  /** What a night's reader may not be shown (`core/dream/slices.ts`): read as removed. */
   readonly closed?: ReadonlySet<string>;
 }
 

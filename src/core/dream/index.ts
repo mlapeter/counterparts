@@ -73,7 +73,7 @@ import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
-import { NOTHING_CLOSED, namesClosed } from "./fence.js";
+import { NOTHING_CLOSED, namesClosed } from "./slices.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { pairsAmong, readDay, strongerMark } from "./day.js";
 import type { DayMark, DayRead } from "./day.js";
@@ -337,7 +337,7 @@ export interface DreamContext {
    * Never a gendered pronoun.
    */
   readonly ownerName?: () => string | null;
-  /** What the night may not read (`dream/fence.ts`): not shown, not merged, not folded. */
+  /** What the night may not read (`dream/slices.ts`): not shown, not merged, not folded. */
   readonly closed?: () => ReadonlySet<string>;
 }
 
@@ -492,7 +492,8 @@ export interface NightRun {
    * (the store would not open once the child ended; `detail` says why),
    * `signed-out` (2026-10-27: a child failed saying the host had lost its
    * sign-in — a 401, "not logged in"; a `could-not-start`, so the next
-   * session asks) — or null.
+   * session asks), `folder-setting` (2026-10-30: the folder setting would not
+   * read, so the night held; also a `could-not-start`) — or null.
    */
   readonly reason: string | null;
   /**
@@ -788,6 +789,8 @@ export function nightRunWords(run: Pick<NightRun, "state" | "reason" | "detail" 
       return "it never reported back (its process went away — a sleep, a restart, a kill)";
     case "refused":
       return `it was refused before it started${run.detail === null ? "" : ` (${run.detail})`}`;
+    case "folder-setting":
+      return "the folder setting would not read, so it held: no page, no dream, no reflection";
     case "runner":
       return `the background process could not start${run.detail === null ? "" : ` (${run.detail})`}`;
     case "exit":
@@ -1402,6 +1405,11 @@ export class Dreams {
   private resumable(row: Pick<DreamRow, "date" | "day">, at: string): boolean {
     if (row.date !== null && isDay(row.date) && isDay(at)) return row.date >= addDays(at, -1);
     return row.day >= this.store.livedDay() - 1;
+  }
+
+  /** Is a dream under way in this session: begun by it, and not left behind? */
+  busyIn(session: string): boolean {
+    return this.store.dreams({ limit: 5 }).some((d) => d.state === "begun" && d.session === session && !this.abandoned(d));
   }
 
   /** Begun, not journaled, and quiet — no change — for longer than `ABANDONED_AFTER_MS`. */
@@ -3257,7 +3265,7 @@ export class Dreams {
     // the wake left.
     const page = this.ctx.page();
     // THE PUBLISHED WAKE was composed for no reader: on a night it names a row
-    // of a closed folder (`dream/fence.ts`), the dream goes without it.
+    // of a closed folder (`dream/slices.ts`), the dream goes without it.
     const published = this.ctx.wake();
     const closed = this.ctx.closed?.() ?? NOTHING_CLOSED;
     const wake = published !== null && namesClosed(this.store, published, closed) ? null : published;

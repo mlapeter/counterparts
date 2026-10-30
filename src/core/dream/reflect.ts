@@ -581,7 +581,7 @@ export interface ReflectContext {
    */
   readonly pageWrites?: boolean;
   readonly today: () => string;
-  /** What the night may not read (`dream/fence.ts`): not shown, not cited, no chapter of it. */
+  /** What the night may not read (`dream/slices.ts`): not shown, not cited, no chapter of it. */
   readonly closed?: () => ReadonlySet<string>;
   /** The owner's name, as written on the identity core. */
   readonly ownerName: () => string | null;
@@ -3625,7 +3625,9 @@ export class Reflections {
     const through = opened !== "" ? opened : dayBeforeDate(at);
     const dates: string[] = [];
     for (let i = 0; i < days && isDay(through); i += 1) dates.push(addDays(through, -i));
-    const byDate = new Map(told.map((x) => [x.about, x]));
+    // A summary resting on a row closed to the night (`dream/slices.ts`) goes as that day's chapters do.
+    const closed = this.ctx.closed?.();
+    const byDate = new Map(told.filter((x) => closed === undefined || !x.cites.some((id) => closed.has(id))).map((x) => [x.about, x]));
     const missing = dates.filter((d) => !byDate.has(d));
     const fromChapters = missing.length === 0 ? new Map<string, string[]>() : this.chapterLinesByDate(missing);
     const lines: { date: string; from: "days-end" | "chapters"; text: string; chars: number; chapters?: number }[] = [];

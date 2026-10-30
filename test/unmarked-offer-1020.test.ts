@@ -361,21 +361,23 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
     expect(u.unmarked).toContain(shop);
     expect(u.unmarked).not.toContain(books);
     expect(u.unmarked).not.toContain(paused);
-    // Shown in the recent lane all the same (written today), the books folder's note is not carried out by a mark.
-    expect(u.about).toEqual(["folder-off-work-only", "marked"]);
+    // Closed to the night (`dream/slices.ts`), so the books folder's note isn't shown, and a mark can't reach it.
+    expect(u.about).toEqual(["not-shown-or-gone", "marked"]);
     c = brain();
     expect(c.store.read(books).about ?? null).toBeNull();
     expect(c.store.read(shop).about).toBe("owner");
     closeAll();
 
-    // A setting that will not read: nothing from a folder is offered.
-    rmSync(dir, { recursive: true, force: true });
-    c = brain();
-    const again = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: WORKSHOP } });
-    closeAll();
+    // A setting that will not read: the reflection holds, so nothing is offered at all.
     const broken = join(root, "config", "broken.json");
     writeFileSync(broken, "{ not json");
-    expect((await offered(broken, "s-night-2")).unmarked).not.toContain(again);
+    const held = openServer({ dir, session: "s-night-2", scope: LIBRARY, timeZone: "UTC", scopesFile: broken });
+    try {
+      const r = await held.call("reflect", { phase: "begin", session: "s-night-2" });
+      expect(r.structuredContent["reason"]).toBe("folder-setting-unreadable");
+    } finally {
+      held.counterpart.close();
+    }
   });
 });
 

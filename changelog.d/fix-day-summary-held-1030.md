@@ -7,3 +7,6 @@
   reflection and the tagging aren't shown its memories or chapters, can't find them through recall, and
   can't merge them, so what's closed stays out of the page, the day's summary and new merges. What's
   already stored stays stored, and your own sessions' recall hasn't changed.
+- **A folder setting file that won't read now stops the night instead of thinning it.** With `scopes.json`
+  broken, the night would have read almost nothing and could have rewritten your page from that. It now holds:
+  no page, dream or reflection, doctor goes red and names the file, and it runs again once the file is fixed.

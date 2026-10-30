@@ -403,6 +403,17 @@ export function describeScopeTrouble(read: ScopeRead, path: string): string | nu
   );
 }
 
+/**
+ * WHAT A NIGHT SAYS WHEN THE FOLDER SETTING WON'T READ (2026-10-30). The night
+ * reads no folder then (`foldersOn`), so what it would be handed is the page and
+ * whatever has no folder; a page or a dream written from that is thinner than the
+ * day was, and nothing would say why. So it holds instead, like a night that
+ * failed: no page, no dream, no reflection, and this said at the door.
+ */
+export function nightHeldWords(path: string, error: string): string {
+  return `The folder setting ${path} will not read (${error}), so tonight holds: no page, no dream, no reflection, nothing written. Fix or remove the file and it runs again.`;
+}
+
 /** How restrictive a mode is, on the same order the combination rule uses.
  *  `paused` and `off` are one rank: they differ in what `--resume` restores,
  *  not in what a session may do. */
