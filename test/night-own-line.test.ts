@@ -273,6 +273,7 @@ describe("the night's own line", () => {
     expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(MAX);
     const out = await finish(s, reflection, { ...FIRST, line });
     expect((out["line"] as Record<string, unknown>)["reason"]).toBe("past-room");
+    expect(String((out["line"] as Record<string, unknown>)["detail"])).toContain("credential scan's mark");
     expect(detail(c, reflection)["line"]).toBeUndefined();
     expect(JSON.stringify(detail(c, reflection))).not.toContain("hunter2");
   });

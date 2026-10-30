@@ -9,8 +9,7 @@
   it opens a window: after the first `finish` a reflection is no longer `begun`, so a session outside the
   nightly run isn't fenced while it writes the line. So the ask says "the page you're writing", where the
   brief said "the page you just wrote". If the week shows lines repeating the page, a second ask is the thing to try.
-- Decided by ROADMAP: the ask also says "with no memory ids", since WK2 will show the line to a reader with no
-  use for one.
+- Decided by ROADMAP: the ask also says "with no memory ids", and the ask says "the page you're writing".
 - Decided by the NL1 builder, lightly held: past 300 UTF-8 bytes, or refused by the scan, a line comes
   back once; a second refusal keeps it empty and closes it for the night, so a later line that fits
   doesn't reopen it. A line already standing is replaced by a good one and outlasts a bad one, like the

@@ -2343,10 +2343,10 @@ export class Reflections {
     if (text.length === 0) return { line: "", refused, result: { kept: false, reason: "empty" }, miss: null };
     const max = REFLECT_TUNABLES.OWN_LINE_BYTES;
     const bytes = Buffer.byteLength(text, "utf8");
-    const past = (n: number) => ({ ok: false as const, reason: "past-room", detail: `It is ${String(n)} bytes, past its ${String(max)}.` });
-    const scanned = bytes > max ? past(bytes) : this.words(text, session, max);
+    const past = (what: string) => ({ ok: false as const, reason: "past-room", detail: `It is ${what}, past its ${String(max)}.` });
+    const scanned = bytes > max ? past(`${String(bytes)} bytes`) : this.words(text, session, max);
     // The scan's mark can be longer than what it replaced, so what would be kept is measured too.
-    const w = scanned.ok && Buffer.byteLength(scanned.text, "utf8") > max ? past(Buffer.byteLength(scanned.text, "utf8")) : scanned;
+    const w = scanned.ok && Buffer.byteLength(scanned.text, "utf8") > max ? past(`${String(Buffer.byteLength(scanned.text, "utf8"))} bytes with the credential scan's mark in place of a credential`) : scanned;
     if (w.ok) return { line: w.text, refused, result: { kept: true, reason: stood !== null && stood.length > 0 ? "replaced" : "kept" }, miss: null };
     if (stood !== null && stood.length > 0) return { line: stood, refused, result: { kept: true, reason: w.reason, detail: `${w.detail} The earlier line stands.` }, miss: null };
     if (refused === 0) {
