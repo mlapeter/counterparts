@@ -81,31 +81,47 @@ In the same commit, or a second one:
 
 ## 2. The checks
 
-On a clean clone of the release branch, after `bun install --frozen-lockfile`, on a quiet
-machine (hook tests have timed out under load; rerun a timed-out file alone and report both
-numbers):
+**In CI, on the exact release commit.** Pushing `release/<version>` runs
+`.github/workflows/tests.yml` on that commit. A push is what gets the commit itself: the run
+on the pull request tests a merge of the branch into master. Push once `binaries.json` is
+committed (section 3). The push run is:
 
-- `bun run typecheck`;
-- the suite in three time zones, `bun test --timeout 30000` under `TZ=UTC`,
-  `TZ=America/Denver` and `TZ=Pacific/Kiritimati`, with the live dashboard browser tests
-  (`test/dashboard-*-live.test.ts`) run on their own;
-- `bun run test:node` on the lowest supported Node (22.15) and the current one;
-- the install loop, `tools/install-loop/run.sh`: a stranger's install from the packed
-  tarball, in a throwaway HOME;
-- the plugin loop, `tools/plugin-loop/run.sh`, on the release head
-  ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)). It installs the
+- the typecheck, the changelog check, the Node smokes on 22.15 and 24, and the hosted tests;
+- the suite, on Linux in `America/Denver` and `Pacific/Kiritimati` and on macOS in Denver;
+- then, once those pass, the `release` jobs, all on one tarball packed once in the run:
+  - the package scan (`tools/audit/scan-personal.ts --tarball`), against the highest version
+    below this one on npm. Its verdict is at the bottom of the step and in the summary. A new
+    key, a new hit in a hard class (a mailbox, a home path, a session or run id) or a file
+    that doesn't belong (`.claude-plugin/`, `hooks/`, `commands/`, `test/`, `hosted/`,
+    `dist/`, a scratch folder, a store) fails the job, printing the class and the file and
+    never the text. New and missing files, sizes, exports and new soft hits (the owner's
+    name, `~/` paths) are listed, and reading them is the release agent's job: every new or
+    missing file should have a reason;
+  - the install loop on that file, on Linux and macOS (`INSTALL_LOOP_TARBALL`): a stranger's
+    install in a throwaway HOME;
+  - the live dashboard tests (`test/dashboard-*-live.test.ts`), with chromium installed. A
+    skip here is a failure.
+
+The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
+at its log; a job that failed on a timeout gets one rerun (`gh run rerun <id> --failed`), and
+a second failure gets a real look. Report both numbers.
+
+**On the laptop, on the commit CI passed.** `uptime` first; these run one at a time.
+
+- the check against a copy of the owner's memories, which is private and can't go near a
+  public log. The release brief says what to look at;
+- the plugin loop, `tools/plugin-loop/run.sh`, on the release head, which needs a real
+  `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)). It installs the
   working tree under the pin's tag inside its own throwaway clone, so it passes before the
   tag is on GitHub; the one install in it that has to fail is the step naming a missing tag;
-- the package scan: `npm pack`, then compare the tarball with the previous release's.
-  Every new or missing file should have a reason. Nothing from `.claude-plugin/`, `hooks/`,
-  `commands/`, `test/`, `dist/`, a scratch folder or a store should be in it. Search it for
-  keys, email addresses, home-directory paths and people's names
-  (`tools/audit/scan-personal.ts` does the same for the tracked tree);
-- the upgrade and the rollback, below.
+- the upgrade and the rollback, below, with the tarball from section 4, until they're
+  automated;
+- people's names other than the owner's: `grep` the tarball with a list kept outside the
+  repository. A list like that can't live in CI.
 
 ## 3. The single binaries
 
-After the last change to `src/`, on macOS, in the clean clone:
+Before the branch is pushed, after the last change to `src/`, on macOS, in the clean clone:
 
 ```sh
 bun tools/single-binary/build.ts --release
@@ -116,6 +132,12 @@ files and `SHA256SUMS` from `dist/single-binary/<version>/` into `single-binary/
 release folder outside the clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
 these ones. Any later change to `src/` means building again. Details:
 [single-binary.md, "Releasing"](single-binary.md#releasing).
+
+The binaries come before the push because of the commit, not the tarball: `.claude-plugin/`
+isn't in the npm package, so CI's pack needs nothing from this step (0.3.41's tree packed
+with `binaries.json` deleted gives the hash that was published). But the release commit is
+the one that carries the manifest, and `test/plugin-bundle.test.ts` wants its version to
+match, so a push before this step is a red suite on a commit that won't be released.
 
 ## 3b. The plugin bundle
 
@@ -192,15 +214,28 @@ GitHub before the release PR merges: master's marketplace is read live, and it n
 
 ## 4. Pack
 
-`npm pack` from a clean clone at the release head, after `binaries.json` is committed. Keep
-the tarball in the release folder with the commit it was packed from, its sha256, and a
-`release-notes.md` (the version's CHANGELOG entry). Packing the same commit twice gives the
-same hash. Then open the release PR.
+The tarball that gets published is the one CI tested. CI packs it, section 2's checks take
+that file, and the run keeps it as an artifact with its sha256. Once the run on the release
+head is green:
+
+```sh
+tools/release/fetch-tarball.sh <full commit sha> <release folder>
+```
+
+That writes `counterparts-<version>.tgz`, `SHA256` and `COMMIT` into the release folder. It
+stops, writing nothing, unless the run is on a `release/` branch and fully green, and the
+file's hash matches both the `SHA256` beside it and the line the job printed in its log. A
+mismatch stops the release; find out why before going on. Don't pack again on the laptop:
+the same commit gives the same hash only with the same npm, and the file to publish is the
+tested one anyway. Artifacts last 30 days, and a rerun of the `release` job makes a new one.
+Add a `release-notes.md` (the version's CHANGELOG entry), run the laptop checks from section
+2, then open the release PR.
 
 ## 5. Publish
 
-1. `npm publish <tarball> --otp=<code>`.
-2. Tag the commit the tarball was packed from, and push the tag:
+1. From the release folder, on the PUBLISH sheet as one line, so a changed file stops it:
+   `shasum -a 256 -c SHA256 && npm publish ./counterparts-<version>.tgz --otp=<code>`.
+2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh
    git tag -a v<version> <packed commit> -m "counterparts <version>"

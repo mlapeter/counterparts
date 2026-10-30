@@ -12,7 +12,24 @@
  *   bun tools/audit/scan-personal.ts            # tracked files
  *   bun tools/audit/scan-personal.ts --commits  # commit messages + author idents
  *   bun tools/audit/scan-personal.ts --list X   # print every hit line for class X
+ *   bun tools/audit/scan-personal.ts --tarball new.tgz --against old.tgz
+ *                                               # the release's package scan
+ *
+ * `--tarball` is the one mode that decides, and it runs in a public CI log, so it
+ * prints classes, counts and file paths and NEVER a matched string or a line of text.
+ * It compares a packed tarball with the previous release's and exits 1 on what should
+ * stop a release: a file that doesn't belong, or a new hit in a HARD class or for a
+ * key. New files, gone files, sizes, exports and new hits in the SOFT classes are
+ * listed for the release agent to read. The soft classes can't fail: `~/.counterparts`
+ * is the product's own path and the owner's name is all over the comments (0.3.41:
+ * 478 and 405 hits), so an absolute rule would be red every release. It knows only
+ * the owner's name: a list of other people's names can't live in a public repository.
  */
+
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+import { scanSecrets } from "../../src/core/encode/secrets.js";
 
 interface Klass {
   name: string;
@@ -117,6 +134,144 @@ function scan(file: string, text: string) {
       }
     }
   }
+}
+
+// ------------------------------------------------------------ the package scan
+
+/** A new hit in one of these stops the release. The rest are listed and read. */
+const HARD_CLASSES: ReadonlySet<string> = new Set([
+  "owner-email",
+  "absolute-home-path",
+  "uuid-session-id",
+  "short-session-id",
+  "run-id",
+  "scratchpad-path",
+  "claude-projects-path",
+]);
+
+/** Paths inside the package that don't belong in it (RELEASING §2). */
+const STOWAWAY =
+  /^(?:test|hooks|commands|dist|hosted|scratch[^/]*|\.claude[^/]*|\.github|docs\/harvest)\/|^tools\/(?!install-loop\/)|\.(?:sqlite3?|db)(?:-wal|-shm)?$|(?:^|\/)\.(?:env(?:\.[^/]*)?|npmrc)$/;
+
+interface Unpacked {
+  /** Path inside the package -> size in bytes. */
+  files: Map<string, number>;
+  bytes: number;
+  /** `class|file` (or `key:family|file`) -> hits. */
+  hits: Map<string, number>;
+  exports: string;
+}
+
+function unpack(tarball: string): Unpacked {
+  const dir = mkdtempSync(join(tmpdir(), "package-scan-"));
+  try {
+    sh(["tar", "-xzf", tarball, "-C", dir]);
+    const root = join(dir, "package");
+    const files = new Map<string, number>();
+    const hits = new Map<string, number>();
+    const walk = (d: string) => {
+      for (const name of readdirSync(d)) {
+        const path = join(d, name);
+        const st = statSync(path);
+        if (st.isDirectory()) {
+          walk(path);
+          continue;
+        }
+        const file = relative(root, path);
+        files.set(file, st.size);
+        const text = readFileSync(path, "utf8");
+        for (const k of CLASSES) {
+          const n = text.match(new RegExp(k.re.source, k.re.flags))?.length ?? 0;
+          if (n > 0) hits.set(`${k.name}|${file}`, n);
+        }
+        for (const f of scanSecrets(text).findings) {
+          hits.set(`key:${f.family}|${file}`, f.count);
+        }
+      }
+    };
+    walk(root);
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<string, unknown>;
+    return {
+      files,
+      bytes: statSync(tarball).size,
+      hits,
+      exports: JSON.stringify({ exports: pkg["exports"], bin: pkg["bin"], dependencies: pkg["dependencies"] }),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function packageScan(tarball: string, against: string): number {
+  const now = unpack(tarball);
+  const was = unpack(against);
+  const lines: string[] = [];
+  const say = (line = "") => lines.push(line);
+  const name = (p: string) => p.split("/").pop() ?? p;
+
+  say(`package scan: ${name(tarball)} against ${name(against)}`);
+  const signed = now.bytes - was.bytes;
+  say(`files ${now.files.size} (was ${was.files.size}); tarball ${now.bytes} bytes (was ${was.bytes}, ${signed >= 0 ? "+" : ""}${signed})`);
+
+  const added = [...now.files.keys()].filter((f) => !was.files.has(f)).sort();
+  const gone = [...was.files.keys()].filter((f) => !now.files.has(f)).sort();
+  say(`new files, each should have a reason (${added.length})${added.length ? ":" : ""}`);
+  for (const f of added) say(`  + ${f}`);
+  say(`gone files, each should have a reason (${gone.length})${gone.length ? ":" : ""}`);
+  for (const f of gone) say(`  - ${f}`);
+  say(`exports, bin, dependencies: ${now.exports === was.exports ? "the same" : "CHANGED, read package.json"}`);
+
+  const stowaways = [...now.files.keys()].filter((f) => STOWAWAY.test(f)).sort();
+  const newHits = [...now.hits]
+    .map(([key, n]) => ({ key, more: n - (was.hits.get(key) ?? 0) }))
+    .filter((h) => h.more > 0)
+    .map((h) => {
+      const [klass, file] = h.key.split("|") as [string, string];
+      return { klass, file, more: h.more, hard: klass.startsWith("key:") || HARD_CLASSES.has(klass) };
+    })
+    .sort((a, b) => a.klass.localeCompare(b.klass) || a.file.localeCompare(b.file));
+
+  const totals = (u: Unpacked, klass: string) =>
+    [...u.hits].filter(([key]) => key.startsWith(`${klass}|`)).reduce((sum, [, n]) => sum + n, 0);
+  const families = [...new Set([...now.hits.keys(), ...was.hits.keys()].map((k) => k.split("|")[0]!).filter((k) => k.startsWith("key:")))];
+  say();
+  say(`${"class".padEnd(28)}${"now".padStart(6)}${"was".padStart(6)}  on a new hit`);
+  for (const klass of [...CLASSES.map((k) => k.name), ...families]) {
+    const hard = klass.startsWith("key:") || HARD_CLASSES.has(klass);
+    say(`${klass.padEnd(28)}${String(totals(now, klass)).padStart(6)}${String(totals(was, klass)).padStart(6)}  ${hard ? "stops" : "read"}`);
+  }
+
+  const soft = newHits.filter((h) => !h.hard);
+  const hard = newHits.filter((h) => h.hard);
+  say();
+  say(`new hits to read (${soft.length}):`);
+  for (const h of soft) say(`  ${h.klass} +${h.more}  ${h.file}`);
+  say(`new hits that stop the release (${hard.length}):`);
+  for (const h of hard) say(`  ${h.klass} +${h.more}  ${h.file}`);
+  say(`files that don't belong (${stowaways.length}):`);
+  for (const f of stowaways) say(`  ${f}`);
+
+  const pass = hard.length === 0 && stowaways.length === 0;
+  say();
+  say(`PACKAGE SCAN: ${pass ? "PASS" : "FAIL"}`);
+
+  const text = lines.join("\n");
+  console.log(text);
+  const summary = process.env["GITHUB_STEP_SUMMARY"];
+  if (summary) appendFileSync(summary, `### Package scan\n\n\`\`\`\n${text}\n\`\`\`\n`);
+  return pass ? 0 : 1;
+}
+
+const tarballIdx = process.argv.indexOf("--tarball");
+if (tarballIdx >= 0) {
+  const tarball = process.argv[tarballIdx + 1];
+  const againstIdx = process.argv.indexOf("--against");
+  const against = againstIdx >= 0 ? process.argv[againstIdx + 1] : undefined;
+  if (!tarball || !against) {
+    console.error("usage: scan-personal.ts --tarball <new.tgz> --against <previous release.tgz>");
+    process.exit(2);
+  }
+  process.exit(packageScan(tarball, against));
 }
 
 const commitsMode = process.argv.includes("--commits");
