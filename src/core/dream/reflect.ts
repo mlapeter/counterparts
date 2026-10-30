@@ -2264,6 +2264,21 @@ export class Reflections {
       missed.length === 0
         ? null
         : `Not written: ${missed.join("; ")}. You can fix these and call finish again with reflection ${row.id} and just those parts — the entry and everything already written stand.`;
+    // WHAT'S STILL SENT BACK, by part, for `busyIn` (2026-10-30): this retry's
+    // parts, and an earlier finish's that this one didn't send again. The row's
+    // `detail` is written whole above, so a finish with none leaves none. A page
+    // or share with no words isn't sent again: `finish` passes over it and says
+    // nothing. Only the name goes on the row, since a line can quote what was sent:
+    // one that doesn't open with its name still holds the fence, as `unnamed`.
+    const worded = (text: string | undefined): boolean => (text ?? "").trim().length > 0;
+    const holds = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : isRecord(v) ? Object.values(v).some(holds) : v !== null && v !== undefined);
+    const sentAgain = (part: string): boolean => {
+      if (part === "page") return worded(input.page?.text) || worded(input.page?.short);
+      if (part === "share") return worded(input.share?.text);
+      return [part, ...(part === "close" ? ["closeNow"] : [])].some((k) => holds((input as unknown as Record<string, unknown>)[k]));
+    };
+    const sentBack = [...new Set([...stringIds(prior["sentBack"]).filter((p) => !sentAgain(p)), ...missed.map((m) => /^[a-z]+/.exec(m)?.[0] ?? "unnamed")])];
+    if (sentBack.length > 0) this.store.updateReflection(row.id, { detail: { ...detail, sentBack, sentBackAt: this.store.now() } });
 
     const how = shareStands
       ? [
@@ -4170,6 +4185,24 @@ export class Reflections {
     const why = this.words(input.why, row.session ?? row.id, DREAM_TUNABLES.MAX_WHY_CHARS);
     if (!why.ok) return { ok: false, reason: "failed", detail: `A reflection settles only with a plain reason, in \`why\` — ${why.detail}` };
     return settleContradiction(this.store, { holds: input.holds, over: input.over, how: input.how, why: why.text, actor: "reflection", actorId: row.id });
+  }
+
+  /**
+   * IS A REFLECTION UNDER WAY IN THIS SESSION, as the night's fence reads it
+   * (`Dreams.busyIn`'s twin): begun, or finished with a part sent back that
+   * `finish` would still take. Both let go past `ABANDONED_AFTER_MS`, a run
+   * that crashed or a session that moved on: from `begin`, and from the last
+   * finish. A finish with nothing sent back lets go at once.
+   */
+  busyIn(session: string): boolean {
+    const now = this.store.now();
+    const quiet = DREAM_TUNABLES.ABANDONED_AFTER_MS;
+    return this.store.reflections({ limit: 5 }).some((r) => {
+      if (r.session !== session) return false;
+      if (r.state === "begun") return now - r.started_at <= quiet;
+      const detail = parseDetail(r.detail);
+      return stringIds(detail["sentBack"]).length > 0 && typeof detail["sentBackAt"] === "number" && now - detail["sentBackAt"] <= quiet && this.openFor(r.id, session).ok;
+    });
   }
 
   /**

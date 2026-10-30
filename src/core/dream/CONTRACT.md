@@ -730,7 +730,13 @@ tag or card only closed rows carry, and no closed row under a card; a day summar
 isn't in the reflection's timeline; a handoff left in a closed folder isn't an open loop on the night's mind. No setting file closes nothing. It writes nothing and removes nothing:
 stored rows, merges already made, and an ordinary session's recall are as they were. A session reads as the
 night while its run is alive: a dream or reflection it left behind, quiet past `ABANDONED_AFTER_MS`, doesn't
-fence it.
+fence it. A reflection stays under way past `finish` while a part sent back hasn't been sent again and
+`finish` would still take it; quiet that long from its last finish, it lets go the same way.
+
+**What the fence promises:** a night run, scheduled or caught up, is fenced for all of it: its children carry the
+mark. A dream or reflection a person starts in a session is fenced only during its own steps, as above. Before and
+after them that session's recall is ordinary, and `self_page` takes its words throughout, so there the fence is a
+strong default and not a guarantee.
 
 **A setting file that won't read holds the night:** every folder would read as closed, and a page or dream
 from what's left would be thin and silent. `launch`, `writer`, `begin` and `tags` (and the reflection's
