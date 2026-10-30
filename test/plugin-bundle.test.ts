@@ -545,6 +545,11 @@ describe("the directory flavor", () => {
       expect(sheetProblems("a", '@charset "utf-8";\n.a{}')).toEqual(["a uses @charset"]);
       expect(sheetProblems("a", ".a{background:url(./x.png)}")).toEqual(["a has a relative url(): ./x.png"]);
       expect(sheetProblems("a", ".a{background:url('fonts/x.woff2')}")).toEqual(["a has a relative url(): fonts/x.woff2"]);
+      // An opener left open eats the next sheet's rules in a real parser, braces balanced or not.
+      expect(sheetProblems("a", ".a{width:calc(1px}\n")).toEqual(["a leaves a ( open"]);
+      expect(sheetProblems("a", ".a{background:url(/x.png}\n")).toEqual(["a leaves a ( open"]);
+      expect(sheetProblems("a", ".a[x{color:red}\n")).toEqual(["a leaves a [ open"]);
+      expect(sheetProblems("a", ".a[x]{width:calc((1px + 2px) * 2)}\n")).toEqual([]);
       expect(sheetProblems("a", "﻿.a{}")).toEqual(["a holds an invisible character"]);
       // Only comments mention these, so nothing is wrong.
       expect(sheetProblems("a", "/* @import url(x) */ .a{}")).toEqual([]);
@@ -552,11 +557,11 @@ describe("the directory flavor", () => {
 
     test("joining names what it cannot do, and is the same bytes every time", () => {
       const read = (u: string): string | null => (u === "/a.css" ? ".a{}\n" : u === "/b.css" ? ".b{}" : null);
-      const html = '<link rel="preload" href="/f" as="font">\n<link rel="stylesheet" href="/b.css">\n<script></script>\n<link href="/a.css" rel="stylesheet">\n';
+      const html = '<link rel="preload" href="/f" as="font">\n<script></script>\n<link rel="stylesheet" href="/b.css">\n<link href="/a.css" rel="stylesheet">\n<p></p>\n';
       const one = joinSheets(html, read);
       expect(one.problems).toEqual([]);
       expect(one.urls).toEqual(["/b.css", "/a.css"]);
-      expect(one.page).toBe(`<link rel="preload" href="/f" as="font">\n<link rel="stylesheet" href="${JOINED_SHEET_URL}">\n<script></script>\n`);
+      expect(one.page).toBe(`<link rel="preload" href="/f" as="font">\n<script></script>\n<link rel="stylesheet" href="${JOINED_SHEET_URL}">\n<p></p>\n`);
       expect(one.css.endsWith("/* /b.css */\n.b{}\n/* /a.css */\n.a{}\n")).toBe(true);
       expect(joinSheets(html, read)).toEqual(one);
       expect(joinSheets("<p>no sheets</p>\n", read).problems).toEqual(["app.html links no stylesheet to join"]);
@@ -564,6 +569,15 @@ describe("the directory flavor", () => {
       // On one line with something else: not recognised, and refused rather than left as a second sheet.
       expect(joinSheets('<link rel="stylesheet" href="/a.css">\n<p><link rel="stylesheet" href="/b.css"></p>\n', read).problems).toEqual([
         "app.html would link 2 stylesheets after the join: a link this did not recognise",
+      ]);
+      // What the join would lose, or move a sheet across.
+      expect(joinSheets('<link rel="stylesheet" href="/a.css" media="print">\n', read).problems).toEqual(['app.html\'s link to /a.css also says media="print", which the join would lose']);
+      expect(joinSheets('<link id="t" rel="stylesheet" href="/a.css" disabled>\n', read).problems).toEqual(['app.html\'s link to /a.css also says id="t" disabled, which the join would lose']);
+      expect(joinSheets('<link rel="stylesheet" href="/a.css">\n<style>.x{}</style>\n<link rel="stylesheet" href="/b.css">\n', read).problems).toEqual([
+        "app.html has something between its stylesheet links: <style>.x{}</style>",
+      ]);
+      expect(joinSheets('<link rel="stylesheet" href="/a.css">\n<!--\n<link rel="stylesheet" href="/b.css">\n-->\n', read).problems).toEqual([
+        "app.html has something between its stylesheet links: <!--",
       ]);
     });
 

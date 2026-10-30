@@ -648,16 +648,19 @@ export function escapeInvisible(js: string): string {
 /**
  * What would make a sheet mean something else once other sheets stand around
  * it: an at-rule that only works at the top of a file, a relative `url()` (the
- * joined file sits elsewhere), a comment, string or brace left open or text left
- * after the last rule (each would swallow the next sheet), and a byte-order mark
- * or other invisible character (harmless at the start of a file, a broken rule in
- * the middle of one, and the directory's validator holds them anyway). Pure.
+ * joined file sits elsewhere), a comment, string, brace, `(` or `[` left open or
+ * text left after the last rule (each would swallow the next sheet), and a
+ * byte-order mark or other invisible character (harmless at the start of a file, a
+ * broken rule in the middle of one, and the directory's validator holds them
+ * anyway). Pure.
  */
 export function sheetProblems(name: string, css: string): string[] {
   const problems: string[] = [];
   if (css.search(INVISIBLE) >= 0) problems.push(`${name} holds an invisible character`);
   let code = ""; // the sheet without its comments, strings kept
   let depth = 0;
+  let parens = 0;
+  let brackets = 0;
   let afterLastRule = "";
   for (let i = 0; i < css.length; i++) {
     const c = css[i]!;
@@ -683,9 +686,16 @@ export function sheetProblems(name: string, css: string): string[] {
       afterLastRule = c === "}" ? "" : afterLastRule + c;
       if (c === "{") depth += 1;
       if (c === "}") depth -= 1;
+      // A stray closer is only a bad declaration; an opener left open eats what follows.
+      if (c === "(") parens += 1;
+      if (c === ")" && parens > 0) parens -= 1;
+      if (c === "[") brackets += 1;
+      if (c === "]" && brackets > 0) brackets -= 1;
     }
   }
   if (depth !== 0) problems.push(`${name} has unbalanced braces`);
+  if (parens > 0) problems.push(`${name} leaves a ( open`);
+  if (brackets > 0) problems.push(`${name} leaves a [ open`);
   if (afterLastRule.trim() !== "") problems.push(`${name} has text after its last rule: ${afterLastRule.trim().slice(0, 40)}`);
   for (const m of code.matchAll(/@(import|charset|namespace|layer)\b/gi)) problems.push(`${name} uses @${m[1]!.toLowerCase()}`);
   for (const m of code.matchAll(/url\(\s*["']?([^"')\s]*)/gi)) {
@@ -700,18 +710,27 @@ export function sheetProblems(name: string, css: string): string[] {
  * sheets in the page's order, each after a comment naming it. Nothing else in
  * the page changes (the server replaces its two `<meta>` tags by their exact
  * text). The same bytes every run: only the page's own URLs and the sheets' own
- * text go in. `read` gets a sheet's URL and says its text, or null. Pure.
+ * text go in. `read` gets a sheet's URL and says its text, or null. It refuses
+ * a link saying anything beyond `rel` and `href` (a `media` or `disabled` would be
+ * lost) and anything standing between two links (an inline `<style>` would change
+ * places in the cascade, a comment or `<noscript>` would start applying). Pure.
  */
 export function joinSheets(page: string, read: (url: string) => string | null): { page: string; css: string; urls: string[]; problems: string[] } {
   const problems: string[] = [];
   const urls: string[] = [];
   const parts = ["/* Joined by tools/plugin-bundle/build.ts from app.html's stylesheet links, in their order, which is the cascade's. */\n"];
-  const joined = page.replace(/^[ \t]*<link\b[^>\n]*\brel=["']?stylesheet\b[^>\n]*>[ \t]*\n/gim, (link) => {
+  let lastEnd = -1;
+  const joined = page.replace(/^[ \t]*<link\b[^>\n]*\brel=["']?stylesheet\b[^>\n]*>[ \t]*\n/gim, (link: string, at: number) => {
+    const between = lastEnd < 0 ? "" : page.slice(lastEnd, at).trim();
+    if (between !== "") problems.push(`app.html has something between its stylesheet links: ${between.slice(0, 40)}`);
+    lastEnd = at + link.length;
     const url = /\bhref=["']([^"'?#]+)["']/i.exec(link)?.[1];
     if (url === undefined) {
       problems.push(`app.html has a stylesheet link with no plain href: ${link.trim()}`);
       return "";
     }
+    const extra = link.replace(/\b(?:rel|href)=(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "").replace(/<link\b|\/?>/gi, "").trim().replace(/\s+/g, " ");
+    if (extra !== "") problems.push(`app.html's link to ${url} also says ${extra}, which the join would lose`);
     const text = read(url);
     if (text === null) problems.push(`app.html links ${url}, which is not a file`);
     else {

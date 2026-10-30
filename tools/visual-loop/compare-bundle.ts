@@ -236,9 +236,9 @@ async function main(): Promise<number> {
       mkdirSync(home, { recursive: true });
       if (store === "rich") await seedDemo({ dir });
       else seedEmpty({ dir });
-      await start(a, dir, home);
-      await start(b, dir, home);
       try {
+        await start(a, dir, home);
+        await start(b, dir, home);
         for (const viewport of VIEWPORTS) {
           const label = `${String(viewport.width)}x${String(viewport.height)}`;
           const [pa, pb] = [await open(browser, a, viewport, problems), await open(browser, b, viewport, problems, against === undefined ? a : undefined)];
