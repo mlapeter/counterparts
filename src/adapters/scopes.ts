@@ -391,7 +391,7 @@ export function readScopes(
  */
 export function describeScopeTrouble(read: ScopeRead, path: string): string | null {
   if (read.error !== null) {
-    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on), and write-ups stop and the night holds, until it is fixed.`;
+    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on); write-ups stop and the night holds until fixed.`;
   }
   if (read.refused.length === 0) return null;
   const one = read.refused.length === 1;
