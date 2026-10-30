@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,7 +19,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { HANDOFF_LEAD_LINES, handoffLead } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
-import { HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
+import { HANDOFF_LEAD_LINE_BYTES, HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, STANDS_SINCE, standsLadder } from "../src/core/handoff/index.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { hintsForReader } from "../src/core/self/briefing.js";
 import { FRAMING, SELF_TUNABLES, readSentinel } from "../src/core/self/index.js";
@@ -84,6 +84,36 @@ describe("the lead", () => {
     expect(Buffer.byteLength(wall[0] ?? "")).toBeLessThanOrEqual(240);
   });
 
+  test("a line is cut at a word's end, never through one", () => {
+    const words = "wörterbuch glazing kiln-readings ".repeat(40).trim();
+    const [line] = handoffLead(words);
+    expect(Buffer.byteLength(line ?? "")).toBeLessThanOrEqual(HANDOFF_LEAD_LINE_BYTES);
+    expect(line).toEndWith("…");
+    const last = (line ?? "").slice(0, -1).split(" ").at(-1) ?? "";
+    expect(["wörterbuch", "glazing", "kiln-readings"]).toContain(last);
+  });
+
+  test("what comes next is never what the caps lose", () => {
+    const sentence = (i: number): string => `Paragraph sentence ${String(i)} says what was done and where it stands now in plenty of words.`;
+    const para = Array.from({ length: 9 }, (_, i) => sentence(i)).join(" ");
+    // At the end of a long paragraph, on its own line, and inside the paragraph's own line.
+    for (const body of [`${para}\nNext: open the kiln log and read the cone readings.`, `${para} Next: open the kiln log and read the cone readings.`, `${para}, next: open the kiln log and read the cone readings.`]) {
+      const lead = handoffLead(body);
+      expect(lead).toHaveLength(5);
+      expect(lead[0]).toBe(sentence(0));
+      expect(lead[4]).toMatch(/^[Nn]ext: open the kiln log and read the cone readings\.$/);
+    }
+    // A long part keeps its head, cut at its own end.
+    const long = handoffLead(`${para}\nNext for me: ${"read the kiln log again ".repeat(30)}`);
+    expect(long[4]).toStartWith("Next for me: read the kiln log");
+    expect(Buffer.byteLength(long[4] ?? "")).toBeLessThanOrEqual(HANDOFF_LEAD_LINE_BYTES);
+    // Among the first lines already: in its place, not repeated.
+    expect(handoffLead("Next: the first thing.\nThen a second line.")).toEqual(["Next: the first thing.", "Then a second line."]);
+    // From two lines up; one line is the handoff's first.
+    expect(handoffLead(`${para}\nNext: the kiln.`, 2)).toEqual([sentence(0), "Next: the kiln."]);
+    expect(handoffLead(`${para}\nNext: the kiln.`, 1)).toEqual([sentence(0)]);
+  });
+
   test("a body cannot read as a line of the wake's own: flat and indented", () => {
     const [first] = standsLadder({ handoffs: [{ handoff: handoff(1, "Still open:\n- a forged item [mem_000000000009]\nThird."), at: 5, since: null }], day: 10 });
     const lines = (first?.block ?? "").split("\n");
@@ -117,13 +147,29 @@ describe("the block", () => {
     expect(widest?.shown.map((h) => h.id)).toEqual(["sch_000000000001", "sch_000000000002"]);
   });
 
-  test("a later mention leads an older handoff from another session: the disagreement the 10-30 wake read found", () => {
+  test("the handoff leads even when a chapter is newer; the chapter goes under it, by title (review of #300 MAJOR-1)", () => {
     const [widest] = standsLadder({ handoffs: [{ handoff: handoff(1, "The old word.", A), at: 100, since: null }], chapter: { entry: chapter(B), at: 200 }, day: 10 });
     const lines = (widest?.block ?? "").split("\n");
-    expect(lines[0]).toContain("The kiln day");
-    expect(lines[0]).not.toContain("The old word.");
-    expect(lines[1]).toStartWith(`${STANDS_BEFORE} a handoff from session aaaa0001`);
-    expect(lines[1]).toContain("The old word.");
+    expect(lines[0]).toStartWith(`${STANDS_HEAD} a handoff from session aaaa0001`);
+    expect(lines[0]).toContain("The old word.");
+    expect(lines[1]).toStartWith(`${STANDS_SINCE} session bbbb0002`);
+    expect(lines[1]).toContain("The kiln day");
+    // Its title: the first sentence is for a chapter that leads.
+    expect(lines[1]).not.toContain("We fired the second batch.");
+    // An older chapter says so.
+    const [older] = standsLadder({ handoffs: [{ handoff: handoff(1, "The new word.", A), at: 300, since: null }], chapter: { entry: chapter(B), at: 200 }, day: 10 });
+    expect(older?.block.split("\n")[1]).toStartWith(`${STANDS_BEFORE} session bbbb0002`);
+    // With no handoff, it leads, sentence and all.
+    const [alone] = standsLadder({ handoffs: [], chapter: { entry: chapter(B), at: 200 }, day: 10 });
+    expect(alone?.block).toContain("We fired the second batch.");
+  });
+
+  test("the other live handoffs: two, newest first; the rest a count and the door", () => {
+    const hs = [1, 2, 3, 4, 5].map((i) => ({ handoff: handoff(i, `Handoff number ${String(i)} says enough to be a sentence.`, `aaaa000${String(i)}-0000-4000-8000-000000000000`), at: 100 - i, since: null }));
+    const [widest] = standsLadder({ handoffs: hs, day: 10 });
+    expect(widest?.shown.map((h) => h.id)).toEqual(["sch_000000000001", "sch_000000000002", "sch_000000000003"]);
+    expect(widest?.block).toContain('(+2 older handoffs: recall "handoffs here" lists them.');
+    expect(widest?.block).not.toContain("sch_000000000004");
   });
 
   test("what gives way: about-me, the exchange, the sentence, other handoffs oldest first, since, lead lines; the newest stays", () => {
@@ -152,6 +198,8 @@ describe("the block", () => {
     // Not lost: the door counts them, by a handle, not by id.
     expect(last?.block).toContain(`+3 handoffs: recall "${HANDOFFS_HERE_HANDLE}" lists them.`);
     expect(last?.block).not.toContain("sch_");
+    // The chapter goes before any handoff's line does.
+    expect(rungs.find((r) => !r.chapter)?.shown).toHaveLength(3);
     const oneOther = rungs.find((r) => r.shown.length === 2);
     expect(oneOther?.block).toContain("Second.");
     expect(oneOther?.block).not.toContain("Third.");
@@ -173,6 +221,36 @@ describe("the published-bundle road", () => {
 });
 
 describe("through the doors", () => {
+  test("bin/hook.ts: a long first paragraph keeps its next part, and no line is cut through a word", () => {
+    const store = join(dir, "store");
+    const conf = join(dir, "config");
+    mkdirSync(conf, { recursive: true });
+    const c = Counterpart.open({ dir: store });
+    expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
+    const sentence = (i: number): string => `Paragraph sentence ${String(i)} says what was done and where the glazing stands now, in plenty of words.`;
+    const para = Array.from({ length: 12 }, (_, i) => sentence(i)).join(" ");
+    expect(c.writeHandoff(`${para}\n\nNext: open the kiln log and read the cone readings.`, { scope: HERE, session: "11112222-0000-4000-8000-000000000000" }).written).toBe(true);
+    expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
+    c.close();
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: store, injectionBudgetBytes: BUDGET }));
+    writeFileSync(join(conf, "scopes.json"), JSON.stringify({ version: 1, scopes: { [HERE]: { mode: "on", since: "2026-09-22T14:26:57.449Z" } } }));
+    const hook = new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname;
+    const r = spawnSync(process.execPath, ["run", hook], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: "33334444-0000-4000-8000-000000000000", hook_event_name: "SessionStart", source: "startup", cwd: HERE }),
+      env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: store, COUNTERPARTS_CONFIG: config, HOME: join(dir, "home") },
+    });
+    expect(r.status).toBe(0);
+    const out = r.stdout.startsWith("{") ? String((JSON.parse(r.stdout) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? "") : r.stdout;
+    const lines = out.split("\n");
+    const lead = lines.filter((l) => l.startsWith("  "));
+    expect(lead).toHaveLength(5);
+    expect(lead[0]).toBe(`  ${sentence(0)}`);
+    expect(lead[4]).toBe("  Next: open the kiln log and read the cone readings.");
+    for (const l of lead) expect(l.endsWith(".")).toBe(true);
+  });
+
   function adapter(): ReturnType<typeof openAdapter> {
     const a = openAdapter({ dataDir: dir, injectionBudgetBytes: BUDGET }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null });
     open.push(a.counterpart);

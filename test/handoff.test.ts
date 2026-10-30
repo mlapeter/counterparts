@@ -1560,14 +1560,16 @@ describe("several sessions leave handoffs in one directory", () => {
       tick();
     }
     const rung = ladderOf(s, h, HERE)[0] as StandsRung;
-    expect(rung.shown.map((x) => x.id)).toEqual([...ids].reverse());
+    expect(rung.shown.map((x) => x.id)).toEqual([...ids].reverse().slice(0, 3));
     const lines = rung.block.split("\n");
-    // Newest first: the last written leads, and the rest follow it a line each.
+    // Newest first: the last written leads, the next two a line each, the rest counted.
     expect(lines[0]).toContain(ids[4] as string);
     const others = lines.filter((l) => l.startsWith("- session "));
-    expect(others).toHaveLength(4);
+    expect(others).toHaveLength(2);
     expect(others[0]).toContain(ids[3] as string);
-    expect(others[3]).toContain(ids[0] as string);
+    expect(others[1]).toContain(ids[2] as string);
+    expect(rung.block).toContain('+2 older handoffs: recall "handoffs here" lists them.');
+    expect(rung.block).not.toContain(ids[1] as string);
     expect(rung.block).not.toContain("older here");
   });
 
@@ -1802,11 +1804,12 @@ describe("several sessions leave handoffs in one directory", () => {
     expect(c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 5 })).toHaveLength(1);
   });
 
-  test("however many and however wide, the block is bounded by the room, and the reserve by its ceiling (no cap on lines since WK1, 2026-10-30)", () => {
+  test("however many and however wide, the block is bounded by the room, and the reserve by its ceiling (WK1, 2026-10-30)", () => {
     const widest = (i: number): Handoff => ({
       id: `sch_${String(i).padStart(12, "f")}`,
       scope: HERE,
-      body: "Ω".repeat(HANDOFF_MAX_BYTES / 2),
+      // Lines past the lead's cap: five of them is the widest lead.
+      body: Array.from({ length: 8 }, () => "Ω".repeat(125)).join("\n"),
       bytes: HANDOFF_MAX_BYTES,
       writtenOn: "2026-09-20",
       writtenDay: 999_999,

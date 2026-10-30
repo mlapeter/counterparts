@@ -410,6 +410,7 @@ const FURNITURE: readonly (readonly [RegExp, string])[] = [
   // One block since WK1 (2026-10-30, `core/handoff/index.ts`): a session's chapter, last
   // words and handoff on one line, read below as the kinds they were.
   [/^Where this folder stands:/, "Last here"],
+  [/^Since then:/, "Last here"],
   [/^Before that:/, "Before it"],
   [/^Yesterday\b/, "Yesterday"],
   [/^Today so far\b/, "Today so far"],
@@ -427,19 +428,23 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
   const lines: string[] = [];
   let lastHere: WakeLine["lastHere"] = null;
   let lastSaid: string | null = null;
+  let sinceSeen = false;
   for (const raw of injection.split("\n")) {
     const line = raw.trim();
     const kind = FURNITURE.find(([re]) => re.test(line))?.[1];
     if (kind === undefined) continue;
     lines.push(kind);
     // Who a line of the block names, and what it carries.
-    const who = /^(?:Where this folder stands|Before that): (?:a handoff from )?session ([^,\s]+)/.exec(line)?.[1];
+    const who = /^(?:Where this folder stands|Since then|Before that): (?:a handoff from )?session ([^,\s]+)/.exec(line)?.[1];
     if (/\(sch_[0-9a-f]+\)/.test(line)) lines.push("Handoff");
     if (/\b[Ll]ast said /.test(line)) {
       lines.push("Last said here");
       if (lastSaid === null && who !== undefined) lastSaid = label(who);
     }
-    if (kind === "Last here" && lastHere === null) {
+    // Under a handoff that leads, "Since then:" is the newer session: it is the one that was last here.
+    const newer = /^Since then:/.test(line) && (lastHere === null || !sinceSeen);
+    if (newer) sinceSeen = true;
+    if (kind === "Last here" && (lastHere === null || newer)) {
       const episode = /\bepi_[A-Za-z0-9_-]+/.exec(line)?.[0] ?? null;
       if (episode !== null) {
         const s = sessionOf(episode);

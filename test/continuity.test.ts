@@ -167,19 +167,19 @@ describe("the next session here is told who was last here", () => {
     const { episodeId } = await mikesAfternoon(k);
     const text = wake(k.c, B);
     const lines = text.split("\n");
-    const last = lines.find((l) => l.startsWith("Where this folder stands:"));
-    expect(last).toStartWith(
-      `Where this folder stands: session a1b2c3d4 on Opus 5.5, Sep 30 16:01–17:53 — "${TITLE}" (${episodeId}). We read four texts in a row and every one of them ended grief at a table.`,
-    );
-    // The handoff C left is the older entry, and says in one sentence what
-    // happened since: A's chapter (2026-10-18; before it, the line counted
-    // how much of A's evening was written up — doctor and coverage say that).
-    const pointer = lines.find((l) => l.startsWith("Before that: a handoff from session c9cacbcc"));
+    // The handoff C left leads (review of #300 MAJOR-1), and says in one sentence what
+    // happened since: A's chapter (2026-10-18; before it, the line counted how
+    // much of A's evening was written up — doctor and coverage say that).
+    const pointer = lines.find((l) => l.startsWith("Where this folder stands: a handoff from session c9cacbcc"));
     expect(pointer).toContain("written 09-30 15:19 (a newer chapter here since) (sch_");
+    // A's chapter is under it, by title.
+    const last = lines.find((l) => l.startsWith("Since then: "));
+    expect(last).toStartWith(`Since then: session a1b2c3d4 on Opus 5.5, Sep 30 16:01–17:53 — "An evening reading off the shelves`);
+    expect(last).toContain(`(${episodeId}).`);
     expect(pointer).not.toContain("written up");
     expect(pointer).not.toContain("work here");
-    // Order: the newest above the older, both above the sentinel.
-    expect(lines.indexOf(last as string)).toBeLessThan(lines.indexOf(pointer as string));
+    // Order: the handoff above the chapter, both above the sentinel.
+    expect(lines.indexOf(pointer as string)).toBeLessThan(lines.indexOf(last as string));
     // The sentinel states the delivered total.
     expect(readSentinel(text).intact).toBe(true);
   });
@@ -245,10 +245,10 @@ describe("the next session here is told who was last here", () => {
     // chapter as if nothing had happened since (the Dana week: day 1's meeting, until day 6).
     for (const m of [56, 57, 58]) k.talk(B, at(17, m));
     const text = wake(k.c, "d0d0d0d0-0000-4000-8000-00000000000d");
-    expect(text).toContain("Where this folder stands: session b5b6b7b8, Sep 30 17:56–17:58, no chapter, not written up yet.");
-    expect(text).toMatch(/\nBefore that: session a1b2c3d4[^\n]*\(epi_[0-9a-f]+\)\./);
+    expect(text).toContain("Since then: session b5b6b7b8, Sep 30 17:56–17:58, no chapter, not written up yet.");
+    expect(text).toMatch(/\nSince then: session a1b2c3d4[^\n]*\(epi_[0-9a-f]+\)\./);
     // A session that DID write a chapter is that chapter's line, newest first as before.
-    expect(wake(k.c, B)).toContain("Where this folder stands: session a1b2c3d4");
+    expect(wake(k.c, B)).toContain("Since then: session a1b2c3d4");
   });
 
   test("several sessions here that day: the newest named, the others left to 'Today so far here', and none by bare id", async () => {
@@ -448,31 +448,29 @@ describe("its room in the wake", () => {
     const after = k.c.rebrief({ budgetBytes: 4_000, at: "2026-09-30" });
     expect(after.composeBudget).toBeLessThan(4_000 - PREFACE_RESERVE_BYTES);
     const woke = k.c.wake(4_000, { date: "2026-09-30" }, { scope: HERE, session: B });
-    expect(woke.text).toContain(`Where this folder stands: session a1b2c3d4`);
-    expect(woke.text).toContain("a handoff from session c9cacbcc");
+    expect(woke.text).toContain(`Since then: session a1b2c3d4`);
+    expect(woke.text).toContain("Where this folder stands: a handoff from session c9cacbcc");
     expect(woke.bytes).toBeLessThanOrEqual(4_000);
   });
 
-  test("when there is not room for both, the newest mention stays and the older handoff is counted by the door (WK1, 2026-10-30)", async () => {
-    // Until WK1 the chapter's line went first and the handoff stayed; now a
-    // chapter newer than every handoff here outlives them (`handoff/#standsLadder`).
+  test("when there is not room for both, the line goes first and the handoff stays", async () => {
     const k = afternoon();
-    const { episodeId } = await mikesAfternoon(k);
+    await mikesAfternoon(k);
+    const LINE = "Since then: session a1b2c3d4";
     const full = k.c.wake(9_000, { date: "2026-09-30" }, { scope: HERE, session: B });
-    expect(full.text).toContain("a handoff from session c9cacbcc");
+    expect(full.text).toContain(LINE);
     let tight = full.bytes;
     let woke = full;
-    while (woke.text.includes("a handoff from session c9cacbcc") && tight > 500) {
+    while (woke.text.includes(LINE) && tight > 500) {
       tight -= 4;
       woke = k.c.wake(tight, { date: "2026-09-30" }, { scope: HERE, session: B });
     }
-    expect(woke.text).toContain(`Where this folder stands: session a1b2c3d4 on Opus 5.5, Sep 30 16:01–17:53 — "${TITLE}" (${episodeId}).`);
-    expect(woke.text).not.toMatch(/\(sch_[0-9a-f]+\)/);
-    expect(woke.text).toContain('(+1 handoff: recall "handoffs here" lists them.)');
+    expect(woke.text).not.toContain(LINE);
+    expect(woke.text).toContain("Where this folder stands: a handoff from session c9cacbcc");
     expect(woke.bytes).toBeLessThanOrEqual(tight);
   });
 
-  test("the newest first: with three handoffs and a newer chapter, the chapter stays as room shrinks, and every handoff is shown or counted (WK1 reverses review of #300 MAJOR-1 for this case)", async () => {
+  test("the handoff first: every handoff with a line is carried before the chapter under them is (review of #300 MAJOR-1)", async () => {
     const k = afternoon();
     // Three live handoffs here, all older than A's chapter: two more, and the one C leaves in the afternoon.
     k.set(at(10, 0));
@@ -480,24 +478,25 @@ describe("its room in the wake", () => {
     k.set(at(10, 5));
     k.c.writeHandoff("The docs pass is waiting on the parser; nothing else is blocked.", { scope: HERE, session: "f2f2f2f2-0000" });
     await mikesAfternoon(k);
+    const LINE = "Since then: session a1b2c3d4";
     const base = k.c.wake(100_000, { date: "2026-09-30" }, { scope: THERE, session: B }).bytes;
-    let chapterAlone = false;
-    let allThree = false;
+    let handoffsWithoutLine = false;
+    let both = false;
     for (let ceiling = base; ceiling <= base + 2_400; ceiling += 8) {
       const b = k.c.wake(ceiling, { date: "2026-09-30" }, { scope: HERE, session: B });
       expect(b.bytes).toBeLessThanOrEqual(ceiling);
       if (!b.text.includes("Where this folder stands:")) continue;
-      expect(b.text).toContain(TITLE);
       const shown = b.text.match(/\(sch_[0-9a-f]+\)/g)?.length ?? 0;
       const counted = Number(/\+(\d+) (?:older )?handoffs?: recall "handoffs here"/.exec(b.text)?.[1] ?? 0);
       expect(shown + counted).toBe(3);
-      if (shown === 0) chapterAlone = true;
-      if (shown === 3) allThree = true;
+      if (b.text.includes(LINE)) {
+        // The chapter's line only beside all of them.
+        expect(shown).toBe(3);
+        both = true;
+      } else if (shown === 3) handoffsWithoutLine = true;
     }
-    // Ceilings where only the chapter fits, the handoffs counted by the door…
-    expect(chapterAlone).toBe(true);
-    // …and with room, all of it.
-    expect(allThree).toBe(true);
+    expect(handoffsWithoutLine).toBe(true);
+    expect(both).toBe(true);
   });
 
   test("a FULL store: the chapter puts the wake behind, the turn-end refresh reserves its room, and the next wake has the line (review of #300 MAJOR-2)", async () => {

@@ -184,10 +184,10 @@ describe("2. a handoff's staleness is one sentence", () => {
     );
   });
 
-  test("the newest says its sentence; the others a line each, dated, with no sentence of their own", () => {
+  test("the newest says its sentence; the next two a line each, dated, with no sentence of their own; the rest counted", () => {
     const hs = [h(0), h(1), h(2), h(3)];
     const widest = standsLadder({ handoffs: hs.map((handoff, i) => ({ handoff, at: 100 - i, since: i === 0 ? { written: "10-12 09:24", stale: STALE } : null })), day: 10 })[0];
-    expect(widest?.shown.map((x) => x.id)).toEqual(hs.map((x) => x.id));
+    expect(widest?.shown.map((x) => x.id)).toEqual(hs.slice(0, 3).map((x) => x.id));
     const lines = (widest?.block ?? "").split("\n");
     expect(lines[0]).toContain(`written 10-12 09:24 (${STALE ?? ""}) (sch_000000000000): Handoff 0`);
     expect(lines[1]).toBe(STANDS_OTHERS);

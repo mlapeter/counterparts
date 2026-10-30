@@ -235,10 +235,9 @@ export const HANDOFF_VERSION_MAX_CHARS = 16;
 
 /**
  * HOW MANY LINES OF THE NEWEST HANDOFF A WAKE SHOWS (WK1, 2026-10-30; Mike's
- * markup of the wake, via ROADMAP). Every other live handoff gets one line
- * (`standsLadder`), with no cap of their own: their fortnight's life and the
- * ceiling bound them. Until then: three handoffs a line each, the rest by bare
- * id (`HANDOFF_WAKE_SHOWN`, `HANDOFF_WAKE_LISTED`, both gone). A working default.
+ * markup of the wake, via ROADMAP). Until then: three handoffs a line each, the
+ * rest by bare id (`HANDOFF_WAKE_SHOWN`, `HANDOFF_WAKE_LISTED`, both gone). A
+ * working default.
  */
 export const HANDOFF_LEAD_LINES = 5;
 
@@ -250,6 +249,14 @@ export const HANDOFF_LEAD_LINES = 5;
  * like it. A working default.
  */
 export const HANDOFF_LEAD_LINE_BYTES = 240;
+
+/**
+ * HOW MANY OTHER LIVE HANDOFFS GET A LINE, newest first (WK1, 2026-10-30; ROADMAP,
+ * after the first numbers: a line each with no cap took "Work here"'s room on a
+ * folder holding seven). The rest are a count and the `handoffs here` handle. A
+ * working default, until WK2 looks at which seat a handoff belongs to.
+ */
+export const HANDOFF_OTHERS_SHOWN = 2;
 
 
 /** The title's cap in the line. The id is the door to the whole chapter. */
@@ -778,36 +785,68 @@ export function excerpt(body: string, capBytes = HANDOFF_EXCERPT_BYTES): string 
 }
 
 /**
+ * WHERE A HANDOFF SAYS WHAT COMES NEXT: the last `next:` it has, as a writer puts
+ * it (`next:`, `Next for me:`, `Next step:`). Byte offset into `flat`, or -1.
+ */
+function nextAt(flat: string): number {
+  let at = -1;
+  for (const m of flat.matchAll(/(?<![\p{L}\p{N}])next\b[^.:!?]{0,24}:/giu)) at = m.index ?? at;
+  return at;
+}
+
+/**
  * THE NEWEST HANDOFF'S LEAD (WK1, 2026-10-30; Mike's markup of the wake, via
  * ROADMAP): up to `maxLines` lines of what it says, in order: its lines with
  * substance (a title above them is not one), a long one taken a sentence at a
- * time, since a handoff is as often one paragraph as a list. Each flat, each
- * cut to `HANDOFF_LEAD_LINE_BYTES`. Pure.
+ * time, since a handoff is as often one paragraph as a list. Each flat, each at
+ * most `HANDOFF_LEAD_LINE_BYTES`, cut at a word's end (`cutToBytes`).
+ *
+ * WHAT COMES NEXT IS NEVER WHAT THE CAPS LOSE: from two lines up, a handoff's
+ * last `next:` part keeps a line of its own at the end, however long the
+ * paragraphs above it, with the lines before it giving way for it. It is what the
+ * next session opens the handoff for. Pure.
  */
 export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES): string[] {
-  const out: string[] = [];
-  for (const raw of body.split("\n")) {
-    if (out.length >= maxLines) break;
-    if (isHeading(raw) || raw.trim().length === 0) continue;
-    const flat = flatten(raw);
-    if (byteLengthOf(flat) <= HANDOFF_LEAD_LINE_BYTES) {
-      out.push(flat);
-      continue;
-    }
+  const pieces: { text: string; next: boolean }[] = [];
+  const sentences = (flat: string): void => {
     let from = 0;
     for (const m of flat.matchAll(/[.!?](?=\s)/gu)) {
       const end = (m.index ?? 0) + 1;
       if (end - from < EXCERPT_MIN_SENTENCE) continue;
-      if (out.length < maxLines) out.push(cutToBytes(flat.slice(from, end).trim(), HANDOFF_LEAD_LINE_BYTES));
+      pieces.push({ text: cutToBytes(flat.slice(from, end).trim(), HANDOFF_LEAD_LINE_BYTES), next: false });
       from = end;
     }
     const rest = flat.slice(from).trim();
-    if (rest.length > 0 && out.length < maxLines) out.push(cutToBytes(rest, HANDOFF_LEAD_LINE_BYTES));
-  }
-  return out.length > 0 ? out : [excerpt(body)];
+    if (rest.length > 0) pieces.push({ text: cutToBytes(rest, HANDOFF_LEAD_LINE_BYTES), next: false });
+  };
+  const lines = body.split("\n").filter((l) => !isHeading(l) && l.trim().length > 0).map(flatten);
+  // Only the last line that says it holds the part kept.
+  let nextLine = -1;
+  for (let i = lines.length - 1; i >= 0 && nextLine < 0; i--) if (nextAt(lines[i] ?? "") >= 0) nextLine = i;
+  lines.forEach((flat, i) => {
+    const at = i === nextLine ? nextAt(flat) : -1;
+    if (byteLengthOf(flat) <= HANDOFF_LEAD_LINE_BYTES) {
+      pieces.push({ text: flat, next: at >= 0 });
+      return;
+    }
+    if (at < 0) {
+      sentences(flat);
+      return;
+    }
+    // A long line: what is before the part, then the part, one line, cut only at its own end.
+    const before = flat.slice(0, at).replace(/[\s,;—-]+$/u, "");
+    if (before.length > 0) sentences(before);
+    pieces.push({ text: cutToBytes(flat.slice(at), HANDOFF_LEAD_LINE_BYTES), next: true });
+  });
+  if (pieces.length === 0) return [excerpt(body)];
+  if (pieces.length <= maxLines) return pieces.map((p) => p.text);
+  const part = pieces.findIndex((p) => p.next);
+  // The part is among those kept, or one line is all there is room for.
+  if (part < 0 || part < maxLines || maxLines < 2) return pieces.slice(0, maxLines).map((p) => p.text);
+  return [...pieces.slice(0, maxLines - 1), pieces[part] as { text: string }].map((p) => p.text);
 }
 
-/** `text`, cut to `capBytes` with `…` when it is longer, at a word when one is near. */
+/** `text`, cut to `capBytes` with `…` when it is longer, at the end of a word. Only one word too long to fit by itself is ever cut through. */
 function cutToBytes(first: string, capBytes: number): string {
   if (byteLengthOf(first) <= capBytes) return first;
   // The ellipsis is THREE bytes, not one: `…` is U+2026. Reserving a character
@@ -817,8 +856,10 @@ function cutToBytes(first: string, capBytes: number): string {
   const bytes = new TextEncoder().encode(first);
   const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, room));
   const clean = prefix.replace(/�+$/u, "");
+  // Already at a word's end, or back to the last one.
+  const atEnd = /^\s/u.test(first.slice(clean.length));
   const space = clean.lastIndexOf(" ");
-  const kept = space > clean.length * 0.8 ? clean.slice(0, space) : clean;
+  const kept = atEnd || space <= 0 ? clean : clean.slice(0, space);
   return `${kept.trimEnd()}${ELLIPSIS}`;
 }
 
@@ -1008,41 +1049,42 @@ function scopeSpellings(scope: string): string[] {
  * were listed by bare id ("+6 older here: sch_…", "+2 more here on Oct 29:
  * epi_…").
  *
- * Now they are one block, grouped BY SESSION and led by the newest:
+ * Now they are one block, grouped BY SESSION, and THE NEWEST HANDOFF LEADS:
  *
- *   Where this folder stands: session 0711ddd8 on Opus 5.5, Oct 29 10:11–14:46
- *   — "Title" (epi_…). Its handoff, written 10-29 14:46 (1 day old) (sch_…):
+ *   Where this folder stands: a handoff from session 0711ddd8 on Opus 5.5, written
+ *   10-29 14:46 (1 day old) (sch_…):
  *     up to five lines of what it says
- *   Before that: session 59f24808, Oct 28 09:00–12:00 — "Title" (epi_…).
+ *   Since then: session 59f24808, Oct 29 16:00–17:00 — "Title" (epi_…).
  *   Other handoffs here, newest first:
  *   - session 4b57c039, 10-27: its first sentence (sch_…)
- *   (Expand one by its id with recall; retire a finished one with …)
+ *   (+4 older handoffs: recall "handoffs here" lists them. Expand one by its id with
+ *   recall; retire a finished one with …)
  *
  *   - One session's chapter, last words and newest handoff are ONE entry.
- *   - Entries go newest first, each dated by its newest mention. An older entry
- *     is a different session, so it says something the newer does not: judged
- *     by session and time, never by comparing text.
- *   - THE NEWEST HANDOFF'S LEAD IS UP TO `HANDOFF_LEAD_LINES` LINES, and every
- *     other live handoff gets one line (Mike's markup of the wake, via ROADMAP,
- *     10-30). A body line is indented and flat, so it can never read as a
- *     heading or a line of the wake's own (the scar `pointerBlock` carried).
- *   - Room short, the handoffs without a line are a count and the `handoffs
- *     here` recall handle (`HANDOFFS_HERE_HANDLE`). No wake line lists bare ids.
+ *   - THE HANDOFF LEADS, EVEN WHEN A CHAPTER IS NEWER (ROADMAP, 10-30, as review of
+ *     #300 MAJOR-1 asked: unfinished work outranks orientation). A newer chapter
+ *     goes under it by title, "Since then:", if there is room, which is how the
+ *     block says the handoff may be out of date. With no handoff, the newest chapter
+ *     leads, with its first sentence.
+ *   - An entry under the lead is a different session, so it says something the lead
+ *     does not: judged by session and time, never by comparing text.
+ *   - THE NEWEST HANDOFF'S LEAD IS UP TO `HANDOFF_LEAD_LINES` LINES (Mike's markup of
+ *     the wake, via ROADMAP, 10-30), and the next `HANDOFF_OTHERS_SHOWN` live
+ *     handoffs get a line each. A body line is indented and flat, so it can never
+ *     read as a heading or a line of the wake's own.
+ *   - The handoffs without a line are a count and the `handoffs here` recall handle
+ *     (`HANDOFFS_HERE_HANDLE`). No wake line lists bare ids.
  *   - Other same-day chapters here ("Before it", "+N more") are not repeated:
  *     "Today so far" and the Yesterday line name them.
  *
  * WHAT GIVES WAY, IN ORDER (`standsLadder`, one rung per step): the about-me
  * line from another folder; the last exchange; the chapter's first sentence;
- * the older chapter a chapterless later session follows; the other handoffs'
- * lines, oldest first; the "since" line; the newest handoff's lead, line by
- * line down to one; and last whichever of the handoff and the chapter is not
- * the lead. So a tight day keeps the NEWEST mention, not the oldest. That
- * reverses review of #300 MAJOR-1 ("the handoff first") only in the case the
- * brief names: a chapter newer than every handoff here now outlives them, with
- * the door still counting them.
+ * the older chapter a chapterless later session follows; whatever else is under
+ * the lead; the other handoffs' lines, oldest first; the "since" line; the newest
+ * handoff's lead, line by line down to one. Only when not even that fits, the
+ * chapter alone, the door counting the handoffs.
  *
- * There is no cap on how many other handoffs get a line: their fortnight's life
- * and the ceiling bound them. Pure.
+ * Pure.
  */
 
 /** The recall handle that lists this folder's live handoffs. Exact, trimmed, case-folded, like `last exchange`. */
@@ -1051,6 +1093,7 @@ export const HANDOFFS_HERE_HANDLE = "handoffs here";
 /** How the block opens, how an older entry does, and how the other handoffs do. */
 export const STANDS_HEAD = "Where this folder stands:";
 export const STANDS_BEFORE = "Before that:";
+export const STANDS_SINCE = "Since then:";
 export const STANDS_OTHERS = "Other handoffs here, newest first:";
 
 /** One live handoff, with when it was written (epoch ms, null when unrecorded) and how current it is (the newest's, read at delivery). */
@@ -1222,8 +1265,10 @@ interface Choice {
   readonly plans: boolean;
   /** How many lines of the newest handoff's lead. */
   readonly lead: number;
-  /** Only the newest entry is kept. */
-  readonly leadOnly: boolean;
+  /** What is under the lead entry. */
+  readonly under: boolean;
+  /** The chapter alone: not even one line of the handoff fit. */
+  readonly noHandoff: boolean;
 }
 
 /**
@@ -1236,7 +1281,7 @@ export function standsLadder(input: StandsInput): StandsRung[] {
   const reader = input.reader ?? null;
   const live = input.handoffs.filter((s) => !expired(s.handoff, input.day, lifeDays));
   const newest = live[0];
-  const others = live.slice(1).map((s) => s.handoff);
+  const others = live.slice(1, 1 + HANDOFF_OTHERS_SHOWN).map((s) => s.handoff);
   const liveHs = live.map((s) => s.handoff);
   const leadMost = newest === undefined ? 0 : Math.max(1, handoffLead(newest.handoff.body, HANDOFF_LEAD_LINES).length);
   const later = input.later ?? null;
@@ -1253,7 +1298,7 @@ export function standsLadder(input: StandsInput): StandsRung[] {
     if (lead !== null) mentions.push({ kind: "chapter", session: lead.entry.chapter.session, at: lead.at, entry: lead.entry, sentence: c.sentence });
     if (later !== null) mentions.push({ kind: "later", session: later.later.session, at: later.at, later: later.later });
     if (c.before && before !== null) mentions.push({ kind: "chapter", session: before.entry.chapter.session, at: before.at, entry: before.entry, sentence: false });
-    if (newest !== undefined) mentions.push({ kind: "handoff", session: newest.handoff.session, at: newest.at ?? 0, h: newest, lead: c.lead });
+    if (newest !== undefined && !c.noHandoff) mentions.push({ kind: "handoff", session: newest.handoff.session, at: newest.at ?? 0, h: newest, lead: c.lead });
     if (c.said && said !== null) mentions.push({ kind: "said", session: said.session, at: said.at, said });
     return render(mentions, c, liveHs, others, { day: input.day, lifeDays, reader, plans: c.plans ? plans : null, aboutMe: c.aboutMe ? aboutMe : null, planIds });
   };
@@ -1262,12 +1307,14 @@ export function standsLadder(input: StandsInput): StandsRung[] {
   let c: Choice = {
     aboutMe: aboutMe !== null,
     said: said !== null,
-    sentence: lead !== null,
+    // Under a handoff a chapter is its title; its first sentence only when it leads.
+    sentence: lead !== null && newest === undefined,
     before: beforeOk,
     others: others.length,
     plans: planIds.length > 0,
     lead: leadMost,
-    leadOnly: false,
+    under: true,
+    noHandoff: false,
   };
   const steps: Choice[] = [c];
   const step = (next: Partial<Choice>): void => {
@@ -1278,10 +1325,11 @@ export function standsLadder(input: StandsInput): StandsRung[] {
   if (c.said) step({ said: false });
   if (c.sentence) step({ sentence: false });
   if (c.before) step({ before: false });
+  if (newest !== undefined) step({ under: false });
   for (let k = others.length - 1; k >= 0; k--) step({ others: k });
   if (c.plans) step({ plans: false });
   for (let n = leadMost - 1; n >= 1; n--) step({ lead: n });
-  if (lead !== null || later !== null) step({ leadOnly: true });
+  if (newest !== undefined && (lead !== null || later !== null)) step({ under: true, others: 0, plans: false, noHandoff: true });
 
   const out: StandsRung[] = [];
   const seen = new Set<string>();
@@ -1303,8 +1351,7 @@ function render(
   opts: { day: number; lifeDays: number; reader: string | null; plans: PlansSince | null; aboutMe: string | null; planIds: readonly string[] },
 ): StandsRung | null {
   const entries = group(all);
-  // ONLY THE LEAD (the narrowest rung): the newest entry and what is its own.
-  const kept = c.leadOnly ? entries.slice(0, 1) : entries;
+  const kept = c.under ? entries : entries.slice(0, 1);
   const mentions = kept.flatMap((e) => e.mentions);
   const lines: string[] = [];
   const bytesOf = new Map<string, number>();
@@ -1313,12 +1360,14 @@ function render(
     const w = entryWords(e, opts.reader);
     if (w.handoffId !== null) bytesOf.set(w.handoffId, w.handoffBytes);
     chapterBytes += w.chapterBytes;
-    lines.push(flatten(`${i === 0 ? STANDS_HEAD : STANDS_BEFORE} ${w.head}`), ...w.lead);
+    const lead = kept[0];
+    const word = i === 0 ? STANDS_HEAD : lead !== undefined && e.at > lead.at ? STANDS_SINCE : STANDS_BEFORE;
+    lines.push(flatten(`${word} ${w.head}`), ...w.lead);
   });
   const hasEntry = lines.length > 0;
   // The other handoffs a line each, while their newest has its own.
   const leadShown = liveHs.filter((h) => bytesOf.has(h.id));
-  const otherShown = leadShown.length === 0 || c.leadOnly ? [] : others.slice(0, c.others);
+  const otherShown = leadShown.length === 0 ? [] : others.slice(0, c.others);
   if (otherShown.length > 0) {
     lines.push(STANDS_OTHERS);
     for (const h of otherShown) {
@@ -1348,7 +1397,7 @@ function render(
   };
 }
 
-/** The mentions by session, the newest entry first; ties: the one with a handoff, then the key. */
+/** The mentions by session: the handoff's entry first, then the newest first; ties by key. */
 function group(mentions: readonly Mention[]): Entry[] {
   const entries = new Map<string, Entry>();
   for (const m of mentions) {
@@ -1358,8 +1407,8 @@ function group(mentions: readonly Mention[]): Entry[] {
   }
   return [...entries.values()].sort(
     (a, b) =>
-      b.at - a.at ||
       Number(b.mentions.some((m) => m.kind === "handoff")) - Number(a.mentions.some((m) => m.kind === "handoff")) ||
+      b.at - a.at ||
       (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
 }

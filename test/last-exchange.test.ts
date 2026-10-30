@@ -609,7 +609,8 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     expect(lane(text, FRAMING.horizon)).toEqual(lane(quiet, FRAMING.horizon));
     // The chapter and the handoffs still point the way, the words on the chapter's own entry.
     const ls = text.split("\n");
-    const here = ls.find((l) => l.startsWith("Where this folder stands: ")) ?? "";
+    // Under the handoff, which leads: a different session's chapter and its words.
+    const here = ls.find((l) => l.includes("The seed-tray ladder") && l.startsWith("Since then: ")) ?? "";
     expect(here).toContain("The seed-tray ladder");
     expect(here).toBe(line ?? "?");
     expect(text).toContain("garden-b");

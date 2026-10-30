@@ -489,10 +489,10 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     k.set(at(16, 30));
     const r = await k.server(A).call("chapter", { session: A, title: "Autumn beds", text: "We planned the autumn beds: garlic first, broad beans after, and the frost dates." });
     expect(r.isError).not.toBe(true);
-    // The newer chapter now leads, and the older handoff is its own entry under it, saying so.
+    // The handoff still leads, saying a newer chapter is here; the chapter is under it, by title.
     const text = wake(k.c, B);
-    expect(pointer(text)).toContain("Autumn beds");
-    expect(text.split("\n").find((l) => l.startsWith("Before that: "))).toContain("a handoff from session c9cacbcc, written 09-30 15:19 (a newer chapter here since) (sch_");
+    expect(pointer(text)).toContain("a handoff from session c9cacbcc, written 09-30 15:19 (a newer chapter here since) (sch_");
+    expect(text.split("\n").find((l) => l.startsWith("Since then: "))).toContain("Autumn beds");
   });
 
   test("versions compare by number, a pre-release before its release", () => {

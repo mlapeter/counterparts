@@ -228,8 +228,10 @@ function workBlock(a: Adapter): number {
  */
 function work(a: Adapter, widest = false): void {
   const c = a.counterpart;
+  // Lines under the first since WK1: the newest handoff's lead is up to five of them.
+  const under = ["The second line of it says where the kiln log is kept and who reads the cone readings at the end.", "The third line of it says which of the shelves is free this week and how long the tiles may stay.", "The fourth line of it says what the glaze supplier was asked for and when the answer should come.", "The fifth line of it says the cones are on the shelf."].join("\n");
   const sentence = (i: number, extra: number): string =>
-    `Handoff ${String(i)}: the glaze tiles dry on rack two${"x".repeat(extra)}. Then the kiln log needs the cone readings.`;
+    `Handoff ${String(i)}: the glaze tiles dry on rack two${"x".repeat(extra)}. Then the kiln log needs the cone readings.\n${under}`;
   // Long session names, so the three shown in full reach the share without
   // any first sentence passing the excerpt's cap.
   const session = (i: number): string => `kiln-and-glaze-studio-session-${String(i)}`;
@@ -1052,7 +1054,7 @@ describe("at session start, dated items due within the next few days have first 
       expect(listed[0]).toContain("(due Oct 9)");
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       // The newest, in full (listed first).
-      expect(m.text).toMatch(/^Where this folder stands: [^\n]*: Handoff \d: the glaze tiles dry on rack two/m);
+      expect(m.text).toMatch(/^Where this folder stands: [^\n]*:(?: |\n {2})Handoff \d: the glaze tiles dry on rack two/m);
       expect(lower(m.text).yesterday).not.toBeNull();
       expect(readSentinel(m.text).intact).toBe(true);
       expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
