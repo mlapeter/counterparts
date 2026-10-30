@@ -567,6 +567,14 @@ when it could not be read), so one loss shows as one amber line. The owed readin
 every scope's words, so it is read once per doctor run, shared by both lines, and skipped
 by the budgeted session-start reading.
 
+## A bad scopes entry fails open; a bad file fails closed (2026-10-30, restating #92's ruling)
+
+`parseRegistry` refuses an entry it can't read, by name, and that folder reads `unset`, which is on.
+A file that won't read at all closes every folder for a background writer (`scopes.ts#foldersOn`:
+the catch-up, the night's fence), while a hook still fails towards on. So a typo in one entry of an
+off folder opens that folder to the night until the file is fixed. That is the #92 ruling, kept on
+purpose: the file's own trouble is reported at every door. Noted so it isn't lost.
+
 ## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
 
 Five findings, and four of them are one mistake wearing different clothes: the

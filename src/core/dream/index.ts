@@ -73,6 +73,7 @@ import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
+import { NOTHING_CLOSED, namesClosed } from "./fence.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { pairsAmong, readDay, strongerMark } from "./day.js";
 import type { DayMark, DayRead } from "./day.js";
@@ -336,6 +337,8 @@ export interface DreamContext {
    * Never a gendered pronoun.
    */
   readonly ownerName?: () => string | null;
+  /** What the night may not read (`dream/fence.ts`): not shown, not merged, not folded. */
+  readonly closed?: () => ReadonlySet<string>;
 }
 
 /** One proposed change, as the tool receives it. */
@@ -2922,6 +2925,7 @@ export class Dreams {
     if (row.type !== "memory") return false;
     if (row.protected === 1) return false;
     if (row.body === "") return false;
+    if (this.ctx.closed?.().has(row.id) === true) return false;
     return true;
   }
 
@@ -3252,7 +3256,11 @@ export class Dreams {
     // TONIGHT'S ROOM for the memories' words: what the journal, the page and
     // the wake left.
     const page = this.ctx.page();
-    const wake = this.ctx.wake();
+    // THE PUBLISHED WAKE was composed for no reader: on a night it names a row
+    // of a closed folder (`dream/fence.ts`), the dream goes without it.
+    const published = this.ctx.wake();
+    const closed = this.ctx.closed?.() ?? NOTHING_CLOSED;
+    const wake = published !== null && namesClosed(this.store, published, closed) ? null : published;
     // Kept by what they cost on the wire (a page in another script costs more
     // per character); their whole lengths are said, and the self_page tool
     // reads the page whole.
@@ -3382,7 +3390,9 @@ export class Dreams {
     const extent = last !== null && prev !== null && prev.ref === last.id ? (prev.entries ?? {}) : {};
     const unread = last !== null && prev !== null && prev.ref === last.id ? (prev.unread ?? {}) : {};
     const episodes: EpisodeInView[] = [];
+    const closed = this.ctx.closed?.();
     for (const eid of this.store.list({ type: "episode", archived: false })) {
+      if (closed?.has(eid) === true) continue;
       const row = this.store.row(eid);
       if (row === undefined) continue;
       const at = row.updated_at ?? row.created_at ?? 0;
@@ -3608,7 +3618,7 @@ export class Dreams {
         continue;
       }
       const [, eid, at] = key.split(":") as [string, string, string];
-      const row = this.store.row(eid);
+      const row = this.ctx.closed?.().has(eid) === true ? undefined : this.store.row(eid);
       const ch = chapters.get(eid) ?? { id: eid, title: row?.title ?? null, entries: [] };
       chapters.set(eid, ch);
       const raw = row === undefined ? undefined : chapterEntries(row.body)[Number(at)];

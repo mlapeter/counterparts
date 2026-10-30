@@ -65,9 +65,11 @@ export interface TagsBundle {
 }
 
 /** What the night is asked tonight. Reads only. */
-export function tagsBundle(store: Store): TagsBundle {
+export function tagsBundle(store: Store, closed?: ReadonlySet<string>): TagsBundle {
   if (!SCHEMAS.TAGS_NIGHT) return { on: false, memories: [], untagged: 0, vocabulary: [], pairs: [], cards: [], unkinded: 0 };
-  const untagged = store.untaggedMemories(SCHEMAS.TAGS_BACKFILL_PER_NIGHT);
+  // What the night may not read (`dream/fence.ts`) is asked past, so it never holds a night's places.
+  const asked = store.untaggedMemories(SCHEMAS.TAGS_BACKFILL_PER_NIGHT + (closed?.size ?? 0));
+  const untagged = { total: asked.total, memories: asked.memories.filter((m) => closed?.has(m.id) !== true).slice(0, SCHEMAS.TAGS_BACKFILL_PER_NIGHT) };
   const cards = store.unkindedCards(SCHEMAS.TAGS_KINDS_PER_NIGHT);
   return {
     on: true,
@@ -97,8 +99,8 @@ interface AskRecord {
  * in the same run replaces the record, and a new run's read removes the last
  * run's: one record is kept, the latest.
  */
-export function askTags(store: Store, run: string): TagsBundle {
-  const b = tagsBundle(store);
+export function askTags(store: Store, run: string, closed?: ReadonlySet<string>): TagsBundle {
+  const b = tagsBundle(store, closed);
   if (b.on) {
     // ONE ASK KEPT (re-review of #576): an answer belongs to the run that just
     // asked, so an earlier run's record goes when a new one is written — the

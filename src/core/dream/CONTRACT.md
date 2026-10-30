@@ -718,3 +718,13 @@ examples) · **§2.19** (every change enumerable: `counterparts dream --show`) �
    is refused `no-room`; a gist keeps its first-named ties that fit and records which
    landed. The dream row always counts `gistLinks`, `linkNoRoom`, `linkFrozen`,
    `linkFailed` (associate NOTES §13).
+
+## The night's fence (2026-10-30, `fence.ts`)
+
+A folder the host's setting says doesn't export (`off`, `paused`, `observer`, or under one) is closed to
+the night, read fresh at the door of each `dream` and `reflect` call and each recall by a night reader (a
+child of the run, a session with a dream or reflection begun or holding day's end's claim): its memories
+and chapters are in no bundle, block or ask, come back from no recall however it is put, and can't go into
+a merge, gist or fold. A night row whose originals include one reads as closed. No setting file closes
+nothing; a file that won't read closes every folder. It writes nothing and removes nothing: stored rows,
+merges already made, and an ordinary session's recall are as they were.

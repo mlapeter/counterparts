@@ -376,6 +376,8 @@ export function dayJournal(
     entryChars: number;
     zone?: string;
     summaries?: boolean;
+    /** What the night may not read (`dream/fence.ts`). */
+    closed?: ReadonlySet<string>;
   },
 ): DayJournal {
   const empty: DayJournal = { chapters: [], entries: 0, notShown: 0, used: 0 };
@@ -393,6 +395,7 @@ export function dayJournal(
   let entries = 0;
   for (const id of ids) {
     try {
+      if (opts.closed?.has(id) === true) continue;
       const row = store.row(id);
       if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
       const at = row.updated_at ?? row.created_at;

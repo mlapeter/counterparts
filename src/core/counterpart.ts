@@ -209,6 +209,8 @@ import { chapterSummaries } from "./self/summaries.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
+import { NOTHING_CLOSED, closedToNight, isNightRow, memoryFolder } from "./dream/fence.js";
+import type { FolderOn } from "./dream/fence.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
@@ -416,18 +418,6 @@ function linksDespite(r: CreditResult): boolean {
   return why === "birth-day" || why === "own-write" || why === "stale-day" || why === "already-credited-today";
 }
 
-/**
- * A ROW THE NIGHTLY RUN WROTE — a dream's merge or gist, a reflection's entry
- * — told by origin (`dream:` / `reflection:`, which catches a merge, whose
- * `source` is its best source's) or by source, as the store's `NIGHTLY_SQL`
- * tells it. Filed under the folder the night ran in, whatever folders its
- * words came from.
- */
-function isNightRow(row: { source: string | null; origin_ref: string | null }): boolean {
-  const ref = row.origin_ref ?? "";
-  return row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:");
-}
-
 /** How deep `Counterpart#nightOriginFolders` follows night rows made of night rows: as deep as day's end follows a merge to its day. */
 const NIGHT_ORIGINS_DEPTH = MERGE_DEPTH;
 
@@ -473,6 +463,8 @@ export class Counterpart {
    * holds no store handle and must not grow one (SEAMS G).
    */
   private briefingEvents: CounterpartEvent[] | null = null;
+  /** What the night may not read, as the host's folder setting last said (`fenceNight`). */
+  private nightClosed: ReadonlySet<string> = NOTHING_CLOSED;
   /**
    * WHAT THE WAKE BEING DELIVERED LISTS UNDER "Still open:" (2026-10-10), set
    * for the length of one delivery when the wake was assembled at session
@@ -685,6 +677,7 @@ export class Counterpart {
       link: (pairs, weight, day) => this.associate.propose(pairs, weight, day),
       emit: (name, ref, data) => this.emit(name, ref, data),
       ownerName: () => this.ownerDisplayName(),
+      closed: () => this.nightClosed,
     });
 
     // REFLECTION (2026-09-27). The same credential scan as a dream's words.
@@ -711,6 +704,7 @@ export class Counterpart {
       },
       pageWrites: opts.pageWriterMode !== "off",
       today: () => this.store.today(),
+      closed: () => this.nightClosed,
       ownerName: () => this.ownerDisplayName(),
       dreamLine: (dreamId) => this.dreams.handBackOf(dreamId),
       writePage: (body, o) => {
@@ -2256,10 +2250,12 @@ export class Counterpart {
    * MAY DAY'S END'S SUMMARY OF `date` BE SHOWN IN A WAKE FOR `here`? Its text
    * when so, else null (2026-10-24, lane W1; the brief's privacy gate, held
    * firmly). Day's end reads the WHOLE day — every chapter of it, store-wide,
-   * and the day's strongest memories, whatever folder wrote them and whatever
-   * that folder's scope setting (`dream/slices.ts#dayJournal`,
-   * `pageWriterInput`; its recall reaches the store too) — so what it cites
-   * does not bound what its words drew on. It is shown only when ALL of:
+   * and the day's strongest memories, whatever folder wrote them
+   * (`dream/slices.ts#dayJournal`, `pageWriterInput`; its recall reaches the
+   * store too), short of a folder that doesn't export at the night it ran
+   * (`dream/fence.ts`, 2026-10-30) — so what it cites does not bound what its
+   * words drew on, and a folder set off since was read while it was on. It is
+   * shown only when ALL of:
    *
    *   - every memory it cites comes from this folder or one whose scope
    *     setting is on, and records its folder (its chapter's, for a chapter's
@@ -2289,8 +2285,9 @@ export class Counterpart {
    * 10-29 summary: a write-up of an earlier day, from a folder set off since,
    * was filed that morning and hid the day for everyone): day's end does not
    * pick by when a row was written. What it cannot see: a memory erased since
-   * (its row is gone), and whatever day's end's recall reached, on any day,
-   * that row included — a summary's cites are the only bound on that.
+   * (its row is gone), and whatever day's end's recall reached, on any day, in
+   * a folder that was on that night — a summary's cites are the only bound on
+   * that. A folder closed that night was not readable at all (`dream/fence.ts`).
    *
    * One rule for all three: a folder the owner has turned off, paused or set
    * to observe (`exportsFrom` false) holds the summary back wherever it shows
@@ -2496,16 +2493,7 @@ export class Counterpart {
    * fails it, as before. Never throws.
    */
   private memoryFolder(row: { type: string; origin_scope: string | null; origin_ref: string | null }): string | null {
-    if (row.origin_scope !== null && row.origin_scope.trim().length > 0) return row.origin_scope;
-    const ref = row.origin_ref ?? "";
-    if (row.type !== "memory" || !ref.startsWith("epi_")) return null;
-    try {
-      const chapter = this.store.row(ref);
-      if (chapter === undefined || chapter.type !== "episode") return null;
-      return chapter.origin_scope !== null && chapter.origin_scope.trim().length > 0 ? chapter.origin_scope : null;
-    } catch {
-      return null;
-    }
+    return memoryFolder(this.store, row);
   }
 
   /**
@@ -5221,6 +5209,10 @@ export class Counterpart {
     omit?: (m: { id: string; protectedRow: boolean }) => boolean;
   }): WriterInput {
     const budget = opts.budgetBytes ?? this.self.tunables.PAGE_WRITER_MEMORY_BYTES;
+    // WHAT THE NIGHT MAY NOT READ (`fenceNight`) is held back and counted on the run's row.
+    const closed = this.nightClosed;
+    const asked = opts.omit;
+    const omit = (m: { id: string; protectedRow: boolean }): boolean => closed.has(m.id) || asked?.(m) === true;
     // DAY'S END READS THE DAY AS TOLD (2026-10-23, `self.DAYS_END_INPUT`, read
     // at use): every chapter of the day by its summary, a line each with its
     // address, in most of the room, and the day's few strongest memories with
@@ -5234,6 +5226,7 @@ export class Counterpart {
       });
       return this.self.pageWriterInput({
         ...opts,
+        omit,
         max: Math.min(opts.max ?? this.self.tunables.PAGE_WRITER_MEMORY_MAX, SELF_TUNABLES.DAYS_END_MEMORIES),
         budgetBytes: Math.max(0, budget - (told?.chars ?? 0)),
         ...(told === null ? {} : { journal: told }),
@@ -5251,9 +5244,27 @@ export class Counterpart {
     });
     return this.self.pageWriterInput({
       ...opts,
+      omit,
       budgetBytes: Math.max(0, budget - (journal?.chars ?? 0)),
       ...(journal === null ? {} : { journal }),
     });
+  }
+
+  /**
+   * THE NIGHT'S FENCE (2026-10-30, `dream/fence.ts`): the host's word on which
+   * folders export, read by the door of each night call (the dream and reflect
+   * tools, a night's recall), and what that closes. Day's end, the dream, the
+   * reflection and the tagging read it. No word (a host with no folder setting):
+   * nothing is closed. A walk of the store, for a night's calls only. Returns
+   * the closed set; never throws.
+   */
+  fenceNight(on: FolderOn | undefined): ReadonlySet<string> {
+    try {
+      this.nightClosed = on === undefined ? NOTHING_CLOSED : closedToNight(this.store, on);
+    } catch {
+      this.nightClosed = NOTHING_CLOSED;
+    }
+    return this.nightClosed;
   }
 
   /** The day's journal for the page writer (`dream/slices.ts#dayJournal`), or null when there is none or it will not read. Pure. */
@@ -5267,6 +5278,7 @@ export class Counterpart {
         lineBytes: DREAM_TUNABLES.LINE_BYTES,
         entryChars: DREAM_TUNABLES.ENTRY_CHARS,
         ...(input.summaries === true ? { summaries: true } : {}),
+        closed: this.nightClosed,
       });
       if (day.entries === 0) return null;
       const entries = day.chapters.flatMap((c) =>

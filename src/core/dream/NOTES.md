@@ -1318,3 +1318,21 @@ now also in the answer's own words.
 - `dreamCandidates` is computed once per recall and handed to both the embedder and the
   matcher. A journal whose every passage failed to embed is not cached as "no meaning".
 
+## 2026-10-30 — the night doesn't read a folder that doesn't export (`fence.ts`)
+
+Through the real doors, before this: day's end's block, the dream's bundle, the reflection's bundle and
+the tagging ask all showed an off, observer or paused folder's memories and chapters, and each child's
+recall returned them by facts, meaning, id, handle and chapter address. A merge or a gist of them landed,
+filed under the night's on folder, so the gate read the folder it ran in unless it followed the originals.
+
+Now one set, `closedToNight`, walks the store once per night call and everything reads it: `showable` in
+both night modules (which is also what a merge, gist or fold goes through), the chapter walks, day's end's
+`omit`, the facts and meaning `denied`, the address path. The rule is `scopes.ts#foldersOn`, the same word
+`chapterExports` gives the wake, without the wake's "your own folder is always yours": a night has no own folder.
+
+Direction, on purpose the other way from the wake's gate: a row with no folder, or a night row whose originals
+are gone, stays readable. The gate fails closed because it holds back one line for a morning; failing closed
+here would hide every pre-folder memory from every night. A stored merge of a closed row reads as closed.
+
+Not fenced, and said in the PR: entity cards (their names, and the titles a tagging ask lists under them), a
+past dream's journal or a reflection's entry opened by id, the page as it already stands.

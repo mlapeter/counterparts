@@ -581,6 +581,8 @@ export interface ReflectContext {
    */
   readonly pageWrites?: boolean;
   readonly today: () => string;
+  /** What the night may not read (`dream/fence.ts`): not shown, not cited, no chapter of it. */
+  readonly closed?: () => ReadonlySet<string>;
   /** The owner's name, as written on the identity core. */
   readonly ownerName: () => string | null;
   /** A journaled dream's marked hand-back line (`Dreams.handBackOf`). */
@@ -3568,7 +3570,9 @@ export class Reflections {
   private recentChapters(day: number, room: number, summaries = false): EpisodesFit {
     const T = REFLECT_TUNABLES;
     const episodes: EpisodeInView[] = [];
+    const closed = this.ctx.closed?.();
     for (const id of this.store.list({ type: "episode", archived: false })) {
+      if (closed?.has(id) === true) continue;
       const row = this.store.row(id);
       if (row === undefined) continue;
       // Begun in the last few lived days, or written to in the last few
@@ -3662,7 +3666,9 @@ export class Reflections {
     try {
       const zone = this.store.zone();
       const episodes: EpisodeInView[] = [];
+      const closed = this.ctx.closed?.();
       for (const id of this.store.list({ type: "episode", archived: false })) {
+        if (closed?.has(id) === true) continue;
         const row = this.store.row(id);
         if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
         const at = row.updated_at ?? row.created_at;
@@ -3755,6 +3761,7 @@ export class Reflections {
     if (row.type !== "memory") return false;
     if (row.protected === 1) return false;
     if (row.body === "") return false;
+    if (this.ctx.closed?.().has(row.id) === true) return false;
     return true;
   }
 

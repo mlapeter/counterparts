@@ -265,7 +265,8 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     about that date (`self/writer.ts#daySummaries`) the line opens "Yesterday, in day's
     end's words:" with it, uncut, then "Chapters:" as the plain line lists them, fewer as
     room asks, then the plain line's own forms (`last-here.ts#yesterdaySummaryForms`).
-    Day's end reads the whole day store-wide, whatever the scope settings, so the summary
+    Day's end reads the whole day store-wide, short of a folder that doesn't export that night
+    (`dream/fence.ts`, 2026-10-30), and a folder may be set off after it ran, so the summary
     is shown only when every memory it cites is from this folder or one whose scope is on
     (whatever its mark since Y2, 2026-10-25, lightly held: the summary may mention other
     folders' work, as "Today, elsewhere" names it; until then only a cite about me, us or

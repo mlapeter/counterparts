@@ -124,6 +124,7 @@ import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
+import { NOTHING_CLOSED } from "../../core/dream/fence.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
@@ -2366,6 +2367,28 @@ export class McpServer {
     return pick === null || pick.aliases === undefined ? null : new AliasMap(pick.aliases);
   }
 
+  /**
+   * WHAT THIS RECALL MAY NOT OPEN, when the asker is the night (2026-10-30,
+   * `core/dream/fence.ts`): a child of the nightly run, a session with a dream or
+   * a reflection begun, or one holding day's end's claim. They write what every
+   * session reads. Empty for anyone else: an ordinary session's recall is not
+   * fenced. Asked once per recall.
+   */
+  private nightClosed(): ReadonlySet<string> {
+    return this.nightReading() ? this.counterpart.fenceNight(this.folderOn()) : NOTHING_CLOSED;
+  }
+
+  private nightReading(): boolean {
+    if (this.nightRun()) return true;
+    const session = this.session;
+    if (session === null) return false;
+    try {
+      return this.dreamingNow(session) || this.counterpart.store.reflections({ limit: 5 }).some((r) => r.state === "begun" && r.session === session) || this.counterpart.nightClaimFor(session) !== null;
+    } catch {
+      return false;
+    }
+  }
+
   private async recallTool(sent: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
     // `query` IS `question` (2026-10-14, lightly held): the model sent `query`
@@ -2397,7 +2420,7 @@ export class McpServer {
       if (page !== undefined && (typeof page !== "number" || !Number.isInteger(page) || page < 1)) {
         return this.refuse("recall", "page-not-a-positive-integer", {});
       }
-      return this.stillOpenTool(typeof page === "number" ? page : 1, handle === undefined);
+      return this.stillOpenTool(typeof page === "number" ? page : 1, handle === undefined, this.nightClosed());
     }
     const question = args["question"];
     const ids = args["ids"];
@@ -2445,7 +2468,7 @@ export class McpServer {
         ...(typeof question === "string" ? { question } : {}),
         ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
-      { sessionId: this.session ?? key },
+      { sessionId: this.session ?? key, closed: this.nightClosed() },
     );
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
@@ -2501,6 +2524,7 @@ export class McpServer {
       result.reason === "no-argument" ||
       result.reason === "both-arguments" ||
       result.reason === "handle-unknown" ||
+      result.reason === "closed-to-the-night" ||
       result.reason === "ids-too-many";
     return this.result(payload, bad);
   }
@@ -2619,12 +2643,14 @@ export class McpServer {
     return openCarry(store, store.livedDay(), t.OPEN_CARRY_DAYS, t.OPEN_CARRY_GLIMPSE_TOUCH).notCarried.size;
   }
 
-  private stillOpenTool(page: number, routed: boolean): ToolResult {
+  private stillOpenTool(page: number, routed: boolean, closed: ReadonlySet<string> = NOTHING_CLOSED): ToolResult {
     // For this folder, as its wake reads it (O2, 2026-10-26): its own first,
     // the personal ones after, another folder's work not listed or counted;
     // a joined folder the setting has off is not this one's (`folderOn`).
     const on = this.folderOn();
-    const { items, parked } = this.counterpart.stillOpen({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
+    const open = this.counterpart.stillOpen({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
+    const items = closed.size === 0 ? open.items : open.items.filter((i) => !closed.has(i.id));
+    const parked = closed.size === 0 ? open.parked : items.filter((i) => i.parked === true).length;
     const pages = Math.max(1, Math.ceil(items.length / STILL_OPEN_PAGE));
     const at = Math.min(page, pages);
     const shown = items.slice((at - 1) * STILL_OPEN_PAGE, at * STILL_OPEN_PAGE);
@@ -2689,6 +2715,7 @@ export class McpServer {
       vector: embedded.vector,
       semantic: embedded.semantic,
       asker: "self" as const,
+      closed: this.nightClosed(),
     };
     let answer: string;
     let ids: readonly string[];
@@ -3173,6 +3200,9 @@ export class McpServer {
       // A NIGHT asked for by its id (2026-10-20, `nights.ts`): a read-only
       // summary beside the memories. Opening one credits nothing.
       ...(nights.length > 0 ? { nights: nights.map((n) => ({ ...n })), nightsGloss: NIGHTS_GLOSS } : {}),
+      ...(result.reason === "closed-to-the-night"
+        ? { refused: "That was written in a folder that doesn't export, so the night doesn't read it." }
+        : {}),
       ...(result.reason === "both-arguments"
         ? { refused: "One kind of ask per call: a question (with a mode), ids, or a handle." }
         : {}),
