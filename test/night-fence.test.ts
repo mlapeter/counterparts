@@ -184,6 +184,31 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(asked.structuredContent, OPEN_WORDS)).toBe(true);
   });
 
+  test("the nightly run starts no tagging child when all that's left untagged is closed", async () => {
+    const c = brain();
+    worked(c, SHUT, SECRET);
+    night();
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const config = join(root, "claude-code.json");
+    const seen: string[] = [];
+    const seat: Seat<NightAnswer> = {
+      name: "test",
+      answer: async (ask) => {
+        seen.push(ask.act);
+        return { refused: null, started: true, code: 0, timedOut: false, error: null, ms: 1 };
+      },
+    };
+    const go = (run: string): ReturnType<typeof runNight> =>
+      runNight({ open: () => brain(), config: { dataDir: storeDir, injectionBudgetBytes: BUDGET }, configPath: config, run, session: NIGHT, scope: HERE, kind: { kind: "night" }, seat });
+    await go("nrn_open");
+    expect(seen).toContain("tags");
+    seen.length = 0;
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    await go("nrn_closed");
+    expect(seen).not.toContain("tags");
+  });
+
   test("a merge or a gist can't be made from a closed row, whatever id the dream sends", async () => {
     const c = brain();
     const secret = worked(c, SHUT, SECRET);
@@ -244,16 +269,66 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(began.structuredContent, CHAPTER_TITLE)).toBe(false);
   });
 
-  test("recall's other asks: what's still open, and ids asked together with an open one", async () => {
+  test("recall's other asks: a personal thing still open, ids asked together with an open one, a title a closed row shares", async () => {
     const c = brain();
     const secret = worked(c, SHUT, SECRET);
     const own = worked(c, HERE, OPENED);
+    clock = at(D1, 12);
+    c.store.put({ type: "memory", kind: "fact", body: `An open question: has the quarter ${SECRET_WORDS}?`, about: "owner", title: `Has the quarter ${SECRET_WORDS}?`, meta: { unresolved: true }, origin: { session: WRITER, scope: SHUT } });
+    c.store.put({ type: "memory", kind: "fact", body: `Plain words that ${SECRET_WORDS}.`, title: "A shared title", origin: { session: WRITER, scope: SHUT } });
+    c.store.put({ type: "memory", kind: "fact", body: `Plain words ${OPEN_WORDS}.`, title: "A shared title", origin: { session: WRITER, scope: HERE } });
     setting({ [HERE]: "on", [SHUT]: "off" });
     night();
     const s = child(c, "dream");
     const both = await s.call("recall", { ids: [secret, own] });
     expect(says(both.structuredContent, SECRET_WORDS)).toBe(false);
+    expect(says(both.structuredContent, OPEN_WORDS)).toBe(true);
+    expect(says(await child(c, null).call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(true);
     expect(says(await s.call("recall", { handle: "still open" }), SECRET_WORDS)).toBe(false);
+    // The title is the open row's alone, to a night: not ambiguous, and read.
+    const titled = await s.call("recall", { handle: "A shared title" });
+    expect(titled.structuredContent["reason"]).toBe("expanded");
+    expect(says(titled.structuredContent, OPEN_WORDS)).toBe(true);
+  });
+
+  test("a memory written from a closed chapter, with no folder of its own, reads as the chapter's", async () => {
+    const c = brain();
+    const chapter = await chapterIn(c, SHUT);
+    clock = at(D1, 12);
+    const own = c.store.put({ type: "memory", kind: "fact", body: SECRET, about: "work", origin: { session: WRITER, ref: chapter } });
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    expect(says(await child(c, "dream").call("recall", { ids: [own] }), SECRET_WORDS)).toBe(false);
+  });
+
+  test("a session holding day's end's claim and nothing else reads as the night", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET);
+    worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    night();
+    const s = child(c, null);
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(true);
+    expect((await s.call("dream", { phase: "writer", session: NIGHT })).structuredContent["writer"]).toBe(true);
+    expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
+  });
+
+  test("each night door reads the setting as it stands: set off after the dream, before the reflection, in a child of its own", async () => {
+    const c = brain();
+    const secret = worked(c, SHUT, SECRET);
+    worked(c, HERE, OPENED);
+    setting({ [HERE]: "on", [SHUT]: "on" });
+    night();
+    const s = child(c, "dream");
+    const dream = String((await s.call("dream", { phase: "begin", session: NIGHT })).structuredContent["dream"]);
+    await s.call("dream", { phase: "journal", session: NIGHT, dream, title: "A night", text: "A short dream." });
+    setting({ [HERE]: "on", [SHUT]: "off" });
+    clock = at(D2, 4);
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const reflected = await child(brain(), "reflection").call("reflect", { phase: "begin", session: NIGHT, dream });
+    expect(says(reflected.structuredContent, SECRET_WORDS)).toBe(false);
+    expect(secret.length).toBeGreaterThan(0);
   });
 
   test("the tagging ask: a closed row isn't under a card, a card only it names isn't listed, its tags aren't offered", async () => {
@@ -267,7 +342,7 @@ describe("closed to day's end, the dream and the reflection", () => {
     c.store.linkSubjects([{ memoryId: secret, subjectId: both }, { memoryId: own, subjectId: both }, { memoryId: secret, subjectId: theirs }], "birth");
     for (const body of ["One shut row.", "Two shut rows."]) worked(c, SHUT, body);
     c.store.put({ type: "memory", kind: "fact", body: "A third shut row.", tags: ["bread crust ledger"], origin: { session: WRITER, scope: SHUT } });
-    c.store.put({ type: "memory", kind: "fact", body: "A fourth shut row.", tags: ["bread crust ledger"], origin: { session: WRITER, scope: SHUT } });
+    c.store.put({ type: "memory", kind: "fact", body: "A fourth shut row.", tags: ["bread crust ledger", "bread crust"], origin: { session: WRITER, scope: SHUT } });
     c.store.put({ type: "memory", kind: "fact", body: "A garden row.", tags: ["bean row"], origin: { session: WRITER, scope: HERE } });
     c.store.put({ type: "memory", kind: "fact", body: "Another garden row.", tags: ["bean row", "bean"], origin: { session: WRITER, scope: HERE } });
     setting({ [HERE]: "on", [SHUT]: "off" });
@@ -277,11 +352,12 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(read).toContain(OPEN_WORDS);
     expect(read).not.toContain(SECRET_WORDS);
     expect(read).not.toContain("Sparhawk");
-    expect(read).not.toContain("bread crust ledger");
+    expect(read).not.toContain("bread crust");
     expect(read).toContain("bean row");
     // No setting: the ask is as it was.
     const all = String((await child(c, "tags", { scopes: null }).call("dream", { phase: "tags", session: NIGHT })).structuredContent["read"]);
     expect(all).toContain("Sparhawk");
+    expect(all).toContain("TAGS THAT LOOK ALIKE");
     expect(all).toContain("bread crust ledger");
   });
 
