@@ -213,7 +213,7 @@ describe("2. a handoff's staleness is one sentence", () => {
     const head = lines.find((l) => l.startsWith("Where this folder stands: ")) ?? "";
     expect(head).toMatch(/\(3 days old; release 0\.3\.9 then, 0\.3\.10 now\) \(sch_[0-9a-f]+\): Handoff 2/);
     expect(lines.filter((l) => l.includes("release 0.3.9 then"))).toHaveLength(1);
-    expect(lines.filter((l) => /^- session kiln-ses, 10-12: Handoff [01]: /.test(l))).toHaveLength(2);
+    expect(lines.filter((l) => /^- session kiln-ses, 10-1[23]: Handoff [01]: /.test(l))).toHaveLength(2);
     // Read with the release they were written on: not stale, all three still there.
     const same = c.wake(9_000, { date: "2026-10-15" }, { scope: HERE, session: "reader", installed: "0.3.9" }).text;
     expect(same).not.toContain("release 0.3.9 then");

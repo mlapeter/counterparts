@@ -1716,7 +1716,11 @@ describe("several sessions leave handoffs in one directory", () => {
     });
     const h = handoffs(s);
     // Alone, the old row reads as it did, with its author added.
-    expect(ladderOf(s, h, HERE)[0]?.block).toContain(`a handoff from an earlier session, on ${s.today()} (`);
+    // (The two rows tie on time, so either may lead the ladder: each is asked alone.)
+    expect(standsLadder({ handoffs: [{ handoff: h.readAll(HERE).find((x) => x.session === null) as Handoff, at: null, since: null }], day: s.livedDay() })[0]?.block).toContain(
+      `a handoff from an earlier session, on ${s.today()} (`,
+    );
+    expect(ladderOf(s, h, HERE)[0]?.shown).toHaveLength(2);
     expect(standsLadder({ handoffs: [{ handoff: h.readAny(HERE, "sess_old_writer") as Handoff, at: null, since: null }], day: s.livedDay() })[0]?.block).toContain(
       `a handoff from session sess_old, on ${s.today()} (`,
     );

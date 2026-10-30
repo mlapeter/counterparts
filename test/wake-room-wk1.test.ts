@@ -184,7 +184,7 @@ describe("through the doors", () => {
       c.handoffs.write({ body: `Handoff ${String(i)}: the glaze tiles dry on rack two.\nNext, check the kiln.`, scope: HERE, session: `sess_${String(i)}` });
     }
     expect(c.rebrief({ budgetBytes: BUDGET, at: today }).published).toBe(true);
-    const out = a.sessionStart(toHookInput({ session_id: "s-new", hook_event_name: "SessionStart", cwd: HERE }, { scope: HERE, timeZone: "UTC", env: {} }));
+    const out = a.sessionStart(toHookInput({ session_id: "s-new", hook_event_name: "SessionStart", cwd: HERE }, { scope: HERE, timeZone: c.store.zone(), env: {} }));
     const text = out.injection ?? "";
     expect(text).not.toContain(FRAMING.hints);
     expect(text).not.toContain("might be relevant");
