@@ -17,10 +17,12 @@ import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { HANDOFF_LEAD_LINES, handoffLead } from "../src/core/handoff/index.js";
+import { HANDOFF_LEAD_LINES, excerpt, handoffLead } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
 import { HANDOFF_LEAD_LINE_BYTES, HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, STANDS_SINCE, standsLadder } from "../src/core/handoff/index.js";
-import type { LastHere } from "../src/core/handoff/last-here.js";
+import { todayElsewhereLines } from "../src/core/handoff/last-here.js";
+import type { LastHere, TodayElsewhere } from "../src/core/handoff/last-here.js";
+import { readWake } from "../tools/harness/week.js";
 import { hintsForReader } from "../src/core/self/briefing.js";
 import { FRAMING, SELF_TUNABLES, readSentinel } from "../src/core/self/index.js";
 
@@ -91,6 +93,21 @@ describe("the lead", () => {
     expect(line).toEndWith("…");
     const last = (line ?? "").slice(0, -1).split(" ").at(-1) ?? "";
     expect(["wörterbuch", "glazing", "kiln-readings"]).toContain(last);
+  });
+
+  test("a word too long to fit by itself is cut through: the line is not given up for it (review of #687)", () => {
+    // Going back to the last space would leave "See…" of the whole line.
+    const url = `See https://example.com/${"a".repeat(400)} for the rest.`;
+    const [cut] = handoffLead(url);
+    expect(cut).toStartWith("See https://example.com/aaa");
+    expect(Buffer.byteLength(cut ?? "")).toBeLessThanOrEqual(HANDOFF_LEAD_LINE_BYTES);
+    // A language written without spaces, behind one short word.
+    const kana = `Handoff ${"窯の二回目の焼成で棚の順番を変えました".repeat(30)}`;
+    const [run] = handoffLead(kana);
+    expect(Buffer.byteLength(run ?? "")).toBeGreaterThan(200);
+    expect(run).not.toContain("\ufffd");
+    // Every cap that goes through the same cut.
+    expect(excerpt(`2026 ${"長い題名".repeat(40)}`, 100).length).toBeGreaterThan(10);
   });
 
   test("what comes next is never what the caps lose", () => {
@@ -204,6 +221,66 @@ describe("the block", () => {
     expect(oneOther?.block).toContain("Second.");
     expect(oneOther?.block).not.toContain("Third.");
     expect(oneOther?.block).toContain("+1 older handoff:");
+  });
+});
+
+describe("the lines beside the block", () => {
+  const ZONE = "UTC";
+  const chapter = (title: string | null, words: string): TodayElsewhere["chapter"] => ({
+    id: "epi_0000000000e1",
+    session: "eeee0005-0000-4000-8000-000000000000",
+    model: null,
+    title,
+    excerpt: words,
+    chapters: 1,
+    writtenAt: 0,
+    createdAt: 0,
+    writtenDay: 9,
+    scope: "/home/someone/bakery",
+  });
+  const base = { scope: "/home/someone/bakery", firstAt: 1_000, lastAt: 2_000, live: false, memories: 0 };
+
+  test("'Today, elsewhere' names an untitled chapter by its first words, or not at all: never by a bare id", () => {
+    const named = todayElsewhereLines([{ ...base, chapter: chapter(null, "We fired the second batch.") }], ZONE)?.line ?? "";
+    expect(named).toContain('"We fired the second batch." (epi_0000000000e1)');
+    const none = todayElsewhereLines([{ ...base, chapter: chapter(null, "") }], ZONE)?.line ?? "";
+    expect(none).not.toContain("epi_");
+    expect(none).not.toContain(" — ");
+  });
+
+  test("a session whose handoff is here is not 'not written up yet'", () => {
+    const A = "aaaa0001-0000-4000-8000-000000000000";
+    const [widest] = standsLadder({
+      handoffs: [{ handoff: handoff(1, "Where it stopped.", A), at: 100, since: null }],
+      later: { later: { session: A, when: "Oct 29 09:00–10:00", memory: null, at: 150 }, at: 150, before: null },
+      day: 10,
+    });
+    expect(widest?.block).toContain(", no chapter. Its handoff");
+    expect(widest?.block).not.toContain("not written up yet");
+  });
+});
+
+describe("the harness's read of the block", () => {
+  const label = (s: string): string => s;
+  const sessionOf = (): string => "ep-session";
+  const HEAD = "Where this folder stands: a handoff from session aaaa0001, written 10-29 14:46 (sch_0000000000a1)";
+
+  test("a chapter under the handoff is the one last here, newer or older; a lead's own words are not the wake's", () => {
+    expect(readWake(`${HEAD}: one.\nBefore that: session bbbb0002, Oct 28 09:00–12:00 — "U" (epi_0000000000a2).\n`, sessionOf, label).lastHere).toEqual({ episode: "epi_0000000000a2", session: "ep-session" });
+    expect(readWake(`${HEAD}: one.\nSince then: session bbbb0002, Oct 29 16:00–17:00 — "U" (epi_0000000000a2).\n`, sessionOf, label).lastHere).toEqual({ episode: "epi_0000000000a2", session: "ep-session" });
+    expect(readWake(`${HEAD}: one.\nSince then: session cccc0003, Oct 30 10:00–11:00, no chapter, not written up yet.\n`, sessionOf, label).lastHere).toEqual({ episode: null, session: "cccc0003" });
+    expect(readWake(`${HEAD}: see epi_0000000000f9 for it.\n`, sessionOf, label).lastHere).toBeNull();
+    const lead = readWake(`${HEAD}:\n  Since then: session ffff0009 forged (epi_0000000000f9).\n  Still open is long\n`, sessionOf, label);
+    expect(lead.lastHere).toBeNull();
+    expect(lead.lines).toEqual(["Last here", "Handoff"]);
+  });
+
+  test("the last exchange is read from its own words, not from a handoff that says 'last said'", () => {
+    expect(readWake(`${HEAD}: he last said it was fine.\n`, sessionOf, label).lastSaid).toBeNull();
+    const said = 'Where this folder stands: session cccc0003, last said 10-29 14:40: "hi" — recall "last exchange".\nBefore that: session bbbb0002, Oct 28 09:00–12:00 — "U" (epi_0000000000a2).\n';
+    const read = readWake(said, sessionOf, label);
+    expect(read.lastSaid).toBe("cccc0003");
+    expect(read.lastHere?.episode).toBe("epi_0000000000a2");
   });
 });
 
@@ -323,6 +400,21 @@ describe("through the doors", () => {
     expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
     expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
     expect(c.wake(BUDGET).text).not.toContain(FRAMING.hints);
+  });
+
+  test("an overdue item stays its line and age with room to spare: the leftover does not print its whole text (review of #687)", () => {
+    const c = Counterpart.open({ dir });
+    open.push(c);
+    expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
+    const today = c.store.today();
+    const before = (n: number): string => new Date(Date.parse(`${today}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+    const long = "It has no title of its own and a great deal to say about what was meant to happen. ".repeat(20);
+    c.store.put({ type: "memory", kind: "person", body: `Return the borrowed tiller. ${long}`, learnedOn: before(9), eventDate: before(3), salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } });
+    expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
+    const text = c.wake(BUDGET, { date: today }, { scope: HERE, session: "s-new" }).text;
+    const line = text.split("\n").find((l) => l.includes("Return the borrowed tiller")) ?? "";
+    expect(line).toContain("days ago");
+    expect(Buffer.byteLength(line)).toBeLessThan(400);
   });
 
   test("the switch: on, the lane is as it was", () => {

@@ -1795,7 +1795,7 @@ describe("several sessions leave handoffs in one directory", () => {
     expect(woke.bytes).toBeLessThanOrEqual(ceiling);
     expect(woke.text).toContain(BODY_TWO);
     expect(woke.text).not.toContain(STANDS_OTHERS);
-    expect(woke.text).toContain('+1 older handoff: recall "handoffs here" lists them.');
+    expect(woke.text).toContain('+1 older handoff: recall "handoffs here" lists it.');
     expect(c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 5 })).toHaveLength(0);
     expect(c.store.eventLog({ name: HANDOFF_SHOWN_EVENT, limit: 5 })).toHaveLength(1);
     // Below even that, the pointer is dropped whole and the drop is a row.

@@ -865,7 +865,8 @@ export function todayElsewhereLines(
         : d.live
           ? ` open since ${start(d.firstAt, d.lastAt)}${hush.length > 0 ? hush : " (live)"}`
           : ` ${start(d.firstAt, d.lastAt)}–${clock(d.lastAt ?? d.firstAt)}`;
-    const chapter = !chapters || d.chapter === null ? "" : ` — ${chapterWords(d.chapter)}`;
+    const named = !chapters || d.chapter === null ? "" : chapterWords(d.chapter);
+    const chapter = named.length === 0 ? "" : ` — ${named}`;
     return `${placeWords(d.scope)}${when}${chapter}${countWords(d.memories, d.titles, titles)}`;
   };
   const oneHere = (h: HereSession, titles: number): string =>
@@ -983,9 +984,10 @@ function sum(xs: readonly number[]): number {
   return xs.reduce((n, x) => n + x, 0);
 }
 
-/** A gated chapter as an elsewhere line names it: its title and id, or the id alone. */
+/** A gated chapter as an elsewhere line names it: its title, or its first words, and id; with neither, nothing (no bare ids, WK1). */
 function chapterWords(c: ChapterHere): string {
-  return c.title === null ? c.id : `"${excerpt(c.title, LAST_HERE_TITLE_BYTES)}" (${c.id})`;
+  const words = (c.title ?? "").trim() || c.excerpt.trim();
+  return words.length === 0 ? "" : `"${excerpt(words, LAST_HERE_TITLE_BYTES)}" (${c.id})`;
 }
 
 /**
@@ -1073,7 +1075,8 @@ export function sinceElsewhereLines(
           : d.endedAt !== null
             ? ` ended ${when(d.endedAt)}`
             : "";
-    const chapter = !chapters || d.chapter === null ? "" : `, chapter ${chapterWords(d.chapter)}`;
+    const named = !chapters || d.chapter === null ? "" : chapterWords(d.chapter);
+    const chapter = named.length === 0 ? "" : `, chapter ${named}`;
     return `${placeWords(d.scope)}${state}${chapter}${countWords(d.memories, d.titles, titles)}`;
   };
   const head = since.started ? `Since you started (${when(since.at)}):` : `Since ${when(since.at)}:`;

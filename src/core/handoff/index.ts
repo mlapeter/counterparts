@@ -786,7 +786,7 @@ export function excerpt(body: string, capBytes = HANDOFF_EXCERPT_BYTES): string 
 
 /**
  * WHERE A HANDOFF SAYS WHAT COMES NEXT: the last `next:` it has, as a writer puts
- * it (`next:`, `Next for me:`, `Next step:`). Byte offset into `flat`, or -1.
+ * it (`next:`, `Next for me:`, `Next step:`). Its index in `flat`, or -1.
  */
 function nextAt(flat: string): number {
   let at = -1;
@@ -856,10 +856,13 @@ function cutToBytes(first: string, capBytes: number): string {
   const bytes = new TextEncoder().encode(first);
   const prefix = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, room));
   const clean = prefix.replace(/�+$/u, "");
-  // Already at a word's end, or back to the last one.
+  // Already at a word's end, or back to the last one, unless the word being cut
+  // could never fit by itself (a URL, a path, a run of text with no spaces): going
+  // back past it would leave "See…" of a whole line.
   const atEnd = /^\s/u.test(first.slice(clean.length));
   const space = clean.lastIndexOf(" ");
-  const kept = atEnd || space <= 0 ? clean : clean.slice(0, space);
+  const word = first.slice(space + 1).split(/\s/u, 1)[0] ?? "";
+  const kept = atEnd || space <= 0 || byteLengthOf(word) > room ? clean : clean.slice(0, space);
   return `${kept.trimEnd()}${ELLIPSIS}`;
 }
 
@@ -1208,7 +1211,8 @@ function entryWords(e: Entry, reader: string | null): { head: string; lead: read
     parts.push(`${who}, ${chapter.entry.when}${chapterNamed(chapter.entry)}.${first}`);
   } else if (chapter?.kind === "later") {
     const l = chapter.later;
-    const what = l.memory === null ? ", no chapter, not written up yet." : `, no chapter — "${excerpt(l.memory.title, LAST_HERE_TITLE_BYTES)}" (${l.memory.id}).`;
+    // Its own handoff beside it is a write-up, so not "not written up yet".
+    const what = l.memory === null ? (handoff === undefined ? ", no chapter, not written up yet." : ", no chapter.") : `, no chapter — "${excerpt(l.memory.title, LAST_HERE_TITLE_BYTES)}" (${l.memory.id}).`;
     parts.push(`${who}, ${l.when}${what}`);
   }
   if (parts[0] !== undefined) chapterBytes = byteLengthOf(parts[0]);
@@ -1243,7 +1247,7 @@ function doorWords(shown: readonly Handoff[], live: readonly Handoff[], day: num
   if (live.length === 0) return null;
   const rest = live.length - shown.length;
   const older = shown.length === 0 ? "" : "older ";
-  const count = rest > 0 ? `+${String(rest)} ${older}handoff${rest === 1 ? "" : "s"}: recall "${HANDOFFS_HERE_HANDLE}" lists them.` : "";
+  const count = rest > 0 ? `+${String(rest)} ${older}handoff${rest === 1 ? "" : "s"}: recall "${HANDOFFS_HERE_HANDLE}" lists ${rest === 1 ? "it" : "them"}.` : "";
   if (shown.length === 0) return `(${count})`;
   const only = shown.length === 1 && rest === 0 ? shown[0] : undefined;
   if (only !== undefined) {

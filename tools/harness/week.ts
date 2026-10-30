@@ -430,6 +430,8 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
   let lastSaid: string | null = null;
   let sinceSeen = false;
   for (const raw of injection.split("\n")) {
+    // A handoff's lead line is indented: its own words, never a line of the wake's.
+    if (raw.startsWith("  ")) continue;
     const line = raw.trim();
     const kind = FURNITURE.find(([re]) => re.test(line))?.[1];
     if (kind === undefined) continue;
@@ -437,21 +439,23 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
     // Who a line of the block names, and what it carries.
     const who = /^(?:Where this folder stands|Since then|Before that): (?:a handoff from )?session ([^,\s]+)/.exec(line)?.[1];
     if (/\(sch_[0-9a-f]+\)/.test(line)) lines.push("Handoff");
-    if (/\b[Ll]ast said /.test(line)) {
+    if (/\b[Ll]ast said (?:\d{2}-\d{2} )?\d{1,2}:\d{2}: "/.test(line)) {
       lines.push("Last said here");
       if (lastSaid === null && who !== undefined) lastSaid = label(who);
     }
     // Under a handoff that leads, "Since then:" is the newer session: it is the one that was last here.
     const newer = /^Since then:/.test(line) && (lastHere === null || !sinceSeen);
     if (newer) sinceSeen = true;
-    if (kind === "Last here" && (lastHere === null || newer)) {
-      const episode = /\bepi_[A-Za-z0-9_-]+/.exec(line)?.[0] ?? null;
+    // An older chapter under a handoff that leads ("Before that:") is still the last one here.
+    if ((kind === "Last here" || kind === "Before it") && (lastHere === null || newer)) {
+      // Not from a one-line lead's own words, after its id.
+      const episode = /\bepi_[A-Za-z0-9_-]+/.exec(line.split("(sch_")[0] ?? "")?.[0] ?? null;
       if (episode !== null) {
         const s = sessionOf(episode);
         lastHere = { episode, session: s === null ? "?" : label(s) };
       } else {
         // A LATER SESSION WITH NO CHAPTER (S2): the line names the session itself.
-        if (who !== undefined && !/^Where this folder stands: a handoff from /.test(line)) lastHere = { episode: null, session: label(who) };
+        if (who !== undefined && /, no chapter\b/.test(line)) lastHere = { episode: null, session: label(who) };
       }
     }
   }

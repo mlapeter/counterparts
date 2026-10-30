@@ -1912,6 +1912,8 @@ export function render(
       for (const lane of ["threads", "horizon"] as const) {
         const top = kept[lane][0];
         if (top === undefined || !asLine(top, resolve(top.id))) continue;
+        // An overdue item is its title and age (WK1, 2026-10-30), not a late item's whole text.
+        if (lane === "horizon" && resolve(top.id).duePast === true) continue;
         kept[lane][0] = { ...top, whole: true };
         const next = tell();
         const same =
