@@ -447,7 +447,11 @@ and a tree that does not mirror the sources; it warns from 490 files. It leaves 
 dashboard's 3D brain (`pages/home/brain.js`, the vendored three.js, ~670 KiB, and its
 licence): the server finds no three.js on disk, says so in the page
 (`<meta name="counterparts-brain" content="off">`, `server.ts#BRAIN_LIBRARY`), and the home
-tab draws "Today" across the row with no request for the picture.
+tab draws "Today" across the row with no request for the picture. For file room it also
+joins the dashboard's 24 stylesheets into one, `shared/dashboard.css`, in `app.html`'s link
+order, and rewrites the page's links to it (2026-10-30). The rewrite exists only in that
+bundle, so CI's tests of the source can't see it: `tools/visual-loop/compare-bundle.ts`
+compares the built dashboard with the source's and with an earlier bundle's, pixel by pixel.
 
 **The directory flavor never reads `~/.claude.json`** (owner's decision, 2026-10-14; the
 validator read the file's name as a credential). One helper, `runtime.ts#readsHostUserConfig`

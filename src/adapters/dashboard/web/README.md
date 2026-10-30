@@ -314,3 +314,10 @@ backslashes, NUL). A new top-level folder or extension means editing
 shows on reload. `test/dashboard-web.test.ts` checks that every file the shell
 reaches exists and is served, and that no `.js`/`.css` under `web/` is orphaned.
 `test/dashboard.test.ts`'s source scan covers the `.js` files too.
+
+The directory plugin's build joins the stylesheets into `shared/dashboard.css`, in
+`app.html`'s link order, and rewrites that page's links to the one file
+(`tools/plugin-bundle/build.ts#joinSheets`), to stay under the directory's file limit.
+So a sheet here has to stand beside others: no `@import`, `@charset`, `@layer` or relative
+`url()`, and nothing left open at its end. The build refuses one that breaks this, and
+`tools/visual-loop/compare-bundle.ts` compares the built page with this one.
