@@ -117,6 +117,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the mail key.
 
     `invite` prints one code, once.
+
+    `signups` (`src/signups.ts`) prints the people there are now and the sign-ups per week (Monday 00:00 UTC), counts
+    only, so its output can be pasted anywhere. It reads `people`'s dates and states on a read-only connection, needs
+    no key or bucket, and makes, migrates and checkpoints nothing, beside the running server or on a stopped volume.
+    A sign-up is a `people` row, which is also a redeemed invite (§11). With no database it fails and makes none.
 23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
     authorization starts an hour per IP (each can make the server fetch a CIMD document).
 

@@ -4,6 +4,7 @@
  *
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT]
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
@@ -52,6 +53,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun } from "./backup.js";
+import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
 import { KeyStore, kekRingFromEnv } from "./keys.js";
@@ -512,6 +514,18 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  if (command === "signups") {
+    // Before the backup checks on purpose: it reads one file, and needs no key
+    // and no bucket. Nothing below this line runs for it (signups.ts).
+    const out = signupsCommand(join(read.dataRoot, "control", "accounts.sqlite"));
+    if ("refusal" in out) {
+      process.stderr.write(`[hosted] ${out.refusal}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(`${out.text}\n`);
+    return;
+  }
   if (command === "invite" || command === "rewrap" || command === "start-over") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
@@ -557,7 +571,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "rewrap" && command !== "restore") {
-    process.stderr.write("[hosted] commands: serve, invite, rewrap, restore, start-over\n");
+    process.stderr.write("[hosted] commands: serve, invite, signups, rewrap, restore, start-over\n");
     process.exitCode = 1;
     return;
   }
