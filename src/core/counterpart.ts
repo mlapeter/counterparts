@@ -2284,13 +2284,13 @@ export class Counterpart {
    *
    * The store is read as day's end SAW it, not as the night left it: the
    * dream archives and merges after day's end has read the day (review of
-   * #614), and a row born after the summary was told cannot be in it. Nor can
-   * a row written that day but lived on another (2026-10-30, the 10-29 summary:
-   * a write-up of an earlier day, from a folder set off since, was filed that
-   * morning and hid the day for everyone): day's end does not pick by when a
-   * row was written. What it cannot see: a memory erased since (its row is
-   * gone), and whatever day's end's recall reached on other days — a summary's
-   * cites are the only bound on that.
+   * #614), and a row born after the summary was told cannot be in it. Nor is
+   * a row written that day but lived on another handed to it (2026-10-30, the
+   * 10-29 summary: a write-up of an earlier day, from a folder set off since,
+   * was filed that morning and hid the day for everyone): day's end does not
+   * pick by when a row was written. What it cannot see: a memory erased since
+   * (its row is gone), and whatever day's end's recall reached, on any day,
+   * that row included — a summary's cites are the only bound on that.
    *
    * One rule for all three: a folder the owner has turned off, paused or set
    * to observe (`exportsFrom` false) holds the summary back wherever it shows
@@ -2393,9 +2393,9 @@ export class Counterpart {
    * observer; never throws.
    */
   private noteDaySummaryHeld(about: string, what: DaySummaryHeldWhat, why: DaySummaryHeldWhy): void {
-    this.emit("counterpart.daysummary.held", undefined, { about, what, why });
-    if (this.observer) return;
     try {
+      this.emit("counterpart.daysummary.held", undefined, { about, what, why });
+      if (this.observer) return;
       this.store.appendEvent({
         name: DAY_SUMMARY_HELD_EVENT,
         day: this.store.livedDay(),

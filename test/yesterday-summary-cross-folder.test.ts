@@ -447,12 +447,12 @@ describe("a dream's merge or gist is read by its originals' folders", () => {
 });
 
 /**
- * THE GATE READS WHAT DAY'S END COULD HAVE READ (2026-10-30). The 10-29 summary
+ * THE GATE READS WHAT DAY'S END COULD HAVE BEEN HANDED (2026-10-30). The 10-29 summary
  * was written and no wake showed it: a catch-up that morning had filed a
  * write-up of an EARLIER day from a folder set off since. Day's end picks by the
  * day lived, not the day written, and cannot pick what was not there yet.
  */
-describe("a row day's end could not have read does not hold the summary back", () => {
+describe("a row day's end was not handed does not hold the summary back", () => {
   const SECRET = "The quarter closed at a loss.";
   const held = (c: Counterpart): Record<string, unknown>[] =>
     c.store.eventLog({ name: DAY_SUMMARY_HELD_EVENT, order: "asc", limit: 20 }).map((r) => {

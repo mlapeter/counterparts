@@ -270,8 +270,8 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     (whatever its mark since Y2, 2026-10-25, lightly held: the summary may mention other
     folders' work, as "Today, elsewhere" names it; until then only a cite about me, us or
     the owner crossed), every chapter that day is
-    from this folder or one whose scope is on, and every folder that wrote a memory that
-    day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
+    from this folder or one whose scope is on, and every memory of that day is too
+    (`Counterpart#daySummaryShown`); otherwise, and in the published render,
     the chapter list exactly as before. The day is read as day's end saw it (review of
     #614; 2026-10-30): archived and merged rows count, a memory lived that day counts wherever
     it was written up (day's end's own rule), a row born after the summary was told or written

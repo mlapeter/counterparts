@@ -38,7 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
-| The day-summary gate reads only what day's end could have read: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
+| The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -1556,7 +1556,8 @@ sorts them (the record lists what each was).
 ## Due ~1 week after release (the day-summary gate, 2026-10-30 — docs/decisions.d/fix-day-summary-held-1030.md)
 
 - **What we're trying:** the Yesterday gate (`Counterpart#daySummaryShown`) stops counting a row written that day about
-  another day, or born after the summary was told: day's end can have read neither. Every summary held back leaves one
+  another day, or born after the summary was told: day's end is handed neither (its recall can still reach the first,
+  as it reaches every day: the decision says what that gives up). Every summary held back leaves one
   `handoff.daysummary.held` row per date and cause (kinds only).
 - **Why:** the 10-29 summary reached no wake. Three write-ups of 10-26, from a folder set off that day, were filed on the
   morning of 10-29 and read as that day's.

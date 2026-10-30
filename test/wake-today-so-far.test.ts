@@ -358,7 +358,7 @@ describe("Yesterday from day's end's summary", () => {
     summary(k, D1, TOLD, [own]);
     expect(wakeFor(k, HERE).text).not.toContain(TOLD);
   });
-  test("a backdated memory (written that day, learned on an earlier date) from a scope-off folder does not: day's end never picked it (2026-10-30)", () => {
+  test("a backdated memory (written that day, learned on an earlier date) from a scope-off folder does not: day's end is not handed it, though its recall can reach it (2026-10-30)", () => {
     const { k, own } = yesterdayStore();
     k.set(at(D1, 18));
     k.c.store.put({ type: "memory", kind: "fact", body: "The quarter closed at a loss.", learnedOn: "2026-10-01", origin: { session: S5, scope: PRIVATE } });
