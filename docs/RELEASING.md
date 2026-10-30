@@ -121,7 +121,8 @@ a second failure gets a real look. Report both numbers.
 
 ## 3. The single binaries
 
-Before the branch is pushed, after the last change to `src/`, on macOS, in the clean clone:
+Before the branch is pushed, after the last change to `src/`, on macOS, in a clean clone of
+the release branch, after `bun install --frozen-lockfile`:
 
 ```sh
 bun tools/single-binary/build.ts --release
