@@ -128,6 +128,7 @@ describe("the night's own line", () => {
     expect(out["again"]).toBeUndefined();
     expect(detail(c, reflection)["line"]).toBe(LINE);
     expect((await lastNight(s))["line"]).toBe(LINE);
+    expect(JSON.stringify((await s.call("recall", { handle: reflection })).structuredContent)).toContain("greenhouse key");
     expect(String(out["handBack"])).not.toContain("greenhouse key");
     expect(c.store.reflection(reflection)?.share).not.toContain("greenhouse key");
 
