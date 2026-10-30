@@ -27,6 +27,8 @@
 #
 # Usage:  tools/install-loop/run.sh [workdir]
 # Default workdir: a fresh `install-loop-<pid>` under $TMPDIR.
+# INSTALL_LOOP_TARBALL=<file> tests that file instead of packing one: a release's
+# CI packs once and tests what it will publish (docs/RELEASING.md §2).
 #
 # What this loop CANNOT verify: it never launches Claude Code, so the hooks block and the MCP registration are
 # checked as files and processes, never as a live session.
@@ -83,6 +85,16 @@ if [ -n "${COUNTERPARTS_CONFIG:-}" ]; then
   echo "REFUSED: COUNTERPARTS_CONFIG is already set ($COUNTERPARTS_CONFIG)."
   echo "The loop resolves its own configuration; it never honors an inherited one."
   exit 1
+fi
+# Named but not there is a refusal, never a quiet fall back to packing: a loop that
+# tested a tarball of its own would say the release's file passed when it never ran.
+GIVEN_TARBALL=""
+if [ -n "${INSTALL_LOOP_TARBALL:-}" ]; then
+  if [ ! -f "$INSTALL_LOOP_TARBALL" ]; then
+    echo "REFUSED: INSTALL_LOOP_TARBALL names no file ($INSTALL_LOOP_TARBALL)."
+    exit 1
+  fi
+  GIVEN_TARBALL="$(cd "$(dirname "$INSTALL_LOOP_TARBALL")" && pwd -P)/$(basename "$INSTALL_LOOP_TARBALL")"
 fi
 # UNSET, not refused, and not armed: `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` makes
 # the store and the config resolver refuse their `~/.counterparts` defaults
@@ -206,19 +218,31 @@ T0=$(date +%s)
 
 # ── 1. install from the packed tarball ──────────────────────────────────────
 
-step "npm pack produces a tarball"
-# STDERR GOES TO A FILE, NOT INTO THE PIPE (2026-09-20, finding 5). `npm pack`
-# prints the tarball name on stdout and its notices — npm's update banner, a
-# workspace warning, an audit line — on stderr. With `2>&1` the two are
-# interleaved, so `tail -1` returned whatever npm said last and the step failed
-# about one run in five with a name that was never a file.
-PACK_ERR="$WORK/npm-pack.stderr"
-PACK_OUT=$(cd "$REPO" && PATH="$REAL_PATH" "$NPM_BIN" pack --pack-destination "$WORK" 2>"$PACK_ERR")
-TARBALL=$(printf '%s\n' "$PACK_OUT" | tail -1)
-if [ -f "$WORK/$TARBALL" ]; then
-  ok
+if [ -n "$GIVEN_TARBALL" ]; then
+  step "the tarball under test is the one named"
+  TARBALL="$(basename "$GIVEN_TARBALL")"
+  rm -f "$WORK/$TARBALL"
+  if cp "$GIVEN_TARBALL" "$WORK/$TARBALL"; then
+    ok
+    echo "      tarball under test: $(shasum -a 256 "$WORK/$TARBALL" | cut -d' ' -f1)  $TARBALL"
+  else
+    no "could not copy the named tarball"
+  fi
 else
-  no "npm pack produced no tarball" "$(printf 'stdout:\n%s\nstderr:\n%s\n' "$PACK_OUT" "$(cat "$PACK_ERR" 2>/dev/null)")"
+  step "npm pack produces a tarball"
+  # STDERR GOES TO A FILE, NOT INTO THE PIPE (2026-09-20, finding 5). `npm pack`
+  # prints the tarball name on stdout and its notices — npm's update banner, a
+  # workspace warning, an audit line — on stderr. With `2>&1` the two are
+  # interleaved, so `tail -1` returned whatever npm said last and the step failed
+  # about one run in five with a name that was never a file.
+  PACK_ERR="$WORK/npm-pack.stderr"
+  PACK_OUT=$(cd "$REPO" && PATH="$REAL_PATH" "$NPM_BIN" pack --pack-destination "$WORK" 2>"$PACK_ERR")
+  TARBALL=$(printf '%s\n' "$PACK_OUT" | tail -1)
+  if [ -f "$WORK/$TARBALL" ]; then
+    ok
+  else
+    no "npm pack produced no tarball" "$(printf 'stdout:\n%s\nstderr:\n%s\n' "$PACK_OUT" "$(cat "$PACK_ERR" 2>/dev/null)")"
+  fi
 fi
 
 step "the tarball ships sources and licence, and no tests or internal tools"

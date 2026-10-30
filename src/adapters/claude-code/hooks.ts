@@ -1323,7 +1323,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       if (offer === null) return false;
       const store = this.counterpart.store;
       if (store.getMeta(NOTHING_OWED_BEFORE_KEY) === input.at) return false;
-      const owed = owedBefore(this.counterpart, input.at);
+      const owed = owedBefore(this.counterpart, input.at, this.writeUpFolders());
       if (owed === null) return false;
       if (owed === 0) {
         store.setMeta(NOTHING_OWED_BEFORE_KEY, input.at);

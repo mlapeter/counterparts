@@ -1,4 +1,6 @@
-# The whole suite, on every pull request and every push to master.
+# The whole suite, on every pull request and every push to master, and on a push to
+# release/*: a push run checks out that very commit, where a pull_request run checks
+# out a merge of the branch into master.
 #   - typecheck: `tsc --noEmit`, once (the types do not depend on the platform),
 #     and `stitch --check`, which fails on a changelog.d/ fragment with no bullet
 #     or a docs/decisions.d/ fragment that isn't `### ` subsections;
@@ -8,14 +10,20 @@
 #     Denver on macOS, where the owner develops;
 #   - hosted: the hosted server's tests (hosted/test), under Node 24 and bun;
 #   - node: `bun run test:node`, the Node smoke test, on the floor package.json
-#     names (22.15.0) and on 24.
+#     names (22.15.0) and on 24;
+#   - release, release-macos: only on a push to release/* or a manual run, after
+#     the jobs above pass. Pack once, scan that file against the last release, run
+#     the install loop on it on Linux and macOS, run the live dashboard tests, and
+#     keep the file as an artifact with its sha256. docs/RELEASING.md §2 and §4.
+# The logs are public: nothing here reads a store or a secret, and the package scan
+# prints counts and file paths, never what it matched.
 # The same checks, run locally: CONTRIBUTING.md, "Continuous integration".
 name: tests
 
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, "release/**"]
   workflow_dispatch:
 
 # Read-only, and `pull_request` (never `pull_request_target`): a fork's pull
@@ -56,15 +64,16 @@ jobs:
   suite:
     name: suite (${{ matrix.os }}, ${{ matrix.tz }})
     runs-on: ${{ matrix.os }}
-    # TIMEOUT_NOTE
-    timeout-minutes: 20
+    # macOS runners take this suite anywhere from 9 to 15 minutes so far: 30 there, so
+    # a slow runner doesn't read as a failed release.
+    timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, tz: America/Denver }
-          - { os: ubuntu-latest, tz: Pacific/Kiritimati }
-          - { os: macos-latest, tz: America/Denver }
+          - { os: ubuntu-latest, tz: America/Denver, slug: linux-denver, timeout: 20 }
+          - { os: ubuntu-latest, tz: Pacific/Kiritimati, slug: linux-kiritimati, timeout: 20 }
+          - { os: macos-latest, tz: America/Denver, slug: macos-denver, timeout: 30 }
     env:
       TZ: ${{ matrix.tz }}
     steps:
@@ -86,7 +95,23 @@ jobs:
       # catch a hang, not to time a test: a hang still fails, at 30 s. Tests that
       # set their own limit keep it (the flag is only the default), and every
       # test is hermetic, so a longer wait cannot hide one leaking into another.
-      - run: bun test --timeout 30000
+      # The junit file is only for the timing steps below; the log reads as before.
+      - run: bun test --timeout 30000 --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit.xml"
+      # Per-file times, for reading: neither step can fail the job.
+      - name: Slowest test files
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: bun tools/ci/test-times.ts "$RUNNER_TEMP/junit.xml"
+      - name: Keep the junit file
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-times-${{ matrix.slug }}
+          path: ${{ runner.temp }}/junit.xml
+          if-no-files-found: warn
+          retention-days: 30
+          overwrite: true
 
   node:
     name: node smoke (${{ matrix.node }})
@@ -139,3 +164,128 @@ jobs:
       - name: Hosted tests under bun
         if: matrix.runtime == 'bun'
         run: bun test --timeout 30000 ./hosted/test
+
+  # A release's package, tested on the exact commit (docs/RELEASING.md §2, §4). Never
+  # on a pull_request, so a fork's branch named release/x can't produce a tarball. The
+  # file is packed once, every check here takes that file, and the upload comes last,
+  # so an artifact exists only when the jobs above and every step here passed.
+  # tools/release/fetch-tarball.sh also wants the whole run green, release-macos included.
+  release:
+    name: release (pack, scan, install loop, live dashboard)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/'))
+    needs: [typecheck, suite, node, hosted]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        # Spelled out for pipefail: the live step pipes through tee.
+        shell: bash
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - name: Pack once
+        id: pack
+        run: |
+          echo "npm $(npm --version), node $(node --version)"
+          folder="$RUNNER_TEMP/release"
+          mkdir -p "$folder"
+          tarball=$(npm pack --silent --pack-destination "$folder")
+          cd "$folder"
+          shasum -a 256 "$tarball" > SHA256
+          echo "$GITHUB_SHA" > COMMIT
+          sha256=$(cut -d' ' -f1 SHA256)
+          # fetch-tarball.sh compares the downloaded file with this line.
+          echo "TARBALL_SHA256=$sha256 $tarball commit $GITHUB_SHA"
+          {
+            echo "tarball=$tarball"
+            echo "sha256=$sha256"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Tarball"
+            echo
+            echo "\`$sha256  $tarball\`, packed from \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package scan, against the last release on npm
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          version=$(jq -r .version package.json)
+          previous=$(npm view counterparts versions --json | jq -r '.[]' | grep -v -- - | { cat; echo "$version"; } | sort -Vu | grep -B1 -Fx "$version" | head -1)
+          [ -n "$previous" ] && [ "$previous" != "$version" ] || { echo "no release below $version on npm"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/previous"
+          last=$(npm pack "counterparts@$previous" --silent --pack-destination "$RUNNER_TEMP/previous")
+          bun tools/audit/scan-personal.ts --tarball "$RUNNER_TEMP/release/$TARBALL" --against "$RUNNER_TEMP/previous/$last"
+      - name: Install loop, on that file
+        env:
+          INSTALL_LOOP_TARBALL: ${{ runner.temp }}/release/${{ steps.pack.outputs.tarball }}
+        run: tools/install-loop/run.sh
+      # The suite skips these when chromium can't launch; here a skip is a failure.
+      - name: Live dashboard tests, in a real browser
+        run: |
+          bunx playwright install --with-deps chromium
+          bun test --timeout 30000 test/dashboard-*-live.test.ts 2>&1 | tee "$RUNNER_TEMP/live.log"
+          if grep -q 'no chromium for playwright' "$RUNNER_TEMP/live.log"; then
+            echo "the live dashboard tests were skipped: chromium didn't launch"
+            exit 1
+          fi
+      - name: Keep the tested tarball
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: counterparts-tarball-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/release/${{ steps.pack.outputs.tarball }}
+            ${{ runner.temp }}/release/SHA256
+            ${{ runner.temp }}/release/COMMIT
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  # The same file through the install loop on macOS, where the owner runs it. Nothing
+  # is installed from the checkout; only QUICKSTART, which the loop greps, is read.
+  release-macos:
+    name: release (install loop, macOS)
+    needs: release
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: counterparts-tarball-${{ github.sha }}
+          path: ${{ runner.temp }}/release
+      - name: The file the release job packed, or stop
+        env:
+          WANTED: ${{ needs.release.outputs.sha256 }}
+          TARBALL: ${{ needs.release.outputs.tarball }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          shasum -a 256 -c SHA256
+          got=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
+          echo "TARBALL_SHA256=$got $TARBALL"
+          [ "$got" = "$WANTED" ] || { echo "the file hashes to $got, the release job packed $WANTED"; exit 1; }
+      - name: Install loop, on that file
+        env:
+          INSTALL_LOOP_TARBALL: ${{ runner.temp }}/release/${{ needs.release.outputs.tarball }}
+        run: tools/install-loop/run.sh

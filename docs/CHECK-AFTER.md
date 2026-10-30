@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
+| The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -96,6 +97,24 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch)
+
+**What we're trying.** The night's catch-up, `counterparts catch-up` and the pointer leave out a session whose folder
+is now off, observer or paused. Nothing about it is marked, so its text goes with retention and a resumed folder is owed
+again.
+
+**What to look at.** Three nights after install. New memories with `writtenUpBy` set whose `origin_session` is filed under
+a folder not on since before the write: expect none (the three from 10-29 predate this and stay). `counterparts coverage`:
+such sessions under "Not asked for", none under "Owed now". Doctor's `Catch-up` count against that list. `adapter.night.writeup`
+rows: `left` and `partsLeft` no longer carry them. Sessions in folders on: still written up at the rate before, the
+one thing this could break.
+
+**What would change it.** A write from a not-on folder: read when its folder's setting changed against the run's time; a
+change during a batch is allowed for, anything else is a bug. A debt that doctor shows and the catch-up never takes:
+the two readers disagree, fix the reader. Text from off folders staying too long to be comfortable: Mike's call on a
+shorter clock for `off` (`docs/decisions.d/fix-catch-up-respects-off.md`). **Revert.** The commits are small; nothing to
+migrate.
 
 ## Due ~1 week after the worker's cost (2026-10-30, W1, coordinator's brief marked for Mike's review — a fix, no switch)
 
