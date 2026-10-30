@@ -153,6 +153,8 @@ the domain on Cloudflare.
    **in the same browser**.
 3. Your account page shows no connected apps yet.
 
+To count people, any time, beside the running server (counts only, safe to paste anywhere, your own account included): `railway ssh`, then `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups`.
+
 ## 7. BEFORE you add the connector: Claude Code
 
 Claude Code loads claude.ai's connectors. Once the hosted connector is in your claude.ai account, every Claude Code
