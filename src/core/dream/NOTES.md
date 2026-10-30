@@ -1345,6 +1345,19 @@ closed row's id, title and opening words: since #687 it prints no bare ids, and 
 id-and-title check. A handoff left in a closed folder is in the set too: it's a schema row with its folder in its
 meta, and it reached the night's on-my-mind as an open loop.
 
+A reflection a session began itself used to open at its first `finish`, so a page or share sent back could be
+rewritten from a closed row (a child carries the environment mark and never had this). `Reflections.busyIn` now
+reads what the retry line invited: `finish` keeps the parts sent back on the row's `detail` (`sentBack`, taken from
+`missed`, so a part added there later counts with no change here, and `sentBackAt`), a part stays until it's sent
+again, and a finish with none leaves none. "Finished in the last half hour" was the other choice, and is worse both
+ways: a session's background agent shares its id, so a clean finish would hide these rows from the person's session
+for 30 minutes every time; and `finished_at` is fixed at the first finish, so a part refused at minute 29 would open
+at minute 30 with the door still asking. Quiet past `ABANDONED_AFTER_MS` from the last finish it lets go, and it lets
+go when `openFor` would refuse: a newer reflection, or the day over. Still open, each by choice: `finish` takes a
+second send all calendar day, so a clean finish re-sent, or a part sent back and re-sent past the half hour, can carry
+closed words. So can a `begun` dream or reflection finished past the half hour. Closing that takes a refusal at the
+write door, and an ordinary session writes the page through `self_page` either way.
+
 A setting file that won't read holds the night rather than close everything and go on (Mike, through the
 roadmap, 10-30): through the doors, a night then got the page and whatever had no folder, stored a thinner page
 as `revised`, journaled a dream of nothing, and finished a reflection on it, with nothing said anywhere. A folder

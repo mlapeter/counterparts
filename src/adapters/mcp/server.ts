@@ -127,7 +127,6 @@ import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
 import { NOTHING_CLOSED } from "../../core/dream/slices.js";
-import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
@@ -2384,7 +2383,7 @@ export class McpServer {
   /**
    * WHAT THIS RECALL MAY NOT OPEN, when the asker is the night (2026-10-30,
    * `core/dream/slices.ts`): a child of the nightly run, a session with a dream or
-   * a reflection begun, or one holding day's end's claim. They write what every
+   * a reflection under way, or one holding day's end's claim. They write what every
    * session reads. Empty for anyone else: an ordinary session's recall is not
    * fenced. Asked once per recall.
    */
@@ -2398,12 +2397,9 @@ export class McpServer {
     if (session === null) return false;
     try {
       // A marker left by a run that crashed doesn't fence the session for good: quiet past
-      // `ABANDONED_AFTER_MS`, it's a dream left behind, as `Dreams.begin` reads it.
-      return (
-        this.counterpart.dreams.busyIn(session) ||
-        this.counterpart.store.reflections({ limit: 5 }).some((r) => r.state === "begun" && r.session === session && this.counterpart.store.now() - r.started_at <= DREAM_TUNABLES.ABANDONED_AFTER_MS) ||
-        this.counterpart.nightClaimFor(session) !== null
-      );
+      // `ABANDONED_AFTER_MS`, it's a dream left behind, as `Dreams.begin` reads it. A reflection
+      // reads the same, and counts on past its first `finish` while a part sent back is still out.
+      return this.counterpart.dreams.busyIn(session) || this.counterpart.reflections.busyIn(session) || this.counterpart.nightClaimFor(session) !== null;
     } catch {
       return false;
     }

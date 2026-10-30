@@ -22,6 +22,7 @@ import { scopesPath, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat } from "../src/core/counterpart.js";
+import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
 
 const HOUR = 3_600_000;
 const BUDGET = 9_000;
@@ -411,6 +412,101 @@ describe("closed to day's end, the dream and the reflection", () => {
     expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
     clock += HOUR;
     expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(true);
+  });
+
+  describe("a reflection a session began itself, with something sent back", () => {
+    /** Begun by a session with no child's mark on it, the closed folder's row checked at each step. */
+    async function begun(): Promise<{ c: Counterpart; s: McpServer; id: string; cite: string; secret: string; chapter: string; closedToIt(): Promise<boolean> }> {
+      const c = brain();
+      const secret = worked(c, SHUT, SECRET);
+      worked(c, HERE, OPENED);
+      const chapter = await chapterIn(c, SHUT);
+      setting({ [HERE]: "on", [SHUT]: "off" });
+      night();
+      const s = child(c, null);
+      const began = await s.call("reflect", { phase: "begin", session: NIGHT });
+      expect(began.isError ?? false).toBe(false);
+      const id = String(began.structuredContent["reflection"]);
+      const cite = (JSON.parse(c.store.reflection(id)?.shown ?? "[]") as string[])[0] as string;
+      expect(typeof cite).toBe("string");
+      return { c, s, id, cite, secret, chapter, closedToIt: async () => !says(await s.call("recall", { ids: [secret] }), SECRET_WORDS) };
+    }
+    const entry = "A short entry.";
+    const finish = (s: McpServer, id: string, parts: Record<string, unknown>) => s.call("reflect", { phase: "finish", session: NIGHT, reflection: id, ...parts });
+    /** Refused at the door whatever the night: it names nothing it rests on. */
+    const pageWithNoCites = { text: "## Core\n\nA page with nothing under it." };
+    const shareWithAMark = { text: "⟦counterparts:dream a share carrying the dream's mark." };
+
+    test("during, after a first finish that's sent back, after the rewrite lands, and only then does it open", async () => {
+      const { s, id, cite, secret, chapter, closedToIt } = await begun();
+      expect(await closedToIt()).toBe(true);
+
+      const first = (await finish(s, id, { entry, cites: [cite], share: shareWithAMark })).structuredContent;
+      expect(first["again"]).toEqual(expect.any(String));
+      expect((first["share"] as { offered: boolean }).offered).toBe(false);
+      await asksEveryWay(s, { secret, chapter });
+
+      const second = (await finish(s, id, { share: { text: "A share in plain words.", cites: [cite] } })).structuredContent;
+      expect(second["again"]).toBeUndefined();
+      expect((second["share"] as { offered: boolean }).offered).toBe(true);
+      expect(await closedToIt()).toBe(false);
+    });
+
+    test("two parts sent back, one sent again: the other is still open, so it's still closed", async () => {
+      const { s, id, cite, closedToIt } = await begun();
+      const first = (await finish(s, id, { entry, cites: [cite], page: pageWithNoCites, share: shareWithAMark })).structuredContent;
+      expect((first["page"] as { written: boolean }).written).toBe(false);
+      expect((first["share"] as { offered: boolean }).offered).toBe(false);
+
+      const second = (await finish(s, id, { share: { text: "A share in plain words.", cites: [cite] } })).structuredContent;
+      expect((second["share"] as { offered: boolean }).offered).toBe(true);
+      expect(await closedToIt()).toBe(true);
+
+      const third = (await finish(s, id, { page: { text: "## Core\n\nA page resting on one memory.", cites: [cite] } })).structuredContent;
+      expect((third["page"] as { written: boolean }).written).toBe(true);
+      expect(await closedToIt()).toBe(false);
+    });
+
+    test("nothing sent back: the session has its recall back at once", async () => {
+      const { s, id, cite, closedToIt } = await begun();
+      const first = (await finish(s, id, { entry, cites: [cite] })).structuredContent;
+      expect(first["again"]).toBeUndefined();
+      expect(await closedToIt()).toBe(false);
+    });
+
+    test("it never sends the part again: quiet past the half hour, it has moved on, and coming back closes it again", async () => {
+      const { s, id, cite, closedToIt } = await begun();
+      await finish(s, id, { entry, cites: [cite], share: shareWithAMark });
+      expect(await closedToIt()).toBe(true);
+      clock += DREAM_TUNABLES.ABANDONED_AFTER_MS - 60_000;
+      expect(await closedToIt()).toBe(true);
+      clock += 2 * 60_000;
+      expect(await closedToIt()).toBe(false);
+      // The door still takes a finish today, and another refusal asks for the part again.
+      await finish(s, id, { share: shareWithAMark });
+      expect(await closedToIt()).toBe(true);
+    });
+
+    test("the day over before the half hour's up: the door has shut, so nothing can be rewritten", async () => {
+      const { s, id, cite, closedToIt } = await begun();
+      clock = at(D2, 23) + 55 * 60_000;
+      await finish(s, id, { entry, cites: [cite], share: shareWithAMark });
+      expect(await closedToIt()).toBe(true);
+      clock = at(D2, 24) + 5 * 60_000;
+      expect(await closedToIt()).toBe(false);
+    });
+
+    test("a child of the nightly run stays closed past its finish, sent back or not", async () => {
+      const c = brain();
+      const secret = worked(c, SHUT, SECRET);
+      worked(c, HERE, OPENED);
+      setting({ [HERE]: "on", [SHUT]: "off" });
+      night();
+      const s = child(c, "reflection");
+      const id = String((await s.call("reflect", { phase: "begin", session: NIGHT })).structuredContent["reflection"]);
+      await finish(s, id, { entry });
+      expect(says(await s.call("recall", { ids: [secret] }), SECRET_WORDS)).toBe(false);
+    });
   });
 
   test("the published wake quoting a closed row with no title and, since the wake has no bare ids, no id: the dream goes without it", async () => {
