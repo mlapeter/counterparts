@@ -1357,7 +1357,7 @@ none of their 19 support rows is closed.
 
 ## 2026-10-30 — the night's own line (NL1, `finish`'s `line`)
 
-The same `finish` as the page, not a second ask: the ask's words ("the page you just wrote") suggest a second turn, and
+The same `finish` as the page, not a second ask: the brief's words ("the page you just wrote") suggested a second turn, and
 that was the first plan. A probe of a reflection begun outside the nightly run (a hand-launched one, folder setting in
 force) found recall fenced while it's `begun` and open once its first `finish` lands, because `nightReading` stops at
 `begun`. A second ask would have put every such night's line in that window. The nightly run's children are fenced

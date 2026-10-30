@@ -115,7 +115,9 @@ describe("the night's own line", () => {
     expect(named.how).toContain(`- line (optional): ${asked}`);
     expect(named.how).not.toContain("Mike");
     expect(ownLineAsk(null)).not.toContain("name");
-    expect(ownLineAsk(null)).toContain("in the first person. One point is enough.");
+    expect(ownLineAsk(null)).toContain("in the first person, with no memory ids. One point is enough.");
+    expect(asked).toContain("the page you're writing");
+    expect(asked).toContain("with no memory ids");
   });
 
   test("sent with the page: kept on the row, shown by recall \"last night\", and in neither the hand-back nor the share nor the wake", async () => {

@@ -289,8 +289,8 @@ export const REFLECT_TUNABLES = {
  * name on the store, the clause that asks for one goes.
  */
 export function ownLineAsk(owner: string | null): string {
-  const told = owner === null ? "Tell it as what happened, in the first person." : `Tell it as what happened, in the first person, using ${owner}'s name on first mention.`;
-  return `Now one more thing, for whoever wakes tomorrow. In one or two whole sentences under ${String(REFLECT_TUNABLES.OWN_LINE_BYTES)} bytes, say what stays from this night that the page you just wrote doesn't already say. ${told} One point is enough. Don't state a lesson. If nothing does, leave it empty; an empty line is fine.`;
+  const told = owner === null ? "Tell it as what happened, in the first person, with no memory ids." : `Tell it as what happened, in the first person, with no memory ids, using ${owner}'s name on first mention.`;
+  return `Now one more thing, for whoever wakes tomorrow. In one or two whole sentences under ${String(REFLECT_TUNABLES.OWN_LINE_BYTES)} bytes, say what stays from this night that the page you're writing doesn't already say. ${told} One point is enough. Don't state a lesson. If nothing does, leave it empty; an empty line is fine.`;
 }
 
 /**
