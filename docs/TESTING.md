@@ -28,7 +28,8 @@ Two safety facts hold for everything below (`CLAUDE.md`): tests build and remove
 
 | Workflow | What it runs | When |
 |---|---|---|
-| `tests.yml` | typecheck + stitch check; suite on Linux in two zones and macOS in Denver; Node smoke on 22.15 and 24; the hosted tests under Node 24 and bun | every PR and push to master |
+| `tests.yml` | typecheck + stitch check; suite on Linux in two zones and macOS in Denver, with per-file test times (the slowest 20 in the log and job summary, the junit file as an artifact; test bodies with their `beforeEach` and `afterEach`, imports and `beforeAll` aren't counted); Node smoke on 22.15 and 24; the hosted tests under Node 24 and bun | every PR, and every push to master or `release/*` |
+| `tests.yml`, `release` jobs | one tarball packed once, then on that file: the package scan against the last release, the install loop on Linux and macOS; the live dashboard tests with chromium; the tarball and its sha256 kept as an artifact (RELEASING §2, §4) | a push to `release/*`, on that exact commit, after the jobs above pass; a manual run |
 | `single-binary.yml` | builds the single binary on 4 platforms (Windows is allowed to fail), then `smoke.sh` and `launcher-e2e.ts` | PRs touching the binary, plugin launcher, host wiring, `package.json` or `bun.lock` |
 
 **How builders and reviewers test (2026-10-29).** What heats the laptop is repeated full suites and the temp-dir
@@ -47,15 +48,17 @@ and what it would tell us. Cheap tier-0 checks need no asking. Reports paste cou
 
 ## 3. Release checks (`docs/RELEASING.md` is the source)
 
+What runs where. In CI, on the release commit: the suite in the zones of §2, the install loop, the package scan, the live dashboard tests, the Node smokes, the hosted tests. On the laptop for now: the check against a copy of the owner's memories (private), the plugin and split loops (they need a real `claude`), and upgrade and rollback (until automated). A flaky timeout in CI gets one rerun; two failures get a real look.
+
 | Name | What it checks | Cost | When | Command |
 |---|---|---|---|---|
-| Install loop | a stranger's install from the packed tarball in a throwaway HOME: console, wake, note-to-recall over MCP; also greps QUICKSTART's commands verbatim | minutes | every release | `tools/install-loop/run.sh` |
-| Plugin loop | the plugin as Claude Code installs it from a marketplace (also `--bundle=core\|directory`); needs a real `claude` | minutes | release; plugin changes | `tools/plugin-loop/run.sh` |
-| Split loop | the two-plugin marketplace scenarios (sidebar alone, npm plus sidebar, upgrade from before the split) | minutes | release; marketplace changes | `tools/plugin-loop/split.sh` |
+| Install loop | a stranger's install from the packed tarball in a throwaway HOME: console, wake, note-to-recall over MCP; also greps QUICKSTART's commands verbatim | minutes | every release, in CI on the tarball it packed; locally when you change it | `tools/install-loop/run.sh` (`INSTALL_LOOP_TARBALL=<file>` tests that file instead of packing) |
+| Plugin loop | the plugin as Claude Code installs it from a marketplace (also `--bundle=core\|directory`); needs a real `claude` | minutes | release, on the laptop; plugin changes | `tools/plugin-loop/run.sh` |
+| Split loop | the two-plugin marketplace scenarios (sidebar alone, npm plus sidebar, upgrade from before the split) | minutes | release, on the laptop; marketplace changes | `tools/plugin-loop/split.sh` |
 | Single-binary smoke | the binary alone, no bun or node on PATH: install, wake, worker, MCP, doctor, dashboard | about 5 min per platform | binary changes; CI does it | `tools/single-binary/smoke.sh <binary>` |
 | Release verify | downloads every published asset and checks both checksums | a download | after upload, before announcing | `bun tools/single-binary/verify-release.ts` |
-| Package scan | `npm pack`, diff the tarball against the last release; scan for keys, emails, paths, names | minutes | every release | `npm pack`; `bun tools/audit/scan-personal.ts` |
-| Upgrade and rollback | previous tarball to new to previous, same store, hooks driven over stdio | manual, tens of minutes | every release | steps in RELEASING |
+| Package scan | the tarball against the last release: files, size, exports; keys, emails, paths, the owner's name. New keys, mailboxes, home paths, ids and files that don't belong fail it; the rest is listed to read. Prints counts and file paths only | seconds | every release, in CI | `bun tools/audit/scan-personal.ts --tarball <new.tgz> --against <last.tgz>` |
+| Upgrade and rollback | previous tarball to new to previous, same store, hooks driven over stdio | manual, tens of minutes | every release, on the laptop, with the tarball CI tested | steps in RELEASING |
 | Audits | secrets across all git history and PR heads; personal-data inventory | minutes | before going public or releasing | `tools/audit/scan-history.ts`, `scan-personal.ts` |
 
 ## 4. The simulation harness (`tools/harness/`, dev-only; README is the source)

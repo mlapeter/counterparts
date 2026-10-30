@@ -43,7 +43,9 @@ Every pull request and every push to master runs
 [`.github/workflows/tests.yml`](.github/workflows/tests.yml): the typecheck, the changelog
 fragment check, the whole suite on Linux in two time zones (`America/Denver` and
 `Pacific/Kiritimati`) and on macOS in Denver, the Node smoke test on Node 22.15 and 24, and
-the hosted server's tests (`hosted/test`) under Node 24 and bun.
+the hosted server's tests (`hosted/test`) under Node 24 and bun. A push to a `release/*`
+branch runs them on that commit, then packs the tarball and checks it
+([docs/RELEASING.md](docs/RELEASING.md)).
 To run the same checks locally (the Node one needs `node` 22.15 or later on your `PATH`):
 
 ```sh
