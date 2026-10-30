@@ -4,7 +4,9 @@
   new rows only. Why: the 10-30 replay, 379 never-used summaries out of reach and no use-days lost. The price the
   replay's 15 days couldn't show: an unused summary reaches the prune floor at 49 lived days instead of 267, so it is
   let go about 63 lived days in (the 14-day dwell after) rather than about 281. It covers summaries marked about me,
-  us or the owner too (35 of the 464 live ones on the copy), since the replay did. `docs/CHECK-AFTER.md`.
+  us or the owner too (35 of the 464 live ones on the copy), since the replay did. At 0.25 a summary is also under the
+  Nearby lane's `WARM_FLOOR` (0.35), so it wouldn't come back with that lane if `HINTS_IN_WAKE` were turned on again (off
+  since WK1). `docs/CHECK-AFTER.md`.
 
 ### Decided by the F1 builder, 2026-10-30, lightly held (what the rows carry)
 

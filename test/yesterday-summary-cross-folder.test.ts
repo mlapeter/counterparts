@@ -51,8 +51,9 @@ const S4 = "a7a7a7a7-0000-4000-8000-000000000004";
 const READER = "b8b8b8b8-0000-4000-8000-00000000000f";
 const NIGHT = "b8b8b8b8-0000-4000-8000-0000000000aa";
 
-const S = SELF_TUNABLES as { YESTERDAY_FROM_SUMMARY: boolean };
+const S = SELF_TUNABLES as { YESTERDAY_FROM_SUMMARY: boolean; CHAPTER_SUMMARY_CLAIM: number };
 const was = S.YESTERDAY_FROM_SUMMARY;
+const wasClaim = S.CHAPTER_SUMMARY_CLAIM;
 
 const CHAPTER =
   "We spent the morning on the broad beans: two rows by the fence, netted against the pigeons, the spare seed kept dry in the shed for a second sowing in three weeks.";
@@ -77,10 +78,14 @@ beforeEach(() => {
   for (const d of [HERE, BAKERY]) mkdirSync(d, { recursive: true });
   clock = at(D1, 7);
   S.YESTERDAY_FROM_SUMMARY = true;
+  // Warm enough for the Nearby lane these tests turn on (`WARM_FLOOR`, 0.35): the
+  // lane's gate is what's under test. Since F1 a summary is born below that floor.
+  S.CHAPTER_SUMMARY_CLAIM = 0.4;
 });
 
 afterEach(() => {
   S.YESTERDAY_FROM_SUMMARY = was;
+  S.CHAPTER_SUMMARY_CLAIM = wasClaim;
   for (const c of open.splice(0)) {
     try {
       c.close();
