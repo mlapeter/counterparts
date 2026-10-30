@@ -86,8 +86,9 @@ function openReadOnly(path: string, nobodyHasIt: boolean): ReadOnlyDb {
   const uri = pathToFileURL(path);
   uri.search = "immutable=1";
   if (runtimeIsBun()) {
-    const { Database } = createRequire(import.meta.url)("bun:sqlite") as { Database: new (p: string, o: { readonly: true }) => ReadOnlyDb };
-    return new Database(nobodyHasIt ? uri.href : path, { readonly: true });
+    // By number: bun's `{ readonly: true }` leaves out SQLITE_OPEN_URI, and on Linux the URI is then a file name (CI, #690).
+    const { Database, constants } = createRequire(import.meta.url)("bun:sqlite") as { Database: new (p: string, flags: number) => ReadOnlyDb; constants: { SQLITE_OPEN_READONLY: number; SQLITE_OPEN_URI: number } };
+    return new Database(nobodyHasIt ? uri.href : path, constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI);
   }
   const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as unknown as { DatabaseSync: new (p: string | URL, o: { readOnly: true }) => ReadOnlyDb };
   return new DatabaseSync(nobodyHasIt ? uri : path, { readOnly: true });
