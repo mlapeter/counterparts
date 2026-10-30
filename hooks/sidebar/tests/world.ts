@@ -10,6 +10,10 @@
 import { mock } from 'claude-code/testing'
 import type { MockClock } from 'claude-code/testing'
 import type { On, RenderPropsOf, UiBlitArgs } from 'claude-code'
+import { SHEET_BYTES, SHEET_FILE, SHEET_FRAMES } from '../hooks/fox-sheet'
+
+/** A PNG's signature and its header (228 x 243, RGBA), as base64: what the engine checks of a `{ png }`. */
+export const PNG_HEAD = 'iVBORw0KGgoAAAANSUhEUgAAAOQAAADzCAYAAACWhLqu'
 
 export const PLUGIN = 'counterparts'
 export const SESSION = 'sess-0001'
@@ -161,6 +165,10 @@ export type WorldOptions = {
   links?: Record<string, string>;
   /** The scope registry file is there but `$.fs` refuses to read it. */
   scopesUnreadable?: boolean;
+  /** The fox's sheet is there, but can't be read. */
+  sheetUnreadable?: boolean;
+  /** What the fox's sheet holds (base64), in place of the stand-in. */
+  sheetBase64?: string;
   /** Where the registry is (`SCOPES_FILE` unless given): beside the configuration a settings hook names. */
   registryAt?: string;
   /** Other files the sidebar may read (a settings file), by absolute path. */
@@ -330,12 +338,19 @@ export function world(on: On, opts: WorldOptions = {}): World {
     }
     return JSON.stringify({ ...said, writtenAt: w.statusAt })
   }
-  // The fox's PNGs ship as files under the plugin's folder (art/fox/): there, and read as bytes.
-  const isPng = (path: string): boolean => /\/art\/fox\/[A-Za-z0-9+]+\.png$/.test(path)
+  // The fox's PNGs ship as one sheet under the plugin's folder (art/fox/): there, and read as bytes. Each frame's
+  // place holds a PNG's real start (the engine reads that far) and a word that names it, the rest filler. The real
+  // file is test/fox-sheet.test.ts's.
+  const isPng = (path: string): boolean => path.endsWith(`/art/fox/${SHEET_FILE}`)
+  const sheetText = (): string => {
+    let out = ''
+    for (const [key, [at]] of Object.entries(SHEET_FRAMES).sort(([, a], [, b]) => a[0] - b[0])) out = `${out.padEnd((at / 3) * 4, 'A')}${PNG_HEAD}${key}png`
+    return out.padEnd((SHEET_BYTES / 3) * 4, 'A')
+  }
   on('fs.exists', (_$, e) => ({ value: e.path === registryAt || e.path in files || isPng(e.path) || (e.path === statusPath && !w.noStatus) }))
   on('fs.read', (_$, e) => {
     w.fsReads.push(e.path)
-    if (isPng(e.path)) return { value: { base64: `iVBORw0KGgo${e.path.slice(e.path.lastIndexOf('/') + 1)}` } }
+    if (isPng(e.path)) return opts.sheetUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: { base64: opts.sheetBase64 ?? sheetText() } }
     if (e.path === registryAt) return opts.scopesUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: registry() }
     if (e.path === statusPath && !w.noStatus) return { value: statusText() }
     const text = files[e.path]

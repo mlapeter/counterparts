@@ -1,12 +1,14 @@
 #!/bin/sh
-# The sidebar mod's three checks, in a throwaway HOME:
+# The sidebar mod's four checks, the first two in a throwaway HOME:
 #
 #   1. `claude plugin validate` on the repository's plugin (the five classic
 #      hooks, the server, and this module under "modules") and on this folder;
 #   2. `claude plugin test hooks/sidebar`: the mod's own tests, terminal and
 #      desktop (this folder is a plugin root of its own so the runner sees only
 #      them; the repository's bun tests would not load there);
-#   3. `tsc -p hooks/sidebar`, against the engine's declarations.
+#   3. `tsc -p hooks/sidebar`, against the engine's declarations;
+#   4. `bun test test/fox-sheet.test.ts`: the real fox sheet against its table
+#      (the mod's own tests can't read a file, so theirs is a stand-in).
 #
 # Usage: sh hooks/sidebar/check.sh   (from anywhere; CLAUDE_BIN overrides `claude`)
 #
@@ -64,4 +66,7 @@ claude plugin test "$HERE"
 echo "== tsc"
 if [ -x "$ROOT/node_modules/.bin/tsc" ]; then TSC="$ROOT/node_modules/.bin/tsc"; else TSC="tsc"; fi
 "$TSC" -p "$HERE"
-echo "all three clean"
+echo "== the fox's sheet"
+BUN="$(command -v bun || echo "$REAL_HOME/.bun/bin/bun")"
+(cd "$ROOT" && "$BUN" test test/fox-sheet.test.ts)
+echo "all four clean"

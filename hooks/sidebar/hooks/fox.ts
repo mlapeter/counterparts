@@ -4,15 +4,16 @@
  * engine. The timer that drives it lives in `register.tsx`.
  *
  * ONE DESIGN, FOUR WAYS TO DRAW IT. The art (`fox-art.ts`, the art agent's
- * data module, and the PNGs in `../art/fox/`, built from its export by
- * `tools/fox-art/build.ts`) holds every frame three times over, and the
- * moments and schedule once:
+ * data module, and the PNGs in the one sheet `../art/fox/fox.pngs`, built from
+ * its export by `tools/fox-art/build.ts`) holds every frame three times over,
+ * and the moments and schedule once:
  *
- * - `image`: an `Image` of the PNG file, which the terminal reads itself
- *   (`{ file, format: 'png' }`), where the terminal draws pictures
- *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so `auto`
- *   tries it first and a blit refused because the Image draws its alt drops
- *   to `fine` or `basic` for the session (register.tsx).
+ * - `image`: an `Image` of the frame's PNG, its bytes cut from the sheet
+ *   (`{ png }`), where the terminal draws pictures (kitty, Ghostty). Elsewhere
+ *   an Image draws its alt text, dim, so `auto` tries it first and a blit
+ *   refused because the Image draws its alt drops to `fine` or `basic` for the
+ *   session (register.tsx). iTerm2 and tmux draw bytes too, but `auto` keeps
+ *   their fox as it was (`keepsFallback`).
  * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), where a
  *   picture can't show and the font has them (iTerm2, WezTerm, VS Code, Ghostty, kitty).
  *   A `Raster` takes only BMP code points and sextants are not BMP, so this
@@ -29,6 +30,7 @@
 
 import { encodeCells } from './cells'
 import { FOX_FINAL } from './fox-art'
+import { SHEET_BYTES, SHEET_FRAMES } from './fox-sheet'
 
 const ART = FOX_FINAL
 
@@ -49,15 +51,27 @@ export function normDetail(v: unknown): FoxDetail {
 
 /**
  * The environment variables the fallback reads, once at session start: which
- * terminals' fonts draw sextants. Pictures need none (the engine says); these
- * four only choose sextants over half-blocks where a picture can't show
- * (Mike, 2026-10-15: the best fox each terminal can draw).
+ * terminals' fonts draw sextants. Whether a picture shows needs none (the engine
+ * says); these four choose sextants over half-blocks where a picture can't show
+ * (Mike, 2026-10-15: the best fox each terminal can draw), and two of them say
+ * where `auto` doesn't try one (`keepsFallback`).
  */
 export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXECUTABLE'] as const
 
 export type TierEnv = Partial<Record<(typeof TIER_ENV)[number], string>>
 
 const present = (v: string | undefined): boolean => v !== undefined && v !== ''
+
+/**
+ * Terminals where `auto` stays with sextants or half-blocks though bytes would draw: iTerm2 (3.5 and later) and tmux
+ * (with passthrough on) draw a `{ png }` and never drew a `{ file }`, so these foxes have never been pictures, and
+ * whether they should be is a choice of its own. `/counterparts avatar detail images` draws one there.
+ */
+export function keepsFallback(env: TierEnv): boolean {
+  const p = env.TERM_PROGRAM ?? ''
+  const t = env.TERM ?? ''
+  return p === 'iTerm.app' || p === 'tmux' || t.startsWith('tmux') || t.startsWith('screen')
+}
 
 /** Whether this terminal's font has sextants: the ones known to draw them. */
 export function sextantsLikely(env: TierEnv): boolean {
@@ -74,14 +88,14 @@ export function sextantsLikely(env: TierEnv): boolean {
  * says so by refusing the blit. `noImages`: an Image here drew its alt, so
  * `auto` draws the next best: sextants where the terminal's font is known to
  * have them (`sextantsLikely`), else half-blocks, which every terminal draws.
- * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
+ * `hasPngs` false (no sheet found): never a picture, whatever was asked.
  */
 export function pickTier(surface: string, detail: FoxDetail, env: TierEnv = {}, noImages = false, hasPngs = true): FoxTier {
   if (surface !== 'terminal') return 'svg'
   if (detail === 'images' && hasPngs) return 'image'
   if (detail === 'fine') return 'fine'
   if (detail === 'basic') return 'basic'
-  if (detail === 'auto' && !noImages && hasPngs) return 'image'
+  if (detail === 'auto' && !noImages && hasPngs && !keepsFallback(env)) return 'image'
   return sextantsLikely(env) ? 'fine' : 'basic'
 }
 
@@ -770,24 +784,45 @@ export function runs(line: readonly FineCell[]): FineCell[] {
   return out
 }
 
-// ── image: the PNG files ────────────────────────────────────────────────────
+// ── image: the PNGs in the sheet ────────────────────────────────────────────
 
 /**
- * The PNGs `tools/fox-art/build.ts` writes to `art/fox/<key>.png`: every frame, and every frame + effects pair a
- * moment draws (`frame+fx+fx`, as `stepKey` spells it).
+ * The PNGs `tools/fox-art/build.ts` packs into the sheet: every frame, and every frame + effects pair a moment draws
+ * (`frame+fx+fx`, as `stepKey` spells it). `fox-sheet.ts` says where each one sits.
  */
 export const PNG_FRAMES: ReadonlySet<string> = new Set([
   ...Object.keys(ART.png.frames),
   ...Object.values(MOMENTS).flatMap(m => m.filter(s => s.length > 2).map(([frame, , ...fx]) => stepKey({ frame, fx }))),
 ])
 
-/** Where the PNGs sit, from the plugin's folder: the repository's plugin, or this folder as a plugin of its own. */
+/** Where the sheet sits, from the plugin's folder: the repository's plugin, or this folder as a plugin of its own. */
 export const PNG_DIRS = ['hooks/sidebar/art/fox', 'art/fox'] as const
 
-/** The PNG's file name for a step: the frame with its effects, or the frame alone, or the idle frame. */
-export function pngName(step: Pick<Step, 'frame' | 'fx'>): string {
+/** The PNG a step draws: the frame with its effects, or the frame alone, or the idle frame. */
+export function pngKey(step: Pick<Step, 'frame' | 'fx'>): string {
   const key = stepKey(step)
-  return `${PNG_FRAMES.has(key) ? key : PNG_FRAMES.has(step.frame) ? step.frame : 'idle'}.png`
+  return PNG_FRAMES.has(key) ? key : PNG_FRAMES.has(step.frame) ? step.frame : 'idle'
+}
+
+/**
+ * One frame's PNG, as base64, cut from the sheet's base64. Every frame starts on a multiple of 3 bytes, so it starts
+ * on a multiple of 4 characters, and the bytes after its end are zeros: the last group only needs its `=` back. The
+ * same text as encoding the frame alone, with nothing decoded.
+ */
+export function frameBase64(sheet: string, key: string): string {
+  const [at, len] = SHEET_FRAMES[key] ?? SHEET_FRAMES['idle'] ?? [0, 0]
+  const start = (at / 3) * 4
+  const pad = (3 - (len % 3)) % 3
+  return sheet.slice(start, start + Math.ceil(len / 3) * 4 - pad) + '='.repeat(pad)
+}
+
+/**
+ * Whether a sheet (base64) is the one the table was written for: its size, and a PNG's signature where each frame
+ * starts. The engine refuses a whole tree over an Image whose `{ png }` doesn't start as a PNG does, which would leave
+ * the pane blank, so a sheet that fails this counts as none.
+ */
+export function sheetFits(sheet: string): boolean {
+  return sheet.length === (SHEET_BYTES / 3) * 4 && Object.values(SHEET_FRAMES).every(([at]) => sheet.startsWith('iVBORw0KGgo', (at / 3) * 4))
 }
 
 /** The scale the build writes the PNGs at: art pixels x 3. */
@@ -816,8 +851,8 @@ export const stage = {
   noImages: false,
   /** Image blits refused in a row. */
   imageDenies: 0,
-  /** The folder holding the PNGs (absolute), found at session start; null: none found, no pictures. */
-  pngDir: null as string | null,
-  /** Each PNG's bytes (base64) once read, for the desktop's Svg; '' for one that could not be read. */
-  pngData: new Map<string, string>(),
+  /** The sheet's path (absolute), found at session start; null: none found (or unreadable), no pictures. */
+  sheetPath: null as string | null,
+  /** The sheet's bytes (base64), read once when a tier first draws a PNG; '' before that, or when it could not be read. */
+  sheet: '',
 }

@@ -224,13 +224,13 @@ The sidebar's lines from `claude plugin validate`, Claude Code 2.1.306:
 
 <!-- flavor:directory -->
     ❯ ./sidebar/hooks/register.tsx hooks: session.start, command.run{command=counterparts}, tool.call, prompt.submit, turn.start, turn.step, turn.complete, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}
-    ❯ ./sidebar/hooks/register.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.session.id, $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
+    ❯ ./sidebar/hooks/register.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findSheet, readScopeFile, readStatus, readText), $.fs.read (via loadSheet, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.session.id, $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
     ❯ ./sidebar/hooks/register.tsx env writes: nothing
     ❯ ./sidebar/hooks/register.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
 <!-- /flavor:directory -->
 <!-- flavor:full -->
     ❯ ./sidebar/hooks/full.tsx hooks: ui.message{data has {click=fill:meet|fill:dash}}, session.start, command.run{command=counterparts}, tool.call, prompt.submit, turn.start, turn.step, turn.complete, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}, session.start{isInteractive=true}, command.run{origin has {kind=/"^(composer|bridge)$"/}}, prompt.submit{origin has {kind=/"^(composer|bridge|plugin)$"/}}, session.append{door=hook-context, origin has {kind=hook, event=SessionStart}}
-    ❯ ./sidebar/hooks/full.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.prompt.fill (via fillPrompt), $.prompt.read (via draftNow, fillPrompt), $.prompt.submit (via speakFirst), $.session.id, $.session.turns (via turnsSoFar), $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView, speakFirst, takeMeet), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
+    ❯ ./sidebar/hooks/full.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findSheet, readScopeFile, readStatus, readText), $.fs.read (via loadSheet, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.prompt.fill (via fillPrompt), $.prompt.read (via draftNow, fillPrompt), $.prompt.submit (via speakFirst), $.session.id, $.session.turns (via turnsSoFar), $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView, speakFirst, takeMeet), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
     ❯ ./sidebar/hooks/full.tsx env writes: nothing
     ❯ ./sidebar/hooks/full.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
 <!-- /flavor:full -->
@@ -406,10 +406,11 @@ cache, on your default model. Turning dreaming off removes that part. Your numbe
 differ with how much you use it.
 
 <!-- flavor:full directory -->
-The sidebar's fox is drawn from small PNG files in the plugin's own folder
-(`hooks/sidebar/art/fox/`): a terminal that shows pictures (kitty, Ghostty) reads them
-itself, and the desktop app's sidebar reads each one once. The script that builds them
-from the art is in the source repository (`tools/fox-art/`).
+The sidebar's fox is drawn from small PNGs kept one after another in a single file in the
+plugin's own folder (`hooks/sidebar/art/fox/fox.pngs`; `hooks/sidebar/hooks/fox-sheet.ts`
+says where each one sits). The sidebar reads that file once, and only where it draws a
+picture (kitty, Ghostty, the desktop app). The script that builds it from the art is in
+the source repository (`tools/fox-art/`).
 
 The sidebar runs no programs, fetches nothing and holds no links: COUNTERPARTS and the
 `more` after a long memory are plain words. `/counterparts:dashboard` starts the

@@ -13,6 +13,76 @@ record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
 later version changed something they say so, or v1's section does. Everything
 here is a working default.
 
+## The fox in one file (2026-10-30)
+
+Why: the directory flavor stood at 510 files against the directory's 512, and the
+next change needed room. The 36 PNGs are now one sheet, `art/fox/fox.pngs`, with a
+table of where each sits (`hooks/fox-sheet.ts`, both written by
+`tools/fox-art/build.ts`). Directory 510 to 476, the sidebar's bundle 63 to 29; core
+and npm carry no art and did not change. Older sections that say "PNG files" or
+`{ file }` describe what came before.
+
+- **Not a grid of pixels.** An `Image` shows a whole source: it has no crop. A module
+  has no inflate, so it could not cut pixels from a compressed sheet, and raw `{ rgba }`
+  would be about 295 KB of base64 a frame. So the sheet is the same PNGs, byte for byte,
+  one after another. Each starts on a multiple of 3 bytes, with zeros between, so a
+  frame's base64 is a piece of the sheet's: `fox.ts#frameBase64` cuts it and puts the
+  `=` back, decoding nothing. `bun tools/fox-art/build.ts --unpack <dir>` writes the
+  frames back out; `--frames <dir>` packs a folder of them.
+- **The picture is bytes now** (`{ png }`, was `{ file, format: 'png' }`). That is the
+  one way to draw a frame from one file, and it has two effects:
+  - **More crosses per change.** Measured on Claude Code 2.1.314 on a pty claiming kitty
+    graphics, idle fox, 40 s, two runs each way: a picture took about 3,350 bytes on the
+    pty against about 231 for a path, at about 0.6 changes a second (about 2 KB/s against
+    140 B/s). The commands are otherwise the same (`a=T,U=1,f=100,c=30,r=16`). Claude
+    Code's CPU over the window didn't move (2.70 and 2.65 s against 2.71 and 2.81 s). A
+    terminal now gets the bytes instead of opening a file, and decodes the same PNG; a
+    real Ghostty or kitty was not on hand to time that side. Those 40 s are the fox's
+    first, liveliest stretch, and he never stops: the real director over a simulated
+    24 hours left alone comes to 0.39 changes a second, about 1.1 KB/s, or 95 MB a day
+    against about 8 for a path (review, not measured on a pty).
+  - **Bytes draw where a file never did:** iTerm2 3.5 or later under fullscreen, tmux
+    with passthrough on, and over ssh. So `auto` would have turned the sextant fox into
+    a picture in iTerm2. `fox.ts#keepsFallback` keeps iTerm2's and tmux's fox as it was,
+    from the two variables already read. Whether they should get the picture is a choice
+    of its own: `/counterparts avatar detail images` shows it, untried in a real iTerm2.
+    Not covered: a terminal reached over ssh, where the variables don't say which it is.
+    From kitty, Ghostty or iTerm2 that now draws a picture where it drew sextants or
+    half-blocks. WezTerm and VS Code stay as they were: the engine (2.1.314) draws
+    pictures only for a terminal naming itself kitty, Ghostty or iTerm2 3.5+.
+- **The sheet is read once, when a tier first draws a PNG** (about 82 KB, 109 KB held as
+  base64 for the module's life); sextants, half-blocks and the avatar off never read it,
+  which used to be true only of the desktop's reads. One that can't be read, isn't the
+  size the table was written for, or has no PNG signature where a frame should start
+  (`fox.ts#sheetFits`) counts as none: no pictures, and the desktop's Svg keeps its rects.
+  Without that signature check the engine refuses the whole tree, and the pane draws
+  nothing.
+- **Also gone:** in iTerm2 the two refused blits at the start, and the dim `a small fox`
+  they showed for about two drawings.
+- **Old versions:** a sidebar release carries its own art, in its own versioned folder,
+  and core carries none, so an installed older sidebar is untouched. This one's `{ png }`
+  has been in the engine's API since before the fox (it was the first way the fox drew).
+- **How it was checked,** 2026-10-30, master b9f7b616 against this branch: every step the
+  art names and every step of 800,000 advances of old and new directors in lockstep (same
+  seed, same events, no differences): 36 of 36 frames the same PNG bytes and base64, the
+  same RGBA (1,994,544 pixels), the same desktop Svg document, the same sextant and
+  half-block cells. On the real engine, every picture a session sent hashed to one of the
+  old PNGs, from this folder and from the built directory and sidebar bundles. With an
+  iTerm2 `XTVERSION` and `TERM_PROGRAM`: no graphics commands, no inline images, sextants,
+  before and after. `claude plugin validate` on each bundle: passes, and the only change
+  in its report is two function names. `test/fox-sheet.test.ts` holds the real file to its
+  table; the mod's own tests read a stand-in, since `$.fs` is faked there. The from-export
+  build, in a scratch copy, on an export remade from these frames, gave the same 36 PNGs
+  byte for byte.
+- **What the validator's report does not cover:** the directory's own safety scan and
+  policy review. A `.pngs` file is a binary it has not seen from us, read and handed to an
+  `Image` as base64. The portal's checklist (claude.com/docs/plugins/pre-submission-checklist,
+  read 2026-10-30) allows text, complete PNG, JPEG, GIF and WebP images, and fonts; "any
+  other binary file" is a policy hold, **Files or downloads the validator couldn't
+  inspect**, raised again on each new version. Expect one here: a hold, not a block. The
+  portal's **Validate** on a test branch would settle it; `claude plugin validate` can't.
+  The reviewer notes should name the file and `--unpack`.
+
 ## The fox at work (2026-10-20, later; an experiment)
 
 Mike, after trying #545: "nap timers are fine, he can stay sitting while

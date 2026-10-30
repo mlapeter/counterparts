@@ -110,14 +110,17 @@ import {
   normDetail,
   pickTier,
   PNG_DIRS,
-  pngName,
+  pngKey,
+  frameBase64,
   runs,
+  sheetFits,
   stage,
   stageRows,
   stepKey,
   trigger,
 } from './fox'
 import type { FoxDetail, FoxEvent, FoxTier, Step } from './fox'
+import { SHEET_FILE } from './fox-sheet'
 import { foxSvg } from './fox-svg'
 import { footer, footerRows, frame, pausedBanner, plainBody } from './pane'
 import type { PaneEls } from './pane'
@@ -935,7 +938,7 @@ async function stageStep($: EngineInterface, gen: number): Promise<void> {
       const args =
         tier === 'basic'
           ? { requestId: PANE, key: 'stage', cells: halfCells(step), columns: STAGE_COLS, rows: stageRows('basic') }
-          : { requestId: PANE, key: 'stage', source: pngFile(step), columns: IMAGE_COLS, rows: IMAGE_ROWS }
+          : { requestId: PANE, key: 'stage', source: pngSource(step), columns: IMAGE_COLS, rows: IMAGE_ROWS }
       // Not awaited: the next wait is set below at once, whatever the blit's answer.
       quiet(
         (async () => {
@@ -982,18 +985,18 @@ function startStage($: EngineInterface): void {
 const STAGE_MIN_PROSE_COLS = 22
 const prosePane = { w: STAGE_COLS }
 
-/** The Image's source for a step: the PNG file, which the terminal reads itself. */
-function pngFile(step: Step): { file: string; format: 'png' } {
-  return { file: `${stage.pngDir ?? ''}/${pngName(step)}`, format: 'png' }
+/** The Image's source for a step: the frame's PNG, cut from the sheet. */
+function pngSource(step: Step): { png: string } {
+  return { png: frameBase64(stage.sheet, pngKey(step)) }
 }
 
-/** The folder of the fox's PNGs under the plugin's, or null when neither place holds them. */
-async function findPngDir($: EngineInterface): Promise<string | null> {
+/** The fox's sheet under the plugin's folder, or null when neither place holds it. */
+async function findSheet($: EngineInterface): Promise<string | null> {
   const root = $.plugin.root.replace(/[/\\]+$/, '')
   for (const rel of PNG_DIRS) {
-    const dir = `${root}/${rel}`
+    const path = `${root}/${rel}/${SHEET_FILE}`
     try {
-      if (await $.fs.exists(`${dir}/idle.png`)) return dir
+      if (await $.fs.exists(path)) return path
     } catch {
       // not readable: the next place
     }
@@ -1001,20 +1004,20 @@ async function findPngDir($: EngineInterface): Promise<string | null> {
   return null
 }
 
-/** A PNG's bytes (base64) for the desktop's Svg, read once from the plugin's folder; '' when it can't be. */
-async function pngData($: EngineInterface, name: string): Promise<string> {
-  const known = stage.pngData.get(name)
-  if (known !== undefined) return known
+/**
+ * Reads the sheet once, the first time a tier draws a PNG (sextants and half-blocks never do). One that can't be read,
+ * or doesn't fit this module's table (`sheetFits`), counts as none: no pictures, and the desktop's Svg keeps its rects.
+ */
+async function loadSheet($: EngineInterface): Promise<void> {
+  if (stage.sheet !== '' || stage.sheetPath === null) return
   let data = ''
-  if (stage.pngDir !== null) {
-    try {
-      data = (await $.fs.read(`${stage.pngDir}/${name}`, { as: 'bytes' })).base64
-    } catch {
-      data = ''
-    }
+  try {
+    data = (await $.fs.read(stage.sheetPath, { as: 'bytes' })).base64
+  } catch {
+    data = ''
   }
-  stage.pngData.set(name, data)
-  return data
+  if (sheetFits(data)) stage.sheet = data
+  else stage.sheetPath = null
 }
 
 /** The stage's element in a tier, for the step on screen (`png`: the desktop's picture, base64). */
@@ -1027,7 +1030,7 @@ function stageElement(els: ReturnType<EngineInterface['ui']['resolve']>, tier: F
     const { Box, Image } = els
     return (
       <Box key="stage-box" flexDirection="row" paddingLeft={IMAGE_X0}>
-        <Image key="stage" source={pngFile(step)} columns={IMAGE_COLS} rows={IMAGE_ROWS} alt="a small fox" />
+        <Image key="stage" source={pngSource(step)} columns={IMAGE_COLS} rows={IMAGE_ROWS} alt="a small fox" />
       </Box>
     )
   }
@@ -1125,10 +1128,12 @@ export const register: Register = on => {
     stage.noImages = false
     stage.imageDenies = 0
     stage.detail = normDetail(detailPref)
-    // The PNGs ship as files beside the module (art/fox/): found once; none found, the terminal draws no pictures.
-    stage.pngDir = await findPngDir($)
-    stage.pngData.clear()
-    if (stage.pngDir === null) stage.noImages = true
+    // The PNGs ship as one sheet beside the module (art/fox/): found once, read when first drawn; none found, the
+    // terminal draws no pictures.
+    const sheetPath = await findSheet($)
+    if (sheetPath !== stage.sheetPath) stage.sheet = ''
+    stage.sheetPath = sheetPath
+    if (sheetPath === null) stage.noImages = true
     // Pictures: tried, and the engine says. Where they can't show, whether the font draws sextants, read once (fox.ts).
     // (Each name spelled out: the engine lists the variables a module reads.)
     const envVals = await Promise.all([
@@ -1182,7 +1187,7 @@ export const register: Register = on => {
             d === 'auto'
               ? 'The fox is drawn the best way this terminal shows: a picture, else sextants, else half-blocks.'
               : d === 'images'
-                ? 'The fox is drawn as a picture (kitty, Ghostty); a terminal that cannot shows its name instead.'
+                ? 'The fox is drawn as a picture (kitty, Ghostty, iTerm2 3.5 or later); a terminal that cannot shows its name instead.'
                 : d === 'fine'
                   ? 'The fox is drawn in sextants (six pixels a cell), for a font that has them.'
                   : 'The fox is drawn in half-blocks, which every terminal shows.',
@@ -1414,7 +1419,11 @@ export const register: Register = on => {
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
+    let tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.sheetPath !== null)
+    if (mode === 'fox' && (tier === 'image' || tier === 'svg')) {
+      await loadSheet($)
+      if (stage.sheetPath === null) tier = pickTier(e.surface, stage.detail, stage.env, true, false)
+    }
     const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
     const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.
@@ -1450,7 +1459,7 @@ export const register: Register = on => {
       // An Image's first frame is blitted once mounted too: a refusal says it draws its alt here.
       stage.shown = tier === 'image' ? '' : stepKey(step)
       const [title] = header(paneEls, { w, paused, lit, day, count: countText, link })
-      const png = tier === 'svg' ? await pngData($, pngName(step)) : ''
+      const png = tier === 'svg' && stage.sheet !== '' ? frameBase64(stage.sheet, pngKey(step)) : ''
       stageTop = [...rows, ...(title === undefined ? [] : [title]), stageElement(els, tier, step, png)]
       rows.length = 0
       rows.push(SURFACE.prose ? <Text key="stage-rule"> </Text> : <Text key="stage-rule" color={P.faint}>{'─'.repeat(w)}</Text>)
