@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
+import { readLastNight } from "../src/adapters/mcp/nights.js";
+import { TOOLS } from "../src/adapters/mcp/tools.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode, ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -140,6 +142,23 @@ describe("the night's own line", () => {
     expect(woke).not.toContain("greenhouse key");
   });
 
+  test("the tool lists it, for a host that only sends what's listed", () => {
+    const reflect = TOOLS.find((t) => t.name === "reflect");
+    const properties = (reflect?.inputSchema as { properties: Record<string, { type?: string }> }).properties;
+    expect(properties["line"]?.type).toBe("string");
+  });
+
+  test("past one answer's room the reflection is named by id, and its line still comes", async () => {
+    const c = brain();
+    const m = remembered(c, WORDS);
+    const s = door(c);
+    const { reflection } = await begun(s);
+    await finish(s, reflection, { ...FIRST, cites: [m], line: LINE });
+    const night = readLastNight(c, 1);
+    expect(night.reflectionCut).toBe("pointer");
+    expect((night.reflection as unknown as Record<string, unknown>)["line"]).toBe(LINE);
+  });
+
   test("the room is in bytes, and exactly the room is kept", async () => {
     const c = brain();
     const s = door(c);
@@ -225,6 +244,39 @@ describe("the night's own line", () => {
     expect(detail(c, reflection)["line"]).toBe("First I found the key. Then the seedlings.");
   });
 
+  test("a line sent back, then sent back again, leaves the page, the share, the entry and the hand-back as they were", async () => {
+    const c = brain();
+    const m = remembered(c, WORDS);
+    const s = door(c);
+    const { reflection } = await begun(s);
+    const long = `${LINE} ${LINE} ${LINE}`;
+    const page = { text: "## Core\n\nI keep the garden notes and tend the beans through the seasons.\n\n## How I work\n\nSlowly.", cites: [m] };
+    const first = await finish(s, reflection, { ...FIRST, cites: [m], share: { text: "The beans are in.", cites: [m] }, page, line: long });
+    expect((first["page"] as Record<string, unknown>)["written"]).toBe(true);
+    const before = c.store.reflection(reflection);
+    const second = await finish(s, reflection, { line: long });
+    const after = c.store.reflection(reflection);
+    expect(after?.page_version).toBe(before?.page_version ?? -1);
+    expect(after?.share).toBe(before?.share ?? "");
+    expect(after?.share_state).toBe("offered");
+    expect(after?.entry_id).toBe(before?.entry_id ?? "");
+    expect(String(second["handBack"])).toContain("The beans are in.");
+    expect(String(second["handBack"])).toContain("I rewrote my self page.");
+  });
+
+  test("the scan's mark counts: a line that only grows past the room once marked comes back too", async () => {
+    const c = brain();
+    const s = door(c);
+    const { reflection } = await begun(s);
+    const secret = "password=hunter2hunter2";
+    const line = `${"word ".repeat(60).slice(0, MAX - secret.length - 1).trimEnd()} ${secret}`;
+    expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(MAX);
+    const out = await finish(s, reflection, { ...FIRST, line });
+    expect((out["line"] as Record<string, unknown>)["reason"]).toBe("past-room");
+    expect(detail(c, reflection)["line"]).toBeUndefined();
+    expect(JSON.stringify(detail(c, reflection))).not.toContain("hunter2");
+  });
+
   test("the scan reads it: a credential doesn't land, and a dream's mark comes back", async () => {
     const c = brain();
     const s = door(c);
@@ -284,6 +336,27 @@ describe("the fence and the removal", () => {
     expect((await lastNight(s))["line"]).toBeUndefined();
     // The rest of what the row knows stays.
     expect(detail(c, reflection)["title"]).toBeDefined();
+  });
+
+  test("a line sent after the row was redacted is still read for a quote by the next removal", async () => {
+    const c = brain();
+    const first = remembered(c, WORDS);
+    const s = door(c);
+    const { reflection } = await begun(s);
+    const quoted = "The seedlings went out on Tuesday morning under the fleece that the neighbour lent us.";
+    const late = remembered(c, quoted);
+    await finish(s, reflection, { ...FIRST, cites: [first] });
+    const gone = (id: string): void => {
+      c.store.appendRemovalRecord({ memoryId: id, stage: "requested", actor: "owner", reason: "test" });
+      c.store.appendRemovalRecord({ memoryId: id, stage: "dark", actor: "owner", reason: "test" });
+      chaseRemoved(c.store, id);
+    };
+    gone(first);
+    expect(c.store.reflection(reflection)?.entry).toContain("redacted");
+    await finish(s, reflection, { line: "I recall the seedlings went out on Tuesday morning under the fleece." });
+    expect(String(detail(c, reflection)["line"])).toContain("seedlings");
+    gone(late);
+    expect(detail(c, reflection)["line"]).toBe("");
   });
 
   test("the removal reads the line for a quote, on a reflection never shown the memory", async () => {

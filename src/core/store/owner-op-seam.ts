@@ -581,7 +581,8 @@ function redactReflections(db: Db, id: string, title: string | null, body: strin
     const shareCites = without(r.share_cites, id);
     const own = ownLineOf(r.detail);
     const text = `${r.entry ?? ""}\n${r.share ?? ""}\n${own?.line ?? ""}`;
-    const quoted = r.entry !== REDACTED_REFLECTION && (quotes(body, text) || (named !== null && text.toLowerCase().includes(named)));
+    // A row already redacted is read again only for a line sent since (a later `finish`).
+    const quoted = (r.entry !== REDACTED_REFLECTION || own !== null) && (quotes(body, text) || (named !== null && text.toLowerCase().includes(named)));
     if (!shown.had && !cites.had && !shareCites.had && !quoted) continue;
     db.run(
       `UPDATE reflections
