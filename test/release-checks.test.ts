@@ -8,7 +8,7 @@
  * hit to the tree's own inventory.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -148,6 +148,76 @@ describe("test times", () => {
     expect(gone.exitCode).toBe(0);
     expect(gone.stdout.toString()).toContain("no junit file");
   });
+});
+
+describe("fetching the tested tarball", () => {
+  const SHA = "a".repeat(40);
+  let serial = 0;
+
+  /** A stand-in `gh` serving one run and one artifact; `tweak` breaks what a test wants broken. */
+  function fetch(tweak: { conclusion?: string; tamper?: boolean; loggedHash?: string; commit?: string; repoVersion?: string; noArtifact?: boolean } = {}) {
+    const dir = join(WORK, `fetch${++serial}`);
+    const artifact = join(dir, "artifact");
+    const pkg = join(dir, "pkg", "package");
+    mkdirSync(artifact, { recursive: true });
+    mkdirSync(pkg, { recursive: true });
+    mkdirSync(join(dir, "bin"));
+    writeFileSync(join(pkg, "package.json"), '{\n  "name": "counterparts",\n  "version": "9.9.9"\n}\n');
+    const name = "counterparts-9.9.9.tgz";
+    expect(Bun.spawnSync(["tar", "-czf", join(artifact, name), "-C", join(dir, "pkg"), "package"]).exitCode).toBe(0);
+    const hash = new Bun.CryptoHasher("sha256").update(readFileSync(join(artifact, name))).digest("hex");
+    writeFileSync(join(artifact, "SHA256"), `${hash}  ${name}\n`);
+    writeFileSync(join(artifact, "COMMIT"), `${tweak.commit ?? SHA}\n`);
+    if (tweak.tamper) writeFileSync(join(artifact, name), "not the file that was tested");
+    writeFileSync(join(dir, "log"), `x TARBALL_SHA256=${tweak.loggedHash ?? hash} ${name} commit ${SHA}\n`);
+    writeFileSync(join(dir, "repo-package.json"), `{\n  "version": "${tweak.repoVersion ?? "9.9.9"}"\n}\n`);
+    // `--jq` isn't evaluated here: each call answers with what the real filter would print.
+    const gh = `#!/bin/bash
+case "$*" in
+  *"workflows/tests.yml/runs"*) echo "77 completed ${tweak.conclusion ?? "success"} https://example.test/run/77" ;;
+  *"run download"*) ${tweak.noArtifact ? "exit 1" : `cp -R "${artifact}" "\${@: -1}"`} ;;
+  *"/runs/77/jobs"*) echo 88 ;;
+  *"/jobs/88/logs"*) cat "${join(dir, "log")}" ;;
+  *"contents/package.json"*) cat "${join(dir, "repo-package.json")}" ;;
+  *) echo "unexpected gh call: $*" >&2; exit 9 ;;
+esac
+`;
+    writeFileSync(join(dir, "bin", "gh"), gh, { mode: 0o755 });
+    const folder = join(dir, "release-folder");
+    const r = Bun.spawnSync(["bash", join(ROOT, "tools/release/fetch-tarball.sh"), SHA, folder], {
+      env: { ...process.env, PATH: `${join(dir, "bin")}:${process.env["PATH"]}` },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString(), folder, hash };
+  }
+
+  test("a green run with matching hashes writes the file, SHA256 and COMMIT", () => {
+    const r = fetch();
+    expect(r.out).toContain(`sha256 ${r.hash}`);
+    expect(r.code).toBe(0);
+    expect(readFileSync(join(r.folder, "SHA256"), "utf8")).toContain(r.hash);
+    expect(readFileSync(join(r.folder, "COMMIT"), "utf8").trim()).toBe(SHA);
+    const check = Bun.spawnSync(["shasum", "-a", "256", "-c", "SHA256"], { cwd: r.folder, stdout: "pipe" });
+    expect(check.exitCode).toBe(0);
+  });
+
+  for (const [what, tweak, says] of [
+    ["a run that didn't pass", { conclusion: "failure" }, "didn't pass"],
+    ["a file that doesn't match its SHA256", { tamper: true }, "doesn't match"],
+    ["a file that doesn't match the job's log", { loggedHash: "b".repeat(64) }, "the job's log says"],
+    ["an artifact packed from another commit", { commit: "c".repeat(40) }, "was packed from"],
+    ["a tarball of another version", { repoVersion: "9.9.8" }, "the commit says"],
+    ["a run with no artifact", { noArtifact: true }, "no tarball artifact"],
+  ] as const) {
+    test(`${what} stops it and writes nothing`, () => {
+      const r = fetch(tweak);
+      expect(r.code).toBe(1);
+      expect(r.out).toContain("STOP:");
+      expect(r.out).toContain(says);
+      expect(existsSync(r.folder)).toBe(false);
+    });
+  }
 });
 
 describe("the install loop's named tarball", () => {

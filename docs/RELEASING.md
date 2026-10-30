@@ -225,9 +225,10 @@ tools/release/fetch-tarball.sh <full commit sha> <release folder>
 That writes `counterparts-<version>.tgz`, `SHA256` and `COMMIT` into the release folder. It
 stops, writing nothing, unless the run is on a `release/` branch and fully green, and the
 file's hash matches both the `SHA256` beside it and the line the job printed in its log. A
-mismatch stops the release; find out why before going on. Don't pack again on the laptop:
-the same commit gives the same hash only with the same npm, and the file to publish is the
-tested one anyway. Artifacts last 30 days, and a rerun of the `release` job makes a new one.
+mismatch stops the release; find out why before going on. There's no need to pack on the
+laptop, since the file to publish is the tested one. A laptop pack of the same commit has
+matched CI's hash (npm 10 and npm 11, 2026-10-30), so it can serve as a cross-check. Artifacts
+last 30 days, and a rerun of the `release` job makes a new one.
 Add a `release-notes.md` (the version's CHANGELOG entry), run the laptop checks from section
 2, then open the release PR.
 
