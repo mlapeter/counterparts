@@ -12,7 +12,7 @@
  *      newer chapter here since; release 0.3.9 then, 0.3.10 now", the words
  *      since 2026-10-25). (Until WK1, 2026-10-30, when every one listed was
  *      stale the newest was shown and the rest counted; now every other live
- *      handoff keeps a line of its own, `handoff/stands.ts`.)
+ *      handoff keeps a line of its own, `handoff/#standsLadder`.)
  *   3. (The Yesterday line's folders are in `wake-fresh-today.test.ts`.)
  *
  * Hermetic: every store is a fresh temp dir, removed after.
@@ -30,7 +30,7 @@ import { OPEN_TAIL_WORDS, STALE_OPEN_WORDS, countedLanes, moreLine } from "../sr
 import { unsettledAmong } from "../src/core/recall/standing.js";
 import { staleWords } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
-import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/stands.js";
+import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
 
 let dir: string;
 const open: { close(): void }[] = [];

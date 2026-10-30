@@ -407,7 +407,7 @@ export function sessionCoverage(e: CoverageRow): SessionCoverage {
  * Matched by their opening words; the record keeps the kinds, never a line.
  */
 const FURNITURE: readonly (readonly [RegExp, string])[] = [
-  // One block since WK1 (2026-10-30, `core/handoff/stands.ts`): a session's chapter, last
+  // One block since WK1 (2026-10-30, `core/handoff/index.ts`): a session's chapter, last
   // words and handoff on one line, read below as the kinds they were.
   [/^Where this folder stands:/, "Last here"],
   [/^Before that:/, "Before it"],

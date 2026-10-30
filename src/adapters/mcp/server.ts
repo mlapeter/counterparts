@@ -61,7 +61,7 @@ import { localDate, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
 import { LAST_EXCHANGE_HANDLE, lastExchangeAnswer } from "../../core/handoff/last-exchange.js";
-import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/stands.js";
+import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/index.js";
 import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";

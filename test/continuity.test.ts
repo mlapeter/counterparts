@@ -38,7 +38,7 @@ import {
   latestChapter,
 } from "../src/core/handoff/last-here.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
-import { standsLadder } from "../src/core/handoff/stands.js";
+import { standsLadder } from "../src/core/handoff/index.js";
 import { readRecencyAsk } from "../src/core/recall/index.js";
 import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { PREFACE_RESERVE_BYTES, WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
@@ -409,7 +409,7 @@ describe("what were we about to do? a plan written after the handoff is named be
     const full = k.c.wake(9_000, { date: "2026-09-30" }, { scope: HERE, session: B });
     expect(full.text).toContain("Since this handoff:");
     // Walked down from the full wake: the first ceiling with no room for the
-    // line (the last exchange and the like go before it, `handoff/stands.ts`).
+    // line (the last exchange and the like go before it, `handoff/#standsLadder`).
     let tight = full.bytes;
     let woke = full;
     while (woke.text.includes("Since this handoff") && tight > 500) {
@@ -455,7 +455,7 @@ describe("its room in the wake", () => {
 
   test("when there is not room for both, the newest mention stays and the older handoff is counted by the door (WK1, 2026-10-30)", async () => {
     // Until WK1 the chapter's line went first and the handoff stayed; now a
-    // chapter newer than every handoff here outlives them (`handoff/stands.ts`).
+    // chapter newer than every handoff here outlives them (`handoff/#standsLadder`).
     const k = afternoon();
     const { episodeId } = await mikesAfternoon(k);
     const full = k.c.wake(9_000, { date: "2026-09-30" }, { scope: HERE, session: B });

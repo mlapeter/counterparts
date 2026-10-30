@@ -2944,8 +2944,12 @@ is the old floor shifted by the parked words' bytes, not theirs.
 
 ## WK1, 2026-10-30: the wake's room (ROADMAP's call, for Mike's review)
 
-Removed: "Might be relevant" from the wake (`HINTS_IN_WAKE`, as `CRAFT_IN_WAKE` did for craft) and every bare id in a count
-line (`MORE_LINE_IDS`, `FOLD_LINE_IDS`). Kept, on purpose:
+Removed: "Might be relevant" from the wake of a store with a page (`HINTS_IN_WAKE`, as `CRAFT_IN_WAKE` did for craft) and every
+bare id in a count line (`MORE_LINE_IDS`, `FOLD_LINE_IDS`). Kept, on purpose:
+
+- **The lane on a store with no page yet.** The case for dropping it was measured on a store whose page holds 53% of the room.
+  With no page, the lane is the only place a wake carries memories at all, and with it off a new user's wake was empty
+  (`elements=0`) until the first page: the full suite found this, on 20-odd tests of fresh stores. It goes on the first page.
 
 - **What the hints computation feeds.** `hintReading` and `wake_display` feed only this lane and physics' `on-display`
   refusal (`Store#shownInHints`). With the lane off a publish closes every open row, so nothing is refused `on-display`

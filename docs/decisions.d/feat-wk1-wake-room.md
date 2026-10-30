@@ -4,6 +4,9 @@
   10-02 and ambient recall does that job per turn, with ratings. Follows `CRAFT_IN_WAKE`: a switch,
   so turning it back on is one line. With it off, every publish closes the open `wake_display` rows,
   so a use is no longer refused a return as `on-display`.
+- A store with no self page yet keeps "Might be relevant". Why: the case for dropping it was measured on Mike's store, whose
+  page holds 53% of the room. With no page the lane is all a wake has of its memories, and with it off a new user's wake was
+  empty until the first page. The brief said drop it; this is the one exception, for ROADMAP to rule on.
 - No wake line lists bare ids. A count names the door that lists its items by title (`still open`,
   which gains `comingUp`, and the new `handoffs here`). A lane with no such door is a count alone.
   An id after a title stays: that is its handle.
@@ -13,7 +16,7 @@
   would cost "Still open" an item. Why: dated lines outrank the lane's items in the room, which was
   meant for what is due today, and "Still open" is to stay as it was while the open-threads read runs.
 - The handoffs, "Last here" and "Last said here" are one block, grouped by session, the newest
-  leading (`handoff/stands.ts`). An older entry is judged by session and time, never by text.
+  leading (`handoff/#standsLadder`). An older entry is judged by session and time, never by text.
 - On a tight day the newest mention outlives an older handoff. This reverses review of #300 MAJOR-1
   ("the handoff first") only where a chapter is newer than every handoff here, as the brief asks;
   the door still counts them.

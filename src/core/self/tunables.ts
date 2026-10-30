@@ -169,9 +169,12 @@ export interface SelfTunables {
   OPEN_CARRY_GLIMPSE_TOUCH: boolean;
   /**
    * "MIGHT BE RELEVANT" IN THE WAKE (WK1, 2026-10-30; ROADMAP's call, for
-   * Mike's review). Off: the hints lane is empty in every composition — the
-   * turn-end's and the session start's — so the wake has no "Might be
-   * relevant:" list and no count or "no room to list them" line for it.
+   * Mike's review). Off: on a store with a self page the hints lane is empty in
+   * every composition — the turn-end's and the session start's — so the wake has
+   * no "Might be relevant:" list and no count or "no room to list them" line
+   * for it. A store with no page yet keeps the lane: it is all that store's
+   * wake has of its memories, its first days, and the room it was crowding is
+   * the page's.
    * Ambient recall does that job on every turn, with ratings; measured on the
    * owner's store the lane showed on 4 of 29 days since 10-02 and its
    * tombstone line ("Might be relevant: 8 — no room to list them") on most of

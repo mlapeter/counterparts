@@ -6,7 +6,7 @@
  * was doing, and the last thing said to it, with its last reply, is often the
  * best pointer to where things stood. Two readers of one answer:
  *
- *   - the wake's "where this folder stands" line (`stands.ts`, WK1 2026-10-30):
+ *   - the wake's "where this folder stands" line (`standsLadder`, WK1 2026-10-30):
  *     `Last said 18:42: "<first words>…" — recall "last exchange".`;
  *   - the recall handle `last exchange` (`lastExchangeAnswer`): both messages,
  *     with their times and the session, each cut at a sentence.
@@ -55,7 +55,7 @@ export const LAST_EXCHANGE_WINDOW_MS = 24 * 60 * 60_000;
 export const LAST_EXCHANGE_WORDS = 10;
 export const LAST_EXCHANGE_QUOTE_BYTES = 72;
 
-/** The widest it can be, as the whole of `stands.ts`'s line (WK1, 2026-10-30; 152 as
+/** The widest it can be, as the whole of `standsLadder`'s line (WK1, 2026-10-30; 152 as
  *  a line of its own) — the bound the boundary reserves for it: 69 bytes before the
  *  quote (with a date), the quote and its `…`, 29 after, and a few to spare. */
 export const LAST_EXCHANGE_LINE_MAX_BYTES = 176;

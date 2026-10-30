@@ -5,7 +5,7 @@
  * A fresh session in a folder gets words pointing at the last exchange in that
  * folder — the most recently active OTHER session there, within about a day.
  * Since WK1 (2026-10-30) they are part of that session's entry in "where this
- * folder stands" (`handoff/stands.ts`), not a line of their own:
+ * folder stands" (`handoff/#standsLadder`), not a line of their own:
  *
  *   Where this folder stands: session a1b2c3d4, last said 09:10: "<first words>…" — recall "last exchange".
  *
@@ -56,7 +56,7 @@ import {
   quoteOf,
   tailAtSentence,
 } from "../src/core/handoff/last-exchange.js";
-import { standsLadder } from "../src/core/handoff/stands.js";
+import { standsLadder } from "../src/core/handoff/index.js";
 import { FRAMING, PAGE_END_LINES, readSentinel } from "../src/core/self/index.js";
 import { readableDate } from "../src/core/time.js";
 

@@ -175,13 +175,14 @@ function widestReserves(a: ReturnType<typeof openAdapter>): void {
   const c = a.counterpart;
   const sentence = (i: number, extra: number): string =>
     `Handoff ${String(i)}: the glaze tiles dry on rack two${"x".repeat(extra)}. Then the kiln log needs the cone readings.`;
-  for (let i = 0; i < 3; i += 1) c.writeHandoff(sentence(i, 0), { scope: SCOPE, session: `h${String(i)}` });
+  // Five handoffs since WK1: each other one is a line at the first-sentence cap, so three no longer reach it.
+  for (let i = 0; i < 5; i += 1) c.writeHandoff(sentence(i, 0), { scope: SCOPE, session: `h${String(i)}` });
   const short = WIDEST_BLOCK - widestHandoff(a);
   expect(short).toBeGreaterThan(0);
-  const q = Math.floor(short / 3);
+  const q = Math.floor(short / 5);
   // Rewritten in the same order, so the newest is the same handoff and the
   // ladder keeps its shape; each sentence stays under the excerpt's cap.
-  [q, q, short - 2 * q].forEach((extra, i) => c.writeHandoff(sentence(i, extra), { scope: SCOPE, session: `h${String(i)}` }));
+  [q, q, q, q, short - 4 * q].forEach((extra, i) => c.writeHandoff(sentence(i, extra), { scope: SCOPE, session: `h${String(i)}` }));
   expect(widestHandoff(a)).toBe(WIDEST_BLOCK);
 
   c.captureSpans({

@@ -713,7 +713,7 @@ previous check-in.
 ## 2026-10-30 — one block for where this folder stands (WK1)
 
 - **Why one renderer, not a reorder.** Three ladders spliced in a fixed order is what let an older handoff read as the
-  latest word; sorting them would still have said who and when three times. `stands.ts` groups by session, so one session's
+  latest word; sorting them would still have said who and when three times. `standsLadder` groups by session, so one session's
   chapter, last words and newest handoff are one entry. Older entries are judged by session and time, never by text.
 - **Removed with it:** `pointerLine`, `pointerDoor`, `pointerBlock`, `pointerBlockMany`, `pointerLadder`, `Handoffs#pointer`,
   `#pointerChoices`, `lastHereBlock`, `lastHereLadder`, `laterHereLadder`, `withExchange`, `lastExchangeLine`, and the limits
@@ -728,7 +728,7 @@ previous check-in.
   it the "Last here" line: words to change with WK2's look at the block, not here.
 - **The corpus copy has no `spans/`** (backups hold no conversation text), so the real-path run there shows no last exchange
   and no later session: `test/wake-room-wk1.test.ts` covers both through the door.
-- **Found by the tests' pass, fixed:** `index.ts` importing `stands.ts` made a load cycle through `last-here.ts`'s constant
+- **Found by the tests' pass, fixed:** `index.ts` importing `standsLadder` made a load cycle through `last-here.ts`'s constant
   (`LAST_HERE_TITLE_BYTES` moved to `index.ts`; a test loads each module first). A session nobody attended no longer has its
   last words in the block: as a lesser line it could quote one, and here it would have led. The `last exchange` handle still
   answers with it. `LAST_EXCHANGE_LINE_MAX_BYTES` is 176 for the exchange as the block's whole entry.

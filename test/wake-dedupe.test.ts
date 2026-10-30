@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { ONE_TAG, markerField, sessionTag, tagLead } from "../src/adapters/store-id.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { ELSEWHERE_HEAD } from "../src/core/handoff/last-here.js";
-import { standsLadder } from "../src/core/handoff/stands.js";
+import { standsLadder } from "../src/core/handoff/index.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import { FRAMING, HORIZON_OWN_ID, elementLine, readSentinel, withHeadFields } from "../src/core/self/index.js";

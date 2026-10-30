@@ -19,7 +19,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { HANDOFF_LEAD_LINES, handoffLead } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
-import { HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, standsLadder } from "../src/core/handoff/stands.js";
+import { HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { FRAMING, SELF_TUNABLES, readSentinel } from "../src/core/self/index.js";
 
@@ -60,8 +60,8 @@ function chapter(session: string): LastHere {
 const FIVE = "One thing.\nTwo things.\nThree things.\nFour things.\nFive things.\nSix things.";
 
 describe("loading", () => {
-  test("every module of the cycle loads first on its own (the reserve is sized from the block's rungs)", () => {
-    for (const m of ["core/handoff/index.ts", "core/handoff/stands.ts", "core/handoff/last-here.ts", "adapters/mcp/index.ts"]) {
+  test("every handoff module loads first on its own", () => {
+    for (const m of ["core/handoff/index.ts", "core/handoff/last-here.ts", "adapters/mcp/index.ts"]) {
       const url = new URL(`../src/${m}`, import.meta.url).href;
       const r = spawnSync(process.execPath, ["-e", `await import(${JSON.stringify(url)})`], { encoding: "utf8", env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" } });
       expect({ m, status: r.status, err: r.stderr.slice(0, 200) }).toEqual({ m, status: 0, err: "" });
@@ -168,6 +168,8 @@ describe("through the doors", () => {
   test("session start: no 'Might be relevant', no bare ids, the block whole; the handles it names answer", async () => {
     const a = adapter();
     const c = a.counterpart;
+    // With a page: a store with none yet keeps the lane, below.
+    expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
     // A warm memory that the lane used to show.
     c.store.put({ type: "memory", kind: "fact", body: "The ferry stops running at nine in winter.", salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } });
     // Overdue, past what the lane lists, and a thread.
@@ -214,6 +216,17 @@ describe("through the doors", () => {
     // Expand and retire by what the handle gave.
     const whole = await server.call("recall", { ids: [handoffs[0]?.id ?? ""] });
     expect(whole.isError ?? false).toBe(false);
+  });
+
+  test("a store with no page yet keeps the lane, and a first page takes it off", () => {
+    const c = Counterpart.open({ dir });
+    open.push(c);
+    c.store.put({ type: "memory", kind: "fact", body: "The ferry stops running at nine in winter.", salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } });
+    expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
+    expect(c.wake(BUDGET).text).toContain("The ferry stops");
+    expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
+    expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
+    expect(c.wake(BUDGET).text).not.toContain(FRAMING.hints);
   });
 
   test("the switch: on, the lane is as it was", () => {

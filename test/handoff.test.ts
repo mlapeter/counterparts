@@ -47,8 +47,8 @@ import {
   WIDEST_POINTER_SINCE,
 } from "../src/core/handoff/index.js";
 import type { Handoff, PlanSince } from "../src/core/handoff/index.js";
-import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/stands.js";
-import type { StandsRung } from "../src/core/handoff/stands.js";
+import { STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
+import type { StandsRung } from "../src/core/handoff/index.js";
 import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -77,7 +77,7 @@ const WRITTEN_LINE = new RegExp(
   `Where this folder stands: a handoff from [^\\n]*, written ${WRITTEN_ON.slice(5)} \\d{2}:\\d{2} \\(sch_[0-9a-f]+\\): `,
 );
 
-/** The block's ladder for one folder's live handoffs, as the delivery builds it (`handoff/stands.ts`), with no "how current" words. */
+/** The block's ladder for one folder's live handoffs, as the delivery builds it (`handoff/#standsLadder`), with no "how current" words. */
 function ladderOf(s: Store, h: Handoffs, scope: string, day: number = s.livedDay()): StandsRung[] {
   return standsLadder({ handoffs: h.readAll(scope, day).map((handoff) => ({ handoff, at: h.writtenAt(handoff), since: null })), day });
 }

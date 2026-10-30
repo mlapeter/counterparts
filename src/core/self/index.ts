@@ -1141,6 +1141,7 @@ export class Self {
         unsettled: unsettledAmong(this.store, scanned.filter((s) => s.unresolved || s.reconsidering === true).map((s) => s.id)),
         waiting: waitingIds(this.store, req.day),
         coveredByPage: this.pageCovers(scanned),
+        noPage: this.page() === null,
         workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
         craftSince: craftSince(this.store),
         ...(coming.more.length === 0 || req.omit !== undefined ? {} : { horizonMore: coming.more }),
@@ -1421,9 +1422,10 @@ export class Self {
     // popped (2026-10-12) — so this composition lists or counts them in its
     // own room rather than leaving the popped ones without a word.
     // A bundle published while the lane was in the wake still names its
-    // hints: not carried while `HINTS_IN_WAKE` is off (WK1, 2026-10-30).
+    // hints: not carried once a page holds the wake and `HINTS_IN_WAKE` is off
+    // (WK1, 2026-10-30).
     const keptOut = req.hintKeptOut;
-    const hintIds = this.tunables.HINTS_IN_WAKE ? [...shown.hints, ...shown.more.hints] : [];
+    const hintIds = this.tunables.HINTS_IN_WAKE || this.page() === null ? [...shown.hints, ...shown.more.hints] : [];
     const hintsScanned = carried(keptOut === undefined ? hintIds : hintIds.filter((id) => !keptOut(id)), "hints");
     const covered = hintsScanned.length === 0 ? new Set<string>() : this.pageCovers(hintsScanned);
     const lanes: Lanes = {

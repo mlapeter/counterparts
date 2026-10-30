@@ -138,8 +138,8 @@ import {
   staleWords,
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PlansSince, PointerSince } from "./handoff/index.js";
-import { chapterRungBytes, handoffsListed, standsLadder } from "./handoff/stands.js";
-import type { HandoffListed, LastHereFacts, StandsHandoff, StandsRung, StandsSaid } from "./handoff/stands.js";
+import { chapterRungBytes, handoffsListed, standsLadder } from "./handoff/index.js";
+import type { HandoffListed, LastHereFacts, StandsHandoff, StandsRung, StandsSaid } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
 import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, LATER_HERE_TRIED, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
 import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
@@ -1336,7 +1336,7 @@ export class Counterpart {
    * SEVERAL HANDOFFS (2026-09-30): a directory holds one per writing session,
    * and the block shows them newest first (WK1, 2026-10-30: with "Last here" and
    * "Last said here", the newest's lead up to five lines and the others a line
-   * each, `handoff/stands.ts`). The rungs
+   * each, `handoff/#standsLadder`). The rungs
    * come widest first, and the first that fits the ceiling is delivered — so a
    * reserve sized for fewer than the directory now holds (the one-boundary lag,
    * when a new author appears) shows fewer rather than none. `no-room` is
@@ -1424,7 +1424,7 @@ export class Counterpart {
     | {
         kind: "full";
         scope: string;
-        /** "Where this folder stands", widest first (`handoff/stands.ts`). */
+        /** "Where this folder stands", widest first (`handoff/#standsLadder`). */
         rungs: StandsRung[];
         /** There is a chapter (or a later session) here for "Last here"'s part. */
         hasLastHere: boolean;
@@ -1483,7 +1483,7 @@ export class Counterpart {
     const named = (id: string): boolean => result.text.includes(id);
     const facts = this.lastHereFacts(scope, here?.session ?? null, chapters, here?.exportsFrom, named, headless);
     // LAST SAID HERE (2026-10-11): the last exchange in this directory — the
-    // first thing given up after the about-me line (`handoff/stands.ts`).
+    // first thing given up after the about-me line (`handoff/#standsLadder`).
     // Not a session nobody attended (review of #636): quoted beside "Last here" it
     // was a lesser line, and in this block it would lead (WK1).
     const exchange = here === undefined ? null : this.lastExchangeSaid(here);
@@ -1504,7 +1504,7 @@ export class Counterpart {
     const budget = this.reportedBudget;
     // WHERE THIS FOLDER STANDS (WK1, 2026-10-30; ROADMAP's call, for Mike's
     // review): the handoffs, "Last here" and "Last said here" are one line,
-    // grouped by session and led by the newest (`handoff/stands.ts`).
+    // grouped by session and led by the newest (`handoff/#standsLadder`).
     const rungs = standsLadder({
       handoffs,
       plans,
@@ -1529,7 +1529,7 @@ export class Counterpart {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
     };
-    // The rungs give way in `handoff/stands.ts`'s order. A bundle that is not a
+    // The rungs give way in `handoff/#standsLadder`'s order. A bundle that is not a
     // clean render is delivered as found.
     if (!spliceBeforeSentinel(result.text, rungs[0]?.block ?? "").applied) return { kind: "as-found" };
     // What `no-room` reports: the SMALLEST rung with a handoff, which is the
@@ -1638,7 +1638,7 @@ export class Counterpart {
   }
 
   /** The wake's last exchange for `here`, in the words "where this folder
-   *  stands" says it (`handoff/stands.ts`), or null. Never throws. Any session
+   *  stands" says it (`handoff/#standsLadder`), or null. Never throws. Any session
    *  in the folder gets it — except under observer, whose wake must not point
    *  at a handle that stands down (review of #392). */
   private lastExchangeSaid(here: WakeHere): StandsSaid | null {
@@ -1903,7 +1903,7 @@ export class Counterpart {
 
   /**
    * WHAT "LAST HERE" KNOWS, as facts for "where this folder stands"
-   * (`handoff/stands.ts`): the newest chapter here (from a session other than
+   * (`handoff/#standsLadder`): the newest chapter here (from a session other than
    * the reader's), or the later session with none of its own and that chapter
    * before it, and the about-me line from another folder. `chapters` is passed
    * by a caller asking for every directory at once, so the episode walk is

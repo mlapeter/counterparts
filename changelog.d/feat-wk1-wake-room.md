@@ -6,4 +6,5 @@
   at a recall that lists the items by title: `still open` now also lists what's coming up,
   and a new `handoffs here` lists this folder's handoffs to expand or retire. Coming up shows
   the oldest overdue items by title and how long ago they were due. Recall already offers
-  what might be relevant on every turn, with ratings.
+  what might be relevant on every turn, with ratings. A new store keeps the lane until it has
+  its first self page, since that is all its wake has of its memories.

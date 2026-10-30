@@ -62,7 +62,7 @@
  */
 import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { LAST_EXCHANGE_HANDLE } from "../../core/handoff/last-exchange.js";
-import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/stands.js";
+import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/index.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE, FACTS_TAIL_SIZE } from "./facts.js";
 import { RECURRENCES } from "../../core/time.js";
@@ -1126,7 +1126,7 @@ const SESSION_END: ToolSpec = {
     {
       claim:
         "A finished session that wrote a chapter needs no handoff to be found: the next session in this directory is shown a \"Where this folder stands\" block naming the session that last wrote a chapter here, when it was here, the chapter's title and id and its first sentence — worked out from the chapter when the next session starts, never stored. A session that wrote no chapter leaves no such line.",
-      mechanizedBy: "src/core/counterpart.ts#addHandoffPointer -> src/core/handoff/stands.ts#standsLadder",
+      mechanizedBy: "src/core/counterpart.ts#addHandoffPointer -> src/core/handoff/index.ts#standsLadder",
     },
     {
       claim:

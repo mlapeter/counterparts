@@ -154,7 +154,7 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     pointer states WHO wrote it when the row names a session (the short session id, "this
     session" for the reader's own, and the model when the host recorded one), that
     several live handoffs are shown newest first, the newest's lead at up to
-    `HANDOFF_LEAD_LINES` lines and each other one a line (`stands.ts`, WK1 2026-10-30), the
+    `HANDOFF_LEAD_LINES` lines and each other one a line (`standsLadder`, WK1 2026-10-30), the
     rest by count and the `handoffs here` recall handle when room is short, that a
     pointer states when it was written (since 2026-09-30 to the minute; from 2026-09-30 to
     2026-10-18 the newest also said when work here ran after it and how far that was written
@@ -167,7 +167,7 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     names the door to the whole of it, and carries no control or bidi-override character
     into the bundle.
 
-11. **[M] Last here (2026-09-30; since WK1, 2026-10-30, part of the one block `stands.ts`
+11. **[M] Last here (2026-09-30; since WK1, 2026-10-30, part of the one block `standsLadder`
     renders: its head names the guarantees that changed, and "Before it" and "+N more here"
     below are gone).** A wake in a directory where some session wrote a chapter
     within `LAST_HERE_LIFE_DAYS` lived days (the handoff's fortnight) carries a "Last here"
@@ -375,7 +375,7 @@ true:
   ceiling, the compose-budget difference is what the lanes give up, never past an eighth.
 
 - **WK1 (2026-10-30):** the handoffs, "Last here" and "Last said here" are one block
-  (`stands.ts`), and its head gives the order things give way in. The newest mention now
+  (`standsLadder`), and its head gives the order things give way in. The newest mention now
   outlives an older handoff; the paragraph below is the arrangement it replaced, and the
   reserve's two terms are measured from the new block's own rungs (`handoffRungBytes`,
   `chapterRungBytes`).
