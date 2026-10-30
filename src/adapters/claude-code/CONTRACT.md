@@ -58,7 +58,10 @@ credential — belongs here, discovered at runtime, never assumed by the core.
 ## 3. Keeps
 
 - **Hooks return in microseconds; heavy work runs detached under a watchdog.** [engram E4,
-  v1] The foreground path never blocks on a model call.
+  v1] The foreground path never blocks on a model call. The worker says where its own time
+  went: one `runner.steps` row per run in the process log (`adapters/log/`), wall ms per step,
+  with CPU for the longer ones, its boot, its whole CPU and its largest resident size
+  (2026-10-30, NOTES).
 - **Every session-ending path is a boundary** — normal stop, session end, and
   pre-compaction. [v1] behavioral-spec §2 G5 — compaction destroying the transcript must
   not destroy the day. This is the compaction-amnesia backstop.

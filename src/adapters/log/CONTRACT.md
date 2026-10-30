@@ -42,7 +42,7 @@ process was killed.
 `LOGGED` in `index.ts`, and nothing else: every `*.failed`, `*.threw`, `*.standdown`; process
 start and end; the turn's end (`adapter.boundary`, `adapter.ask`); write-ups and handoffs; the
 nightly run's states and parts; wake renders and `rebrief`; the sleep cycle, the retention
-pass and the worker's summary; refusals by name (`runner.refused`, `mcp.refused`). Per-prompt
+pass, the worker's summary and where its time went (`runner.steps`); refusals by name (`runner.refused`, `mcp.refused`). Per-prompt
 recall and association detail, and the store's own bookkeeping, stay out.
 
 ## 5. Guarantees
