@@ -75,6 +75,12 @@
  * directory flavor also generates `hooks/hooks.json`, `commands/*.md` (each
  * launcher line as the entry's own path) and every transpiled `.js`.
  *
+ * ONE STYLESHEET, in the directory flavor (2026-10-30, for file room): the
+ * dashboard's sheets are traced as above (their `url()`s bring the fonts), then
+ * joined in `app.html`'s link order into `shared/dashboard.css`, with `app.html`
+ * rewritten to link that one (`joinSheets`). The sources and every other flavor
+ * keep the separate files.
+ *
  * It refuses, rather than writes, a bundle that breaks a directory rule it can
  * check here: a symlink, a test or module doc, a macOS/Windows system file, a
  * file over 5 MiB, more than 512 files, or versions that disagree; for the
@@ -213,6 +219,16 @@ export const DIRECTORY_DROPPED: readonly string[] = [
   "src/adapters/dashboard/web/shared/vendor/three.module.min.js",
   "src/adapters/dashboard/web/shared/vendor/MIT-three.txt",
 ];
+
+/** The flavors whose dashboard loads one joined stylesheet (`joinSheets`). The
+ *  directory flavor alone for now: it is the one at its file limit, and nobody
+ *  installs it yet. Core has room, and is pinned as the full flavor less the
+ *  sidebar (test/plugin-split.test.ts), so adding it means loosening that. */
+export const JOINED_SHEET_FLAVORS: readonly Flavor[] = ["directory"];
+/** The dashboard's page, and the one sheet those flavors serve: under `/shared/`,
+ *  one of the places `web/static.ts` hands a stylesheet out from. */
+export const DASHBOARD_WEB = "src/adapters/dashboard/web";
+export const JOINED_SHEET_URL = "/shared/dashboard.css";
 
 /** Bare imports a module may make: the runtimes' built-ins, and the engine a
  *  hooks module (the sidebar) runs inside. Anything else would need an
@@ -627,6 +643,91 @@ export function escapeInvisible(js: string): string {
   });
 }
 
+// ── one stylesheet (the directory flavor) ──────────────────────────────────
+
+/**
+ * What would make a sheet mean something else once other sheets stand around
+ * it: an at-rule that only works at the top of a file, a relative `url()` (the
+ * joined file sits elsewhere), a comment, string or brace left open or text left
+ * after the last rule (each would swallow the next sheet), and a byte-order mark
+ * or other invisible character (harmless at the start of a file, a broken rule in
+ * the middle of one, and the directory's validator holds them anyway). Pure.
+ */
+export function sheetProblems(name: string, css: string): string[] {
+  const problems: string[] = [];
+  if (css.search(INVISIBLE) >= 0) problems.push(`${name} holds an invisible character`);
+  let code = ""; // the sheet without its comments, strings kept
+  let depth = 0;
+  let afterLastRule = "";
+  for (let i = 0; i < css.length; i++) {
+    const c = css[i]!;
+    if (c === "/" && css[i + 1] === "*") {
+      const end = css.indexOf("*/", i + 2);
+      if (end < 0) {
+        problems.push(`${name} leaves a comment open`);
+        break;
+      }
+      i = end + 1;
+    } else if (c === '"' || c === "'") {
+      let end = i + 1;
+      while (end < css.length && css[end] !== c && css[end] !== "\n") end += css[end] === "\\" ? 2 : 1;
+      if (css[end] !== c) {
+        problems.push(`${name} leaves a string open`);
+        break;
+      }
+      code += css.slice(i, end + 1);
+      afterLastRule += css.slice(i, end + 1);
+      i = end;
+    } else {
+      code += c;
+      afterLastRule = c === "}" ? "" : afterLastRule + c;
+      if (c === "{") depth += 1;
+      if (c === "}") depth -= 1;
+    }
+  }
+  if (depth !== 0) problems.push(`${name} has unbalanced braces`);
+  if (afterLastRule.trim() !== "") problems.push(`${name} has text after its last rule: ${afterLastRule.trim().slice(0, 40)}`);
+  for (const m of code.matchAll(/@(import|charset|namespace|layer)\b/gi)) problems.push(`${name} uses @${m[1]!.toLowerCase()}`);
+  for (const m of code.matchAll(/url\(\s*["']?([^"')\s]*)/gi)) {
+    if (!/^(\/|data:|#)/.test(m[1]!)) problems.push(`${name} has a relative url(): ${m[1]!}`);
+  }
+  return problems;
+}
+
+/**
+ * The page with one stylesheet: every `<link rel="stylesheet">` in `page` is
+ * gone, the first replaced by one link to `JOINED_SHEET_URL`, and `css` is the
+ * sheets in the page's order, each after a comment naming it. Nothing else in
+ * the page changes (the server replaces its two `<meta>` tags by their exact
+ * text). The same bytes every run: only the page's own URLs and the sheets' own
+ * text go in. `read` gets a sheet's URL and says its text, or null. Pure.
+ */
+export function joinSheets(page: string, read: (url: string) => string | null): { page: string; css: string; urls: string[]; problems: string[] } {
+  const problems: string[] = [];
+  const urls: string[] = [];
+  const parts = ["/* Joined by tools/plugin-bundle/build.ts from app.html's stylesheet links, in their order, which is the cascade's. */\n"];
+  const joined = page.replace(/^[ \t]*<link\b[^>\n]*\brel=["']?stylesheet\b[^>\n]*>[ \t]*\n/gim, (link) => {
+    const url = /\bhref=["']([^"'?#]+)["']/i.exec(link)?.[1];
+    if (url === undefined) {
+      problems.push(`app.html has a stylesheet link with no plain href: ${link.trim()}`);
+      return "";
+    }
+    const text = read(url);
+    if (text === null) problems.push(`app.html links ${url}, which is not a file`);
+    else {
+      problems.push(...sheetProblems(url, text));
+      parts.push(`/* ${url} */\n${text}${text.endsWith("\n") ? "" : "\n"}`);
+    }
+    urls.push(url);
+    return urls.length === 1 ? `<link rel="stylesheet" href="${JOINED_SHEET_URL}">\n` : "";
+  });
+  if (urls.length === 0) problems.push("app.html links no stylesheet to join");
+  if (urls.includes(JOINED_SHEET_URL)) problems.push(`app.html already links ${JOINED_SHEET_URL}, the name the joined sheet takes`);
+  const left = (joined.match(/\brel=["']?stylesheet\b/gi) ?? []).length;
+  if (urls.length > 0 && left !== 1) problems.push(`app.html would link ${left} stylesheets after the join: a link this did not recognise`);
+  return { page: joined, css: parts.join(""), urls, problems };
+}
+
 // ── generated files ────────────────────────────────────────────────────────
 
 function readJson<T>(repo: string, rel: string): T {
@@ -766,6 +867,18 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
     generated["hooks/hooks.json"] = roots.hooks;
     // Memory alone: nothing of the sidebar, whatever names it.
     for (const f of copied) if (f.startsWith(`${SIDEBAR_DIR}/`)) problems.push(`${f} is the sidebar's, which core does not carry`);
+  }
+
+  const appHtml = `${DASHBOARD_WEB}/app.html`;
+  if (JOINED_SHEET_FLAVORS.includes(flavor) && copied.includes(appHtml)) {
+    const inWeb = (url: string): string => posix.join(DASHBOARD_WEB, url);
+    const one = joinSheets(readFileSync(join(repo, appHtml), "utf8"), (url) => (isFile(repo, inWeb(url)) ? readFileSync(join(repo, inWeb(url)), "utf8") : null));
+    problems.push(...one.problems);
+    if (isFile(repo, inWeb(JOINED_SHEET_URL))) problems.push(`${inWeb(JOINED_SHEET_URL)} exists, and the joined sheet would take its place`);
+    const gone = new Set([appHtml, ...one.urls.map(inWeb)]);
+    copied = copied.filter((f) => !gone.has(f));
+    generated[appHtml] = one.page;
+    generated[inWeb(JOINED_SHEET_URL)] = one.css;
   }
 
   if (flavor === "directory") {

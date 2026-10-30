@@ -17,9 +17,12 @@ import {
   INVISIBLE,
   DIRECTORY_DROPPED,
   DIRECTORY_ENTRIES,
+  DASHBOARD_WEB,
   DIRECTORY_SHEBANG,
   EXTRA_KEYWORDS,
   FIRST_SPLIT_RELEASE,
+  JOINED_SHEET_FLAVORS,
+  JOINED_SHEET_URL,
   LISTING,
   MAX_FILES,
   MAX_INSPECTED_BYTES,
@@ -30,9 +33,11 @@ import {
   directoryModules,
   driftLines,
   escapeInvisible,
+  joinSheets,
   largeFiles,
   mirrorProblems,
   planBundle,
+  sheetProblems,
   traceFiles,
   transpileSource,
   transpiledPath,
@@ -40,6 +45,7 @@ import {
   writeBundle,
 } from "../tools/plugin-bundle/build.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
+import { resolveStatic } from "../src/adapters/dashboard/web/static.js";
 
 const repoJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(REPO, rel), "utf8")) as Record<string, unknown>;
 
@@ -57,7 +63,9 @@ const paths = bundlePaths(plan);
  *  room for a wave or two of new modules (wave 2 added ~7) that still leaves
  *  it 32 under the limit should it become what the directory gets; sidebar
  *  keeps 100, its own bundle and nowhere near the limit, so it only catches a
- *  trace that suddenly pulls in far more than hooks/sidebar/. */
+ *  trace that suddenly pulls in far more than hooks/sidebar/. Directory was
+ *  back at 510 on 2026-10-29; joining the dashboard's stylesheets (2026-10-30)
+ *  took it to 487. */
 const FILE_MARGIN = 510;
 const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: FILE_MARGIN, core: 480, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
@@ -296,8 +304,11 @@ describe("the directory flavor", () => {
         .filter((p) => !/^hooks\/sidebar\/hooks\/(full|speak-first|actions)\.tsx$/.test(p))
         // The dashboard's brain picture and its three.js stay out (DIRECTORY_DROPPED).
         .filter((p) => !DIRECTORY_DROPPED.includes(p))
+        // The dashboard's sheets ride as one (joinSheets, "one stylesheet" below).
+        .filter((p) => !(p.startsWith(`${DASHBOARD_WEB}/`) && p.endsWith(".css")))
         .map((p) => (p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts") ? transpiledPath(p) : p)),
     );
+    expected.add(`${DASHBOARD_WEB}${JOINED_SHEET_URL}`);
     expect(dirPaths).toEqual([...expected].sort());
     expect(paths).toContain("hooks/sidebar/hooks/speak-first.tsx");
     expect(dirPaths).not.toContain("hooks/sidebar/hooks/speak-first.tsx");
@@ -462,6 +473,104 @@ describe("the directory flavor", () => {
     expect(run(out)[0]).toBe("x\u007f​­﻿");
     expect(escapeInvisible('"a\u007fb"')).toBe('"a\\u007Fb"');
     expect(() => escapeInvisible('"a\\\u007fb"')).toThrow(/backslash before an invisible character/);
+  });
+
+  describe("one stylesheet", () => {
+    const sheetLinks = (html: string): string[] => [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]!);
+    const source = readFileSync(join(REPO, `${DASHBOARD_WEB}/app.html`), "utf8");
+    const urls = sheetLinks(source);
+    const page = dir.generated[`${DASHBOARD_WEB}/app.html`]!;
+    const css = dir.generated[`${DASHBOARD_WEB}${JOINED_SHEET_URL}`]!;
+    const sheet = (url: string): string => readFileSync(join(REPO, DASHBOARD_WEB, url), "utf8");
+
+    test("the page links exactly that one sheet, and everything else in it is as it was", () => {
+      expect(urls.length).toBeGreaterThan(1);
+      expect(sheetLinks(page)).toEqual([JOINED_SHEET_URL]);
+      expect(page.match(/rel=["']?stylesheet/g)).toHaveLength(1);
+      // Back again: put the links where the one stands, and it is the source's page.
+      const links = urls.map((u) => `<link rel="stylesheet" href="${u}">\n`).join("");
+      expect(page.replace(`<link rel="stylesheet" href="${JOINED_SHEET_URL}">\n`, links)).toBe(source);
+      // What the server replaces by exact text, and the font's preload, are still there.
+      expect(page).toContain(`<meta name="counterparts-brain" content="on">`);
+      expect(page).toContain(`<meta name="counterparts-action-token" content="">`);
+      expect(page).toContain(`<link rel="preload" href="/shared/fonts/outfit-latin-wght.woff2"`);
+    });
+
+    test("the sheet holds every source sheet, whole, in the page's order, and nothing else but the names", () => {
+      let at = 0;
+      let bytes = css.indexOf("/* /shared/");
+      expect(bytes).toBeGreaterThan(0);
+      for (const url of urls) {
+        const piece = `/* ${url} */\n${sheet(url)}`;
+        const found = css.indexOf(piece, at);
+        expect(found).toBeGreaterThanOrEqual(at);
+        at = found + piece.length;
+        bytes += piece.length + (sheet(url).endsWith("\n") ? 0 : 1);
+      }
+      expect(css.length).toBe(bytes);
+    });
+
+    test("the sheet is where the server hands it out; the separate sheets are gone from the flavor, not from any other", () => {
+      expect(resolveStatic(JOINED_SHEET_URL, "/web")?.contentType).toBe("text/css; charset=utf-8");
+      expect(existsSync(join(REPO, DASHBOARD_WEB, JOINED_SHEET_URL))).toBe(false);
+      expect(dirPaths.filter((p) => p.startsWith(`${DASHBOARD_WEB}/`) && p.endsWith(".css"))).toEqual([`${DASHBOARD_WEB}${JOINED_SHEET_URL}`]);
+      for (const url of urls) expect(paths).toContain(`${DASHBOARD_WEB}${url}`);
+      expect(plan.generated[`${DASHBOARD_WEB}${JOINED_SHEET_URL}`]).toBeUndefined();
+      // The fonts come from the sheets' url()s, so the trace had to read the sheets first.
+      expect(dirPaths.filter((p) => p.endsWith(".woff2"))).toHaveLength(3);
+      expect(dirPaths.filter((p) => /shared\/fonts\/OFL-/.test(p))).toHaveLength(2);
+    });
+
+    test("written: the file is on disk, and the page links it", () => {
+      const work = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-plugin-sheet-")));
+      try {
+        const out = join(work, "bundle");
+        writeBundle(dir, out);
+        expect(sheetLinks(readFileSync(join(out, DASHBOARD_WEB, "app.html"), "utf8"))).toEqual([JOINED_SHEET_URL]);
+        expect(readFileSync(join(out, DASHBOARD_WEB, JOINED_SHEET_URL), "utf8")).toBe(css);
+        expect(existsSync(join(out, DASHBOARD_WEB, "shared/tokens.css"))).toBe(false);
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    });
+
+    test("a sheet that would mean something else beside others is named", () => {
+      expect(sheetProblems("a", ".a{color:red}\n/* note */\n")).toEqual([]);
+      expect(sheetProblems("a", '.a{content:"}/*"}\n@font-face{src:url("/f.woff2")}\n.b{background:url(data:image/png;base64,AA)}\n')).toEqual([]);
+      expect(sheetProblems("a", ".a{color:red}\n/* open")).toEqual(["a leaves a comment open"]);
+      expect(sheetProblems("a", ".a{color:red")).toEqual(["a has unbalanced braces", "a has text after its last rule: .a{color:red"]);
+      expect(sheetProblems("a", '.a{content:"x}\n')).toEqual(["a leaves a string open", "a has unbalanced braces", "a has text after its last rule: .a{content:"]);
+      expect(sheetProblems("a", ".a{color:red}\n.b")).toEqual(["a has text after its last rule: .b"]);
+      expect(sheetProblems("a", '@import "x.css";\n')).toEqual(['a has text after its last rule: @import "x.css";', "a uses @import"]);
+      expect(sheetProblems("a", '@charset "utf-8";\n.a{}')).toEqual(["a uses @charset"]);
+      expect(sheetProblems("a", ".a{background:url(./x.png)}")).toEqual(["a has a relative url(): ./x.png"]);
+      expect(sheetProblems("a", ".a{background:url('fonts/x.woff2')}")).toEqual(["a has a relative url(): fonts/x.woff2"]);
+      expect(sheetProblems("a", "﻿.a{}")).toEqual(["a holds an invisible character"]);
+      // Only comments mention these, so nothing is wrong.
+      expect(sheetProblems("a", "/* @import url(x) */ .a{}")).toEqual([]);
+    });
+
+    test("joining names what it cannot do, and is the same bytes every time", () => {
+      const read = (u: string): string | null => (u === "/a.css" ? ".a{}\n" : u === "/b.css" ? ".b{}" : null);
+      const html = '<link rel="preload" href="/f" as="font">\n<link rel="stylesheet" href="/b.css">\n<script></script>\n<link href="/a.css" rel="stylesheet">\n';
+      const one = joinSheets(html, read);
+      expect(one.problems).toEqual([]);
+      expect(one.urls).toEqual(["/b.css", "/a.css"]);
+      expect(one.page).toBe(`<link rel="preload" href="/f" as="font">\n<link rel="stylesheet" href="${JOINED_SHEET_URL}">\n<script></script>\n`);
+      expect(one.css.endsWith("/* /b.css */\n.b{}\n/* /a.css */\n.a{}\n")).toBe(true);
+      expect(joinSheets(html, read)).toEqual(one);
+      expect(joinSheets("<p>no sheets</p>\n", read).problems).toEqual(["app.html links no stylesheet to join"]);
+      expect(joinSheets('<link rel="stylesheet" href="/gone.css">\n', read).problems).toEqual(["app.html links /gone.css, which is not a file"]);
+      // On one line with something else: not recognised, and refused rather than left as a second sheet.
+      expect(joinSheets('<link rel="stylesheet" href="/a.css">\n<p><link rel="stylesheet" href="/b.css"></p>\n', read).problems).toEqual([
+        "app.html would link 2 stylesheets after the join: a link this did not recognise",
+      ]);
+    });
+
+    test("only the directory flavor joins, for now; core stays the full flavor less the sidebar", () => {
+      expect(JOINED_SHEET_FLAVORS).toEqual(["directory"]);
+      expect(planBundle(REPO, "core").copied).toContain(`${DASHBOARD_WEB}/app.html`);
+    });
   });
 
   test("the mirror check names what breaks it", () => {

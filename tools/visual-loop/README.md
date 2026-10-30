@@ -124,6 +124,28 @@ and served from the dashboard's own origin, so every page renders fully with
 the machine unplugged. Where WebGL is unavailable the brain says one calm
 sentence in its place, which is a valid screenshot.
 
+## A built bundle, against the source
+
+`shots.ts` looks at the source tree. What a plugin bundle's build rewrites (the
+directory flavor's one stylesheet, `tools/plugin-bundle/build.ts#joinSheets`) exists
+only in the bundle, and CI tests the source, so `compare-bundle.ts` looks at the bundle:
+
+```sh
+~/.bun/bin/bun tools/plugin-bundle/build.ts --flavor directory /tmp/after
+~/.bun/bin/bun tools/visual-loop/compare-bundle.ts --bundle /tmp/after                     # against the source tree
+~/.bun/bin/bun tools/visual-loop/compare-bundle.ts --bundle /tmp/after --against /tmp/before # against a bundle built before the change
+```
+
+One seeded store, both sides started through their own console, every tab at three
+sizes on the seeded store and the empty one, plus one memory in its modal: 37 pairs,
+about two minutes. It fails on any pixel that differs, on any difference in the parsed
+rules in their cascade order, and on a console error, page error or failed request.
+
+Against the source tree, the bundle's page is given the source server's `/api/`
+answers, because the health card's words are rightly each tree's own; `--against` has
+nothing stood in for. A side with three.js has the brain turned off in its page, as the
+server does where the library is absent, since the directory flavor doesn't carry it.
+
 ## How it waits
 
 Each page sets `document.documentElement.dataset.loaded = "1"` after its first
