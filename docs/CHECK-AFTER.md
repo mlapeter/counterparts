@@ -41,6 +41,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | in review 10-30, unreleased | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
+| Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | in review 10-30, unreleased | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -117,6 +118,30 @@ change during a batch is allowed for, anything else is a bug. A debt that doctor
 the two readers disagree, fix the reader. Text from off folders staying too long to be comfortable: Mike's call on a
 shorter clock for `off` (`docs/decisions.d/fix-catch-up-respects-off.md`). **Revert.** The commits are small; nothing to
 migrate.
+
+## Due ~1 week after recall stopped dropping late turns (2026-10-30, LT1, ROADMAP's decision marked for Mike's review — a fix, no switch)
+
+**What we're trying.** A turn past `BUDGET_MS` shows its finished answer and says `lateMs`, where it used to show
+nothing. Recall also got a covering index on the word index and stopped compiling a regex per card per prompt. On a
+copy: cold build 416 → 110 ms, cold process 724 → 400 ms, what's shown byte-identical. A copy can't show the part
+that matters, a laptop under load on the live file.
+
+**What to look at (read-only).** First that it took: `SELECT name FROM sqlite_master WHERE tbl_name='doc_tokens'` on
+`cache/cache.sqlite` lists `doc_tokens_cover`, and the `postings` lap in `runner.steps` was the build's time, once.
+Then a week of `recall.decision`, split by build:
+`SELECT json_extract(payload,'$.build') b, COUNT(*) n, SUM(json_extract(payload,'$.lateMs')>0) late, MAX(json_extract(payload,'$.lateMs')) worst FROM events WHERE name='recall.decision' GROUP BY b`,
+and the median of `$.elapsedMs` per build. Older builds wrote no row for a dropped turn: their count is
+`adapter.recall` rows with `reason` `latency-abort`. From the process log (`sessions/log/*.log`, `proc` `hook:user-prompt-submit`,
+`process.end`): prompt `ms` p50, p90, max, and how many over 5,000.
+Baseline: dropped turns 5.5% (158 of 2,887, days 30-38), `elapsedMs` p50 411 and p90 699 on day 38, prompt `ms` p50 512 and p90
+1,174 on 10-29, max 25,457 over 10-23 to 10-30.
+
+**What would change it.** `elapsedMs` p50 not well under about 200 ms: check the index took, then read the live file's
+`page_count` and `freelist_count`, since `VACUUM` alone moved a copy's cold build 355 → 240 ms. Late turns well above
+about 1% with big `lateMs`: that's stalls, so it's time for a real deadline inside `activate` (recall `NOTES`, LT1, still
+open). Prompts over 5,000 ms staying common: a held lock is the likely cause, and the 30 s against 11 s question in
+`docs/decisions.d` wants answering. **Revert.** The commits are small. Without the index, recall just reads as it did:
+`DROP INDEX doc_tokens_cover; CREATE INDEX doc_tokens_token ON doc_tokens (token)` on the cache, or a rebuild on the older build.
 
 ## Due ~1 week after the worker's cost (2026-10-30, W1, coordinator's brief marked for Mike's review — a fix, no switch)
 

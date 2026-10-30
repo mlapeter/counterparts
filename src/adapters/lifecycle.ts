@@ -1240,6 +1240,9 @@ export class Lifecycle implements HostLifecycle {
       bytes: decision.bytes,
       budget: decision.budgetBytes,
       observer: decision.observer,
+      // A turn that ran past the latency line and was shown anyway (LT1,
+      // 2026-10-30). Absent on a turn on time, to keep the row small.
+      ...(decision.lateMs > 0 ? { lateMs: decision.lateMs } : {}),
       // WHERE the semantic channel's input came from, on the row a coverage
       // watch can read out of the store tomorrow. `semantic: "none"` on every
       // real turn is exactly the finding this PR closes. Since 2026-10-19 a

@@ -3132,8 +3132,8 @@ export class Counterpart {
    * turn of its window). A fire is a surfacing that HAPPENED (prospective NOTES
    * §6): an arrival is spent only when the gate put its memory in this turn's
    * surfaced or footnoted set — which is what makes brake 1 (once per lived
-   * day) and brake 2 (`FIRES_PER_WINDOW`) real. An aborted turn surfaced
-   * nothing and spends nothing (recall §5 G2); an observer's `fire()` stands
+   * day) and brake 2 (`FIRES_PER_WINDOW`) real. A late turn is shown, so it
+   * spends like any other (recall §5 G2); an observer's `fire()` stands
    * down on its own (§5 G9). Never throws into the turn: a lost fire row costs
    * one extra polite mention, never the recall (§12 G12).
    */
@@ -3142,7 +3142,7 @@ export class Counterpart {
     decision: RecallDecision,
     at: string,
   ): void {
-    if (decision.aborted || arrived.length === 0) return;
+    if (arrived.length === 0) return;
     const shown = new Set<string>([...decision.surfaced, ...decision.footnotes]);
     for (const a of arrived) {
       if (!shown.has(a.memoryId)) continue;
@@ -3384,17 +3384,11 @@ export class Counterpart {
    * behind is the only evidence it leaves, and §17.3's comparison surface was
    * reachable only from a live process (replay INTERFACE-GAPS §7).
    *
-   * Two skips, and they are not the same skip:
-   *
-   *   - **An abort writes NOTHING, here or in the ring.** `recall/` §5 G2 is
-   *     "nothing injected, buffered, LOGGED, or spent" — a subconscious that
-   *     lost its race must not then pay for a durable write to say so. The
-   *     timeout arm of the race is counted by the adapter's own per-turn event
-   *     (`adapter.recall {reason: "latency-abort"}`), which is a log, not a ring.
-   *   - **An observer stands down at the store seam** and says so in the
-   *     in-process event, exactly as `recall/`'s own gate-state write does
-   *     (observer-mode.md G6): a stood-down instrument stays distinguishable
-   *     from a broken hook (scar §2.4).
+   * **An observer stands down at the store seam** and says so in the
+   * in-process event, exactly as `recall/`'s own gate-state write does
+   * (observer-mode.md G6): a stood-down instrument stays distinguishable
+   * from a broken hook (scar §2.4). A late turn is written like any other, with
+   * its `lateMs` (recall §5 G2, since LT1, 2026-10-30).
    *
    * No `dedupKey` — deliberately. A turn number restarts at 1 whenever gate
    * state is reset or evicted, so a `session:turn` latch would swallow a genuine
@@ -3402,7 +3396,6 @@ export class Counterpart {
    * log's existing retention window is for. No retention rule is added here.
    */
   private recordDecision(d: RecallDecision, date: string | null): void {
-    if (d.aborted) return;
     let durable = !this.observer;
     if (durable) {
       // Guarded like `noteAdapterEvent`: a lock lost to the detached worker

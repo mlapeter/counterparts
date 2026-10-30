@@ -264,6 +264,10 @@ export function parseRegistry(raw: unknown): {
     return whole("the file is not a JSON object");
   }
   const rec = raw as Record<string, unknown>;
+  // AN EMPTY OBJECT NAMES NOTHING, so it is the empty registry rather than a
+  // file that won't read: nothing it could have said is lost, and holding every
+  // night over `{}` would cost far more than it guards (2026-10-30, #688).
+  if (Object.keys(rec).length === 0) return { registry: emptyRegistry(), error: null, refused: [] };
   if (rec["version"] !== SCOPES_VERSION) {
     return whole(
       `"version" is ${JSON.stringify(rec["version"])}, and this reads version ${String(SCOPES_VERSION)}`,

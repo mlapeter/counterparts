@@ -1080,20 +1080,30 @@ describe("structural guarantees", () => {
     }
   });
 
-  test("a latency-budget abort has ZERO side effects", () => {
+  test("a turn past the latency line is SHOWN, records like any other, and says how late it ran (LT1)", () => {
     const s = store();
     seed(s);
     put(s, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
+    const text = "my sourdough starter died again";
+    const a = new Recall({ store: s, budgetMs: 60_000 }).recall({ sessionId: "on-time", text });
     const r = new Recall({ store: s, budgetMs: -1 });
-    const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
+    const b = r.recall({ sessionId: "late", text });
 
-    expect(out.injection).toBe("");
-    expect(out.decision.aborted).toBe(true);
-    expect(out.decision.reason).toBe("latency-abort");
-    // Nothing injected, nothing buffered, NO TELEMETRY, no state advanced.
-    expect(r.events().length).toBe(0);
-    expect(s.gateRecords("s1")).toEqual([]);
-    expect(r.gateState("s1").turn).toBe(0);
+    // The same answer: the line changes what the row says and nothing else.
+    expect(a.decision.surfaced.length + a.decision.footnotes.length).toBeGreaterThan(0);
+    expect(b.decision.reason).toBe(a.decision.reason);
+    expect(b.decision.candidates).toBe(a.decision.candidates);
+    expect(b.decision.surfaced.length).toBe(a.decision.surfaced.length);
+    expect(b.decision.footnotes.length).toBe(a.decision.footnotes.length);
+    expect(b.injection).toContain("sourdough");
+
+    expect(a.decision.lateMs).toBe(0);
+    expect(b.decision.lateMs).toBe(b.decision.elapsedMs + 1);
+    expect(b.decision.aborted).toBe(false);
+    // Recorded: telemetry, and the gate state advanced, so the next turn knows.
+    expect(r.events().length).toBeGreaterThan(0);
+    expect(s.gateRecords("late").length).toBeGreaterThan(0);
+    expect(r.gateState("late").turn).toBe(1);
   });
 
   test("the decision record is content-by-reference: ids and numbers, never bodies", () => {
@@ -1368,12 +1378,11 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
     expect(none.decision.semanticDegraded).toBe(true);
   });
 
-  test("a per-turn latency budget is honoured — the deliberate ask's one lever", () => {
+  test("a per-turn latency line is honoured, and only moves what `lateMs` reads", () => {
     const s = store();
     seed(s);
     let clock = 0;
-    // A clock that jumps past any ambient budget on its second read, so the
-    // first checkpoint decides — with and without the override.
+    // A clock that jumps past any ambient line on its second read.
     const r = new Recall({
       store: s,
       budgetMs: 10,
@@ -1382,14 +1391,13 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
         return clock === 1 ? 0 : 5_000;
       },
     });
-    expect(r.build({ sessionId: "s1", text: "The reservoir loop before breakfast." }).decision.reason).toBe(
-      "latency-abort",
-    );
+    const late = r.build({ sessionId: "s1", text: "The reservoir loop before breakfast." }).decision;
+    expect(late.lateMs).toBe(4_990);
     clock = 0;
-    expect(
-      r.build({ sessionId: "s2", text: "The reservoir loop before breakfast.", budgetMs: 60_000 })
-        .decision.reason,
-    ).not.toBe("latency-abort");
+    const inTime = r.build({ sessionId: "s2", text: "The reservoir loop before breakfast.", budgetMs: 60_000 }).decision;
+    expect(inTime.lateMs).toBe(0);
+    expect(inTime.reason).toBe(late.reason);
+    expect(inTime.surfaced).toEqual(late.surfaced);
   });
 });
 

@@ -142,7 +142,8 @@ directory. Two things moved instead:
 2. The row carries a **ranking**, not a vector. This is the part worth remembering:
    moving the embedding call off the hot path would not have been enough, because
    `Store.nearestTo` reads and `JSON.parse`s every row in box 3 and measured 590-1040 ms
-   at the live index's size — inside a 1200 ms budget that aborts rather than degrades.
+   at the live index's size — inside a 1200 ms budget that, until LT1 (2026-10-30), aborted
+   rather than degraded.
 
 **What is still borrowed, and from whom:** the WORDS. `adapters/claude-code/vectors.ts`
 decides what text becomes the cue (the owner's prompt to 2000 bytes plus 800 bytes of

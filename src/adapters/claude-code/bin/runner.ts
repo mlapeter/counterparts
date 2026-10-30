@@ -161,6 +161,9 @@ export interface RunReport {
   /** The word index's re-stem (v7 cache, 2026-10-19, an experiment), when this
    *  run did any: absent on an index that was already stemmed. */
   readonly terms?: { readonly ready: boolean; readonly examined: number; readonly changed: number; readonly ms: number };
+  /** The covering index on the word index (LT1, 2026-10-30), when this run built
+   *  it: absent on every run but the one. */
+  readonly postings?: { readonly ms: number };
   /** The sidebar's status file (`adapters/sidebar-status.ts`), written after the
    *  store closed; absent when the run was not asked to (no configuration path). */
   readonly sidebar?: SidebarWrite;
@@ -490,6 +493,21 @@ export async function runOnce(input: {
   }
   steps.lap("terms");
 
+  // 0d. THE COVERING INDEX ON THE WORD INDEX (LT1, 2026-10-30). Once, in one
+  // transaction, never at open: a hook cannot pay for it. A lock it loses is the
+  // next run's to try.
+  let postings: RunReport["postings"];
+  try {
+    const r = counterpart.store.coverPostingsIndex();
+    if (r.built) {
+      postings = { ms: r.ms };
+      emit("runner.postings", { ms: r.ms });
+    }
+  } catch (err) {
+    noteFailure(counterpart, emit, err instanceof Error ? err.name : "UNKNOWN", "postings", today);
+  }
+  steps.lap("postings");
+
   // Step 4's answer, filled in the `finally` below and joined to whichever of
   // the two results the boundary produced. A `let` rather than a fourth return
   // arm because the copy must happen on BOTH paths and before `close()`.
@@ -562,6 +580,7 @@ export async function runOnce(input: {
       snapshot: null,
       retention: null,
       ...(terms === undefined ? {} : { terms }),
+      ...(postings === undefined ? {} : { postings }),
     };
   } catch (err) {
     const code =

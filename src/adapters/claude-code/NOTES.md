@@ -577,9 +577,10 @@ purpose: the file's own trouble is reported at every door. Noted so it isn't los
 The night holds on a file that won't read, not on a bad entry (2026-10-30, review of #688): `runNight` ends
 `could-not-start`, reason `folder-setting`, no child asked, and doctor's `night-held` is red until it's fixed.
 
-What won't read is `parseRegistry`'s whole-file list, and it's wider than junk: a file with no `version`, `{}`
-included, a `version` this copy doesn't read (a rollback past a future bump), and a BOM all hold the night, as
-they already stopped the catch-up. A wrong permission or a directory in its place does too; absent doesn't.
+What won't read is `parseRegistry`'s whole-file list, and it's wider than junk: a file with no `version`, a
+`version` this copy doesn't read (a rollback past a future bump), and a BOM all hold the night, as they already
+stopped the catch-up. A wrong permission or a directory in its place does too. Absent doesn't, and neither does
+`{}` (2026-10-30): an empty object names nothing, so it's the empty registry, for the hook and the catch-up too.
 
 ## What an adversarial read of the scope registry found (2026-09-15, PR #92 review)
 

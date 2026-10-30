@@ -2438,3 +2438,34 @@ the files other modules write inside a 0700 store.
   `mkdirPrivate` now refuses by name while climbing: the link, its target, `mkdir -p` the
   target or remove the link. The target is not made for them: it is often another disk or a
   synced folder, and a missing one may be an unmounted volume.
+
+## 2026-10-30 — LT1: a covering index on the word index, and no version moves
+
+`doc_tokens` was a rowid table with an index on `token` alone, so each posting of a looked-up word
+was a random trip back to the table for `tf`. That is the part of recall that grows with the store
+and only when its pages are cold. `doc_tokens_cover (token, memory_id, tf)` replaces it.
+
+**Why this is not a store-format change.** `CACHE_SCHEMA_VERSION` stays 7 and box 2 is untouched.
+The planner finds an index by table, not by name, so every build reads and maintains this one. Run
+on a covered copy, the previous build's hook gave byte-identical output on 52 of 52 prompts. A
+rebuild on an older build puts the old index back, and the next worker here swaps it again.
+
+**Where it gets built.** `Store#coverPostingsIndex`, a worker step beside the re-stem (`postings` in
+`runner.steps`), once, in one transaction, keyed on `sqlite_master`. A new or emptied index gets it
+free (`openCache`'s empty arm, `resetCache`). It is deliberately out of `DDL`: a cache migrating at
+open from an older version runs `DDL` on the hook path, and on a full table that would build it
+there. A test holds that.
+
+**What it costs, on a copy of a 5,438-memory store (455,421 postings), load 4-6.**
+
+- The build: 446-463 ms on a cold clone. Writers of box 3 wait that long, once; readers don't (WAL).
+- The file: 45.1 → 59.7 MB in place, 6.9 MB of that free pages from the dropped index, which later
+  writes reuse. A rebuilt cache is 54.5 MB.
+- `indexDoc`, 300 real documents replaced and 300 added, three interleaved rounds: 2.2-3.5 s in all
+  before, 2.5-4.2 s after, about 25% more on average and noisy (13-45% round by round), so about 1 ms
+  a write. A new document: p50 0.6-0.7 → 0.7-0.8 ms, p95 15-20 → 21-33 ms. Replacing one isn't
+  clearly slower at p50. It is one write per memory, on the writing side, not on a prompt's read.
+- `verify --rebuild --keep-vectors`: 9.4 → 12.6 s, one run each.
+
+The plans of the other queries on the table don't change (`SELECT DISTINCT memory_id`, the lengths'
+`GROUP BY`, one document's rows, the delete): they stay on the primary key's index.

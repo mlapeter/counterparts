@@ -834,11 +834,17 @@ export const NARRATORS = {
   },
   "adapter.recall": (t) => {
     const reason = s(t, "reason");
+    // Rows from before LT1 (2026-10-30): a slow turn used to give up. None is written now.
     if (reason === "latency-abort") {
       return amber(`Recall took too long for one turn and I abandoned it rather than make you wait.`);
     }
     const count = n(t, "surfaced") ?? n(t, "count") ?? 0;
     const bytes = n(t, "bytes") ?? 0;
+    const late = n(t, "lateMs") ?? 0;
+    if (late > 0) {
+      const past = `A turn's recall ran ${String(Math.round(late))} ms past its limit`;
+      return calm(bytes > 0 ? `${past}, and what it found was shown anyway.` : `${past}, and came to nothing to show.`);
+    }
     // A turn may hand over only the beliefs slot (lane E): its count and bytes say so.
     const beliefs = n(t, "beliefs") ?? 0;
     if (count === 0 && beliefs > 0 && bytes > 0) {

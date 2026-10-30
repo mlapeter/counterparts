@@ -502,6 +502,15 @@ describe("a setting file that won't read holds the night", () => {
     });
   }
 
+  test("an empty object names nothing: the night isn't held over `{}`", async () => {
+    const c = brain();
+    await brokenDay(c);
+    writeFileSync(scopesFile, "{}");
+    const got = await child(c, "dream").call("dream", { phase: "begin", session: NIGHT });
+    expect(got.structuredContent["reason"]).not.toBe("folder-setting-unreadable");
+    expect(got.isError).not.toBe(true);
+  });
+
   test("the nightly run asks nobody, its row says why, and doctor is red until the file is fixed", async () => {
     const c = brain();
     await brokenDay(c);
