@@ -537,6 +537,23 @@ describe("a setting file that won't read holds the night", () => {
     expect(seen.length).toBeGreaterThan(0);
   });
 
+  test("the ask after a held night says to fix the file first: its door refuses \"dream\" until then", async () => {
+    const c = brain();
+    await brokenDay(c);
+    for (let i = 0; i < 8; i++) worked(c, HERE, `Row ${String(i)} of the garden, staked and tied and watered at dusk.`);
+    c.store.setMeta("dream.setting", "auto");
+    clock = at(D2, 8);
+    c.store.advanceClock(D2);
+    const first = c.dreams.offer({ at: D2, session: WRITER });
+    expect(first?.headless).toBe(true);
+    expect(c.dreams.claimOffer(first as NonNullable<typeof first>)).toBe(true);
+    c.dreams.recordNightRun({ run: "nrn_held", date: D2, kind: "night", session: NIGHT, startedAt: clock, endedAt: clock, timeoutMs: 1, state: "could-not-start", reason: "folder-setting", detail: null, code: null, dream: null, reflection: null });
+    const ask = c.dreams.offer({ at: D2, session: WRITER });
+    expect(ask?.fallback).toBe(true);
+    expect(ask?.notice).toContain("which file to fix or remove");
+    expect(ask?.notice).not.toContain("to do it here");
+  });
+
   test("a single bad entry doesn't hold it: the file read", async () => {
     const c = brain();
     await brokenDay(c);

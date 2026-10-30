@@ -1349,3 +1349,8 @@ A setting file that won't read holds the night rather than close everything and 
 roadmap, 10-30): through the doors, a night then got the page and whatever had no folder, stored a thinner page
 as `revised`, journaled a dream of nothing, and finished a reflection on it, with nothing said anywhere. A folder
 that doesn't export is a choice; every folder closing at once is a fault.
+
+Why a belief isn't fenced (second read of #688, 10-30): a belief is the counterpart's own reading, and removing core
+beliefs over one closed support row could do more harm than the row's words could. It costs nothing today: on a copy
+of the owner's store, under his setting that day (3 rows closed), 0 of 7 live beliefs rest only on closed rows, and
+none of their 19 support rows is closed.

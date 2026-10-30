@@ -1500,7 +1500,9 @@ export class Dreams {
     if (fell !== null) {
       // THE HEADLESS RUN COULD NOT START: ask, here, and say why in one line.
       const words = nightRunWords(fell);
-      const notice = `Counterparts: I couldn't start dreaming on my own: ${words}${/[.?!]$/.test(words) ? "" : "."} Say "dream" to do it here.`;
+      // A held night's door refuses "dream" too until the file is fixed, so the line says that first.
+      const next = fell.reason === "folder-setting" ? '`counterparts doctor` says which file to fix or remove; then say "dream".' : 'Say "dream" to do it here.';
+      const notice = `Counterparts: I couldn't start dreaming on my own: ${words}${/[.?!]$/.test(words) ? "" : "."} ${next}`;
       const start = s.reflectOnly !== null ? reflect : launch;
       return {
         ...base,
