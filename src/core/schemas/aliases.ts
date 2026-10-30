@@ -31,16 +31,15 @@ import { nameRegex, occursAsName, unpossessed, wordTokens } from "../encode/word
  * `nameRegex` matches by the `iu` flags' case folding and `wordTokens` by
  * `toLowerCase`, and those two disagree: a final sigma, a long s, a micro sign.
  * Exactly one non-ASCII character folds onto an ASCII letter and survives
- * `toLowerCase` (the long s; the Kelvin sign lower-cases to `k`), so a term with
- * an ASCII first word is safe once that one is mapped. A first word with anything
- * else in it is simply always tried, which is what every term cost before.
+ * `toLowerCase` (the long s; the Kelvin sign lower-cases to `k`), so a term in plain
+ * ASCII is safe once that one is mapped. A term with anything else in it is simply
+ * always tried, which is what every term cost before: that also covers U+0345,
+ * which folds to iota and is no word character.
  *
- * Two inputs where the hits do move, neither on a real card or text so far. Under
- * bun, `nameRegex`'s lookbehind doesn't see a letter outside the BMP as a word
- * character, so the rule alone finds "kim" in "\u{10400}kim"; node's doesn't, and
- * now neither does bun here, since that text's word is the whole run. And a term
- * with U+0345 touching its first word: it folds to iota and is no word character,
- * the one such character there is.
+ * One input where the hits do move, on no real card or text so far. Under bun,
+ * `nameRegex`'s lookbehind doesn't see a letter outside the BMP as a word character,
+ * so the rule alone finds "kim" in "\u{10400}kim". Node's doesn't, and now neither
+ * does bun for a plain ASCII term, since that text's word is the whole run.
  */
 function wordsIn(text: string): Set<string> {
   return new Set(wordTokens(text.replace(/\u017f/gu, "s")).flatMap((t) => [t, unpossessed(t)]));
@@ -48,8 +47,8 @@ function wordsIn(text: string): Set<string> {
 
 /** The word to look a term up by; null means try it on every text. */
 function firstWordKey(term: string): string | null {
-  const first = wordTokens(term)[0];
-  return first === undefined || !/^[\x00-\x7f]*$/.test(first) ? null : first;
+  if (!/^[\x00-\x7f]*$/.test(term)) return null;
+  return wordTokens(term)[0] ?? null;
 }
 
 function mayOccur(words: ReadonlySet<string>, term: string): boolean {

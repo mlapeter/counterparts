@@ -551,6 +551,11 @@ describe("subject links", () => {
       expect(scan(t)).toEqual([]);
     }
     expect(idx.matchesIn("\u{1F600}Oskar").map((h) => h.term)).toEqual(["Oskar"]);
+    // U+0345 folds to iota and is no word character: a term holding it is always tried.
+    const ypo = new AliasIndex();
+    ypo.register("sch_y", "kim\u0345");
+    expect(ypo.matchesIn("KIM\u0399").map((h) => h.id)).toEqual(["sch_y"]);
+    expect(ypo.scanner()("KIM\u0399").map((h) => h.id)).toEqual(["sch_y"]);
   });
 
   test("matchesIn holds the every-term rule on random texts, and follows register and unregister", () => {

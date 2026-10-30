@@ -13,7 +13,7 @@
 - Decided by the LT1 builder, 2026-10-30, lightly held: the covering index is not a store-format change.
   No version moves and an older build reads a covered cache as it was (byte-identical on 52 of 52
   prompts), so it doesn't wait for a batch of migrations. It adds about 15 MB to a rebuildable file.
-- Decided by the LT1 builder, 2026-10-30, lightly held: a card's name whose first word isn't plain ASCII
+- Decided by the LT1 builder, 2026-10-30, lightly held: a card's name that isn't plain ASCII
   is still tried on every prompt. `toLowerCase` and the regex's case folding disagree outside ASCII, and
   trying it is what every term cost before, so such a store is no slower than today and no faster there.
   The scanner the v12 backfill uses had this same gap, on a long s or a final sigma; it goes through the
