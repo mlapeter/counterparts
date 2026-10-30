@@ -39,7 +39,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { runtimeIsBun } from "../../src/core/store/db.js";
+import { isLocked, runtimeIsBun } from "../../src/core/store/db.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -95,7 +95,9 @@ function openReadOnly(path: string, nobodyHasIt: boolean): ReadOnlyDb {
 }
 
 const MISSING = "signups: there is no accounts database on this volume (control/accounts.sqlite under HOSTED_DATA_ROOT). Nothing was made.";
-const UNREADABLE = "signups: control/accounts.sqlite couldn't be read just now (busy, damaged, or not an accounts database). Nothing was changed. Try again in a minute; if it keeps failing, tell the coordinator.";
+const BUSY = "signups: control/accounts.sqlite is busy just now. Nothing was changed. Try again in a minute; if it keeps failing, tell the coordinator.";
+const UNSETTLED = "signups: control/accounts.sqlite has only one of its -wal and -shm files, and reading it would make the other. Nothing was changed. Run it again once any start or restore has finished; if it still says this, tell the coordinator.";
+const UNREADABLE = "signups: control/accounts.sqlite couldn't be read (damaged, not permitted, or not an accounts database). Nothing was changed, and waiting won't fix this: tell the coordinator.";
 
 /** Read and render, or a refusal in fixed words. Never makes, changes or migrates anything. */
 export function signupsCommand(path: string, now: number = Date.now()): { text: string } | { refusal: string } {
@@ -103,7 +105,7 @@ export function signupsCommand(path: string, now: number = Date.now()): { text: 
   const wal = existsSync(`${path}-wal`);
   const shm = existsSync(`${path}-shm`);
   // One without the other: a reader would make the missing one, and no settled volume looks like this.
-  if (wal !== shm) return { refusal: UNREADABLE };
+  if (wal !== shm) return { refusal: UNSETTLED };
   try {
     const db = openReadOnly(path, !wal);
     try {
@@ -113,7 +115,8 @@ export function signupsCommand(path: string, now: number = Date.now()): { text: 
     } finally {
       db.close();
     }
-  } catch {
-    return { refusal: UNREADABLE };
+  } catch (err) {
+    // `isLocked` answers yes or no; the driver's words go no further.
+    return { refusal: isLocked(err) ? BUSY : UNREADABLE };
   }
 }

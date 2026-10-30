@@ -192,8 +192,9 @@ describe("signups: the command", () => {
       const run = signups();
       assert.equal(run.status, 1);
       assert.equal(run.stdout, "");
-      assert.match(run.stderr, /couldn't be read just now .*Nothing was changed/);
-      assert.ok(!/no such table|not a database/.test(run.stderr), "the driver's words stay out");
+      assert.match(run.stderr, /couldn't be read .*Nothing was changed, and waiting won't fix this/);
+      assert.ok(!/try again/i.test(run.stderr), "waiting won't change a junk file");
+      assert.ok(!/no such table|file is not a database/.test(run.stderr), "the driver's words stay out");
       assert.deepEqual(everything(), before);
     }
   });
@@ -219,8 +220,23 @@ describe("signups: the command", () => {
     const before = everything();
     const run = signups();
     assert.equal(run.status, 1);
-    assert.match(run.stderr, /couldn't be read just now/);
+    assert.match(run.stderr, /only one of its -wal and -shm files.*Nothing was changed/);
     assert.deepEqual(everything(), before);
+  });
+
+  test("held exclusively by another connection: it says busy and to try again, in fixed words, and leaves the holder alone", () => {
+    const accounts = new Accounts({ path: dbPath });
+    accounts.close();
+    const holder = openDb(dbPath);
+    holder.exec("PRAGMA locking_mode = EXCLUSIVE");
+    holder.run("UPDATE people SET state = state");
+    const run = signups();
+    assert.equal(run.status, 1);
+    assert.equal(run.stdout, "");
+    assert.match(run.stderr, /is busy just now\. Nothing was changed\. Try again in a minute/);
+    assert.ok(!/database is locked/.test(run.stderr), "the driver's words stay out");
+    holder.exec("CREATE TABLE still_writing (x)");
+    holder.close();
   });
 
   test("beside a live connection: it reads what is only in the WAL, changes neither file, and the writer never notices", () => {
