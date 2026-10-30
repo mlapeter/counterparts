@@ -2878,11 +2878,17 @@ session; two or more at once for 120 s of the day, at most three. The steps that
 already say so (the cycle's lease, the snapshot's day claim, retention's latch). A later worker
 that left its work to an earlier one would lose what is its alone: its session's lagged cue, which
 expires after one turn, and a sidebar file that includes the earlier worker's own rows. At a third
-of the duration, the same starts give about 26 s of overlap. The numbers don't ask for one.
+of the duration, the same starts give about 26 s of overlap. 10-29's numbers don't ask for one.
+10-30's might, and it was a partial day when this was written (to about 15:00 UTC): 108 workers,
+two or more at once for 809 s, at most four, 655 s of it in one stretch, 12:50 to 13:10 UTC. The
+week's read in `docs/CHECK-AFTER.md` decides.
 
-**The watchdog doesn't bound this.** 10-30 12:55 UTC: `runner.done` at 8.5 s, `process.end` at
-380 s, past the 5-minute `COUNTERPARTS_WATCHDOG_MS`. The watchdog only aborts a signal, its timer
-can't fire during a synchronous step, and the sidebar's write is synchronous. Nothing recorded which
-step that run was in; the sidebar is the likely one, on its share of every other run. Left as is:
-that step is now a fifth of the size, and a thrashing machine is a thing this file can't fix. If the
-rows show long gaps again, `runner.steps` will say which step.
+**The watchdog doesn't bound this.** That same stretch had 10 workers over 100 s and two past the
+5-minute `COUNTERPARTS_WATCHDOG_MS`: `process.end` at 380 s (`runner.done` at 8.5 s) and 367 s
+(`runner.done` at 37 s). The watchdog only aborts a signal, its timer can't fire during a synchronous
+step, and the sidebar's write is synchronous. Nothing recorded which step those runs were in. The
+sidebar is the likely one for the time after done, on its share of every other run, but it isn't the
+whole story: in the same stretch four workers reached `runner.done` only after 80 to 110 s, so the
+cycle went long as well. That looks like the machine, not one step. Left as is: the sidebar's step
+is now a fifth of the size, and a thrashing machine is a thing this file can't fix. If the rows show
+long gaps again, `runner.steps` will say which step.

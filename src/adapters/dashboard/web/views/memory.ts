@@ -278,6 +278,9 @@ function subjectOf(store: DashboardSource["store"], id: string, meta: Record<str
  * `timelineOf` every archived row, each time, about 30 ms a card on the owner's
  * store, 1.85 s of the 2.45 s the status file took for its 60 memories, at every
  * turn's end. Null: nothing there to show, the case `memoryDetail` says `found: false`.
+ * One difference, on a damaged row only: a card that throws further down (a `kind`
+ * physics doesn't know, which no write path makes) has no answer, and this still
+ * has the words.
  */
 export function memoryWords(
   src: DashboardSource,

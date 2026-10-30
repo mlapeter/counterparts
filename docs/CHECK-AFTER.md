@@ -106,7 +106,9 @@ the boundary's reserve reads the settled pairs once. On a copy of the corpus: 3.
 the release date. Worker ms from `process.end` (p50, p90, max), the after-done share (time from `runner.done` to
 `process.end` over the whole), and `runner.steps` for which step holds what is left. Baseline, 10-29: 209 workers, p50
 6.4 s, p90 12 s, max 42 s, 1,593 s in the day, 75% after done. Also how many workers overlap: two or more at once for
-120 s of 10-29.
+120 s of 10-29, and 809 s of 10-30 by about 15:00 UTC (108 workers, at most four, 10 over 100 s, 2 past 300 s; 655 s of
+the overlap between 12:50 and 13:10 UTC). A bad stretch like that one is part of what this has to answer: read it apart
+from the p50.
 
 **What would change it.** p50 at or below about 2.5 s and after-done under about half: keep, and drop `runner.steps` from
 `LOGGED` if the rows have stopped being read. p50 still above about 4 s: read the row for the step, and the wake step on

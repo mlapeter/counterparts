@@ -574,6 +574,9 @@ export async function runOnce(input: {
     // tomorrow, and this process's stderr goes nowhere (I32).
     noteFailure(counterpart, emit, code, "sessionEnd", today);
     result = { ran: false, reason: "failed", swept: 0, minted: 0, code, lag, backfill, snapshot: null, retention: null };
+    // The boundary that threw is the step that took this time, or the first lap
+    // in the `finally` would carry it under `coverage`.
+    steps.lap("cycle");
   } finally {
     // 3b. WHAT IS NOT WRITTEN UP (2026-09-30, `core/coverage/`): one row per
     // stretch per state — owed, written up, lapsed — at every turn-end, keyless.
