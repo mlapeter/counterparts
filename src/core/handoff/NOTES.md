@@ -712,6 +712,9 @@ previous check-in.
 
 ## 2026-10-30 — one block for where this folder stands (WK1)
 
+- **What comes next is kept by its word.** `handoffLead` looks for a handoff's last `next…:` (`next:`, `Next for me:`, `Next
+  step:`). A handoff with its next step in other words has no such guard: its first lines are what shows.
+
 - **Why one renderer, not a reorder.** Three ladders spliced in a fixed order is what let an older handoff read as the
   latest word; sorting them would still have said who and when three times. `standsLadder` groups by session, so one session's
   chapter, last words and newest handoff are one entry. Older entries are judged by session and time, never by text.
@@ -719,9 +722,13 @@ previous check-in.
   `#pointerChoices`, `lastHereBlock`, `lastHereLadder`, `laterHereLadder`, `withExchange`, `lastExchangeLine`, and the limits
   `HANDOFF_WAKE_SHOWN`, `HANDOFF_WAKE_LISTED`, `LAST_HERE_SHOWN`, `LAST_HERE_LISTED`. "Before it" and "+N more here" are
   "Today so far"'s and the Yesterday line's job. The all-stale collapse went too: every other handoff is now a short line
-  with no staleness sentence, its day says it.
-- **The shape changed mid-build** (Mike's markup, via ROADMAP, 10-30): first one line, then the newest handoff's lead at up
-  to five lines and each other live handoff one line. A lead line stays flat and indented, so a body cannot read as a line
+  with no staleness sentence, its day says it. The newest says its own, "with a newer chapter here since", and the chapter
+  is named under it.
+- **The shape changed mid-build** (Mike's markup and ROADMAP's review of the numbers, 10-30): first one line with the newest
+  mention leading; then the newest handoff's lead at up to five lines and every other live handoff a line, which took "Work
+  here" down to nothing on a tight wake; then two other handoffs, and the handoff leading whatever is newer, as review of
+  #300 MAJOR-1 asked. Measured on the 10-30 copy, the last step gave ~/random back 1–2 "Work here" lines and ~/counterparts
+  back all of its. A lead line stays flat and indented, so a body cannot read as a line
   of the wake's own, and the markers are refused at write as before.
 - **The events keep their meanings.** `handoff.shown` is a handoff with a line in the wake, `counterpart.lasthere.shown` and
   `handoff.lasthere.noroom` the chapter's part, `counterpart.lastexchange.*` the quote. Doctor and the dashboard still call

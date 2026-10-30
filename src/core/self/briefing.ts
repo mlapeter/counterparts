@@ -202,7 +202,7 @@ export const TRIM_ORDER: readonly LaneName[] = [
  *     own block (`handoffsKept`, below): the delivery drops "Last here"
  *     first and then shows fewer handoffs in full, the rest by count and
  *     the `handoffs here` handle (`counterpart.ts#addHandoffPointer`,
- *     `handoff/#standsLadder`, one line since WK1). "Last said here" (2026-10-11) is
+ *     `handoff/#standsLadder`, one block since WK1). "Last said here" (2026-10-11) is
  *     the first thing that line gives up after the about-me line; its room is
  *     held in `work`'s, the room the page borrows before it steps down;
  *   - `elsewhere` — the "Today, elsewhere" line (2026-10-10, composed at

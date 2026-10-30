@@ -154,8 +154,8 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     pointer states WHO wrote it when the row names a session (the short session id, "this
     session" for the reader's own, and the model when the host recorded one), that
     several live handoffs are shown newest first, the newest's lead at up to
-    `HANDOFF_LEAD_LINES` lines and each other one a line (`standsLadder`, WK1 2026-10-30), the
-    rest by count and the `handoffs here` recall handle when room is short, that a
+    `HANDOFF_LEAD_LINES` lines and the next `HANDOFF_OTHERS_SHOWN` a line each (`standsLadder`,
+    WK1 2026-10-30), the rest by count and the `handoffs here` recall handle, that a
     pointer states when it was written (since 2026-09-30 to the minute; from 2026-09-30 to
     2026-10-18 the newest also said when work here ran after it and how far that was written
     up — "work here 16:01–17:53 since, written up to 17:48 (chapter), 3 pieces after" — which
@@ -375,8 +375,8 @@ true:
   ceiling, the compose-budget difference is what the lanes give up, never past an eighth.
 
 - **WK1 (2026-10-30):** the handoffs, "Last here" and "Last said here" are one block
-  (`standsLadder`), and its head gives the order things give way in. The newest mention now
-  outlives an older handoff; the paragraph below is the arrangement it replaced, and the
+  (`standsLadder`), and its head gives the order things give way in. The handoff is still carried
+  first (review of #300 MAJOR-1), a newer chapter under it by title; the paragraph below is the arrangement it replaced, and the
   reserve's two terms are measured from the new block's own rungs (`handoffRungBytes`,
   `chapterRungBytes`).
 

@@ -228,7 +228,9 @@ describe("through the doors", () => {
     const c = Counterpart.open({ dir: store });
     expect(c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first page", by: "owner" }).written).toBe(true);
     const sentence = (i: number): string => `Paragraph sentence ${String(i)} says what was done and where the glazing stands now, in plenty of words.`;
-    const para = Array.from({ length: 12 }, (_, i) => sentence(i)).join(" ");
+    // A first sentence past the line's cap, so the cut itself goes through the door too.
+    const wall = "The glazing word wörterbuch runs on and on through the kiln-readings ".repeat(6).trim();
+    const para = [`${wall}.`, ...Array.from({ length: 12 }, (_, i) => sentence(i))].join(" ");
     expect(c.writeHandoff(`${para}\n\nNext: open the kiln log and read the cone readings.`, { scope: HERE, session: "11112222-0000-4000-8000-000000000000" }).written).toBe(true);
     expect(c.rebrief({ budgetBytes: BUDGET }).published).toBe(true);
     c.close();
@@ -246,9 +248,11 @@ describe("through the doors", () => {
     const lines = out.split("\n");
     const lead = lines.filter((l) => l.startsWith("  "));
     expect(lead).toHaveLength(5);
-    expect(lead[0]).toBe(`  ${sentence(0)}`);
+    expect(lead[0]).toEndWith("…");
+    expect(wall.startsWith((lead[0] ?? "").trim().slice(0, -1))).toBe(true);
+    expect(wall[(lead[0] ?? "").trim().length - 1]).toBe(" ");
+    expect(lead[1]).toBe(`  ${sentence(0)}`);
     expect(lead[4]).toBe("  Next: open the kiln log and read the cone readings.");
-    for (const l of lead) expect(l.endsWith(".")).toBe(true);
   });
 
   function adapter(): ReturnType<typeof openAdapter> {
