@@ -118,9 +118,8 @@ describe("the sidebar", () => {
     for (const f of ["hooks/full.tsx", "hooks/register.tsx", "hooks/speak-first.tsx", "hooks/actions.tsx", "types/index.d.ts", "README.md", "LICENSE", "icon.png"]) {
       expect(sidebarPaths).toContain(f);
     }
-    const pngs = readdirSync(join(REPO, SIDEBAR_DIR, "art/fox")).filter((n) => n.endsWith(".png"));
-    expect(pngs.length).toBeGreaterThan(0);
-    for (const n of pngs) expect(sidebarPaths).toContain(`art/fox/${n}`);
+    expect(readdirSync(join(REPO, SIDEBAR_DIR, "art/fox"))).toEqual(["fox.pngs"]);
+    expect(sidebarPaths).toContain("art/fox/fox.pngs");
   });
 
   test("every $.state owner and the contract are the sidebar plugin's; command names, the pane and core's commands stay", () => {
@@ -217,7 +216,7 @@ describe("written", () => {
     writeBundle(sidebar, out);
     expect(existsSync(join(out, "stale.txt"))).toBe(false);
     expect(JSON.parse(readFileSync(join(out, ".claude-plugin/plugin.json"), "utf8")).name).toBe(SIDEBAR_PLUGIN);
-    expect(existsSync(join(out, "art/fox/idle.png"))).toBe(true);
+    expect(existsSync(join(out, "art/fox/fox.pngs"))).toBe(true);
     const coreOut = join(work, "core");
     writeBundle(core, coreOut);
     expect(existsSync(join(coreOut, "hooks/sidebar"))).toBe(false);

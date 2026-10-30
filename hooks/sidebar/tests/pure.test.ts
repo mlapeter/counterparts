@@ -50,7 +50,9 @@ import {
   normDetail,
   pickTier,
   PNG_FRAMES,
-  pngName,
+  pngKey,
+  frameBase64,
+  keepsFallback,
   runs,
   sextantBits,
   sextantGlyph,
@@ -60,6 +62,7 @@ import {
   trigger,
 } from '../hooks/fox'
 import { FOX_FINAL } from '../hooks/fox-art'
+import { SHEET_BYTES, SHEET_FRAMES } from '../hooks/fox-sheet'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
 import { MECHS } from '../hooks/mechanisms'
 import { MORE, OPEN_MAX_LINES, bar, clip, heading, layoutBody, openedLines, textOf, wrapN } from '../hooks/sections'
@@ -845,7 +848,15 @@ describe('the fox', () => {
     expect(pickTier('terminal', 'auto', { TERM: 'xterm-kitty' }, true)).toBe('fine')
     expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' }, true)).toBe('basic')
     expect(pickTier('terminal', 'auto', {}, true)).toBe('basic')
-    // no PNG folder found: never a picture, not even when asked for one
+    // bytes draw in iTerm2 and tmux, but auto leaves their fox as it was; asked for, a picture
+    for (const env of [{ TERM_PROGRAM: 'iTerm.app' }, { TERM_PROGRAM: 'tmux', TERM: 'tmux-256color' }, { TERM: 'screen-256color' }]) {
+      expect(keepsFallback(env)).toBe(true)
+      expect(pickTier('terminal', 'auto', env)).not.toBe('image')
+      expect(pickTier('terminal', 'images', env)).toBe('image')
+    }
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'iTerm.app' })).toBe('fine')
+    for (const env of [{ TERM_PROGRAM: 'ghostty' }, { TERM: 'xterm-kitty' }, { TERM: 'xterm-ghostty' }, { KITTY_WINDOW_ID: '1' }]) expect(pickTier('terminal', 'auto', env)).toBe('image')
+    // no PNG sheet found: never a picture, not even when asked for one
     expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'iTerm.app' }, false, false)).toBe('fine')
     expect(pickTier('terminal', 'images', {}, false, false)).toBe('basic')
     // an explicit choice stands
@@ -920,11 +931,20 @@ describe('the fox', () => {
     expect(fineCells({ frame: 'nap1', fx: zs }).flat().some(c => c.fg === textHex('#9be') || c.bg === textHex('#9be'))).toBe(true)
     expect([...decodeCells(halfCells({ frame: 'nap1', fx: zs }))].some((v, i) => i % 3 !== 0 && v === 0x99bbee)).toBe(true)
     // the picture tier's files (art/fox/<key>.png): a frame with its effects, else the frame, else idle
-    expect(pngName(idle)).toBe('idle.png')
-    expect(pngName({ frame: 'perk', fx: [['spark0', 'spark']] })).toBe('perk+spark0.png')
-    expect(pngName({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk.png')
-    expect(pngName({ frame: 'no-such', fx: [] })).toBe('idle.png')
+    expect(pngKey(idle)).toBe('idle')
+    expect(pngKey({ frame: 'perk', fx: [['spark0', 'spark']] })).toBe('perk+spark0')
+    expect(pngKey({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk')
+    expect(pngKey({ frame: 'no-such', fx: [] })).toBe('idle')
     expect(PNG_FRAMES.size).toBe(36)
+    // the sheet's table names the same frames, a frame at a time, in order and on multiples of 3
+    expect(Object.keys(SHEET_FRAMES).sort()).toEqual([...PNG_FRAMES].sort())
+    let end = 0
+    for (const [at, len] of Object.values(SHEET_FRAMES)) {
+      expect(at).toBe(end)
+      expect(at % 3).toBe(0)
+      end = at + Math.ceil(len / 3) * 3
+    }
+    expect(end).toBe(SHEET_BYTES)
     const svg = foxSvg(idle, 'iVBORw0KGgo')
     expect(svg.source.length).toBeLessThan(131072)
     // the picture alone: the half-blocks under it showed as a ghost edge on the desktop's light page
@@ -978,7 +998,7 @@ describe('the fox', () => {
     for (const steps of Object.values(FOX_FINAL.moments) as unknown as (readonly [string, number])[][]) {
       for (const [f] of steps) {
         expect(f in FOX_FINAL.png.frames && f in FOX_FINAL.sextant.frames && f in FOX_FINAL.half.frames).toBe(true)
-        expect(pngName({ frame: f, fx: [] })).toBe(`${f}.png`)
+        expect(pngKey({ frame: f, fx: [] })).toBe(f)
       }
     }
   })
@@ -1324,7 +1344,7 @@ describe('the fox', () => {
       const step = { frame: f, fx: [] }
       expect(halfCells(step)).not.toBe(halfCells(idle))
       expect(JSON.stringify(fineCells(step))).not.toBe(JSON.stringify(fineCells(idle)))
-      expect(pngName(step)).toBe(`${f}.png`)
+      expect(pngKey(step)).toBe(f)
     }
   })
 

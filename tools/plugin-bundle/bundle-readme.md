@@ -406,10 +406,11 @@ cache, on your default model. Turning dreaming off removes that part. Your numbe
 differ with how much you use it.
 
 <!-- flavor:full directory -->
-The sidebar's fox is drawn from small PNG files in the plugin's own folder
-(`hooks/sidebar/art/fox/`): a terminal that shows pictures (kitty, Ghostty) reads them
-itself, and the desktop app's sidebar reads each one once. The script that builds them
-from the art is in the source repository (`tools/fox-art/`).
+The sidebar's fox is drawn from small PNGs kept one after another in a single file in the
+plugin's own folder (`hooks/sidebar/art/fox/fox.pngs`; `hooks/sidebar/hooks/fox-sheet.ts`
+says where each one sits). The sidebar reads that file once, and only where it draws a
+picture (kitty, Ghostty, the desktop app). The script that builds it from the art is in
+the source repository (`tools/fox-art/`).
 
 The sidebar runs no programs, fetches nothing and holds no links: COUNTERPARTS and the
 `more` after a long memory are plain words. `/counterparts:dashboard` starts the

@@ -57,7 +57,9 @@ const paths = bundlePaths(plan);
  *  room for a wave or two of new modules (wave 2 added ~7) that still leaves
  *  it 32 under the limit should it become what the directory gets; sidebar
  *  keeps 100, its own bundle and nowhere near the limit, so it only catches a
- *  trace that suddenly pulls in far more than hooks/sidebar/. */
+ *  trace that suddenly pulls in far more than hooks/sidebar/. On 2026-10-30 the
+ *  fox's 36 PNGs became one sheet and a table: directory 510 to 476, sidebar 63
+ *  to 29, core unchanged at 465. */
 const FILE_MARGIN = 510;
 const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: FILE_MARGIN, core: 480, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
@@ -121,13 +123,13 @@ describe("the file set", () => {
     expect(bad).toEqual([]);
     // The sidebar's own plugin folder (its checks) stays in the repository;
     // only its fox frames ride with the modules and types.
-    expect(paths.filter((p) => p.startsWith("hooks/sidebar/") && !/^hooks\/sidebar\/(hooks|types)\/|^hooks\/sidebar\/art\/fox\/[^/]+\.png$/.test(p))).toEqual([]);
+    expect(paths.filter((p) => p.startsWith("hooks/sidebar/") && !/^hooks\/sidebar\/(hooks|types)\/|^hooks\/sidebar\/art\/fox\/[^/]+\.pngs$/.test(p))).toEqual([]);
   });
 
   test("the sidebar's fox frames (read by path, not imported) ride in the bundle", () => {
-    const frames = readdirSync(join(REPO, "hooks/sidebar/art/fox")).filter((n) => n.endsWith(".png"));
-    expect(frames.length).toBeGreaterThan(30);
-    for (const f of frames) expect(paths).toContain(`hooks/sidebar/art/fox/${f}`);
+    expect(readdirSync(join(REPO, "hooks/sidebar/art/fox"))).toEqual(["fox.pngs"]);
+    expect(paths).toContain("hooks/sidebar/art/fox/fox.pngs");
+    expect(paths).toContain("hooks/sidebar/hooks/fox-sheet.ts");
   });
 
   test(`stays within the ${FILE_MARGIN}-file margin under the directory's ${MAX_FILES}, while it is what ships`, () => {
@@ -363,7 +365,7 @@ describe("the directory flavor", () => {
     const hooks = JSON.parse(dir.generated["hooks/hooks.json"]!) as { modules: string[] };
     expect(hooks.modules).toEqual(["./sidebar/hooks/register.tsx"]);
     expect(dirPaths.filter((p) => /speak-first|sidebar\/hooks\/full\.tsx/.test(p))).toEqual([]);
-    expect(dirPaths.filter((p) => p.startsWith("hooks/sidebar/art/fox/")).length).toBeGreaterThan(30);
+    expect(dirPaths.filter((p) => p.startsWith("hooks/sidebar/art/fox/"))).toEqual(["hooks/sidebar/art/fox/fox.pngs"]);
     // The full flavor copies hooks.json as it is, and traces every module it lists.
     const repoModules = (JSON.parse(readFileSync(join(REPO, "hooks/hooks.json"), "utf8")) as { modules: string[] }).modules;
     expect(plan.copied).toContain("hooks/hooks.json");
@@ -383,15 +385,15 @@ describe("the directory flavor", () => {
       put("hooks/sidebar/hooks/full.tsx", 'import register from "./register";\nimport speakFirst from "./speak-first";\nexport default [register, speakFirst];\n');
       put("hooks/sidebar/hooks/register.tsx", "export default 1;\n");
       put("hooks/sidebar/hooks/speak-first.tsx", "export default 2;\n");
-      put("hooks/sidebar/art/fox/idle-0.png", "png");
+      put("hooks/sidebar/art/fox/fox.pngs", "pngs");
       const sidebar = (files: string[]): string[] => files.filter((f) => f.startsWith("hooks/sidebar/"));
       expect(sidebar(traceFiles(mini, "full").files)).toEqual([
-        "hooks/sidebar/art/fox/idle-0.png",
+        "hooks/sidebar/art/fox/fox.pngs",
         "hooks/sidebar/hooks/full.tsx",
         "hooks/sidebar/hooks/register.tsx",
         "hooks/sidebar/hooks/speak-first.tsx",
       ]);
-      expect(sidebar(traceFiles(mini, "directory").files)).toEqual(["hooks/sidebar/art/fox/idle-0.png", "hooks/sidebar/hooks/register.tsx"]);
+      expect(sidebar(traceFiles(mini, "directory").files)).toEqual(["hooks/sidebar/art/fox/fox.pngs", "hooks/sidebar/hooks/register.tsx"]);
     } finally {
       rmSync(mini, { recursive: true, force: true });
     }

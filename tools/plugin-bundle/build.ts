@@ -301,9 +301,8 @@ export function directoryModules(modules: readonly string[]): string[] {
 }
 
 /** Files a hooks module reads at run time by path, not by import, carried in
- *  both flavors: the sidebar's fox frames (drawn by `Image {file}` relative to
- *  the plugin root, read by `$.fs.read` on the desktop). Every `*.png` in each
- *  folder that exists. */
+ *  both flavors: the sidebar's fox frames, one sheet of PNGs read by `$.fs.read`
+ *  under the plugin root. Every `*.pngs` in each folder that exists. */
 export const SIDEBAR_ASSET_DIRS: readonly string[] = ["hooks/sidebar/art/fox"];
 
 /** A command file's launcher lines as the console's own entry. The uninstall
@@ -441,7 +440,7 @@ export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?:
   if (modules.length > 0) {
     for (const d of SIDEBAR_ASSET_DIRS) {
       if (!existsSync(join(repo, d))) continue;
-      for (const name of readdirSync(join(repo, d)).sort()) if (name.endsWith(".png")) add(`${d}/${name}`, "the sidebar (read by path)");
+      for (const name of readdirSync(join(repo, d)).sort()) if (name.endsWith(".pngs")) add(`${d}/${name}`, "the sidebar (read by path)");
     }
   }
 
@@ -951,7 +950,7 @@ export function planSidebar(repo: string = REPO): Plan {
   const placed: Record<string, string> = { [ICON_PATH]: ICON_SOURCE, "hooks/hooks.json": hooksFile };
   for (const d of SIDEBAR_ASSET_DIRS) {
     if (!existsSync(join(repo, d))) continue;
-    for (const name of readdirSync(join(repo, d)).sort()) if (name.endsWith(".png")) placed[inRoot(`${d}/${name}`)] = `${d}/${name}`;
+    for (const name of readdirSync(join(repo, d)).sort()) if (name.endsWith(".pngs")) placed[inRoot(`${d}/${name}`)] = `${d}/${name}`;
   }
   if (!isFile(repo, ICON_SOURCE)) problems.push(`${ICON_SOURCE} (the listing icon) is missing`);
   return finishPlan(repo, { flavor: "sidebar", copied: ["LICENSE"], placed, generated, executable: [], warnings: [], version }, problems);

@@ -33,6 +33,7 @@ import {
   settle,
   start,
   world,
+  PNG_HEAD,
 } from './world'
 import type { World, WorldOptions } from './world'
 
@@ -1376,12 +1377,33 @@ test('a terminal draws a picture first, whatever it is: nothing about it is read
   const img = await ui.find({ type: 'Image', key: 'stage' })
   expect(img?.props['columns']).toBe(30)
   expect(img?.props['rows']).toBe(16)
-  // the PNG as a file under the plugin's folder, which the terminal reads itself: no bytes cross `$`
-  const src = img?.props['source'] as { file?: string; format?: string } | undefined
-  expect(src?.format).toBe('png')
-  expect(String(src?.file)).toMatch(/^\/.*\/art\/fox\/[A-Za-z0-9+]+\.png$/)
+  // the frame's whole PNG, cut from the sheet under the plugin's folder
+  const src = img?.props['source'] as { png?: string } | undefined
+  expect(String(src?.png).startsWith(`${PNG_HEAD}idlepng`)).toBe(true)
   expect(img?.props['alt']).toBe('a small fox')
   expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('sextants and half-blocks never read the sheet', async ($, on) => {
+  const w = world(on, foxDetail('fine'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  expect(w.fsReads.filter(p => p.endsWith('/art/fox/fox.pngs'))).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('a sheet it cannot read means no pictures, and the desktop keeps its rects', async ($, on) => {
+  const w = world(on, { ...FOX, sheetUnreadable: true })
+  await start($, w)
+  let ui = await mount($, w, 'terminal')
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeDefined()
+  await ui.unmount()
+  ui = await mount($, w, 'desktop')
+  const source = String((await ui.find({ type: 'Svg' }))?.props['source'])
+  expect(source).toContain('<rect')
+  expect(source).not.toContain('data:image/png')
   await ui.unmount()
 })
 
@@ -1406,9 +1428,9 @@ test('half-blocks where pictures are not drawn, and the desktop draws an Svg of 
   await ui.unmount()
   ui = await mount($, w, 'desktop')
   const svg = await ui.find({ type: 'Svg' })
-  // the PNG's bytes, read from the plugin's folder (art/fox/) once, as the picture's data URI
-  expect(String(svg?.props['source'])).toContain('data:image/png;base64,iVBORw0KGgoidle.png')
-  expect(w.fsReads.filter(p => p.endsWith('/art/fox/idle.png'))).toHaveLength(1)
+  // the frame's bytes, from the sheet in the plugin's folder (art/fox/), as the picture's data URI
+  expect(String(svg?.props['source'])).toContain(`data:image/png;base64,${PNG_HEAD}idlepng`)
+  expect(w.fsReads.filter(p => p.endsWith('/art/fox/fox.pngs'))).toHaveLength(1)
   expect(svg?.props['alt']).toBe('a small fox')
   await ui.unmount()
 })

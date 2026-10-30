@@ -1,35 +1,44 @@
 /**
  * The sidebar fox's picture tier, built from the art agent's PNG export
  * (2026-10-12). Reads `<src>/<frame>.png` and `<src>/fx-<name>.png` (native
- * art pixels x 8, palette or RGBA PNGs), and writes:
+ * art pixels x 8, palette or RGBA PNGs), makes every frame and every frame +
+ * effects pair a moment draws, at x SCALE (crisp), and writes them as one sheet:
  *
- *   hooks/sidebar/art/fox/<key>.png   every frame, and every frame + effects
- *                                     pair a moment draws, at x SCALE (crisp)
+ *   hooks/sidebar/art/fox/fox.pngs    the whole PNGs, one after another
+ *   hooks/sidebar/hooks/fox-sheet.ts  where each one starts and how long it is
  *
- * The mod reads them as files under `$.plugin.root` (an `Image` `{ file }` on
- * the terminal, the bytes once for the desktop's Svg); `fox.ts#PNG_FRAMES` names
- * the same set from the art data, and `PNG_SCALE` must match --scale. (Until
- * 2026-10-14 this also wrote hooks/sidebar/hooks/fox-png.ts, the PNGs as
+ * Why not a grid of pixels: an `Image` has no crop and a module has no inflate,
+ * so a frame has to be a whole PNG already. Each PNG starts on a multiple of 3
+ * bytes (zeros between them), so its base64 is a piece of the sheet's base64:
+ * `fox.ts#frameBase64` cuts it with no decoding. The mod reads the sheet once
+ * under `$.plugin.root`; `fox.ts#PNG_FRAMES` names the same set from the art
+ * data, and `PNG_SCALE` must match --scale.
+ *
+ * (Until 2026-10-14 this wrote hooks/sidebar/hooks/fox-png.ts, the PNGs as
  * base64; the plugin directory's validator refuses a module that looks like
- * encoded data.)
+ * encoded data. Until 2026-10-30 it wrote a file a frame; the directory takes
+ * 512 files. hooks/sidebar/NOTES.md has both.)
  *
  * The frame names, effects and their places come from the art data module
  * (`hooks/sidebar/hooks/fox-art.ts`), so an art fix is: copy the new data
- * module over fox-art.ts, run this on the new PNG folder, commit both.
+ * module over fox-art.ts, run this on the new PNG folder, commit all three.
  *
  * Usage: bun tools/fox-art/build.ts <png folder> [--scale 3]
+ *        bun tools/fox-art/build.ts --frames <folder of <key>.png>   pack these, byte for byte
+ *        bun tools/fox-art/build.ts --unpack <folder>                write each frame back out
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
 
 import { FOX_FINAL } from '../../hooks/sidebar/hooks/fox-art.js';
+import { SHEET_FRAMES } from '../../hooks/sidebar/hooks/fox-sheet.js';
 
 type Rgba = { w: number; h: number; px: Uint8Array };
 
 const NATIVE = FOX_FINAL.png.scale; // the export's art pixel, in PNG pixels
 
-function decode(buf: Uint8Array): Rgba {
+export function decode(buf: Uint8Array): Rgba {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 8;
   let w = 0, h = 0, depth = 8, type = 6;
@@ -174,6 +183,45 @@ function over(base: Rgba, top: Rgba, x0: number, y0: number): Rgba {
   return { w: base.w, h: base.h, px };
 }
 
+/** Whole PNGs by key, one after another in key order, each starting on a multiple of 3 bytes. */
+export function packFrames(frames: ReadonlyMap<string, Uint8Array>): { sheet: Uint8Array; table: Record<string, [number, number]> } {
+  const table: Record<string, [number, number]> = {};
+  const keys = [...frames.keys()].sort();
+  let at = 0;
+  for (const key of keys) {
+    const len = (frames.get(key) as Uint8Array).length;
+    table[key] = [at, len];
+    at += Math.ceil(len / 3) * 3;
+  }
+  const sheet = new Uint8Array(at);
+  for (const key of keys) sheet.set(frames.get(key) as Uint8Array, (table[key] as [number, number])[0]);
+  return { sheet, table };
+}
+
+const FOX = join(import.meta.dir, '..', '..', 'hooks', 'sidebar');
+const SHEET_PATH = join(FOX, 'art', 'fox', 'fox.pngs');
+const TABLE_PATH = join(FOX, 'hooks', 'fox-sheet.ts');
+
+function writeSheet(frames: ReadonlyMap<string, Uint8Array>): void {
+  const { sheet, table } = packFrames(frames);
+  mkdirSync(join(FOX, 'art', 'fox'), { recursive: true });
+  writeFileSync(SHEET_PATH, sheet);
+  const rows = Object.entries(table).map(([key, [at, len]]) => `  ${JSON.stringify(key)}: [${String(at)}, ${String(len)}],`);
+  writeFileSync(
+    TABLE_PATH,
+    [
+      '// Where each frame sits in ../art/fox/fox.pngs: [first byte, length]. Written by tools/fox-art/build.ts.',
+      "export const SHEET_FILE = 'fox.pngs'",
+      `export const SHEET_BYTES = ${String(sheet.length)}`,
+      'export const SHEET_FRAMES: Readonly<Record<string, readonly [number, number]>> = {',
+      ...rows,
+      '}',
+      '',
+    ].join('\n'),
+  );
+  console.log(`${String(frames.size)} PNGs, ${String(sheet.length)} bytes`);
+}
+
 /** The key a frame and its effects are drawn under: `nap1+zSmall+z`. */
 export function pngKey(frame: string, fx: readonly (readonly [string, string])[]): string {
   return [frame, ...fx.map(f => f[0])].join('+');
@@ -181,14 +229,27 @@ export function pngKey(frame: string, fx: readonly (readonly [string, string])[]
 
 function main(): void {
   const args = process.argv.slice(2);
-  const src = args.find(a => !a.startsWith('--'));
+  const flag = (name: string): string | undefined => {
+    const i = args.indexOf(name);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const framesDir = flag('--frames');
+  if (framesDir !== undefined) {
+    const frames = new Map<string, Uint8Array>();
+    for (const name of readdirSync(framesDir)) if (name.endsWith('.png')) frames.set(name.slice(0, -4), new Uint8Array(readFileSync(join(framesDir, name))));
+    writeSheet(frames);
+    return;
+  }
+  const unpackDir = flag('--unpack');
+  if (unpackDir !== undefined) {
+    const sheet = readFileSync(SHEET_PATH);
+    mkdirSync(unpackDir, { recursive: true });
+    for (const [key, [at, len]] of Object.entries(SHEET_FRAMES)) writeFileSync(join(unpackDir, `${key}.png`), sheet.subarray(at, at + len));
+    return;
+  }
+  const src = args.find(a => !a.startsWith('--') && a !== flag('--scale'));
   if (src === undefined) throw new Error('usage: bun tools/fox-art/build.ts <png folder> [--scale 3]');
-  const si = args.indexOf('--scale');
-  const scale = si >= 0 ? Number(args[si + 1]) : 3;
-  const root = join(import.meta.dir, '..', '..', 'hooks', 'sidebar');
-  const outDir = join(root, 'art', 'fox');
-  rmSync(outDir, { recursive: true, force: true });
-  mkdirSync(outDir, { recursive: true });
+  const scale = Number(flag('--scale') ?? 3);
   const read = (file: string): Rgba => rescale(decode(new Uint8Array(readFileSync(join(src, file)))), scale);
   const frames = new Map<string, Rgba>();
   for (const name of Object.keys(FOX_FINAL.png.frames)) frames.set(name, read(`${name}.png`));
@@ -210,14 +271,7 @@ function main(): void {
       out.set(pngKey(frame, rest), img);
     }
   }
-  let bytes = 0;
-  for (const [key, img] of out) {
-    const png = encode(img);
-    bytes += png.length;
-    writeFileSync(join(outDir, `${key}.png`), png);
-  }
-  const first = out.values().next().value as Rgba;
-  console.log(`${String(out.size)} PNGs, ${String(bytes)} bytes, ${String(first.w)} x ${String(first.h)}`);
+  writeSheet(new Map([...out].map(([key, img]) => [key, encode(img)])));
 }
 
 if (import.meta.main) main();
