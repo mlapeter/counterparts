@@ -30,7 +30,7 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SUMMARY_LINE_BYTES, chapterEntries, dayJournal, entryLine, fitEpisodes, summaryLineBytes, withSummaries } from "../src/core/dream/slices.js";
-import { belowReach } from "../src/core/physics/index.js";
+import { belowReach, strength } from "../src/core/physics/index.js";
 import { foldCredited } from "../src/core/recall/activate.js";
 import { isJournalCopy } from "../src/core/sleep/types.js";
 import { AUTO_SUMMARY_CHARS, automaticSummaryText, chapterSummaries, chaptersCoveredByCopies, summaryTitle } from "../src/core/self/summaries.js";
@@ -179,9 +179,74 @@ describe("the `chapter` call writes ONE summary memory per chapter, in the copy'
     expect(doc.meta["chapter"]).toBe(1);
     expect(doc.meta["chapterSummary"]).toBe("written");
     expect(doc.meta["claimedDefault"]).toBe(true);
-    // Its own default (F1, 2026-10-30, was 0.4), in reach from its first day.
-    expect(c.store.read(id).physics.salience.claimed).toBe(0.25);
+    // Marked us, it keeps the self-kind default (F1), in reach from its first day.
+    expect(c.store.read(id).physics.salience.claimed).toBe(0.4);
     expect(belowReach(rowToPhysics(row!), c.store.livedDay())).toBe(false);
+  });
+
+  describe("what a summary is born claiming goes by its chapter's mark (F1, 2026-10-30)", () => {
+    const TEXT = "The afternoon went to the zqkiln's shelves, and to what the zqbowls did on them while it cooled.";
+    const CASES: readonly (readonly [string | null, number])[] = [
+      ["me", 0.4],
+      ["us", 0.4],
+      ["owner", 0.4],
+      ["world", 0.4],
+      ["work", 0.25],
+      [null, 0.25],
+    ];
+
+    for (const [mark, claim] of CASES) {
+      test(`written through the chapter tool, ${mark ?? "unmarked"}: ${String(claim)}`, async () => {
+        const s = server();
+        const c = s.counterpart;
+        nextChapter(c);
+        const out = payload(await s.call("chapter", { text: TEXT, summary: SUMMARY_ONE, title: "The zqkiln", ...(mark === null ? {} : { about: mark }) }));
+        const [summary] = summariesOf(c, out["episodeId"] as string);
+        expect(c.store.row(summary!.id)?.about ?? null).toBe(mark);
+        expect(c.store.read(summary!.id).physics.salience.claimed).toBe(claim);
+        expect(summary!.meta["claimedDefault"]).toBe(true);
+        // In reach on its first day either way.
+        expect(belowReach(rowToPhysics(c.store.row(summary!.id)!), c.store.livedDay())).toBe(false);
+      });
+
+      test(`written by the boundary when the session wrote none, ${mark ?? "unmarked"}: ${String(claim)}`, async () => {
+        const c = brain();
+        nextChapter(c);
+        const one = c.appendEpisode(SESSION, TEXT, mark === null ? {} : { about: mark as "me" });
+        await c.sessionEnd({ date: "2026-10-14" });
+        const [summary] = summariesOf(c, one.episodeId as string);
+        expect(summary!.meta["chapterSummary"]).toBe("automatic");
+        expect(c.store.read(summary!.id).physics.salience.claimed).toBe(claim);
+      });
+    }
+
+    test("a re-mark moves the mark, never the claim, whichever way and through whichever door", async () => {
+      const s = server();
+      const c = s.counterpart;
+      nextChapter(c);
+      const work = payload(await s.call("chapter", { text: TEXT, summary: SUMMARY_ONE, title: "The zqkiln", about: "work" }));
+      const [low] = summariesOf(c, work["episodeId"] as string);
+      const reach = (id: string): number => strength(rowToPhysics(c.store.row(id)!), c.store.livedDay() + 2);
+      const before = reach(low!.id);
+      // The owner's and the session's door.
+      expect(c.markAbout({ id: low!.id, mark: "us", by: "owner", why: "it was about us" }).ok).toBe(true);
+      expect(c.store.row(low!.id)?.about).toBe("us");
+      expect(c.store.read(low!.id).physics.salience.claimed).toBe(0.25);
+      expect(reach(low!.id)).toBe(before);
+
+      nextChapter(c);
+      const us = payload(await s.call("chapter", { text: "Then the evening, and what we said over the cooling zqkiln.", summary: "An evening by the zqkiln.", title: "The zqkiln", about: "us" }));
+      const high = summariesOf(c, us["episodeId"] as string).find((x) => x.meta["chapter"] === 2);
+      expect(c.store.read(high!.id).physics.salience.claimed).toBe(0.4);
+      expect(c.markAbout({ id: high!.id, mark: "work", by: "owner", why: "it was the work" }).ok).toBe(true);
+      expect(c.store.read(high!.id).physics.salience.claimed).toBe(0.4);
+
+      // A later `about` on the same chapter reaches its summary the same way.
+      const again = c.appendEpisode(SESSION, "And a last word on the same chapter, about the two of us.", { about: "me" });
+      expect(again.chapter).toBe(2);
+      expect(c.store.row(high!.id)?.about).toBe("me");
+      expect(c.store.read(high!.id).physics.salience.claimed).toBe(0.4);
+    });
   });
 
   test("written ONCE: a second summary for the same chapter is kept out, and says why", async () => {

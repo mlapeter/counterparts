@@ -79,7 +79,7 @@ beforeEach(() => {
   clock = at(D1, 7);
   S.YESTERDAY_FROM_SUMMARY = true;
   // Warm enough for the Nearby lane these tests turn on (`WARM_FLOOR`, 0.35): the
-  // lane's gate is what's under test. Since F1 a summary is born below that floor.
+  // lane's gate is what's under test. Since F1 an unmarked or work summary is born below it.
   S.CHAPTER_SUMMARY_CLAIM = 0.4;
 });
 

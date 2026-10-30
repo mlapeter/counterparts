@@ -118,8 +118,9 @@ counted by doctor, and said in the next morning share).
   exist.* *2026-10-10 to 10-15 this line was contradicted by the code: the full copy was
   exempted from decay and the prune "like the chapter" (review 03 C4a), so nothing an
   episode produced faded. Since 2026-10-15 it holds again (Mike): a SUMMARY is born with a
-  default floor (`CHAPTER_SUMMARY_CLAIM`, 0.25 since 2026-10-30, was the self-kind default
-  0.4; `claimedDefault`) — the copy's zero would have put it below reach from its first day — and fades,
+  default floor (`claimedDefault`): the self-kind default, 0.4, when its chapter is marked
+  me, us, owner or world, and since 2026-10-30 `CHAPTER_SUMMARY_CLAIM`, 0.25, when unmarked or
+  work — the copy's zero would have put it below reach from its first day — and fades,
   leaves reach and is pruned like any memory (`store/operational.ts#isChapterSummary`
   narrows `reachExempt` and `sleep/types.ts#isJournalCopy`). The frozen full copies KEEP
   the exemption: they are the only memory their chapters have (no summary is written

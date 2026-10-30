@@ -1,12 +1,22 @@
 ### Decided by ROADMAP, 2026-10-30, marked for Mike's review (chapter summaries' default claim)
 
-- Chapter summaries are born at 0.25 instead of the self-kind default, 0.4 (`SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM`),
-  new rows only. Why: the 10-30 replay, 379 never-used summaries out of reach and no use-days lost. The price the
-  replay's 15 days couldn't show: an unused summary reaches the prune floor at 49 lived days instead of 267, so it is
-  let go about 63 lived days in (the 14-day dwell after) rather than about 281. It covers summaries marked about me,
-  us or the owner too (35 of the 464 live ones on the copy), since the replay did. At 0.25 a summary is also under the
-  Nearby lane's `WARM_FLOOR` (0.35), so it wouldn't come back with that lane if `HINTS_IN_WAKE` were turned on again (off
-  since WK1). `docs/CHECK-AFTER.md`.
+- A new chapter summary that is unmarked or marked work is born at 0.25 instead of the self-kind default, 0.4
+  (`SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM`). One marked me, us or owner stays at 0.4 (ROADMAP, on the review of #696), and so
+  does world, since the change names only unmarked and work; the copy has no world summaries. New rows only.
+- Why: the 10-30 replay, 379 never-used summaries out of reach and no use-days lost, measured with every summary lowered.
+  With the marked ones kept, 35 of the 464 live summaries on the copy stay at 0.4, and below reach is 324 of 464 instead
+  of 355. That leaves 31 in reach, 24 of them never used, so the 379 reads about 350 (an estimate; the replay wasn't rerun).
+  Lowering fewer rows can't lose more use-days.
+- Accepted: an unused unmarked or work summary reaches the prune floor at 49 lived days instead of 267, so it is let go about
+  63 lived days in (the 14-day dwell after) rather than about 281. A marked one keeps the 281.
+- The claim is taken once, at birth, from the chapter's `about` as written: the mark given with the summary, else the one
+  that chapter's call recorded, else, for an episode from before per-chapter marks, the episode's latest.
+- A summary re-marked later keeps the claim it was born with, whichever way the mark moves: `store.setAbout`, which every
+  re-mark goes through (a later `about` on the same chapter, the `remark` door, the reflection, the dashboard), writes the
+  mark and never the claim. So a work summary re-marked us stays at 0.25 and fades on that curve until a use lifts it, and
+  an us summary re-marked work stays at 0.4. Automatic rewritten as written is the same row and keeps its claim too.
+- At 0.25 a summary is under the Nearby lane's `WARM_FLOOR` (0.35), so an unmarked or work one wouldn't come back with that
+  lane if `HINTS_IN_WAKE` were turned on again (off since WK1). `docs/CHECK-AFTER.md`.
 
 ### Decided by the F1 builder, 2026-10-30, lightly held (what the rows carry)
 

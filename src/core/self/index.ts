@@ -41,7 +41,7 @@
  */
 import type { Band, Kind } from "../types.js";
 import { settlesWhenOf } from "../types.js";
-import { strength } from "../physics/index.js";
+import { defaultClaimFor, strength } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { AboutMark, ProseDoc, Store } from "../store/index.js";
 import { CHAPTER_SUMMARY_META, CLAIMED_DEFAULT_SPELLED, aboutMarkOf, hashText } from "../store/index.js";
@@ -3640,10 +3640,12 @@ export class Self {
    * that shape keeps working): a self-kind memory, `source: episode`,
    * `origin_ref` the chapter's id, `meta.episodeId`, plus `meta.chapter` and
    * `meta.chapterSummary`. It FADES like an ordinary memory (Mike,
-   * 2026-10-15), so it is born with a default floor of its own
-   * (`CHAPTER_SUMMARY_CLAIM`, F1, 2026-10-30; recorded `claimedDefault` like a
-   * note's: nobody claimed it) rather than the copy's zero, which would have
-   * put it below reach from its first day. Its title is the episode's, with the chapter's number
+   * 2026-10-15), so it is born with a default floor, recorded `claimedDefault`
+   * like a note's since nobody claimed it, rather than the copy's zero, which
+   * would have put it below reach from its first day. The floor goes by its
+   * chapter's mark as written (F1, 2026-10-30): me, us, owner or world keep the
+   * self-kind default (`physics.defaultClaimFor`, 0.4); unmarked or work start
+   * at `CHAPTER_SUMMARY_CLAIM`. A later re-mark moves the mark and never the claim. Its title is the episode's, with the chapter's number
    * after the first. Its mark: its own chapter's (the episode's latest only for an episode from before per-chapter marks).
    */
   private putSummary(input: {
@@ -3684,7 +3686,9 @@ export class Self {
       },
       source: "episode",
       origin: { session: input.sessionId, ref: input.episodeId, ...(folder === null || folder.length === 0 ? {} : { scope: folder }) },
-      salience: { claimed: this.tunables.CHAPTER_SUMMARY_CLAIM },
+      // Unmarked or work: its own lower start (F1, 2026-10-30). Any other mark:
+      // the self-kind default, as before. Read off the mark above, once, at birth.
+      salience: { claimed: mark === null || mark === "work" ? this.tunables.CHAPTER_SUMMARY_CLAIM : defaultClaimFor({ about: mark, kind: "self" }).claim },
     };
     // THE TITLE, THROUGH THE SECRETS SCAN ONLY (review of #293, B3): the
     // battery's content floor is for bodies, and a title that is nothing but

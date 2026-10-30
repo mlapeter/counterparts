@@ -65,7 +65,7 @@ let clock = at(D0, 7);
 const open: { close(): void }[] = [];
 
 // Warm enough for the Nearby lane these tests turn on (`WARM_FLOOR`, 0.35): the
-// lane's gate is what's under test. Since F1 a summary is born below that floor.
+// lane's gate is what's under test. Since F1 an unmarked or work summary is born below it.
 const claimWas = SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM;
 
 beforeEach(() => {

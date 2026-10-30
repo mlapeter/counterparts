@@ -503,10 +503,11 @@ export interface SelfTunables {
    */
   MAX_ASKS_PER_SESSION: number;
   /**
-   * WHAT A NEW CHAPTER SUMMARY IS BORN CLAIMING (F1, 2026-10-30; decided by
-   * ROADMAP, marked for Mike's review; was the self-kind default, 0.4). New
-   * rows only: a summary already written keeps its claim. The replay on the
-   * 10-30 store: 379 never-used summaries leave reach, 0 use-days lost.
+   * WHAT A NEW UNMARKED OR WORK CHAPTER SUMMARY IS BORN CLAIMING (F1,
+   * 2026-10-30; decided by ROADMAP, marked for Mike's review; was the self-kind
+   * default, 0.4, which a summary marked me, us or owner keeps). New rows only:
+   * a summary already written keeps its claim. On the 10-30 copy: 324 of 464
+   * live summaries below reach, no use-days lost in the 15-day replay.
    * `docs/CHECK-AFTER.md`. Back to 0.4 to revert. CAL.
    */
   CHAPTER_SUMMARY_CLAIM: number;
