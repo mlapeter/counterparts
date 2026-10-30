@@ -374,10 +374,15 @@ function arriving(text: string): { listed: string[]; collapsed: boolean } {
 function lower(text: string): { handoffs: number; work: number; yesterday: string | null } {
   const lines = text.split("\n");
   return {
-    handoffs: lines.filter((l) => /^\d\) From session /.test(l)).length,
+    handoffs: (text.match(/\(sch_[0-9a-f]+\)/g) ?? []).length,
     work: (lane(text, WORK_HERE_HEADING) ?? []).filter((l) => l.startsWith("- ")).length,
     yesterday: lines.find((l) => l.startsWith("Yesterday")) ?? null,
   };
+}
+
+/** Every live handoff is accounted for: a line of its own, or the door's count. */
+function handoffsTold(text: string): number {
+  return lower(text).handoffs + Number(/\+(\d+) (?:older )?handoffs?: recall "handoffs here" lists them\./.exec(text)?.[1] ?? 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -459,10 +464,10 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           expect(now.handoffs).toBeLessThanOrEqual(was.handoffs);
           expect(now.work).toBeLessThanOrEqual(was.work);
           if (now.handoffs < was.handoffs || now.work < was.work || now.yesterday !== was.yesterday) gaveWay += 1;
-          // Fewer in full, the rest by id — never none: the room lent stops at
+          // Fewer with a line, the rest by count and handle — never none: the room lent stops at
           // the newest handoff's own block (review of #367).
           expect(now.handoffs).toBeGreaterThan(0);
-          expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
+          expect(handoffsTold(m.text)).toBe(4);
           // The Yesterday line, if it gave titles, still accounts for every
           // chapter: the ones it no longer names by title are counted, never
           // left as bare ids (2026-10-20).
@@ -488,11 +493,11 @@ test("the room lent stops at the newest handoff: dated items a few lines long ne
     for (const pageBytes of [6_400, 6_767]) {
       const m = await morning(zone, { pageBytes, dated: 3, plain: true, bodies: MEDIUM });
       expect({ pageBytes, handoffs: lower(m.text).handoffs > 0 }).toEqual({ pageBytes, handoffs: true });
-      expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
+      expect(handoffsTold(m.text)).toBe(4);
       const { listed } = arriving(m.text);
       expect(listed[0]).toEndWith(MEDIUM[0] ?? "");
-      // Every dated item is listed or named by id.
-      for (const id of m.a.counterpart.prospective.horizon({ at: "2026-10-08" }).more.map((i) => i.memoryId)) expect(m.text).toContain(id);
+      // Every dated item is listed or counted, under the door that lists it (no bare ids since WK1, 2026-10-30).
+      expect(listed.length + (countedLanes(m.text).horizon ?? 0)).toBe(3);
       expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
     }
   }
@@ -678,7 +683,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
       const horizon: HorizonItem[] = ids.slice(0, 2).map((id, i) => ({ id, due: DUES[i] ?? "2026-10-11" }));
       const out = me.build({ budgetBytes: COMPOSE, day: 2, horizon, horizonMore: ids.slice(2), yesterday: full, yesterdayShorter: shorter, lendBytes: SHARE, handoffLendBytes: SHARE });
       expect(out.counts.horizon).toBe(2);
-      expect(out.text).toContain(`(3 more coming up; recall ids: ${ids.slice(2).join(", ")})`);
+      expect(out.text).toContain(`(3 more coming up; recall "still open" lists them)`);
       expect(out.bytes).toBeLessThanOrEqual(out.budgetBytes);
     }
   });
@@ -783,11 +788,12 @@ describe("at the composition: three dated items, and who gives the room", () => 
     const out = me.build({ budgetBytes: 6_637, day: 2, horizon, lendBytes: 952, handoffKeepBytes: 673, yesterday: full, yesterdayShorter: shorter });
     expect(out.page?.rung).toBe("whole");
     expect(out.counts.horizon).toBe(0);
-    // Counted, in its own line or folded with the others (2026-10-12), its first id named.
+    // Counted, in its own line or folded with the others (2026-10-12), the door named (no bare ids, WK1).
     expect(countedLanes(out.text).horizon).toBe(ids.length);
     expect(out.untold).toEqual({});
     const line = out.text.split("\n").find((l) => collapsedLane(l) === "horizon" || isFoldedLine(l));
-    expect(line).toContain(ids[0]);
+    expect(line).toContain('recall "still open" lists them');
+    expect(line).not.toContain(ids[0]);
     expect(out.bytes).toBeLessThanOrEqual(out.budgetBytes);
     expect(out.budgetBytes).toBeLessThanOrEqual(6_637 + 952);
     expect(readSentinel(out.text).intact).toBe(true);
@@ -815,7 +821,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
   test("an id past the count is named beside the due-day lines: its count is reserved, and the lanes below give way for it (2026-10-12; review of #367)", () => {
     clock(ZONE, "2026-10-08", 21);
     const bodies = [...LONG.slice(0, 2), REMINDERS[2], "The clay order arrives; check the invoice against the slip.", "The glaze supplier calls back about the cobalt."];
-    const { me, ids } = selfWith(pageOfSize(4_000), undefined, bodies);
+    const { me, ids } = selfWith(pageOfSize(4_000), undefined, bodies, { HINTS_IN_WAKE: true });
     const past = ids.slice(2);
     // Two due-day plain reminders are the lane's head: no rescue pops either
     // to pay for the count.
@@ -829,14 +835,14 @@ describe("at the composition: three dated items, and who gives the room", () => 
     const out = me.build({ budgetBytes: both.bytes, day: 2, horizon, horizonMore: past });
     expect(out.counts.horizon).toBe(2);
     expect(out.page?.rung).toBe("whole");
-    expect(out.text).toContain("(3 more coming up; recall ids: ");
+    expect(out.text).toContain(`(3 more coming up; recall "still open" lists them)`);
     expect(out.untold).toEqual({});
     expect(out.counts.hints).toBeLessThan(both.counts.hints);
     expect(out.trimmed.filter((e) => e.lane === "horizon")).toEqual([]);
     expect(out.bytes).toBeLessThanOrEqual(out.budgetBytes);
     // With room for the count, it names them, and no row is written for them.
     const roomy = me.build({ budgetBytes: COMPOSE, day: 2, horizon, horizonMore: past });
-    expect(roomy.text).toContain(`(3 more coming up; recall ids: ${past.join(", ")})`);
+    expect(roomy.text).toContain(`(3 more coming up; recall "still open" lists them)`);
     expect(roomy.trimmed).toEqual([]);
   });
 
@@ -900,8 +906,8 @@ describe("a plain reminder due today, cued out and told overnight, still reaches
       expect(lines.some((l) => l.startsWith("Yesterday"))).toBe(true);
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       if (pageBytes !== 6_950) {
-        expect(lines.some((l) => l.startsWith("Last here: "))).toBe(true);
-        expect(lines.some((l) => l.startsWith("Last said here, "))).toBe(true);
+        expect(lines.some((l) => l.startsWith("Where this folder stands: "))).toBe(true);
+        expect(m.text).toContain(" said ");
       }
       // Past its room with a short version: the short version (2026-10-20,
       // `PAGE_SHORT_PAST_ROOM`; until then whole on what "Work here" lends,
@@ -1046,7 +1052,7 @@ describe("at session start, dated items due within the next few days have first 
       expect(listed[0]).toContain("(due Oct 9)");
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       // The newest, in full (listed first).
-      expect(m.text).toMatch(/^1\) From session [^\n]*: Handoff \d: the glaze tiles dry on rack two/m);
+      expect(m.text).toMatch(/^Where this folder stands: [^\n]*: Handoff \d: the glaze tiles dry on rack two/m);
       expect(lower(m.text).yesterday).not.toBeNull();
       expect(readSentinel(m.text).intact).toBe(true);
       expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
@@ -1121,7 +1127,7 @@ describe("a plain reminder is never told to a turn no person started", () => {
     expect(listed[0]).toEndWith(HAND_BACK_BODY);
     expect(listed[0]).toContain("(due Oct 9)");
     expect(m.text.split("\n").some((l) => l.startsWith("Yesterday"))).toBe(true);
-    expect(m.text.split("\n").some((l) => l.startsWith("Last here: "))).toBe(true);
+    expect(m.text.split("\n").some((l) => l.startsWith("Where this folder stands: "))).toBe(true);
     expect(m.text).toContain(SHORT);
     expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
     expect(readSentinel(m.text).intact).toBe(true);
@@ -1190,7 +1196,7 @@ describe("the owner's 10-12 morning: nothing the wake chose goes unmentioned", (
         open: { listed: listed(FRAMING.threads), counted: counted.threads ?? 0 },
         nearby: { listed: listed(FRAMING.hints), counted: counted.hints ?? 0 },
         handoffs: lower(text).handoffs,
-        older: /\+(\d+) older here: sch_/.exec(text)?.[1] ?? "0",
+        older: /\+(\d+) older handoffs?: /.exec(text)?.[1] ?? "0",
         yesterday: text.split("\n").find((l) => l.startsWith("Yesterday")) ?? null,
         page: (m.row["page"] as Record<string, unknown> | undefined)?.["rung"],
         folded: text.split("\n").some(isFoldedLine),
@@ -1204,14 +1210,15 @@ describe("the owner's 10-12 morning: nothing the wake chose goes unmentioned", (
       // Twenty-five open questions, every one listed or counted.
       expect(shape.open.listed + shape.open.counted).toBe(25);
       // Arriving and Still open list items, so each keeps its own count line under it (never the fold).
-      expect(text).toContain(`(${String(shape.arriving.counted)} more coming up; recall ids`);
+      expect(text).toContain(`(${String(shape.arriving.counted)} more coming up; recall "still open" lists them)`);
       expect(text).toContain(`(${String(shape.open.counted)} more open, ${OPEN_TAIL_WORDS})`);
       // "Nearby": listed, counted, or — the least of the lanes, in room
       // nothing else wants — left quiet, a step-down the session start's own
       // event records (decided by COUNTERPARTS, 2026-10-12).
       const assembled = m.a.counterpart.events("counterpart.wake.assembled").at(-1)?.data ?? {};
       expect(assembled["untold"]).toBe(0);
-      expect(shape.nearby.listed + shape.nearby.counted + Number(assembled["quiet"] ?? 0)).toBeGreaterThan(0);
+      // Off the wake since WK1, 2026-10-30.
+      expect(shape.nearby.listed + shape.nearby.counted + Number(assembled["quiet"] ?? 0)).toBe(0);
       // Four handoffs: in full, the rest by id.
       expect(shape.handoffs).toBeGreaterThan(0);
       expect(shape.handoffs + Number(shape.older)).toBe(4);

@@ -250,7 +250,7 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
         expect(readSentinel(text).intact).toBe(true);
         expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
         // The room the delivery held was used: this directory's handoffs and work.
-        expect(text).toContain("Where the work in this directory was left off");
+        expect(text).toContain("Where this folder stands");
         expect(text).toContain(WORK_HERE_HEADING);
         // Doctor: green, and it says the last wake showed it whole.
         const f = selfPageFindings(a.counterpart.store)[0];
@@ -352,7 +352,7 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
         expect(readSentinel(text).intact).toBe(true);
         expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
         // The handoff is chosen before "Work here" and never gives way to it.
-        expect(text).toContain("Where the work in this directory was left off");
+        expect(text).toContain("Where this folder stands");
         // Whole is green, past its room or not; the detail says the room.
         const f = selfPageFindings(a.counterpart.store)[0];
         expect(f?.severity).toBe("green");

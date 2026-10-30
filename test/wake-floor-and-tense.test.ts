@@ -298,7 +298,7 @@ describe("Still open keeps its first item beside a long page, and the page is ne
         // At session start the line is "Yesterday:", the date on the `Now:` line (2026-10-16).
         expect(text).toContain("Yesterday: ");
         expect(text.split("\n").find((l) => l.startsWith("Yesterday: "))).not.toContain(" more.");
-        expect(text).toContain("Where the work in this directory was left off");
+        expect(text).toContain("Where this folder stands");
       });
     }
 
@@ -312,7 +312,7 @@ describe("Still open keeps its first item beside a long page, and the page is ne
       expect(readSentinel(text).intact).toBe(true);
       expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
       expect(lane(text, FRAMING.horizon)?.[0]).toStartWith("- ");
-      expect(text).toContain("Where the work in this directory was left off");
+      expect(text).toContain("Where this folder stands");
     });
 
     test(`${zone}: a page past even the borrowed room is never cut — with no short version, its outline stands for it, and the lanes beside it take nothing from it`, async () => {
@@ -387,7 +387,7 @@ describe("a lane that lists nothing is one line, its heading inside it", () => {
         expect(at).toBe(-1);
         expect(out.counts.threads).toBe(0);
         expect(one).toBe(collapsedLine("threads", lanes(20).threads.map((r) => r.id).concat(lanes(20).overflow?.threads ?? [])));
-        expect(one).toStartWith(`Still open: 20 — ${COLLAPSED_WORDS}; recall ids (the first 5): mem_t00, `);
+        expect(one).toBe(`Still open: 20 — ${COLLAPSED_WORDS}; recall "still open" lists them`);
         expect(out.more).toEqual({ threads: 20 });
       }
       expect(out.bytes).toBeLessThanOrEqual(budget);
@@ -593,7 +593,7 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       // today, 2026-10-16).
       // Its own id since 2026-10-20 (`HORIZON_OWN_ID`).
       expect(stored?.[0]).toMatch(/^- Oct 1 \(due Oct 8\) · The dentist appointment is at nine and the forms are in the blue folder\. \[mem_[0-9a-f]{12}\]$/);
-      expect(stored?.[1]).toStartWith("(1 more coming up; recall ids: mem_");
+      expect(stored?.[1]).toBe(`(1 more coming up; recall "still open" lists them)`);
       expect(stored?.length).toBe(2);
       // The same evening it is still today's.
       expect(lane(sessionStart(a, zone, "s-evening").text, FRAMING.horizon)?.[0]).toContain("(due Oct 8)");
@@ -603,11 +603,11 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       const { text } = sessionStart(a, zone, "s-morning");
       // At session start "Coming up" lists only what is due today (2026-10-16;
       // review of #511): the one past and the one still to come are both
-      // counted, by id, the past one said to be overdue. (The tense of a
-      // delivered "due" line is `arrivingTense`'s, tested on its own below.)
-      expect(lane(text, FRAMING.horizon)).toBeNull();
-      expect(text).toContain(`${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`);
-      expect(text).not.toContain("dentist appointment");
+      // counted, the past one listed by title and age since WK1, 2026-10-30.
+      // (The tense of a delivered "due" line is `arrivingTense`'s, tested on
+      // its own below.)
+      expect(lane(text, FRAMING.horizon)?.[0]).toContain("(was due yesterday, Oct 8) · The dentist appointment");
+      expect(lane(text, FRAMING.horizon)?.[1]).toBe(`(1 more coming up; recall "still open" lists them)`);
       // The date is the `Now:` line's, above the wake, not the preface's (2026-10-16).
       expect(text).not.toContain("2026-10-09");
       expect(readSentinel(text).intact).toBe(true);
@@ -621,17 +621,20 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       reminder(a, "2026-10-08", "The dentist appointment is at nine and the forms are in the blue folder.");
       await worker(zone);
       const stored = lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon);
-      // In its grace days it is overdue: counted and said so, not listed
-      // ("Coming up" = today; review of #511) — in the stored bundle and at session start.
-      const overdue = `${FRAMING.horizon} 1 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`;
-      expect(stored).toBeNull();
+      // In its grace days it is overdue: the oldest are listed by title and age
+      // (WK1, 2026-10-30; until then a count and bare ids) — in the stored
+      // bundle and at session start.
+      const overdue = "was due";
+      expect(stored?.[0]).toContain(overdue);
       expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").toContain(overdue);
       expect(sessionStart(a, zone, "s1").text).toContain(overdue);
-      // Three days on, with no render in between (nobody worked): still counted, still overdue.
+      // Three days on, with no render in between (nobody worked): still listed
+      // by title (WK1), and the date is the past with its age.
       clock(zone, "2026-10-11", 9);
       const later = sessionStart(a, zone, "s2").text;
-      expect(later).not.toContain("dentist appointment");
-      expect(later).toContain(overdue);
+      expect(later).toContain("dentist appointment");
+      expect(later).toContain("was due Oct 8, 3 days ago");
+      expect(later).not.toContain("(due Oct 8)");
     });
   }
 
@@ -641,9 +644,9 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
     a.counterpart.store.put({ type: "memory", kind: "person", body: "Call the plumber back about the boiler.", learnedOn: "2026-10-08", eventDate: "2026-10-08", salience: SALIENT });
     await worker("America/Denver");
     expect(lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon)).toEqual([expect.stringMatching(/^- due Oct 8 · Call the plumber back about the boiler\. \[mem_[0-9a-f]{12}\]$/)]);
-    // The morning after it is overdue: counted and said so (review of #511).
+    // The morning after it is overdue: listed by title and age (WK1), not a bare count.
     clock("America/Denver", "2026-10-09", 8);
-    expect(sessionStart(a, "America/Denver", "s1").text).toContain(`${FRAMING.horizon} 1 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`);
+    expect(sessionStart(a, "America/Denver", "s1").text).toContain("- was due yesterday, Oct 8 · Call the plumber back");
   });
 
   test("TOLD PLAINLY ON ITS DAY, it stays listed that day and is not in the next morning's wake", async () => {

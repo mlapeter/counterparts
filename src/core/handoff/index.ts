@@ -54,6 +54,7 @@
  * a fortnight of holidays is not a fortnight of work. An expired handoff stops
  * being shown and stops being written over: the row is simply left to the prune.
  */
+import { handoffRungBytes } from "./stands.js";
 import type { MemoryStatus, ProseDoc, Store } from "../store/index.js";
 import { isKnownSession, isModelId } from "../types.js";
 
@@ -103,9 +104,10 @@ export const HANDOFF_MAX_BYTES = 2048;
 export const HANDOFF_EXCERPT_BYTES = 160;
 
 /**
- * THE CEILING ON THE RESERVE, in bytes — the widest block this module can
- * produce, measured by a test at a full-width excerpt, a real id and a six-digit
- * lived day. It is a CEILING and not the reserve: see `reserveBytes`.
+ * THE CEILING ON THE RESERVE, in bytes. It is a CEILING and not the reserve: see
+ * `reserveBytes`. Since WK1 (2026-10-30) a block can pass it, with many live
+ * handoffs a line each: what the reserve cannot cover gives way at delivery
+ * (`stands.ts`). Until then it was the widest block this module could produce:
  *
  * 448 while a directory held one pointer. Since 2026-09-30 the widest block is
  * the several-handoff one — three shown in full at full-width excerpts, the
@@ -232,17 +234,26 @@ export const HANDOFF_META_BUILD = "build";
 export const HANDOFF_VERSION_MAX_CHARS = 16;
 
 /**
- * HOW MANY HANDOFFS ONE WAKE SHOWS IN FULL for a directory, newest first. The
- * rest are named by id on one line (`HANDOFF_WAKE_LISTED` of them) so a
- * session can still expand or retire them. Three is a working default: enough
- * for the builds that are really in flight in one repo on a busy day, few
- * enough that the reserve stays inside the share rule at the ceilings the
- * owner's hosts report.
+ * HOW MANY LINES OF THE NEWEST HANDOFF A WAKE SHOWS (WK1, 2026-10-30; Mike's
+ * markup of the wake, via ROADMAP). Every other live handoff gets one line
+ * (`stands.ts`), with no cap of their own: their fortnight's life and the
+ * ceiling bound them. Until then: three handoffs a line each, the rest by bare
+ * id (`HANDOFF_WAKE_SHOWN`, `HANDOFF_WAKE_LISTED`, both gone). A working default.
  */
-export const HANDOFF_WAKE_SHOWN = 3;
+export const HANDOFF_LEAD_LINES = 5;
 
-/** How many further handoffs the "+N older" line names by id; past it, a count. */
-export const HANDOFF_WAKE_LISTED = 5;
+/**
+ * THE MOST BYTES ONE LINE OF THAT LEAD TAKES (WK1, 2026-10-30): a handoff's line
+ * is often a whole paragraph, and "five lines" that are five paragraphs is the
+ * handoff, not its lead. Half as long again as the first-sentence cap
+ * (`HANDOFF_EXCERPT_BYTES`), because a line here stands for itself; cut with `…`
+ * like it. A working default.
+ */
+export const HANDOFF_LEAD_LINE_BYTES = 240;
+
+
+/** The title's cap in the line. The id is the door to the whole chapter. */
+export const LAST_HERE_TITLE_BYTES = 100;
 
 /**
  * The wake's own structural markers, refused in a handoff body for the reason
@@ -763,6 +774,41 @@ export function excerpt(body: string, capBytes = HANDOFF_EXCERPT_BYTES): string 
     first = flat.slice(0, end);
     break;
   }
+  return cutToBytes(first, capBytes);
+}
+
+/**
+ * THE NEWEST HANDOFF'S LEAD (WK1, 2026-10-30; Mike's markup of the wake, via
+ * ROADMAP): up to `maxLines` lines of what it says, in order: its lines with
+ * substance (a title above them is not one), a long one taken a sentence at a
+ * time, since a handoff is as often one paragraph as a list. Each flat, each
+ * cut to `HANDOFF_LEAD_LINE_BYTES`. Pure.
+ */
+export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES): string[] {
+  const out: string[] = [];
+  for (const raw of body.split("\n")) {
+    if (out.length >= maxLines) break;
+    if (isHeading(raw) || raw.trim().length === 0) continue;
+    const flat = flatten(raw);
+    if (byteLengthOf(flat) <= HANDOFF_LEAD_LINE_BYTES) {
+      out.push(flat);
+      continue;
+    }
+    let from = 0;
+    for (const m of flat.matchAll(/[.!?](?=\s)/gu)) {
+      const end = (m.index ?? 0) + 1;
+      if (end - from < EXCERPT_MIN_SENTENCE) continue;
+      if (out.length < maxLines) out.push(cutToBytes(flat.slice(from, end).trim(), HANDOFF_LEAD_LINE_BYTES));
+      from = end;
+    }
+    const rest = flat.slice(from).trim();
+    if (rest.length > 0 && out.length < maxLines) out.push(cutToBytes(rest, HANDOFF_LEAD_LINE_BYTES));
+  }
+  return out.length > 0 ? out : [excerpt(body)];
+}
+
+/** `text`, cut to `capBytes` with `…` when it is longer, at a word when one is near. */
+function cutToBytes(first: string, capBytes: number): string {
   if (byteLengthOf(first) <= capBytes) return first;
   // The ellipsis is THREE bytes, not one: `…` is U+2026. Reserving a character
   // rather than its bytes is how a cap that says 160 renders 161 — measured,
@@ -800,11 +846,6 @@ export const WIDEST_POINTER_SINCE: PointerSince = {
     age: 9999,
   }),
 };
-
-/** The widest stamp an OLDER entry of a several-handoff block can carry —
- *  what the reserve sizes the entries after the newest to. Since 2026-10-18
- *  the same words as the newest's. */
-const WIDEST_OLDER_SINCE: PointerSince = WIDEST_POINTER_SINCE;
 
 /**
  * A model id as a person says it: `claude-opus-5-5` → `Opus 5.5`, with a
@@ -861,7 +902,7 @@ export const UNIDENTIFIED_SESSION_WORDS = "a session that hadn't been identified
 /** When it was written, by whom, and — when it may be out of date — why, in
  *  one sentence: after a dash inside the single pointer's parentheses, in
  *  parentheses of its own in a several-handoff entry. */
-function whenWords(h: Handoff, since: PointerSince | null, author: string | null = null, nested = false): string {
+export function whenWords(h: Handoff, since: PointerSince | null, author: string | null = null, nested = false): string {
   const by = author === null ? "" : ` by ${author}`;
   if (since === null || since.written.length === 0) {
     const on = /^\d{4}-\d{2}-\d{2}$/.test(h.writtenOn.trim()) ? h.writtenOn.trim() : "an unrecorded date";
@@ -871,170 +912,6 @@ function whenWords(h: Handoff, since: PointerSince | null, author: string | null
   // is read before the handoff's own first sentence.
   const stale = since.stale === undefined || since.stale === null ? "" : nested ? ` \u2014 ${since.stale}` : ` (${since.stale})`;
   return `written ${since.written}${by}${stale}`;
-}
-
-/** The pointer's first line: when it was written, by whom, how current it is,
- *  and the first sentence of what was written. `author` is left out for a row
- *  that names no session, which is the line as it read before 2026-09-30. */
-export function pointerLine(
-  h: Handoff,
-  capBytes = HANDOFF_EXCERPT_BYTES,
-  since: PointerSince | null = null,
-  author: string | null = null,
-): string {
-  return `Where I left off in this directory (${whenWords(h, since, author, true)}): ${excerpt(h.body, capBytes)}`;
-}
-
-/** The pointer's second line: the door to the whole of it, and its life. */
-export function pointerDoor(h: Handoff, day: number, lifeDays = HANDOFF_LIFE_DAYS): string {
-  const left = h.writtenDay === null ? lifeDays : daysLeft(h.writtenDay, day, lifeDays);
-  // Never "0 more days": `pointerBlock` returns null once `daysLeft` reaches 0,
-  // so the smallest number this line can print is 1 — the last day it shows.
-  const days = left === 1 ? "one more day" : `${Math.max(1, left)} more days`;
-  return `(The whole of it is ${h.id} — expand it with the counterparts recall tool; once its work is done, retire it with session_end's retireHandoff: [id]. It stops showing after ${days} of use.)`;
-}
-
-/**
- * THE BLOCK the wake splices in for a directory with ONE live handoff, or null
- * when it has run out.
- *
- * Two lines and no heading: the pointer is FURNITURE, and furniture that opens
- * its own section costs a blank line and a heading for two lines of content.
- * Both lines are flattened, so a handoff body can never inject a line into the
- * bundle — the scar `identityCoreLine` carries (a name with newlines in it
- * forged a resolved statement into the wake). `reader` is the waking session,
- * so its own handoff reads "by this session".
- */
-export function pointerBlock(
-  h: Handoff,
-  day: number,
-  lifeDays = HANDOFF_LIFE_DAYS,
-  since: PointerSince | null = null,
-  reader: string | null = null,
-): string | null {
-  if (expired(h, day, lifeDays)) return null;
-  const author = h.session === null ? null : authorWords(h, reader);
-  return [
-    flatten(pointerLine(h, HANDOFF_EXCERPT_BYTES, since, author)),
-    flatten(pointerDoor(h, day, lifeDays)),
-  ].join("\n");
-}
-
-/**
- * THE BLOCK FOR A DIRECTORY WITH SEVERAL (2026-09-30): a line saying how many,
- * the newest `shown` of them one line each — who, when, the first sentence and
- * the id — then the rest by id on one line, and one door for all of them.
- * Every line flattened, for `pointerBlock`'s reason; no `- ` bullet, because
- * the pointer is furniture and a bullet is what an element looks like.
- *
- * `since[i]` is how current the i-th one is: each says its own staleness
- * sentence (`staleWords`, 2026-10-18).
- */
-export function pointerBlockMany(
-  hs: readonly Handoff[],
-  day: number,
-  opts: {
-    readonly shown?: number;
-    readonly since?: readonly (PointerSince | null)[];
-    readonly reader?: string | null;
-    readonly lifeDays?: number;
-  } = {},
-): string | null {
-  const lifeDays = opts.lifeDays ?? HANDOFF_LIFE_DAYS;
-  const live = hs.filter((h) => !expired(h, day, lifeDays));
-  if (live.length === 0) return null;
-  const shown = Math.max(1, Math.min(opts.shown ?? HANDOFF_WAKE_SHOWN, live.length));
-  const reader = opts.reader ?? null;
-  const lines = [
-    `Where the work in this directory was left off \u2014 ${live.length} handoffs, one per session, newest first:`,
-  ];
-  live.slice(0, shown).forEach((h, i) => {
-    const since = opts.since?.[i] ?? null;
-    const when = whenWords(h, since);
-    lines.push(`${i + 1}) From ${authorWords(h, reader)}, ${since === null ? `on ${when}` : when}: ${excerpt(h.body)} (${h.id})`);
-  });
-  const rest = live.slice(shown);
-  if (rest.length > 0) {
-    const named = rest.slice(0, HANDOFF_WAKE_LISTED).map((h) => {
-      const on = /^\d{4}-(\d{2}-\d{2})$/.exec(h.writtenOn.trim())?.[1];
-      return on === undefined ? h.id : `${h.id} (${on})`;
-    });
-    const unnamed = rest.length - named.length;
-    lines.push(`+${rest.length} older here: ${named.join(", ")}${unnamed > 0 ? `, and ${unnamed} more` : ""}.`);
-  }
-  lines.push(
-    `(Expand any of them by id with the counterparts recall tool; retire one whose work is done with session_end's retireHandoff: [id]. Each stops showing ${lifeDays} days of use after it was written.)`,
-  );
-  return lines.map(flatten).join("\n");
-}
-
-/**
- * THE BLOCKS A DELIVERY MAY TRY, widest first — the ladder `Counterpart` walks
- * until one fits the ceiling.
- *
- * One live handoff: its two-line block. Several: the several-handoff block
- * showing `HANDOFF_WAKE_SHOWN` of them in full, then fewer, then — last — the
- * newest one's own two-line block, which says nothing of the others. That last
- * rung is for the one-boundary lag (NOTES §2): a directory's first second
- * author appears at a boundary whose reserve was sized to one handoff, and a
- * shorter pointer that fits beats a fuller one dropped whole.
- *
- * With `plans` (2026-10-09), each of those rungs comes first with the "since"
- * line under it (`sinceLine`), and then the rungs above, unchanged. A rung's
- * `plans` is the ids its line names — none on a rung without one.
- */
-export function pointerLadder(
-  hs: readonly Handoff[],
-  day: number,
-  opts: {
-    readonly since?: readonly (PointerSince | null)[];
-    readonly reader?: string | null;
-    readonly lifeDays?: number;
-    /** What was planned here since the newest (`Handoffs#plansSince`). */
-    readonly plans?: PlansSince | null;
-    /**
-     * WHEN EVERY ONE IT WOULD LIST IS STALE, LIST ONE (2026-10-18, the
-     * wake-polish builder, lightly held): the newest in full and the rest by
-     * id ("+3 older here: …"), not three stale handoffs a line each. On by
-     * default; the boundary's reserve sizing turns it off, because the
-     * widest words it sizes to are always stale and a fresh morning's three
-     * need their room (`Handoffs#liveBlockBytesByScope`).
-     */
-    readonly collapseStale?: boolean;
-  } = {},
-): { block: string; shown: readonly Handoff[]; plans: readonly string[] }[] {
-  const lifeDays = opts.lifeDays ?? HANDOFF_LIFE_DAYS;
-  const live = hs.filter((h) => !expired(h, day, lifeDays));
-  const first = live[0];
-  if (first === undefined) return [];
-  const single = pointerBlock(first, day, lifeDays, opts.since?.[0] ?? null, opts.reader ?? null);
-  const out: { block: string; shown: readonly Handoff[]; several: boolean }[] = [];
-  const widest = Math.min(HANDOFF_WAKE_SHOWN, live.length);
-  const allStale =
-    opts.collapseStale !== false &&
-    live.slice(0, widest).every((_, i) => {
-      const st = opts.since?.[i]?.stale;
-      return st !== undefined && st !== null && st.length > 0;
-    });
-  if (live.length > 1) {
-    for (let k = allStale ? 1 : widest; k >= 1; k--) {
-      const block = pointerBlockMany(live, day, { ...opts, shown: k });
-      if (block !== null) out.push({ block, shown: live.slice(0, k), several: true });
-    }
-  }
-  if (single !== null) out.push({ block: single, shown: [first], several: false });
-  // SINCE THIS HANDOFF (2026-10-09): every rung once WITH the line, widest
-  // first, then every rung as it was — so a ceiling with no room for the line
-  // carries today's block byte for byte. The line is tried before an older
-  // handoff is kept in full: what was planned here after the newest handoff
-  // is newer than any of them.
-  const plans = opts.plans ?? null;
-  const listed = (plans?.items ?? []).slice(0, SINCE_SHOWN).map((p) => p.id);
-  const withPlans = out.flatMap((rung) => {
-    const line = plans === null ? null : sinceLine(plans, rung.several);
-    return line === null ? [] : [{ block: `${rung.block}\n${line}`, shown: rung.shown, plans: listed }];
-  });
-  return [...withPlans, ...out.map((rung) => ({ block: rung.block, shown: rung.shown, plans: [] as readonly string[] }))];
 }
 
 // ── what was planned here since (2026-10-09) ────────────────────────────────
@@ -1219,7 +1096,7 @@ export class Handoffs {
    * allows.
    *
    * Per DIRECTORY, and for a directory with several handoffs every rung of its
-   * ladder (`pointerLadder`: three shown, two, one, and the newest alone), so
+   * ladder (`stands.ts#handoffRungBytes`: every line, then fewer), so
    * a ceiling that cannot afford room for three can still afford room for one.
    * Per directory and per writing session, never per row: a race's loser is
    * invisible to every read, and before `newestPerScope` it went on holding
@@ -1252,11 +1129,10 @@ export class Handoffs {
       const hs = handoffsNewestFirst(this.store, rows, d, HANDOFF_LIFE_DAYS);
       // Sized to the widest "how current" words the delivery can add, which
       // it computes only then — on the newest in full, the rest a stamp.
-      const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : WIDEST_OLDER_SINCE));
       // What was planned here since the newest, as it stands now (2026-10-09):
       // sized to the line that exists, as the rest of the block is.
       const plans = hs[0] === undefined ? null : this.plansSince(scope, hs[0]);
-      const rungs = pointerLadder(hs, d, { since, plans, collapseStale: false }).map((rung) => byteLengthOf(rung.block));
+      const rungs = handoffRungBytes(hs.map((h, i) => ({ handoff: h, at: null, since: i === 0 ? WIDEST_POINTER_SINCE : null })), d, plans);
       if (rungs.length > 0) out.set(scope, rungs);
     }
     return out;
@@ -1456,54 +1332,6 @@ export class Handoffs {
     } catch {
       return [];
     }
-  }
-
-  /**
-   * THE POINTER FOR THIS WAKE, or null — the first rung of `pointerChoices`,
-   * for a caller that does not need to fit a ceiling. Pure.
-   */
-  pointer(
-    scope: string,
-    day?: number,
-    since?: (h: Handoff, newest: boolean) => PointerSince | null,
-    reader?: string | null,
-  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number; plans: readonly string[] } | null {
-    return this.pointerChoices(scope, day, since, reader)[0] ?? null;
-  }
-
-  /**
-   * EVERY BLOCK THIS WAKE MAY SPLICE, widest first (`pointerLadder`), or none.
-   * Pure — it writes nothing, so a caller that finds no room can drop it
-   * without having claimed it was shown. `since` is how current each shown one
-   * is (`PointerSince`), asked with `newest` (since 2026-10-18 every one
-   * shown prints the same words, so the caller may ignore it). `reader` is the waking
-   * session, so its own handoff reads "by this session".
-   */
-  pointerChoices(
-    scope: string,
-    day?: number,
-    since?: (h: Handoff, newest: boolean) => PointerSince | null,
-    reader?: string | null,
-  ): { block: string; handoff: Handoff; shown: readonly Handoff[]; live: number; plans: readonly string[] }[] {
-    const d = day ?? this.store.livedDay();
-    const hs = this.readAll(scope, d);
-    const first = hs[0];
-    if (first === undefined) return [];
-    const current = hs.slice(0, HANDOFF_WAKE_SHOWN).map((h, i) => {
-      try {
-        return since?.(h, i === 0) ?? null;
-      } catch {
-        return null;
-      }
-    });
-    const plans = this.plansSince(scope, first);
-    return pointerLadder(hs, d, { since: current, reader: reader ?? null, plans }).map((rung) => ({
-      block: rung.block,
-      handoff: first,
-      shown: rung.shown,
-      live: hs.length,
-      plans: rung.plans,
-    }));
   }
 
   /**

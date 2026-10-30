@@ -716,6 +716,8 @@ export function rankLanes(
       if (t.CRAFT_IN_WAKE) craft.push(rankedAs(s, "craft"));
       continue;
     }
+    // Out of the wake by default (`HINTS_IN_WAKE`, WK1 2026-10-30): in no lane.
+    if (!t.HINTS_IN_WAKE) continue;
     // What the page already says is not "nearby" (2026-10-01, `covered.ts`).
     if (opts.coveredByPage?.has(s.id) === true) continue;
     hints.push(rankedAs(s, "hints", hintReading(s.physics, s.display, s.day ?? s.doc.bornDay, t)));

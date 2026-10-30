@@ -407,18 +407,18 @@ export function sessionCoverage(e: CoverageRow): SessionCoverage {
  * Matched by their opening words; the record keeps the kinds, never a line.
  */
 const FURNITURE: readonly (readonly [RegExp, string])[] = [
-  [/^Last here:/, "Last here"],
-  [/^Before it:/, "Before it"],
-  [/^\+\d+ more here/, "+N more here"],
-  [/^Last said here/, "Last said here"],
+  // One block since WK1 (2026-10-30, `core/handoff/stands.ts`): a session's chapter, last
+  // words and handoff on one line, read below as the kinds they were.
+  [/^Where this folder stands:/, "Last here"],
+  [/^Before that:/, "Before it"],
   [/^Yesterday\b/, "Yesterday"],
   [/^Today so far\b/, "Today so far"],
   [/^Today, elsewhere\b/, "Today, elsewhere"],
   [/^Since you started\b/, "Since you started"],
   [/^About me, from another directory\b/, "About me, elsewhere"],
-  // The handoff pointer and its "since" line, as the wake prints them (`test/continuity.test.ts`).
-  [/^Where I left off\b/, "Handoff"],
-  [/^Since this handoff:/, "Since this handoff"],
+  // The other handoffs and the "since" line, as the wake prints them (`test/continuity.test.ts`).
+  [/^Other handoffs here\b/, "Handoff"],
+  [/^Since (?:this handoff|the newest handoff here):/, "Since this handoff"],
   [/^Still open\b/, "Still open"],
 ];
 
@@ -432,6 +432,13 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
     const kind = FURNITURE.find(([re]) => re.test(line))?.[1];
     if (kind === undefined) continue;
     lines.push(kind);
+    // Who a line of the block names, and what it carries.
+    const who = /^(?:Where this folder stands|Before that): (?:a handoff from )?session ([^,\s]+)/.exec(line)?.[1];
+    if (/\(sch_[0-9a-f]+\)/.test(line)) lines.push("Handoff");
+    if (/\b[Ll]ast said /.test(line)) {
+      lines.push("Last said here");
+      if (lastSaid === null && who !== undefined) lastSaid = label(who);
+    }
     if (kind === "Last here" && lastHere === null) {
       const episode = /\bepi_[A-Za-z0-9_-]+/.exec(line)?.[0] ?? null;
       if (episode !== null) {
@@ -439,13 +446,8 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
         lastHere = { episode, session: s === null ? "?" : label(s) };
       } else {
         // A LATER SESSION WITH NO CHAPTER (S2): the line names the session itself.
-        const s = /^Last here: session ([^,\s]+),/.exec(line)?.[1];
-        if (s !== undefined) lastHere = { episode: null, session: label(s) };
+        if (who !== undefined && !/^Where this folder stands: a handoff from /.test(line)) lastHere = { episode: null, session: label(who) };
       }
-    }
-    if (kind === "Last said here" && lastSaid === null) {
-      const s = /\(session ([^)\s]+)\)/.exec(line)?.[1];
-      if (s !== undefined) lastSaid = label(s);
     }
   }
   return { lastHere, lastSaid, lines, bytes: Buffer.byteLength(injection, "utf8") };

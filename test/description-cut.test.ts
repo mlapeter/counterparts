@@ -223,7 +223,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       reflect: { total: 3699, beforeList: 1486 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
-      wake: { total: 1958, beforeList: 1229 },
+      // +5 on 2026-10-30 (WK1): "still open and coming up" where "nearby and arriving" was.
+      wake: { total: 1963, beforeList: 1234 },
     });
   });
 });

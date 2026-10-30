@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
-import { FRAMING, MORE_LINE_IDS, OPEN_TAIL_WORDS, Self, SELF_TUNABLES, foldedLine, moreLine, readSentinel, render } from "../src/core/self/index.js";
+import { FRAMING, OPEN_TAIL_WORDS, Self, SELF_TUNABLES, foldedLine, moreLine, readSentinel, render } from "../src/core/self/index.js";
 import type { Lanes, Ranked, Resolve } from "../src/core/self/index.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -67,9 +67,10 @@ describe("the line", () => {
     expect(out.bytes).toBeLessThanOrEqual(100_000);
   });
 
-  test("more than it names: the count is whole, the ids are the first few, and it says so", () => {
+  test("the count is whole and names no ids (WK1, 2026-10-30): a lane with a door names it, the rest the count alone", () => {
     const ids = Array.from({ length: 8 }, (_, i) => `mem_h${String(i)}`);
-    expect(moreLine("hints", ids)).toBe(`(8 more might be relevant; recall ids (the first ${String(MORE_LINE_IDS)}): mem_h0, mem_h1, mem_h2, mem_h3, mem_h4)`);
+    expect(moreLine("hints", ids)).toBe("(8 more might be relevant)");
+    expect(moreLine("horizon", ids)).toBe(`(8 more coming up; recall "still open" lists them)`);
     // "Still open" names no id at all (2026-10-25): the count, calmly.
     const out = render(lanes(12, 8), { budgetBytes: 100_000, day: 5 }, resolve, SELF_TUNABLES);
     expect(out.text).toContain(`(8 more open, ${OPEN_TAIL_WORDS})`);
@@ -174,8 +175,8 @@ describe("\"Still open\"'s calm tail says a door that works (2026-10-25)", () =>
   });
 });
 
-describe("the folded line's handles work through the recall tool (2026-10-12)", () => {
-  test("each folded lane names its own first ids, and recall returns them", async () => {
+describe("the folded line's door works through the recall tool (2026-10-12; no ids since WK1, 2026-10-30)", () => {
+  test("a folded lane is a count and a door, and the door lists what it counted", async () => {
     const c = Counterpart.open({ dir });
     open.push(c);
     const ids: string[] = [];
@@ -191,14 +192,12 @@ describe("the folded line's handles work through the recall tool (2026-10-12)", 
       );
     }
     const line = foldedLine({ threads: ids }) ?? "";
-    const m = /6 still open \(recall ids: ([^)]+), and 3 more\)/.exec(line);
-    expect(m).not.toBeNull();
-    const named = (m?.[1] ?? "").split(", ");
-    expect(named).toEqual(ids.slice(0, 3));
+    expect(line).toContain('6 still open (recall "still open" lists them)');
+    for (const id of ids) expect(line).not.toContain(id);
     recordSession(dir, { sessionId: "s-fold", scope: "/proj", phase: "start" });
     const server = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir });
-    const r = await server.call("recall", { ids: named });
+    const r = await server.call("recall", { handle: "still open" });
     expect(r.isError ?? false).toBe(false);
-    expect((r.structuredContent["memories"] as { id: string }[]).map((x) => x.id).sort()).toEqual([...named].sort());
+    expect((r.structuredContent["items"] as { id: string }[]).map((x) => x.id).sort()).toEqual([...ids].sort());
   });
 });

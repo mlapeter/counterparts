@@ -61,6 +61,7 @@ import { localDate, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
 import type { Counterpart, DepositResult } from "../../core/counterpart.js";
 import { LAST_EXCHANGE_HANDLE, lastExchangeAnswer } from "../../core/handoff/last-exchange.js";
+import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/stands.js";
 import { loadGateState } from "../../core/recall/index.js";
 import type { SemanticSource } from "../../core/recall/index.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
@@ -2391,6 +2392,11 @@ export class McpServer {
     if (typeof handle === "string" && handle.trim().toLowerCase() === LAST_EXCHANGE_HANDLE && args["question"] === undefined && args["ids"] === undefined) {
       return this.lastExchangeTool();
     }
+    // THIS FOLDER'S HANDOFFS (WK1, 2026-10-30): the door the wake's line counts
+    // the rest behind, to expand or retire one, with no bare ids in the wake.
+    if (typeof handle === "string" && handle.trim().toLowerCase() === HANDOFFS_HERE_HANDLE && args["question"] === undefined && args["ids"] === undefined) {
+      return this.handoffsHereTool();
+    }
     // WHAT'S STILL OPEN (2026-10-25): the list "Still open" carries, by the
     // handle, or by a facts question that asks for exactly that.
     const stillOpenAsked =
@@ -2627,12 +2633,38 @@ export class McpServer {
     return openCarry(store, store.livedDay(), t.OPEN_CARRY_DAYS, t.OPEN_CARRY_GLIMPSE_TOUCH).notCarried.size;
   }
 
+  private handoffsHereTool(): ToolResult {
+    const listed = this.counterpart.handoffsHere(this.scope ?? "");
+    this.emit("mcp.recall.handoffshere", undefined, { total: listed.length });
+    return this.result(
+      {
+        path: "handle",
+        reason: "handoffs-here",
+        handle: HANDOFFS_HERE_HANDLE,
+        total: listed.length,
+        handoffs: listed.map((h) => ({
+          id: h.id,
+          writtenOn: h.writtenOn,
+          ...(h.session === null ? {} : { session: h.session.slice(0, 8) }),
+          ...(h.model === null ? {} : { model: h.model }),
+          excerpt: h.excerpt,
+          daysLeft: h.daysLeft,
+        })),
+        note:
+          listed.length === 0
+            ? "No live handoff in this folder."
+            : "This folder's live handoffs, newest first. Recall an id to read one whole; retire one whose work is done with session_end's retireHandoff: [id]. daysLeft is the lived days until it stops showing.",
+      },
+      false,
+    );
+  }
+
   private stillOpenTool(page: number, routed: boolean): ToolResult {
     // For this folder, as its wake reads it (O2, 2026-10-26): its own first,
     // the personal ones after, another folder's work not listed or counted;
     // a joined folder the setting has off is not this one's (`folderOn`).
     const on = this.folderOn();
-    const { items, parked } = this.counterpart.stillOpen({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
+    const { items, parked, comingUp } = this.counterpart.stillOpen({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
     const pages = Math.max(1, Math.ceil(items.length / STILL_OPEN_PAGE));
     const at = Math.min(page, pages);
     const shown = items.slice((at - 1) * STILL_OPEN_PAGE, at * STILL_OPEN_PAGE);
@@ -2665,10 +2697,28 @@ export class McpServer {
           ...(i.settlesWhen === undefined ? {} : { settlesWhen: i.settlesWhen }),
           ...(i.parked === true ? { parked: true } : {}),
         })),
+        // "COMING UP", BY TITLE (WK1, 2026-10-30): the wake lists what is due
+        // today and the oldest overdue and counts the rest, naming this
+        // handle as their door. On the first page only; it is short.
+        ...(comingUp.length === 0 || at !== 1
+          ? {}
+          : {
+              comingUp: comingUp.map((c) => ({
+                id: c.id,
+                title: c.title,
+                ...(c.due === undefined ? {} : { due: c.due }),
+                ...(c.every === undefined ? {} : { every: c.every }),
+                ...(c.overdue === true ? { overdue: true } : {}),
+              })),
+            }),
         note:
           (items.length === 0
             ? "Nothing is still open."
-            : `${carried === 0 ? `Nothing open is carried in the wake's "Still open" now.` : `What "Still open" carries, in the wake's order: what is live first, newest touched first.`}${at < pages ? ` More on page ${String(at + 1)} (page: ${String(at + 1)}).` : ""} Recall an id to read it whole. A lived day is a day the memory was in use.`) + parkedNote,
+            : `${carried === 0 ? `Nothing open is carried in the wake's "Still open" now.` : `What "Still open" carries, in the wake's order: what is live first, newest touched first.`}${at < pages ? ` More on page ${String(at + 1)} (page: ${String(at + 1)}).` : ""} Recall an id to read it whole. A lived day is a day the memory was in use.`) +
+          parkedNote +
+          (comingUp.length === 0 || at !== 1
+            ? ""
+            : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true; the longest past its date first), then by date.`),
       },
       false,
     );

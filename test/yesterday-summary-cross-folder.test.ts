@@ -91,8 +91,8 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function brain(): Counterpart {
-  const c = Counterpart.open({ dir: storeDir, snapshotsDir: join(root, "snaps"), budgetBytes: BUDGET, now: () => clock, timeZone: "UTC" });
+function brain(selfTunables?: { HINTS_IN_WAKE: boolean }): Counterpart {
+  const c = Counterpart.open({ dir: storeDir, snapshotsDir: join(root, "snaps"), budgetBytes: BUDGET, now: () => clock, timeZone: "UTC", ...(selfTunables === undefined ? {} : { selfTunables }) });
   open.push(c);
   return c;
 }
@@ -272,6 +272,7 @@ describe("a folder the owner excluded still holds it back: the chapter-list form
  * The session-start assembly now leaves out a chapter's summary from another
  * folder whose scope setting is not on.
  */
+// The lane is off the wake by default since WK1 (2026-10-30); these tests are of the lane, so it is on.
 describe("Nearby at session start: another folder's chapter summary by that folder's scope setting", () => {
   const nearby = (wake: string): string => {
     const i = wake.indexOf("Might be relevant:");
@@ -281,7 +282,7 @@ describe("Nearby at session start: another folder's chapter summary by that fold
   test("off, paused or observer: left out; on: listed; this folder's own: always listed", async () => {
     await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
     await chapterVia({ session: S3, scope: BAKERY, date: D1, hour: 13, title: "The winter oven schedule" });
-    const c = brain();
+    const c = brain({ HINTS_IN_WAKE: true });
     scopes({ [HERE]: "on", [BAKERY]: "on" });
     const open = sessionStart(c);
     expect(nearby(open)).toContain("The winter oven schedule, done.");
@@ -297,7 +298,7 @@ describe("Nearby at session start: another folder's chapter summary by that fold
   test("no scope setting to read: another folder's chapter summary is left out", async () => {
     await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
     await chapterVia({ session: S3, scope: BAKERY, date: D1, hour: 13, title: "The winter oven schedule" });
-    const c = brain();
+    const c = brain({ HINTS_IN_WAKE: true });
     const wake = sessionStart(c, { configPath: null });
     expect(wake).not.toContain("The winter oven schedule");
     expect(nearby(wake)).toContain("Sowing the broad beans, done.");

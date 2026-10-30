@@ -64,8 +64,9 @@ function warm(s: Store, body: string, relevance: number, birthDay = 0): string {
   });
 }
 
+/** The hints lane is this file's subject: on, though it is off the wake by default since WK1 (2026-10-30). */
 function self(s: Store, over: Partial<SelfTunables> = {}): Self {
-  return new Self({ store: s, tunables: over });
+  return new Self({ store: s, tunables: { HINTS_IN_WAKE: true, ...over } });
 }
 
 /** One day's render, as the worker runs it; returns the KEPT hint ids. */

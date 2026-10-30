@@ -357,6 +357,23 @@ export interface StillOpenItem {
   readonly parked?: true;
 }
 
+/**
+ * ONE OF "COMING UP"'S DATED ITEMS, AS THE `still open` HANDLE LISTS IT (WK1,
+ * 2026-10-30, `Self#comingUpList`): the wake lists what is due today and the
+ * oldest overdue, and counts the rest with this handle as their door.
+ */
+export interface ComingUpItem {
+  readonly id: string;
+  /** Its title, else its first line, at most `STILL_OPEN_TITLE_CHARS`. */
+  readonly title: string;
+  /** The date it is due, `YYYY-MM-DD` as `prospective/` stated it. */
+  readonly due?: string;
+  /** How often it comes round, in words, when it repeats. */
+  readonly every?: string;
+  /** Past its date (a one-off in its grace days). */
+  readonly overdue?: true;
+}
+
 /** The most characters of a title the `still open` handle gives. */
 export const STILL_OPEN_TITLE_CHARS = 160;
 
@@ -1230,6 +1247,48 @@ export class Self {
   }
 
   /**
+   * "COMING UP"'S DATED ITEMS, FOR THE `still open` HANDLE (WK1, 2026-10-30):
+   * what the wake's "Coming up" lists or counts — the overdue first, the
+   * longest past their date first, then the rest by date — each by title and
+   * date, so the lane's count line can name a door that lists them by title
+   * instead of five bare ids. `items` is the caller's horizon for the day
+   * (`core/briefing.ts#horizonFor`); `today` is that day. What a later
+   * memory settled over, and an identity element, are left out as the lane
+   * leaves them. Reads only; never throws (an item that will not read is
+   * left out).
+   */
+  comingUpList(items: readonly HorizonItem[], today: string, day: number): ComingUpItem[] {
+    const settled = settledOver(this.store);
+    const out: (ComingUpItem & { readonly sortKey: string })[] = [];
+    const seen = new Set<string>();
+    for (const h of items) {
+      if (seen.has(h.id) || settled.has(h.id)) continue;
+      seen.add(h.id);
+      try {
+        const s = scanOne(this.store, h.id, day);
+        if (s === null || s.band === "identity") continue;
+        const first = s.doc.body.split("\n").find((l) => l.trim().length > 0) ?? "";
+        const whole = flatten((s.doc.title ?? "").trim() || first);
+        const title = whole.length <= STILL_OPEN_TITLE_CHARS ? whole : `${whole.slice(0, STILL_OPEN_TITLE_CHARS - 1).trimEnd()}…`;
+        const due = h.due?.trim() ?? "";
+        const overdue = h.today !== true && h.plainDue !== true && (h.past === true || (isDay(due) && due < today));
+        out.push({
+          id: h.id,
+          title,
+          ...(due === "" ? {} : { due }),
+          ...(h.every === undefined ? {} : { every: h.every }),
+          ...(overdue ? { overdue: true as const } : {}),
+          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : due}${h.id}`,
+        });
+      } catch {
+        /* an item that will not read is left out */
+      }
+    }
+    out.sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+    return out.map(({ sortKey: _k, ...rest }) => rest);
+  }
+
+  /**
    * THE PARKED OPEN THREADS FOR ONE READER (P2, 2026-10-28): what the carry
    * leaves out (`openCarry`'s `notCarried`), less another folder's work when
    * a reader's place is given (O2), the most recently touched first, then by
@@ -1361,8 +1420,10 @@ export class Self {
     // "Nearby" as the turn-end CHOSE it — what it listed, then what its trim
     // popped (2026-10-12) — so this composition lists or counts them in its
     // own room rather than leaving the popped ones without a word.
+    // A bundle published while the lane was in the wake still names its
+    // hints: not carried while `HINTS_IN_WAKE` is off (WK1, 2026-10-30).
     const keptOut = req.hintKeptOut;
-    const hintIds = [...shown.hints, ...shown.more.hints];
+    const hintIds = this.tunables.HINTS_IN_WAKE ? [...shown.hints, ...shown.more.hints] : [];
     const hintsScanned = carried(keptOut === undefined ? hintIds : hintIds.filter((id) => !keptOut(id)), "hints");
     const covered = hintsScanned.length === 0 ? new Set<string>() : this.pageCovers(hintsScanned);
     const lanes: Lanes = {
@@ -1414,6 +1475,48 @@ export class Self {
     sources: Map<string, string | null>,
     req: BoundaryRequest,
   ): BriefingResult {
+    const first = this.composeOnce(lanes, docs, sources, req);
+    // AN OVERDUE LINE NEVER COSTS "STILL OPEN" AN ITEM (WK1, 2026-10-30; the
+    // brief: the lane's behaviour stays as it was). A dated line outranks the
+    // lane's items in the room (`ROOM_ORDER`'s `arriving`), which is right for
+    // what is due today and was never meant for an old date: so when the render
+    // trimmed "Still open", the listed overdue step back, the newest of them
+    // first, as far as gives "Still open" what it keeps with none listed. They
+    // are counted again, under the door. More renders only on such a day.
+    const late = new Set(lanes.overdue ?? []);
+    const listedLate = lanes.horizon.filter((r) => late.has(r.id));
+    if (listedLate.length === 0 || !first.trimmed.some((e) => e.lane === "threads")) return first;
+    const without = (n: number): Lanes => {
+      const back = listedLate.slice(listedLate.length - n).map((r) => r.id);
+      const out = new Set(back);
+      return {
+        ...lanes,
+        horizon: lanes.horizon.filter((r) => !out.has(r.id)),
+        later: [...back, ...(lanes.later ?? [])],
+        overflow: {
+          identity: lanes.overflow?.identity ?? [],
+          craft: lanes.overflow?.craft ?? [],
+          threads: lanes.overflow?.threads ?? [],
+          hints: lanes.overflow?.hints ?? [],
+          horizon: [...back, ...(lanes.overflow?.horizon ?? [])],
+        },
+      };
+    };
+    const none = this.composeOnce(without(listedLate.length), docs, sources, req);
+    if (none.kept.threads.length <= first.kept.threads.length) return first;
+    for (let n = 1; n < listedLate.length; n++) {
+      const some = this.composeOnce(without(n), docs, sources, req);
+      if (some.kept.threads.length >= none.kept.threads.length) return some;
+    }
+    return none;
+  }
+
+  private composeOnce(
+    lanes: Lanes,
+    docs: Map<string, ProseDoc>,
+    sources: Map<string, string | null>,
+    req: BoundaryRequest,
+  ): BriefingResult {
     const resolved: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
     // WHOLE TEXT WHERE NOBODY CAN RECALL (review of #508): a composition that
     // passes `omit` is not owner-facing — the background sweep's, read by a
@@ -1434,14 +1537,18 @@ export class Self {
     // A repeating one says how often, beside it (2026-10-09).
     // One already behind the day the wake is composed for says it WAS due
     // (2026-10-09).
-    const dues = new Map<string, { due: string; every?: string; duePast?: boolean }>();
+    const dues = new Map<string, { due: string; every?: string; duePast?: boolean; duePastDays?: number }>();
     for (const h of [...(req.horizon ?? []), ...(req.horizonMoreItems ?? [])]) {
       if (h.due === undefined || h.due.trim() === "") continue;
       const every = h.every?.trim() ?? "";
+      // Past its date, it says how long (WK1, 2026-10-30): the line's age.
+      const pastDays = req.at === undefined ? null : daysBetween(h.due.trim(), req.at);
+      const past = h.past === true || (h.today !== true && h.plainDue !== true && pastDays !== null && pastDays >= 1);
       dues.set(h.id, {
         due: h.due.trim(),
         ...(every === "" ? {} : { every }),
-        ...(h.past === true ? { duePast: true } : {}),
+        ...(past ? { duePast: true } : {}),
+        ...(past && pastDays !== null ? { duePastDays: pastDays } : {}),
       });
     }
     const resolve: Resolve =
@@ -3836,11 +3943,21 @@ export class Self {
     const late = (h: HorizonItem): boolean => !now(h) && (h.past === true || (isDay(due(h)) && due(h) < today));
     const all = [...(items ?? []), ...(moreItems ?? [])];
     const dated = new Set((moreItems ?? []).map((h) => h.id));
-    const listed = all.filter(now);
-    const overdue = all.filter(late).map((h) => h.id);
+    // THE OLDEST OVERDUE ARE LISTED (WK1, 2026-10-30; ROADMAP's call, for
+    // Mike's review): up to `COMING_UP_OVERDUE_LISTED`, the longest past
+    // their date first, each by title and its "was due" date, after what is
+    // due today; the rest counted, and listed by the `still open` handle.
+    // Until then every overdue item was a count with five bare ids.
+    const lateAll = all.filter(late);
+    const oldest = [...lateAll]
+      .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, Math.max(0, this.tunables.COMING_UP_OVERDUE_LISTED));
+    const oldestIds = new Set(oldest.map((h) => h.id));
+    const listed = [...all.filter(now), ...oldest];
+    const overdue = lateAll.map((h) => h.id);
     // Every id counted rather than listed, overdue first, so the count line
     // names them first (`moreLine`).
-    const later = [...overdue, ...all.filter((h) => !now(h) && !late(h)).map((h) => h.id)];
+    const later = [...overdue.filter((id) => !oldestIds.has(id)), ...all.filter((h) => !now(h) && !late(h)).map((h) => h.id)];
     const undated = (moreIds ?? []).filter((id) => !dated.has(id));
     return { listed, later, overdue, more: [...later, ...undated] };
   }

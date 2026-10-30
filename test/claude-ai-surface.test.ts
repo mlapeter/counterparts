@@ -95,7 +95,7 @@ const NOON = new Date("2026-09-26T12:00:00").getTime();
 const noon = (): number => NOON;
 const today = (): string => "2026-09-26";
 
-/** A store with a page, an open thread, a plain reminder due today and a nearby memory, published. */
+/** A store with a page, an open thread, a plain reminder due today and an ordinary memory, published. */
 async function lived(url: string, s: McpServer): Promise<void> {
   const session = String((await tool(url, "wake", {})).structured["session"]);
   await tool(url, "remember", { session, kind: "person", title: "Quiet mornings", text: "Wren likes quiet mornings before any planning." });
@@ -131,7 +131,9 @@ describe("2. claude.ai's wake, through the door", () => {
     // Every line of the composed wake is still there, once.
     expect(text.match(/Seed order|seed order/g)?.length).toBeGreaterThanOrEqual(1);
     expect(text).toContain("Asked Wren how tall the bean trellis should be.");
-    expect(text).toContain("Wren likes quiet mornings before any planning.");
+    // An ordinary memory is not listed: "Might be relevant" is off the wake (WK1, 2026-10-30).
+    expect(text).not.toContain("Wren likes quiet mornings before any planning.");
+    expect(text).not.toContain(FRAMING.hints);
     expect(text).toContain("<!-- counterparts:wake/end");
     expect(text).not.toContain("\n\n\n");
     // No "same you" line: no host shares this store.

@@ -174,7 +174,7 @@ describe("the invariant: every lane the wake chose is whole, shortened or counte
 });
 
 describe("Nearby: counted in room nothing else wants — of what it chose, never the store", () => {
-  test("hints the budget popped are counted with their ids when there is room; else quiet, never untold; the cap's forty never", () => {
+  test("hints the budget popped are counted when there is room; else quiet, never untold; the cap's forty never", () => {
     const l = lanes();
     const full = render({ ...l, identity: [] }, { budgetBytes: 100_000, day: 3 }, resolve, SELF_TUNABLES);
     expect(full.more.hints).toBeUndefined();
@@ -215,8 +215,8 @@ describe("Nearby: counted in room nothing else wants — of what it chose, never
 describe("the folded line", () => {
   test("names every lane that lost something, dated items first, and reads back", () => {
     const line = foldedLine({ threads: ["mem_a", "mem_b", "mem_e", "mem_f"], horizon: ["mem_c"], hints: ["mem_d"] }) ?? "";
-    // Each folded lane its own handle: its first ids, and how many more.
-    expect(line).toBe(`${FOLDED_WORDS} 1 coming up (recall ids: mem_c); 4 still open (recall ids: mem_a, mem_b, mem_e, and 1 more); 1 might be relevant (recall ids: mem_d)`);
+    // Counts and the door that lists them, no bare ids (WK1, 2026-10-30).
+    expect(line).toBe(`${FOLDED_WORDS} 1 coming up, 4 still open (recall "still open" lists them); 1 might be relevant`);
     expect(isFoldedLine(line)).toBe(true);
     expect(countedLanes(line)).toEqual({ horizon: 1, threads: 4, hints: 1 });
     expect(foldedLine({})).toBeNull();
@@ -246,7 +246,8 @@ describe("the folded line", () => {
     // The fold holds only lanes that list nothing; a lane listing an item has its own line.
     const fold = out.text.split("\n").find(isFoldedLine) ?? "";
     for (const lane of ["craft", "threads", "horizon"] as const) {
-      if (out.kept[lane].length > 0) expect(fold).not.toContain(` ${MORE_NOUN[lane]} (recall ids`);
+      // A count of it in the fold reads "<n> <noun>"; the door's own words carry no count.
+      if (out.kept[lane].length > 0) expect(fold).not.toMatch(new RegExp(`\\d ${MORE_NOUN[lane]}`));
     }
   });
 });

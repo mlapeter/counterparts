@@ -16,7 +16,8 @@ import { join } from "node:path";
 
 import { ONE_TAG, markerField, sessionTag, tagLead } from "../src/adapters/store-id.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { ELSEWHERE_HEAD, lastHereBlock } from "../src/core/handoff/last-here.js";
+import { ELSEWHERE_HEAD } from "../src/core/handoff/last-here.js";
+import { standsLadder } from "../src/core/handoff/stands.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import { FRAMING, HORIZON_OWN_ID, elementLine, readSentinel, withHeadFields } from "../src/core/self/index.js";
@@ -112,14 +113,14 @@ describe("each episode once", () => {
     // Every one of them named, and named once.
     for (const id of [visit, seo, averages, bench]) expect(count(text, id)).toBe(1);
     // "Last here" names the newest written here; Yesterday the others, by title.
-    expect(lineStarting(text, "Last here: ")).toContain(`(${bench})`);
+    expect(lineStarting(text, "Where this folder stands: ")).toContain(`(${bench})`);
     const yesterday = lineStarting(text, "Yesterday: ") ?? "";
     for (const title of ["The visit went great", "Planning the SEO push", "The overnight averages"]) expect(yesterday).toContain(title);
     expect(yesterday).not.toContain(bench);
-    // So "Before it" / "+N more here" have nothing to repeat, and the about-me
-    // line leaves its chapter to Yesterday.
-    expect(text).not.toMatch(/^Before it: /m);
-    expect(text).not.toMatch(/^\+\d+ more here on /m);
+    // So the block has no older entry to repeat them in, no line lists them by
+    // bare id, and the about-me line leaves its chapter to Yesterday.
+    expect(text).not.toMatch(/^Before that: /m);
+    expect(text).not.toMatch(/^\+\d+ more here/m);
     expect(text).not.toContain(ELSEWHERE_HEAD);
     // No item is a bare id.
     expect(yesterday).not.toMatch(/(?:: |; )epi_[0-9a-f]+/);
@@ -143,13 +144,12 @@ describe("each episode once", () => {
       when: "Oct 19 09:00–10:00",
       date: "Oct 19",
     });
-    const entries = [mk("epi_000000000001", "Newest"), mk("epi_000000000002", "Second"), mk("epi_000000000003", "Third")];
-    const all = lastHereBlock(entries, { shown: 1 }) ?? "";
-    expect(all).toContain("+2 more here on Oct 19: epi_000000000002, epi_000000000003.");
-    const named = lastHereBlock(entries, { shown: 1, named: (id) => id !== "epi_000000000003" }) ?? "";
-    expect(named).toContain("+1 more here on Oct 19: epi_000000000003.");
-    expect(lastHereBlock(entries, { named: () => true })).toStartWith("Last here: ");
-    expect(lastHereBlock(entries, { named: () => true })).toContain("epi_000000000001");
+    // Since WK1 (2026-10-30) the line names the newest alone, never "+N more" by
+    // bare id; a named one stays, because the line is what says when.
+    const line = standsLadder({ handoffs: [], chapter: { entry: mk("epi_000000000001", "Newest"), at: 1 }, day: 1, named: () => true })[0]?.block ?? "";
+    expect(line).toStartWith("Where this folder stands: ");
+    expect(line).toContain("epi_000000000001");
+    expect(line).not.toContain("more here");
   });
 });
 
@@ -207,7 +207,7 @@ describe("one tag", () => {
       expect(tagged.bytes).toBeLessThanOrEqual(budget);
       expect(readSentinel(tagged.text).intact).toBe(true);
       if (bare.text.includes(newest)) expect(tagged.text).toContain(newest);
-      expect(tagged.text.includes("Last here: ")).toBe(bare.text.includes("Last here: "));
+      expect(tagged.text.includes("Where this folder stands: ")).toBe(bare.text.includes("Where this folder stands: "));
     }
   });
 
@@ -240,7 +240,9 @@ describe("Coming up", () => {
     const listed = lane.filter((l) => l.startsWith("- "));
     expect(listed.some((l) => l.includes("Back up the store to the drive.") && l.includes(`[${today}]`))).toBe(true);
     expect(listed.some((l) => l.includes("Call the vet"))).toBe(false);
-    expect(lane.join("\n")).toContain(tomorrow);
+    // Counted under the door that lists it, not by bare id (WK1, 2026-10-30).
+    expect(lane).toContain('(1 more coming up; recall "still open" lists them)');
+    expect(lane.join("\n")).not.toContain(tomorrow);
   });
 
   test("a whole item names its own id before the earlier occurrence's pointer", () => {
@@ -258,7 +260,10 @@ describe("at least once (review of #536)", () => {
   test("a full wake with no handoff here, swept across ceilings: when 'Last here' has no room, Yesterday names its episode, and every episode appears once", () => {
     let dropped = 0;
     let carried = 0;
-    for (let budget = 8_700; budget <= 9_300; budget += 10) {
+    // Re-tuned at WK1 (2026-10-30): with "Might be relevant" off this wake tops
+    // out near 8.1K, so the window where the line gives way moved down. It is
+    // narrow (measured around 7,140), so the sweep is fine-grained.
+    for (let budget = 7_060; budget <= 7_320; budget += 5) {
       for (const c of open.splice(0)) c.close();
       rmSync(storeDir, { recursive: true, force: true });
       let now = at(D1, 8);
@@ -284,7 +289,7 @@ describe("at least once (review of #536)", () => {
       expect(woke.bytes).toBeLessThanOrEqual(budget);
       expect(readSentinel(woke.text).intact).toBe(true);
       const yesterday = lineStarting(woke.text, "Yesterday: ") ?? "";
-      if (woke.text.includes("Last here: ")) {
+      if (woke.text.includes("Where this folder stands: ")) {
         carried += 1;
         expect(count(woke.text, newest)).toBe(1);
         expect(yesterday).not.toContain(newest);
