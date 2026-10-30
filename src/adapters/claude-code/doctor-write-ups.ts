@@ -124,8 +124,9 @@ function lastCatchUpAt(store: Store): number | null {
 /**
  * THE FOLDER SETTING DOCTOR COUNTS UNDER. A file that will not read is no
  * setting here: the catch-up takes nothing while it is broken (`scopes.ts#foldersOn`),
- * and this is the one place that shows, as debts going overdue, rather than a
- * reading of "nothing owed" over a night that could not run.
+ * and a count of what it can't take is what shows that, rather than a reading of
+ * "nothing owed" over a night that could not run. `counterparts coverage` reads
+ * the same.
  */
 export function owedFolders(configPath: string): FolderOn | undefined {
   const file = scopesPath(configPath);
@@ -283,6 +284,12 @@ export function crashWriteUpFindings(input: DoctorInput, store: Store, owedReadi
       .filter((w) => w.length > 0)
       .join("; ");
   const pointer = readWriteUpPointer(store);
+  // A FOLDER SETTING THAT WILL NOT READ takes nothing from the catch-up, so the
+  // advice below would send a person to a command that can't help while the
+  // text goes on aging. Said at once, not when it goes overdue. Asked only when
+  // something is owed, so the budgeted session-start reading never reads it.
+  const scopesFile = (waiting ?? 0) > 0 && input.configReason !== "not-read" ? scopesPath(input.configPath) : null;
+  const scopes = scopesFile === null ? null : readScopes(scopesFile);
   const data = {
     mode: "next-session",
     waiting,
@@ -303,6 +310,18 @@ export function crashWriteUpFindings(input: DoctorInput, store: Store, owedReadi
     // they stay owed, so `waiting` already counts their sessions.
     nightUnread: night?.unread ?? null,
   };
+  if (scopes !== null && scopes.error !== null) {
+    return [
+      finding(
+        "crash-write-up",
+        "amber",
+        title,
+        `${detail} — no write-ups are being taken: ${tilde(scopesFile ?? "")} will not read (${scopes.error})`,
+        `Fix or remove ${tilde(scopesFile ?? "")}; the night and counterparts catch-up take nothing until then, and text that ages out meanwhile is lost.`,
+        data,
+      ),
+    ];
+  }
   // THE POINTER IS NOT GETTING OUT (PR #192 review, MAJOR 1 and m4): opening a
   // session there would only defer again, so the advice says why and by how much.
   if (!auto && pointer !== null && pointer.outcome === "deferred" && (waiting ?? 0) > 0) {

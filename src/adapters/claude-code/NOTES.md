@@ -2916,6 +2916,13 @@ with no configuration (a store named with `--dir`) keeps what it had.
 **A folder resumed the same day** waits for the next day's `owedBefore`, if `NOTHING_OWED_BEFORE_KEY` was
 already set that day, unless a night was due anyway. Loose on purpose.
 
+**A setting that won't read went round in a circle (review of #689).** Take-nothing is the direction, and the
+text is on a clock, so silence there loses memories. As first built, doctor said overdue and "run counterparts
+catch-up", the command said "every ended session is written up", and `coverage` filed an on folder's session under
+"folder off". Now all three, and the session-start line, name the file. Not touched: the dream's and the
+reflection's bundles read every folder's memories and chapters (`Dreams#begin` has no `folderOn`), so a dream can
+still merge an off folder's memories into a new row filed where the night ran. Older than this, and a change in `core/`.
+
 **Beside it: `verify --rebuild --keep-vectors` read every archived row as a mismatch.** Its arm of
 `verifyRebuild` left `skippedArchived` out of what it counted; the plain arm has counted it since I13. On
 a copy of the live store the difference was exactly the archived rows (621; superseded rows are all archived

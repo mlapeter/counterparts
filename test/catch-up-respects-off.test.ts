@@ -14,9 +14,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { AdapterConfig } from "../src/adapters/config.js";
+import { defaultConfigPath } from "../src/adapters/config-path.js";
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
 import { owedFolders, readOwed } from "../src/adapters/claude-code/doctor-write-ups.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
@@ -28,7 +29,7 @@ import { coverageLines, coverageReading } from "../src/adapters/cli/coverage.js"
 import { openServer } from "../src/adapters/mcp/index.js";
 import { emptyRegistry, foldersOn, readScopes, scopesPath, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
-import { readSession, readWriteUpProgress, recordSession, writeUpEntries, writeUpPlan } from "../src/adapters/sessions.js";
+import { WRITE_UP_PART_BYTES, readSession, readWriteUpProgress, recordSession, writeUpEntries, writeUpPartsDated, writeUpPlan } from "../src/adapters/sessions.js";
 import { SCOPE_ENV, SESSION_ENV } from "../src/adapters/spawn.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -343,6 +344,127 @@ describe("the readers of the debt", () => {
     expect(code).toBe(EXIT.ok);
     expect(writtenFrom()).toEqual(["s-on"]);
   });
+});
+
+describe("through the console's doors", () => {
+  const doctorLine = async (args: string[]): Promise<{ line: string; fix: string }> => {
+    const out: string[] = [];
+    await run(["doctor", ...args], { io: { out: (l) => out.push(l), err: () => undefined }, env: { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" } });
+    const at = out.findIndex((l) => l.includes("Catch-up"));
+    return { line: out[at] ?? "", fix: out[at + 1] ?? "" };
+  };
+
+  test("`counterparts doctor --config`: an off folder's session is nothing owed, an on folder's is owed", async () => {
+    lived("s-off", turned);
+    setFolder(turned, "off");
+    expect((await doctorLine(["--config", cfg])).line).toContain("nothing owed");
+    lived("s-on", on);
+    expect((await doctorLine(["--config", cfg])).line).toContain("1 session to catch up");
+  });
+
+  test("a setting that will not read, by every door: named, counted, and never called nothing owed", async () => {
+    lived("s-on", on);
+    writeFileSync(scopesPath(cfg), "{ not json");
+
+    const doc = await doctorLine(["--config", cfg]);
+    expect(doc.line).toContain("AMBER");
+    expect(doc.line).toContain("1 session to catch up");
+    expect(doc.line).toContain("scopes.json will not read");
+    expect(doc.fix).toContain("Fix or remove");
+    expect(doc.fix).not.toContain("Run counterparts catch-up");
+
+    const out: string[] = [];
+    const err: string[] = [];
+    const io = { out: (l: string): void => void out.push(l), err: (l: string): void => void err.push(l) };
+    const seen: ChildPlan[] = [];
+    const code = await run(["catch-up", "--config", cfg], { io, env: { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, catchUpStart: drivingChild(seen) });
+    expect(code).toBe(3);
+    expect(seen.length).toBe(0);
+    expect(out.join("\n")).not.toContain("every ended session is written up");
+    expect(err.join("\n")).toContain("Nothing was caught up");
+    expect(err.join("\n")).toContain("scopes.json");
+    expect(err.join("\n")).toContain("write-ups stop");
+    expect(err.join("\n")).toContain("text that ages out meanwhile is lost");
+  });
+
+  test("`counterparts coverage` on the default store: the setting beside the default configuration, and its trouble", async () => {
+    // The preload's temporary home, never a real one.
+    const home = process.env["HOME"] as string;
+    expect(home).toContain("counterparts-test-home-");
+    const config_ = defaultConfigPath(home);
+    const store_ = join(dirname(config_), "store");
+    mkdirSync(store_, { recursive: true });
+    writeFileSync(config_, `${JSON.stringify({ dataDir: store_ })}\n`);
+    const [dirWas, cfgWas] = [dir, cfg];
+    dir = store_;
+    cfg = config_;
+    try {
+      lived("s-on", on);
+      lived("s-off", turned);
+      setFolder(turned, "off");
+      const coverage = async (): Promise<{ out: string; err: string }> => {
+        const out: string[] = [];
+        const err: string[] = [];
+        expect(await run(["coverage"], { io: { out: (l) => out.push(l), err: (l) => err.push(l) }, env: { PATH: "/usr/bin:/bin" }, home })).toBe(EXIT.ok);
+        return { out: out.join("\n"), err: err.join("\n") };
+      };
+      const set = await coverage();
+      expect(set.out).toContain("Owed now: 1 session — s-on (");
+      expect(set.out).toContain("Not asked for (folder off, observer or paused): 1 session — s-off.");
+
+      // Broken, it agrees with doctor: both still counted, neither called off.
+      writeFileSync(scopesPath(config_), "{ not json");
+      const broken = await coverage();
+      expect(broken.out).toContain("Owed now: 2 sessions");
+      expect(broken.out).not.toContain("Not asked for (folder off");
+      expect(broken.err).toContain("write-ups stop");
+    } finally {
+      dir = dirWas;
+      cfg = cfgWas;
+      rmSync(dirname(config_), { recursive: true, force: true });
+    }
+  });
+});
+
+test("what a stopped run says is left counts only what it could take: `partsLeft` over a big on-folder session beside an off one", async () => {
+  // Past one part (`WRITE_UP_PART_BYTES`), so a run allowed one part leaves some.
+  const long = "the relief valve on this loop is seated before the pump runs, and checked again after. ".repeat(40);
+  mkdirSync(on, { recursive: true });
+  let at = yesterday10();
+  const c = Counterpart.open({ dir, now: () => at });
+  recordSession(dir, { sessionId: "s-big", scope: on, phase: "start", at });
+  const turns: { role: "user" | "assistant"; text: string }[] = [];
+  for (let i = 0; i < 40; i++) {
+    at += 2 * MIN;
+    turns.push({ role: "user", text: `#${String(i)} ${long}` });
+    turns.push({ role: "assistant", text: `(#${String(i)}) ${long}` });
+    c.captureSpans({ session: "s-big", scope: on, turns: [...turns] });
+  }
+  c.boundary({ session: "s-big", scope: on, kind: "session-end" });
+  recordSession(dir, { sessionId: "s-big", scope: on, phase: "end", at });
+  c.close();
+  lived("s-off", turned);
+  setFolder(turned, "off");
+
+  const seen: ChildPlan[] = [];
+  await runCatchUp({
+    open: () => openNightCounterpart(config()),
+    config: config(),
+    configPath: cfg,
+    run: "cup_parts",
+    scope: dir,
+    now: () => Date.now(),
+    parts: 1,
+    seat: claudeCodeSeat({ config: config(), open: () => openNightCounterpart(config()), startCatchUp: drivingChild(seen) }),
+  });
+  const read = openNightCounterpart(config());
+  closers.push(read);
+  const row = catchUpOf(read.store, "cup_parts");
+  expect(row).toMatchObject({ written: 0, left: 1 });
+  const parts = writeUpPartsDated(writeUpEntries(read.spans, { session: "s-big", scopes: [on] }), WRITE_UP_PART_BYTES).length;
+  expect(parts).toBeGreaterThan(1);
+  // The big session's own remainder and no more: the off session's part is not in it.
+  expect(row?.partsLeft).toBe(parts - 1);
 });
 
 describe("through the hook", () => {

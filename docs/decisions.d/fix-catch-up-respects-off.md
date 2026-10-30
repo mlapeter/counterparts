@@ -14,8 +14,11 @@
 - Decided by the NC1 builder, 2026-10-30, lightly held: a setting file that will not read takes
   nothing, where the hook's direction is on. Why: a hook may not fail its host, and a night can wait;
   the two nearest writers (`lifecycle.ts#chapterExports`, the reflection's marks) already go this way.
-  The file's trouble is said at every session start, and doctor, which has no line of its own for
-  it, keeps counting the debts in that case, so they go overdue rather than reading "nothing owed".
+  The cost is a clock: the text goes on aging, so a broken file left for 14 days loses it. So it is
+  said wherever a person looks: the session-start line, doctor's `Catch-up` (amber at once, naming
+  the file), `coverage` (which keeps listing the debts), and `counterparts catch-up` (exit 3, not
+  "nothing to catch up"). An entry that will not read is a different case: that folder reads as
+  on, for the hook and here, as it has since #92's review, and is named at session start.
 - Decided by the NC1 builder, 2026-10-30, lightly held: the door gets no folder check of its own.
   Why: the plan decides what is granted and re-reads the setting each batch, and a refusal in the
   door would only change a folder turned off during one child's run. That child finishes. Guards

@@ -1998,12 +1998,13 @@ export function owedWriteUps(
   );
   for (const h of plan) {
     if (h.session === opts.exclude) continue;
-    if (setAside(h)) continue;
     // CLAIM-FIRST (2026-10-01): a debt another writer holds right now — the
     // nightly run, or a session that fetched it — is not offered.
     if (claimedByOther(opts.progress ?? {}, h.session, opts.exclude, now) !== null) continue;
     const eligible = waitingForWriteUp(h) || (!fullFirst && smallWriteUpDue(h, dataDir));
     if (!eligible) continue;
+    // Last of these: it reads the session's record, and most of a plan owes nothing.
+    if (setAside(h)) continue;
     const standing = writeUpStanding(plan, dataDir, h.session, scope, now, {
       ...(opts.progress === undefined ? {} : { progress: opts.progress }),
     });
