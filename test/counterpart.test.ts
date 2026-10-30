@@ -1204,17 +1204,21 @@ describe("the surfacing decision is DURABLE — one row per turn, content-by-ref
     expect(evt?.data?.["standdown"]).toBe("observer");
   });
 
-  test("a latency abort writes NOTHING — not a row, not an event (recall §5 G2)", () => {
-    // A clock that jumps a whole minute between reads: the build loses its race.
+  test("a late turn is shown and written, with how late it ran (recall §5 G2, LT1)", () => {
+    // A clock that jumps a whole minute between reads: the build runs far past the line.
     let t = 0;
     const c = brain({ now: () => (t += 60_000) });
-    surfaceable(c);
+    const id = surfaceable(c);
     const out = c.recallForTurn({ sessionId: "s1", text: CUE_TURN });
-    expect(out.decision.aborted).toBe(true);
-    expect(out.decision.reason).toBe("latency-abort");
-    // Nothing injected, nothing buffered, nothing LOGGED — durably or otherwise.
-    expect(rows(c)).toEqual([]);
-    expect(c.events("counterpart.recall.decision")).toEqual([]);
+    expect(out.decision.aborted).toBe(false);
+    expect(out.decision.lateMs).toBeGreaterThan(0);
+    expect([...out.decision.surfaced, ...out.decision.footnotes]).toContain(id);
+    expect(out.injection).not.toBe("");
+    const log = rows(c);
+    expect(log.length).toBe(1);
+    expect(log[0]?.payload["lateMs"]).toBe(out.decision.lateMs);
+    expect(log[0]?.payload["elapsedMs"]).toBe(out.decision.elapsedMs);
+    expect(log[0]?.payload["aborted"]).toBe(false);
   });
 });
 

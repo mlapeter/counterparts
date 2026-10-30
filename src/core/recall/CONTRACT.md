@@ -28,9 +28,11 @@ reply actually used reconsolidates, where in humans every retrieval does.
   LLM call" was true of generation and silent about embeddings). **And it consults that
   embedding without calling anything**: the ambient turn's semantic input is COMPUTED ONE
   TURN EARLIER, off this path entirely (open question 2, answered — see §5 G17).
-- **Hard latency budget, silent abort, zero side effects on loss** — the pass *builds* its
-  decision and a separate step *records* it; on timeout nothing is injected, buffered,
-  logged, or spent. *A slow subconscious is worse than a quiet one.* [v1 §9 G2]
+- **A latency line, not a latency abort** — the pass *builds* its decision and a separate
+  step *records* it. v1's rule was a hard budget and a silent abort with zero side effects on
+  loss [v1 §9 G2]; here it stopped at two checks that both came after the slow work, so it
+  threw away a finished answer to save about 5 ms, on 5.5% of turns (measured 2026-10-30). A
+  late turn is now shown, recorded and marked (§5 G2).
 - **Host boilerplate is stripped before cue extraction and before embedding** — measured: an
   image placeholder token surfaced an unrelated image-cache memory. [v1 §9 G3]
 - **Cue matching is word-bounded and rarity-weighted**; informativeness weighting replaces
@@ -321,8 +323,13 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    per path (`SEMANTIC_BY_IDENTITY`, looked up from the identity the store records, read
    fresh per activation), with the old pair as the default; a lagged row ranked under another
    model than the store records is dropped (`other-model`): INTERFACE-GAPS §8, closed.)*
-2. **[M]** A latency-budget abort has zero side effects: nothing injected, nothing buffered,
-   no telemetry, no fire budget spent.
+2. **[M]** A turn past the latency line (`BUDGET_MS`) is shown, not dropped, and says how late
+   it ran (`lateMs` on the decision row). *Until 2026-10-30 this read "a latency-budget abort
+   has zero side effects"; that held only because the turn was dropped.* A late turn now writes
+   what any other turn writes (gate state, the decision row, fires spent), so it can wait on the
+   store's busy timeout (`store/db.ts`, 5 s) if another process holds the write lock; so can
+   every turn on time. Nothing here bounds a build: the line is measured after the work, and
+   a deadline inside `activate` is still open (NOTES).
 3. **[M]** Build and record are separate steps.
 4. **[M]** Surfacing is relative to this turn's background, never a fixed number.
 5. **[M]** The three hard gates hold: uncued is dark; the absolute floor precedes any salience

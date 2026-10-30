@@ -107,7 +107,7 @@ export interface RecallOptions {
   tunables?: Partial<RecallTunables>;
   /** The host's injection ceiling (scar §2.18 — the ceiling is a host capability). */
   budgetBytes?: number;
-  /** Latency budget for the build pass, ms. */
+  /** The latency line for the build pass, ms: past it a turn reads as late (`lateMs`), and is shown all the same. */
   budgetMs?: number;
   onEvent?: (e: RecallEvent) => void;
   /** Injectable clock, so the latency budget is testable without sleeping. */
@@ -161,14 +161,9 @@ export interface Turn {
   day?: number;
   budgetBytes?: number;
   /**
-   * Per-turn override of the LATENCY budget. It exists for one caller: the
-   * deliberate ask, which is "a deeper effort with different thresholds, on
-   * purpose" (§9.1) and has no host turn waiting on it. The ambient budget is a
-   * promise to a person mid-sentence; a question someone typed and is waiting
-   * for is a different promise. (It was written when the semantic channel's
-   * vector scan cost 590-1040 ms on a live-sized index; that scan is now tens
-   * of ms — see `semanticHits` above — and the deliberate ask's longer budget
-   * stands on its deeper effort, not on the scan.)
+   * Per-turn override of the LATENCY line, which since LT1 (2026-10-30) only
+   * decides what `lateMs` reads: nothing is given up past it. No live path sets
+   * this today.
    */
   budgetMs?: number;
   /**
@@ -276,8 +271,7 @@ export type DecisionReason =
   | "empty-turn"
   | "no-candidates"
   | "all-gated"
-  | "budget-quiet"
-  | "latency-abort";
+  | "budget-quiet";
 
 /**
  * The per-turn surfacing decision record — content-by-reference from day one
@@ -291,7 +285,12 @@ export interface RecallDecision {
   readonly day: number;
   readonly observer: boolean;
   readonly reason: DecisionReason;
-  readonly aborted: boolean;
+  /**
+   * Always false since 2026-10-30 (LT1): a slow turn no longer gives up. The
+   * field stays because the row has always carried it and readers name it.
+   * Rows and logs from before then can say `latency-abort`; none is written now.
+   */
+  readonly aborted: false;
   readonly storeSize: number;
   readonly background: Background;
   /** Which boilerplate strippers fired, by NAME (§9 G3). */
@@ -404,6 +403,12 @@ export interface RecallDecision {
   readonly sentinel: string | null;
   readonly trimmed: { lane: string; id: string | null }[];
   readonly elapsedMs: number;
+  /**
+   * How far past the latency line (`BUDGET_MS`) this turn's build ran, ms; 0 when
+   * it did not (LT1, 2026-10-30). A turn this late used to be thrown away with
+   * its answer finished. `lateMs > 0` is what `latency-abort` used to count.
+   */
+  readonly lateMs: number;
 }
 
 export interface RecallResult {
@@ -588,6 +593,12 @@ export class Recall {
       }
     }
 
+    // HOW LATE THE TURN RAN (LT1, 2026-10-30): read once, when the decision is
+    // done, against the line that used to throw the answer away.
+    const elapsed = (): { elapsedMs: number; lateMs: number } => {
+      const elapsedMs = this.now() - started;
+      return { elapsedMs, lateMs: Math.max(0, elapsedMs - budgetMs) };
+    };
     const quiet = (
       reason: DecisionReason,
       partial: Partial<RecallDecision> = {},
@@ -598,7 +609,7 @@ export class Recall {
         day,
         observer: this.observer,
         reason,
-        aborted: reason === "latency-abort",
+        aborted: false,
         storeSize: 0,
         background: {
           regime: "absolute-thin-background",
@@ -641,7 +652,7 @@ export class Recall {
         budgetBytes,
         sentinel: null,
         trimmed: [],
-        elapsedMs: this.now() - started,
+        ...elapsed(),
         ...partial,
       },
       injection: "",
@@ -699,8 +710,6 @@ export class Recall {
       this.tunables,
     );
 
-    if (this.now() - started > budgetMs) return quiet("latency-abort");
-
     const carry = act.cues
       .filter((c) => !c.carried)
       .slice(0, this.tunables.MAX_CUES)
@@ -749,8 +758,6 @@ export class Recall {
       },
       this.tunables,
     );
-
-    if (this.now() - started > budgetMs) return quiet("latency-abort");
 
     // SEE-ALSO FROM NAMED IDS (PP1, 2026-10-29, an experiment): a shown
     // memory whose text names another's id brings it along, one each,
@@ -919,7 +926,7 @@ export class Recall {
       budgetBytes,
       sentinel: rendered.sentinel,
       trimmed: rendered.trimmed.map((x) => ({ lane: x.lane, id: x.id })),
-      elapsedMs: this.now() - started,
+      ...elapsed(),
     };
 
     return {
@@ -939,18 +946,12 @@ export class Recall {
 
   /**
    * BUILD, then RECORD. The record step is where gate state is persisted and
-   * telemetry is emitted — and it is skipped entirely on a latency abort, which
-   * is what makes the abort side-effect-free.
+   * telemetry is emitted. A late turn records like any other (contract §5 G2,
+   * since LT1): its answer was already finished, so it is shown.
    */
   recall(turn: Turn): RecallResult {
     const built = this.build(turn);
     const d = built.decision;
-
-    if (d.aborted) {
-      // Zero side effects on loss: nothing injected, nothing buffered, no
-      // telemetry, no state advanced (contract §5 G2).
-      return { injection: "", decision: d };
-    }
 
     if (built.gateStatus === "unreadable") {
       this.emit("recall.gate.reset", turn.sessionId, { status: built.gateStatus });

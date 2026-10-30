@@ -78,6 +78,7 @@ import type {
 } from "../src/adapters/claude-code/index.js";
 import { hostConfig, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
+import { openDb } from "../src/core/store/db.js";
 import { STOP_HUMAN_LINE } from "../src/adapters/claude-code/hooks.js";
 // The resolver left src/ on 2026-10-12; its unit tests follow it to the
 // maintainer instrument that still uses it.
@@ -1732,6 +1733,33 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
 });
 
 describe("the runner — the day runs, and the sweep never makes a model call", () => {
+  test("the worker gives an old word index its covering index, once (LT1)", async () => {
+    const { a } = adapter();
+    a.counterpart.store.put({ type: "memory", kind: "fact", body: "The harbour market sells sourdough" });
+    a.counterpart.close();
+    open.length = 0;
+    const cache = join(config().dataDir as string, "cache", "cache.sqlite");
+    const names = (): string[] => {
+      const db = openDb(cache, { wal: true });
+      const out = db
+        .all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'doc_tokens' AND name NOT LIKE 'sqlite_%'")
+        .map((r) => r.name);
+      db.close();
+      return out;
+    };
+    const old = openDb(cache, { wal: true });
+    old.exec("DROP INDEX doc_tokens_cover");
+    old.exec("CREATE INDEX doc_tokens_token ON doc_tokens (token)");
+    old.close();
+    const first = await runOnce({ config: config(), date: "2026-01-02" });
+    expect(first.postings?.ms).toBeGreaterThanOrEqual(0);
+    expect(names()).toEqual(["doc_tokens_cover"]);
+    const second = await runOnce({ config: config(), date: "2026-01-03" });
+    expect(second.ran).toBe(true);
+    expect(second.postings).toBeUndefined();
+    expect(names()).toEqual(["doc_tokens_cover"]);
+  });
+
   test("every session-ending path CAPTURES, and the worker's sweep reads none of it — even once a session crashes", async () => {
     // The ruling, end to end (2026-09-04): boundaries still capture at Stop,
     // SessionEnd and pre-compaction — that capture is the compaction-amnesia

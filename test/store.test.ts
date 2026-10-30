@@ -1908,6 +1908,7 @@ describe("observer mode is enforced at the store seam", () => {
     rebuildCache: [],
     pruneDeadIndex: [],
     restemIndex: [],
+    coverPostingsIndex: [],
     embedOne: ["mem_0"],
     // v8 (2026-09-26, dreaming + consolidation).
     replayReturn: ["mem_000000000000", 1, "drm_x"],

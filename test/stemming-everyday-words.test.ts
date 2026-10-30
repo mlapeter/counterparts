@@ -50,6 +50,107 @@ function open(opts: Parameters<typeof Store.open>[0] = {}): Store {
   return findable(Store.open({ dir, ...opts }));
 }
 
+describe("the covering index on the word index (LT1, 2026-10-30)", () => {
+  const indexes = (db: ReturnType<typeof openDb>): string[] =>
+    db
+      .all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'doc_tokens' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+      .map((r) => r.name);
+  const uncover = (path: string): void => {
+    const db = openDb(path, { wal: true });
+    db.exec("DROP INDEX doc_tokens_cover");
+    db.exec("CREATE INDEX doc_tokens_token ON doc_tokens (token)");
+    db.close();
+  };
+
+  test("a new store has it from the start; the worker's step swaps an old one, once, for the same answers", () => {
+    const s = Store.open({ dir });
+    try {
+      const a = s.put({ type: "memory", kind: "fact", body: "Baked the sourdough loaf twice before the harbour market" });
+      const b = s.put({ type: "memory", kind: "fact", body: "The harbour market sells sourdough and sourdough starter" });
+      const c = s.put({ type: "memory", kind: "fact", body: "Baking is a harbour habit" });
+      const cache = join(dir, "cache", "cache.sqlite");
+      const look = () => {
+        const db = openDb(cache, { wal: true });
+        const named = indexes(db);
+        db.close();
+        return named;
+      };
+      expect(look()).toEqual(["doc_tokens_cover"]);
+      // Already covered: a no-op.
+      expect(s.coverPostingsIndex()).toEqual({ built: false, ms: 0 });
+      const before = {
+        one: s.search("harbour", 10),
+        two: s.search("sourdough harbour baking", 10),
+        df: [...s.docFrequency(["harbour", "sourdough", "baking", "nothing"]).entries()],
+      };
+      expect(before.one.map((h) => h.id).sort()).toEqual([a, b, c].sort());
+
+      // The cache an earlier build left: a handle already open keeps working.
+      uncover(cache);
+      expect(look()).toEqual(["doc_tokens_token"]);
+      expect(s.search("harbour", 10)).toEqual(before.one);
+
+      const built = s.coverPostingsIndex();
+      expect(built.built).toBe(true);
+      expect(look()).toEqual(["doc_tokens_cover"]);
+      // Every score, to the last bit, and the order ties break in.
+      expect(s.search("harbour", 10)).toEqual(before.one);
+      expect(s.search("sourdough harbour baking", 10)).toEqual(before.two);
+      expect([...s.docFrequency(["harbour", "sourdough", "baking", "nothing"]).entries()]).toEqual(before.df);
+      expect(s.coverPostingsIndex()).toEqual({ built: false, ms: 0 });
+
+      // A write through the new index is found, and a removal is gone.
+      const d = s.put({ type: "memory", kind: "fact", body: "A harbour wall fell" });
+      expect(s.search("harbour", 10).map((h) => h.id)).toContain(d);
+
+      // A rebuild ends covered too, and with the same answers.
+      s.rebuildCache();
+      expect(look()).toEqual(["doc_tokens_cover"]);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("opening a cache that has words does not build it: that is the worker's (the hook path cannot pay)", () => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "The harbour market sells sourdough" });
+    s.close();
+    const cache = join(dir, "cache", "cache.sqlite");
+    uncover(cache);
+    // At today's version, and from an older one, whose migration runs at open.
+    for (const version of [null, "6"]) {
+      if (version !== null) {
+        const db = openDb(cache, { wal: true });
+        db.run("UPDATE cache_meta SET value = ? WHERE key = 'schemaVersion'", version);
+        db.close();
+      }
+      const again = Store.open({ dir });
+      expect(again.search("harbour", 10).length).toBe(1);
+      again.close();
+      const db = openDb(cache, { wal: true });
+      expect(indexes(db)).toEqual(["doc_tokens_token"]);
+      db.close();
+    }
+  });
+
+  test("a cache from a newer build is left alone", () => {
+    const s = Store.open({ dir });
+    s.put({ type: "memory", kind: "fact", body: "The harbour market sells sourdough" });
+    s.close();
+    const cache = join(dir, "cache", "cache.sqlite");
+    uncover(cache);
+    const db = openDb(cache, { wal: true });
+    db.run("UPDATE cache_meta SET value = ? WHERE key = 'schemaVersion'", String(CACHE_SCHEMA_VERSION + 1));
+    db.close();
+    const again = Store.open({ dir });
+    expect(again.coverPostingsIndex()).toEqual({ built: false, ms: 0 });
+    again.close();
+    const after = openDb(cache, { wal: true });
+    expect(indexes(after)).toEqual(["doc_tokens_token"]);
+    after.close();
+  });
+});
+
 describe("stemTerm", () => {
   test("bake, bakes, baked and baking are one term; so are cookie and cookies", () => {
     const one = new Set(["bake", "bakes", "baked", "baking"].map(stemTerm));

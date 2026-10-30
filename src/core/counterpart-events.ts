@@ -907,6 +907,7 @@ export const RECALL_DECISION_FIELDS = [
   "surfaced",
   "footnotes",
   "elapsedMs",
+  "lateMs",
   "aborted",
   // Association build 1 (2026-09-28): what spreading did, and the cut's count.
   "spread",
@@ -1063,11 +1064,10 @@ export function recallDecisionRecord(
     surfaced: tierRows(d.surfaced, d.verdicts),
     footnotes: tierRows(d.footnotes, d.verdicts),
     // The surfacing race, as the decision itself reports it. `aborted` is always
-    // false in a written row — an abort writes nothing at all (recall §5 G2) —
-    // and the field stays so the asymmetry is legible rather than assumed: the
-    // timeout arm is counted where a timeout is still allowed to be seen, the
-    // adapter's own `adapter.recall {reason: "latency-abort"}`.
+    // false, and since LT1 (2026-10-30) a slow turn is written too, with how far
+    // past the line it ran: `lateMs` is what the old `latency-abort` counted.
     elapsedMs: d.elapsedMs,
+    lateMs: d.lateMs,
     aborted: d.aborted,
     // What spreading did this turn and how many scored candidates the cut left
     // out — counts only (association build 1, 2026-09-28). `spread` is null on

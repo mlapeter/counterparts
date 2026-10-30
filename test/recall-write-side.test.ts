@@ -30,6 +30,8 @@ import { Counterpart, SUBJECTS_BACKFILL_META } from "../src/core/counterpart.js"
 import { applyRevision } from "../src/core/revision.js";
 import { Schemas } from "../src/core/schemas/index.js";
 import { AliasIndex } from "../src/core/schemas/aliases.js";
+import type { AliasHit } from "../src/core/schemas/aliases.js";
+import { occursAsName } from "../src/core/encode/words.js";
 import {
   CHAPTER_AT_META,
   CHAPTER_MOMENT_GRACE_MS,
@@ -489,6 +491,102 @@ describe("subject links", () => {
     const again = brain();
     expect(again.store.subjectsOf(first)).toEqual([mira]);
     expect(again.store.subjectLinksOf(first)[0]?.via).toBe("backfill");
+  });
+
+  // THE RULE BOTH PREFILTERS MUST HOLD (LT1, 2026-10-30): every term tried by the
+  // one whole-word rule, in registration order, as `matchesIn` did before it
+  // skipped any. The oracle is this loop, not either prefilter.
+  const everyTerm = (idx: AliasIndex, text: string): AliasHit[] => {
+    const hits: AliasHit[] = [];
+    for (const e of idx.entries()) {
+      if (occursAsName(text, e.name)) hits.push({ id: e.id, term: e.name, source: "name" });
+      for (const a of e.aliases) if (occursAsName(text, a)) hits.push({ id: e.id, term: a, source: "alias" });
+    }
+    return hits.sort((a, b) => a.id.localeCompare(b.id) || a.term.localeCompare(b.term));
+  };
+
+  test("matchesIn and the scanner hold the every-term rule on the awkward cases", () => {
+    const idx = new AliasIndex();
+    idx.register("sch_a", "Mira", ["Mira Chen", "M.C.", "mira"]); // a name twice: a tie in the sort
+    idx.register("sch_b", "Oskar", ["Osk"]);
+    idx.register("sch_c", "C++", [".NET", "(tbd)", "-dash", "a+b"]);
+    idx.register("sch_d", "self", ["  padded  ", "   "]); // whitespace, and nothing at all
+    idx.register("sch_e", "the harbour project", ["harbour", "O'Brien", "James'", "Han's"]);
+    idx.register("sch_f", "...", ["!!", "---"]); // no word characters, or only word-joining ones
+    idx.register("sch_g", "Mira", ["7th floor", "x-ray", "under_score", "2026"]); // two cards share a name
+    idx.register("sch_h", "σοφος", ["ΟΔΟΣ", "ſam", "Kim", "İstanbul", "Çelik", "café", "cafe\u0301", "東京", "µ-law"]);
+    idx.register("sch_i", "sam", ["kevin", "strasse", "ss", "sigma"]);
+    const scan = idx.scanner();
+    const texts = [
+      "",
+      "   ",
+      "Mira Chen and MIRA and mira met m.c. at noon.",
+      "mira chen's plan, Osk’s plan, James' and James's and James''s, Han's and Han's's and Han’s.",
+      "Oskarsson and self-contained and myself are not the names; self is. padded alone.",
+      "c++, C++'s, .net, .NET's, a+b, xa+b, (TBD), (tbd)s, -dash, x-dash.",
+      "... and !! and --- and ...x",
+      "The 7TH FLOOR, an X-RAY, UNDER_SCORE, 2026, 20261.",
+      // Case folding the `iu` flags do and `toLowerCase` does not, and the reverse.
+      "ΣΟΦΟΣ and σοφοσ and σοφος. οδος and οδοσ and ΟΔΟΣ.",
+      "ſam and ſAM and SAM; \u212Aevin, \u212Aim, kim, KIM; ſtraſſe, STRASSE; ſs; ſigma.",
+      "İstanbul, istanbul, i\u0307stanbul, ISTANBUL; çelik, ÇELİK.",
+      "CAFÉ, café, cafe\u0301, CAFE\u0301, cafe.",
+      "東京 and 東京の and \u{1F600}Mira\u{1F600}, and μ-law and µ-LAW and Μ-LAW.",
+      "Mira\nChen\tOsk\r\nOskar",
+    ];
+    for (const t of texts) {
+      const want = everyTerm(idx, t);
+      expect(idx.matchesIn(t)).toEqual(want);
+      expect(scan(t)).toEqual(want);
+    }
+    // Not equal by being empty, and the folds the prefilter has to allow for do hit.
+    expect(idx.matchesIn("ſam").map((h) => h.term)).toEqual(["ſam", "sam"]);
+    expect(idx.matchesIn("\u212Aevin").map((h) => h.term)).toEqual(["kevin"]);
+    expect(idx.matchesIn("οδος").map((h) => h.term)).toEqual(["ΟΔΟΣ"]);
+    expect(idx.matchesIn("σοφοσ").map((h) => h.term)).toEqual(["σοφος"]);
+  });
+
+  test("matchesIn holds the every-term rule on random texts, and follows register and unregister", () => {
+    // Seeded, so a failure is the same failure on the next run.
+    let seed = 20261030;
+    const pick = <T>(xs: readonly T[]): T => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return xs[seed % xs.length] as T;
+    };
+    const atoms = ["sam", "SAM", "ſam", "mira", "Mira", "chen", "o'brien", "han", "self", "x-ray", "c++", "σοφος", "ΣΟΦΟΣ", "東京", "kim", "\u212Aim", "ß", "ẞ", "İ", "ı", "1", "_", "-", "'", "’", "'s", "’s", ".", ",", "(", ")", " ", " ", " ", "\n", "\u0301"];
+    const idx = new AliasIndex();
+    const text = (n: number): string => Array.from({ length: n }, () => pick(atoms)).join("");
+    for (let i = 0; i < 40; i++) idx.register(`sch_${String(i)}`, text(1 + (i % 3)), [text(1), text(2)]);
+    const scan = idx.scanner();
+    for (let i = 0; i < 1500; i++) {
+      const t = text(1 + (i % 12));
+      const want = everyTerm(idx, t);
+      expect(idx.matchesIn(t)).toEqual(want);
+      expect(scan(t)).toEqual(want);
+    }
+    // A long-lived process: nothing it learned about the terms goes stale.
+    const live = new AliasIndex();
+    live.register("sch_x", "Oskar", ["Osk"]);
+    expect(live.matchesIn("Osk and Lena").map((h) => h.term)).toEqual(["Osk"]);
+    live.register("sch_y", "Lena");
+    expect(live.matchesIn("Osk and Lena").map((h) => h.term)).toEqual(["Osk", "Lena"]);
+    live.register("sch_x", "Oskar");
+    expect(live.matchesIn("Osk and Lena").map((h) => h.term)).toEqual(["Lena"]);
+    live.unregister("sch_y");
+    expect(live.matchesIn("Osk and Lena")).toEqual([]);
+  });
+
+  test("the long s is the only non-ASCII character whose fold reaches a word in ASCII that lower-casing misses", () => {
+    // What `wordsIn` in aliases.ts stands on: every other non-ASCII character
+    // either lower-cases to its ASCII letter or does not match one under `iu`.
+    const missed: number[] = [];
+    const word = new RegExp(`^(?:${[..."abcdefghijklmnopqrstuvwxyz"].join("|")})$`, "iu");
+    for (let cp = 0x80; cp <= 0x10ffff; cp++) {
+      if (cp >= 0xd800 && cp <= 0xdfff) continue;
+      const c = String.fromCodePoint(cp);
+      if (word.test(c) && !/^[\x00-\x7f]+$/.test(c.toLowerCase())) missed.push(cp);
+    }
+    expect(missed).toEqual([0x017f]);
   });
 
   test("the scanner gives exactly matchesIn's hits", () => {
