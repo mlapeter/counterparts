@@ -3512,6 +3512,10 @@ describe("verify", () => {
   test("--rebuild --keep-vectors re-indexes the text side and keeps every vector", async () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "fact", body: "A memory whose vector must survive a rebuild." });
+    // An archived row is canonical and not indexed: it is accounted for, as
+    // the plain rebuild has always counted it (until 2026-10-30 this arm read
+    // every archived row as a MISMATCH).
+    s.archive(s.put({ type: "memory", kind: "fact", body: "A memory archived before the rebuild." }), "decayed");
     s.close();
     seedVector(kept);
 
@@ -3523,6 +3527,8 @@ describe("verify", () => {
     expect(printed).toContain("Vectors kept: 1");
     expect(printed).toContain("dropped as no longer canonical: 0");
     expect(printed).toContain("Re-indexed: 1");
+    expect(printed).toContain("Skipped as not live (archived or superseded): 1");
+    expect(printed).toContain("Every canonical row is accounted for.");
     // Nothing is declared, because nothing is missing — the console has no
     // embedder and did not need one.
     expect(printed).not.toContain("declared: embeddings");

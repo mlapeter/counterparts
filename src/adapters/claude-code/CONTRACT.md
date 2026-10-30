@@ -964,6 +964,22 @@ directory. Under dreaming `auto` the SessionStart write-up pointer is retired
 (`lifecycle.ts#writeUpPointerRetired`); under `ask` or `off` no night runs and the pointer
 stays.
 
+**[M] Only from a folder that is on now (2026-10-30, a fix; coordinator's brief, marked for
+Mike's review).** "Everything owed" stops at the folder setting. A session any of whose
+directories, or the one it is filed under, is now `off`, `observer` or `paused`
+(`sessions.ts#folderSetAside`, the hook's most restrictive rule; a subfolder inherits, longest
+prefix first) is not planned, not granted, not counted in the run's `left` or `partsLeft`, starts
+no night, is not named by the pointer, holds no small debt back from it, and is not in doctor's
+`Catch-up` count. The setting is read afresh for each batch, beside the configuration the
+process read (`scopes.ts#foldersOn`): a folder turned off while a child runs is left out from the
+next batch, and a child already granted it finishes. A file that will not read takes nothing,
+and says so: doctor and `coverage` go on counting the debts, doctor's `Catch-up` goes amber naming
+the file, `counterparts catch-up` exits 3 naming it, and the session-start line says write-ups have
+stopped. A store named with `--dir`, with no configuration, reads no setting. **What is left out is not
+touched.** No mark, no progress, and `coverage/`'s ledger and `remember/owes.ts` are unchanged, so
+its text goes on the ordinary clocks (at most 14 days from its last activity) and a paused folder
+resumed before then is owed again.
+
 **[M] The night also starts when write-ups are owed (2026-10-11).** Under `auto`, a prompt
 whose dream is not due for `too-little-new` or `first-day` — the day unclaimed, no run under
 way (`Dreams#catchUpOffer`) — starts the night anyway when sessions from an earlier calendar

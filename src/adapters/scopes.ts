@@ -391,7 +391,7 @@ export function readScopes(
  */
 export function describeScopeTrouble(read: ScopeRead, path: string): string | null {
   if (read.error !== null) {
-    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on) until it is fixed.`;
+    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on), and write-ups stop, until it is fixed.`;
   }
   if (read.refused.length === 0) return null;
   const one = read.refused.length === 1;
@@ -511,6 +511,35 @@ export function effectiveStance(configObserver: boolean, mode: EffectiveMode): S
   return STANCE_ORDER.indexOf(fromConfig) >= STANCE_ORDER.indexOf(fromScope)
     ? fromConfig
     : fromScope;
+}
+
+/**
+ * WHICH FOLDERS ARE ON, for a background writer with no folder of its own: the
+ * reflection's marks (review of #558) and the catch-up (2026-10-30). The same
+ * rule the hook goes by, longest prefix first, so a subfolder of an off entry
+ * is off: `on` or unset is on, `observer`, `off` and `paused` are not. No file
+ * at `file`: every folder is on. A file that will not read: none is, where the
+ * hook's direction is on, because a hook may not fail its host and this writer
+ * can wait for the file to be fixed (the hook's stderr and `systemMessage` say
+ * it is broken, §5 G23). Read once, here; a caller wanting a later word on it
+ * calls this again. Never throws.
+ */
+export function foldersOn(file: string): (scope: string) => boolean {
+  const read = readScopes(file);
+  if (read.error !== null) return () => false;
+  const seen = new Map<string, boolean>();
+  return (scope) => {
+    let on = seen.get(scope);
+    if (on === undefined) {
+      try {
+        on = stanceOfMode(lookupScope(read.registry, scope).mode) === "on";
+      } catch {
+        on = false;
+      }
+      seen.set(scope, on);
+    }
+    return on;
+  };
 }
 
 /**

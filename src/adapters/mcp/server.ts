@@ -72,6 +72,7 @@ import { UNBOUND_SESSION, isKnownSession } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
 import {
   canonicalScopePath,
+  foldersOn,
   lookupScope,
   readScopes,
   ownEntry,
@@ -1313,16 +1314,7 @@ export class McpServer {
    * none. Read once per call.
    */
   private folderOn(): ((scope: string) => boolean) | undefined {
-    const file = this.scopesFile;
-    if (file === null) return undefined;
-    let read: ReturnType<typeof readScopes>;
-    try {
-      read = readScopes(file);
-    } catch {
-      return () => false;
-    }
-    if (read.error !== null) return () => false;
-    return (scope) => stanceOfMode(lookupScope(read.registry, scope).mode) === "on";
+    return this.scopesFile === null ? undefined : foldersOn(this.scopesFile);
   }
 
   /** The named refusal every tool but `scope` gets in a directory set `off`. */
