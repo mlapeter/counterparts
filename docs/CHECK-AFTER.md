@@ -129,7 +129,7 @@ that matters, a laptop under load on the live file.
 Then a week of `recall.decision`, split by build:
 `SELECT json_extract(payload,'$.build') b, COUNT(*) n, SUM(json_extract(payload,'$.lateMs')>0) late, MAX(json_extract(payload,'$.lateMs')) worst FROM events WHERE name='recall.decision' GROUP BY b`,
 and the median of `$.elapsedMs` per build. Older builds wrote no row for a dropped turn: their count is
-`adapter.recall` rows with `reason` `latency-abort`. From the process log (`sessions/log/*.log`, `proc` `hook`,
+`adapter.recall` rows with `reason` `latency-abort`. From the process log (`sessions/log/*.log`, `proc` `hook:user-prompt-submit`,
 `process.end`): prompt `ms` p50, p90, max, and how many over 5,000.
 Baseline: dropped turns 5.5% (158 of 2,887, days 30-38), `elapsedMs` p50 411 and p90 699 on day 38, prompt `ms` p50 512 and p90
 1,174 on 10-29, max 25,457 over 10-23 to 10-30.
