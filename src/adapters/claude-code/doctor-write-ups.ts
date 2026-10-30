@@ -176,6 +176,18 @@ export function readOwed(store: Store, folders?: FolderOn): OwedReading | "faile
  *  does not take it (the budgeted session-start reading). */
 export type OwedSource = () => OwedReading | "failed" | null;
 
+/**
+ * THE NIGHT, HELD (2026-10-30): red for as long as the folder setting won't read,
+ * because the night isn't running at all (`night-run.ts`, the door's `nightHeld`):
+ * no page, no dream, no reflection. Read from the file, so it clears when it's fixed.
+ */
+export function nightHeldFindings(configPath: string): Finding[] {
+  const file = scopesPath(configPath);
+  const read = readScopes(file);
+  if (read.error === null) return [];
+  return [finding("night-held", "red", "The night", `held: ${tilde(file)} will not read (${read.error}), so there is no page, dream or reflection until it does`, `Fix or remove ${tilde(file)}.`, { path: file })];
+}
+
 export function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: OwedSource): Finding[] {
   const title = "Catch-up";
   const yesterday = isDay(input.today) ? addDays(input.today, -1) : input.today;

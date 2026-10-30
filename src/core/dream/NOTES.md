@@ -1318,3 +1318,39 @@ now also in the answer's own words.
 - `dreamCandidates` is computed once per recall and handed to both the embedder and the
   matcher. A journal whose every passage failed to embed is not cached as "no meaning".
 
+## 2026-10-30 — the night doesn't read a folder that doesn't export (`slices.ts`)
+
+Through the real doors, before this: day's end's block, the dream's bundle, the reflection's bundle and
+the tagging ask all showed an off, observer or paused folder's memories and chapters, and each child's
+recall returned them by facts, meaning, id, handle and chapter address. A merge or a gist of them landed,
+filed under the night's on folder, so the gate read the folder it ran in unless it followed the originals.
+
+Now one set, `closedToNight`, walks the store once per night call and everything reads it: `showable` in
+both night modules (which is also what a merge, gist or fold goes through), the chapter walks, day's end's
+`omit`, the facts and meaning `denied`, the address path. The rule is `scopes.ts#foldersOn`, the same word
+`chapterExports` gives the wake, without the wake's "your own folder is always yours": a night has no own folder.
+
+Direction, on purpose the other way from the wake's gate: a row with no folder, or a night row whose originals
+are gone, stays readable. The gate fails closed because it holds back one line for a morning; failing closed
+here would hide every pre-folder memory from every night. A stored merge of a closed row reads as closed.
+
+The review of #688 ran the doors these left, and found the tagging ask's cards and tags and the reflection's
+timeline still carrying closed words; they read the set now too.
+
+Not fenced, and said in the PR, each writing already done, so it thins as the nights go on: a past dream's
+journal or a reflection's entry (by id, by `last dream`, beside a question's answer to anyone but a dream under
+way, and the last few entries in the reflection's bundle); a belief, which reads as its card, whatever it rests
+on; a card's name, when any open row names it too; the page as it stands. The published wake is checked for a
+closed row's id, title and opening words: since #687 it prints no bare ids, and a quoted untitled row got past an
+id-and-title check. A handoff left in a closed folder is in the set too: it's a schema row with its folder in its
+meta, and it reached the night's on-my-mind as an open loop.
+
+A setting file that won't read holds the night rather than close everything and go on (Mike, through the
+roadmap, 10-30): through the doors, a night then got the page and whatever had no folder, stored a thinner page
+as `revised`, journaled a dream of nothing, and finished a reflection on it, with nothing said anywhere. A folder
+that doesn't export is a choice; every folder closing at once is a fault.
+
+Why a belief isn't fenced (second read of #688, 10-30): a belief is the counterpart's own reading, and removing core
+beliefs over one closed support row could do more harm than the row's words could. It costs nothing today: on a copy
+of the owner's store, under his setting that day (3 rows closed), 0 of 7 live beliefs rest only on closed rows, and
+none of their 19 support rows is closed.

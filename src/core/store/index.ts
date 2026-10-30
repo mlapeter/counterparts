@@ -4822,8 +4822,8 @@ export class Store {
   }
 
   /** Live named cards with no subject kind, most-linked first, with a few titles each, and how many there are. */
-  unkindedCards(limit: number, titles?: number): { cards: UnkindedCard[]; total: number } {
-    return tagReads.unkindedCards(this, limit, titles);
+  unkindedCards(limit: number, titles?: number, closed?: ReadonlySet<string>): { cards: UnkindedCard[]; total: number } {
+    return tagReads.unkindedCards(this, limit, titles, closed);
   }
 
   /** The topic cards, by the tag each was promoted from (archived ones too). */

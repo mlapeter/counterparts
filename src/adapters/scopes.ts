@@ -264,6 +264,10 @@ export function parseRegistry(raw: unknown): {
     return whole("the file is not a JSON object");
   }
   const rec = raw as Record<string, unknown>;
+  // AN EMPTY OBJECT NAMES NOTHING, so it is the empty registry rather than a
+  // file that won't read: nothing it could have said is lost, and holding every
+  // night over `{}` would cost far more than it guards (2026-10-30, #688).
+  if (Object.keys(rec).length === 0) return { registry: emptyRegistry(), error: null, refused: [] };
   if (rec["version"] !== SCOPES_VERSION) {
     return whole(
       `"version" is ${JSON.stringify(rec["version"])}, and this reads version ${String(SCOPES_VERSION)}`,
@@ -391,7 +395,7 @@ export function readScopes(
  */
 export function describeScopeTrouble(read: ScopeRead, path: string): string | null {
   if (read.error !== null) {
-    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on), and write-ups stop, until it is fixed.`;
+    return `[counterparts] scope registry ${path} could not be read — ${read.error}. Every directory reads as unset (on); write-ups stop and the night holds until fixed.`;
   }
   if (read.refused.length === 0) return null;
   const one = read.refused.length === 1;
@@ -401,6 +405,17 @@ export function describeScopeTrouble(read: ScopeRead, path: string): string | nu
     `could not be read and ${one ? "is" : "are"} IGNORED — ${list}. ` +
     `${one ? "That directory reads" : "Those directories read"} as unset (on); every other entry stands.`
   );
+}
+
+/**
+ * WHAT A NIGHT SAYS WHEN THE FOLDER SETTING WON'T READ (2026-10-30). The night
+ * reads no folder then (`foldersOn`), so what it would be handed is the page and
+ * whatever has no folder; a page or a dream written from that is thinner than the
+ * day was, and nothing would say why. So it holds instead, like a night that
+ * failed: no page, no dream, no reflection, and this said at the door.
+ */
+export function nightHeldWords(path: string, error: string): string {
+  return `The folder setting ${path} will not read (${error}), so tonight holds: no page, no dream, no reflection, nothing written. Fix or remove the file and it runs again.`;
 }
 
 /** How restrictive a mode is, on the same order the combination rule uses.

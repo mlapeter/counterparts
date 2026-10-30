@@ -32,7 +32,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode, ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { YESTERDAY_SUMMARY_WORDS } from "../src/core/handoff/last-here.js";
+import { DAY_SUMMARY_HELD_EVENT, YESTERDAY_SUMMARY_WORDS } from "../src/core/handoff/last-here.js";
 import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 
 const HOUR = 3_600_000;
@@ -444,5 +444,140 @@ describe("a dream's merge or gist is read by its originals' folders", () => {
     expect(summaryLed(sessionStart(c))).toBe(false);
     scopes({ [HERE]: "on", [BAKERY]: "on" });
     expect(summaryLed(sessionStart(c))).toBe(true);
+  });
+});
+
+/**
+ * THE GATE READS WHAT DAY'S END COULD HAVE BEEN HANDED (2026-10-30). The 10-29 summary
+ * was written and no wake showed it: a catch-up that morning had filed a
+ * write-up of an EARLIER day from a folder set off since. Day's end picks by the
+ * day lived, not the day written, and cannot pick what was not there yet.
+ */
+describe("a row day's end was not handed does not hold the summary back", () => {
+  const SECRET = "The quarter closed at a loss.";
+  const held = (c: Counterpart): Record<string, unknown>[] =>
+    c.store.eventLog({ name: DAY_SUMMARY_HELD_EVENT, order: "asc", limit: 20 }).map((r) => {
+      const { build: _build, ...kinds } = JSON.parse(String(r.payload)) as Record<string, unknown>;
+      return kinds;
+    });
+
+  /** Two chapters here on D1, and the cite day's end rests on. */
+  async function ownDay(): Promise<{ own: string }> {
+    const here = await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
+    await chapterVia({ session: S1, scope: HERE, date: D1, hour: 10, title: "Mending the cold frame" });
+    const c = brain();
+    const own = c.store.list({ type: "memory", source: "episode", originRef: here, archived: false })[0] as string;
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    return { own };
+  }
+
+  /** A second-hand write-up as the catch-up files it: written at `hour` on `date`, about `lived`, in the bakery. */
+  function writeUp(c: Counterpart, o: { date: string; hour: number; lived: string }): string {
+    clock = at(o.date, o.hour);
+    return c.store.put({ type: "memory", kind: "fact", body: SECRET, happenedOn: o.lived, meta: { secondHand: true }, origin: { session: S3, scope: BAKERY } });
+  }
+
+  for (const mode of ["off", "observer"] as const) {
+    test(`written that day about an earlier day, its folder ${mode}: the summary shows, and the row's words are nowhere in the wake`, async () => {
+      const { own } = await ownDay();
+      const c = brain();
+      writeUp(c, { date: D1, hour: 7, lived: D0 });
+      clock = at(D1, 22);
+      told(c, D1, [own]);
+      scopes({ [HERE]: "on", [BAKERY]: mode });
+      const wake = sessionStart(c);
+      expect(summaryLed(wake)).toBe(true);
+      expect(wake).not.toContain(SECRET);
+      expect(held(c)).toEqual([]);
+    });
+  }
+
+  test("written after day's end told the day, about that day, its folder off: the summary shows; day's end cannot have read it", async () => {
+    const { own } = await ownDay();
+    const c = brain();
+    clock = at(D2, 5);
+    told(c, D1, [own]);
+    writeUp(c, { date: D2, hour: 7, lived: D1 });
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    const wake = sessionStart(c);
+    expect(summaryLed(wake)).toBe(true);
+    expect(wake).not.toContain(SECRET);
+  });
+
+  test("the same write-up BEFORE day's end told the day: held back, and the wake says nothing of it", async () => {
+    const { own } = await ownDay();
+    const c = brain();
+    writeUp(c, { date: D2, hour: 4, lived: D1 });
+    clock = at(D2, 5);
+    told(c, D1, [own]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    const wake = sessionStart(c);
+    expect(summaryLed(wake)).toBe(false);
+    expect(wake).not.toContain(TOLD);
+    expect(wake).not.toContain(SECRET);
+    expect(yesterday(wake)).toStartWith("Yesterday: ");
+  });
+
+  for (const mode of ["off", "observer"] as const) {
+    test(`a memory lived that day in a folder set ${mode}: held back, one row per date and cause, in kinds only`, async () => {
+      const { own } = await ownDay();
+      const c = brain();
+      memory(c, { scope: BAKERY, session: S3, date: D1, hour: 13, body: SECRET, about: "work" });
+      clock = at(D1, 22);
+      told(c, D1, [own]);
+      scopes({ [HERE]: "on", [BAKERY]: mode });
+      const wake = sessionStart(c);
+      expect(summaryLed(wake)).toBe(false);
+      expect(wake).not.toContain(SECRET);
+      sessionStart(c);
+      const rows = c.store.eventLog({ name: DAY_SUMMARY_HELD_EVENT, order: "asc", limit: 20 });
+      expect(rows.length).toBe(1);
+      expect(held(c)).toEqual([{ about: D1, what: "memory", why: "folder-closed" }]);
+      const said = JSON.stringify(rows[0]);
+      expect(said).not.toContain(root);
+      expect(said).not.toContain("bakery");
+      expect(said).not.toContain(TOLD);
+    });
+  }
+
+  test("the row names the cause: a chapter, a cite, no scope setting, a denied cite; a shown summary and a day with none leave none", async () => {
+    // A day with no summary, and one shown.
+    const { own } = await ownDay();
+    const c = brain();
+    scopes({ [HERE]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    expect(held(c)).toEqual([]);
+    clock = at(D1, 22);
+    told(c, D1, [own]);
+    expect(summaryLed(sessionStart(c))).toBe(true);
+    expect(held(c)).toEqual([]);
+    // A memory of another folder, cited, with no scope setting to ask.
+    clock = at(D0, 14);
+    const work = c.store.put({ type: "memory", kind: "fact", body: "The oven schedule for the winter.", origin: { session: S2, scope: BAKERY }, about: "work" });
+    clock = at(D1, 23);
+    told(c, D1, [own, work]);
+    expect(summaryLed(sessionStart(c, { configPath: null }))).toBe(false);
+    expect(held(c)).toEqual([{ about: D1, what: "cite", why: "no-setting" }]);
+    // The same cite, its folder off.
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    expect(held(c)[1]).toEqual({ about: D1, what: "cite", why: "folder-closed" });
+    // Denied.
+    c.store.appendRemovalRecord({ memoryId: work, stage: "requested", actor: "owner", reason: "test" });
+    c.store.appendRemovalRecord({ memoryId: work, stage: "dark", actor: "owner", reason: "test" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    expect(held(c)[2]).toEqual({ about: D1, what: "cite", why: "denied" });
+  });
+
+  test("a chapter that day from an off folder: the row says chapter", async () => {
+    const { own } = await ownDay();
+    await chapterVia({ session: S3, scope: BAKERY, date: D1, hour: 13, title: "The winter oven schedule" });
+    const c = brain();
+    clock = at(D1, 22);
+    told(c, D1, [own]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    expect(held(c)).toEqual([{ about: D1, what: "chapter", why: "folder-closed" }]);
   });
 });

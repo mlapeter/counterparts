@@ -73,6 +73,7 @@ import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
+import { NOTHING_CLOSED, namesClosed } from "./slices.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { pairsAmong, readDay, strongerMark } from "./day.js";
 import type { DayMark, DayRead } from "./day.js";
@@ -336,6 +337,8 @@ export interface DreamContext {
    * Never a gendered pronoun.
    */
   readonly ownerName?: () => string | null;
+  /** What the night may not read (`dream/slices.ts`): not shown, not merged, not folded. */
+  readonly closed?: () => ReadonlySet<string>;
 }
 
 /** One proposed change, as the tool receives it. */
@@ -489,7 +492,8 @@ export interface NightRun {
    * (the store would not open once the child ended; `detail` says why),
    * `signed-out` (2026-10-27: a child failed saying the host had lost its
    * sign-in — a 401, "not logged in"; a `could-not-start`, so the next
-   * session asks) — or null.
+   * session asks), `folder-setting` (2026-10-30: the folder setting would not
+   * read, so the night held; also a `could-not-start`) — or null.
    */
   readonly reason: string | null;
   /**
@@ -785,6 +789,8 @@ export function nightRunWords(run: Pick<NightRun, "state" | "reason" | "detail" 
       return "it never reported back (its process went away — a sleep, a restart, a kill)";
     case "refused":
       return `it was refused before it started${run.detail === null ? "" : ` (${run.detail})`}`;
+    case "folder-setting":
+      return "the folder setting would not read, so it held: no page, no dream, no reflection";
     case "runner":
       return `the background process could not start${run.detail === null ? "" : ` (${run.detail})`}`;
     case "exit":
@@ -1401,6 +1407,11 @@ export class Dreams {
     return row.day >= this.store.livedDay() - 1;
   }
 
+  /** Is a dream under way in this session: begun by it, and not left behind? */
+  busyIn(session: string): boolean {
+    return this.store.dreams({ limit: 5 }).some((d) => d.state === "begun" && d.session === session && !this.abandoned(d));
+  }
+
   /** Begun, not journaled, and quiet — no change — for longer than `ABANDONED_AFTER_MS`. */
   private abandoned(row: Pick<DreamRow, "id" | "state" | "started_at">): boolean {
     if (row.state !== "begun") return false;
@@ -1489,7 +1500,9 @@ export class Dreams {
     if (fell !== null) {
       // THE HEADLESS RUN COULD NOT START: ask, here, and say why in one line.
       const words = nightRunWords(fell);
-      const notice = `Counterparts: I couldn't start dreaming on my own: ${words}${/[.?!]$/.test(words) ? "" : "."} Say "dream" to do it here.`;
+      // A held night's door refuses "dream" too until the file is fixed, so the line says that first.
+      const next = fell.reason === "folder-setting" ? '`counterparts doctor` says which file to fix or remove; then say "dream".' : 'Say "dream" to do it here.';
+      const notice = `Counterparts: I couldn't start dreaming on my own: ${words}${/[.?!]$/.test(words) ? "" : "."} ${next}`;
       const start = s.reflectOnly !== null ? reflect : launch;
       return {
         ...base,
@@ -2922,6 +2935,7 @@ export class Dreams {
     if (row.type !== "memory") return false;
     if (row.protected === 1) return false;
     if (row.body === "") return false;
+    if (this.ctx.closed?.().has(row.id) === true) return false;
     return true;
   }
 
@@ -3111,6 +3125,7 @@ export class Dreams {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
+      ...(this.ctx.closed === undefined ? {} : { closed: this.ctx.closed() }),
       slots: true,
     });
     const mindAll = mindRead.items;
@@ -3252,7 +3267,11 @@ export class Dreams {
     // TONIGHT'S ROOM for the memories' words: what the journal, the page and
     // the wake left.
     const page = this.ctx.page();
-    const wake = this.ctx.wake();
+    // THE PUBLISHED WAKE was composed for no reader: on a night it names a row
+    // of a closed folder (`dream/slices.ts`), the dream goes without it.
+    const published = this.ctx.wake();
+    const closed = this.ctx.closed?.() ?? NOTHING_CLOSED;
+    const wake = published !== null && namesClosed(this.store, published, closed) ? null : published;
     // Kept by what they cost on the wire (a page in another script costs more
     // per character); their whole lengths are said, and the self_page tool
     // reads the page whole.
@@ -3382,7 +3401,9 @@ export class Dreams {
     const extent = last !== null && prev !== null && prev.ref === last.id ? (prev.entries ?? {}) : {};
     const unread = last !== null && prev !== null && prev.ref === last.id ? (prev.unread ?? {}) : {};
     const episodes: EpisodeInView[] = [];
+    const closed = this.ctx.closed?.();
     for (const eid of this.store.list({ type: "episode", archived: false })) {
+      if (closed?.has(eid) === true) continue;
       const row = this.store.row(eid);
       if (row === undefined) continue;
       const at = row.updated_at ?? row.created_at ?? 0;
@@ -3608,7 +3629,7 @@ export class Dreams {
         continue;
       }
       const [, eid, at] = key.split(":") as [string, string, string];
-      const row = this.store.row(eid);
+      const row = this.ctx.closed?.().has(eid) === true ? undefined : this.store.row(eid);
       const ch = chapters.get(eid) ?? { id: eid, title: row?.title ?? null, entries: [] };
       chapters.set(eid, ch);
       const raw = row === undefined ? undefined : chapterEntries(row.body)[Number(at)];

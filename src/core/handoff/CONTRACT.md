@@ -268,18 +268,22 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     about that date (`self/writer.ts#daySummaries`) the line opens "Yesterday, in day's
     end's words:" with it, uncut, then "Chapters:" as the plain line lists them, fewer as
     room asks, then the plain line's own forms (`last-here.ts#yesterdaySummaryForms`).
-    Day's end reads the whole day store-wide, whatever the scope settings, so the summary
+    Day's end reads the whole day store-wide, short of a folder that doesn't export that night
+    (`dream/slices.ts`, 2026-10-30), and a folder may be set off after it ran, so the summary
     is shown only when every memory it cites is from this folder or one whose scope is on
     (whatever its mark since Y2, 2026-10-25, lightly held: the summary may mention other
     folders' work, as "Today, elsewhere" names it; until then only a cite about me, us or
     the owner crossed), every chapter that day is
-    from this folder or one whose scope is on, and every folder that wrote a memory that
-    day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
+    from this folder or one whose scope is on, and every memory of that day is too
+    (`Counterpart#daySummaryShown`); otherwise, and in the published render,
     the chapter list exactly as before. The day is read as day's end saw it (review of
-    #614): archived and merged rows count, a memory lived that day counts wherever it was
-    written up (day's end's own rule), and a row with no folder recorded fails it. A row the
-    night wrote (a dream's merge or gist, a reflection's entry), cited or of that day, is
-    read by its originals' folders, not the folder the night ran in (review of Y2).
+    #614; 2026-10-30): archived and merged rows count, a memory lived that day counts wherever
+    it was written up (day's end's own rule), a row born after the summary was told or written
+    that day about another day does not (day's end cannot have picked it), and a row with no
+    folder recorded fails it. A row the night wrote (a dream's merge or gist, a reflection's
+    entry), cited or of that day, is read by its originals' folders, not the folder the night
+    ran in (review of Y2). A summary held back leaves one row per date and cause
+    (`handoff.daysummary.held`), kinds only.
     **"Today so far here"** (2026-10-24, lane W1, `self.TODAY_SO_FAR`): at a session start,
     today's chapters written in this folder (the row's directory) before the one "Last
     here" names, the newest `TODAY_SO_FAR_SHOWN` by time, title, id and the first sentence

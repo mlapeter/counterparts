@@ -581,6 +581,8 @@ export interface ReflectContext {
    */
   readonly pageWrites?: boolean;
   readonly today: () => string;
+  /** What the night may not read (`dream/slices.ts`): not shown, not cited, no chapter of it. */
+  readonly closed?: () => ReadonlySet<string>;
   /** The owner's name, as written on the identity core. */
   readonly ownerName: () => string | null;
   /** A journaled dream's marked hand-back line (`Dreams.handBackOf`). */
@@ -3139,6 +3141,7 @@ export class Reflections {
       today: at,
       day,
       showable: (row) => !denied.has(row.id) && this.showable(row),
+      ...(this.ctx.closed === undefined ? {} : { closed: this.ctx.closed() }),
     });
     const onMind = mindRead.items.filter((item) => item.ids.every(take(3)));
 
@@ -3568,7 +3571,9 @@ export class Reflections {
   private recentChapters(day: number, room: number, summaries = false): EpisodesFit {
     const T = REFLECT_TUNABLES;
     const episodes: EpisodeInView[] = [];
+    const closed = this.ctx.closed?.();
     for (const id of this.store.list({ type: "episode", archived: false })) {
+      if (closed?.has(id) === true) continue;
       const row = this.store.row(id);
       if (row === undefined) continue;
       // Begun in the last few lived days, or written to in the last few
@@ -3621,7 +3626,9 @@ export class Reflections {
     const through = opened !== "" ? opened : dayBeforeDate(at);
     const dates: string[] = [];
     for (let i = 0; i < days && isDay(through); i += 1) dates.push(addDays(through, -i));
-    const byDate = new Map(told.map((x) => [x.about, x]));
+    // A summary resting on a row closed to the night (`dream/slices.ts`) goes as that day's chapters do.
+    const closed = this.ctx.closed?.();
+    const byDate = new Map(told.filter((x) => closed === undefined || !x.cites.some((id) => closed.has(id))).map((x) => [x.about, x]));
     const missing = dates.filter((d) => !byDate.has(d));
     const fromChapters = missing.length === 0 ? new Map<string, string[]>() : this.chapterLinesByDate(missing);
     const lines: { date: string; from: "days-end" | "chapters"; text: string; chars: number; chapters?: number }[] = [];
@@ -3662,7 +3669,9 @@ export class Reflections {
     try {
       const zone = this.store.zone();
       const episodes: EpisodeInView[] = [];
+      const closed = this.ctx.closed?.();
       for (const id of this.store.list({ type: "episode", archived: false })) {
+        if (closed?.has(id) === true) continue;
         const row = this.store.row(id);
         if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
         const at = row.updated_at ?? row.created_at;
@@ -3755,6 +3764,7 @@ export class Reflections {
     if (row.type !== "memory") return false;
     if (row.protected === 1) return false;
     if (row.body === "") return false;
+    if (this.ctx.closed?.().has(row.id) === true) return false;
     return true;
   }
 

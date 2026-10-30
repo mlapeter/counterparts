@@ -39,6 +39,8 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 |---|---|---|---|
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
+| The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
+| The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | in review 10-30, unreleased | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | in review 10-30, unreleased | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
@@ -1577,6 +1579,35 @@ or bring back the person rule for cards the ask has not reached. A twin the owne
 `counterparts dream --undo-twins [card]`. **Revert.** `schemas.TWINS_MERGE=false` before the pass runs (it runs
 once; after it, the undo door); revert the commits for the rest. The repaired kinds stay NULL until the ask
 sorts them (the record lists what each was).
+
+## Due ~3 nights after release (the night's fence, 2026-10-30 — docs/decisions.d/fix-day-summary-held-1030.md)
+
+- **What we're trying:** a folder that doesn't export is closed to the whole night (`dream/slices.ts`).
+- **Look at:** `self.page.writer.ran` rows' `omitted` (0 unless a closed folder had that day); `mcp.recall` rows with
+  reason `closed-to-the-night`; `dream.begun` queue counts beside the nights before; each night's run time (the walk
+  is about 150 ms a call on the owner's store, once per dream, reflect and night recall call).
+- **What would change it:** a `folder-setting` row or `night-held` red that wasn't a broken file, or a night that ran
+  on a broken one: the hold is meant to be all of it (no page, dream or reflection). Night calls slow
+  enough to matter: hold the set for the call's run instead of walking each time. A closed folder's words on the page
+  or in a new merge: find the door the door test missed.
+- **Revert:** `fenceNight` returning the empty set turns the fence off; `nightHeld` and `settingBroken` returning
+  nothing turn the hold off.
+
+## Due ~1 week after release (the day-summary gate, 2026-10-30 — docs/decisions.d/fix-day-summary-held-1030.md)
+
+- **What we're trying:** the Yesterday gate (`Counterpart#daySummaryShown`) stops counting a row written that day about
+  another day, or born after the summary was told: day's end is handed neither, and since the night's fence its recall
+  can't reach a closed folder either. Every summary held back leaves one
+  `handoff.daysummary.held` row per date and cause (kinds only).
+- **Why:** the 10-29 summary reached no wake. Three write-ups of 10-26, from a folder set off that day, were filed on the
+  morning of 10-29 and read as that day's.
+- **Look at, ~1 week after release:** `SELECT json_extract(payload,'$.about'), json_extract(payload,'$.what'),
+  json_extract(payload,'$.why') FROM events WHERE name='handoff.daysummary.held' ORDER BY seq;` beside the written
+  summaries (`self.page.writer.ran` rows with a summary). Does each morning's wake lead with it?
+- **What would change it:** `no-folder` rows on a current build: find what writes without a folder before loosening
+  anything. `folder-closed` often, on days an off folder really wrote: then filter day's end's input instead of holding
+  the prose. A summary that shows a closed folder's words: revert.
+- **Revert:** put the `inDay` clause, the scope-count clause and no time bound back in `daySummaryShown`; the row can stay.
 
 ## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md)
 

@@ -102,7 +102,7 @@ import {
   HANDOFF_WRITTEN_EVENT,
 } from "../../core/handoff/index.js";
 // And the "Last here" line's one durable row (2026-10-01): dropped for room.
-import { LAST_HERE_NOROOM_EVENT } from "../../core/handoff/last-here.js";
+import { DAY_SUMMARY_HELD_EVENT, LAST_HERE_NOROOM_EVENT } from "../../core/handoff/last-here.js";
 // Raw-transcript retention's one row (2026-09-23, B3), from `remember/` itself.
 // The index re-exports the NAME and the readers, never the deleter.
 import { RETENTION_EVENT } from "../../core/remember/index.js";
@@ -192,6 +192,7 @@ export type DurableEventName =
   | typeof HANDOFF_REFUSED_EVENT
   | typeof HANDOFF_CLEARED_EVENT
   | typeof LAST_HERE_NOROOM_EVENT
+  | typeof DAY_SUMMARY_HELD_EVENT
   | typeof RECALL_CREDIT_EVENT
   | typeof RECALL_RATED_EVENT
   | typeof ASSOCIATE_FLUSH_EVENT
@@ -339,6 +340,7 @@ export const DURABLE_EVENTS = {
   // Durable since 2026-10-01: it was a ring event, gone with the hook, and
   // the wake bar could not say a session start went without it.
   "handoff.lasthere.noroom": "a session start had no room for the \"Last here\" line naming the chapter last written in that project, or the later session that wrote none (the bundle's bytes, the ceiling, and whether a handoff was carried in its place)",
+  "handoff.daysummary.held": "a session start held back day's end's summary of a day and fell back to the chapter list, one row per date and cause (what held it and why, in kinds only: a folder set off, paused or to observe, none recorded, no scope setting to ask)",
   // Durable since 2026-10-02: "Work here" had more lines than the wake carried.
   "self.work.overflow": "a session start had more \"Work here\" lines for its project than it carried — more than the wake shows, so they rotate, or fewer fitted the room (how many, how many shown)",
   "self.project.line": "a session start in a project's folder had the wake's project line to give: whether it showed, and if not why (no belief above the floor, no room), its bytes and the beliefs it showed",
