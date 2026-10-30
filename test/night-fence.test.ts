@@ -467,6 +467,43 @@ describe("closed to day's end, the dream and the reflection", () => {
       expect(await closedToIt()).toBe(false);
     });
 
+    for (const [part, refused, blank] of [
+      ["page", pageWithNoCites, { text: "   " }],
+      ["share", shareWithAMark, { cites: ["any"] }],
+    ] as const) {
+      test(`a ${part} sent again with no words: nothing landed and nothing is said, so it's still closed`, async () => {
+        const { s, id, cite, closedToIt } = await begun();
+        await finish(s, id, { entry, cites: [cite], [part]: refused });
+        const again = (await finish(s, id, { [part]: blank })).structuredContent;
+        expect(again["again"]).toBeUndefined();
+        expect(await closedToIt()).toBe(true);
+      });
+    }
+
+    test("each part sent back goes on the row by name, with none of what was sent or why", async () => {
+      const { c, s, id, cite } = await begun();
+      const sent = "WORDS-IT-SENT";
+      const first = (
+        await finish(s, id, {
+          entry,
+          cites: [cite],
+          page: pageWithNoCites,
+          share: shareWithAMark,
+          close: ["no-such-thread"],
+          feelings: [{ id: "no-such-1", feeling: sent }],
+          about: [{ id: "no-such-2", about: sent }],
+          core: [{ id: "no-such-3", decision: "keep", why: sent }],
+          traits: [{ id: "no-such-4", axis: sent, toward: sent, strength: 1, carried_by: sent }],
+          beliefs: { filings: [{ id: "no-such-5" }] },
+        })
+      ).structuredContent;
+      expect(String(first["again"])).toContain(sent);
+      const detail = JSON.parse(c.store.reflection(id)?.detail ?? "{}") as Record<string, unknown>;
+      expect(detail["sentBack"]).toEqual(["page", "share", "close", "feelings", "about", "core", "traits", "beliefs"]);
+      expect(JSON.stringify(detail)).not.toContain(sent);
+      expect(JSON.stringify(detail)).not.toContain("no-such-thread");
+    });
+
     test("nothing sent back: the session has its recall back at once", async () => {
       const { s, id, cite, closedToIt } = await begun();
       const first = (await finish(s, id, { entry, cites: [cite] })).structuredContent;

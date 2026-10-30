@@ -2266,12 +2266,18 @@ export class Reflections {
         : `Not written: ${missed.join("; ")}. You can fix these and call finish again with reflection ${row.id} and just those parts — the entry and everything already written stand.`;
     // WHAT'S STILL SENT BACK, by part, for `busyIn` (2026-10-30): this retry's
     // parts, and an earlier finish's that this one didn't send again. The row's
-    // `detail` is written whole above, so a finish with none leaves none.
-    const sentAgain = (part: string): boolean => [part, ...(part === "close" ? ["closeNow"] : [])].some((k) => {
-      const v = (input as unknown as Record<string, unknown>)[k];
-      return Array.isArray(v) ? v.length > 0 : v !== null && v !== undefined;
-    });
-    const sentBack = [...new Set([...stringIds(prior["sentBack"]).filter((p) => !sentAgain(p)), ...missed.map((m) => /^[a-z]+/.exec(m)?.[0] ?? m)])];
+    // `detail` is written whole above, so a finish with none leaves none. A page
+    // or share with no words isn't sent again: `finish` passes over it and says
+    // nothing. Only the name goes on the row, since a line can quote what was sent:
+    // one that doesn't open with its name still holds the fence, as `unnamed`.
+    const worded = (text: string | undefined): boolean => (text ?? "").trim().length > 0;
+    const holds = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : isRecord(v) ? Object.values(v).some(holds) : v !== null && v !== undefined);
+    const sentAgain = (part: string): boolean => {
+      if (part === "page") return worded(input.page?.text) || worded(input.page?.short);
+      if (part === "share") return worded(input.share?.text);
+      return [part, ...(part === "close" ? ["closeNow"] : [])].some((k) => holds((input as unknown as Record<string, unknown>)[k]));
+    };
+    const sentBack = [...new Set([...stringIds(prior["sentBack"]).filter((p) => !sentAgain(p)), ...missed.map((m) => /^[a-z]+/.exec(m)?.[0] ?? "unnamed")])];
     if (sentBack.length > 0) this.store.updateReflection(row.id, { detail: { ...detail, sentBack, sentBackAt: this.store.now() } });
 
     const how = shareStands
