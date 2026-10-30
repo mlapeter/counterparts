@@ -597,14 +597,9 @@ export function namesClosed(store: Pick<Store, "row">, text: string, closed: Rea
   return false;
 }
 
-/**
- * EVERY MEMORY AND CHAPTER CLOSED TO THE NIGHT under `on`, archived and merged
- * rows included, and each live handoff, by the folder it was left in (a schema
- * row, which is on my mind's open loops and has no folder of its own). A walk of the store, so one read per night call, never per
- * turn: only the night's doors ask. Never throws row by row.
- */
-export function closedToNight(store: Store, on: FolderOn): ReadonlySet<string> {
-  const shut = (scope: string | null): boolean => {
+/** A folder's stance as the fence reads it: no folder says nothing; a setting that throws reads as closed. */
+function shutUnder(on: FolderOn): (scope: string | null) => boolean {
+  return (scope) => {
     if (scope === null || scope.trim().length === 0) return false;
     try {
       return on(scope) !== true;
@@ -612,13 +607,44 @@ export function closedToNight(store: Store, on: FolderOn): ReadonlySet<string> {
       return true;
     }
   };
+}
+
+function memoryShut(store: Pick<Store, "row">, row: FolderRow & { readonly source: string | null; readonly meta: string }, shut: (scope: string | null) => boolean): boolean {
+  return isNightRow(row) ? restsOnClosed(store, row.meta, shut, 0) : shut(memoryFolder(store, row));
+}
+
+/**
+ * ONE MEMORY, BY THE FENCE'S OWN RULE, for a door that asks of a row rather than
+ * walking the store: see-also (FI1, 2026-10-30), since a named id reaches a memory
+ * with no word of the turn's behind it. `here` is the turn's folder, which is its
+ * own to read, as the wake's gate has it; a night's row is filed where the night
+ * ran, which says nothing about where its words came from, so it doesn't get
+ * that. Never throws: an unreadable row is closed.
+ */
+export function memoryClosedTo(store: Pick<Store, "row">, row: FolderRow & { readonly source: string | null; readonly meta: string }, on: FolderOn, here?: string): boolean {
+  try {
+    if (here !== undefined && !isNightRow(row) && memoryFolder(store, row) === here) return false;
+    return memoryShut(store, row, shutUnder(on));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * EVERY MEMORY AND CHAPTER CLOSED TO THE NIGHT under `on`, archived and merged
+ * rows included, and each live handoff, by the folder it was left in (a schema
+ * row, which is on my mind's open loops and has no folder of its own). A walk of the store, so one read per night call, never per
+ * turn: only the night's doors ask. Never throws row by row.
+ */
+export function closedToNight(store: Store, on: FolderOn): ReadonlySet<string> {
+  const shut = shutUnder(on);
   const closed = new Set<string>();
   for (const type of ["memory", "episode"] as const) {
     for (const id of store.list({ type })) {
       try {
         const row = store.row(id);
         if (row === undefined) continue;
-        const isClosed = type === "episode" ? shut(row.origin_scope) : isNightRow(row) ? restsOnClosed(store, row.meta, shut, 0) : shut(memoryFolder(store, row));
+        const isClosed = type === "episode" ? shut(row.origin_scope) : memoryShut(store, row, shut);
         if (isClosed) closed.add(id);
       } catch {
         continue;

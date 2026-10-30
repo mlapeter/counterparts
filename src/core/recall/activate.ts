@@ -1646,8 +1646,8 @@ export function recordedIdentity(store: Store): string | null {
  * (`recallableRow`: not removed, archived, superseded, the self page, a
  * handoff, a card or a belief; not below reach) and to what it would not
  * show again (already shown this turn or this session, written by this
- * session, another project's under `RECALL_BY_PROJECT`, habituated, or a
- * candidate the gate inhibited). One per shown memory, `SEE_ALSO_MAX` a
+ * session, another project's under `RECALL_BY_PROJECT`, closed by the folder
+ * setting, habituated, or a candidate the gate inhibited). One per shown memory, `SEE_ALSO_MAX` a
  * turn. Reads only; the caller records.
  */
 /** A memory id anywhere in a text, as the store mints them. */
@@ -1682,6 +1682,8 @@ export interface SeeAlsoInput {
   readonly echo?: ReadonlySet<string>;
   /** Another project's work, when `RECALL_BY_PROJECT` holds it back. */
   readonly elsewhere?: (id: string) => boolean;
+  /** Closed by the host's folder setting (FI1): a named id doesn't carry it across. */
+  readonly closed?: (id: string) => boolean;
   readonly habituated?: ReadonlyMap<string, number>;
   readonly background: number;
   readonly t: RecallTunables;
@@ -1715,7 +1717,7 @@ export function seeAlso(input: SeeAlsoInput): SeeAlso[] {
         const id = headOf(store, named) ?? named;
         if (taken.has(id) || id === by) continue;
         if (input.seen[id] !== undefined || input.echo?.has(id) === true || input.habituated?.has(id) === true) continue;
-        if (input.elsewhere?.(id) === true) continue;
+        if (input.elsewhere?.(id) === true || input.closed?.(id) === true) continue;
         const prior = verdictOf.get(id);
         if (prior !== undefined && HELD.has(prior.verdict)) continue;
         denied ??= new Set(store.deniedIds());

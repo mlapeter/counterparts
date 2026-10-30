@@ -355,7 +355,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    could show at all (`activate.ts#recallableRow`, the candidates' own test: not removed,
    archived, superseded, below reach, the self page, a handoff, a card or a belief) and would
    not show again (this turn or this session already showed it, this session wrote it,
-   another project's under `RECALL_BY_PROJECT`, habituated, or inhibited by the gate). Its
+   another project's under `RECALL_BY_PROJECT`, closed by the host's folder setting (FI1,
+   2026-10-30: `Turn.namedClosed`, the night fence's rule asked of the one row, its own folder's
+   turn excepted), habituated, or inhibited by the gate). Its
    verdict is an ordinary footnote's (`trains` true, `via: "see-also"`, `seeAlso.by` the
    memory that named it), so a use of it trains the turn's words to it. Tests:
    `see-also-named-ids.test.ts`.*

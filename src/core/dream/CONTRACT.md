@@ -369,7 +369,11 @@ dreamer is the model (a background agent the session launches), outside this pro
   `dream.carried` event; `foldCarried` on `dream.changed`). Counted as `fold`, not `gist`. A later
   `corrected` settle over one of its parts flags it beside the corrector, source
   `fold-source-corrected`; "which folds came from X" is `Store#foldsCiting`, a query over
-  `meta.sources`), `contradiction`
+  `meta.sources`. A fold and a merge KEEP THE IDS THEIR SOURCES NAMED (FI1, 2026-10-30): a last
+  line, `Names: mem_…, mem_…`, each as the memory that holds now, at most `SEE_ALSO_NAMES_READ`
+  (4) named in all counting the writer's own words, never a source, never one recall couldn't
+  show, never one closed to the night; on the change's row as `names`, and `namesPast` when more
+  didn't fit. A plain gist doesn't: its sources stay as they were), `contradiction`
   (an unsettled pair in `contradictions`; a pair already standing is left as it is),
   `settle` (2026-09-29: two memories it was shown, `holds` / `over` / `how` / `why`,
   through `reconsolidation.ts#settle`; undone with the dream unless settled since),
