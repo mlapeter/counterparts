@@ -1367,3 +1367,24 @@ Why a belief isn't fenced (second read of #688, 10-30): a belief is the counterp
 beliefs over one closed support row could do more harm than the row's words could. It costs nothing today: on a copy
 of the owner's store, under his setting that day (3 rows closed), 0 of 7 live beliefs rest only on closed rows, and
 none of their 19 support rows is closed.
+
+## 2026-10-30 — the night's own line (NL1, `finish`'s `line`)
+
+The same `finish` as the page, not a second ask: the brief's words ("the page you just wrote") suggested a second turn, and
+that was the first plan. A probe of a reflection begun outside the nightly run (a hand-launched one, folder setting in
+force) found recall fenced while it's `begun` and open once its first `finish` lands, because `nightReading` stops at
+`begun`. A second ask would have put every such night's line in that window. The nightly run's children are fenced
+throughout (`nightRun()`). A line sent back still rides the window, as a sent-back page or share always has; only a
+hand-launched reflection reaches it, so it's left as it stands and named in the CHECK-AFTER section.
+
+`redactReflections` never looked at `detail`, since nothing there was words a reader would be shown as the night's. The
+line is, so the removal now empties it and reads it for a quote. `detail` also keeps `closeLine`, `coreLine`, and the whys
+in `selfClosed` and `coreDecided`, which that removal doesn't touch; they aren't in any recall answer today.
+
+Review of #693. The scan's mark can be longer than what it replaces (`password=…` grew a 300-byte line to 316), so what would
+be kept is measured as well as what was sent. A row already redacted is read again for a quote when it holds a line, since a
+later `finish` can send one. Two reads the line shares with the entry, left as they are and reported: a reflection opened
+by id has no folder rule (`deliberate.ts`, `readNight`), for an ordinary session or a fenced night; and `earlier` in the next
+night's bundle shows a closed folder's entry, so what a line is written from isn't wholly inside the fence. The folder rule on
+`recall "last night"` reads the row's scope, not what the line rests on: a folder closed since, cited from another folder's
+night, still shows.

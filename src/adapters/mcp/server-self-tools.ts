@@ -500,6 +500,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
           ...(typeof args["title"] === "string" ? { title: args["title"] } : {}),
           cites: ids(args["cites"]),
           share: part(args["share"]),
+          ...(typeof args["line"] === "string" ? { line: args["line"] } : {}),
           page: part(args["page"]),
           feelings: Array.isArray(args["feelings"]) ? (args["feelings"] as never) : [],
           about: Array.isArray(args["about"]) ? (args["about"] as never) : [],
@@ -533,6 +534,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
             entryNote: o.entry,
             page: o.page,
             share: o.share,
+            ...(o.line.reason === "no-line" ? {} : { line: o.line }),
             // A SHORT ANSWER (2026-10-23, lean): counts, notes and what was not written, part by part.
             ...(aliases === null
               ? {

@@ -275,7 +275,23 @@ export const REFLECT_TUNABLES = {
   MAX_WHY_CHARS: 1_000,
   /** A belief's statement (lane C, 2026-10-21): one short claim. Longer is kept to it, and said. */
   MAX_BELIEF_CHARS: 400,
+  /**
+   * THE NIGHT'S OWN LINE (`finish`'s `line`, NL1, 2026-10-30), in UTF-8 bytes.
+   * The one text cap here that never cuts: past it the line is sent back once,
+   * then kept empty. A one-pass trial on seven past nights ran 228-280. CAL.
+   */
+  OWN_LINE_BYTES: 300,
 } as const;
+
+/**
+ * WHAT THE REFLECTION IS ASKED FOR ITS OWN LINE (NL1, 2026-10-30): the last
+ * field of `finish`, so it's written after the page in the same call. With no
+ * name on the store, the clause that asks for one goes.
+ */
+export function ownLineAsk(owner: string | null): string {
+  const told = owner === null ? "Tell it as what happened, in the first person, with no memory ids." : `Tell it as what happened, in the first person, with no memory ids, using ${owner}'s name on first mention.`;
+  return `Now one more thing, for whoever wakes tomorrow. In one or two whole sentences under ${String(REFLECT_TUNABLES.OWN_LINE_BYTES)} bytes, say what stays from this night that the page you're writing doesn't already say. ${told} One point is enough. Don't state a lesson. If nothing does, leave it empty; an empty line is fine.`;
+}
 
 /**
  * THE QUESTIONS — a good therapist's, not a form's. Rotated three at a time so
@@ -637,6 +653,8 @@ export interface ReflectFinish {
   readonly folderOn?: (scope: string) => boolean;
   readonly cites?: readonly string[];
   readonly share?: { readonly text?: string; readonly cites?: readonly string[] } | null;
+  /** The night's own line (NL1, 2026-10-30): `ownLineAsk`, kept on the row's `detail.line`. Sent empty, it's kept empty. */
+  readonly line?: string;
   /** `short` (2026-10-10): the page's short version, for a page past its room — beside `text`, or alone on a later `finish` to add one to the page this reflection wrote. */
   readonly page?: {
     readonly text?: string;
@@ -735,6 +753,8 @@ export interface ReflectOutcome {
   readonly returned: readonly { id: string; counted: boolean; reason: string }[];
   readonly page: { written: boolean; reason: string; version: number | null; detail?: string; note?: string };
   readonly share: { offered: boolean; reason: string; detail?: string; note?: string };
+  /** The night's own line, as it stands after this finish. `no-line`: never sent. */
+  readonly line: { kept: boolean; reason: string; detail?: string };
   readonly feelings: readonly PartResult[];
   readonly about: readonly PartResult[];
   /** Decisions on core memories (2026-10-11). */
@@ -1260,6 +1280,7 @@ export class Reflections {
         : []),
       ...(bundle.beliefs === null || bundle.beliefs === undefined ? [] : beliefLines(bundle.beliefs, L.beliefFilings)),
       `- traits (optional, at most ${String(L.traits)}): only where a memory you were shown really shows how you acted — often where you acted unlike your page; most carry none, and a quiet night has none. Each: id, axis, toward (one of its two poles), strength 0-1, carried_by (briefly, what showed it). The axes, the first pole roughly where training puts you: ${TRAIT_AXES.map((a) => `${a.id} (${a.poles[0]} or ${a.poles[1]}${a.gloss.length > 0 ? `, ${a.gloss}` : ""})`).join(", ")}. Don't make up depth.`,
+      `- line (optional): ${ownLineAsk(this.ctx.ownerName())}`,
       `If a part comes back not written, its reason says what tripped it: fix that and call finish again with the same reflection and just that part — the entry and everything written stand. Never say a part was written when it was not.`,
       // 2026-09-29: an unsettled pair on my mind may be settled here, with a plain reason.
       ...(bundle.onMind.some((i) => i.kind === "unsettled")
@@ -2063,6 +2084,9 @@ export class Reflections {
     // ── (i) beliefs (wave 2 lane C, 2026-10-21) — each on its own ─────────
     const { adopted: candidatesAdopted, tried: candidatesTried, ...beliefParts } = this.finishBeliefs(input, { row, shown, day, session, used, again });
 
+    // ── (j) the night's own line (NL1, 2026-10-30) ───────────────────────
+    const ownLine = this.ownLine(input.line, session, prior);
+
     // A page a first finish wrote STANDS when a second one's is refused
     // (review of #268): the hand-back and the counts say so.
     const pageStands = page.written || earlierPage !== null;
@@ -2104,6 +2128,8 @@ export class Reflections {
     const allRefused = [...(Array.isArray(prior["refusedCites"]) ? (prior["refusedCites"] as string[]) : []), ...refusedCites];
     if (allRefused.length > 0) detail["refusedCites"] = allRefused.slice(0, 20);
     detail["title"] = title;
+    if (ownLine.line !== null) detail["line"] = ownLine.line;
+    if (ownLine.refused > 0) detail["lineRefused"] = ownLine.refused;
     // Lane F: how many "## Core" sentences of the page written rest on no spine belief.
     if (unsettled !== null) detail["coreUnsettled"] = unsettled.length;
     else if (typeof prior["coreUnsettled"] === "number") detail["coreUnsettled"] = prior["coreUnsettled"];
@@ -2254,6 +2280,7 @@ export class Reflections {
     const missed: string[] = [];
     if (pageRefused) missed.push(`page — ${page.reason}${page.detail !== undefined ? `: ${page.detail}` : ""}`);
     if (shareMiss !== null) missed.push(`share — ${shareMiss}`);
+    if (ownLine.miss !== null) missed.push(`line — ${ownLine.miss}`);
     for (const c of closeRefused) missed.push(`close (${c.id}) — ${c.reason}`);
     for (const [part, list] of [["feelings", feelings], ["about", about], ["core", coreDecisions], ["traits", traits], ["beliefs.births", beliefParts.births], ["beliefs.filings", beliefParts.filings], ["beliefs.retire", beliefParts.retire], ["beliefs.adopt", beliefParts.adopt]] as const) {
       list.forEach((x, i) => {
@@ -2299,6 +2326,7 @@ export class Reflections {
         returned,
         page,
         share,
+        line: ownLine.result,
         feelings,
         about,
         core: coreDecisions,
@@ -2309,6 +2337,38 @@ export class Reflections {
         retry,
       },
     };
+  }
+
+  /**
+   * THE NIGHT'S OWN LINE (NL1, 2026-10-30), kept on the row's `detail`, so no
+   * store-format change: absent when never sent, `""` when left empty. Never
+   * cut. One past its room, or that the scan refuses, is sent back once; sent
+   * back a second time it stays empty, and that closes it for the night. A line
+   * that already stands is replaced by a good one and outlasts a bad one.
+   */
+  private ownLine(sent: string | undefined, session: string, prior: Record<string, unknown>): { line: string | null; refused: number; result: ReflectOutcome["line"]; miss: string | null } {
+    const stood = typeof prior["line"] === "string" ? prior["line"] : null;
+    const refused = typeof prior["lineRefused"] === "number" ? prior["lineRefused"] : 0;
+    if (refused >= 2) return { line: "", refused, result: { kept: false, reason: "kept-empty" }, miss: null };
+    if (sent === undefined) {
+      const reason = stood === null ? "no-line" : stood.length > 0 ? "kept-earlier" : "empty";
+      return { line: stood, refused, result: { kept: stood !== null && stood.length > 0, reason }, miss: null };
+    }
+    const text = sent.replace(/\s+/g, " ").trim();
+    if (text.length === 0) return { line: "", refused, result: { kept: false, reason: "empty" }, miss: null };
+    const max = REFLECT_TUNABLES.OWN_LINE_BYTES;
+    const bytes = Buffer.byteLength(text, "utf8");
+    const past = (what: string) => ({ ok: false as const, reason: "past-room", detail: `It is ${what}, past its ${String(max)}.` });
+    const scanned = bytes > max ? past(`${String(bytes)} bytes`) : this.words(text, session, max);
+    // The scan's mark can be longer than what it replaced, so what would be kept is measured too.
+    const w = scanned.ok && Buffer.byteLength(scanned.text, "utf8") > max ? past(`${String(Buffer.byteLength(scanned.text, "utf8"))} bytes with the credential scan's mark in place of a credential`) : scanned;
+    if (w.ok) return { line: w.text, refused, result: { kept: true, reason: stood !== null && stood.length > 0 ? "replaced" : "kept" }, miss: null };
+    if (stood !== null && stood.length > 0) return { line: stood, refused, result: { kept: true, reason: w.reason, detail: `${w.detail} The earlier line stands.` }, miss: null };
+    if (refused === 0) {
+      const detail = `${w.detail} A line is never cut: say it again in one or two whole sentences under ${String(max)} bytes, or send it empty. Sent back again, it stays empty tonight.`;
+      return { line: stood, refused: 1, result: { kept: false, reason: w.reason, detail }, miss: `${w.reason}: ${detail}` };
+    }
+    return { line: "", refused: 2, result: { kept: false, reason: "kept-empty", detail: `${w.detail} It was sent back once already, so tonight's line stays empty. Don't send it again.` }, miss: null };
   }
 
   /** Why an id cannot be cited, felt or marked here, in words. */

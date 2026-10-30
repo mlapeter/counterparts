@@ -512,6 +512,17 @@ dream having run.
     the entry, and may replace the share while it has not been told or carried. The
     limits count across both. Every part not written names its rule and what tripped
     it, and the result says it can be sent again (`retry`).
+  - **Its own line** (`line`, NL1, 2026-10-30, lightly held) is one or two whole sentences,
+    at most `OWN_LINE_BYTES` (300) UTF-8 bytes, for whoever wakes tomorrow: what stays
+    from the night that the page doesn't say, told as what happened. It's kept on the
+    row's `detail.line`: absent when never sent, `""` when left empty. It's never cut:
+    past its room, or refused by the credential scan, it comes back once, and a second
+    time it stays empty for the night. It takes no cites, so a "nothing much" night may
+    keep one. `recall "last night"` and a reflection read by id show it; nothing in the
+    wake does until WK2. It's written from what the reflection may read and shown under
+    the entry's folder rule, with the entry's gaps (`NOTES.md`, 2026-10-30), and removing
+    a memory empties it wherever the entry is redacted
+    (`store/owner-op-seam.ts#redactReflections`).
   - **An insight cites real memories.** An entry that cites something becomes a memory,
     source `reflection`, titled "Reflected: …". **A night that cites nothing is "nothing
     much"** — a normal outcome: the entry stays on the record, and nothing else is
