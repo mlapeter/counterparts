@@ -218,8 +218,8 @@ describe("fetching the tested tarball", () => {
    */
   function fetch(
     tweak: {
-      runs?: Run[];
-      jobs?: typeof JOBS;
+      runs?: readonly Run[];
+      jobs?: readonly (typeof JOBS)[number][];
       branchHead?: string | null;
       tamper?: boolean;
       loggedHash?: string;

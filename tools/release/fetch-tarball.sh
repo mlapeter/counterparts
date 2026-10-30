@@ -19,7 +19,8 @@
 # Any mismatch exits 1 and writes nothing.
 set -euo pipefail
 
-REPO="${GH_REPO:-mlapeter/counterparts}"
+# Not read from the environment: a GH_REPO left set would fetch some other repo's run.
+REPO="mlapeter/counterparts"
 
 stop() {
   echo "STOP: $1" >&2
