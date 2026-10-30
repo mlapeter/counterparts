@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | in review 10-30, unreleased | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -94,6 +95,25 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~1 week after the worker's cost (2026-10-30, W1, coordinator's brief marked for Mike's review — a fix, no switch)
+
+**What we're trying.** The per-turn worker reads what the sidebar's file carries rather than 60 full memory cards, and
+the boundary's reserve reads the settled pairs once. On a copy of the corpus: 3.4 s to 1.0 s per worker, after-done
+2.5 s to 0.6 s. A laptop under load is what we actually care about, and a copy on a quiet machine can't show that.
+
+**What to look at.** A week of the live log, `~/.counterparts/store/sessions/log/*.log`, lines with `proc` `worker`, split at
+the release date. Worker ms from `process.end` (p50, p90, max), the after-done share (time from `runner.done` to
+`process.end` over the whole), and `runner.steps` for which step holds what is left. Baseline, 10-29: 209 workers, p50
+6.4 s, p90 12 s, max 42 s, 1,593 s in the day, 75% after done. Also how many workers overlap: two or more at once for
+120 s of 10-29, and 809 s of 10-30 by about 15:00 UTC (108 workers, at most four, 10 over 100 s, 2 past 300 s; 655 s of
+the overlap between 12:50 and 13:10 UTC). A bad stretch like that one is part of what this has to answer: read it apart
+from the p50.
+
+**What would change it.** p50 at or below about 2.5 s and after-done under about half: keep, and drop `runner.steps` from
+`LOGGED` if the rows have stopped being read. p50 still above about 4 s: read the row for the step, and the wake step on
+the turns it re-renders first. Workers still overlapping for minutes a day: `docs/decisions.d/fix-worker-after-done.md`
+decided against collapsing them on the old numbers; decide again. **Revert.** The commits are small; nothing to migrate.
 
 ## Due ~2 weeks after the 10-29 knobs (K1, the 10-29 read, coordinator's call marked for review — `recall.PRIME_TRAIN_SHARE`, `schemas.TAGS_KINDS_PER_NIGHT`, `self.project.line`)
 

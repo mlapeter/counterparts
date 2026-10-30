@@ -47,3 +47,8 @@
   `stdin-closed` for the server.
 - **A new `localTime` in `core/time.ts`** (`HH:MM:SS`, 24-hour) for `counterparts log`: the
   date is the file's, and seconds are what tell two lines apart.
+- **`runner.steps` (2026-10-30).** A worker's `runner.coverage`, `runner.snapshot` and
+  `runner.sidebar` stay out of the file: they're emitted for tests and a hand run, and the
+  allowlist never took them. What the file needed was where the time goes, so one row per run
+  carries every step's wall ms instead of three rows carrying some. The read it answers:
+  `claude-code/NOTES.md`, 2026-10-30.

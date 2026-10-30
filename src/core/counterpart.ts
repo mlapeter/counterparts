@@ -1616,11 +1616,15 @@ export class Counterpart {
     scope: string,
     skip: ReadonlySet<string> = new Set(),
     craftFrom: (scope: string) => boolean = () => true,
+    // A caller asking for many folders in one breath reads this once
+    // (`workReserveBytes`): a store-wide walk, the same answer for each.
+    settledIds?: ReadonlySet<string>,
   ): { lines: string[]; found: number } {
     const t = this.self.tunables;
     if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return { lines: [], found: 0 };
     try {
       const day = this.store.livedDay();
+      const settled = settledIds ?? settledOver(this.store);
       // PROJECTS (2026-10-21, `PROJECTS_TRAVEL`): every folder of this one's
       // project is here, and craft from a folder `craftFrom` lets be named
       // elsewhere may take a few of the lines.
@@ -1630,7 +1634,7 @@ export class Counterpart {
         max: t.WORK_HERE_MAX,
         pool: t.WORK_HERE_POOL,
         excerpt: t.WORK_HERE_EXCERPT,
-        skip: skip.size === 0 ? settledOver(this.store) : new Set([...settledOver(this.store), ...skip]),
+        skip: skip.size === 0 ? settled : new Set([...settled, ...skip]),
         year: yearOf(this.store.today()),
         // The project's folders the host lets be named elsewhere, this one always.
         folders: projectFolders(this.store, scope, travels, craftFrom),
@@ -2792,8 +2796,12 @@ export class Counterpart {
     const blocks: number[] = said > 0 ? [said] : [];
     if (!this.self.tunables.CRAFT_AT_DELIVERY) return reserveBytes(blocks, budgetBytes);
     try {
+      // Once, not once per folder (2026-10-30): at every turn's end this walked
+      // every settled pair once per folder that ever held experience, 540 ms of
+      // the worker's 790 on the owner's 35 folders and 766 settled pairs.
+      const settled = settledOver(this.store);
       for (const scope of this.spans.scopes()) {
-        const { lines } = this.workHereLines(scope);
+        const { lines } = this.workHereLines(scope, undefined, undefined, settled);
         if (lines.length === 0) continue;
         blocks.push(workHereBytes(lines));
         if (said > 0) blocks.push(workHereBytes(lines) + said);
