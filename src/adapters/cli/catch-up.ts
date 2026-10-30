@@ -61,6 +61,7 @@ export async function catchUpCommand(input: CatchUpCommandInput): Promise<number
     report = await runCatchUp({
       open: () => openNightCounterpart(config, log.event),
       config,
+      ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
       run,
       scope,
       seat: claudeCodeSeat({

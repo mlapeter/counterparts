@@ -122,6 +122,7 @@ import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } fr
 import { PLUGIN_TABLE_UPDATE, PLUGIN_UPDATE, RELOAD_STEP, byRoute, npmTableCommand, npmUpdateCommand, tableOnDisk } from "./doctor-meaning.js";
 import { newerStoreWords } from "../update-words.js";
 import { installedVersion } from "../sessions.js";
+import { foldersOn, scopesPath } from "../scopes.js";
 import { TRANSPILED } from "../runtime.js";
 import {
   NONESSENTIAL_TRAFFIC_ENV,
@@ -3468,7 +3469,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   let owedCache: { value: OwedReading | "failed" } | null = null;
   const owedReading: OwedSource = () => {
     if (!owedAllowed) return null;
-    owedCache ??= { value: readOwed(store) };
+    // No folder setting read for a store named with `--dir`, as no configuration is.
+    owedCache ??= { value: input.configReason === "not-read" ? readOwed(store) : readOwed(store, foldersOn(scopesPath(input.configPath))) };
     return owedCache.value;
   };
   const groups: (readonly [string, () => Finding[]])[] = [

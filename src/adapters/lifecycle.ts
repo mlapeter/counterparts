@@ -82,6 +82,7 @@ import {
   SCOPE_JOINED_LATE_EVENT,
   SCOPE_REFUSED_EVENT,
   SCOPE_UNREADABLE_EVENT,
+  foldersOn,
   lookupScope,
   readScopes,
   scopesPath,
@@ -112,7 +113,7 @@ import {
   writeUpPartsDated,
   writeUpPlan,
 } from "./sessions.js";
-import type { SessionPhase } from "./sessions.js";
+import type { FolderOn, SessionPhase } from "./sessions.js";
 import { planSpawn, spawnDetached } from "./spawn.js";
 import type { SpawnOutcome, Spawner } from "./spawn.js";
 
@@ -881,6 +882,16 @@ export class Lifecycle implements HostLifecycle {
   }
 
   /**
+   * THE FOLDER SETTING, as a write-up asks it (2026-10-30): read fresh, from
+   * beside this lifecycle's configuration. With no configuration named, every
+   * folder is on (`scopes.ts#foldersOn`).
+   */
+  protected writeUpFolders(): FolderOn | undefined {
+    const config = this.configPath;
+    return config === undefined || config.length === 0 ? undefined : foldersOn(scopesPath(config));
+  }
+
+  /**
    * WRITE DOWN WHAT THE HOST WAS JUST HANDED, so a later process can ask whether
    * it arrived. A second write of the same phase, for the same reason
    * the first-launch question makes one: the first write happens before the
@@ -1032,10 +1043,12 @@ export class Lifecycle implements HostLifecycle {
       pruneWriteUpProgress(store, plan);
       const inFlight = readWriteUpProgress(store);
       const zone = this.counterpart.store.zone();
+      const folders = this.writeUpFolders();
       const owed = owedWriteUps(plan, dir, input.scope, now, {
         exclude: input.sessionId,
         progress: inFlight,
         pointedToday: (at) => calendarDate(at, zone) === today,
+        ...(folders === undefined ? {} : { folders }),
       });
       // Full write-ups come first (`owedWriteUps`), so a SMALL one is pointed
       // at only when no full one is waiting: it takes what is left of the

@@ -10,6 +10,7 @@ import { SpanBuffer } from "../../core/remember/index.js";
 import { COVERAGE_TUNABLES, lapsesSince, ledger } from "../../core/coverage/index.js";
 import type { LedgerEntry } from "../../core/coverage/index.js";
 import {
+  folderSetAside,
   hostOf,
   hostSessionEvidence,
   listSessions,
@@ -22,6 +23,7 @@ import {
   writeUpEntries,
   writeUpPlan,
 } from "../sessions.js";
+import type { FolderOn } from "../sessions.js";
 import { DESKTOP_HOST } from "../hosts.js";
 import { catchUpOf, CATCH_UP_RUN_PREFIX, catchUpWords } from "./night-catch-up.js";
 import type { DoctorInput } from "./doctor.js";
@@ -70,6 +72,8 @@ export interface OwedReading {
   readonly unpointedNoRecord: number;
   /** The newest catch-up row's time (`catchUpOf`, any age), or null. */
   readonly lastCatchUpAt: number | null;
+  /** The folder setting these counts were read under, when one was. */
+  readonly folders?: FolderOn;
 }
 
 /** "1 overdue (a catch-up has run since, or 2 days of use)": the clause the
@@ -117,8 +121,10 @@ function lastCatchUpAt(store: Store): number | null {
 }
 
 /** `failed` when it cannot be read. It reads every scope's captured words, so
- *  the budgeted session-start reading never calls it. */
-export function readOwed(store: Store): OwedReading | "failed" {
+ *  the budgeted session-start reading never calls it. `folders`: the folder
+ *  setting. A session whose folder is off, observer or paused is no debt the
+ *  catch-up could clear, so it is in none of these counts (2026-10-30). */
+export function readOwed(store: Store, folders?: FolderOn): OwedReading | "failed" {
   try {
     const now = store.now();
     // READ-ONLY by construction: an observer buffer writes nothing, and it
@@ -129,13 +135,25 @@ export function readOwed(store: Store): OwedReading | "failed" {
     const host = hostSessionEvidence(store);
     const entries = ledger(spans, { now, zone, host: (s) => ({ endedAt: host(s).endedAt }) });
     const all = entries.filter((e) => e.owed);
-    const why = new Map(all.map((e) => [e.session, notPointableWhy(e, store.dir)]));
+    const why = new Map(all.map((e) => [e.session, notPointableWhy(e, store.dir, folders)]));
     const owed = all.filter((e) => why.get(e.session) === null);
     const night = lastCatchUpAt(store);
     const stale = owed.filter((e) => overdue(e, zone, night)).length;
     const headless = all.filter((e) => why.get(e.session) === "headless").length;
     const noRecord = all.filter((e) => why.get(e.session) === "no-record").length;
-    return { spans, plan, entries, now, waiting: owed.length, stale, unpointed: headless + noRecord, unpointedHeadless: headless, unpointedNoRecord: noRecord, lastCatchUpAt: night };
+    return {
+      spans,
+      plan,
+      entries,
+      now,
+      waiting: owed.length,
+      stale,
+      unpointed: headless + noRecord,
+      unpointedHeadless: headless,
+      unpointedNoRecord: noRecord,
+      lastCatchUpAt: night,
+      ...(folders === undefined ? {} : { folders }),
+    };
   } catch {
     return "failed";
   }
@@ -197,6 +215,7 @@ export function crashWriteUpFindings(input: DoctorInput, store: Store, owedReadi
       const here = key.slice(bar + 1);
       const h = plan.find((x) => x.session === session);
       if (h === undefined || !h.owes) continue;
+      if (reading.folders !== undefined && folderSetAside(h, store.dir, reading.folders)) continue;
       const elsewhere = h.scopes.filter(
         (scope) =>
           !sameScope(scope, here) &&

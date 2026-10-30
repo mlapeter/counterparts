@@ -2892,3 +2892,31 @@ whole story: in the same stretch four workers reached `runner.done` only after 8
 cycle went long as well. That looks like the machine, not one step. Left as is: the sidebar's step
 is now a fifth of the size, and a thrashing machine is a thing this file can't fix. If the rows show
 long gaps again, `runner.steps` will say which step.
+
+## 2026-10-30 — the catch-up and a folder that is off (NC1)
+
+**What was found.** On the live store, three memories were written three days after their folder had
+been set `off`, each a write-up of that folder's earlier sessions, with an `adapter.night.writeup` row
+two minutes later. Confirmed on a throwaway store through `runNight` and the real door: a session
+captured in an on folder, the folder then set `off`, `observer` or `paused`, a subfolder of it too, and
+the night planned, granted and wrote all of them. `night-catch-up.ts` read no folder setting at all. G19's
+"no output, no write" was true of a session in the folder and had never been asked of a later process
+reading what the folder's sessions left behind.
+
+**The pointer was nearly safe already.** It asks only for the asking session's own directory, and an off
+folder's hook returns before an adapter exists, so a pointer never ran there. Two gaps: a session with
+words in two folders could be named from the on one, and a full debt in an off folder stood in the
+store-wide `fullFirst` test, holding small debts in on folders back for up to 14 days of use.
+
+**The filter is `pointable`'s, not the plan's.** `catchUpOwing`, `owedBefore`, `owedParts`, the row's `left`,
+doctor's reading and `coverage` all read it, and filtering in `planCatchUp` alone would have left the
+session counted as owed on every other surface, for ever. `folders` is an optional argument so a caller
+with no configuration (a store named with `--dir`) keeps what it had.
+
+**A folder resumed the same day** waits for the next day's `owedBefore`, if `NOTHING_OWED_BEFORE_KEY` was
+already set that day, unless a night was due anyway. Loose on purpose.
+
+**Beside it: `verify --rebuild --keep-vectors` read every archived row as a mismatch.** Its arm of
+`verifyRebuild` left `skippedArchived` out of what it counted; the plain arm has counted it since I13. On
+a copy of the live store the difference was exactly the archived rows (621; superseded rows are all archived
+too). A miscount in the check, and no row was unaccounted for.

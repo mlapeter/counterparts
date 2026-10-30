@@ -707,6 +707,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     const report = await runCatchUp({
       open: input.open,
       config: input.config,
+      ...(input.configPath === undefined ? {} : { configPath: input.configPath }),
       run: input.run,
       scope: input.scope,
       seat,
