@@ -21,6 +21,7 @@ import { HANDOFF_LEAD_LINES, handoffLead } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
 import { HANDOFFS_HERE_HANDLE, STANDS_BEFORE, STANDS_HEAD, STANDS_OTHERS, standsLadder } from "../src/core/handoff/index.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
+import { hintsForReader } from "../src/core/self/briefing.js";
 import { FRAMING, SELF_TUNABLES, readSentinel } from "../src/core/self/index.js";
 
 const HERE = "/proj/here";
@@ -155,6 +156,19 @@ describe("the block", () => {
     expect(oneOther?.block).toContain("Second.");
     expect(oneOther?.block).not.toContain("Third.");
     expect(oneOther?.block).toContain("+1 older handoff:");
+  });
+});
+
+describe("the published-bundle road", () => {
+  test("a hints count with no ids stands: it names nothing a reader may not see", () => {
+    const counted = "Top\n\nMight be relevant:\n- Sep 23 · A title [mem_000000000001]\n(3 more might be relevant)\n\nEnd";
+    const kept = hintsForReader(counted, ["mem_000000000001"], () => false);
+    expect(kept.blind).toBe(false);
+    expect(kept.text).toContain("(3 more might be relevant)");
+    const collapsed = "Top\n\nMight be relevant: 3 — no room to list them in this wake\n\nEnd";
+    const same = hintsForReader(collapsed, [], () => true);
+    expect(same.blind).toBe(false);
+    expect(same.text).toContain("Might be relevant: 3 — no room");
   });
 });
 

@@ -732,5 +732,5 @@ previous check-in.
   (`LAST_HERE_TITLE_BYTES` moved to `index.ts`; a test loads each module first). A session nobody attended no longer has its
   last words in the block: as a lesser line it could quote one, and here it would have led. The `last exchange` handle still
   answers with it. `LAST_EXCHANGE_LINE_MAX_BYTES` is 176 for the exchange as the block's whole entry.
-- **Known, left:** `hintsForReader` reads the count lines' old `recall ids` forms only, so with `HINTS_IN_WAKE` turned back on
-  the published-bundle road may drop a hints count. It matters only on that revert.
+- **`hintsForReader` reads the new count lines too:** a store with no page keeps the hints lane, so a count with no ids reaches
+  the published-bundle road. It names nothing a reader may not see, so it stands, where it would have been dropped as unreadable.
