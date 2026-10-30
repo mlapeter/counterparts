@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.41 — 2026-10-30
+
+A memory that names another memory by its id now brings that one along: when a note about a rule comes to mind, the rule shows beside it as a `See also:` line (at most two a turn, and the first lines to go when room is tight). Recall no longer lifts a memory just for being near the session's recent talk, so there should be fewer loosely related footnotes. In the first meeting, a question step sent without an answer is no longer shown as failed, and the meeting's last step is now called `origin`. The night sorts up to 30 cards into people, projects, places and topics, up from 10. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.40 needs no store restore: `counterparts disconnect`, 0.3.40's install, then `counterparts connect`.
+
+- **A memory that names another by its id brings it along.** When a memory that comes to mind
+  mentions another memory's id (a note about a rule, say, that names the rule), that memory
+  shows beside it as one `See also:` line, if nothing else keeps it back. Used, it learns the
+  words that brought it, so next time it can come back on its own. At most two a turn, kept
+  short, and the first lines to go when room is tight.
+- **Recall no longer lifts a memory just for being near the session's recent talk.** The "train of
+  thought" head start is off: memories it lifted were rated the least useful of any group. Memories
+  linked to what the session used, wrote or has open here, and those sharing its tags, still get
+  their head start.
+- **In the first meeting, a question step sent without an answer no longer shows as "Failed".** It now comes back as
+  a plain note that nothing was stored, and that starting the meeting needs no call, instead of an error.
+- **The first meeting's last question no longer looks like "the meeting has started".** Its step is now called
+  `origin` (the old name `started` still works with an answer), the script says that choosing "Now" needs no call, and
+  a bare call to it gets plain words saying the meeting begins with `meet` and no step.
+- **The night sorts three times as many cards.** Each night's tagging step now asks which kind
+  (person, project, place or topic) up to 30 cards are, up from 10, so the cards waiting for a kind
+  stop piling up.
+- **The wake's project line leaves a record.** Each session start in a project's folder now records
+  whether that line showed, and if not why (no belief strong enough yet, or no room), with its size
+  and which beliefs it showed. Ids and counts only, never the text.
+- **On claude.ai and Claude Desktop, Memory status is no longer marked read-only.** A status call there that names its
+  conversation updates that conversation's record, so the read-only label wasn't true; in Claude Code it still is.
+- **Hosted: a sign-in or account page left open across a server update still works.** The forms' key now comes from
+  the server's cookie keys, so an update no longer answers "This form expired"; only a deliberate key rotation does.
+
 ## 0.3.40 — 2026-10-29
 
 Open items nobody has touched for two weeks are now parked: they leave the wake's "Still open", which says how many are parked (`· 12 parked`), and nothing is deleted or closed. `recall "still open"` still lists every one (the parked last, marked), a question about one still finds it, and using one again brings it back. Items with a date still to come, a `settlesWhen`, or `status: "asked"` (a question or request still waiting) are never parked. The first wake after upgrading may count a lot of parked items at once on a store that has gathered many; that's the backlog of two-week-old threads, all still there. `counterparts doctor` has an Open items line. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.39 needs no store restore: `counterparts disconnect`, 0.3.39's install, then `counterparts connect`.
