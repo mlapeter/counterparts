@@ -2823,3 +2823,66 @@ all use it).
   `known_marketplaces.json` carries `autoUpdate` at the default; which marketplace the
   directory listing lands in (`claude-community` and `@synced` are both handled off the copy's
   own path).
+
+## 2026-10-30 — what a worker did after `runner.done` (W1)
+
+The process log said 75% of a per-turn worker's wall time came after its last row (10-29: 209
+workers, median 1.5 s of work, then 4.8 s with no row). `runner.coverage`, `runner.snapshot` and
+`runner.sidebar` are emitted and never reach the file because `LOGGED` leaves them out, so nothing
+said where it went. Measured through the Stop hook on a copy of the 10-30 corpus, plus a same-shape
+scrubbed copy of the live `spans/` and `sessions/` (the corpus carries neither, and the sweep gate
+and the coverage ledger read them), six turns, first discarded, `nice -n 15`:
+
+| Step | Before, ms wall (CPU) | After, ms wall (CPU) |
+|---|---|---|
+| boot, embedder, open, lag, backfill | 139 | 140 |
+| cycle (before `runner.done`) | 785 (840) | 270 (317) |
+| wake, not re-rendered (73% of turns) | 0 | 0 |
+| coverage | 58 (78) | 55 (74) |
+| retention, carries, snapshot, close | 15 | 15 |
+| sidebar | 2,455 (2,515) | 536 (587) |
+| `process.end` | 3,385 | 957 |
+| after `runner.done` | 2,530 | 606 |
+| the whole process, as the OS saw it | 3.5 s, 550 MB | 1.0 s, 418 MB |
+| with the wake re-rendered (27% of turns): wake step, whole `process.end` | 1,465, 4,885 | 999, 1,995 |
+
+Exit is at most about 60 ms; bun's boot about 65 ms. The real log's worker figures start at
+`openLog`, so they leave both out.
+
+**Where the sidebar's time went.** `buildSidebarStatus` called `memoryDetail` for each of its 60
+memories and kept five fields. Each card also read up to `LOG_CEILING` `recall.credit` rows
+(`useDaysOf`) and walked every archived row (`timelineOf`): 31 ms a card, 1.85 s a turn.
+`memoryWords` reads the head, the words, the kind and the day and nothing else. On the same copy
+the `memories` and `panels` of the file come out identical before and after. The guarantee is
+unchanged: the file is still written after every boundary.
+
+**Where the cycle's time went** (before the done row, found by the same profile, and it was the
+next-largest thing left). `workReserveBytes` asks for each folder's work lines, and each asked
+`settledOver`, a store-wide walk of every settled pair: 35 folders × 766 pairs, 540 ms. It now asks
+once and passes the answer down. The set can't change during that loop.
+
+**Left, on purpose:**
+- The rest of the sidebar's 536 ms: the first `census` (240; every later one reads warm, so
+  dropping this one only moves it to the first panel that needs it), `mechanismsView` (170), panels
+  (100). All view functions shared with the dashboard, doing what the panels need.
+- The reserve is still computed at every boundary although the briefing phase uses it once a lived
+  day. About 200 ms now; making it lazy reaches into `sleep/cycle.ts`, not worth it for that.
+- The wake re-render, about 1 s on 27% of turns: `pageCovers` (390) and `scanActive` (200) inside a
+  real render. This is the largest cost left on those turns, and the highest resident peak (540 to
+  720 MB).
+- Resident size. 400 MB, of which the JS heap is 46 and the embedding table 30: the rest is native
+  and a full GC doesn't return it. `--smol` changes nothing. Not chased further here.
+
+**Overlap: no guard.** 10-29: 20 of 209 workers started during another, 7 of those in the same
+session; two or more at once for 120 s of the day, at most three. The steps that must not run twice
+already say so (the cycle's lease, the snapshot's day claim, retention's latch). A later worker
+that left its work to an earlier one would lose what is its alone: its session's lagged cue, which
+expires after one turn, and a sidebar file that includes the earlier worker's own rows. At a third
+of the duration, the same starts give about 26 s of overlap. The numbers don't ask for one.
+
+**The watchdog doesn't bound this.** 10-30 12:55 UTC: `runner.done` at 8.5 s, `process.end` at
+380 s, past the 5-minute `COUNTERPARTS_WATCHDOG_MS`. The watchdog only aborts a signal, its timer
+can't fire during a synchronous step, and the sidebar's write is synchronous. Nothing recorded which
+step that run was in; the sidebar is the likely one, on its share of every other run. Left as is:
+that step is now a fifth of the size, and a thrashing machine is a thing this file can't fix. If the
+rows show long gaps again, `runner.steps` will say which step.
