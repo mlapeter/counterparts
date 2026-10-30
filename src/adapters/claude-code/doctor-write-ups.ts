@@ -24,6 +24,7 @@ import {
   writeUpPlan,
 } from "../sessions.js";
 import type { FolderOn } from "../sessions.js";
+import { foldersOn, readScopes, scopesPath } from "../scopes.js";
 import { DESKTOP_HOST } from "../hosts.js";
 import { catchUpOf, CATCH_UP_RUN_PREFIX, catchUpWords } from "./night-catch-up.js";
 import type { DoctorInput } from "./doctor.js";
@@ -118,6 +119,17 @@ function lastCatchUpAt(store: Store): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * THE FOLDER SETTING DOCTOR COUNTS UNDER. A file that will not read is no
+ * setting here: the catch-up takes nothing while it is broken (`scopes.ts#foldersOn`),
+ * and this is the one place that shows, as debts going overdue, rather than a
+ * reading of "nothing owed" over a night that could not run.
+ */
+export function owedFolders(configPath: string): FolderOn | undefined {
+  const file = scopesPath(configPath);
+  return readScopes(file).error === null ? foldersOn(file) : undefined;
 }
 
 /** `failed` when it cannot be read. It reads every scope's captured words, so

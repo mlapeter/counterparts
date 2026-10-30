@@ -972,8 +972,9 @@ prefix first) is not planned, not granted, not counted in the run's `left` or `p
 no night, is not named by the pointer, holds no small debt back from it, and is not in doctor's
 `Catch-up` count. The setting is read afresh for each batch, beside the configuration the
 process read (`scopes.ts#foldersOn`): a folder turned off while a child runs is left out from the
-next batch, and a child already granted it finishes. A file that will not read takes nothing; a
-store named with `--dir`, with no configuration, reads no setting. **What is left out is not
+next batch, and a child already granted it finishes. A file that will not read takes nothing
+(doctor goes on counting the debts then, so they show as overdue); a store named with `--dir`,
+with no configuration, reads no setting. **What is left out is not
 touched.** No mark, no progress, and `coverage/`'s ledger and `remember/owes.ts` are unchanged, so
 its text goes on the ordinary clocks (at most 14 days from its last activity) and a paused folder
 resumed before then is owed again.

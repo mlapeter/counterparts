@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import type { AdapterConfig } from "../src/adapters/config.js";
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
-import { readOwed } from "../src/adapters/claude-code/doctor-write-ups.js";
+import { owedFolders, readOwed } from "../src/adapters/claude-code/doctor-write-ups.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { NOTHING_OWED_BEFORE_KEY, catchUpOf, runCatchUp } from "../src/adapters/claude-code/night-catch-up.js";
@@ -307,6 +307,17 @@ describe("the readers of the debt", () => {
     setFolder(turned, "on");
     const after = readOwed(s, foldersOn(scopesPath(cfg)));
     expect(after).toMatchObject({ waiting: 3 });
+  });
+
+  test("doctor keeps counting when the setting will not read, so a night that can take nothing shows", () => {
+    lived("s-on", on);
+    lived("s-off", turned);
+    setFolder(turned, "off");
+    const s = Store.open({ dir, observer: true });
+    closers.push(s);
+    expect(readOwed(s, owedFolders(cfg))).toMatchObject({ waiting: 1 });
+    writeFileSync(scopesPath(cfg), "{ not json");
+    expect(readOwed(s, owedFolders(cfg))).toMatchObject({ waiting: 2 });
   });
 
   test("`counterparts coverage` says why, by session id and with no folder in the sentence", () => {

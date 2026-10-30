@@ -14,7 +14,8 @@
 - Decided by the NC1 builder, 2026-10-30, lightly held: a setting file that will not read takes
   nothing, where the hook's direction is on. Why: a hook may not fail its host, and a night can wait;
   the two nearest writers (`lifecycle.ts#chapterExports`, the reflection's marks) already go this way.
-  Doctor then reads nothing owed too, and the file's trouble is said at every session start.
+  The file's trouble is said at every session start, and doctor, which has no line of its own for
+  it, keeps counting the debts in that case, so they go overdue rather than reading "nothing owed".
 - Decided by the NC1 builder, 2026-10-30, lightly held: the door gets no folder check of its own.
   Why: the plan decides what is granted and re-reads the setting each batch, and a refusal in the
   door would only change a folder turned off during one child's run. That child finishes. Guards
