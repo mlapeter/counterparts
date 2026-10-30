@@ -131,7 +131,8 @@ marked ones leaves below reach at 324 of 464, not 355, so about 350 of the 379 (
 stays in reach about 3 lived days (was 24) and reaches the prune floor at 49 (was 267), so it is let go about 63 lived days
 in. Checked on a corpus copy with every live summary lowered, the harder case: the reflection's bundle, part 1's bytes and
 three session-start wakes came out identical, and the dream differed only by its seeded mixing, as a control run with
-nothing changed did. Those paths read a summary by its chapter and never ask about reach.
+nothing changed did. Those paths read a summary by its chapter and never ask about reach. A store with no page yet does
+ask, in "Might be relevant" (`WARM_FLOOR`, 0.35): an unmarked or work summary is no longer listed there.
 
 **What to look at (read-only).** By build, on rows from the build that carries it (`$.build`):
 - Summaries in reach and in use: live `meta.chapterSummary` rows by `claimed`, with `uses`, against strength. Ratings of a

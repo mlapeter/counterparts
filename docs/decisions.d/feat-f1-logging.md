@@ -15,8 +15,10 @@
   re-mark goes through (a later `about` on the same chapter, the `remark` door, the reflection, the dashboard), writes the
   mark and never the claim. So a work summary re-marked us stays at 0.25 and fades on that curve until a use lifts it, and
   an us summary re-marked work stays at 0.4. Automatic rewritten as written is the same row and keeps its claim too.
-- At 0.25 a summary is under the Nearby lane's `WARM_FLOOR` (0.35), so an unmarked or work one wouldn't come back with that
-  lane if `HINTS_IN_WAKE` were turned on again (off since WK1). `docs/CHECK-AFTER.md`.
+- At 0.25 a summary is under the Nearby lane's `WARM_FLOOR` (0.35). That lane still runs on a store with no page yet (WK1
+  kept it there, `self/identity.ts`), so such a store's "Might be relevant" no longer lists an unmarked or work summary; at
+  0.4 it listed one for about a lived day. Those chapters are still named by "Today so far", "Yesterday" and "Where this
+  folder stands". The same goes if `HINTS_IN_WAKE` is turned on again. `docs/CHECK-AFTER.md`.
 
 ### Decided by the F1 builder, 2026-10-30, lightly held (what the rows carry)
 

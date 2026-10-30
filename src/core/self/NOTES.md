@@ -2110,7 +2110,7 @@ The design check is in the owner's notes (2026-10-15, "journal storage ramificat
   owner keeps 0.4. The claim is read once, at birth, off the chapter's `about` as written; a
   later re-mark moves the mark, not the claim. Nothing that reads a summary by its chapter asks
   about reach: `chapterSummaries`, and through it the dream, the reflection, the page writer's
-  journal and the Yesterday line. Recall does, and the prune.** **The frozen full copies keep their
+  journal and the Yesterday line. Recall does, the prune, and a pageless store's "Might be relevant" (`WARM_FLOOR`).** **The frozen full copies keep their
   exemption** (CONTRACT §3 says why: they are their chapters' only memory, they carry the
   marks and links, and at zero salience they would all leave in one wave).
 - **No regrowth.** `findIngested`, `memoriesForEpisode`, the regrow window and
