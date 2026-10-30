@@ -55,6 +55,24 @@ export const LAST_HERE_TITLE_BYTES = 100;
  */
 export const LAST_HERE_NOROOM_EVENT = "handoff.lasthere.noroom";
 
+/**
+ * THE DURABLE ROW FOR A DAY'S SUMMARY HELD BACK (2026-10-30). The 10-29 summary
+ * was written and no wake showed it, and nothing said why. One per date and
+ * cause (`dedupKey`), written by `Counterpart#daySummaryShown`'s gate at a
+ * session start: the date it is about, what held it and why, in kinds only (no
+ * words of it, no folder, no id). Never under observer.
+ */
+export const DAY_SUMMARY_HELD_EVENT = "handoff.daysummary.held";
+/** What held it: a chapter or a memory of that day, one of its cites, or a store that would not answer. */
+export type DaySummaryHeldWhat = "chapter" | "memory" | "cite" | "store";
+/**
+ * Why: `folder-closed` (a folder set off, paused or to observe), `no-folder`
+ * (none recorded), `no-setting` (no scope setting to ask), `night-origins` (a
+ * night's row whose originals cannot be told), `denied` and `gone` (a cite),
+ * `unreadable` (the store).
+ */
+export type DaySummaryHeldWhy = "folder-closed" | "no-folder" | "no-setting" | "night-origins" | "denied" | "gone" | "unreadable";
+
 /** One session's latest chapter, as the line reads it. */
 export interface ChapterHere {
   /** The episode row (`epi_…`). */

@@ -742,6 +742,21 @@ export const NARRATORS = {
     return calm(`A handoff was turned away (${why}). Nothing was left for the next session here.`);
   },
 
+  "handoff.daysummary.held": (t) => {
+    const about = typeof t.p["about"] === "string" ? t.p["about"] : "a day";
+    const what = t.p["what"] === "chapter" || t.p["what"] === "memory" || t.p["what"] === "cite" ? `a ${String(t.p["what"])}` : "the store";
+    const whys: Record<string, string> = {
+      "folder-closed": "from a folder set off, paused or to observe",
+      "no-folder": "with no folder recorded",
+      "no-setting": "from another folder, with no scope setting to ask",
+      "night-origins": "made at night from memories whose folders can't be told",
+      denied: "removed by the owner",
+      gone: "that no longer reads",
+      unreadable: "that would not answer",
+    };
+    const why = whys[String(t.p["why"])] ?? "for a reason this build can't name";
+    return calm(`The day summary of ${about} was held back, so the wake listed the chapters instead: ${what} ${why}.`);
+  },
   "handoff.lasthere.noroom": (t) => {
     const budget = n(t, "budget") ?? 0;
     const beside = t.p["besideHandoff"] === true ? " A handoff here was carried instead." : "";
@@ -1339,6 +1354,7 @@ export const REF_KIND = {
   // since the review of #636, the later session with no chapter it named
   // first, which no store row answers (`subjectOf` prints it as a session).
   "handoff.lasthere.noroom": "memory",
+  "handoff.daysummary.held": "none",
   "recall.credit": "none",
   "recall.rated": "session",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge

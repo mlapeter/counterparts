@@ -273,10 +273,13 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     from this folder or one whose scope is on, and every folder that wrote a memory that
     day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
     the chapter list exactly as before. The day is read as day's end saw it (review of
-    #614): archived and merged rows count, a memory lived that day counts wherever it was
-    written up (day's end's own rule), and a row with no folder recorded fails it. A row the
-    night wrote (a dream's merge or gist, a reflection's entry), cited or of that day, is
-    read by its originals' folders, not the folder the night ran in (review of Y2).
+    #614; 2026-10-30): archived and merged rows count, a memory lived that day counts wherever
+    it was written up (day's end's own rule), a row born after the summary was told or written
+    that day about another day does not (day's end cannot have picked it), and a row with no
+    folder recorded fails it. A row the night wrote (a dream's merge or gist, a reflection's
+    entry), cited or of that day, is read by its originals' folders, not the folder the night
+    ran in (review of Y2). A summary held back leaves one row per date and cause
+    (`handoff.daysummary.held`), kinds only.
     **"Today so far here"** (2026-10-24, lane W1, `self.TODAY_SO_FAR`): at a session start,
     today's chapters written in this folder (the row's directory) before the one "Last
     here" names, the newest `TODAY_SO_FAR_SHOWN` by time, title, id and the first sentence

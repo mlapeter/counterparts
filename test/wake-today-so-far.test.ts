@@ -277,8 +277,9 @@ describe("Yesterday from day's end's summary", () => {
     summary(k, D1, TOLD, [own]);
     // Shown while every folder of the day may be read here.
     expect(wakeFor(k, HERE, { exportsFrom }).text).toContain(TOLD);
-    // A memory written in the private folder that day: no longer.
+    // A memory written in the private folder that day, before day's end told it: no longer.
     memory(k, { scope: PRIVATE, session: S5, date: D1, hour: 16, body: "The quarter closed at a loss." });
+    summary(k, D1, TOLD, [own]);
     expect(wakeFor(k, HERE, { exportsFrom }).text).not.toContain(TOLD);
   });
 
@@ -357,12 +358,12 @@ describe("Yesterday from day's end's summary", () => {
     summary(k, D1, TOLD, [own]);
     expect(wakeFor(k, HERE).text).not.toContain(TOLD);
   });
-  test("review: a backdated memory (written that day, learned on an earlier date) from a scope-off folder keeps the summary out", () => {
+  test("a backdated memory (written that day, learned on an earlier date) from a scope-off folder does not: day's end never picked it (2026-10-30)", () => {
     const { k, own } = yesterdayStore();
     k.set(at(D1, 18));
     k.c.store.put({ type: "memory", kind: "fact", body: "The quarter closed at a loss.", learnedOn: "2026-10-01", origin: { session: S5, scope: PRIVATE } });
     summary(k, D1, TOLD, [own]);
-    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).toContain(TOLD);
   });
   test("review: a scope-off folder's chapter that day, archived after the night, keeps the summary out", () => {
     const { k, own } = yesterdayStore();
