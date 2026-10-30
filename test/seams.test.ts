@@ -430,6 +430,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       rebuildCache: [],
       pruneDeadIndex: [],
       restemIndex: [],
+      coverPostingsIndex: [],
       embedOne: ["mem_0"],
       replayReturn: [seedId, 1, "drm_x"],
       recordHintDisplay: [1, [{ id: seedId, load: 1 }]],

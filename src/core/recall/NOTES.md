@@ -1603,3 +1603,60 @@ supports), while 6 beliefs were held. Read on the 10-29 snapshot copy (lived day
   store it is measuring one belief. A dated read learns little more unless a belief about
   another card is born and backed, so the slot's read now waits until 3+ beliefs about other
   people pass the floor (`docs/CHECK-AFTER.md`). Decided 10-29: page-only stays (the self lives on the page, per the wave-2 design); the owner has it as an FYI; if any later earn an ambient door, the "us" beliefs are the likelier ones.
+
+## LT1 — a slow turn is shown, and recall gets faster (2026-10-30, a fix; no switch)
+
+**What was wrong.** 5.5% of turns showed nothing because the build passed `BUDGET_MS`. Both
+checks sat after the slow work, so an abort threw away a finished answer to save about 5 ms, and
+the session could not tell. The deep read's numbers are in the coordinator's notes; what follows
+was measured for this change.
+
+**What changed.** The two checks are gone. A turn past the line is shown, recorded, and marked:
+`lateMs` on the decision row and on `adapter.recall` (absent there when 0). `aborted` stays on the
+row, always false. Two costs came down with it: the word index has a covering index
+(`store/NOTES.md`, LT1), and `AliasIndex#matchesIn` compiles only the terms whose first word the
+text holds (`schemas/aliases.ts`).
+
+**Measured, through the real `UserPromptSubmit` hook, 52 real prompts, one process each, the same
+copy of a 5,438-memory store, before and after interleaved, load 4-6.** Cold is a fresh clone of the
+database files before each prompt. `build` is `elapsedMs`; `process` is the wall clock of the hook.
+
+| | before | after | after, on the old index |
+|---|---:|---:|---:|
+| warm build p50 / p90 | 150 / 240 | 56 / 110 | 68 / 144 |
+| warm process p50 / p90 | 334 / 431 | 237 / 307 | 252 / 331 |
+| cold build p50 / p90 | 416 / 530 | 110 / 172 | 315 / 391 |
+| cold process p50 / p90 | 724 / 909 | 400 / 464 | 594 / 680 |
+
+**The results did not move.** The hook's whole stdout, with only the clock line masked, was
+byte-identical on 156 of 156 warm runs and 52 of 52 cold, in each of two rounds, and the decision
+rows agreed on every field but the timing: 62 memories shown either way. Below the hook, 4,604
+searches over every distinct word of those prompts returned the same 95,369 hits with the same
+scores to the last bit, and old and new `matchesIn` agreed on 5,420 texts (12,313 hits).
+
+**A forced-slow turn (`BUDGET_MS` 50 in a scratch copy).** Before, 52 prompts gave 3,073 bytes: the
+clock lines and nothing else. After, the same 52 gave the 16,307 bytes of the normal run, byte for
+byte, 47 of them marked late (5 finished inside 50 ms).
+
+**The lock, which §5 G2 now has to say something about.** A late turn writes what any turn writes,
+so it can wait on the 5 s busy timeout. One real hook, another process holding box 2's write lock:
+
+| lock held | on-time turn, before | late turn, before | late turn, after |
+|---:|---|---|---|
+| 0 | 916 ms, shown | 959 ms, dropped | 718 ms, shown |
+| 2 s | 2.6 s, shown | 2.5 s, dropped | 2.3 s, shown |
+| 7 s | 7.2 s, shown | 7.1 s, dropped | 7.0 s, shown |
+| 30 s | 11.4 s, **nothing** | 16.7 s, clock line only | 11.1 s, **nothing** |
+
+So a late turn now behaves as an on-time turn always has. Held past about 10 s (12 s did it too),
+the first write's timeout is swallowed, `persist` in `recall()` then throws on the second, the hook's
+guard catches that, and the finished answer is lost at 11 s (`adapter.hook.failed` in the log). That
+is the old exposure of every on-time turn, not a new one, and it is left alone here. Guarding
+`persist` in a scratch copy did show the answer, but at 30 s, because the writes behind it each
+wait too. Which of those a person would rather have is a real question (`docs/decisions.d`).
+
+**Still open: nothing bounds a build.** The line is measured after the work, so a stalled turn still
+runs as long as it stalls, and the 25-second hook is still possible. Bounding it needs a deadline
+inside `activate`, a worker thread or a host timeout. A deadline checked in the lexical loop gave up
+half of what was shown at 150 ms in the deep read, but that was measured before these fixes, with
+the subjects scan eating most of the budget, so its numbers understate it.

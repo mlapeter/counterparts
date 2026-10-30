@@ -890,6 +890,28 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     }
   });
 
+  test("a late recall reads as shown, and a row from before it stopped giving up still reads as given up (LT1)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-narrate-late-"));
+    const c = Counterpart.open({ dir });
+    try {
+      c.store.appendEvent({ name: "adapter.recall", day: 1, payload: { reason: "latency-abort" } });
+      c.store.appendEvent({ name: "adapter.recall", day: 1, payload: { reason: "rendered", surfaced: 1, bytes: 90, lateMs: 340 } });
+      c.store.appendEvent({ name: "adapter.recall", day: 1, payload: { reason: "rendered", surfaced: 1, bytes: 90 } });
+      c.store.appendEvent({ name: "adapter.recall", day: 1, payload: { reason: "all-gated", surfaced: 0, bytes: 0, lateMs: 55 } });
+      const rows = c.store.eventLog({ name: "adapter.recall", limit: 10 });
+      const told = rows.map((r) => narrate(c.store, r));
+      const has = (s: string) => told.filter((t) => t.text.includes(s));
+      expect(has("abandoned").map((t) => t.tone)).toEqual(["amber"]);
+      expect(has("340 ms past its limit").map((t) => t.tone)).toEqual(["calm"]);
+      expect(has("1 memories").length).toBe(1);
+      // Late and gated: nothing was shown, so it doesn't say something was.
+      expect(has("55 ms past its limit").map((t) => t.text.includes("shown anyway"))).toEqual([false]);
+    } finally {
+      c.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   /**
    * RETENTION'S ROW IS IN THE VOCABULARY (remember INTERFACE-GAPS §10). A
    * finished pass is calm and counts sessions; a pass that died holding its
