@@ -801,6 +801,21 @@ describe("a closed folder's plain reminder", () => {
     expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006").person).not.toContain("zqshut");
   });
 
+  test("a store that never wrote a setting, and a folder nobody listed in one, are on: another folder's work is told", () => {
+    const { c, today } = brain();
+    const never = memory(c, "Told with no setting, in words.", { title: "Told with no setting", eventDate: today, scope: THERE, meta: { remind: "plain" } });
+    c.close();
+    expect(existsSync(join(conf, "scopes.json"))).toBe(false);
+    expect(said("SessionStart").person).toContain("Told with no setting");
+    expect(latches(never)).toBe(1);
+    const again = brain();
+    const unlisted = memory(again.c, "Told, unlisted, in words.", { title: "Told, unlisted", eventDate: today, scope: join(root, "attic"), meta: { remind: "plain" } });
+    again.c.close();
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    expect(said("SessionStart", OWN).person).toContain("Told, unlisted");
+    expect(latches(unlisted)).toBe(1);
+  });
+
   test("a setting that won't read holds a folder's work and tells the personal and the folderless; fixed, the work is told", () => {
     const { c, today } = brain();
     const work = memory(c, "zqshut broken, in words.", { title: "zqshut broken", eventDate: today, scope: THERE, meta: { remind: "plain" } });
