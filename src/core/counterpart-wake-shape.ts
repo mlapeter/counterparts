@@ -40,7 +40,7 @@ import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import type { HorizonLine } from "./briefing.js";
 import type { Counterpart } from "./counterpart.js";
 import type { WakeHere, WakeSession } from "./counterpart-types.js";
-import { isNightRow } from "./dream/slices.js";
+import { isNightRow, memoryClosedTo } from "./dream/slices.js";
 import { handoffLead, modelWords, versionOlder } from "./handoff/index.js";
 import type { Handoff } from "./handoff/index.js";
 import { lastExchange, quoteOf, LAST_EXCHANGE_HANDLE } from "./handoff/last-exchange.js";
@@ -259,6 +259,8 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     seen.add(h.id);
     const row = store.row(h.id);
     if (row === undefined || row.band === "identity" || row.archived === 1) continue;
+    // The fence's own rule (#697): whatever its mark, and a night's row by what it rests on.
+    if (here?.exportsFrom !== undefined && memoryClosedTo(store, row, here.exportsFrom, norm(here.scope ?? ""))) continue;
     const place = threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false }, folders, rule);
     let folder: string | null = null;
     if (place === "out") {
@@ -277,7 +279,8 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     out.push({
       id: h.id,
       title: titleOfRow(row),
-      body: flatten(row.body),
+      // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
+      body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),
       due: due === "" ? null : due,
       every: h.every ?? null,

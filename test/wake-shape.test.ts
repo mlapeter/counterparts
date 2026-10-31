@@ -489,6 +489,23 @@ describe("Coming up", () => {
     expect(JSON.stringify(still)).not.toContain("zqshut");
   });
 
+  test("a fold's Names line isn't printed; a personal item and a night's row resting on a closed folder are absent", () => {
+    const { c, today } = brain();
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    memory(c, "Ring the glazier about the hinge.\n\nNames: mem_aaaaaaaaaaaa, mem_bbbbbbbbbbbb", { title: "Ring the glazier", eventDate: today, about: "owner", meta: { remind: "plain" } });
+    memory(c, "A personal note kept in the closed folder, zqshut.", { title: "zqshut personal", eventDate: today, about: "owner", scope: SHUT });
+    const source = memory(c, "The closed folder's own words.", { title: "Source", scope: SHUT });
+    c.store.put({ type: "memory", kind: "fact", body: "A fold of the closed folder's, zqshut.", title: "zqshut fold", eventDate: today, source: "dreamed", about: "work", salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, meta: { mergedFrom: [source] }, origin: { session: OTHER, scope: HERE } });
+    c.close();
+    const { wake } = hook();
+    holds(wake);
+    const block = section(wake, "Coming up:");
+    expect(block).toContain("- Due today · Ring the glazier about the hinge. [mem_");
+    expect(wake).not.toContain("Names:");
+    expect(wake).not.toContain("mem_aaaaaaaaaaaa");
+    expect(wake).not.toContain("zqshut");
+  });
+
   test("overdue newest first, with age, two; the next later; the rest behind the door", () => {
     const { c, today } = brain();
     for (const n of [1, 2, 3, 4]) memory(c, `Overdue ${String(n)}.`, { title: `Overdue ${String(n)}`, eventDate: addDays(today, -n), learnedOn: addDays(today, -9) });
