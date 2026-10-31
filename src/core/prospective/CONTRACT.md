@@ -156,6 +156,9 @@ clothes. **Hold debts, lose deadlines.**
   as-of-July-5 reasoning, and eligibility reads all three.
 - **The mechanism earned its place by human rating**, not by argument: 23 of 23 fires rated
   apt by the owner. [v1] earned-mechanism #21 — the journal's cleanest human-graded result.
+  **A closed folder's work is held back from the lines above a wake** (2026-10-30, `Counterpart#plainHeldBack`): not
+  offered to the delivery, so nothing claims it, and not handed over as a quiet cue either. Told after its folder turns
+  on: on its day, or as its late beat inside the grace. No folder, or marked me, us, owner or world: told, whatever the folder.
 
 ## 4. Drops / simplifies
 

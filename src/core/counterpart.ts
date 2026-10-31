@@ -213,12 +213,12 @@ import { chapterSummaries } from "./self/summaries.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
-import { NOTHING_CLOSED, closedToNight, isNightRow, memoryClosedTo, memoryFolder } from "./dream/slices.js";
+import { NOTHING_CLOSED, closedToNight, isNightRow, memoryClosedTo, memoryFolder, reminderHeldBack } from "./dream/slices.js";
 import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
-import { UNDATED_LAST, WAKE_SHAPE_KEY, headlessOf, readCues, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
-import type { Cue, SinceItem } from "./counterpart-wake-shape.js";
+import { UNDATED_LAST, WAKE_SHAPE_KEY, headlessOf, readCues, readElsewhere, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
+import type { Cue, ElsewhereListed, SinceItem } from "./counterpart-wake-shape.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
 import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, aboutMarkOf, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
@@ -1681,6 +1681,20 @@ export class Counterpart {
       };
     } catch {
       return { today: [], overdue: [], later: [], otherFolders: [] };
+    }
+  }
+
+  /**
+   * "ELSEWHERE" WITH ROOM, FOR THIS READER (2026-10-30; the `elsewhere` handle, the
+   * door the shaped wake's `+N more folders` names): the section's own read
+   * (`readElsewhere`). A closed folder is neither listed nor counted. Reads only;
+   * empty on a store that cannot answer; never throws.
+   */
+  elsewhere(here: WakeHere): ElsewhereListed[] {
+    try {
+      return readElsewhere(this, this.store.today(), here);
+    } catch {
+      return [];
     }
   }
 
@@ -3380,6 +3394,28 @@ export class Counterpart {
       this.emit("counterpart.prospective.plain.failed", undefined, { code: errCode(err) });
     }
     return out;
+  }
+
+  /**
+   * WHICH OF THESE MEMORIES' PLAIN REMINDERS THIS READER IS NOT TOLD (2026-10-30):
+   * a closed folder's work (`dream/slices.ts#reminderHeldBack`), asked of the one
+   * rule Coming up's fence uses. A read. A reminder held back is simply not offered
+   * to the delivery: no claim, no latch, no credit, so the next read after its
+   * folder turns on finds it, on its day or as a late beat inside its grace. Past
+   * the grace it is gone, as any reminder nobody could be told. Never throws.
+   */
+  plainHeldBack(ids: readonly string[], on: FolderOn, scope: string): ReadonlySet<string> {
+    const here = scope.trim().replace(/\/+$/, "");
+    const held = new Set<string>();
+    for (const id of ids) {
+      try {
+        const row = this.store.row(id);
+        if (row !== undefined && reminderHeldBack(this.store, row, on, here)) held.add(id);
+      } catch {
+        held.add(id);
+      }
+    }
+    return held;
   }
 
   /**

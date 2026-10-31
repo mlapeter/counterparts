@@ -1647,7 +1647,8 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       ),
     ];
   }
-  const report = firedReport(store, input.today);
+  const folderOn = input.configReason === "not-read" ? undefined : owedFolders(input.configPath);
+  const report = firedReport(store, input.today, folderOn === undefined ? {} : { folderOn });
   const c = report.counts;
   const blocked =
     c.blocked === 0

@@ -926,6 +926,31 @@ describe("one-time and occasion-driven mechanisms", () => {
     expect(pick(unread, "prospective-plain").state).toBe("waiting");
   });
 
+  /** Plain reminders written in a folder the setting closes, due on a day a session ran. */
+  function closedDue(abouts: readonly ("work" | "owner")[]): Store {
+    const { s, set } = clocked(at("2026-09-10"));
+    for (const about of abouts) s.put({ type: "memory", kind: "fact", body: `Closed ${about}.`, title: `Closed ${about}`, eventDate: "2026-09-14", about, meta: { remind: "plain" }, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: "sess", scope: "/shut/ledger" } });
+    set(at("2026-09-14", "T15:00:00Z"));
+    aTurn(s, "2026-09-14");
+    return s;
+  }
+  const shutLedger = (scope: string): boolean => scope !== "/shut/ledger";
+
+  test("a plain reminder held back for its closed folder is no miss, and the line says it waits; the setting unknown, it reads as before", () => {
+    const s = closedDue(["work"]);
+    const held = firedReport(s, TODAY, { folderOn: shutLedger });
+    expect(pick(held, "prospective-plain").occasionMissed).toBe(0);
+    expect(pick(held, "prospective-plain").note).toContain("1 held back, its folder not on");
+    expect(held.missedOccasion).toEqual([]);
+    expect(pick(firedReport(s, TODAY), "prospective-plain").occasionMissed).toBe(1);
+  });
+
+  test("a personal reminder is told whatever its folder, so one not said is a miss beside the one held back", () => {
+    const both = firedReport(closedDue(["work", "owner"]), TODAY, { folderOn: shutLedger });
+    expect(pick(both, "prospective-plain").occasionMissed).toBe(1);
+    expect(pick(both, "prospective-plain").note).toContain("1 plain reminder was due on a day a session ran and not said; 1 held back");
+  });
+
   test("the same reminder SAID on its day is firing, and nothing is missed", () => {
     const { s, set } = clocked(at("2026-09-10"));
     const id = plainReminder(s, "2026-09-14");

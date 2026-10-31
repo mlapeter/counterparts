@@ -73,6 +73,8 @@ import { addDays, daysBetween as calendarDaysBetween, localDate, parseCalendarDa
 import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
 import { rowToPhysics } from "../core/store/index.js";
 import { emotionalIntensity } from "../core/physics/index.js";
+import { reminderHeldBack } from "../core/dream/slices.js";
+import type { FolderOn } from "../core/dream/slices.js";
 import { chapterMoments } from "../core/self/episodes.js";
 import type { DurableEventName } from "./dashboard/registries.js";
 import { NON_INTERACTIVE_ENTRYPOINTS, readSession } from "./sessions.js";
@@ -1321,6 +1323,12 @@ export interface FiredOptions {
    * and the report NAMES what it did not read rather than guessing at it.
    */
   readonly probes?: boolean;
+  /**
+   * The host's folder setting, for what a person could not be told: a plain
+   * reminder a closed folder's work held back (`reminderHeldBack`) was not missed.
+   * Absent: not known, so it reads as said or not, as before.
+   */
+  readonly folderOn?: FolderOn;
 }
 
 /** `YYYY-MM-DD`, `back` days before `today` — label arithmetic (`time.ts`). */
@@ -1384,7 +1392,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     // An occasion check reads memories, so it costs what a probe costs and is
     // skipped with them: an unchecked occasion row reads `waiting`, claiming
     // nothing either way.
-    const occasion = probed === null ? null : readOccasion(m, store, log, window);
+    const occasion = probed === null ? null : readOccasion(m, store, log, window, opts.folderOn);
     const row = rowFor(m, log, probed, window, occasion);
     rows.push(row);
     if (occasion !== null && occasion.missed > 0) missedOccasion.push(`${row.label} (${occasion.says})`);
@@ -2030,17 +2038,17 @@ export interface OccasionReading {
 /** The checks, by `OccasionCheckId`. Each is a READ, and each may fail. */
 const OCCASION_CHECKS: Record<
   OccasionCheckId,
-  (store: ReadOnlyStore, log: LogRead, w: Window) => OccasionReading
+  (store: ReadOnlyStore, log: LogRead, w: Window, on?: FolderOn) => OccasionReading
 > = {
   "plain-due": plainDueReading,
 };
 
 /** The occasion reading for one mechanism, or null when it has no check — or
  *  when its check could not be read, which is "cannot tell", never a fault. */
-function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Window): OccasionReading | null {
+function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Window, on: FolderOn | undefined): OccasionReading | null {
   if (m.cadence?.kind !== "occasion" || m.cadence.check === undefined) return null;
   try {
-    return OCCASION_CHECKS[m.cadence.check](store, log, w);
+    return OCCASION_CHECKS[m.cadence.check](store, log, w, on);
   } catch {
     return null;
   }
@@ -2069,8 +2077,12 @@ function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Windo
  * A memory that cannot be read is skipped, as `plainDue` skips it, rather than
  * failing the whole reading: one unreadable row must not turn a real miss on
  * another into "cannot tell" (review of #337).
+ *
+ * One not said because its folder is closed (`on`, `reminderHeldBack`) is no miss:
+ * the line says how many are waiting, and it counts in neither number. Read at
+ * today's setting: a folder turned on since reads as what it now is, due and unsaid.
  */
-function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): OccasionReading {
+function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: FolderOn): OccasionReading {
   const lastDay = daysBefore(w.to, 1);
   const none: OccasionReading = { missed: 0, says: "none fell due this week on a day a session ran" };
   if (lastDay < w.from) return none;
@@ -2079,6 +2091,7 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): Occasio
   let present: ReadonlyMap<string, number> | null = null;
   let due = 0;
   let missed = 0;
+  let held = 0;
   for (const dated of store.datedMemories(w.from, lastDay)) {
     if (denied.has(dated.id)) continue;
     const row = store.row(dated.id);
@@ -2101,7 +2114,6 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): Occasio
       beats.add(span.precision === "day" ? "day" : day === span.last ? "last-day" : "opens");
     }
     if (beats.size === 0) continue;
-    due += 1;
     const key = windowKey(dated.eventDate, span.precision);
     const lineage = plainLineage(store, dated.id);
     // Counted per REMINDER, not per beat: a month item that missed both its
@@ -2114,15 +2126,21 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window): Occasio
             .some((e) => e.dedup_key === `${PROSPECTIVE_PLAIN_EVENT}:${id}:${key}:${beat}`),
         ),
     );
+    if (untold && on !== undefined && reminderHeldBack(store, row, on)) {
+      held += 1;
+      continue;
+    }
+    due += 1;
     if (untold) missed += 1;
   }
-  if (due === 0) return none;
+  const waiting = held === 0 ? "" : `${due === 0 ? "" : "; "}${String(held)} held back, ${held === 1 ? "its folder" : "their folders"} not on`;
+  if (due === 0) return held === 0 ? none : { missed: 0, says: waiting };
   if (missed === 0) {
-    return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said` };
+    return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said${waiting}` };
   }
   return {
     missed,
-    says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said`,
+    says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said${waiting}`,
   };
 }
 

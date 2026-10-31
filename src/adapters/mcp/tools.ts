@@ -921,11 +921,11 @@ const RECALL: ToolSpec = {
       page: {
         type: "integer",
         minimum: 1,
-        description: `With a question, or the handle "${STILL_OPEN_HANDLE}": which page of the answer (1 is the first). The answer says how many pages there are.`,
+        description: `With a question, or the handle "${STILL_OPEN_HANDLE}" or "elsewhere": which page of the answer (1 is the first). The answer says how many pages there are.`,
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. A memory titled exactly like one of these names opens by its id.`,
       },
       ids: {
         type: "array",
