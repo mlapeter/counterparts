@@ -1740,7 +1740,7 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **What we're trying:** a plain reminder that is a closed folder's work isn't said and isn't spent; marked about the owner, or with no folder, it is said whatever the folder. Coming up holds whatever the mark, so the two differ on purpose.
 
-**What to look at:** doctor's plain row saying `held back`, and the owner's word on any date he expected. Past its grace (7 days) a held one is gone with no line, which is the case to read for: a folder off for weeks with a real date in it, marked work or unmarked.
+**What to look at:** doctor's Fired line saying `held back`, and the owner's word on any date he expected. Past its grace (7 days) a held one is gone with no line, which is the case to read for: a folder off for weeks with a real date in it, marked work or unmarked.
 
 **What would change it:** a real date lost that way (mark it, or tell at the off switch what's waiting), or a personal line from an off folder that shouldn't have been said (drop the `isWorkMemory` line in `dream/slices.ts#reminderHeldBack`, and it matches Coming up).
 

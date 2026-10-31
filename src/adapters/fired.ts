@@ -1289,6 +1289,13 @@ export interface FiredReport {
    * this week, with nothing last week to compare — would have read green.
    */
   readonly missedOccasion: readonly string[];
+  /**
+   * Plain reminders due this week and not said because their folder is closed
+   * (`FiredOptions.folderOn`): no fault, and doctor says the count, since past
+   * the week after its day one is gone with no other line. 0 when the setting
+   * isn't known.
+   */
+  readonly heldBack: number;
   /** The store's own clock — the number of days it has actually LIVED. */
   readonly livedDay: number;
   /** Calendar days between the oldest row this pass read and today, or null
@@ -1384,6 +1391,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
   const rows: FiredRow[] = [];
   const notRead: string[] = [];
   const missedOccasion: string[] = [];
+  let heldBack = 0;
   for (const m of MECHANISMS) {
     if (m.evidence.kind === "probe" && probed === null) {
       notRead.push(m.id);
@@ -1396,6 +1404,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     const row = rowFor(m, log, probed, window, occasion);
     rows.push(row);
     if (occasion !== null && occasion.missed > 0) missedOccasion.push(`${row.label} (${occasion.says})`);
+    heldBack += occasion?.held ?? 0;
   }
 
   const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
@@ -1435,6 +1444,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     // A missed occasion is named in its own list, with what was missed, rather
     // than twice.
     missedOccasion,
+    heldBack,
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0 && r.occasionMissed === 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,
@@ -2033,6 +2043,8 @@ export interface OccasionReading {
   readonly missed: number;
   /** One plain sentence: what came, or that nothing did. */
   readonly says: string;
+  /** Not said because its folder is closed, and so not in `missed`. */
+  readonly held?: number;
 }
 
 /** The checks, by `OccasionCheckId`. Each is a READ, and each may fail. */
@@ -2134,13 +2146,15 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
     if (untold) missed += 1;
   }
   const waiting = held === 0 ? "" : `${due === 0 ? "" : "; "}${String(held)} held back, ${held === 1 ? "its folder" : "their folders"} not on`;
-  if (due === 0) return held === 0 ? none : { missed: 0, says: waiting };
+  const heldCount = held === 0 ? {} : { held };
+  if (due === 0) return held === 0 ? none : { missed: 0, says: waiting, held };
   if (missed === 0) {
-    return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said${waiting}` };
+    return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said${waiting}`, ...heldCount };
   }
   return {
     missed,
     says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said${waiting}`,
+    ...heldCount,
   };
 }
 

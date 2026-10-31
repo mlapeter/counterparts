@@ -611,11 +611,18 @@ describe("Elsewhere's rest", () => {
     const fromThere = await elsewhereDoor(c, THERE, OWN);
     expect(door.folders.some((f) => f.folder.endsWith("bakery"))).toBe(true);
     expect(fromThere.folders.some((f) => f.folder.endsWith("bakery"))).toBe(false);
-    for (const budget of [BUDGET, 3_000, 2_200]) {
-      const block = section(hook(READER, budget).wake, "Elsewhere:");
+    // A fresh session each: a session already started is handed no wake.
+    const shown: number[] = [];
+    for (const [i, budget] of [BUDGET, 1_000, 940, 880, 820, 760, 700, 640].entries()) {
+      const block = section(hook(`dddd44${String(i).padStart(2, "0")}-0000-4000-8000-000000000004`, budget).wake, "Elsewhere:");
       if (block === "") continue;
-      expect(block.split("\n").filter((l) => l.startsWith("- ")).length + countIn(block)).toBe(door.total);
+      const lines = block.split("\n").filter((l) => l.startsWith("- ")).length;
+      expect(lines + countIn(block)).toBe(door.total);
+      shown.push(lines);
     }
+    expect(shown[0]).toBe(door.total);
+    // The sweep did reach a wake with room for some of them, not only all or none.
+    expect(shown.some((n) => n > 0 && n < door.total)).toBe(true);
   });
 
   test("a hint Elsewhere names stays Elsewhere's: on a store with no page yet, the wake's numbers and the door's still agree", async () => {
@@ -799,6 +806,37 @@ describe("a closed folder's plain reminder", () => {
     expect([latches(due), latches(late), latches(past)]).toEqual([1, 1, 0]);
     // Once.
     expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006").person).not.toContain("zqshut");
+  });
+
+  test("doctor says one is held back, by count and with no word of it; a setting that won't read reads as a miss", async () => {
+    const start = NOW - 20 * 24 * HOUR;
+    const { c, at } = brain();
+    at(start);
+    const today = new Date(NOW).toISOString().slice(0, 10);
+    const yesterday = addDays(today, -1);
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { date: addDays(today, -20), reason: "rendered" } });
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    memory(c, "zqshut doctor, in words.", { title: "zqshut doctor", eventDate: yesterday, scope: SHUT, meta: { remind: "plain" } });
+    at(NOW - 24 * HOUR);
+    c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { date: yesterday, reason: "rendered" } });
+    at(NOW);
+    c.close();
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    const doctor = async (): Promise<string> => {
+      const out: string[] = [];
+      await run(["doctor", `--config=${config}`], { io: { out: (l) => out.push(l), err: () => undefined }, env: { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, home: join(root, "home") });
+      return out.join("\n");
+    };
+    const closed = await doctor();
+    expect(closed).toContain("1 plain reminder is held back, its folder not on");
+    expect(closed).not.toContain("zqshut");
+    expect(closed).not.toContain("did not fire");
+    writeFileSync(join(conf, "scopes.json"), "{ not json");
+    const broken = await doctor();
+    expect(broken).not.toContain("held back");
+    expect(broken).toContain("1 plain reminder was due on a day a session ran and not said");
   });
 
   test("a store that never wrote a setting, and a folder nobody listed in one, are on: another folder's work is told", () => {

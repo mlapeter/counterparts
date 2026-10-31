@@ -678,8 +678,9 @@ repeat. Any weekly reminder hits this.
 - **The setting's read as a write-up reads it** (`writeUpFolders`): none named, every folder is on, as a plain reminder always
   was; one that won't read closes them, so a folder's work waits and the personal and folderless are told. Not `chapterExports`,
   whose `undefined` means both.
-- **Doctor doesn't call it a miss** (`FiredOptions.folderOn`, `1 held back, its folder not on`). `counterparts fired`, `mechanisms`
-  and the dashboard name no configuration, so they read it as before: due and not said.
+- **Doctor doesn't call it a miss** (`FiredOptions.folderOn`), and says the count in its Fired line while the day is in its week
+  (`FiredReport.heldBack`): a row's note reaches no doctor line, and past that week nothing else says it. By count, not title: the
+  folder is closed. `counterparts fired`, `mechanisms` and the dashboard name no configuration, so they read it as before: due and not said.
 - **Left as it was:** with the switch off, the old road's lane in the wake's body and `recall "still open"` still name it; the brief
   held that body byte-identical. Ambient recall still reaches a closed folder's words, and a quiet dated item in a closed folder
   still arrives as a cue: that's the turn's fence, not this line's.
