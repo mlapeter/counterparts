@@ -40,6 +40,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | in review 10-30, unreleased | ~2 weeks after release (~2026-11-14, if it goes out in the next cut): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | in review 10-30, unreleased | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | built, off, in review 10-30 | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
+| A closed folder's plain reminder is held back; a personal one is told whatever its folder | in review 10-30, unreleased | ~2 weeks after release, or the first time one is held: did a real date go unsaid? | [below](#a-closed-folders-plain-reminder) |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
@@ -1734,6 +1735,16 @@ other handoffs' lines first (`HANDOFF_OTHERS_SHOWN`), then the lead (`HANDOFF_LE
 is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **Revert:** `HINTS_IN_WAKE` true for the lane; the rest by reverting the PR. The ids in count lines are not behind a switch.
+
+## A closed folder's plain reminder
+
+**What we're trying:** a plain reminder that is a closed folder's work isn't said and isn't spent; marked about the owner, or with no folder, it is said whatever the folder. Coming up holds whatever the mark, so the two differ on purpose.
+
+**What to look at:** doctor's plain row saying `held back`, and the owner's word on any date he expected. Past its grace (7 days) a held one is gone with no line, which is the case to read for: a folder off for weeks with a real date in it, marked work or unmarked.
+
+**What would change it:** a real date lost that way (mark it, or tell at the off switch what's waiting), or a personal line from an off folder that shouldn't have been said (drop the `isWorkMemory` line in `dream/slices.ts#reminderHeldBack`, and it matches Coming up).
+
+**How to revert:** `Lifecycle#plainFor` stops asking `plainHeldBack`.
 
 ## The wake's shape (WK2)
 
