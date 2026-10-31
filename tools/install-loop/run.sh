@@ -923,7 +923,7 @@ OUT=$(payload SessionStart "$NEXT_SESSION" | counterparts-hook 2>"$WORK/hook-nex
 if grep -q '"isError":true' <<<"$HANDED$PLANNED"; then
   no "the handoff or the note was refused" "$HANDED
 $PLANNED"
-elif grep -q "Where I left off in this directory" <<<"$OUT" &&
+elif grep -q "Where this folder stands: a handoff" <<<"$OUT" &&
      grep -q "Since this handoff: Publish only after the docs pass (planned, mem_[0-9a-f]\{12\})" <<<"$OUT"; then
   ok
 else

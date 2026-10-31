@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.3.42 — 2026-10-30
+
+The wake is cleaner: it no longer lists bare ids, "Might be relevant" is gone once a store has its page, and where this folder stands is one block, led by the newest handoff. Yesterday's day summary shows again when a late write-up of another day used to hide it. Turns are faster on a large store and a late one is shown rather than lost. A folder set off, paused or to observe now stays out of the night and the catch-up, and a folder setting file that won't read stops the night and says so instead of thinning the page. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. The first background run after updating builds recall's new index by itself, about half a second, no migration, and the cache file grows by about 15 MB. Going back to 0.3.41 needs no store restore: `counterparts disconnect`, 0.3.41's install, then `counterparts connect`.
+
+- **The work after each turn takes about a third of the time.** On a store of about 5,000 memories
+  the background process each turn starts took 3.4 s and now takes about 1 s, mostly from no longer
+  opening 60 full memory cards to write the sidebar's file. The file says the same. `counterparts
+  log` now shows where each of those runs spent its time (`runner.steps`).
+- **Turning a folder off now reaches the sessions already captured there.** The night's catch-up,
+  `counterparts catch-up` and the write-up pointer used to take every owed session whatever its
+  folder's setting, so a later night could write memories from a folder you had since set off. A
+  session in a folder that is off, observer or paused (a subfolder of one included) is now left out,
+  isn't counted as owed in doctor or by the night, and shows as such in `counterparts coverage`. A paused
+  folder you resume is owed again until its text ages out. Memories already written stay as they are.
+  While `scopes.json` won't read, write-ups stop, and doctor, `counterparts coverage`, `counterparts catch-up`
+  and the session-start line all say so and name the file.
+- **`counterparts verify --rebuild --keep-vectors` no longer reports a false mismatch.** It counted
+  archived and superseded rows as unaccounted for and exited with an error; no row was ever missing.
+- **The wake says where this folder stands in one place.** The last chapter here, the last
+  thing said here and the handoffs are now one block, grouped by session. The newest handoff
+  leads, up to five lines and always with what it says comes next, with a newer chapter named
+  under it, and the next two handoffs get a line each.
+- **The wake no longer lists bare ids, and "Might be relevant" has left it.** A count points
+  at a recall that lists the items by title: `still open` now also lists what's coming up,
+  and a new `handoffs here` lists this folder's handoffs to expand or retire. Coming up shows
+  the oldest overdue items by title and how long ago they were due. Recall already offers
+  what might be relevant on every turn, with ratings. A new store keeps the lane until it has
+  its first self page, since that is all its wake has of its memories.
+- **Recall stops throwing away finished answers.** About one turn in twenty showed no memories because
+  recall had passed its time limit, even though the answer was already done and showing it cost about
+  5 ms. Those turns now show it, and the record says how late they ran.
+- **Recall is faster on a large store, with the same results.** On about 5,000 memories, recall itself
+  went from about 415 ms to about 110 ms when the store hasn't been read for a minute or so, and the
+  whole step before your message is sent from about 725 ms to about 400 ms. The first background run
+  after updating builds an index for this, about half a second, and the cache file grows by about 15 MB.
+- **Yesterday's summary isn't hidden by a late write-up of another day.** A session's write-up filed
+  days later, from a folder since set off, used to make every wake that morning fall back to the
+  chapter list. The summary now holds back only for what day's end is handed: that day's chapters
+  and memories, and what it cites, from a folder set off, paused or to observe. When it
+  does hold back, it leaves a row saying what kind of thing held it, with no words and no folder.
+- **The night no longer reads a folder set off, paused or to observe.** Day's end, the dream, the
+  reflection and the tagging aren't shown its memories or chapters, can't find them through recall, and
+  can't merge them, so what's closed stays out of the page, the day's summary and new merges. What's
+  already stored stays stored, and your own sessions' recall hasn't changed.
+- **A folder setting file that won't read now stops the night instead of thinning it.** With `scopes.json`
+  broken, the night would have read almost nothing and could have rewritten your page from that. It now holds:
+  no page, dream or reflection, doctor goes red and names the file, and it runs again once the file is fixed.
+- **A reflection sent back to rewrite part of its work still can't read a folder set off, paused or to
+  observe.** When a session ran its own reflection, those folders opened to its recall at the first
+  finish, even with a page or share still to send again. They now stay closed until the part lands or the
+  session has been quiet for half an hour. A reflection with nothing sent back gives the session its
+  normal recall at once.
+- **The night can leave one line of its own.** After the reflection revises the page, it may add one
+  or two sentences for whoever wakes tomorrow: what stays from the night that the page doesn't say,
+  told as what happened. `recall "last night"` shows it; the wake doesn't yet. It's never cut: past
+  300 bytes it's asked for once more, then left empty, and an empty line is fine.
+- **Chapter summaries about work fade sooner.** A new summary of an unmarked or work chapter starts
+  at 0.25 instead of 0.4, so one nobody ever uses stops turning up in ambient recall after about 3
+  lived days instead of about 24. A chapter marked about you, the two of you or the assistant keeps
+  0.4. Replaying the last 15 days loses no day a memory was used. Summaries already written keep what
+  they have, and the dream, the reflection and the wake's chapter lines read summaries by chapter, so
+  they see the same ones. On a store with no self page yet, "Might be relevant" no longer lists an
+  unmarked or work summary.
+- **The log says more about what recall and the wake decided.** Each recall turn names up to three
+  memories that almost showed, and what each shown memory's words, meaning and bar came to. A session
+  start records the bytes of each wake section and how much of the page it printed. Wake renders list
+  the ids each section kept, and `refresh` renders no longer carry the list of trimmed ids. Ratings
+  and reflections count why a return was refused, and a dream's opening row says how far down the
+  queue the night reached. Ids and numbers only, on rows that were already being written.
+- **A memory the dream folds or merges keeps the memory ids its parts pointed to.** A note that named
+  another memory by id would lose that pointer when the night folded it, so the memory it pointed to stopped
+  coming along. New folds and merges now keep those ids on a last line, up to four, and it comes along as
+  `See also` again. What's already folded stays as it is.
+- **A memory that names another by id no longer brings along one from a folder set off, paused or to
+  observe**, unless you're working in that folder. Your own recall of it hasn't changed.
+
 ## 0.3.41 — 2026-10-30
 
 A memory that names another memory by its id now brings that one along: when a note about a rule comes to mind, the rule shows beside it as a `See also:` line (at most two a turn, and the first lines to go when room is tight). Recall no longer lifts a memory just for being near the session's recent talk, so there should be fewer loosely related footnotes. In the first meeting, a question step sent without an answer is no longer shown as failed, and the meeting's last step is now called `origin`. The night sorts up to 30 cards into people, projects, places and topics, up from 10. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.40 needs no store restore: `counterparts disconnect`, 0.3.40's install, then `counterparts connect`.
