@@ -1645,6 +1645,25 @@ describe('the glance: the wake\'s first line that has something', () => {
     // At a session start since 2026-10-16 the line carries no date (the `Now:` line does).
     expect(parseGlance('Yesterday: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday', text: 'the fox shipped; the directory submitted.' })
   })
+  test('"Where this folder stands": the handoff\'s lead, else the chapter it names, and before Coming up', () => {
+    const left = (s: string) => parseGlance(`${s}\n\n${COMING}`)
+    const glance = (text: string) => ({ head: 'Last here', text })
+    // A lead of several lines, with a chapter from the same session on the header or none.
+    expect(left('Where this folder stands: a handoff from session 59f2 on Opus 5.5, written 10-28 17:02 (2 days old) (sch_50082aa0475a):\n  The kiln is at cone six.\n  Next: read the log.')).toEqual(glance('The kiln is at cone six.'))
+    expect(left('Where this folder stands: session 07 on Opus 5.5, Oct 29 10:11–14:46 — "The kiln day" (epi_260e5bbd15ba). Its handoff, written 10-29 14:46 (sch_50082aa0475a):\n  The kiln is at cone six.\n  Next: read the log.')).toEqual(glance('The kiln is at cone six.'))
+    // A lead of one line stays on the header's.
+    expect(left('Where this folder stands: a handoff from session 59f2, written 10-31 01:14 (sch_e17db23c586f): The tarball is packed: not published.\n(Expand it by its id with recall; retire it once done.)')).toEqual(glance('The tarball is packed: not published.'))
+    // No handoff: the chapter, with its first sentence when it has one, without what follows it.
+    expect(left('Where this folder stands: session 07, Oct 29 09:00–10:00 — "The kiln day" (epi_260e5bbd15ba). We fired the second batch.')).toEqual(glance('"The kiln day". We fired the second batch.'))
+    expect(left('Where this folder stands: session 07, Oct 29 09:00–10:00 — "The kiln day" (epi_260e5bbd15ba). Last said 14:40: "hello" — recall "last exchange".')).toEqual(glance('"The kiln day"'))
+    // A session with no chapter: the memory it wrote, or the last exchange's words.
+    expect(left('Where this folder stands: session 07, Oct 29 09:00–10:00, no chapter — "Glaze notes" (mem_0123456789ab).')).toEqual(glance('"Glaze notes"'))
+    expect(left('Where this folder stands: session 07, last said 10-29 14:40: "the kiln is cold" — recall "last exchange".')).toEqual(glance('the kiln is cold'))
+    // Nothing for a person: on to Coming up, never the header's who and when.
+    expect(left('Where this folder stands: session 07, Oct 29 09:00–10:00, no chapter, not written up yet.')?.head).toBe('Coming up')
+    // A line under the block is not the block's.
+    expect(parseGlance('Where this folder stands: session 07, Oct 29, no chapter, not written up yet.\n\n  indented, elsewhere')).toBeNull()
+  })
   test('short dates (2026-10-16): a Coming up item written `Oct 11 (due Oct 15)` comes out as the one date too', () => {
     const c = (prefix: string) => parseGlance(`Coming up:\n- ${prefix}Vote`)?.text
     expect(c('Oct 11 (due Oct 15) · ')).toBe('Oct 15 · Vote')
