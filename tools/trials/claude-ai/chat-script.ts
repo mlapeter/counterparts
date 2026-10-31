@@ -110,6 +110,8 @@ export interface Observations {
   readonly planDate: string;
   /** How many times a wake asked for the worker, and the script ran its heavy half. */
   readonly workerRuns: number;
+  /** The store's wake is the shaped one (WK2, `self.WAKE_SHAPE`): what chat 7's wake lines say differs. */
+  readonly wakeShape: boolean;
   /** The memories chats 3–5 wrote, and the night's dream and reflection. */
   readonly ids: Readonly<Record<string, string | null>>;
   readonly dream: string | null;
@@ -348,6 +350,8 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
     if (reflection !== null) await call("chat 7", "reflect", { phase: "told", session: s7, reflection });
     // "when's the dentist?" — the plan found again by its words.
     await call("chat 7", "recall", { session: s7, question: "dentist zqalvarez", mode: "facts" });
+    // The door "Coming up" counts behind: the plan's own id must be behind it, by title.
+    await call("chat 7", "recall", { session: s7, handle: "coming up" });
     share.afterTold = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_state ?? null);
 
     const row = (id: string | null) => (id === null ? undefined : counterpart.store.row(id));
@@ -362,6 +366,7 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
       sessions,
       planDate,
       workerRuns,
+      wakeShape: counterpart.wakeShapeOn(),
       ids: { ...ids },
       dream,
       reflection,
@@ -439,9 +444,11 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
   // not scored: a memory born that day is not counted, `replayed-not-counted:birth-day`.)
   const links = o.store.dream.changes.filter((c) => c.action === "link");
   const lastNightLine = (stepsOf(o, "chat 7")[0]?.text ?? "").split("\n").find((l) => l.startsWith("Last night:")) ?? "";
+  // The shaped wake says what the dream is called and leaves what it did to its door (WK2).
+  const saysLink = o.wakeShape || lastNightLine.includes("made 1 link");
   add(
     "night: the dream's link landed",
-    links.length === 1 && lastNightLine.includes("made 1 link"),
+    links.length === 1 && saysLink,
     `${String(links.length)} link change(s) in the store (${o.store.dream.changes.map((c) => c.action).join(", ") || "none"}); Last night says made 1 link ${String(lastNightLine.includes("made 1 link"))}`,
   );
   add("night: share left offered", o.store.share.afterNight === "offered", `share_state ${String(o.store.share.afterNight)}`);
@@ -455,12 +462,21 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
     `in the wake ${String(carried)}, share_state ${String(o.store.share.afterWake)}, carried by chat 7 ${String(o.store.share.carriedBy === o.sessions["chat 7"])}`,
   );
   add("chat 7: share told", o.store.share.afterTold === "told", `share_state ${String(o.store.share.afterTold)}`);
-  const comingUp = (w7?.text ?? "").split("\n").find((l) => l.startsWith("Coming up:")) ?? "";
-  // Counted behind the door since WK1 (2026-10-30): the wake lists no bare ids, and the plan is not due today.
-  const plan7 = o.ids["plan"] !== null && o.ids["plan"] !== undefined && /^Coming up: 1 .*recall "still open" lists them/.test(comingUp);
-  add("chat 7: the plan in Coming up", plan7, plan7 ? comingUp : `no Coming up line counting the plan (${comingUp.length === 0 ? "no line" : comingUp})`);
+  // THE ITEM, NOT A COUNT (WK2, #687's review): the plan's own id, by its title, from the door the
+  // wake's "Coming up" names; and with the shape on, the wake's own line naming it.
+  const planId = o.ids["plan"] ?? null;
+  const door = stepsOf(o, "chat 7").find((s) => s.tool === "recall" && s.structured["handle"] === "coming up");
+  const behindDoor = ((door?.structured["later"] as { id?: unknown; title?: unknown }[] | undefined) ?? []).find((c) => c.id === planId);
+  const comingLines = (w7?.text ?? "").split("\n");
+  const comingAt = comingLines.indexOf("Coming up:");
+  const inLane = planId !== null && comingAt >= 0 && comingLines.slice(comingAt).some((l) => l.includes(WORDS.planTitle) && l.includes(planId));
+  const plan7 = planId !== null && behindDoor !== undefined && behindDoor.title === WORDS.planTitle && (!o.wakeShape || inLane);
+  add("chat 7: the plan in Coming up", plan7, plan7 ? `${planId ?? ""} by title behind recall "coming up"${o.wakeShape ? ", and in the wake's line" : ""}` : `the plan isn't behind the door by title (${JSON.stringify(door?.structured["later"] ?? null)}), in the wake's line ${String(inLane)}`);
   const lastNight = (w7?.text ?? "").split("\n").find((l) => l.startsWith("Last night:")) ?? "";
-  const night7 = o.dream !== null && o.reflection !== null && lastNight.includes(o.dream) && lastNight.includes(o.reflection);
+  // By id on the old road; by title and door, no ids, on the shaped one.
+  const night7 = o.wakeShape
+    ? lastNight.includes('dream "The boxes"') && lastNight.includes("reflection") && lastNight.includes('recall "last night"') && o.dream !== null && o.reflection !== null && !lastNight.includes(o.dream) && !lastNight.includes(o.reflection)
+    : o.dream !== null && o.reflection !== null && lastNight.includes(o.dream) && lastNight.includes(o.reflection);
   add("chat 7: last night in the wake", night7, night7 ? lastNight : `no Last night line naming the dream and the reflection (${lastNight.length === 0 ? "no line" : lastNight})`);
   const recall7 = stepsOf(o, "chat 7").find((s) => s.tool === "recall");
   const recallIds = Array.isArray(recall7?.structured["ids"]) ? (recall7.structured["ids"] as unknown[]) : [];

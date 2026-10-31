@@ -31,6 +31,8 @@ import { join } from "node:path";
 import type { Request, Response } from "../src/adapters/mcp/protocol.js";
 import type { HttpMcpServer } from "../src/adapters/remote/http.js";
 import { WORDS, playChats, score } from "../tools/trials/claude-ai/chat-script.js";
+import type { Counterpart } from "../src/core/counterpart.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 
 const SCRIPT = join(import.meta.dir, "..", "tools", "trials", "claude-ai", "chat-script.ts");
 
@@ -88,6 +90,29 @@ describe("the 7-chat script", () => {
     const run = join(dir, runs[0] as string);
     for (const f of ["report.txt", "transcript.txt", "calls.jsonl", "store"]) expect(existsSync(join(run, f))).toBe(true);
     expect(readFileSync(join(run, "report.txt"), "utf8")).toContain("Model-free");
+  });
+
+  test("with the wake's shape on, every row still passes: the plan by title in the wake and behind the door, last night by title", async () => {
+    const o = await playChats({ runDir: join(root, "run"), onOpen: (cp) => cp.store.setMeta(WAKE_SHAPE_KEY, "on") });
+    const { rows, passed } = score(o);
+    expect(rows.filter((r) => r.verdict === "FAIL")).toEqual([]);
+    expect(passed).toBe(true);
+    expect(o.wakeShape).toBe(true);
+    expect(rows.find((r) => r.check === "chat 7: the plan in Coming up")?.detail).toContain("and in the wake's line");
+    const whole = o.steps.find((s) => s.chat === "chat 7" && s.tool === "wake")?.text ?? "";
+    const seven = whole.slice(whole.indexOf("<!-- counterparts:wake "), whole.indexOf("counterparts:wake/end"));
+    expect(seven).not.toContain("drm_");
+    expect(seven).not.toContain("rfl_");
+  });
+
+  test("the plan's check proves the item: with the plan gone from the door, it fails, on either shape", async () => {
+    for (const on of [false, true]) {
+      const dirName = `run-${String(on)}`;
+      const o = await playChats({ runDir: join(root, dirName), ...(on ? { onOpen: (cp: Counterpart) => cp.store.setMeta(WAKE_SHAPE_KEY, "on") } : {}) });
+      const tampered = { ...o, steps: o.steps.map((s) => (s.tool === "recall" && s.structured["handle"] === "coming up" ? { ...s, structured: { ...s.structured, later: [] } } : s)) };
+      expect(score(tampered).rows.find((r) => r.check === "chat 7: the plan in Coming up")?.verdict).toBe("FAIL");
+      expect(score(o).rows.find((r) => r.check === "chat 7: the plan in Coming up")?.verdict).toBe("pass");
+    }
   });
 
   test("a deliberate break — a wake that loses the share — fails the run", async () => {
