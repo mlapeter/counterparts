@@ -352,6 +352,18 @@ export function memoriesWrittenHereSince(store: Store, scope: string, since: num
     });
 }
 
+/** How many memories were ever written in one folder after a moment, kept or since archived or replaced: a "nothing since" has to be true of all of them (WK2). */
+export function countWrittenHereSince(store: Store, scope: string, since: number, until: number): number {
+  return (
+    store["ops"].all<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND created_at IS NOT NULL AND created_at > ? AND created_at <= ? AND origin_scope = ?`,
+      since,
+      until,
+      scope,
+    )[0]?.n ?? 0
+  );
+}
+
 /** Every memory a later one replaced, with what replaced it (WK2: an age counts from the first of them). One walk of the column. */
 export function supersededPairs(store: Store): { id: string; by: string }[] {
   return store["ops"]

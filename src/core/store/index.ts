@@ -5316,6 +5316,10 @@ export class Store {
     return memoryReads.memoriesWrittenHereSince(this, scope, since, until, limit);
   }
 
+  countWrittenHereSince(scope: string, since: number, until: number): number {
+    return memoryReads.countWrittenHereSince(this, scope, since, until);
+  }
+
   /** Every memory a later one replaced, with what replaced it (`reads-memories.ts#supersededPairs`). */
   supersededPairs(): { id: string; by: string }[] {
     return memoryReads.supersededPairs(this);

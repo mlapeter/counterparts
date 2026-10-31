@@ -423,7 +423,8 @@ export function sinceHere(
     items.push({ id: c.id, title: flatten(t), status: null, chapter: true, at: c.writtenAt, rank: 1 });
   }
   items.sort((a, b) => a.rank - b.rank || b.at - a.at || (a.id < b.id ? -1 : 1));
-  return { items, older, rawLater: rows.length + opts.chapters.filter((c) => c.writtenAt > since).length, skippedInLead };
+  // Anything at all, replaced or archived since included: "Nothing here since" has to be true.
+  return { items, older, rawLater: store.countWrittenHereSince(scope, since, now) + opts.chapters.filter((c) => c.writtenAt > since).length, skippedInLead };
 }
 
 /** `15:40`, or `10-29 15:40` on another day. */
@@ -531,7 +532,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const leadLines = spareOn.has("folder") ? SHAPE.LEAD_LINES_SPARE : SHAPE.LEAD_LINES;
     const leadBytes = spareOn.has("folder") ? SHAPE.LEAD_BYTES_SPARE : SHAPE.LEAD_BYTES;
     const sinceLines = sinceAged.filter((s) => !claim.has(s.id));
-    const tail = openHereLine(liveHere, at, zone);
+    const tail = here?.sessions === undefined ? null : openHereLine(liveHere, at, zone);
     const olderPick = pickOlder(hs);
     const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number } => {
       const out = ["Where this folder stands:"];
@@ -855,8 +856,8 @@ function pickOlder(hs: readonly Handoff[]): { h: Handoff; seat: string }[] {
   return out;
 }
 
-/** Who else is at work here now, with when they started; or that nobody is. Null when the host can't say (no registry). */
-function openHereLine(live: readonly WakeSession[], today: string, zone: string): string | null {
+/** Who else is at work here now, with when they started; or that nobody is. Asked only of a host with a registry: one with none can't say. */
+function openHereLine(live: readonly WakeSession[], today: string, zone: string): string {
   if (live.length === 0) return "Open here now: no other session.";
   const words = [...live]
     .sort((a, b) => b.lastAt - a.lastAt)

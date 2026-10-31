@@ -299,6 +299,22 @@ describe("where this folder stands", () => {
     expect(stands).not.toContain("The fair, last week");
   });
 
+  test("nothing since is true of what was written, even when it has since been replaced; a host with no registry says nothing of who's open", () => {
+    const w = brain();
+    const { c, today } = w;
+    w.at(NOW - 4 * HOUR);
+    c.writeHandoff("next: sort the shelf.\nNothing else to say about the shelf.", { scope: HERE, session: OWN });
+    w.at(NOW - HOUR);
+    const gone = memory(c, "Written after the handoff, in the handoff's own closing batch.", { title: "A note", session: OWN });
+    w.at(NOW - 4 * HOUR + MIN);
+    w.at(NOW);
+    c.store.archive(gone, "test");
+    const woke = c.wake(BUDGET, { date: today }, { scope: HERE, session: READER, exportsFrom: () => true });
+    const stands = section(woke.text, "Where this folder stands:");
+    expect(stands).not.toContain("Nothing here since.");
+    expect(stands).not.toContain("Open here now");
+  });
+
   test("planned first, three, and a door that lists the rest", async () => {
     const w = brain();
     const { c } = w;
