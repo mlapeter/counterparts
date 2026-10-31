@@ -1571,6 +1571,35 @@ note to the rule, but the note NAMES its id. So `activate.ts#seeAlso` reads ids 
   (owner/us) cross as ever. Tested: under the lift alone the crossing memory is kept back and counted in
   `crossProjectLifted`; it fails without the change.
 
+### FI1 — what see-also reads after a fold (2026-10-30)
+
+A fold or merge now keeps the ids its sources named, as a last line (`dream/NOTES.md`), and see-also reads that line
+like any other text. Only new folds: one already stored keeps what it has, so the bare "ping" on the owner's store
+fails before and after this. That is a recorded result, not a bug; no live memory gets edited to make it pass.
+
+**A named id doesn't carry a closed folder's memory across.** See-also now asks `Turn.namedClosed` of what it would
+bring: is this row in a folder the host's setting has closed, or a night's row resting on one (`dream/slices.ts#memoryClosedTo`)?
+It's the one place in the turn that asks, because a named id reaches a memory with no word of the turn behind it. A
+memory the turn's own words reach isn't fenced, and neither is anything a session asks for: an ordinary session's
+recall is as #688 left it. The turn's own folder is its own. The setting is read once, only on a turn with a named
+id it would otherwise bring. One that won't read closes everything with a folder (`foldersOn`), so that turn brings no
+memory from another folder; its own folder's, and one with no folder, still come. The session-start line says the file
+is broken and tells the person to fix it, but not this: that line is held to a size so it fits beside a full wake
+(`stop-ask-quiet.test.ts`, M1), and this is the smallest of what a broken file costs. No setting at all, or a host with
+none: nothing is closed. The turn's own folder matters
+only under `observer`, the one stance that isn't on and still recalls (`off` and `paused` open no store), and it means
+that folder exactly: a session in a subfolder of an observer folder doesn't bring the parent's row. Narrow, and it fails
+towards less. Measured on a copy of the 10-30 snapshot with the owner's setting (17 entries): the prompt hook 217.3 ms
+against 217.5 ms without the gate, medians of 15; the read and one lookup alone about 0.09 ms. 11 of the last 1,000 turns
+showed a memory naming an id, so at most those would read it.
+
+**Asked, not built: should an inhibited note's named ids ride along when the note itself is held back?** The lean,
+for now: no. See-also reads what the turn shows, and that's easy to reason about: every see-also line can be traced to
+a text the reader can see. Reading held-back notes would pull ids from memories the gate chose not to show, and a
+fold's sources are held back exactly because the fold stands for them. With FI1 the fold keeps those ids, which covers
+new folds. What this leaves: a fold made before FI1, and a memory held back for another reason (a settled pair's
+loser, say). If the check finds those matter, this is the question to reopen.
+
 ## 2026-10-29 — the beliefs slot shows one belief (a finding, no change; K1 from the 10-29 read)
 
 The 10-29 read: the slot (`BELIEFS_IN_RECALL`) fired on 62 turns, every time with the same

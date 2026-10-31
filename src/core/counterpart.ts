@@ -212,7 +212,7 @@ import { chapterSummaries } from "./self/summaries.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
-import { NOTHING_CLOSED, closedToNight, isNightRow, memoryFolder } from "./dream/slices.js";
+import { NOTHING_CLOSED, closedToNight, isNightRow, memoryClosedTo, memoryFolder } from "./dream/slices.js";
 import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
@@ -2984,6 +2984,9 @@ export class Counterpart {
       /** The directory this session works in (context priming, 2026-10-19):
        *  its live handoffs are part of what is open here. Absent: none read. */
       scope?: string;
+      /** The host's folder setting, read when first asked (FI1, 2026-10-30):
+       *  what a named id may not carry across. Absent: a host with none. */
+      foldersOn?: () => FolderOn;
     } = {},
   ): RecallResult {
     // THE TEMPORAL CUES ARE COMPUTED HERE, not inside `composeTurn`, for one
@@ -3006,7 +3009,8 @@ export class Counterpart {
       arrived === null ? turn : { ...turn, temporal: arrived.map((a) => ({ id: a.memoryId, weight: a.cueWeight })) };
     const echo = turn.echo ?? this.echoOf(turn.sessionId, opts.echoSince, opts.sessionFrom);
     const echoed: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
-    const withCues: RecallTurn = turn.elsewhere !== undefined ? echoed : this.withElsewhere(echoed, opts.scope);
+    const placed: RecallTurn = turn.elsewhere !== undefined ? echoed : this.withElsewhere(echoed, opts.scope);
+    const withCues: RecallTurn = this.withNamedFence(placed, opts.foldersOn, opts.scope);
     const result = recallTurn(this.recall, this.withPrime(this.withSemantic(withCues), opts.scope), {
       schemas: this.schemas,
       prospective: this.prospective,
@@ -3054,6 +3058,25 @@ export class Counterpart {
       return isWorkMemory({ about: aboutMarkOf(row.about), kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay }, { craftTravels: travels, craftSince: since });
     };
     return { ...turn, elsewhere };
+  }
+
+  /**
+   * WHAT A NAMED ID MAY NOT CARRY ACROSS (FI1, 2026-10-30): a memory in a folder
+   * that doesn't export, or a night's row resting on one, by the fence's own
+   * rule (`dream/slices.ts#memoryClosedTo`). See-also asks, and only of a memory
+   * no word of the turn reached otherwise; the setting is read once, on the first
+   * ask. A turn with a setting that won't read brings no memory from another folder.
+   */
+  private withNamedFence(turn: RecallTurn, foldersOn: (() => FolderOn) | undefined, scope: string | undefined): RecallTurn {
+    if (foldersOn === undefined) return turn;
+    let on: FolderOn | undefined;
+    const namedClosed = (id: string): boolean => {
+      const row = this.store.row(id);
+      if (row === undefined) return false;
+      on ??= foldersOn();
+      return memoryClosedTo(this.store, row, on, scope);
+    };
+    return { ...turn, namedClosed };
   }
 
   /**

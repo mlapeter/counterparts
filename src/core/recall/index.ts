@@ -196,6 +196,13 @@ export interface Turn {
    */
   elsewhere?: (id: string) => boolean;
   /**
+   * A FOLDER THAT DOESN'T EXPORT (FI1, 2026-10-30): is this id closed by the
+   * host's folder setting? Asked of what see-also would bring, and of nothing
+   * else: a memory the turn's own words reach isn't fenced. Ambient only —
+   * bound by `Counterpart#recallForTurn`. Absent: a host with no setting.
+   */
+  namedClosed?: (id: string) => boolean;
+  /**
    * CONTEXT PRIMING (an experiment, 2026-10-19; `prime.ts`): this turn's own
    * vector for the train of thought, one hop along links, and what is open in
    * this folder. Ambient only — set by `Counterpart#recallForTurn` and by
@@ -786,6 +793,7 @@ export class Recall {
       ...(turn.elsewhere !== undefined && (this.tunables.RECALL_BY_PROJECT || this.tunables.CROSS_PROJECT_BAR_LIFT > 1)
         ? { elsewhere: turn.elsewhere }
         : {}),
+      ...(turn.namedClosed === undefined ? {} : { closed: turn.namedClosed }),
       ...(habituated.size === 0 ? {} : { habituated }),
       background: gated.background.bar,
       t: this.tunables,

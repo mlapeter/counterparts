@@ -85,6 +85,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
 | P2: open items untouched 14 lived days are parked (the 10-22 carry rule at 14, was 21): out of Still open and its count, `· N parked` on its count line, listed last and marked by `recall "still open"`; never a date still to come (ahead, in its grace week, repeating), `asked` or `settlesWhen` item; doctor's Open items line | 0.3.40, 10-29 (#674, #675) | ~3 mornings after install: doctor's open/carried/parked, the first night's share count (every item 14–20 days untouched counts as newly parked once), whether a parked thread Mike still wanted came back by a touch or had to be found | `docs/decisions.d/feat-p2-park-old-threads.md` |
 | PP1: a memory whose text names another's id brings it along (`See also:`, one per shown memory, two a turn); used, it gets the turn's cue credit (the ping/pong fix) | 0.3.41, 10-30 (#681) | ~3 lived days after install: see-also'd footnotes rated at least as well as plain ones; the ping demo holds on the live store | "Due ~3 lived days after see-also from named ids" below; `docs/decisions.d/feat-see-also-named-ids.md` |
+| FI1: a fold or merge keeps the ids its sources named (a last `Names:` line, at most 4 named in all); see-also doesn't bring a memory the folder setting has closed | 0.3.42 or later (#697) | ~2026-11-06: a NEW fold keeps its sources' named ids and they come through as see-also. NOT the bare "ping" on the live store: that fold keeps no id, and the check fails before and after | "Due ~2026-11-06: folds keep named ids" below; `docs/decisions.d/feat-fi1-folds-keep-named-ids.md` |
 | K1 (the 10-29 read): context priming's train share 0 (`recall.PRIME_TRAIN_SHARE`, was 0.5): the train scores nothing, the row says `primed.train: false`; link and tag priming unchanged | 0.3.41, 10-30 (#680) | ~2 weeks after the release that carries it (~2026-11-13): footnote noise/useful by build, the link-lifted and tag-lifted groups, shown per person turn | "Due ~2 weeks after the 10-29 knobs" below; `docs/decisions.d/chore-read-1029-knobs.md` |
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
@@ -439,6 +440,31 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~2026-11-06: folds keep named ids (2026-10-30, FI1, a lost-information fix; no switch of its own, `recall.SEE_ALSO_NAMED_IDS` still rules what's read)
+
+What: a fold or merge writes `Names: mem_…, mem_…` as its last line, with what its sources named and it didn't: each
+as the memory that holds now, never a source, never one recall couldn't show, never one closed to the night, at most
+4 named in all. See-also reads that line, and now asks the folder setting of what it would bring.
+
+Read (read-only, by build):
+- `SELECT dream_id, ref, json_extract(detail,'$.names'), json_extract(detail,'$.namesPast') FROM dream_changes WHERE
+  action IN ('gist','merge') AND undone = 0 AND json_extract(detail,'$.build') >= '<the build that carries it>'`: how
+  many folds and merges kept any, and how often `namesPast` is above 0 (if often, 4 is too few).
+- For a fold that kept one: `recall.decision` rows whose footnotes have `via: "see-also"` and `seeAlso.by` that fold,
+  and the `recall.rated` scores for those ids against plain footnotes (the PP1 check's bar).
+
+Not this check: the bare "ping" on the live store. The 10-27 fold keeps no id, and only new folds carry them, so that
+ping fails before and after. On a copy of the 10-30 snapshot, a new fold over two notes naming the rule kept its id,
+and once the fold had a learned pair (seeded at 0.5, what one rated use writes) the bare "ping" brought the rule as
+`See also`, by that fold. That night's bundle didn't offer those notes, so they were written into the copy's `shown` by
+hand; a real night folds what it's shown. With no learned pair of its own a new fold doesn't show for a bare word, so it
+brought nothing yet.
+
+Changes it: see-also'd memories from folds rated worse than plain ones, kept ids that are mostly noise (a fold's sources
+naming each other's neighbours), or folds with a line of ids rated or found worse by meaning, since the ids move the
+vector (numbers in the decision; leaving the line out of what's indexed is the fix to try). Revert: the PR; what's
+written stays as text, and is harmless.
 
 ## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`)
 

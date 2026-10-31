@@ -46,7 +46,7 @@ import { AliasMap, FIT_TUNABLES, clipWire, fidelityOf, fit, leanNumber, lineOf, 
 import type { Fidelity, FitCandidate, Placed } from "../fit/index.js";
 import { belowReach, curveSal, emotionalIntensity, strength } from "../physics/index.js";
 import type { MemoryPhysics } from "../physics/index.js";
-import { earlierMark, headOf, isHandoff, isSelfPage } from "../recall/index.js";
+import { SEE_ALSO_NAMES_READ, earlierMark, headOf, isHandoff, isSelfPage, namedIds, recallableRow } from "../recall/index.js";
 import { namesOwner, ownerNames } from "../sleep/index.js";
 import {
   CARRIED_BY_MAX_CHARS,
@@ -2233,10 +2233,11 @@ export class Dreams {
         const saidBy = saidByOf(best.r.said_by);
         const status = statusOf(best.r.status);
         const occurredOn = occurredOnOf(best.r.occurred_on);
+        const names = this.namesToKeep(rs, words.text, change.title, day);
         const newId = this.store.put({
           type: "memory",
           kind: best.r.kind,
-          body: words.text,
+          body: withNames(words.text, names.kept),
           ...(change.title !== undefined && change.title.trim().length > 0 ? { title: change.title.trim().slice(0, DREAM_TUNABLES.MAX_TITLE_CHARS) } : {}),
           salience: { ...best.p.salience },
           physics: {
@@ -2328,7 +2329,8 @@ export class Dreams {
         }
         // FIDELITY (2026-09-28): what the dream had of each original when it
         // merged them — whole, an excerpt, a line (or whole, fetched since).
-        this.store.recordDreamChange(dream.id, { action, ref: newId, detail: { from: ids, fidelity: fidelityOf(readIndex(this.store, "dream"), dream.id, ids) } });
+        this.store.recordDreamChange(dream.id, { action, ref: newId, detail: { from: ids, fidelity: fidelityOf(readIndex(this.store, "dream"), dream.id, ids), ...namesDetail(names) } });
+        if (names.past > 0) notes.push(namesPastNote(names));
         shown.add(newId);
         return { action, ok: true, reason: "merged", id: newId, ...(notes.length > 0 ? { note: notes.join(" ") } : {}) };
       }
@@ -2407,13 +2409,16 @@ export class Dreams {
         // decided by random-06, 2026-10-11, lightly held): me/us only when most
         // of its parts are, since it summarises many, not one said again.
         const about = isFold ? foldMarkFrom(sourceRows as MemoryRow[]) : inheritFrom(sourceRows as MemoryRow[]).about;
+        // A plain gist's sources stay as they were, each still naming what it
+        // names; a fold's fade and stand behind it, so it keeps their names.
+        const names = isFold ? this.namesToKeep(sourceRows as MemoryRow[], words.text, change.title, day) : NO_NAMES;
         const id = this.store.put({
           type: "memory",
           kind,
           // A fold's title is its own (review 11 C4): it states what lived
           // memories add up to; `source` and `meta.fold` keep where it came from.
           title: isFold ? (title.length > 0 ? title : firstLine(words.text)) : `Dreamed: ${title.length > 0 ? title : firstLine(words.text)}`,
-          body: words.text,
+          body: withNames(words.text, names.kept),
           salience: isFold
             ? { novelty: null, relevance: claim, emotional: 0, predictive: claim, claimed: claim }
             : {
@@ -2477,6 +2482,7 @@ export class Dreams {
             frozen: ties.frozen,
             linkReason: ties.reason,
             ...(isFold ? { fold: true, claimed: claim, faded, exempt } : {}),
+            ...namesDetail(names),
           },
         });
         shown.add(id);
@@ -2484,6 +2490,7 @@ export class Dreams {
           ...(words.cut ? [`text was kept to its first ${String(DREAM_TUNABLES.MAX_TEXT_CHARS)} characters.`] : []),
           ...facts.notes,
           ...((change.title ?? "").trim().length > DREAM_TUNABLES.MAX_TITLE_CHARS ? [titleNote()] : []),
+          ...(names.past > 0 ? [namesPastNote(names)] : []),
           ...(ties.reason === "failed" || ties.reason === "observer"
             ? [`its ties to its sources were not written (${ties.reason}).`]
             : ties.noRoom + ties.frozen > 0
@@ -3686,6 +3693,41 @@ export class Dreams {
   }
 
   /**
+   * THE IDS A FOLD OR MERGE KEEPS (FI1, 2026-10-30): what its sources' texts
+   * name and its own words don't, each as the memory that holds now. Not a
+   * source or a source's head (those are linked as earlier versions already),
+   * not removed, archived or anything recall couldn't show, and never closed to
+   * the night: a named id must not carry a closed folder's memory across. Below
+   * reach still counts: it can rise. At most `SEE_ALSO_NAMES_READ` named in all,
+   * the words' own first, since recall reads no further; the dream's source
+   * order, first mention first. Reads only. Never throws: the memory stands
+   * without them.
+   */
+  private namesToKeep(sources: readonly MemoryRow[], text: string, title: string | undefined, day: number): KeptNames {
+    try {
+      const own = new Set(sources.flatMap((r) => [r.id, headOf(this.store, r.id) ?? r.id]));
+      const said = namedIds(`${title ?? ""}\n${text}`);
+      const saidNow = new Set(said.map((n) => headOf(this.store, n) ?? n));
+      const closed = this.ctx.closed?.() ?? NOTHING_CLOSED;
+      const denied = new Set(this.store.deniedIds());
+      const found: string[] = [];
+      for (const r of sources) {
+        for (const named of namedIds(`${r.title ?? ""}\n${r.body}`)) {
+          const id = headOf(this.store, named) ?? named;
+          if (own.has(id) || own.has(named) || saidNow.has(id) || found.includes(id) || closed.has(id)) continue;
+          const row = recallableRow(this.store, id, { denied, ambient: false, day });
+          if (row === undefined || row === "below-reach") continue;
+          found.push(id);
+        }
+      }
+      const room = Math.max(0, SEE_ALSO_NAMES_READ - said.length);
+      return { kept: found.slice(0, room), past: Math.max(0, found.length - room) };
+    } catch {
+      return NO_NAMES;
+    }
+  }
+
+  /**
    * The dream's words through the credential battery; never empty unless
    * allowed. Longer than `max` is kept to `max` and SAID (`cut`), never cut
    * without a word (2026-09-28).
@@ -4142,6 +4184,29 @@ function foldExemption(store: Store, r: MemoryRow): string | null {
 
 function titleNote(): string {
   return `title was kept to its first ${String(DREAM_TUNABLES.MAX_TITLE_CHARS)} characters.`;
+}
+
+/** What a fold or merge keeps of the ids its sources named (`namesToKeep`). */
+interface KeptNames {
+  readonly kept: readonly string[];
+  /** Found, past the cap. */
+  readonly past: number;
+}
+
+const NO_NAMES: KeptNames = { kept: [], past: 0 };
+
+/** The memory's words, and the ids it keeps on a last line of their own, as recall's see-also reads them. */
+function withNames(text: string, names: readonly string[]): string {
+  return names.length === 0 ? text : `${text}\n\nNames: ${names.join(", ")}`;
+}
+
+/** On the change's row, so a later read can find them. Nothing when none. */
+function namesDetail(names: KeptNames): { names?: readonly string[]; namesPast?: number } {
+  return { ...(names.kept.length > 0 ? { names: names.kept } : {}), ...(names.past > 0 ? { namesPast: names.past } : {}) };
+}
+
+function namesPastNote(names: KeptNames): string {
+  return `Its sources named ${String(names.past)} more ids than it has room to keep (${String(SEE_ALSO_NAMES_READ)} named in all, its own words' first).`;
 }
 
 function firstLine(text: string): string {

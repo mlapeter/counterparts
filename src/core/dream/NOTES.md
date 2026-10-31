@@ -1388,3 +1388,39 @@ by id has no folder rule (`deliberate.ts`, `readNight`), for an ordinary session
 night's bundle shows a closed folder's entry, so what a line is written from isn't wholly inside the fence. The folder rule on
 `recall "last night"` reads the row's scope, not what the line rests on: a folder closed since, cited from another folder's
 night, still shows.
+
+## 2026-10-30 — a fold or merge keeps the ids its sources named (FI1, `namesToKeep`)
+
+A fold's sources fade and stand behind it, and a memory held back brings no see-also, so an id only a source named
+was lost at the fold unless the dream happened to repeat it. The ping miss is the case: the 10-27 fold kept the rule
+in a clause and dropped its id. The trace shows why asking the dream wouldn't do: its bundle calls the rule by an
+alias, its door takes aliases or real ids, and it's told to use only what the bundle showed.
+
+So the door does it, after the words are read: a last line, `Names: mem_…, mem_…`. It's text, not meta, because text
+is what see-also reads, and because the text is the memory: anyone reading it by id sees what it points at, and it
+needed no store change. The line comes after `words()`, so a fold's title is still made from its words, and a body can
+run past `MAX_TEXT_CHARS` by the line (at most 4 ids, about 100 characters).
+
+What's kept: named in a source's title or body, as the memory that holds now, not a source or a source's head (those
+are linked as earlier versions), passing `recallableRow` (one test for what recall could show) with reach not asked,
+since a faded memory can rise. Four named in all, the fold's own words counted first, because `SEE_ALSO_NAMES_READ`
+reads no further; the dream's source order, first mention first; past that, `namesPast` on the row and a note back.
+
+Closed folders: an id in the night's fence isn't kept (`ctx.closed`, as `showable` reads it). That isn't enough by
+itself: a fold made before the folder was set off, a dream repeating an id in its own words, and any ordinary memory
+naming one all reach see-also, and a personal memory isn't another project's, so `elsewhere` lets it through. Tried
+through the hook before the fix: it came along. So see-also now asks the fence's own rule of the one row
+(`memoryClosedTo`, recall's `namedClosed`). See `recall/NOTES.md`.
+
+Left out on purpose:
+
+- A plain gist. Its sources aren't faded or held, so each still brings what it names.
+- `sleep/dedup.ts`. A merge there archives the copy and changes nothing else: "never a rewrite, never a blend" (§5.7).
+  Same-hash copies name the same ids. A near-copy by cosine could name a different one; that id goes with it. Open:
+  how often, on a real store.
+- `revision.ts`, and the belief's accommodation row. The successor's body is its challenger's by construction, and
+  `sleep/dedup.ts` relies on that. The target stays live, earlier under it. A revision says what changed, so what the
+  old words named may be part of what changed.
+- A reflection's entry, a chapter's summary and the page: each is new writing citing what it read, not a memory
+  standing in for others.
+

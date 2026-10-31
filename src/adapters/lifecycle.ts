@@ -1196,6 +1196,7 @@ export class Lifecycle implements HostLifecycle {
       startedBy?: "person" | "host" | "unattended";
     } = {},
   ): ReturnType<Counterpart["recallForTurn"]> {
+    const config = this.configPath;
     const result = this.counterpart.recallForTurn(
       {
         sessionId: input.sessionId,
@@ -1223,6 +1224,9 @@ export class Lifecycle implements HostLifecycle {
         // Context priming (2026-10-19): this directory's handoffs are part of
         // what is open here.
         ...(typeof input.scope !== "string" || input.scope.length === 0 ? {} : { scope: input.scope }),
+        // What a named id may not carry across (FI1, 2026-10-30): the folder
+        // setting, read only on a turn with one to ask about.
+        ...(config === undefined || config.length === 0 ? {} : { foldersOn: () => foldersOn(scopesPath(config)) }),
       },
     );
     const decision = result.decision;
