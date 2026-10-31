@@ -421,6 +421,11 @@ const FURNITURE: readonly (readonly [RegExp, string])[] = [
   [/^Other handoffs here\b/, "Handoff"],
   [/^Since (?:this handoff|the newest handoff here):/, "Since this handoff"],
   [/^Still open\b/, "Still open"],
+  // The shaped wake's heads (WK2, `self.WAKE_SHAPE`), as the kinds they answer for.
+  [/^Handoff, /, "Handoff"],
+  [/^Older handoffs:/, "Handoff"],
+  [/^Since, here:/, "Since this handoff"],
+  [/^Elsewhere:/, "Today, elsewhere"],
 ];
 
 /** One wake read for "Last here" and its neighbours. `sessionOf` maps an episode to the session that wrote it; `label` a session id (or its first 8 characters) to its label. */

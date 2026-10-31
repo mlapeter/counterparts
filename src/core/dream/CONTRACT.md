@@ -757,3 +757,8 @@ strong default and not a guarantee.
 from what's left would be thin and silent. `launch`, `writer`, `begin` and `tags` (and the reflection's
 `launch` and `begin`) refuse `folder-setting-unreadable`, nothing is claimed or begun, the nightly run ends
 `could-not-start` (`folder-setting`) with no child asked, and doctor is red (`night-held`) until it's fixed.
+
+**The wake's shape (WK2, 2026-10-30, `self.WAKE_SHAPE`, off by default):** with it on, the wake's night line names a night's dream and
+reflection by title, and carries the night's own line (`detail.line`), where `dream/night-line.ts` otherwise gives ids and counts and
+never a title. Mike's approved shape, so a deliberate change to what this module lets a session read. The journal and the entry stay out. A
+dream or reflection from a folder this reader may not read (the rule `recall "last night"` applies) goes by no title and leaves no line.

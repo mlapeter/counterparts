@@ -741,3 +741,18 @@ previous check-in.
   answers with it. `LAST_EXCHANGE_LINE_MAX_BYTES` is 176 for the exchange as the block's whole entry.
 - **`hintsForReader` reads the new count lines too:** a store with no page keeps the hints lane, so a count with no ids reaches
   the published-bundle road. It names nothing a reader may not see, so it stands, where it would have been dropped as unreadable.
+
+## 2026-10-30 — the block under the wake's shape (WK2)
+
+- With `self.WAKE_SHAPE` on, `standsLadder` isn't asked: `core/counterpart-wake-shape.ts` writes "Where this folder stands" from the
+  same reads. The ladder stays for the old road and for the boundary's reserve (`handoffRungBytes`).
+- **`handoffLead` takes a line's limit** so the shape can have whole sentences up to the lead's own room, keeping the last `next:`
+  part #687 made safe. The default is `HANDOFF_LEAD_LINE_BYTES`, as before.
+- **`lastExchange` takes `skip`**, for the sessions nobody attended. With the switch on that goes for the `last exchange` handle
+  too, which answered with them before; off, the handle is as it was. A quote from further back than the last attended session
+  isn't "Last said" in the shape: read beside a later handoff it would seem to be what was just said.
+- **"Since, here" leaves out open threads and dated items.** Spec-silent: the prototype's claim order let Since take them, which
+  lost a due item's place in Coming up and an open one's settles-when. Each section one question; a row left out still counts as "later", so no false nothing.
+- **A folder with no handoff and no work since yesterday** names its last chapter (`Last here: chapter "…" (5 days)`), rather than
+  losing what "Last here" gave it on the old road.
+
