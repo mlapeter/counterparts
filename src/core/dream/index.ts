@@ -3686,11 +3686,6 @@ export class Dreams {
   }
 
   /**
-   * The dream's words through the credential battery; never empty unless
-   * allowed. Longer than `max` is kept to `max` and SAID (`cut`), never cut
-   * without a word (2026-09-28).
-   */
-  /**
    * THE IDS A FOLD OR MERGE KEEPS (FI1, 2026-10-30): what its sources' texts
    * name and its own words don't, each as the memory that holds now. Not a
    * source or a source's head (those are linked as earlier versions already),
@@ -3705,13 +3700,14 @@ export class Dreams {
     try {
       const own = new Set(sources.flatMap((r) => [r.id, headOf(this.store, r.id) ?? r.id]));
       const said = namedIds(`${title ?? ""}\n${text}`);
+      const saidNow = new Set(said.map((n) => headOf(this.store, n) ?? n));
       const closed = this.ctx.closed?.() ?? NOTHING_CLOSED;
       const denied = new Set(this.store.deniedIds());
       const found: string[] = [];
       for (const r of sources) {
         for (const named of namedIds(`${r.title ?? ""}\n${r.body}`)) {
           const id = headOf(this.store, named) ?? named;
-          if (own.has(id) || own.has(named) || said.includes(id) || found.includes(id) || closed.has(id)) continue;
+          if (own.has(id) || own.has(named) || saidNow.has(id) || found.includes(id) || closed.has(id)) continue;
           const row = recallableRow(this.store, id, { denied, ambient: false, day });
           if (row === undefined || row === "below-reach") continue;
           found.push(id);
@@ -3724,6 +3720,11 @@ export class Dreams {
     }
   }
 
+  /**
+   * The dream's words through the credential battery; never empty unless
+   * allowed. Longer than `max` is kept to `max` and SAID (`cut`), never cut
+   * without a word (2026-09-28).
+   */
   private words(
     text: string | undefined,
     dream: DreamRow,

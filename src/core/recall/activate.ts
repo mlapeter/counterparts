@@ -1717,12 +1717,14 @@ export function seeAlso(input: SeeAlsoInput): SeeAlso[] {
         const id = headOf(store, named) ?? named;
         if (taken.has(id) || id === by) continue;
         if (input.seen[id] !== undefined || input.echo?.has(id) === true || input.habituated?.has(id) === true) continue;
-        if (input.elsewhere?.(id) === true || input.closed?.(id) === true) continue;
+        if (input.elsewhere?.(id) === true) continue;
         const prior = verdictOf.get(id);
         if (prior !== undefined && HELD.has(prior.verdict)) continue;
         denied ??= new Set(store.deniedIds());
         const row = recallableRow(store, id, { denied, ambient: true, day: input.day });
         if (row === undefined || row === "below-reach") continue;
+        // Last, because it reads the setting's file: only of what it would bring.
+        if (input.closed?.(id) === true) continue;
         const cand = input.candidates.get(id);
         const physics = cand?.physics ?? rowToPhysics(row);
         const verdict: CandidateVerdict =

@@ -3056,7 +3056,7 @@ export class Counterpart {
    * that doesn't export, or a night's row resting on one, by the fence's own
    * rule (`dream/slices.ts#memoryClosedTo`). See-also asks, and only of a memory
    * no word of the turn reached otherwise; the setting is read once, on the first
-   * ask. A turn with a setting that won't read brings no memory with a folder.
+   * ask. A turn with a setting that won't read brings no memory from another folder.
    */
   private withNamedFence(turn: RecallTurn, foldersOn: (() => FolderOn) | undefined, scope: string | undefined): RecallTurn {
     if (foldersOn === undefined) return turn;

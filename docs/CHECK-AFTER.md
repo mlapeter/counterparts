@@ -421,8 +421,10 @@ and once the fold had a learned pair (seeded at 0.5, what one rated use writes) 
 hand; a real night folds what it's shown. With no learned pair of its own a new fold doesn't show for a bare word, so it
 brought nothing yet.
 
-Changes it: see-also'd memories from folds rated worse than plain ones, or kept ids that are mostly noise (a fold's
-sources naming each other's neighbours). Revert: the PR; what's written stays as text, and is harmless.
+Changes it: see-also'd memories from folds rated worse than plain ones, kept ids that are mostly noise (a fold's sources
+naming each other's neighbours), or folds with a line of ids rated or found worse by meaning, since the ids move the
+vector (numbers in the decision; leaving the line out of what's indexed is the fix to try). Revert: the PR; what's
+written stays as text, and is harmless.
 
 ## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`)
 

@@ -1582,8 +1582,14 @@ bring: is this row in a folder the host's setting has closed, or a night's row r
 It's the one place in the turn that asks, because a named id reaches a memory with no word of the turn behind it. A
 memory the turn's own words reach isn't fenced, and neither is anything a session asks for: an ordinary session's
 recall is as #688 left it. The turn's own folder is its own. The setting is read once, only on a turn with a named
-id to ask about. One that won't read closes everything with a folder (`foldersOn`), so that turn brings no memory with
-a folder; one with none still comes. No setting at all, or a host with none: nothing is closed.
+id it would otherwise bring. One that won't read closes everything with a folder (`foldersOn`), so that turn brings no
+memory from another folder; its own folder's, and one with no folder, still come. The session-start line that says the
+file is broken says this too. No setting at all, or a host with none: nothing is closed. The turn's own folder matters
+only under `observer`, the one stance that isn't on and still recalls (`off` and `paused` open no store), and it means
+that folder exactly: a session in a subfolder of an observer folder doesn't bring the parent's row. Narrow, and it fails
+towards less. Measured on a copy of the 10-30 snapshot with the owner's setting (17 entries): the prompt hook 217.3 ms
+against 217.5 ms without the gate, medians of 15; the read and one lookup alone about 0.09 ms. 11 of the last 1,000 turns
+showed a memory naming an id, so at most those would read it.
 
 **Asked, not built: should an inhibited note's named ids ride along when the note itself is held back?** The lean,
 for now: no. See-also reads what the turn shows, and that's easy to reason about: every see-also line can be traced to

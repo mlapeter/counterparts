@@ -12,9 +12,10 @@
  * word invented.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
@@ -228,6 +229,49 @@ describe("FI1: what it keeps", () => {
     expect(bodyOf(a, fold.id)).toBe(`${words}\n\nNames: ${now}`);
   });
 
+  test("an id two sources name, once; a source's own successor, not at all; one below reach, kept, since it can rise", async () => {
+    const a = adapter();
+    const store = a.counterpart.store;
+    const shared = await remember(a, HERE, { title: "The shared one", text: "Both of the parts below point at this one." });
+    const faded = store.put({ type: "memory", kind: "fact", title: "Faded fence", body: "The old fence was painted green once.", salience: { claimed: 0 } });
+    const earlier = await remember(a, HERE, { title: "The first part", text: "The first part said one thing at first." });
+    const later = await remember(a, HERE, { title: "The first part, later", text: "The first part said another thing later on.", updates: earlier });
+    const naming = await remember(a, HERE, { title: "The second part", text: `The second part names ${shared}, ${later} and ${faded}.` });
+    const also = await remember(a, HERE, { title: "The third part", text: `The third part names ${shared} as well.` });
+    const { s, dream } = await begin(a);
+    const words = "The parts add up.";
+    const fold = await propose(a, s, dream, { action: "gist", fold: true, sources: [earlier, naming, also], text: words });
+    expect(bodyOf(a, fold.id)).toBe(`${words}\n\nNames: ${shared}, ${faded}`);
+  });
+
+  test("a merge past the cap says so too, and its row keeps what it kept", async () => {
+    const a = adapter();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push(await remember(a, HERE, { title: `Named ${String(i)}`, text: `Named memory number ${String(i)} of block${String(i)}.` }));
+    const x = await remember(a, HERE, { title: "Copy one", text: `The shed key hangs by the door: ${ids.join(", ")}.` });
+    const y = await remember(a, HERE, { title: "Copy two", text: "The key to the shed hangs beside the door." });
+    const { s, dream } = await begin(a);
+    const merged = await propose(a, s, dream, { action: "merge", ids: [x, y], text: "The shed key hangs by the door." });
+    expect(namedIds(bodyOf(a, merged.id))).toEqual(ids.slice(0, SEE_ALSO_NAMES_READ));
+    expect(merged.note).toContain("named 2 more");
+    const change = a.counterpart.store.dreamChanges(dream).find((c) => c.ref === merged.id);
+    const detail = JSON.parse(change?.detail ?? "{}") as { names?: string[]; namesPast?: number };
+    expect(detail.names).toEqual(ids.slice(0, SEE_ALSO_NAMES_READ));
+    expect(detail.namesPast).toBe(2);
+  });
+
+  test("the words naming a corrected memory by its older id: no second pointer to the one that holds now", async () => {
+    const a = adapter();
+    const old = await remember(a, HERE, { title: "The old fence", text: "The fence is two metres." });
+    await remember(a, HERE, { title: "The new fence", text: "The fence is three metres.", updates: old });
+    const first = await remember(a, HERE, { title: "First part", text: `The first part leans on ${old} for the height.` });
+    const second = await remember(a, HERE, { title: "Second part", text: "The second part names nothing at all." });
+    const { s, dream } = await begin(a);
+    const words = `The parts add up, as ${old} says.`;
+    const fold = await propose(a, s, dream, { action: "gist", fold: true, sources: [first, second], text: words });
+    expect(bodyOf(a, fold.id)).toBe(words);
+  });
+
   test(`at most ${String(SEE_ALSO_NAMES_READ)} named in all, the words' own first; the rest counted and said`, async () => {
     const a = adapter();
     const ids: string[] = [];
@@ -359,5 +403,68 @@ describe("FI1: a named id doesn't carry a closed folder's memory across", () => 
     expect([...t.surfaced, ...t.footnotes]).toContain(note);
     expect(t.footnotes).not.toContain(own);
     expect(t.footnotes).toContain(free);
+    // Its own folder's still comes: the turn in the bakery brings what the bakery wrote.
+    const inShut = await remember(a, SHUT, { title: "A bakery ring", text: `A ring at the bakery, and ${own} with it.` });
+    wire(a, inShut);
+    expect(prompt(a, "sess-fi1-broken-home", WORD, SHUT).footnotes).toContain(own);
+  });
+
+  test("the setting is read only for a row see-also would bring, and once a turn", async () => {
+    const a = adapter();
+    filler(a);
+    const store = a.counterpart.store;
+    const gone = await remember(a, SHUT, { title: "Archived since", text: "This one is archived before the turn.", about: "owner" });
+    const one = await remember(a, SHUT, { title: "Live one", text: "This one is live, in the bakery.", about: "owner" });
+    const two = await remember(a, SHUT, { title: "Live two", text: "This one is live too, in the bakery.", about: "owner" });
+    const dead = await remember(a, HERE, { title: "The zinnia note", text: `The zinnia note names ${gone} and nothing else.` });
+    const live = await remember(a, HERE, { title: "The yarrow note", text: `The yarrow note names ${one}.` });
+    const live2 = await remember(a, HERE, { title: "The tansy note", text: `The tansy note names ${two}.` });
+    store.archive(gone, "test");
+    let reads = 0;
+    const foldersOn = (): ((scope: string) => boolean) => {
+      reads += 1;
+      return () => true;
+    };
+    const turn = (session: string, text: string) => a.counterpart.recallForTurn({ sessionId: session, text }, { scope: HERE, foldersOn });
+    expect(JSON.stringify(turn("sess-fi1-dead", "the zinnia note").decision)).toContain(dead);
+    expect(reads).toBe(0);
+    const both = JSON.stringify(turn("sess-fi1-live", "the yarrow note and the tansy note").decision);
+    expect(both).toContain(live);
+    expect(both).toContain(live2);
+    expect(both).toContain(one);
+    expect(both).toContain(two);
+    expect(reads).toBe(1);
+  });
+
+  test("through a real hook process: a turn in an observer folder brings that folder's own, not its parent's; another folder's turn brings neither", async () => {
+    const a = adapter();
+    filler(a);
+    const SUB = join(SHUT, "oven");
+    mkdirSync(SUB, { recursive: true });
+    const own = await remember(a, SHUT, { title: "Rather sell", text: SECRET_OWN, about: "owner" });
+    const inBakery = await remember(a, SHUT, { title: "The zinnia note", text: `The zinnia note got a long answer; see ${own}.` });
+    const inGarden = await remember(a, HERE, { title: "The yarrow note", text: `The yarrow note got a long answer; see ${own}.` });
+    for (const c of closers.splice(0)) c.close();
+    writeFileSync(config, JSON.stringify({ dataDir: join(root, "store"), injectionBudgetBytes: 9_000, timeZone: ZONE }));
+    setting({ [SHUT]: "observer" });
+    const hook = (session: string, cwd: string, words: string): string => {
+      const r = spawnSync(process.execPath, ["run", resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts"), "--config", config], {
+        input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: session, cwd, prompt: words }),
+        encoding: "utf8",
+        env: { PATH: process.env["PATH"] ?? "", HOME: root, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ATTENDED: "1" },
+        timeout: 60_000,
+      });
+      expect(r.status).toBe(0);
+      return r.stdout;
+    };
+    const home = hook("sess-fi1-obs-home", SHUT, "the zinnia note");
+    expect(home).toContain(inBakery);
+    expect(home).toContain(own);
+    const below = hook("sess-fi1-obs-below", SUB, "the zinnia note");
+    expect(below).toContain(inBakery);
+    expect(below).not.toContain(own);
+    const other = hook("sess-fi1-obs-other", HERE, "the yarrow note");
+    expect(other).toContain(inGarden);
+    expect(other).not.toContain(own);
   });
 });
