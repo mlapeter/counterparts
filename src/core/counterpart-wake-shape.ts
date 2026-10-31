@@ -36,26 +36,28 @@
  * day summary's held row. No model, no embedding, no scan past what the old road
  * read.
  *
- * Not a `counterpart-*.ts` part, though it reads a few of the root's private reads
- * as one does: the root and its parts hold no number (`test/counterpart.test.ts`),
- * and this has limits of its own, all named in `SHAPE`.
+ * A part of the root like `counterpart-boundary.ts`: it reads the root's private
+ * reads by `cp["…"]` as they do, rather than widen `Counterpart`'s public surface
+ * for one caller, and it holds no number (`test/counterpart.test.ts`): every limit
+ * is named, with its reason, in `self/tunables.ts#WAKE_SHAPE_LIMITS`.
  */
 import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import type { HorizonLine } from "./briefing.js";
 import type { Counterpart } from "./counterpart.js";
 import type { WakeHere, WakeSession } from "./counterpart-types.js";
 import { isNightRow, memoryClosedTo } from "./dream/slices.js";
-import { handoffLead, modelWords, versionOlder } from "./handoff/index.js";
+import { firstRealSentence, leadOf, modelWords, seatOf, shortSession, titleInLead, versionOlder } from "./handoff/index.js";
 import type { Handoff } from "./handoff/index.js";
 import { lastExchange, quoteOf, LAST_EXCHANGE_HANDLE } from "./handoff/last-exchange.js";
-import { chaptersOn, placeWords } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, chaptersOn, placeWords } from "./handoff/last-here.js";
 import type { ChapterHere } from "./handoff/last-here.js";
-import { SHAPED_CONTEXT, flatten, fixedPointTotal, prefaceLine, WAKE_SYSTEM } from "./self/briefing.js";
+import { SHAPED_CONTEXT, WAKE_BYTE_COUNTS, flatten, fixedPointTotal, prefaceLine, WAKE_SYSTEM } from "./self/briefing.js";
 import { byteLength } from "./self/identity.js";
 import { readSentinel, settledOver } from "./self/index.js";
+import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
 import { craftSince, isWorkMemory, projectFolder, threadPlace } from "./self/work.js";
-import { addDays, daysBetween, isDay, localDate, localStamp, startOfLocalDay } from "./time.js";
+import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
@@ -66,49 +68,10 @@ export const WAKE_SHAPE_KEY = "self.wake_shape";
 /** The door a section's rest goes behind. Each is a `recall` handle that lists what it counts. */
 export const COMING_UP_HANDLE = "coming up";
 export const HANDOFFS_HANDLE = "handoffs";
-
-/**
- * EVERY LIMIT THE SHAPE SETS, each with its reason (Mike: list them, say why).
- * Bytes are draft 5's judgment, measured on six real days (wake-compare/round-4);
- * counts are what its cold reader could use without a tool call.
- */
-export const SHAPE = {
-  /** Each section's first budget, before the one pass. Draft 5's table; Last night's is above its 350, which a 300-byte line and two titles passed on every case. */
-  ROOM: { folder: 1_300, elsewhere: 500, coming: 700, open: 500, yesterday: 600, night: 450 },
-  /** Lead lines, and the bytes they may come to: five lines of about 120 characters, since a handoff is as often one paragraph as a list. */
-  LEAD_LINES: 5,
-  LEAD_BYTES: 600,
-  /** Spare room finishes a cut lead first (round 4: 922 B unused while a lead was cut at 573). */
-  LEAD_LINES_SPARE: 8,
-  LEAD_BYTES_SPARE: 960,
-  /** "Since, here" lines before `+N`: more echoed the lead. */
-  SINCE_SHOWN: 3,
-  /** A closing batch echoes the lead; a later correction doesn't. Ten minutes tells them apart well enough on the real days. */
-  SINCE_OWN_SESSION_MS: 10 * 60_000,
-  /** A title sharing this much of its words with the lead is the lead over again. */
-  SINCE_IN_LEAD: 0.6,
-  /** How many rows "Since, here" reads: past this the door says how many it saw. */
-  SINCE_READ: 200,
-  /** One per seat, newest of each: past two it reached a fortnight back. */
-  OLDER_SHOWN: 2,
-  /** Other sessions named in "Open here now"; a fourth is a count. */
-  OPEN_HERE_SHOWN: 3,
-  /** Elsewhere's folders; spare room takes it further. The cap on spare is so a store with many folders stops somewhere. */
-  ELSEWHERE_SHOWN: 4,
-  ELSEWHERE_SHOWN_SPARE: 8,
-  /** Due today past the plain reminders: a flood of nine read as a nag (the 10-29 wake). */
-  DUE_TODAY_SHOWN: 4,
-  /** Overdue items, newest first: more is a nag, and the rest are behind the door. Spare does not reach them (round 4: past it, the lane flooded). */
-  OVERDUE_SHOWN: 2,
-  /** The next later items; spare room takes it to three, later items only, for the same reason. */
-  LATER_SHOWN: 1,
-  LATER_SHOWN_SPARE: 3,
-  /** Still open's items; spare room takes it to five (round 4: good on every case). */
-  OPEN_SHOWN: 3,
-  OPEN_SHOWN_SPARE: 5,
-  /** A row with no title goes by its first sentence, up to here. Past it, its first words with an ellipsis: it is not a title being cut. */
-  UNTITLED_BYTES: 300,
-} as const;
+/** What an item with no date sorts as: after every date. */
+export const UNDATED_LAST = "undated";
+/** Where Elsewhere's rest goes: a facts question, since those folders have no title here to list. */
+export const ELSEWHERE_DOOR = 'recall facts "yesterday"';
 
 type SectionKey = "folder" | "elsewhere" | "coming" | "open" | "yesterday" | "night";
 const ORDER: readonly SectionKey[] = ["folder", "elsewhere", "coming", "open", "yesterday", "night"];
@@ -153,7 +116,6 @@ function firstSentence(s: string): string {
 }
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
-const mmdd = (ymd: string): string => ymd.slice(5);
 const norm = (s: string): string => s.trim().replace(/\/+$/, "");
 
 /** A row's title whole, or its first sentence: never a title cut. */
@@ -163,61 +125,7 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
   const first = flatten(row.body.split("\n").find((l) => l.trim().length > 0) ?? "");
   const sentence = firstSentence(first);
   if (byteLength(sentence) <= SHAPE.UNTITLED_BYTES) return sentence;
-  return `${[...sentence].slice(0, SHAPE.UNTITLED_BYTES / 3).join("").trimEnd()}…`;
-}
-
-const WORDS = (x: string): string[] => (x.toLowerCase().match(/[a-z0-9#.]{3,}/g) ?? []).map((w) => w.replace(/\.$/, ""));
-
-/** Does the lead already say this title? Most of its words are in the lead. Judged by words: a correction names new ones. */
-export function titleInLead(title: string, lead: string): boolean {
-  const t = WORDS(title);
-  if (t.length === 0) return false;
-  const l = new Set(WORDS(lead));
-  return t.filter((w) => l.has(w)).length / t.length >= SHAPE.SINCE_IN_LEAD;
-}
-
-/** An all-caps first word that isn't a seat: the handoff's own label for what follows. */
-const NOT_SEATS = new Set(["NEXT", "TODO", "DONE", "NOTE", "NOTES", "STATUS", "WIP", "OPEN", "LIVE", "PLAN", "HANDOFF"]);
-
-/** The seat a handoff opens with: an all-caps first word (`ROADMAP 10-29 12:40: …`), or null. Only a word it wrote itself: no list of seats. */
-export function seatOf(body: string): string | null {
-  const word = /^([A-Z][A-Z0-9]{3,})\b/.exec(body.trim())?.[1];
-  return word === undefined || NOT_SEATS.has(word) ? null : word;
-}
-
-/** The handoff's own opening label, when it opens with its seat word and date: the header above already says them. */
-export function withoutLabel(body: string): string {
-  return body.replace(/^\s*[A-Z][A-Z0-9-]{3,}\s+\d\d-\d\d(\s+\d\d?:\d\d)?(\s+\([^)]*\))?\s*[:.]?\s*/, "");
-}
-
-/** The first sentence with something in it: not a label, not "OK." */
-export function firstRealSentence(body: string): string {
-  const flat = flatten(withoutLabel(body)).replace(/^[A-Z][A-Z0-9-]{3,}\s*[:.]\s*/, "");
-  let last = flat;
-  for (const p of flat.split(/(?<=[.!?])\s+/)) {
-    last = p;
-    if ((p.match(/[A-Za-z]{2,}/g) ?? []).length >= 4) return p;
-  }
-  return last;
-}
-
-/**
- * THE LEAD: up to `lines` lines coming to at most `bytes`, whole lines or whole
- * sentences (`handoffLead`, which keeps a last `next:` part, with its cut set
- * high enough that a line is only ever cut when one sentence alone passes the
- * whole lead's room). `cut`: there is more of it than this.
- */
-export function leadOf(body: string, lines: number, bytes: number): { lines: string[]; cut: boolean } {
-  const text = withoutLabel(body);
-  const all = handoffLead(text, 1_000, bytes);
-  const kept = handoffLead(text, lines, bytes);
-  const out = [...kept];
-  const size = (x: readonly string[]): number => x.reduce((n, l) => n + byteLength(l) + 1, 0);
-  // Over its room, the lines before the last give way first when the last is a
-  // `next:` part; otherwise from the end. Never below one line.
-  const nextLast = /^next\b/i.test(out[out.length - 1] ?? "");
-  while (out.length > 1 && size(out) > bytes) out.splice(nextLast ? out.length - 2 : out.length - 1, 1);
-  return { lines: out, cut: out.length < all.length };
+  return `${[...sentence].slice(0, SHAPE.UNTITLED_CHARS).join("").trimEnd()}…`;
 }
 
 /**
@@ -307,8 +215,8 @@ function settlesOf(row: Pick<MemoryRow, "meta">): string | null {
 }
 
 /** Reader order of due today: plain first, then this folder's, each with a `settles when` first. */
-function dueRank(c: Cue): number {
-  return (c.plain ? 0 : 4) + (c.mine ? 0 : 2) + (c.settles === null ? 1 : 0);
+function dueOrder(x: Cue, y: Cue): number {
+  return Number(y.plain) - Number(x.plain) || Number(y.mine) - Number(x.mine) || Number(y.settles !== null) - Number(x.settles !== null);
 }
 
 /** A line of the handoffs' door (`recall "handoffs"`): what came after the newest here. */
@@ -318,14 +226,6 @@ export interface SinceItem {
   readonly status: string | null;
   readonly chapter: boolean;
   readonly at: number;
-}
-
-/** `27 hours`, `3 days`: hours under two days, as a person says it. */
-function ageWords(ms: number, now: number): string {
-  const min = Math.max(0, Math.round((now - ms) / 60_000));
-  if (min < 60) return `${String(min)} min`;
-  if (min < 48 * 60) return plural(Math.round(min / 60), "hour");
-  return plural(Math.round(min / 1_440), "day");
 }
 
 /**
@@ -354,11 +254,11 @@ function factClock(cp: Counterpart, zone: string): (id: string) => number {
     const writtenDay = Number.isFinite(written) ? startOfLocalDay(localDate(written, zone), zone) : Infinity;
     let at = written;
     for (const d of [r.occurred_on, r.happened_on, r.learned_on]) {
-      if (typeof d !== "string" || !isDay(d.slice(0, 10))) continue;
-      const ms = startOfLocalDay(d.slice(0, 10), zone);
+      if (typeof d !== "string" || !isDay(stampDay(d))) continue;
+      const ms = startOfLocalDay(stampDay(d), zone);
       if (ms < writtenDay && ms < at) at = ms;
     }
-    if (depth < 3) for (const e of before(id)) at = Math.min(at, clock(e, depth + 1));
+    if (depth < SHAPE.FACT_CLOCK_DEPTH) for (const e of before(id)) at = Math.min(at, clock(e, depth + 1));
     memo.set(id, at);
     return at;
   };
@@ -409,15 +309,15 @@ export function sinceHere(
     // Since means changed, not written: a stated day before the handoff's is an older note.
     if (handoffDay !== null) {
       const stated = [r.occurred_on, r.happened_on, r.event_date, r.learned_on]
-        .filter((d): d is string => typeof d === "string" && isDay(d.slice(0, 10)))
-        .map((d) => startOfLocalDay(d.slice(0, 10), zone));
+        .filter((d): d is string => typeof d === "string" && isDay(stampDay(d)))
+        .map((d) => startOfLocalDay(stampDay(d), zone));
       if (stated.some((d) => d < handoffDay)) {
         older += 1;
         continue;
       }
     }
     const flat = flatten(title);
-    if (titleInLead(flat, opts.lead)) {
+    if (titleInLead(flat, opts.lead, SHAPE.SINCE_IN_LEAD)) {
       skippedInLead += 1;
       continue;
     }
@@ -485,10 +385,10 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const fields = here?.headFields ?? [];
   // What the delivery adds beside the body: the preface and its newline, the
   // head's fields, and a digit's growth in the two byte counts.
-  const added = byteLength(preface) + 1 + (fields.length === 0 ? 0 : byteLength(fields.join(" ")) + 1) + 2;
+  const added = byteLength(preface) + 1 + (fields.length === 0 ? 0 : byteLength(fields.join(" ")) + 1) + WAKE_BYTE_COUNTS;
   const opening = (n: number, b: string): string => `<!-- counterparts:wake elements=${String(n)} bytes=${b} -->`;
   const closing = (n: number, b: string, page: boolean): string => `<!-- counterparts:wake/end day=${String(day)}${page ? " page=1" : ""} elements=${String(n)} bytes=${b} -->`;
-  const frameBytes = byteLength(opening(9_999, "99999")) + 1 + byteLength(SHAPED_CONTEXT) + 2 + byteLength(closing(9_999, "99999", true)) + added;
+  const frameBytes = byteLength(opening(SHAPE.FRAME_ELEMENTS, String(SHAPE.FRAME_BYTES))) + 1 + byteLength(`${SHAPED_CONTEXT}\n\n`) + byteLength(closing(SHAPE.FRAME_ELEMENTS, String(SHAPE.FRAME_BYTES), true)) + added;
   const room = budget - frameBytes;
   if (room <= 0) return null;
 
@@ -515,7 +415,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     })
     .sort((a, b) => Number(b.here) - Number(a.here) || b.at - a.at || (a.i.id < b.i.id ? -1 : 1));
   const summary = cp.self.tunables.YESTERDAY_FROM_SUMMARY ? safe(() => cp["daySummaryShown"](yest, here), null) : null;
-  const yestHere = scope.length === 0 ? [] : safe(() => chaptersOn(store, yest, { fromDay: Math.max(0, day - 14) }).filter((c) => norm(c.scope ?? "") === scope), []);
+  const yestHere = scope.length === 0 ? [] : safe(() => chaptersOn(store, yest, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS) }).filter((c) => norm(c.scope ?? "") === scope), []);
   const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: 0 });
   const said = scope.length === 0 ? null : safe(() => saidHere(cp, scope, here, sessions, headless, chaptersHere, newest ?? null, reader, zone, now), null);
   const liveHere = sessions.filter((s) => s.live && s.session !== reader && norm(s.scope) === scope);
@@ -547,13 +447,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       if (newest === undefined) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
       else {
         const lead = leadOf(newest.body, n.lead, leadBytes);
-        const seat = seatOf(newest.body) ?? `session ${(newest.session ?? "unknown").slice(0, 8)}`;
-        const when = `${mmdd(newest.writtenOn)}${newestAt === null ? "" : ` ${localStamp(newestAt, zone).split(" ")[1] ?? ""}`}`;
+        const seat = seatOf(newest.body) ?? `session ${shortSession(newest.session)}`;
+        const when = `${monthDay(newest.writtenOn)}${newestAt === null ? "" : ` ${localStamp(newestAt, zone).split(" ")[1] ?? ""}`}`;
         const written = newest.build ?? (newest.session !== null ? safe(() => here?.openedWith?.(newest.session as string) ?? null, null) : null);
         const delta = written !== null && installed !== null && versionOlder(written, installed) ? `; ${written} then, ${installed} now` : "";
         const head = `Handoff, ${seat}, ${when} (${ageOf(newestAt ?? startOfLocalDay(newest.writtenOn, zone))} old${delta}${hs.length > 1 ? `; newest of ${String(hs.length)}` : ""}). ${lead.cut ? "whole: " : ""}recall ${newest.id}`;
         out.push(head, ...lead.lines.map((l) => `  ${l}`));
-        leadSize = byteLength(head) + 1 + lead.lines.reduce((x, l) => x + byteLength(l) + 3, 0);
+        leadSize = byteLength(`${head}\n`) + lead.lines.reduce((x, l) => x + byteLength(`  ${l}\n`), 0);
       }
       if (sinceLines.length > 0 && n.since > 0) {
         out.push(newest === undefined ? "Since yesterday, here:" : "Since, here:");
@@ -582,7 +482,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const rest = hs.length - 1;
       if (rest > 0) {
         out.push(`Older handoffs: ${String(rest)}; recall "${HANDOFFS_HANDLE}"`);
-        for (const o of olderPick.slice(0, n.older)) out.push(`- ${o.seat}: ${firstRealSentence(o.h.body)} (${mmdd(o.h.writtenOn)}; ${o.h.id})`);
+        for (const o of olderPick.slice(0, n.older)) out.push(`- ${o.seat}: ${firstRealSentence(o.h.body)} (${monthDay(o.h.writtenOn)}; ${o.h.id})`);
       }
       if (tail !== null) out.push(tail);
       if (n.said && said !== null) out.push(said.line);
@@ -623,7 +523,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
         out.push(s.age === "" || (i > 0 && shown[i - 1]?.age === s.age) ? s.text : `${s.text} (${s.age})`);
       }
       const rest = total - k;
-      if (rest > 0) out.push(`+${plural(rest, "more folder")}`);
+      if (rest > 0) out.push(`+${plural(rest, "more folder")}; ${ELSEWHERE_DOOR}`);
       return out;
     };
     let k = Math.min(cap, list.length);
@@ -635,16 +535,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const comingSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const live = cues.filter((c) => !claim.has(c.id) || c.plain);
     const todayAll = live.filter((c) => c.today);
-    const ranked = [...todayAll].sort((x, y) => dueRank(x) - dueRank(y));
+    const ranked = [...todayAll].sort(dueOrder);
     const plain = ranked.filter((c) => c.plain);
     const rest = ranked.filter((c) => !c.plain);
     const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
-    const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? "9999").localeCompare(String(y.due ?? "9999")));
+    const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
     const other = live.filter((c) => !c.today && !c.mine);
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
     const dueLine = (c: Cue): string => `- Due today · ${c.plain ? c.body : c.title}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]`;
     const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
-    const laterLine = (c: Cue): string => `- ${c.due === null ? "Soon" : mmdd(c.due)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
+    const laterLine = (c: Cue): string => `- ${c.due === null ? "Soon" : monthDay(c.due)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
     const order: { c: Cue; line: string }[] = [
       ...plain.map((c) => ({ c, line: dueLine(c) })),
       ...rest.slice(0, SHAPE.DUE_TODAY_SHOWN).map((c) => ({ c, line: dueLine(c) })),
@@ -743,7 +643,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
 
   const plainBytes = cues.filter((c) => c.plain).reduce((n, c) => n + byteLength(`- Due today · ${c.body}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]\n`), byteLength("Coming up:\n\n"));
   const summaryBytes = summary === null ? 0 : byteLength(`Yesterday, in day's end's words: ${flatten(summary)}\n\n`);
-  const budgets: Budgets = { ...SHAPE.ROOM, coming: Math.max(SHAPE.ROOM.coming, plainBytes + 80), yesterday: Math.max(SHAPE.ROOM.yesterday, summaryBytes) };
+  const budgets: Budgets = { ...SHAPE.ROOM, coming: Math.max(SHAPE.ROOM.coming, plainBytes + SHAPE.COMING_PAST_PLAIN), yesterday: Math.max(SHAPE.ROOM.yesterday, summaryBytes) };
   let sec = compose(budgets);
   // ── the one pass: over, room given back in `GIVE`'s order; a plain reminder's
   // room is kept till every other section has given; a page never steps down
@@ -752,7 +652,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     for (const key of GIVE) {
       const over = used(sec) - left;
       if (over <= 0) break;
-      const floor = pass === 0 && key === "coming" ? Math.min(plainBytes + 80, byteLength(sec[key].text)) : 0;
+      const floor = pass === 0 && key === "coming" ? Math.min(plainBytes + SHAPE.COMING_PAST_PLAIN, byteLength(sec[key].text)) : 0;
       budgets[key] = Math.max(floor, byteLength(sec[key].text) - over);
       sec = compose(budgets);
     }
@@ -783,7 +683,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const elements = self.elements + ORDER.reduce((n, k) => n + sec[k].items, 0);
   const bodyOf = (b: string): string =>
     `${opening(elements, b)}\n${SHAPED_CONTEXT}\n\n${self.text}${ORDER.map((k) => sec[k].text).join("")}${closing(elements, b, self.rung !== null)}`;
-  const stated = fixedPointTotal(byteLength(bodyOf("")), 2);
+  const stated = fixedPointTotal(byteLength(bodyOf("")), WAKE_BYTE_COUNTS);
   const body = bodyOf(String(stated));
   if (!readSentinel(body).intact) return null;
   return finish(cp, delivery, here, budget, {
@@ -851,10 +751,10 @@ function finish(
 function pickOlder(hs: readonly Handoff[]): { h: Handoff; seat: string }[] {
   const first = hs[0];
   if (first === undefined) return [];
-  const seen = new Set<string>([seatOf(first.body) ?? `session ${(first.session ?? "unknown").slice(0, 8)}`]);
+  const seen = new Set<string>([seatOf(first.body) ?? `session ${shortSession(first.session)}`]);
   const out: { h: Handoff; seat: string }[] = [];
   for (const h of hs.slice(1)) {
-    const seat = seatOf(h.body) ?? `session ${(h.session ?? "unknown").slice(0, 8)}`;
+    const seat = seatOf(h.body) ?? `session ${shortSession(h.session)}`;
     if (seen.has(seat)) continue;
     seen.add(seat);
     out.push({ h, seat });
@@ -869,7 +769,7 @@ function openHereLine(live: readonly WakeSession[], today: string, zone: string)
   const words = [...live]
     .sort((a, b) => b.lastAt - a.lastAt)
     .slice(0, SHAPE.OPEN_HERE_SHOWN)
-    .map((s) => `session ${s.session.slice(0, 8)}${typeof s.model === "string" && s.model.length > 0 ? ` on ${modelWords(s.model)}` : ""} since ${clockWords(s.startedAt, today, zone)}`);
+    .map((s) => `session ${shortSession(s.session)}${typeof s.model === "string" && s.model.length > 0 ? ` on ${modelWords(s.model)}` : ""} since ${clockWords(s.startedAt, today, zone)}`);
   const rest = live.length - words.length;
   return `Open here now: ${words.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`;
 }
@@ -894,7 +794,7 @@ function saidHere(
 ): { line: string; bytes: number } | null {
   if (cp.observer) return null;
   const ex = lastExchange({
-    buffer: cp["spans"],
+    buffer: cp.spans,
     scope,
     reader,
     now,
@@ -933,7 +833,7 @@ function elsewhereFacts(
   if (gate === null) return { list: [], quiet: 0 };
   const store = cp.store;
   const best = new Map<string, { id: string; title: string; at: number; fact: number }>();
-  for (const m of store.memoryTitlesByScopeSince(sinceY, { until: now + 1, perScope: 60 })) {
+  for (const m of store.memoryTitlesByScopeSince(sinceY, { until: now + 1, perScope: SHAPE.ELSEWHERE_ROWS_READ })) {
     if (m.session !== null && m.session === reader) continue;
     if (!gate.named(m.scope) || !isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
     const key = gate.norm(m.scope);

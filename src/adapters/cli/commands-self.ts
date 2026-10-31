@@ -4,7 +4,7 @@ import { localDate } from "../../core/time.js";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { Counterpart } from "../../core/counterpart.js";
-import { WAKE_SHAPE_KEY } from "../../core/wake-shape.js";
+import { WAKE_SHAPE_KEY } from "../../core/counterpart-wake-shape.js";
 import { NO_PAGE_VERSION } from "../../core/self/index.js";
 import { REFLECTED_FEELING_KEY } from "../../core/sleep/index.js";
 import { CLAIMS_ERA_CUTOFF_KEY, storeExists } from "../../core/store/index.js";

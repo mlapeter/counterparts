@@ -26,7 +26,9 @@ import { parseTranscript } from "../src/adapters/claude-code/transcript.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { SHAPE, WAKE_SHAPE_KEY, firstRealSentence, leadOf, seatOf, titleInLead, withoutLabel } from "../src/core/wake-shape.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { firstRealSentence, leadOf, seatOf, titleInLead, withoutLabel } from "../src/core/handoff/index.js";
+import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { DATABASE_FILE } from "../src/core/store/index.js";
 import { addDays } from "../src/core/time.js";
@@ -718,8 +720,8 @@ describe("the small words", () => {
   });
 
   test("a title the lead says is the lead; a correction names new words", () => {
-    expect(titleInLead("OL1d lanes are next", "with the OL1d and night-prompt lanes next")).toBe(true);
-    expect(titleInLead("OL1d was already done, PR merged", "with the OL1d and night-prompt lanes next")).toBe(false);
+    expect(titleInLead("OL1d lanes are next", "with the OL1d and night-prompt lanes next", SHAPE.SINCE_IN_LEAD)).toBe(true);
+    expect(titleInLead("OL1d was already done, PR merged", "with the OL1d and night-prompt lanes next", SHAPE.SINCE_IN_LEAD)).toBe(false);
   });
 
   test("the lead: whole sentences, a next: part kept, cut says so", () => {
