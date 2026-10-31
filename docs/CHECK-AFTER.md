@@ -39,6 +39,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 |---|---|---|---|
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | in review 10-30, unreleased | ~2 weeks after release (~2026-11-14, if it goes out in the next cut): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | in review 10-30, unreleased | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
+| The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | built, off, in review 10-30 | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | in review 10-30, unreleased | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | in review 10-30, unreleased | ~3 nights after release (~2026-11-03, if it goes out in the next cut): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | in review 10-30, unreleased | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
@@ -1733,3 +1734,16 @@ other handoffs' lines first (`HANDOFF_OTHERS_SHOWN`), then the lead (`HANDOFF_LE
 is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **Revert:** `HINTS_IN_WAKE` true for the lane; the rest by reverting the PR. The ids in count lines are not behind a switch.
+
+## The wake's shape (WK2)
+
+**What we're trying:** the wake designed top-down, one question per section, no item twice, a whole title or a door where something doesn't fit. Built behind `self.WAKE_SHAPE`, off; one store on first (`counterparts wake-shape on`).
+
+**The clock starts when it's turned on, not at merge.** ROADMAP sets the dated reminder then (settles when the reading's written up).
+
+**What to look at, a few days after:** real wakes in the folders that use them most, read for the draft's test: without a tool call, what's live, what's owed, what changed since this note? And `adapter.wake.injected` rows by `sec_*`: bytes per section against the table in the PR; `pageRung` whole every day; any `counterpart.wake.shape.declined` or `.failed` in the process log; how often `Nothing here since.` prints (0 of 30 in the prototype's sweep; a line that never prints can go). Then: is the door used? `mcp.recall.comingup` and `mcp.recall.handoffshere` by day.
+
+**What would change it:** a wake that fails the test, or a claim read as live that the lead has since settled. Unused room: 500-900 B is left on quiet folders, and where it should go is open.
+
+**How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
+

@@ -2971,3 +2971,19 @@ bare id in a count line (`MORE_LINE_IDS`, `FOLD_LINE_IDS`). Kept, on purpose:
 Overdue step back through `Self#composeLanes`, not through `ROOM_ORDER`: a dated line outranks "Still open"'s items there,
 and a new rung for "dated but old" would touch every rescue. The cost is up to three extra renders, only on a wake where the
 render trimmed "Still open" and an overdue is listed.
+
+## WK2, 2026-10-30: the wake's shape, behind a switch
+
+`core/counterpart-wake-shape.ts` is one composer, for one delivery. The published bundle and all its rules stay as they were,
+for what reads it (doctor, the dashboard, the dream's input, a delivery the composer declines), so "off" is the same code.
+
+- **`Self#shapedSelf`, and only that, is what `self/` adds.** The page on the first rung that fits everything past the frame, or,
+  with no page yet, "Who I am" and "Might be relevant" as the published record showed them, by the same `render`.
+- **No page yet keeps the lane**, against the spec's "removed". It's WK1's one exception and the case for it holds: on a day-0
+  store neither road has hints; some days on, with no page, that lane is all a wake has of its memories.
+- **Echo skip and glimpse credit are untouched.** Nothing in the composer writes a showing. `lined` and `threads` go where they
+  went (`fit.index.wake`, `noteWakeOpen`), now the ids it printed; a publish still does what it did to `wake_display`.
+- **Bytes come from the composer**, not `wakeShape`: its section names, so a reader of `sec_*` rows reads both roads alike. A
+  page-less store's lanes count as `page`.
+- **`arrivingTense` still runs, on nothing**: it looks under the last `Coming up:` for the old dated forms, and the shaped
+  lines don't have them. `Coming up:` always prints as a heading, so a page's own "Coming up:" line is never taken for the lane.

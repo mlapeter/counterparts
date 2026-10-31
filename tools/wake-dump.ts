@@ -120,7 +120,6 @@ function build(dir: string, shape: Shape): Counterpart {
     // and "Still open", not just the no-scope road.
     c.revisePage(PAGE, { reason: "fixture", by: "owner" });
     c.writeHandoff("next: fire the second batch (waiting on the clay)\nThe glaze tiles are drying on rack two.", { scope: HERE, session: "aaaa1111-0000-4000-8000-000000000001" });
-    c.writeHandoff("An older handoff with enough plain words to be a sentence of its own.", { scope: HERE, session: "bbbb2222-0000-4000-8000-000000000002" });
     const put = (id: string, body: string, more: Record<string, unknown>, scope = HERE): void => {
       c.store.put({ id, type: "memory", kind: "fact", body, title: body.slice(0, 40), about: "work", learnedOn: AT, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: "bbbb2222-0000-4000-8000-000000000002", scope }, ...more });
     };
@@ -154,7 +153,8 @@ for (const shape of shapes) {
         `rendered=${report.rendered} published=${report.published} composeBudget=${String(report.composeBudget)} bytes=${report.bytes} elements=${report.elements}`,
       );
       out.push(`wake ok=${woke.ok} reason=${woke.reason} bytes=${woke.bytes}`);
-      out.push(woke.text);
+      // A handoff's id is random, and one is all this shape has: the bytes are what's compared.
+      out.push(woke.text.replace(/sch_[0-9a-f]{12}/g, "sch_fixture00000"));
       out.push("");
       c.close();
     } finally {

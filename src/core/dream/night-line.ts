@@ -22,7 +22,8 @@
  * never the dream's journal or its title (the journal stays out of the
  * surfaces a session reads, dream CONTRACT), never a word of the reflection.
  * No model. A store that has never dreamed, reflected or run a night gets no
- * line. Pure.
+ * line. Pure. (The shaped wake, WK2 2026-10-30, names a night's dream and
+ * reflection by title instead, by Mike's approved shape: `NightFacts.named`.)
  *
  * BEFORE THE DAY'S RUN, THE LATEST FINISHED NIGHT, DATED (2026-10-25, the L1
  * builder; roadmap 10-25, lightly held). The run starts at the day's first

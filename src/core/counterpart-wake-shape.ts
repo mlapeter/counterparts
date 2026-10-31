@@ -313,10 +313,7 @@ export interface SinceItem {
   readonly at: number;
 }
 
-/**
- * THE FACTS THE SECTIONS READ, once per delivery. Each failing read costs its
- * section, never the wake.
- */
+/** `27 hours`, `3 days`: hours under two days, as a person says it. */
 function ageWords(ms: number, now: number): string {
   const min = Math.max(0, Math.round((now - ms) / 60_000));
   if (min < 60) return `${String(min)} min`;
@@ -487,7 +484,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const room = budget - frameBytes;
   if (room <= 0) return null;
 
-  // ── the facts ──
+  // ── the facts, once per delivery: a read that fails costs its section, never the wake ──
   const hs: readonly Handoff[] = scope.length === 0 ? [] : safe(() => cp.handoffs.readAll(scope), []);
   const newest = hs[0];
   const newestAt = newest === undefined ? null : safe(() => cp.handoffs.writtenAt(newest), null);
@@ -511,7 +508,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     .sort((a, b) => Number(b.here) - Number(a.here) || b.at - a.at || (a.i.id < b.i.id ? -1 : 1));
   const summary = cp.self.tunables.YESTERDAY_FROM_SUMMARY ? safe(() => cp["daySummaryShown"](yest, here), null) : null;
   const yestHere = scope.length === 0 ? [] : safe(() => chaptersOn(store, yest, { fromDay: Math.max(0, day - 14) }).filter((c) => norm(c.scope ?? "") === scope), []);
-  const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader), { list: [], quiet: 0 });
+  const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: 0 });
   const said = scope.length === 0 ? null : safe(() => saidHere(cp, scope, here, sessions, headless, chaptersHere, newest ?? null, reader, zone, now), null);
   const liveHere = sessions.filter((s) => s.live && s.session !== reader && norm(s.scope) === scope);
   const night = safe(() => nightWords(cp, at, here, scope), null);
@@ -923,11 +920,10 @@ function elsewhereFacts(
   sinceY: number,
   now: number,
   reader: string | null,
+  factAt: (id: string) => number,
 ): { list: ElsewhereRow[]; quiet: number } {
   if (gate === null) return { list: [], quiet: 0 };
   const store = cp.store;
-  const zone = store.zone();
-  const factAt = factClock(cp, zone);
   const best = new Map<string, { id: string; title: string; at: number; fact: number }>();
   for (const m of store.memoryTitlesByScopeSince(sinceY, { until: now + 1, perScope: 60 })) {
     if (m.session !== null && m.session === reader) continue;
