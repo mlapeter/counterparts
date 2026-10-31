@@ -1583,8 +1583,10 @@ It's the one place in the turn that asks, because a named id reaches a memory wi
 memory the turn's own words reach isn't fenced, and neither is anything a session asks for: an ordinary session's
 recall is as #688 left it. The turn's own folder is its own. The setting is read once, only on a turn with a named
 id it would otherwise bring. One that won't read closes everything with a folder (`foldersOn`), so that turn brings no
-memory from another folder; its own folder's, and one with no folder, still come. The session-start line that says the
-file is broken says this too. No setting at all, or a host with none: nothing is closed. The turn's own folder matters
+memory from another folder; its own folder's, and one with no folder, still come. The session-start line says the file
+is broken and tells the person to fix it, but not this: that line is held to a size so it fits beside a full wake
+(`stop-ask-quiet.test.ts`, M1), and this is the smallest of what a broken file costs. No setting at all, or a host with
+none: nothing is closed. The turn's own folder matters
 only under `observer`, the one stance that isn't on and still recalls (`off` and `paused` open no store), and it means
 that folder exactly: a session in a subfolder of an observer folder doesn't bring the parent's row. Narrow, and it fails
 towards less. Measured on a copy of the 10-30 snapshot with the owner's setting (17 entries): the prompt hook 217.3 ms
