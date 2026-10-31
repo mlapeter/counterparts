@@ -1743,7 +1743,7 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **What to look at, a few days after:** real wakes in the folders that use them most, read for the draft's test: without a tool call, what's live, what's owed, what changed since this note? And `adapter.wake.injected` rows by `sec_*`: bytes per section against the table in the PR; `pageRung` whole every day; any `counterpart.wake.shape.declined` or `.failed` in the process log; how often `Nothing here since.` prints (0 of 30 in the prototype's sweep; a line that never prints can go). Then: is the door used? `mcp.recall.comingup` and `mcp.recall.handoffshere` by day.
 
-**What would change it:** a wake that fails the test, or a claim read as live that the lead has since settled. Unused room: 500-900 B is left on quiet folders, and where it should go is open.
+**What would change it:** a wake that fails the test, or a claim read as live that the lead has since settled. Unused room stays unused for now (ROADMAP, 10-30): 500-1,250 B on the 10-30 corpus; read the number, and `SPARE` in the composer is the one list to extend if it should go somewhere. Elsewhere's door (`recall facts "yesterday"`) reads events and is store-wide: read whether a session that follows it finds the folder it wanted.
 
 **How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
 

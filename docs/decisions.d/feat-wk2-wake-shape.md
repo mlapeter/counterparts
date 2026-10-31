@@ -13,4 +13,5 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
 - A seat is an all-caps first word in the handoff itself, not a list of seats: the prototype's coordinator/roadmap words are one owner's. No seat: the session's short id.
 - Sections give way in the order elsewhere, open, coming, yesterday, night, folder; a plain reminder's room is kept until the others have given.
 - Last night's budget is 450, not 350: a 300-byte line and two titles passed 350 on every case in round 4.
+- A joined folder is here (`PROJECTS_TRAVEL`), as on the old road: its work is in "Since, here" and its sessions in "Open here now". "This folder only" in the spec is against other folders; `project join` says each one's wake shows the work of all of them.
 - `Still open:` and `Coming up:` always print a heading, with `Nothing open.` or `Nothing dated.` under it, so "nothing owed" is said rather than left to silence.

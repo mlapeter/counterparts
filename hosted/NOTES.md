@@ -465,3 +465,9 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
   cookies keep verifying under the older keys behind it; the forms don't try to.
 - The test restarts the real app on the same data root and port (`accounts.test.ts`, H1): same keys post, other keys
   or a rotated ring answer 403, no keys answer 403 as before.
+
+## 2026-10-30 — no route to the wake's shape yet (WK2)
+
+- `self.WAKE_SHAPE` is off, and the one way to turn it on for a store is the console (`counterparts wake-shape on`, a meta row). A
+  tenant has no console and this app has no setting for it, so a tenant stays on the old road. ROADMAP, 10-30: fine for now. The
+  composer does serve a hosted wake when the row is set (`chatLanesFirst` knows its framing line); what's missing is the route.

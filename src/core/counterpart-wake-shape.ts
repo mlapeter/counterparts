@@ -125,7 +125,10 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
   const first = flatten(row.body.split("\n").find((l) => l.trim().length > 0) ?? "");
   const sentence = firstSentence(first);
   if (byteLength(sentence) <= SHAPE.UNTITLED_BYTES) return sentence;
-  return `${[...sentence].slice(0, SHAPE.UNTITLED_CHARS).join("").trimEnd()}…`;
+  const start = [...sentence].slice(0, SHAPE.UNTITLED_CHARS).join("");
+  // At a word's end where it has words; text with no spaces has no such place.
+  const space = start.lastIndexOf(" ");
+  return `${(space > 0 ? start.slice(0, space) : start).trimEnd()}…`;
 }
 
 /**
@@ -283,12 +286,18 @@ export function sinceHere(
     readonly chapters: readonly ChapterHere[];
     /** What another section answers for: due items ("what's due?"). */
     readonly skip?: ReadonlySet<string>;
+    /** Every folder that counts as here: a joined folder's work is this one's (`PROJECTS_TRAVEL`). Absent: `scope` alone. */
+    readonly folders?: readonly string[];
   },
 ): { items: (SinceItem & { readonly rank: number })[]; older: number; rawLater: number; skippedInLead: number } {
   const store = cp.store;
   const zone = store.zone();
   const now = cp["nowFn"]();
-  const rows = store.memoriesWrittenHereSince(scope, since, now, SHAPE.SINCE_READ);
+  const folders = opts.folders ?? [scope];
+  const rows = folders
+    .flatMap((f) => store.memoriesWrittenHereSince(f, since, now, SHAPE.SINCE_READ))
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+    .slice(0, SHAPE.SINCE_READ);
   const denied = rows.length === 0 ? new Set<string>() : new Set(store.deniedIds());
   const items: (SinceItem & { readonly rank: number })[] = [];
   let older = 0;
@@ -331,7 +340,7 @@ export function sinceHere(
   }
   items.sort((a, b) => a.rank - b.rank || b.at - a.at || (a.id < b.id ? -1 : 1));
   // Anything at all, replaced or archived since included: "Nothing here since" has to be true.
-  return { items, older, rawLater: store.countWrittenHereSince(scope, since, now) + opts.chapters.filter((c) => c.writtenAt > since).length, skippedInLead };
+  return { items, older, rawLater: folders.reduce((n, f) => n + store.countWrittenHereSince(f, since, now), 0) + opts.chapters.filter((c) => c.writtenAt > since).length, skippedInLead };
 }
 
 /** `15:40`, or `10-29 15:40` on another day. */
@@ -399,9 +408,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const chaptersHere: readonly ChapterHere[] = scope.length === 0 ? [] : safe(() => cp.chaptersHereFor(scope, null, cp["chaptersInWindow"](day)).map((f) => f.chapter), []);
   const since = newest === undefined ? sinceY : (newestAt ?? startOfLocalDay(newest.writtenOn, zone));
   const lead5 = newest === undefined ? "" : leadOf(newest.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ");
+  // A joined folder is here (`PROJECTS_TRAVEL`): its work is "Since, here", its sessions "Open here now".
+  const hereFolders: readonly string[] = gate === null ? [scope] : [...gate.ours];
   const cues = safe(() => readCues(cp, at, here), [] as Cue[]);
   const cueIds = new Set(cues.map((c) => c.id));
-  const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds }), null);
+  const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom)), { items: [], parked: 0 });
   const folders = readerFolders(cp, here);
@@ -418,7 +429,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const yestHere = scope.length === 0 ? [] : safe(() => chaptersOn(store, yest, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS) }).filter((c) => norm(c.scope ?? "") === scope), []);
   const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: 0 });
   const said = scope.length === 0 ? null : safe(() => saidHere(cp, scope, here, sessions, headless, chaptersHere, newest ?? null, reader, zone, now), null);
-  const liveHere = sessions.filter((s) => s.live && s.session !== reader && norm(s.scope) === scope);
+  const liveHere = sessions.filter((s) => s.live && s.session !== reader && hereFolders.includes(norm(s.scope)));
   const night = safe(() => nightWords(cp, at, here, scope), null);
   const installed = here?.installed ?? null;
 

@@ -447,6 +447,57 @@ describe("Elsewhere", () => {
   });
 });
 
+describe("a joined folder is here", () => {
+  test("its work is in Since, its session in Open here now; a nothing-since is true of both; a joined folder set off keeps its own", async () => {
+    const { c, at } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    at(NOW - 3 * HOUR);
+    c.writeHandoff("The kiln is drying on rack two, and that's where this stands.", { scope: HERE, session: OWN });
+    at(NOW - HOUR);
+    memory(c, "Work in the joined folder, after the handoff.", { title: "Sieved the joined ash", scope: THERE, session: OTHER });
+    memory(c, "Work in the closed one, after the handoff.", { title: "Counted the shut ledger", scope: SHUT, session: OTHER });
+    at(NOW);
+    for (const folder of [HERE, THERE, SHUT]) c.joinProject({ folder, project: "Kiln", by: "owner" });
+    scopes({ [HERE]: "on", [THERE]: "on", [SHUT]: "off" });
+    const later = hook("dddd4444-0000-4000-8000-00000000000b", BUDGET, THERE);
+    expect(later.wake).toContain("Where this folder stands:");
+    const { wake } = hook();
+    const stands = section(wake, "Where this folder stands:");
+    expect(stands).toContain("- Sieved the joined ash");
+    expect(stands).not.toContain("Nothing here since");
+    expect(stands).toContain("Open here now: session dddd4444");
+    expect(wake).not.toContain("Counted the shut ledger");
+    expect(section(wake, "Elsewhere:")).toBe("");
+  });
+});
+
+describe("Elsewhere's rest", () => {
+  test("past the folders it lists, a count with its door; the door answers for a folder the list left out", async () => {
+    const { c, at, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const modes: Record<string, ScopeMode> = { [HERE]: "on" };
+    const WORK = ["Sieving ash", "Pugging porcelain", "Wedging stoneware", "Mixing celadon", "Trimming bowls", "Loading saggars", "Firing raku", "Sorting shards", "Oiling wheels", "Labelling cones"];
+    const noon = Date.parse(`${addDays(today, -1)}T12:00:00Z`);
+    for (let i = 0; i < SHAPE.ELSEWHERE_SHOWN_SPARE + 2; i++) {
+      const folder = join(root, `shed${String(i)}`);
+      modes[folder] = "on";
+      at(noon + i * MIN);
+      memory(c, `${WORK[i] ?? ""} was yesterday's work in this shed.`, { title: `Shed ${String(i)}: ${WORK[i] ?? ""}`, scope: folder });
+    }
+    at(NOW);
+    scopes(modes);
+    const { wake } = hook();
+    const block = section(wake, "Elsewhere:");
+    expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(SHAPE.ELSEWHERE_SHOWN_SPARE);
+    expect(block.split("\n").at(-1)).toBe('+2 more folders; recall facts "yesterday"');
+    expect(block).not.toContain("Sieving ash");
+    const door = new McpServer({ counterpart: c, host: DESKTOP_HOST, env: {}, lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET } }, manifestVersion: () => null } as never);
+    const said = String((await door.call("recall", { mode: "facts", question: "yesterday" })).structuredContent["answer"]);
+    expect(said).toContain("Sieving ash");
+    expect(said).toContain("Pugging porcelain");
+  });
+});
+
 describe("Coming up", () => {
   /** Nine due today in this folder and a plain reminder, a closed folder's and an open one's. */
   function nine(c: Counterpart, today: string): { plain: string; settled: string } {

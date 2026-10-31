@@ -2722,7 +2722,7 @@ export class McpServer {
 
   private handoffsHereTool(): ToolResult {
     const listed = this.counterpart.handoffsHere(this.scope ?? "");
-    const after = this.counterpart.sinceNewestHere(this.scope ?? "");
+    const after = this.counterpart.sinceNewestHere(this.scope ?? "", this.folderOn());
     this.emit("mcp.recall.handoffshere", undefined, { total: listed.length });
     return this.result(
       {

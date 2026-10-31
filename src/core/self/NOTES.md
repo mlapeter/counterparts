@@ -2974,6 +2974,11 @@ render trimmed "Still open" and an overdue is listed.
 
 ## WK2, 2026-10-30: the wake's shape, behind a switch
 
+**Every limit is in `tunables.ts#WAKE_SHAPE_LIMITS`,** a block beside `SELF_TUNABLES` rather than knobs in it: the shape is judged
+whole, nobody tunes one yet. A review caught the composer moved out of `counterpart-*.ts` to dodge the root's no-number test, so it
+went back: it reads the root's privates as `counterpart-boundary.ts` does, and that test is the point of being a part. The bracket
+reads stay, as in the three other parts (130 of them): making them public would put them on the npm package's `Counterpart`.
+
 `core/counterpart-wake-shape.ts` is one composer, for one delivery. The published bundle and all its rules stay as they were,
 for what reads it (doctor, the dashboard, the dream's input, a delivery the composer declines), so "off" is the same code.
 

@@ -1689,7 +1689,7 @@ export class Counterpart {
    * the rest of the `handoffs` door, for the wake's `+N` under "Since, here" and
    * "Yesterday here". Reads only; empty on a store that cannot answer; never throws.
    */
-  sinceNewestHere(scope: string): { since: SinceItem[]; yesterday: { id: string; title: string | null }[] } {
+  sinceNewestHere(scope: string, exportsFrom?: (scope: string) => boolean): { since: SinceItem[]; yesterday: { id: string; title: string | null }[] } {
     const s = scope.trim().replace(/\/+$/, "");
     if (s.length === 0) return { since: [], yesterday: [] };
     try {
@@ -1699,7 +1699,7 @@ export class Counterpart {
       const yest = addDays(this.store.today(), -1);
       const since = newest === undefined ? startOfLocalDay(yest, this.store.zone()) : (newestAt ?? startOfLocalDay(newest.writtenOn, this.store.zone()));
       const chapters = this.chaptersHereFor(s, null, this.chaptersInWindow(day)).map((f) => f.chapter);
-      const later = sinceHere(this, s, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader: null, lead: "", chapters });
+      const later = sinceHere(this, s, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader: null, lead: "", chapters, folders: projectFolders(this.store, s, this.self.tunables.PROJECTS_TRAVEL, exportsFrom) });
       const yesterday = chaptersOn(this.store, yest, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS) })
         .filter((c) => (c.scope ?? "").trim().replace(/\/+$/, "") === s)
         .map((c) => ({ id: c.id, title: c.title }));
