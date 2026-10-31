@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -190,6 +190,18 @@ describe("the switch", () => {
     const woke = c.wake(40, { date: today }, { scope: HERE });
     expect(woke.text).not.toContain("Where this folder stands");
     expect(c.events("counterpart.wake.shape.declined").length).toBe(1);
+  });
+});
+
+describe("a wake the composer declines", () => {
+  test("through the hook: the old road, and the process log says so, since the ring dies with the hook", () => {
+    const { c } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    c.close();
+    hook(READER, 200);
+    const dir = join(storeDir, "sessions", "log");
+    const log = readdirSync(dir).map((f) => readFileSync(join(dir, f), "utf8")).join("");
+    expect(log).toContain("counterpart.wake.shape.declined");
   });
 });
 
