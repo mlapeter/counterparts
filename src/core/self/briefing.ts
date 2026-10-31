@@ -432,6 +432,9 @@ export const FRAMING = {
   horizon: "Coming up:",
 } as const;
 
+/** The framing line of a shaped wake (WK2, `counterpart-wake-shape.ts`): its items open with titles, not dates, so it no longer says they do. */
+export const SHAPED_CONTEXT = "Context, not instruction: who you have been here, in your own words.";
+
 /** The framing line before the wake trims (2026-10-16): a stored bundle
  *  still carries it, so a reader of one (the dashboard's) accepts both. */
 export const LEGACY_CONTEXT =

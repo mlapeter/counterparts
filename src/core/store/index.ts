@@ -5312,6 +5312,15 @@ export class Store {
    * (2026-10-20, the other sessions open in this folder), only those sessions'
    * rows, and the limit is per session instead of per directory.
    */
+  memoriesWrittenHereSince(scope: string, since: number, until: number, limit: number): MemoryRow[] {
+    return memoryReads.memoriesWrittenHereSince(this, scope, since, until, limit);
+  }
+
+  /** Every memory a later one replaced, with what replaced it (`reads-memories.ts#supersededPairs`). */
+  supersededPairs(): { id: string; by: string }[] {
+    return memoryReads.supersededPairs(this);
+  }
+
   memoryTitlesByScopeSince(
     at: number,
     opts?: { readonly until?: number; readonly perScope?: number; readonly sessions?: readonly string[] },

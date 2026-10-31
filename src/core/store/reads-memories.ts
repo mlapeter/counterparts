@@ -328,6 +328,37 @@ export function memoryCountsByScopeSince(store: Store, at: number): { scope: str
     .map((r) => ({ scope: r.origin_scope, count: r.n }));
 }
 
+/**
+ * THE LIVE MEMORIES WRITTEN IN ONE FOLDER AFTER A MOMENT, newest first (WK2,
+ * 2026-10-30; the wake's "Since, here"): whatever their mark or status, for the
+ * caller to judge. Bounded by `limit`.
+ */
+export function memoriesWrittenHereSince(store: Store, scope: string, since: number, until: number, limit: number): MemoryRow[] {
+  return store["ops"]
+    .all<{ id: string }>(
+      `SELECT id FROM memories
+        WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
+          AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
+          AND origin_scope = ?
+        ORDER BY created_at DESC, id LIMIT ?`,
+      since,
+      until,
+      scope,
+      Math.max(0, Math.floor(limit)),
+    )
+    .flatMap((r) => {
+      const row = store.row(r.id);
+      return row === undefined ? [] : [row];
+    });
+}
+
+/** Every memory a later one replaced, with what replaced it (WK2: an age counts from the first of them). One walk of the column. */
+export function supersededPairs(store: Store): { id: string; by: string }[] {
+  return store["ops"]
+    .all<{ id: string; by: string }>(`SELECT id, superseded_by AS by FROM memories WHERE superseded_by IS NOT NULL AND type = 'memory'`)
+    .map((r) => ({ id: r.id, by: r.by }));
+}
+
 export function memoryTitlesByScopeSince(
   store: Store,
   at: number,

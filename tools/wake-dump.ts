@@ -15,8 +15,8 @@
  *     (cd <tmp>/master && bun tools/wake-dump.ts) > <tmp>/master.txt
  *     diff <tmp>/master.txt <tmp>/here.txt   # exit 0
  *
- * `--wide` sweeps the budget instead of sampling it: 5 shapes x 376 budgets =
- * 1,880 compositions, about 2 MB, ~15 s per tree. Run that before believing the
+ * `--wide` sweeps the budget instead of sampling it: 6 shapes x 376 budgets =
+ * 2,256 compositions, about 3 MB, ~20 s per tree. Run that before believing the
  * claim; the narrow default is for checking it has not broken.
  *
  * It is deterministic by construction: the clock is frozen, the delivery date is
@@ -71,7 +71,12 @@ const PAGE = [
   "Placeholder lately paragraph, one sentence of it, and then another sentence of it.",
 ].join("\n");
 
-type Shape = "empty" | "identity" | "page" | "page-and-lanes" | "long-page";
+type Shape = "empty" | "identity" | "page" | "page-and-lanes" | "long-page" | "folder";
+
+/** The folder a "folder" shape's session opens in, with a handoff, a chapter and other folders' work. */
+const HERE = "/fixture/here";
+const THERE = "/fixture/there";
+const HERE_FACTS = { scope: HERE, session: "cccc3333-0000-4000-8000-000000000003", exportsFrom: (s: string): boolean => s === HERE || s === THERE, installed: "9.9.9" };
 
 function build(dir: string, shape: Shape): Counterpart {
   const c = Counterpart.open({ dir, now: () => NOW });
@@ -109,6 +114,22 @@ function build(dir: string, shape: Shape): Counterpart {
   if (shape === "page" || shape === "page-and-lanes") {
     c.revisePage(PAGE, { reason: "fixture", by: "owner" });
   }
+  if (shape === "folder") {
+    // THE SPLICE SEAM (WK2, 2026-10-30): a delivery that names a folder, so the
+    // proof covers "where this folder stands", "Today, elsewhere", "Coming up"
+    // and "Still open", not just the no-scope road.
+    c.revisePage(PAGE, { reason: "fixture", by: "owner" });
+    c.writeHandoff("next: fire the second batch (waiting on the clay)\nThe glaze tiles are drying on rack two.", { scope: HERE, session: "aaaa1111-0000-4000-8000-000000000001" });
+    c.writeHandoff("An older handoff with enough plain words to be a sentence of its own.", { scope: HERE, session: "bbbb2222-0000-4000-8000-000000000002" });
+    const put = (id: string, body: string, more: Record<string, unknown>, scope = HERE): void => {
+      c.store.put({ id, type: "memory", kind: "fact", body, title: body.slice(0, 40), about: "work", learnedOn: AT, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: "bbbb2222-0000-4000-8000-000000000002", scope }, ...more });
+    };
+    put("mem_fixture1000", "Placeholder open thread here, still waiting on an answer.", { meta: { unresolved: true } });
+    put("mem_fixture1001", "Placeholder due today in this folder, a dated thing.", { eventDate: AT });
+    put("mem_fixture1002", "Placeholder plain reminder due today, said plainly.", { eventDate: AT, meta: { remind: "plain" } });
+    put("mem_fixture1003", "Placeholder later date in this folder, a dated thing.", { eventDate: "2026-09-25" });
+    put("mem_fixture1004", "Placeholder work in the other folder, today.", {}, THERE);
+  }
   if (shape === "long-page") {
     const long = Array.from(
       { length: 120 },
@@ -119,7 +140,7 @@ function build(dir: string, shape: Shape): Counterpart {
   return c;
 }
 
-const shapes: Shape[] = ["empty", "identity", "page", "page-and-lanes", "long-page"];
+const shapes: Shape[] = ["empty", "identity", "page", "page-and-lanes", "long-page", "folder"];
 const out: string[] = [];
 for (const shape of shapes) {
   for (const budget of BUDGETS) {
@@ -127,7 +148,7 @@ for (const shape of shapes) {
     try {
       const c = build(dir, shape);
       const report = c.rebrief({ budgetBytes: budget, at: AT });
-      const woke = c.wake(budget, { date: AT });
+      const woke = shape === "folder" ? c.wake(budget, { date: AT }, HERE_FACTS) : c.wake(budget, { date: AT });
       out.push(`===== shape=${shape} budget=${budget} =====`);
       out.push(
         `rendered=${report.rendered} published=${report.published} composeBudget=${String(report.composeBudget)} bytes=${report.bytes} elements=${report.elements}`,

@@ -383,6 +383,18 @@ export interface SelfTunables {
    */
   NIGHT_LINE: boolean;
   /**
+   * THE WAKE'S SHAPE (WK2, 2026-10-30; the shape is Mike's, approved 10-30). On:
+   * a delivery with a date and a budget is composed top-down, one question per
+   * section and no item twice (`counterpart-wake-shape.ts`), and nothing of
+   * `ROOM_ORDER`, `TRIM_ORDER`, "Work here", "Might be relevant" (with a page) or
+   * the delivery's reserves applies to it. Off: every wake byte for byte what it
+   * was. A store can say otherwise (`counterparts wake-shape on|off`, meta
+   * `self.wake_shape`), so one store can read it for a few days before any
+   * default changes. Read from the copy `withTunables` makes when `Self` opens;
+   * `harness compare --set self.WAKE_SHAPE=true`.
+   */
+  WAKE_SHAPE: boolean;
+  /**
    * "TODAY SO FAR" IN THE WAKE (2026-10-24, lane W1; Mike's go 17:45, lightly
    * held). On: a session start's wake carries one more line under the
    * Yesterday line — today's chapters written in this folder before the one
@@ -560,6 +572,7 @@ export const SELF_TUNABLES: SelfTunables = {
   DAY_SUMMARY: true,
   DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
+  WAKE_SHAPE: false,
   NIGHT_LINE: true,
   TODAY_SO_FAR: true,
   YESTERDAY_FROM_SUMMARY: true,

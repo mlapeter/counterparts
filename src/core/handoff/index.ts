@@ -806,18 +806,18 @@ function nextAt(flat: string): number {
  * paragraphs above it, with the lines before it giving way for it. It is what the
  * next session opens the handoff for. Pure.
  */
-export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES): string[] {
+export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES, lineBytes = HANDOFF_LEAD_LINE_BYTES): string[] {
   const pieces: { text: string; next: boolean }[] = [];
   const sentences = (flat: string): void => {
     let from = 0;
     for (const m of flat.matchAll(/[.!?](?=\s)/gu)) {
       const end = (m.index ?? 0) + 1;
       if (end - from < EXCERPT_MIN_SENTENCE) continue;
-      pieces.push({ text: cutToBytes(flat.slice(from, end).trim(), HANDOFF_LEAD_LINE_BYTES), next: false });
+      pieces.push({ text: cutToBytes(flat.slice(from, end).trim(), lineBytes), next: false });
       from = end;
     }
     const rest = flat.slice(from).trim();
-    if (rest.length > 0) pieces.push({ text: cutToBytes(rest, HANDOFF_LEAD_LINE_BYTES), next: false });
+    if (rest.length > 0) pieces.push({ text: cutToBytes(rest, lineBytes), next: false });
   };
   const lines = body.split("\n").filter((l) => !isHeading(l) && l.trim().length > 0).map(flatten);
   // Only the last line that says it holds the part kept.
@@ -825,7 +825,7 @@ export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES): string
   for (let i = lines.length - 1; i >= 0 && nextLine < 0; i--) if (nextAt(lines[i] ?? "") >= 0) nextLine = i;
   lines.forEach((flat, i) => {
     const at = i === nextLine ? nextAt(flat) : -1;
-    if (byteLengthOf(flat) <= HANDOFF_LEAD_LINE_BYTES) {
+    if (byteLengthOf(flat) <= lineBytes) {
       pieces.push({ text: flat, next: at >= 0 });
       return;
     }
@@ -836,7 +836,7 @@ export function handoffLead(body: string, maxLines = HANDOFF_LEAD_LINES): string
     // A long line: what is before the part, then the part, one line, cut only at its own end.
     const before = flat.slice(0, at).replace(/[\s,;—-]+$/u, "");
     if (before.length > 0) sentences(before);
-    pieces.push({ text: cutToBytes(flat.slice(at), HANDOFF_LEAD_LINE_BYTES), next: true });
+    pieces.push({ text: cutToBytes(flat.slice(at), lineBytes), next: true });
   });
   if (pieces.length === 0) return [excerpt(body)];
   if (pieces.length <= maxLines) return pieces.map((p) => p.text);
