@@ -4249,6 +4249,255 @@ replay compare read 0 lines differing).
   `word → note` weakening on a 0 are cue learning's existing paths, unchanged; a new lane would
   have moved probe and coverage readers for a count the decision row already gives.
 
+### Decided by the W1 builder, 2026-10-30, lightly held (the per-turn worker's cost)
+
+- Decided by the W1 builder, 2026-10-30, lightly held: concurrent workers don't collapse. Why: a
+  later worker holds its session's lagged cue, which expires after one turn, and the sidebar file
+  that includes the earlier worker's rows; the steps that mustn't run twice already have a lease, a
+  claim or a latch. On 10-29, two or more ran at once for 120 s of the day, and at a third of the
+  duration the same starts give about 26 s. 10-30 was already worse, on a partial day: 809 s, at most
+  four, 655 s of it in one 20-minute stretch. The week's read decides (`docs/CHECK-AFTER.md`).
+- Decided by the W1 builder, 2026-10-30, lightly held: the sidebar's file is still written after
+  every boundary. Reading less was enough, so its freshness didn't need to be traded for time.
+- Decided by the W1 builder, 2026-10-30, lightly held: one `runner.steps` row per run in the
+  process log, rather than admitting `runner.coverage`, `runner.snapshot` and `runner.sidebar`. About
+  400 bytes a turn. Delete the row from `LOGGED` once the question is settled.
+
+### Decided by the NC1 builder, 2026-10-30, lightly held (the catch-up and a folder that is off; coordinator's brief, marked for Mike's review)
+
+- Decided by the NC1 builder, 2026-10-30, lightly held: a session with words in an on folder and an
+  off one is set aside whole, rather than writing up the on folder's share. Why: it is the hook's
+  rule (a session whose folder is off goes quiet wherever it stands), and it is one test in one
+  place. The cost: that session's on-folder words are not written up either. Since 2026-09-17 a
+  session's words land under one directory, so it should be rare.
+- Decided by the NC1 builder, 2026-10-30, lightly held: what is left out is not marked or touched,
+  and retention is not changed. So its text stays on the owed clock, up to 14 days from its last
+  activity, rather than the 3-day one. Why: a paused folder resumed has to be owed again, and a
+  setting read at the moment of asking does that with nothing to undo. The cost: a folder set `off`
+  for good keeps its already-captured text for those days. Shortening that for `off` alone would be
+  a change in `core/`, and is Mike's call.
+- Decided by the NC1 builder, 2026-10-30, lightly held: a setting file that will not read takes
+  nothing, where the hook's direction is on. Why: a hook may not fail its host, and a night can wait;
+  the two nearest writers (`lifecycle.ts#chapterExports`, the reflection's marks) already go this way.
+  The cost is a clock: the text goes on aging, so a broken file left for 14 days loses it. So it is
+  said wherever a person looks: the session-start line, doctor's `Catch-up` (amber at once, naming
+  the file), `coverage` (which keeps listing the debts), and `counterparts catch-up` (exit 3, not
+  "nothing to catch up"). An entry that will not read is a different case: that folder reads as
+  on, for the hook and here, as it has since #92's review, and is named at session start.
+- Decided by the NC1 builder, 2026-10-30, lightly held: the door gets no folder check of its own.
+  Why: the plan decides what is granted and re-reads the setting each batch, and a refusal in the
+  door would only change a folder turned off during one child's run. That child finishes. Guards
+  loose-first; a door check is small if it ever matters.
+- Decided by the NC1 builder, 2026-10-30, lightly held: `coverage.owed` and `coverage.lapsed` rows
+  still fire for these sessions. They record what the ledger read, nothing reads them as a debt, and
+  `core/coverage/` knows no folders.
+
+### Decided by ROADMAP, built by the WK1 builder, 2026-10-30, for Mike's review (the wake's room)
+
+- "Might be relevant" is off the wake (`HINTS_IN_WAKE` false). Why: it showed on 4 of 29 days since
+  10-02 and ambient recall does that job per turn, with ratings. Follows `CRAFT_IN_WAKE`: a switch,
+  so turning it back on is one line. With it off, every publish closes the open `wake_display` rows,
+  so a use is no longer refused a return as `on-display`.
+- A store with no self page yet keeps "Might be relevant". Why: the case for dropping it was measured on Mike's store, whose
+  page holds 53% of the room. With no page the lane is all a wake has of its memories, and with it off a new user's wake was
+  empty until the first page. The brief said drop it; this is the one exception, for ROADMAP to rule on.
+- No wake line lists bare ids. A count names the door that lists its items by title (`still open`,
+  which gains `comingUp`, and the new `handoffs here`). A lane with no such door is a count alone.
+  An id after a title stays: that is its handle.
+- A lane with nothing it can title still says its count and the door, rather than nothing. Why: the
+  never-silent guarantee (2026-10-12). The brief allows "nothing"; say if silence is wanted.
+- Coming up lists the 2 oldest overdue (`COMING_UP_OVERDUE_LISTED`), and they step back when they
+  would cost "Still open" an item. Why: dated lines outrank the lane's items in the room, which was
+  meant for what is due today, and "Still open" is to stay as it was while the open-threads read runs.
+- The handoffs, "Last here" and "Last said here" are one block, grouped by session (`handoff/#standsLadder`). An entry
+  under the lead is judged by session and time, never by text.
+- The newest handoff leads, even when a chapter is newer (ROADMAP, after the first build had the newest mention leading). A
+  newer chapter goes under it by title, "Since then:", if there is room, and gives way before any handoff's line does. This
+  keeps review of #300 MAJOR-1: unfinished work outranks orientation.
+- The newest handoff's lead is up to 5 lines (`HANDOFF_LEAD_LINES`; Mike's markup, via ROADMAP, 10-30), and the next 2 live
+  handoffs a line each (`HANDOFF_OTHERS_SHOWN`; ROADMAP: a line each with no cap took "Work here"'s room on a folder holding
+  seven). The rest are a count and `recall "handoffs here"`. Which seat a handoff belongs to waits for WK2.
+- A lead line is at most 240 bytes (`HANDOFF_LEAD_LINE_BYTES`), a long line taken a sentence at a time, because a handoff is
+  as often one paragraph as a list and five paragraphs would be the handoff. A line is cut at a word's end, and a handoff's
+  last `next:` part keeps a line of its own, the lines before it giving way: it is what the next session opens it for.
+
+### Decided by ROADMAP and the LT1 builder, 2026-10-30, marked for Mike's review (a slow turn is shown)
+
+- Decided by ROADMAP, 2026-10-30, marked for Mike's review: recall no longer gives up at its 1,200 ms
+  line. Why: both checks came after the slow work, so giving up saved about 5 ms and cost the turn. It
+  replaces "a latency abort has zero side effects" in recall's contract: a late turn writes what any
+  turn writes, and says `lateMs` on its row. `BUDGET_MS` stays, as the line that names a turn late.
+- Decided by the LT1 builder, 2026-10-30, lightly held: a lock held past about 10 s still loses the
+  answer, on a late turn as on an on-time one (`persist` throws after the second busy timeout, in 11 s).
+  Why left alone: catching it did show the answer in a scratch copy, but at 30 s, because the writes
+  behind it wait too, and whether 30 s with memories beats 11 s without is a question for someone who
+  has waited through both. How often this happens isn't known; the hook's `ms` over 5,000 in the week's
+  read says.
+- Decided by the LT1 builder, 2026-10-30, lightly held: the covering index is not a store-format change.
+  No version moves and an older build reads a covered cache as it was (byte-identical on 52 of 52
+  prompts), so it doesn't wait for a batch of migrations. It adds about 15 MB to a rebuildable file.
+- Decided by the LT1 builder, 2026-10-30, lightly held: a card's name that isn't plain ASCII
+  is still tried on every prompt. `toLowerCase` and the regex's case folding disagree outside ASCII, and
+  trying it is what every term cost before, so such a store is no slower than today and no faster there.
+  The scanner the v12 backfill uses had this same gap, on a long s or a final sigma; it goes through the
+  same two functions now. On a copy's 222 cards and 5,420 texts neither `matchesIn` nor the scanner moved.
+  What does move: under bun, a letter outside the BMP right before a name no longer counts as a boundary,
+  which is what node's regex always did (`schemas/aliases.ts`).
+
+### Decided by the day-summary builder, 2026-10-30, lightly held (what holds a day's summary back)
+
+- Decided by the day-summary builder, 2026-10-30, lightly held: the Yesterday gate counts a memory only
+  when day's end could have been handed it: `writer.ts#isOfDay` (the day lived, or a merge of it), born
+  before the summary was told. Dropped: a row merely written inside the day, and the store-wide count of rows by
+  folder written inside the day. Why: on the 10-29 summary the only blockers were three write-ups of
+  10-26, from a folder set off, filed on 10-29; they were in neither day's input. Temp folders, worktrees and rows with no
+  folder hid nothing on the six days with a written summary.
+- This reverses the W1 review's test that a backdated row from an off folder holds the summary back. The
+  commit records no reason beyond reading the day as day's end saw it, and day's end never picks by when
+  a row was written. What the clause bounded was recall, and it bounded only the rows written that day:
+  recall reaches every day.
+- What that gave up, and what closed it: the old clause caught an off folder's row written that day about
+  another day, if day's end's recall put it in the prose. Round 2 below closes that for every day: the child
+  can't read such a row. What stays open: a folder set off after the night ran. Its words were read while it
+  was on, and the gate holds the summary only if the row was of that day.
+- Kept the gate as it is beside the fence. With the fence on, a summary told while a folder was closed can't
+  carry that folder, so the gate's hold on that folder's rows of that day is more than it needs; it stays as
+  the second line for a folder set off after the telling. Revisit if `handoff.daysummary.held` shows
+  `folder-closed` on days the folder was closed before day's end ran.
+- A row or chapter with no folder recorded still holds it back: nothing can tell whether it is private,
+  and it has not happened since chapter-written memories began reading their chapter's folder.
+- The chapter walk has no time bound: no chapter blocked anything, and a chapter's date is its heading.
+
+### Decided by the day-summary builder, 2026-10-30, round 2, Mike's roadmap go on `core/dream`, for his review (the night's fence)
+
+- A folder that doesn't export is closed to the whole night, at the source: day's end, the dream, the
+  reflection, the tagging, and each one's recall by facts, meaning, id, handle or chapter address. A merge,
+  gist or fold can't be made from one. One set (`dream/slices.ts#closedToNight`), walked once per night call
+  (153 ms on the owner's store, 5,886 rows), read everywhere: the two `showable`s, the chapter walks, day's
+  end's `omit`, the `denied` set of facts and meaning, the address path.
+- The rule is `scopes.ts#foldersOn`, the one the catch-up uses. It means the same as the gate's `exportsFrom`,
+  without "your own folder is always yours": a night has no own folder. A folder that's closed and hosts the
+  night reads nothing of itself.
+- Reads the other way from the gate on what it can't tell: a row with no folder, or a night row whose originals
+  are gone, stays readable. The gate holds one line for a morning; failing closed here would blind every night
+  to its pre-folder memories.
+- A stored merge of a closed row is closed to the night and stays stored (Mike, 10-26: a folder turned off later
+  keeps what it already shared). On the owner's store today that is none: the fence closes 3 live memories, 0
+  night rows.
+- The dream goes without the published wake on a night it names a closed row. It was composed for no reader, and
+  cutting it line by line would leave an item's later lines behind.
+- A recall of a closed row by address says `closed-to-the-night` rather than `handle-unknown`: a lookup that
+  answers "nothing" where something exists would be a lie (§9.1 G5), and the asker already held the id.
+
+### Decided in the review of #688, 2026-10-30, on Mike's rulings through the roadmap (what the fence does at its edges)
+
+- A setting file that won't read holds the night, as a night that failed: no page, no dream, no reflection, the
+  reason on the row and at the door, doctor red. Closing everything stands; going on with what's left doesn't.
+  The red is a finding of its own (`night-held`), read from the file so it clears when fixed; the catch-up's
+  amber from #689 stays beside it.
+- A row with no folder stays readable, for the reason above. A past dream's journal or reflection's entry is left.
+  A card's name goes when only closed rows name it, and the tagging ask's tags and titles read the fence.
+- A day summary citing a closed row isn't in the reflection's timeline; that day goes as its chapters do.
+- A session's own marks stop reading as the night once quiet past `ABANDONED_AFTER_MS`, as `begin` reads a dream
+  left behind. A child of the run carries its mark regardless. The cost: a session-launched dreamer quiet that long
+  reads as a session again until its next call.
+- Lives in `dream/slices.ts`, not a file of its own: the directory flavor was at its 510-file margin.
+
+### Decided by ROADMAP, built by the NL1 builder, 2026-10-30, for Mike's review (the night's own line)
+
+- The reflection may send a `line`, kept on the row's `detail.line`, so there's no store-format change.
+  Why: the wake's last line is counts, and a reflection's first sentence is only a door. A fresh writer
+  met this brief on 7 of 7 past nights, 228-280 B, no morals. That shows the brief can be met in one
+  pass, not that the nightly model will meet it, which is what the week's read is for.
+- Decided by the NL1 builder, lightly held: the line is the last field of the same `finish` as the page,
+  not a second ask after it. Why: a second ask costs every night another turn over the whole bundle, and
+  it opens a window: after the first `finish` a reflection is no longer `begun`, so a session outside the
+  nightly run isn't fenced while it writes the line. So the ask says "the page you're writing", where the
+  brief said "the page you just wrote". If the week shows lines repeating the page, a second ask is the thing to try.
+- Decided by ROADMAP: the ask also says "with no memory ids", and the ask says "the page you're writing".
+- Decided by the NL1 builder, lightly held: past 300 UTF-8 bytes, or refused by the scan, a line comes
+  back once; a second refusal keeps it empty and closes it for the night, so a later line that fits
+  doesn't reopen it. A line already standing is replaced by a good one and outlasts a bad one, like the
+  page. Whitespace is collapsed before measuring, since a line is one line.
+- Decided by the NL1 builder, lightly held: a "nothing much" night may keep a line, where it may not keep
+  a share. Why: it takes no cites, and a share's cites rule is about what telling it records. It's easy to
+  refuse if those lines read as filler.
+- Decided by the NL1 builder: the owner's removal empties the line wherever it redacts the entry, and
+  reads the line for a quote (`redactReflections`). Why: WK2 will read it daily, and it's free text.
+- Decided by the NL1 builder, lightly held: `recall` shows the line wherever it shows the reflection (by
+  `last night`, by id, among ids), under the same folder rule as the entry. With no name on the store, the
+  ask drops its clause about using one.
+
+### Decided by ROADMAP, 2026-10-30, marked for Mike's review (chapter summaries' default claim)
+
+- A new chapter summary that is unmarked or marked work is born at 0.25 instead of the self-kind default, 0.4
+  (`SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM`). One marked me, us or owner stays at 0.4 (ROADMAP, on the review of #696), and so
+  does world, since the change names only unmarked and work; the copy has no world summaries. New rows only.
+- Why: the 10-30 replay, 379 never-used summaries out of reach and no use-days lost, measured with every summary lowered.
+  With the marked ones kept, 35 of the 464 live summaries on the copy stay at 0.4, and below reach is 324 of 464 instead
+  of 355. That leaves 31 in reach, 24 of them never used, so the 379 reads about 350 (an estimate; the replay wasn't rerun).
+  Lowering fewer rows can't lose more use-days.
+- Accepted: an unused unmarked or work summary reaches the prune floor at 49 lived days instead of 267, so it is let go about
+  63 lived days in (the 14-day dwell after) rather than about 281. A marked one keeps the 281.
+- The claim is taken once, at birth, from the chapter's `about` as written: the mark given with the summary, else the one
+  that chapter's call recorded, else, for an episode from before per-chapter marks, the episode's latest.
+- A summary re-marked later keeps the claim it was born with, whichever way the mark moves: `store.setAbout`, which every
+  re-mark goes through (a later `about` on the same chapter, the `remark` door, the reflection, the dashboard), writes the
+  mark and never the claim. So a work summary re-marked us stays at 0.25 and fades on that curve until a use lifts it, and
+  an us summary re-marked work stays at 0.4. Automatic rewritten as written is the same row and keeps its claim too.
+- At 0.25 a summary is under the Nearby lane's `WARM_FLOOR` (0.35). That lane still runs on a store with no page yet (WK1
+  kept it there, `self/identity.ts`), so such a store's "Might be relevant" no longer lists an unmarked or work summary; at
+  0.4 it listed one for about a lived day. Those chapters are still named by "Today so far", "Yesterday" and "Where this
+  folder stands". The same goes if `HINTS_IN_WAKE` is turned on again. `docs/CHECK-AFTER.md`.
+
+### Decided by the F1 builder, 2026-10-30, lightly held (what the rows carry)
+
+- Decided by the F1 builder, 2026-10-30, lightly held: `meta.claimedDefault` stays on a summary at 0.25, though
+  `defaultClaimFor` wouldn't say 0.25 for it: the flag means nobody claimed it, which is still true. `eraClaimOf` reads a
+  default only on a row older than the store's cutoff, so a new summary reads as stored. The value is a self tunable,
+  outside `sleep/decay.ts#curveSignature`, so nothing re-curves.
+- Decided by the F1 builder, 2026-10-30, lightly held: the top below-reach candidates are NOT logged. A running max can
+  only see what reaches `recallable`, and both bulk channels (the word index and meaning) filter at `REACH` before that,
+  so it would name what a date, a learned pair or a link reached, plus rows a stale cache let through, not what forgetting
+  costs. The real list needs each top-K read twice per turn, which is new per-turn work. Replay stored cues offline with
+  `includeBelowReach` instead.
+- Decided by the F1 builder, 2026-10-30, lightly held: no abort row and no phase timings. Since LT1 nothing aborts, and
+  every turn's row already has `elapsedMs` and `lateMs`. No phase timers exist, and adding them is more than this asked.
+- Decided by the F1 builder, 2026-10-30, lightly held: `cue`, `sem`, `pair`, `bar` and `standsFor` go on loud rows too, not
+  only footnotes. It's the same function, and a loud memory's reason is the same question. `pair` is what learned pairs
+  gave before the document cap, held to `cue`.
+- Decided by the F1 builder, 2026-10-30, lightly held: a session start's section bytes are flat `sec_*` fields on
+  `adapter.wake.injected`, because an adapter's row is flat, and they come from one scan of the delivered text by its line
+  heads (`counterpart-boundary.ts#wakeShape`), because the lines spliced in at delivery have no render to report them. WK2
+  owns those heads next: it either keeps the scan's list current or reports bytes from its composer.
+- Decided by the F1 builder, 2026-10-30, lightly held: kept ids capped at 16 per lane, with the lane's count beside them.
+- Decided by the F1 builder, 2026-10-30, lightly held: `recall_turns` and `dream_shown_day` stay until the next batched
+  store-format change, since dropping either is one. Only the reader goes: `mechanisms.ts` read the empty table beside the
+  `recall.decision` rows that already say the same. For that batch: drop the `recall_turns` table with its index and
+  `recordRecallTurn` / `recallTurns`, and `memories.dream_shown_day` with its index.
+
+### Decided by the FI1 builder, 2026-10-30, lightly held (folds and merges keep named ids)
+
+- Decided by the FI1 builder, 2026-10-30, lightly held (ROADMAP 10-30 06:38): the ids go in the text, a last line
+  `Names: mem_…`, because see-also reads text and it needs no store change. Not on `meta`, which would have taken a
+  second reader in see-also and left the memory's words silent about what it points at. The cost: the line is in the
+  word index and the vector, and it shows when the memory is shown. Measured at review on a copy of the 10-30 snapshot
+  with the static embedder, the 121 dreamed rows, each fold found by its own title against the ordinary memories: in the
+  top 10 for 94 with no line, 81 with one id, 70 with two, 49 with four (cosine to its own text: 0.979, 0.937 and 0.857,
+  where a plain sentence added is 0.993). An id breaks into many word pieces in a mean of them. Word index: on that copy,
+  30 folds with the line and 30 without, ten prompts saying "name" or "names": neither showed once. On a store of about
+  200 the bare word "names" does bring one, since nothing else there says it.
+- At most 4 named in all, `SEE_ALSO_NAMES_READ`, since recall reads no further. Source order, first mention first; not
+  ranked by strength, which would be more machinery than a line of pointers needs.
+- Fold and merge only. A plain gist's sources aren't held back. Dedup never rewrites a survivor (§5.7), and a revision's
+  body is its challenger's by construction. Named in `core/dream/NOTES.md`.
+- See-also now asks the folder setting of the one row it would bring (coordinator's check on #688's fence, 10-30). Tried
+  first through the hook: a personal memory in a folder set off came along by a named id, since it isn't another project's
+  work. The write-side check alone can't reach a fold made while the folder was on, or an id in a dream's or a person's
+  own words. A cued memory isn't touched, nor a session's asking: that's #688's "an ordinary session's recall isn't
+  fenced", and widening it is a separate question.
+- An inhibited note's named ids don't ride along, ROADMAP's lean, for now (`core/recall/NOTES.md`).
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
