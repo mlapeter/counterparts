@@ -70,7 +70,7 @@ export const COMING_UP_HANDLE = "coming up";
 export const HANDOFFS_HANDLE = "handoffs";
 /** What an item with no date sorts as: after every date. */
 export const UNDATED_LAST = "undated";
-/** Where Elsewhere's rest goes: a facts question, since those folders have no title here to list. */
+/** Where Elsewhere's rest goes (the spec's floor: no count without a door). A facts question over yesterday's events, store-wide: what they did that day, not a list of these folders. */
 export const ELSEWHERE_DOOR = 'recall facts "yesterday"';
 
 type SectionKey = "folder" | "elsewhere" | "coming" | "open" | "yesterday" | "night";
