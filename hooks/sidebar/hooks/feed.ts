@@ -846,12 +846,18 @@ export type Glance = { head: string; text: string }
 /**
  * THE ONE PLACE THE WAKE'S GLANCE LINES ARE SPELLED (2026-10-15, Mike: show
  * the first that has something, in this order). Core writes them in every
- * SessionStart wake: `Last here: …` (handoff/last-here.ts), `Where I left off
- * in this directory (…): …` (handoff/index.ts), the `Coming up:` heading
- * (self/briefing.ts FRAMING.horizon) with `- <date> · <text>` items, and
- * `Yesterday, <date>: …` (handoff/last-here.ts). Change these if core's change;
- * a wake without them shows no glance, nothing else.
+ * SessionStart wake: `Where this folder stands: …` (handoff/index.ts
+ * STANDS_HEAD), the `Coming up:` heading (self/briefing.ts FRAMING.horizon) with
+ * `- <date> · <text>` items, and `Yesterday, <date>: …` (handoff/last-here.ts).
+ * test/sidebar-glance-headings.test.ts holds these to what core writes, so a
+ * renamed heading fails there; a wake without them shows no glance, nothing else.
+ *
+ * `Last here: …` and `Where I left off in this directory (…): …` are what core
+ * wrote before 0.3.42. They stay because an older core can reach this module:
+ * the plugin's dependency has no upper limit, and beside an npm install the
+ * version is whatever that install is.
  */
+export const GLANCE_STANDS = 'Where this folder stands:'
 const GLANCE_LAST = /^Last here:\s*(.+)$/m
 const GLANCE_LEFT_OFF = /^Where I left off in this directory \([^)]*\):\s*(.+)$/m
 const GLANCE_COMING = /^Coming up:\s*\n-\s*(.+)$/m
@@ -878,8 +884,37 @@ function forPerson(text: string): string {
     .trim()
 }
 
+/**
+ * Where things were left, out of the "Where this folder stands" block
+ * (handoff/index.ts `entryWords`): the newest handoff's lead, on the lines under
+ * the header or, when it's one line, after the handoff's id on the header's own;
+ * else the chapter or memory the header names, with its first sentence; else the
+ * last exchange's quote. Never the header's who and when: those aren't for the person.
+ */
+function standsLeftOff(text: string): string | null {
+  const lines = text.split('\n')
+  const at = lines.findIndex(l => l.startsWith(GLANCE_STANDS))
+  if (at < 0) return null
+  // The block ends at its blank line; only the handoff's lead is indented in it.
+  for (let i = at + 1; i < lines.length && (lines[i] ?? '').trim().length > 0; i++) {
+    const under = /^\s+(\S.*)$/.exec(lines[i] ?? '')?.[1]
+    if (under !== undefined) return under
+  }
+  const head = (lines[at] ?? '').slice(GLANCE_STANDS.length).trim()
+  const oneLine = /\(sch_[0-9a-f]+\):\s+(.+)$/.exec(head)?.[1]
+  if (oneLine !== undefined) return oneLine
+  const named = /— (".+") \((?:epi|mem)_[0-9a-f]+\)\.?\s*(.*)$/.exec(head)
+  if (named !== null) {
+    const first = (named[2] ?? '').replace(/\s*(?:Its handoff,|Last said ).*$/, '')
+    return first.length > 0 ? `${named[1]}. ${first}` : (named[1] ?? null)
+  }
+  return /\b[Ll]ast said .*?: "(.+)" — recall /.exec(head)?.[1] ?? null
+}
+
 /** The first glance line the wake has, in Mike's order: where things were left, what's coming up, yesterday. */
 export function parseGlance(text: string): Glance | null {
+  const left = standsLeftOff(text)
+  if (left !== null && forPerson(left).length > 0) return { head: 'Last here', text: forPerson(left) }
   for (const re of [GLANCE_LAST, GLANCE_LEFT_OFF]) {
     const m = re.exec(text)?.[1]
     if (m !== undefined && forPerson(m).length > 0) return { head: 'Last here', text: forPerson(m) }

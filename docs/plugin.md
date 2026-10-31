@@ -174,7 +174,7 @@ an install would get whatever master holds that day. The entry names a release t
 instead:
 
 ```json
-"source": { "source": "url", "url": "https://github.com/counterparts-ai/counterparts-plugin.git", "ref": "v0.3.41" }
+"source": { "source": "url", "url": "https://github.com/counterparts-ai/counterparts-plugin.git", "ref": "v0.3.42" }
 ```
 
 Claude Code clones the repository at that tag, so a plugin install only ever gets a
