@@ -105,21 +105,43 @@ committed (section 3). The push run is:
     skip here is a failure.
 
 The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
-at its log; a job that failed on a timeout gets one rerun (`gh run rerun <id> --failed`), and
-a second failure gets a real look. Report both numbers.
+at its log (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`); a job that failed on a
+timeout gets one rerun (`gh run rerun <id> --failed`), and a second failure gets a real look.
+Report both numbers.
+
+**Before the push, on the laptop, the release job's quick steps.** Nothing runs them on a pull
+request, and in CI they come after about 15 minutes of suites, so whatever master has gathered
+since the last release turns up here. Pack the commit (`npm pack`; it has matched CI's hash),
+then:
+
+```sh
+bun tools/audit/scan-personal.ts --tarball <the pack> --against <the last release's tarball>
+INSTALL_LOOP_TARBALL=<the pack> tools/install-loop/run.sh
+```
+
+A stop costs a minute this way. In 0.3.42 two stops from one merged PR (session ids in a
+comment, a heading the install loop still read by its old words) cost a full run each. Settle
+the changelog's words here too: `CHANGELOG.md` and `tools/install-loop/run.sh` ship, so a change
+to either is a new tarball and a new run.
 
 **On the laptop, on the commit CI passed.** `uptime` first; these run one at a time.
 
 - the check against a copy of the owner's memories, which is private and can't go near a
-  public log. The release brief says what to look at;
-- the plugin loop, `tools/plugin-loop/run.sh`, on the release head, which needs a real
-  `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)). It installs the
-  working tree under the pin's tag inside its own throwaway clone, so it passes before the
-  tag is on GitHub; the one install in it that has to fail is the step naming a missing tag;
+  public log. The release brief says what to look at. A snapshot carries no cache, so run
+  `counterparts verify --rebuild --keep-vectors` on the copy first, or recall finds nothing;
+- the bundles (section 3b), then the plugin loop on the release head, which needs a real
+  `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)):
+  `tools/plugin-loop/run.sh --bundle=core`, `--bundle=directory`, and `tools/plugin-loop/split.sh`.
+  It installs the working tree under the pin's tag inside its own throwaway clone, so it passes
+  before the tag is on GitHub; the one install in it that has to fail is the step naming a
+  missing tag;
 - the upgrade and the rollback, below, with the tarball from section 4, until they're
   automated;
-- people's names other than the owner's: `grep` the tarball with a list kept outside the
-  repository. A list like that can't live in CI.
+- people's names other than the owner's: `grep` the tarball, against the last release's, with
+  a list kept outside the repository. A list like that can't live in CI. None was kept before
+  0.3.42, so that release made one from the person cards on the memory copy
+  (`subject_kind = 'person'`) and kept it in the release folder. It's short, so also read the
+  capitalized words new since the last release.
 
 ## 3. The single binaries
 
@@ -130,7 +152,9 @@ the release branch, after `bun install --frozen-lockfile`:
 bun tools/single-binary/build.ts --release
 ```
 
-Commit the `.claude-plugin/binaries.json` it writes on the release branch. Copy the `.gz`
+The branch isn't on GitHub yet, so clone it from the checkout that holds it. Commit the
+`.claude-plugin/binaries.json` it writes on the release branch (the clone is left with that
+file changed: `git checkout` it there before pulling the commit). Copy the `.gz`
 files and `SHA256SUMS` from `dist/single-binary/<version>/` into `single-binary/` in a
 release folder outside the clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
 these ones. Any later change to `src/` means building again. Details:

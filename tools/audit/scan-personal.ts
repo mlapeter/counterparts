@@ -165,7 +165,8 @@ same commit and fails the same way, so don't rerun it.
    matching, with a placeholder like <session id>. There's no list of exceptions. A moved file
    counts as new hits at its new path, so its old lines need the same rewording.
 4. A file that doesn't belong: drop it from "files" in package.json, or delete it.
-5. Commit and push the release branch. The new commit gets its own run.`;
+5. Commit and push the release branch. A change under src/ means building the binaries
+   again first (RELEASING, section 3). The new commit gets its own run.`;
 
 interface Unpacked {
   /** Path inside the package -> size in bytes. */
