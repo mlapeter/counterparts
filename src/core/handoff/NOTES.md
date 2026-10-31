@@ -755,4 +755,11 @@ previous check-in.
   lost a due item's place in Coming up and an open one's settles-when. Each section one question; a row left out still counts as "later", so no false nothing.
 - **A folder with no handoff and no work since yesterday** names its last chapter (`Last here: chapter "…" (5 days)`), rather than
   losing what "Last here" gave it on the old road.
+- **Elsewhere's door is its own read (2026-10-30).** `+N more folders; recall facts "yesterday"` filtered on a row's event date:
+  on the 10-30 corpus 131 store-wide rows over 14 pages, and 0 rows for two of three hidden folders. `recall "elsewhere"` is
+  `readElsewhere`, which is `elsewhereFacts`, the section's read. What makes its count exact: the folders the section only counts
+  (worked in, with no title that passes: personal rows, dated rows, open threads) are named now, last, with no title; and nothing
+  above the section can claim one of its rows any more, since the page's hints skip what Elsewhere names. On a store with no page
+  yet a hint Elsewhere would name gives way to the next hint, on the shaped road only. A wake read later than its door, or the
+  other way round, can differ by what was written in between; the numbers are the same at one moment.
 

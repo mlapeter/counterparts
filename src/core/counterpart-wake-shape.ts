@@ -70,8 +70,8 @@ export const COMING_UP_HANDLE = "coming up";
 export const HANDOFFS_HANDLE = "handoffs";
 /** What an item with no date sorts as: after every date. */
 export const UNDATED_LAST = "undated";
-/** Where Elsewhere's rest goes (the spec's floor: no count without a door). A facts question over yesterday's events, store-wide: what they did that day, not a list of these folders. */
-export const ELSEWHERE_DOOR = 'recall facts "yesterday"';
+/** Where Elsewhere's rest goes (the spec's floor: no count without a door): these folders, as the section reads them (`readElsewhere`). */
+export const ELSEWHERE_HANDLE = "elsewhere";
 
 type SectionKey = "folder" | "elsewhere" | "coming" | "open" | "yesterday" | "night";
 const ORDER: readonly SectionKey[] = ["folder", "elsewhere", "coming", "open", "yesterday", "night"];
@@ -427,7 +427,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     .sort((a, b) => Number(b.here) - Number(a.here) || b.at - a.at || (a.i.id < b.i.id ? -1 : 1));
   const summary = cp.self.tunables.YESTERDAY_FROM_SUMMARY ? safe(() => cp["daySummaryShown"](yest, here), null) : null;
   const yestHere = scope.length === 0 ? [] : safe(() => chaptersOn(store, yest, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS) }).filter((c) => norm(c.scope ?? "") === scope), []);
-  const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: 0 });
+  const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: [] as string[] });
   const said = scope.length === 0 ? null : safe(() => saidHere(cp, scope, here, sessions, headless, chaptersHere, newest ?? null, reader, zone, now), null);
   const liveHere = sessions.filter((s) => s.live && s.session !== reader && hereFolders.includes(norm(s.scope)));
   const night = safe(() => nightWords(cp, at, here, scope), null);
@@ -438,7 +438,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     at,
     day,
     keptOut: (id) => cp["hintKeptOut"](id, here ?? {}),
-    skip: new Set([...cueIds]),
+    // What Elsewhere names is Elsewhere's, not a hint's: so its door can count what it counts (`readElsewhere`).
+    skip: new Set([...cueIds, ...elsewhere.list.flatMap((e) => (e.id === null ? [] : [e.id]))]),
   });
 
   // ── the sections ──
@@ -521,10 +522,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     };
   };
 
-  const elsewhereSec = (b: number, claim: ReadonlySet<string>): Sec => {
+  // Nothing above it can claim one of these: the page was told to skip them, a
+  // plain cue is a dated row and the folder's own are this project's, and neither
+  // reaches `elsewhereFacts`.
+  const elsewhereSec = (b: number): Sec => {
     const cap = spareOn.has("elsewhere") ? SHAPE.ELSEWHERE_SHOWN_SPARE : SHAPE.ELSEWHERE_SHOWN;
-    const list = elsewhere.list.filter((e) => e.id === null || !claim.has(e.id));
-    const total = list.length + elsewhere.quiet;
+    const list = elsewhere.list;
+    const total = list.length + elsewhere.quiet.length;
     if (total === 0) return { text: "", ids: [], items: 0 };
     const render = (k: number): string[] => {
       const out = ["Elsewhere:"];
@@ -534,7 +538,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
         out.push(s.age === "" || (i > 0 && shown[i - 1]?.age === s.age) ? s.text : `${s.text} (${s.age})`);
       }
       const rest = total - k;
-      if (rest > 0) out.push(`+${plural(rest, "more folder")}; ${ELSEWHERE_DOOR}`);
+      if (rest > 0) out.push(`+${plural(rest, "more folder")}; recall "${ELSEWHERE_HANDLE}"`);
       return out;
     };
     let k = Math.min(cap, list.length);
@@ -840,8 +844,8 @@ function elsewhereFacts(
   now: number,
   reader: string | null,
   factAt: (id: string) => number,
-): { list: ElsewhereRow[]; quiet: number } {
-  if (gate === null) return { list: [], quiet: 0 };
+): { list: ElsewhereRow[]; quiet: string[] } {
+  if (gate === null) return { list: [], quiet: [] };
   const store = cp.store;
   const best = new Map<string, { id: string; title: string; at: number; fact: number }>();
   for (const m of store.memoryTitlesByScopeSince(sinceY, { until: now + 1, perScope: SHAPE.ELSEWHERE_ROWS_READ })) {
@@ -867,13 +871,38 @@ function elsewhereFacts(
   const list: ElsewhereRow[] = [...best.entries()].map(([key, m]) => ({ place: placeWords(key), id: m.id, title: m.title, fact: m.fact, at: m.at, live: live.has(key) }));
   for (const key of live) if (!best.has(key)) list.push({ place: placeWords(key), id: null, title: null, fact: now, at: 0, live: true });
   list.sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at || (a.place < b.place ? -1 : 1));
-  // Folders worked in with no title to say: counted past the list.
+  // Folders worked in with no title to say: counted past the list, and named at its door.
   const named = new Set(list.map((l) => l.place));
-  let quiet = 0;
+  const quiet = new Set<string>();
   for (const { scope } of store.memoryCountsByScopeSince(sinceY)) {
-    if (gate.named(scope) && !named.has(placeWords(gate.norm(scope)))) quiet += 1;
+    const place = placeWords(gate.norm(scope));
+    if (gate.named(scope) && !named.has(place)) quiet.add(place);
   }
-  return { list, quiet };
+  return { list, quiet: [...quiet].sort() };
+}
+
+/** One folder at Elsewhere's door: a line the section would print with room, or a folder it only counts (`title` null, not live). */
+export interface ElsewhereListed {
+  readonly place: string;
+  readonly id: string | null;
+  readonly title: string | null;
+  readonly age: string | null;
+  readonly live: boolean;
+}
+
+/**
+ * ELSEWHERE WITH ROOM (the `elsewhere` handle): every folder the section lists or
+ * counts for this reader, in its order, by its own read, so the `+N` in a wake is
+ * what lies past the lines it printed here. Reads only.
+ */
+export function readElsewhere(cp: Counterpart, at: string, here: WakeHere | undefined): ElsewhereListed[] {
+  const zone = cp.store.zone();
+  const now: number = cp["nowFn"]();
+  const facts = elsewhereFacts(cp, cp["elsewhereGate"](here), here?.sessions?.() ?? [], startOfLocalDay(addDays(at, -1), zone), now, here?.session ?? null, factClock(cp, zone));
+  return [
+    ...facts.list.map((e) => ({ place: e.place, id: e.id, title: e.title, age: e.title === null ? null : ageWords(e.fact, now), live: e.live })),
+    ...facts.quiet.map((place) => ({ place, id: null, title: null, age: null, live: false })),
+  ];
 }
 
 /** "Last night", by title and door: the night's own words on what ran, no ids; and the night's own line, when it left one a reader here may read. */

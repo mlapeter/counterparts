@@ -657,3 +657,30 @@ repeat. Any weekly reminder hits this.
   the old refusal; both left as they were.
 - Check ~10-27 (CHECK-AFTER): the backup reminder closes for the week when Mike says it is
   done, and returns on 10-27.
+
+## 2026-10-30 — a closed folder's plain reminder
+
+- The line above the wake and the person's line named a plain reminder from a folder set off, observer or paused, on both
+  wake shapes. `Lifecycle#plainFor` now asks `Counterpart#plainHeldBack` (`dream/slices.ts#reminderHeldBack`): the fence's rule
+  (`memoryClosedTo`, what Coming up uses), for work (`isWorkMemory`). `plainFor` is the one seam for a session start, a prompt and
+  the MCP `wake`.
+- **Held back means not offered.** It never reaches `claimPlain`, so no latch, no credit, no `markWakeBehind`. The next read with
+  its folder on finds it. Past its day it is the late beat, inside `GRACE_DAYS` (7); past that it is gone, as any reminder nobody
+  could be told. A repeat's next occurrence is its own.
+- **It stays out of the quiet road too.** A plain item is withheld from `arrivals` the turn it is said, and is `told-plainly-today`
+  after. One held back is neither, so it would come up as a "Quietly available" cue at every prompt, spending fires. The test
+  fails that way with the withhold taken out; `PlainLines.held` is there for this.
+- **Marked personal, or no folder: told, unlike Coming up.** Coming up's fence holds whatever the mark (#697), so with the shape on
+  a birthday written in a folder later set off is said above the wake and not listed under Coming up. Asked for on a real date and
+  said once, so the line errs toward telling; the words of a row marked about the owner aren't that folder's work. An unmarked
+  fact in a directory is work by the wake's rule and is held. To match Coming up exactly: drop the `isWorkMemory` line in
+  `reminderHeldBack`.
+- **The setting's read as a write-up reads it** (`writeUpFolders`): none named, every folder is on, as a plain reminder always
+  was; one that won't read closes them, so a folder's work waits and the personal and folderless are told. Not `chapterExports`,
+  whose `undefined` means both.
+- **Doctor doesn't call it a miss** (`FiredOptions.folderOn`), and says the count in its Fired line while the day is in its week
+  (`FiredReport.heldBack`): a row's note reaches no doctor line, and past that week nothing else says it. By count, not title: the
+  folder is closed. `counterparts fired`, `mechanisms` and the dashboard name no configuration, so they read it as before: due and not said.
+- **Left as it was:** with the switch off, the old road's lane in the wake's body and `recall "still open"` still name it; the brief
+  held that body byte-identical. Ambient recall still reaches a closed folder's words, and a quiet dated item in a closed folder
+  still arrives as a cue: that's the turn's fence, not this line's.

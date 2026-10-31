@@ -380,7 +380,8 @@ true:
 
 - **WK2 (2026-10-30), behind `self.WAKE_SHAPE`, off by default:** a delivery names its handoffs in
   `core/counterpart-wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.
-  The doors are `handoffs` (with `handoffs here` as before, now with what came after the newest) and `coming up`.
+  The doors are `handoffs` (with `handoffs here` as before, now with what came after the newest), `coming up` and `elsewhere`
+  (every folder the section lists or counts, by its own read, so its `+N` is what lies past the lines it printed).
 
 - **WK1 (2026-10-30):** the handoffs, "Last here" and "Last said here" are one block
   (`standsLadder`), and its head gives the order things give way in. The handoff is still carried

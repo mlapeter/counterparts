@@ -484,7 +484,7 @@ describe("a joined folder is here", () => {
 });
 
 describe("Elsewhere's rest", () => {
-  test("past the folders it lists, a count with its door; the door answers for a folder the list left out", async () => {
+  test("past the folders it lists, a count with its door; the door lists what the count counts, in the wake's order", async () => {
     const { c, at, today } = brain();
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
     const modes: Record<string, ScopeMode> = { [HERE]: "on" };
@@ -501,12 +501,389 @@ describe("Elsewhere's rest", () => {
     const { wake } = hook();
     const block = section(wake, "Elsewhere:");
     expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(SHAPE.ELSEWHERE_SHOWN_SPARE);
-    expect(block.split("\n").at(-1)).toBe('+2 more folders; recall facts "yesterday"');
+    expect(block.split("\n").at(-1)).toBe('+2 more folders; recall "elsewhere"');
     expect(block).not.toContain("Sieving ash");
-    const door = new McpServer({ counterpart: c, host: DESKTOP_HOST, env: {}, lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET } }, manifestVersion: () => null } as never);
-    const said = String((await door.call("recall", { mode: "facts", question: "yesterday" })).structuredContent["answer"]);
-    expect(said).toContain("Sieving ash");
-    expect(said).toContain("Pugging porcelain");
+    const door = await elsewhereDoor(c);
+    expect(door.total).toBe(SHAPE.ELSEWHERE_SHOWN_SPARE + 2);
+    const hidden = door.folders.slice(SHAPE.ELSEWHERE_SHOWN_SPARE);
+    expect(hidden.map((f) => f.title)).toEqual(["Shed 1: Pugging porcelain", "Shed 0: Sieving ash"]);
+  });
+
+  /** Every page of the door, on a server bound as the hook's session is. */
+  async function elsewhereDoor(c: Counterpart, scope = HERE, session = READER): Promise<{ total: number; pages: number; folders: { folder: string; title?: string; id?: string; age?: string; live?: boolean }[] }> {
+    recordSession(storeDir, { sessionId: session, scope, phase: "start" });
+    const server = new McpServer({ counterpart: c, scope, registryDir: storeDir, session, scopesFile: join(conf, "scopes.json") });
+    const first = (await server.call("recall", { handle: "elsewhere" })).structuredContent as { total: number; pages: number; folders: { folder: string }[] };
+    const folders = [...first.folders];
+    for (let p = 2; p <= first.pages; p++) folders.push(...((await server.call("recall", { handle: "elsewhere", page: p })).structuredContent as { folders: { folder: string }[] }).folders);
+    return { total: first.total, pages: first.pages, folders };
+  }
+
+  /** The count in a block's last line: a wake's `+N`, 0 with none. */
+  const countIn = (block: string): number => Number(/^\+(\d+) more folders?; recall "elsewhere"$/m.exec(block)?.[1] ?? 0);
+
+  test("the door's numbers are the wake's, through the hook and over MCP: live and quiet folders in, every closed one out", async () => {
+    const { c, at, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const noon = Date.parse(`${addDays(today, -1)}T12:00:00Z`);
+    const modes: Record<string, ScopeMode> = { [HERE]: "on" };
+    for (let i = 0; i < 6; i++) {
+      const folder = join(root, `barn${String(i)}`);
+      modes[folder] = "on";
+      at(noon + i * MIN);
+      memory(c, `Barn work ${String(i)}.`, { title: `Barn ${String(i)} work`, scope: folder });
+    }
+    // A folder worked in with no title to say: a personal note and an open thread only.
+    const QUIET = join(root, "cellar");
+    modes[QUIET] = "on";
+    memory(c, "A note about the owner's week.", { title: "zqpersonal", about: "owner", scope: QUIET });
+    memory(c, "Still deciding about the cellar door.", { title: "zqopen", scope: QUIET, meta: { unresolved: true } });
+    // A session open in a folder that wrote nothing, and one in a folder that did.
+    const LIVE = join(root, "porch");
+    modes[LIVE] = "on";
+    const closed = { off: join(root, "vault"), sub: join(root, "vault", "drawer"), observer: join(root, "watch"), paused: join(root, "rest") };
+    modes[closed.off] = "off";
+    modes[closed.observer] = "observer";
+    modes[closed.paused] = "paused";
+    for (const [name, folder] of Object.entries(closed)) {
+      mkdirSync(folder, { recursive: true });
+      memory(c, `Closed work in ${name}.`, { title: `zqclosed ${name}`, scope: folder });
+    }
+    at(NOW);
+    scopes(modes);
+    recordSession(storeDir, { sessionId: OWN, scope: LIVE, phase: "start", at: NOW - MIN });
+    recordSession(storeDir, { sessionId: OTHER, scope: join(root, "barn2"), phase: "start", at: NOW - MIN });
+    recordSession(storeDir, { sessionId: "eeee5555-0000-4000-8000-000000000005", scope: closed.off, phase: "start", at: NOW - MIN });
+    const door = await elsewhereDoor(c);
+    const { wake } = hook();
+    holds(wake);
+    expect(wake).not.toContain("zqclosed");
+    const block = section(wake, "Elsewhere:");
+    const lines = block.split("\n").filter((l) => l.startsWith("- "));
+    expect(countIn(block)).toBeGreaterThan(0);
+    // Six barns, the porch and the cellar; nothing closed, and no word of it.
+    expect(door.total).toBe(8);
+    expect(door.total).toBe(lines.length + countIn(block));
+    expect(JSON.stringify(door)).not.toContain("zqclosed");
+    expect(JSON.stringify(door)).not.toContain("vault");
+    expect(JSON.stringify(door)).not.toContain("watch");
+    expect(JSON.stringify(door)).not.toContain("/rest");
+    expect(JSON.stringify(door)).not.toContain("zqpersonal");
+    expect(JSON.stringify(door)).not.toContain("zqopen");
+    // The order and the words the wake's lines have, and live ones first.
+    door.folders.slice(0, lines.length).forEach((f, i) => {
+      expect(lines[i]).toStartWith(`- ${f.folder}${f.live === true ? " (live)" : ""}`);
+      if (f.title !== undefined) expect(lines[i]).toContain(`: ${f.title}`);
+    });
+    expect(door.folders.slice(0, 2).map((f) => f.live)).toEqual([true, true]);
+    expect(door.folders[0]?.title).toBe("Barn 2 work");
+    expect(door.folders[1]?.folder).toContain("porch");
+    expect(door.folders[1]?.title).toBeUndefined();
+    // A folder it only counts: last, named, no title, not called live.
+    expect(door.folders.at(-1)).toEqual({ folder: door.folders.at(-1)?.folder ?? "" });
+    expect(door.folders.at(-1)?.folder).toContain("cellar");
+    // The same over MCP's own wake: the count is the door's there too.
+    const config = join(conf, "claude-code.json");
+    const server = new McpServer({ counterpart: c, host: DESKTOP_HOST, scope: HERE, registryDir: storeDir, env: {}, scopesFile: join(conf, "scopes.json"), lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET }, configPath: config }, manifestVersion: () => null } as never);
+    const told = String((await server.call("wake", {})).structuredContent["wake"]);
+    const other = section(told, "Elsewhere:");
+    expect(other).not.toBe("");
+    expect(other.split("\n").filter((l) => l.startsWith("- ")).length + countIn(other)).toBe(door.total);
+    const fromMcp = (await server.call("recall", { handle: "elsewhere" })).structuredContent as { total: number };
+    expect(fromMcp.total).toBe(door.total);
+  });
+
+  test("a wake squeezed to a line still counts what the door lists; and a reader in another folder gets its own list", async () => {
+    const { c, at, today } = brain();
+    const noon = Date.parse(`${addDays(today, -1)}T12:00:00Z`);
+    const modes: Record<string, ScopeMode> = { [HERE]: "on", [THERE]: "on" };
+    at(noon);
+    memory(c, "Bakery work.", { title: "Bakery work", scope: THERE });
+    for (let i = 0; i < 4; i++) {
+      const folder = join(root, `loft${String(i)}`);
+      modes[folder] = "on";
+      at(noon + (i + 1) * MIN);
+      memory(c, `Loft work ${String(i)}.`, { title: `Loft ${String(i)} work`, scope: folder });
+    }
+    at(NOW);
+    scopes(modes);
+    const door = await elsewhereDoor(c);
+    const fromThere = await elsewhereDoor(c, THERE, OWN);
+    expect(door.folders.some((f) => f.folder.endsWith("bakery"))).toBe(true);
+    expect(fromThere.folders.some((f) => f.folder.endsWith("bakery"))).toBe(false);
+    // A fresh session each: a session already started is handed no wake.
+    const shown: number[] = [];
+    for (const [i, budget] of [BUDGET, 1_000, 940, 880, 820, 760, 700, 640].entries()) {
+      const block = section(hook(`dddd44${String(i).padStart(2, "0")}-0000-4000-8000-000000000004`, budget).wake, "Elsewhere:");
+      if (block === "") continue;
+      const lines = block.split("\n").filter((l) => l.startsWith("- ")).length;
+      expect(lines + countIn(block)).toBe(door.total);
+      shown.push(lines);
+    }
+    expect(shown[0]).toBe(door.total);
+    // The sweep did reach a wake with room for some of them, not only all or none.
+    expect(shown.some((n) => n > 0 && n < door.total)).toBe(true);
+  });
+
+  test("a hint Elsewhere names stays Elsewhere's: on a store with no page yet, the wake's numbers and the door's still agree", async () => {
+    const { c, at, today } = brain();
+    at(Date.parse(`${addDays(today, -1)}T12:00:00Z`));
+    const id = memory(c, "Bakery work the wake could also have offered as a hint.", { title: "Bakery work", scope: THERE });
+    at(NOW);
+    scopes({ [HERE]: "on", [THERE]: "on" });
+    c.rebrief({ budgetBytes: BUDGET, at: today });
+    const door = await elsewhereDoor(c);
+    expect(door.folders.map((f) => f.id)).toEqual([id]);
+    const { wake } = hook();
+    holds(wake);
+    const block = section(wake, "Elsewhere:");
+    expect(block).toContain("Bakery work");
+    expect(wake.split("Bakery work").length).toBe(2);
+  });
+
+  test("paged like its siblings; refuses a bad page; a memory titled exactly so opens by its id", async () => {
+    const { c, at, today } = brain();
+    const modes: Record<string, ScopeMode> = { [HERE]: "on" };
+    const noon = Date.parse(`${addDays(today, -1)}T12:00:00Z`);
+    for (let i = 0; i < 23; i++) {
+      const folder = join(root, `pen${String(i)}`);
+      modes[folder] = "on";
+      at(noon + i * MIN);
+      memory(c, `Pen work ${String(i)}.`, { title: `Pen ${String(i)} work`, scope: folder });
+    }
+    at(NOW);
+    const titled = memory(c, "Elsewhere, as a place I mean to go.", { title: "elsewhere", about: "owner", scope: HERE });
+    scopes(modes);
+    recordSession(storeDir, { sessionId: READER, scope: HERE, phase: "start" });
+    const server = new McpServer({ counterpart: c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
+    const one = (await server.call("recall", { handle: "elsewhere" })).structuredContent as { total: number; page: number; pages: number; folders: { title: string }[]; reason: string };
+    expect(one.reason).toBe("elsewhere");
+    expect([one.total, one.page, one.pages, one.folders.length]).toEqual([23, 1, 2, 20]);
+    expect(one.folders[0]?.title).toBe("Pen 22 work");
+    const two = (await server.call("recall", { handle: " Elsewhere ", page: 2 })).structuredContent as { page: number; folders: { title: string }[] };
+    expect([two.page, two.folders.length]).toEqual([2, 3]);
+    expect(two.folders.at(-1)?.title).toBe("Pen 0 work");
+    expect((await server.call("recall", { handle: "elsewhere", page: 9 })).structuredContent["page"]).toBe(2);
+    expect((await server.call("recall", { handle: "elsewhere", page: 0 })).structuredContent["reason"]).toBe("page-not-a-positive-integer");
+    const opened = (await server.call("recall", { handle: titled })).structuredContent;
+    expect(JSON.stringify(opened)).toContain("as a place I mean to go");
+    expect(JSON.stringify((await server.call("recall", { ids: [titled] })).structuredContent)).toContain("as a place I mean to go");
+    expect(JSON.stringify(one)).not.toContain("as a place I mean to go");
+  });
+});
+
+describe("a closed folder's plain reminder", () => {
+  /** The real hook, a child process: what the model is handed and what the person is shown. */
+  function said(event: "SessionStart" | "UserPromptSubmit", session = READER, cwd = HERE): { model: string; person: string; all: string } {
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: session, hook_event_name: event, cwd, ...(event === "SessionStart" ? { source: "startup" } : { prompt: "Tell me a little about the weather on the hill." }) }),
+      env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
+    });
+    expect(r.status).toBe(0);
+    if (!r.stdout.startsWith("{")) return { model: r.stdout, person: "", all: r.stdout };
+    const o = JSON.parse(r.stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
+    return { model: o.hookSpecificOutput?.additionalContext ?? "", person: o.systemMessage ?? "", all: r.stdout };
+  }
+
+  /** Above the wake: what precedes its opening comment. */
+  const above = (model: string): string => (model.includes("<!-- counterparts:wake ") ? model.slice(0, model.indexOf("<!-- counterparts:wake ")) : model);
+
+  /** How many times this memory's beat was marked told, read off the store. */
+  function latches(id: string): number {
+    const db = new Database(join(storeDir, DATABASE_FILE), { readonly: true });
+    const row = db.query("select count(*) as n from events where name = 'prospective.plain' and ref = ?").get(id) as { n: number };
+    db.close();
+    return row.n;
+  }
+
+  /** The cast: a work reminder from every closed stance, an unmarked one, and those that are told. */
+  function cast(c: Counterpart, today: string): { held: Record<string, string>; told: Record<string, string> } {
+    const VAULT = join(root, "vault");
+    const DRAWER = join(VAULT, "drawer");
+    const WATCH = join(root, "watch");
+    const REST = join(root, "rest");
+    for (const d of [VAULT, DRAWER, WATCH, REST]) mkdirSync(d, { recursive: true });
+    scopes({ [HERE]: "on", [THERE]: "on", [VAULT]: "off", [WATCH]: "observer", [REST]: "paused" });
+    const plainIn = (title: string, scope: string, about?: string): string =>
+      memory(c, `${title}, in words.`, { title, eventDate: today, scope, meta: { remind: "plain" }, ...(about === undefined ? {} : { about }) });
+    const unmarked = c.store.put({ type: "memory", kind: "fact", body: "zqshut unmarked, in words.", title: "zqshut unmarked", eventDate: today, meta: { remind: "plain" }, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: OTHER, scope: VAULT } });
+    return {
+      held: {
+        off: plainIn("zqshut off", VAULT),
+        sub: plainIn("zqshut sub", DRAWER),
+        observer: plainIn("zqshut observer", WATCH),
+        paused: plainIn("zqshut paused", REST),
+        unmarked,
+      },
+      told: {
+        here: plainIn("Told here", HERE),
+        there: plainIn("Told there", THERE),
+        owner: plainIn("Told owner", VAULT, "owner"),
+        // No folder at all: nothing to close.
+        none: c.store.put({ type: "memory", kind: "fact", body: "Told nowhere, in words.", title: "Told nowhere", eventDate: today, about: "owner", meta: { remind: "plain" }, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: OTHER } }),
+      },
+    };
+  }
+
+  for (const shape of ["on", "off"] as const) {
+    test(`shape ${shape}: not above the wake, not to the person, not spent, at a start and at a prompt; the rest told`, () => {
+      const { c, today } = brain({ on: shape === "on" });
+      c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+      c.rebrief({ budgetBytes: BUDGET, at: today });
+      const { held, told } = cast(c, today);
+      c.close();
+      const start = said("SessionStart");
+      expect(above(start.model)).not.toContain("zqshut");
+      expect(start.person).not.toContain("zqshut");
+      for (const t of ["Told here", "Told there", "Told owner", "Told nowhere"]) {
+        expect(start.person).toContain(t);
+        expect(above(start.model)).toContain(t);
+      }
+      for (const id of Object.values(told)) expect(latches(id)).toBe(1);
+      for (const id of Object.values(held)) expect(latches(id)).toBe(0);
+      // A prompt: no line, no quiet cue in its place, and no fire of it spent.
+      const prompt = said("UserPromptSubmit");
+      expect(prompt.person).not.toContain("zqshut");
+      expect(prompt.model).not.toContain("Plain reminder (they asked to be told) — Today: zqshut");
+      for (const id of Object.values(held)) {
+        expect(prompt.model).not.toContain(id);
+        expect(latches(id)).toBe(0);
+      }
+      const db = new Database(join(storeDir, DATABASE_FILE), { readonly: true });
+      for (const id of Object.values(held)) expect((db.query("select count(*) as n from events where name = 'prospective.fire' and ref = ?").get(id) as { n: number }).n).toBe(0);
+      db.close();
+    });
+  }
+
+  test("the shaped wake and its doors agree: held back everywhere; recall \"still open\" neither lists nor counts it", async () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const { held } = cast(c, today);
+    expect(Object.keys(held).length).toBe(5);
+    const start = said("SessionStart");
+    expect(start.all).not.toContain("zqshut");
+    recordSession(storeDir, { sessionId: READER, scope: HERE, phase: "start" });
+    const s = new McpServer({ counterpart: c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
+    expect(JSON.stringify((await s.call("recall", { handle: "still open" })).structuredContent)).not.toContain("zqshut");
+    expect(JSON.stringify((await s.call("recall", { handle: "coming up" })).structuredContent)).not.toContain("zqshut");
+  });
+
+  test("the switch off: the old road's lane and recall \"still open\" still name it, as they did; only the lines above go", async () => {
+    const { c, today } = brain({ on: false });
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    c.rebrief({ budgetBytes: BUDGET, at: today });
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    memory(c, "zqshut plain, in words.", { title: "zqshut plain", eventDate: today, scope: SHUT, meta: { remind: "plain" } });
+    const start = said("SessionStart");
+    expect(above(start.model)).not.toContain("zqshut");
+    expect(start.person).not.toContain("zqshut");
+    expect(start.model).toContain("zqshut plain");
+    recordSession(storeDir, { sessionId: READER, scope: HERE, phase: "start" });
+    const s = new McpServer({ counterpart: c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
+    expect(JSON.stringify((await s.call("recall", { handle: "still open" })).structuredContent)).toContain("zqshut plain");
+  });
+
+  test("the folder turned on again: told, once, and said on its own day; missed by a few days, a late beat; past its grace, gone", () => {
+    const { c, today } = brain();
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    const learned = addDays(today, -20);
+    const due = memory(c, "zqshut today, in words.", { title: "zqshut today", eventDate: today, scope: SHUT, meta: { remind: "plain" } });
+    const late = memory(c, "zqshut late, in words.", { title: "zqshut late", eventDate: addDays(today, -3), learnedOn: learned, scope: SHUT, meta: { remind: "plain" } });
+    const past = memory(c, "zqshut past, in words.", { title: "zqshut past", eventDate: addDays(today, -8), learnedOn: learned, scope: SHUT, meta: { remind: "plain" } });
+    c.close();
+    expect(said("SessionStart").person).not.toContain("zqshut");
+    expect(said("SessionStart", OWN).person).not.toContain("zqshut");
+    for (const id of [due, late, past]) expect(latches(id)).toBe(0);
+    scopes({ [HERE]: "on", [SHUT]: "on" });
+    const back = said("SessionStart", OTHER);
+    expect(back.person).toContain("Today: zqshut today");
+    expect(back.person).toContain(": zqshut late");
+    expect(back.person).toContain("This was for ");
+    expect(back.person).not.toContain("zqshut past");
+    expect([latches(due), latches(late), latches(past)]).toEqual([1, 1, 0]);
+    // Once.
+    expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006").person).not.toContain("zqshut");
+  });
+
+  test("doctor says one is held back, by count and with no word of it; a setting that won't read reads as a miss", async () => {
+    const start = NOW - 20 * 24 * HOUR;
+    const { c, at } = brain();
+    at(start);
+    const today = new Date(NOW).toISOString().slice(0, 10);
+    const yesterday = addDays(today, -1);
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { date: addDays(today, -20), reason: "rendered" } });
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    memory(c, "zqshut doctor, in words.", { title: "zqshut doctor", eventDate: yesterday, scope: SHUT, meta: { remind: "plain" } });
+    at(NOW - 24 * HOUR);
+    c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { date: yesterday, reason: "rendered" } });
+    at(NOW);
+    c.close();
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    const doctor = async (): Promise<string> => {
+      const out: string[] = [];
+      await run(["doctor", `--config=${config}`], { io: { out: (l) => out.push(l), err: () => undefined }, env: { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, home: join(root, "home") });
+      return out.join("\n");
+    };
+    const closed = await doctor();
+    expect(closed).toContain("1 plain reminder is held back, its folder not on");
+    expect(closed).not.toContain("zqshut");
+    expect(closed).not.toContain("did not fire");
+    writeFileSync(join(conf, "scopes.json"), "{ not json");
+    const broken = await doctor();
+    expect(broken).not.toContain("held back");
+    expect(broken).toContain("1 plain reminder was due on a day a session ran and not said");
+  });
+
+  test("a store that never wrote a setting, and a folder nobody listed in one, are on: another folder's work is told", () => {
+    const { c, today } = brain();
+    const never = memory(c, "Told with no setting, in words.", { title: "Told with no setting", eventDate: today, scope: THERE, meta: { remind: "plain" } });
+    c.close();
+    expect(existsSync(join(conf, "scopes.json"))).toBe(false);
+    expect(said("SessionStart").person).toContain("Told with no setting");
+    expect(latches(never)).toBe(1);
+    const again = brain();
+    const unlisted = memory(again.c, "Told, unlisted, in words.", { title: "Told, unlisted", eventDate: today, scope: join(root, "attic"), meta: { remind: "plain" } });
+    again.c.close();
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    expect(said("SessionStart", OWN).person).toContain("Told, unlisted");
+    expect(latches(unlisted)).toBe(1);
+  });
+
+  test("a setting that won't read holds a folder's work and tells the personal and the folderless; fixed, the work is told", () => {
+    const { c, today } = brain();
+    const work = memory(c, "zqshut broken, in words.", { title: "zqshut broken", eventDate: today, scope: THERE, meta: { remind: "plain" } });
+    const owner = memory(c, "Told owner, in words.", { title: "Told owner", eventDate: today, about: "owner", scope: THERE, meta: { remind: "plain" } });
+    c.close();
+    scopes({ [HERE]: "on" });
+    const file = join(conf, "scopes.json");
+    const good = readFileSync(file, "utf8");
+    writeFileSync(file, "{ not json");
+    const start = said("SessionStart");
+    expect(start.person).not.toContain("zqshut");
+    expect(latches(work)).toBe(0);
+    expect(latches(owner)).toBe(start.person.includes("Told owner") ? 1 : 0);
+    writeFileSync(file, good);
+    expect(said("SessionStart", OWN).person).toContain("zqshut broken");
+    expect(latches(work)).toBe(1);
+  });
+
+  test("the MCP wake: not in its lead, not spent; a wake the folder turned on tells it", async () => {
+    const { c, today } = brain();
+    scopes({ [HERE]: "on", [SHUT]: "off" });
+    const id = memory(c, "zqshut plain, in words.", { title: "zqshut plain", eventDate: today, scope: SHUT, meta: { remind: "plain" } });
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    const server = (): McpServer => new McpServer({ counterpart: c, host: DESKTOP_HOST, scope: HERE, registryDir: storeDir, env: {}, scopesFile: join(conf, "scopes.json"), lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET }, configPath: config }, manifestVersion: () => null } as never);
+    expect(JSON.stringify((await server().call("wake", {})).structuredContent)).not.toContain("zqshut");
+    expect(latches(id)).toBe(0);
+    scopes({ [HERE]: "on", [SHUT]: "on" });
+    expect(JSON.stringify((await server().call("wake", {})).structuredContent)).toContain("Today: zqshut plain");
+    expect(latches(id)).toBe(1);
   });
 });
 
