@@ -379,7 +379,7 @@ true:
   ceiling, the compose-budget difference is what the lanes give up, never past an eighth.
 
 - **WK2 (2026-10-30), behind `self.WAKE_SHAPE`, off by default:** a delivery names its handoffs in
-  `core/counterpart-wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.
+  `core/wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.
   The doors are `handoffs` (with `handoffs here` as before, now with what came after the newest) and `coming up`.
 
 - **WK1 (2026-10-30):** the handoffs, "Last here" and "Last said here" are one block

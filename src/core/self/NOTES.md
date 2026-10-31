@@ -2974,7 +2974,7 @@ render trimmed "Still open" and an overdue is listed.
 
 ## WK2, 2026-10-30: the wake's shape, behind a switch
 
-`core/counterpart-wake-shape.ts` is one composer, for one delivery. The published bundle and all its rules stay as they were,
+`core/wake-shape.ts` is one composer, for one delivery. The published bundle and all its rules stay as they were,
 for what reads it (doctor, the dashboard, the dream's input, a delivery the composer declines), so "off" is the same code.
 
 - **`Self#shapedSelf`, and only that, is what `self/` adds.** The page on the first rung that fits everything past the frame, or,

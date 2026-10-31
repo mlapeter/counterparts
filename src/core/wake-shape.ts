@@ -35,6 +35,10 @@
  * It writes what a delivery writes today, and nothing else: `handoff.shown`, the
  * day summary's held row. No model, no embedding, no scan past what the old road
  * read.
+ *
+ * Not a `counterpart-*.ts` part, though it reads a few of the root's private reads
+ * as one does: the root and its parts hold no number (`test/counterpart.test.ts`),
+ * and this has limits of its own, all named in `SHAPE`.
  */
 import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import type { HorizonLine } from "./briefing.js";

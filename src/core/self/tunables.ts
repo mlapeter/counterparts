@@ -385,7 +385,7 @@ export interface SelfTunables {
   /**
    * THE WAKE'S SHAPE (WK2, 2026-10-30; the shape is Mike's, approved 10-30). On:
    * a delivery with a date and a budget is composed top-down, one question per
-   * section and no item twice (`counterpart-wake-shape.ts`), and nothing of
+   * section and no item twice (`wake-shape.ts`), and nothing of
    * `ROOM_ORDER`, `TRIM_ORDER`, "Work here", "Might be relevant" (with a page) or
    * the delivery's reserves applies to it. Off: every wake byte for byte what it
    * was. A store can say otherwise (`counterparts wake-shape on|off`, meta

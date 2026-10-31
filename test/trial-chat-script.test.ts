@@ -32,7 +32,7 @@ import type { Request, Response } from "../src/adapters/mcp/protocol.js";
 import type { HttpMcpServer } from "../src/adapters/remote/http.js";
 import { WORDS, playChats, score } from "../tools/trials/claude-ai/chat-script.js";
 import type { Counterpart } from "../src/core/counterpart.js";
-import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { WAKE_SHAPE_KEY } from "../src/core/wake-shape.js";
 
 const SCRIPT = join(import.meta.dir, "..", "tools", "trials", "claude-ai", "chat-script.ts");
 

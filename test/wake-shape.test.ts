@@ -26,7 +26,7 @@ import { parseTranscript } from "../src/adapters/claude-code/transcript.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { SHAPE, WAKE_SHAPE_KEY, firstRealSentence, leadOf, seatOf, titleInLead, withoutLabel } from "../src/core/counterpart-wake-shape.js";
+import { SHAPE, WAKE_SHAPE_KEY, firstRealSentence, leadOf, seatOf, titleInLead, withoutLabel } from "../src/core/wake-shape.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { DATABASE_FILE } from "../src/core/store/index.js";
 import { addDays } from "../src/core/time.js";

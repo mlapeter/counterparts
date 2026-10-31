@@ -744,7 +744,7 @@ previous check-in.
 
 ## 2026-10-30 — the block under the wake's shape (WK2)
 
-- With `self.WAKE_SHAPE` on, `standsLadder` isn't asked: `core/counterpart-wake-shape.ts` writes "Where this folder stands" from the
+- With `self.WAKE_SHAPE` on, `standsLadder` isn't asked: `core/wake-shape.ts` writes "Where this folder stands" from the
   same reads. The ladder stays for the old road and for the boundary's reserve (`handoffRungBytes`).
 - **`handoffLead` takes a line's limit** so the shape can have whole sentences up to the lead's own room, keeping the last `next:`
   part #687 made safe. The default is `HANDOFF_LEAD_LINE_BYTES`, as before.

@@ -1,8 +1,9 @@
 ### Mike approved the shape 10-30 14:12 (draft 5); built by the WK2 builder, 2026-10-30, off by default
 
-The limits and their reasons are `SHAPE` in `src/core/counterpart-wake-shape.ts`. What the spec left open, and the call:
+The limits and their reasons are `SHAPE` in `src/core/wake-shape.ts`. What the spec left open, and the call:
 
 - A store turns it on by a meta row (`counterparts wake-shape on|off|default`), not a config key. Why: one store, every host on it, at once, and back by a word. A config key is one host at a time.
+- The composer is `core/wake-shape.ts`, its own module beside `briefing.ts`, not a `counterpart-*.ts` part: the root and its parts hold no number, and this has limits. It does read a few of the root's private reads, as a part does; a reviewer may prefer those made public.
 - A store with no page yet keeps "Might be relevant", above the folder. WK1's exception holds.
 - The published bundle is untouched, and is delivered if the composer declines (no budget or date, a ceiling too small for the frame, anything that throws). Why: "off" is then the same code, and doctor and the dashboard read it either way.
 - The project line (`WAKE_PROJECT_LINE`) isn't in the shape: the table has no section for it, and no row is written with the shape on.

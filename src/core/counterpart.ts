@@ -217,8 +217,8 @@ import { NOTHING_CLOSED, closedToNight, isNightRow, memoryClosedTo, memoryFolder
 import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
-import { WAKE_SHAPE_KEY, headlessOf, readCues, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
-import type { Cue, SinceItem } from "./counterpart-wake-shape.js";
+import { WAKE_SHAPE_KEY, headlessOf, readCues, shapedDelivery, sinceHere } from "./wake-shape.js";
+import type { Cue, SinceItem } from "./wake-shape.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
 import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, aboutMarkOf, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
