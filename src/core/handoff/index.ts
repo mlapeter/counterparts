@@ -1054,12 +1054,12 @@ function scopeSpellings(scope: string): string[] {
  *
  * Now they are one block, grouped BY SESSION, and THE NEWEST HANDOFF LEADS:
  *
- *   Where this folder stands: a handoff from session 0711ddd8 on Opus 5.5, written
+ *   Where this folder stands: a handoff from session <id> on Opus 5.5, written
  *   10-29 14:46 (1 day old) (sch_…):
  *     up to five lines of what it says
- *   Since then: session 59f24808, Oct 29 16:00–17:00 — "Title" (epi_…).
+ *   Since then: session <id>, Oct 29 16:00–17:00 — "Title" (epi_…).
  *   Other handoffs here, newest first:
- *   - session 4b57c039, 10-27: its first sentence (sch_…)
+ *   - session <id>, 10-27: its first sentence (sch_…)
  *   (+4 older handoffs: recall "handoffs here" lists them. Expand one by its id with
  *   recall; retire a finished one with …)
  *
