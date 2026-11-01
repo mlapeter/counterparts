@@ -12,21 +12,24 @@
   for sleep on both platforms, and macOS and Linux go opposite ways (`adapters/claude-code/NOTES.md`, "the night's two
   holes"). A sleep under the gap is charged, so a busy machine's stall is never read as sleep. A stepped wall clock costs
   one misread.
-- "Headless" for the night is the hook's own reading, `hooks.ts#isInteractive`: the host's `CLAUDE_CODE_SESSION_ATTENDED`
-  when it's set, else the entrypoint list. It isn't one test across the adapter: doctor's (`sessions.ts#notPointableWhy`) is
-  the entrypoint list alone, because the registry keeps no `attended`. The two differ on `cli` with `ATTENDED=0` (the hook:
-  headless) and `sdk-cli` with `ATTENDED=1` (the hook: a person). The hook's reading was chosen because it already decides
-  who gets the day's told lines, and the night should go to whoever is told about it.
+- "Headless" for the night is the entrypoint list (`hooks.ts#passesOnNight`), the same reading as doctor's
+  (`sessions.ts#notPointableWhy`), unless the host says `ATTENDED=1`. Not `isInteractive`, which reads `ATTENDED` first and
+  decides who gets the day's told lines. Changed in the review of #712: the host's `ATTENDED` is 0 for a person's
+  `claude --bg` (kind `bg`, entrypoint `cli`), a teammate, and any process with no terminal whose entrypoint isn't on the
+  host's own list (read from the 2.1.316 binary, `XU()`). A wrong "nobody's watching" holds a line; a wrong "headless" here
+  stops nights, and doctor couldn't have said so. So those start the night unwatched, as they always did, with the line held.
+  The cost: a `claude -p` an agent runs inside a VS Code or Desktop session may inherit that entrypoint and start the night.
 - A turn no person started in a person's session (`startedByHost`, a subagent's hand-back) still starts the night, as it
   did. The brief named headless sessions, the session has a person in it, and a sleep no longer costs that run anything.
-  On Mike's store two of the last eight nights started from an unwatched `cli` turn (10-25, 10-31; the log can't say
-  whether each was a hand-back, which still starts one, or `ATTENDED=0`, which now passes). Open for review: it would be
-  one line to send hand-backs to `passOnNight` too.
+  On Mike's store two of the last eight nights started from an unwatched `cli` turn (10-25, 10-31), and both were hand-backs
+  (read from the host's transcripts in the review). Open: it would be one line to send hand-backs to `passOnNight` too.
 - What a run slept through is a field on its row (`NightRun.sleptMs`, on the `dream.night` event too), read by
   `nightRunLost`. No store-format change. Only the living process adds to it, so a run that really died still goes lost.
 - A sleep renews the catch-up batch's claims and its runner's record (`renewCatchUp`), rather than the door learning
   about sleep. Only claims still its own: a subject another writer took stays theirs.
 - A store only headless sessions use gets no night under `auto`, as it already got none under `ask`. One doctor line,
   amber, after two days without one (`night-headless`, the entrypoint list over the registry's week). Nothing more.
-- Left as it was: `Dreams#status` holds a second run off only for a row of the same date, so a run that sleeps past midnight
-  can have the morning's first prompt start another beside it. Older than this; named so it's seen.
+- A run under way holds a second one off across the date too (`Dreams#status`, review of #712; it was the same date only).
+  Before NT1 a Mac's timer killed a run asleep past midnight on wake, ahead of the morning's first prompt; now it wakes and
+  goes on, so without this the prompt starts another on its dream. A run really gone is lost as before. A row dated ahead
+  (a clock since put right) holds nothing.

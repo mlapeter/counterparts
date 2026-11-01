@@ -765,10 +765,13 @@ working default).** `hooks.ts#isInteractive`: the host's own `CLAUDE_CODE_SESSIO
 `sessions.ts#NON_INTERACTIVE_ENTRYPOINTS` (`sdk-cli` is `claude -p`; the SDKs; `mcp`; the
 GitHub action) claims none of them — the dream line, a night run's hand-back, a carried
 share, a raised contradiction, plain reminders (at SessionStart and at a prompt), the update
-notice. An unknown or absent value is a person's. Since 2026-11-01 (NT1) it leaves the day's
-headless run too (`passOnNight`): it reads the offer, claims nothing, and the next session a person
-starts takes the night, with one `adapter.dream.unwatched` log line (`passed: "headless"`) when a
-night was due. Only a turn no person started in a person's session (`startedByHost`) may still
+notice. An unknown or absent value is a person's. Since 2026-11-01 (NT1) a name on that list,
+unless the host says `ATTENDED=1`, leaves the day's headless run too (`passesOnNight`,
+`passOnNight`): it reads the offer, claims nothing, and the next session a person starts takes the
+night, with one `adapter.dream.unwatched` log line (`passed: "headless"`) when a night was due.
+That is narrower than `isInteractive` on purpose, so a wrong reading costs a held line rather than
+the night: `ATTENDED=0` off the list (a person's `claude --bg`, a teammate, a host name the host's
+own list lacks) and a turn no person started in a person's session (`startedByHost`) may still
 START it (`startUnwatched`); the line it would have been told is held (`Dreams#holdTold`) and the
 next prompt a person starts says it while the run is still going, claimed at delivery (`claimHeld`,
 an event latch per run) — once the run has ended its hand-back tells what it did instead. An

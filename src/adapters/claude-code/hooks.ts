@@ -285,15 +285,28 @@ export interface DreamTold {
  * code does not know. A headless or SDK one (`sessions.ts#NON_INTERACTIVE_
  * ENTRYPOINTS`: `claude -p` is `sdk-cli`) — or, first, one the host itself
  * says nobody attends (`HookInput.attended`) — leaves them for the next session
- * that is, and since 2026-11-01 (NT1) it leaves the nightly run too. Measured
- * 2026-10-01: the day's first prompt came from an SDK session with no terminal,
- * which started the run and claimed the dream line (nobody saw it). This is the
- * hook's reading of "headless"; doctor's (`sessions.ts#notPointableWhy`) is the
- * entrypoint list alone, because the registry doesn't keep `attended`.
+ * that is. Measured 2026-10-01: the day's first prompt came from an SDK session
+ * with no terminal, which started the run and claimed the dream line (nobody saw
+ * it). Whether it may START the night is a narrower question: `passesOnNight`.
  */
 export function isInteractive(input: Pick<HookInput, "entrypoint" | "attended">): boolean {
   if (input.attended !== undefined) return input.attended;
   return input.entrypoint === undefined || !NON_INTERACTIVE_ENTRYPOINTS.has(input.entrypoint);
+}
+
+/**
+ * DOES THIS SESSION LEAVE THE NIGHT TO SOMEONE ELSE? (2026-11-01, NT1; review of
+ * #712.) Only a name on the headless list (`claude -p`, the SDKs, `mcp`, the GitHub
+ * action), the same reading as doctor's (`sessions.ts#notPointableWhy`), unless the
+ * host says a person is there. NOT `!isInteractive`: a wrong "nobody's watching"
+ * only holds a line for the next prompt, and a wrong "headless" here means no
+ * nights. `ATTENDED=0` covers more than `claude -p` (read from the 2.1.316 binary):
+ * a person's `claude --bg` (kind `bg`, entrypoint `cli`), a teammate, and any process
+ * with no terminal whose entrypoint isn't on the host's own list. Those start the
+ * night unwatched (`startUnwatched`), as they always did.
+ */
+export function passesOnNight(input: Pick<HookInput, "entrypoint" | "attended">): boolean {
+  return input.attended !== true && input.entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(input.entrypoint);
 }
 
 /**
@@ -1216,14 +1229,15 @@ export class ClaudeCodeAdapter extends Lifecycle {
     // A HEADLESS SESSION LEAVES THE NIGHT (2026-11-01, NT1): the night of 11-01
     // started from one in a lid-closed dark wake. Nothing is claimed, so the
     // next session a person starts takes it, and nothing is lost by waiting.
-    if (!isInteractive(input)) {
+    if (passesOnNight(input)) {
       this.passOnNight(input);
       return none;
     }
     // A TURN NO PERSON STARTED, in a person's session (review of #445,
-    // 2026-10-12; `startedByHost`): the headless run may start and its line is
+    // 2026-10-12; `startedByHost`), or a session the host calls unattended that
+    // isn't on the headless list: the headless run may start and its line is
     // held; the day's line, the morning share and the raises wait for a person.
-    if (byHost) {
+    if (!isInteractive(input) || byHost) {
       this.startUnwatched(input);
       return none;
     }
@@ -1303,8 +1317,9 @@ export class ClaudeCodeAdapter extends Lifecycle {
   }
 
   /**
-   * A TURN NO PERSON STARTED, IN A PERSON'S SESSION (2026-10-01, lane 8; a
-   * headless session's until NT1, `passOnNight`): it may START the day's
+   * A TURN NO PERSON STARTED, IN A PERSON'S SESSION, OR A SESSION THE HOST CALLS
+   * UNATTENDED OFF THE HEADLESS LIST (2026-10-01, lane 8; `claude -p`'s and the
+   * SDK's until NT1, `passesOnNight`): it may START the day's
    * headless run — the start is the point — and the line it would have been
    * told is held for the next turn a person starts (`Dreams#holdTold`). An
    * ASK is left unclaimed for that turn too: nobody here could answer it.
@@ -1472,7 +1487,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       });
       if (!out.started) return couldNot("runner", out.code ?? String(out.reason));
       dreams.recordNightRun({ ...base, state: "started" });
-      this.emit("adapter.night.started", { run, pid: out.pid, kind: kind.kind, ...(offer.dreamSkipped === undefined ? {} : { dreamSkipped: offer.dreamSkipped }) });
+      this.emit("adapter.night.started", { run, pid: out.pid, kind: kind.kind, entrypoint: input.entrypoint ?? null, ...(offer.dreamSkipped === undefined ? {} : { dreamSkipped: offer.dreamSkipped }) });
       return true;
     } catch (err) {
       return couldNot("runner", codeOf(err));

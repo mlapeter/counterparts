@@ -2977,10 +2977,19 @@ would lose the row and the hour.
 second on Linux. A person's prompt or the child's own tool call inside that second can still read a claim or a row as
 expired, as it would have before.
 
-**Left as it was.** `Dreams#status` holds a second run off only for a row of the same date (`night.date === at`,
-"the next calendar day tries"). So a run that starts before midnight and sleeps past it can have a person's morning prompt
-start another beside it. That's older than this, the claims still keep the two from writing the same stretch, and it isn't
-what NT1 was asked to change: the reviewer may want it looked at.
+**A run asleep past midnight (review of #712).** `Dreams#status` held a second run off only for a row of the same date. That
+looked older than NT1, but on a Mac the plain timer used to kill such a run on wake, ahead of the morning's first prompt. Now it
+wakes and goes on, and after hours of quiet its dream reads as abandoned, so the prompt would start a second run that resumes
+the same dream. The gate now holds for any date up to today (`night.date <= at`), until the run ends or is lost. Nothing ends up
+waiting long: only a living process adds to `sleptMs`, and its watchdogs count time awake.
+
+**What the host's `ATTENDED` means (review of #712, READ from the 2.1.316 binary, not run).** `XU()`: false for a session of kind
+`bg`, `daemon` or `daemon-worker` and for a teammate, even with a terminal; true with a terminal; otherwise true only for a
+non-child process whose entrypoint is on the host's own list (`claude-vscode`, `claude-desktop`, `claude-desktop-3p`,
+`local-agent`, `remote`, `remote_desktop`, `remote_mobile`, `remote_projects`, `remote_cowork`, `ssh-remote`, Slack, Teams,
+`claude-coworker`, and so on). Hooks always get it, so the entrypoint fallback in `isInteractive` doesn't run on a current host.
+A person's `claude --bg` is `cli` with `ATTENDED=0`, and a new host with no terminal is `ATTENDED=0` under a name nobody knows.
+So the night reads the list (`passesOnNight`), and only the told lines read `ATTENDED`. Not measured in a real `--bg` session.
 
 **A headless-only store.** A night waits for a session a person starts, so a store only `claude -p` or the Agent SDK uses gets
 none under `auto`, as it already got none under `ask`. An app a person really talks to through the Agent SDK reads as

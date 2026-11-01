@@ -111,7 +111,7 @@ effect on archives folds into the late-October forgetting check). Details: `~/co
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
-**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#isInteractive`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/decisions.d/fix-nt1-night-holes.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
+**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#passesOnNight`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/decisions.d/fix-nt1-night-holes.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
 
 **What to look at, about a week after release.** On a copy or read-only, ids and numbers only:
 
@@ -126,12 +126,12 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 
 - **A run spanning sleep:** a `dream.night` row with `sleptMs`, and `adapter.night.slept` in `sessions/log/`. A night the lid closed on and no `sleptMs` means the gap went unnoticed. Compare `ms - sleptMs` with what the children really took.
 - **No catch-up stopped by a watchdog after a sleep:** no `adapter.night.writeup` row with `state` `timed-out` and a `sleptMs`; none with `limit` `time` unless it really worked for an hour awake.
-- **Which session started each night:** the row's `session` against its registry entrypoint. No `sdk-cli` or `sdk-ts`. `adapter.dream.unwatched` in the log: `passed: "headless"` lines are a session passing, `started: true` is a turn no person started in a person's session (10-25 and 10-31 were `cli`; the log can't say whether they were a hand-back or `ATTENDED=0`).
+- **Which session started each night:** `adapter.night.started` in the log carries the `session` and `entrypoint`. No `sdk-cli` or `sdk-ts`. `adapter.dream.unwatched` beside it: `passed: "headless"` lines are a session passing, `started: true` is a hand-back in a person's session or a session the host calls unattended off the headless list (10-25 and 10-31 were `cli` hand-backs). Its `session` against the host's transcript tells those apart.
 - **Any day with no night:** a lived day with memories saved and no `dream.night` row, and what sessions it had. A day used only headless gets none, and that's expected; doctor says so once it's been two days.
 
 **What would change it:** a watchdog still firing on wake (read `adapter.night.slept` against the row, then whether the gap is too wide); a real child killed late because stalls read as sleep; days with no night that a person would have wanted (a schedule comes back on the table, as Mike said).
 
-**How to revert:** the two are separate. For the night's start, send `!isInteractive(input)` back to `startUnwatched` in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
+**How to revert:** the two are separate. For the night's start, drop the `passesOnNight` branch in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
 
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 

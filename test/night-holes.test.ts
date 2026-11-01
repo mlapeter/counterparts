@@ -154,6 +154,20 @@ describe("a watchdog counts time awake", () => {
     expect(fired).toBe(1);
   });
 
+  test("the bound: a wait whose every tick comes late still ends, a tick's worth charged each time", () => {
+    const c = stubbed();
+    let fired = 0;
+    const budget = 10 * TICK;
+    armAwake(() => (fired += 1), budget, { now: c.now, schedule: c.schedule, tickMs: TICK, gapMs: GAP });
+    let looks = 0;
+    while (fired === 0 && looks < 100) {
+      c.sleepFiringOnWake(GAP + TICK);
+      looks += 1;
+    }
+    expect(fired).toBe(1);
+    expect(looks).toBeLessThanOrEqual(budget / TICK);
+  });
+
   test("a wall clock stepped back never stretches the budget by more than a tick", () => {
     let t = 10 * HOUR;
     const timers: (() => void)[] = [];
@@ -404,7 +418,7 @@ describe("a headless session leaves the night; the next person's session takes i
     expect((JSON.parse(person.stdout) as { systemMessage?: string }).systemMessage).toContain("dreaming in the background");
     expect(read((c) => c.dreams.nightRun())).toMatchObject({ session: "person-1", date: today() });
     expect(read((c) => c.store.dreamAsk(today())?.state)).toBe("launched");
-    expect(logRows("adapter.night.started")).toHaveLength(1);
+    expect(logRows("adapter.night.started").map((r) => (r["data"] as { entrypoint?: unknown }).entrypoint)).toEqual(["cli"]);
 
     // The real nightly process reached its stub children.
     await nightEnded();
@@ -432,6 +446,159 @@ describe("a headless session leaves the night; the next person's session takes i
     expect(read((c) => c.store.dreamAsk(today()))).toBeUndefined();
     expect(logRows("adapter.dream.unwatched")).toEqual([]);
   }, 30_000);
+});
+
+/**
+ * WHO THE HOST CALLS UNATTENDED ISN'T ONLY `claude -p` (review of #712). Read from the 2.1.316
+ * binary: `ATTENDED` is 0 for any session of kind `bg`/`daemon`/`daemon-worker` (a person's
+ * `claude --bg`, with entrypoint `cli`), for a teammate, and for any process without a terminal
+ * whose entrypoint isn't on the host's own list (so a new host's name, or a known one on a host
+ * version whose list lacks it). Their lines still wait for a person; their night runs.
+ */
+describe("a session the host calls unattended, that isn't on the headless list, still starts the night", () => {
+  for (const [what, entrypoint] of [
+    ["a person's background session", "cli"],
+    ["a host this code has never heard of", "claude-brand-new"],
+    ["an editor the host's list missed", "claude-vscode"],
+  ] as const) {
+    test(`${what} (${entrypoint}, ATTENDED=0): the night starts, and nothing is told or claimed for nobody`, async () => {
+      dueStore();
+      const out = promptHook("unattended-1", { CLAUDE_CODE_ENTRYPOINT: entrypoint, CLAUDE_CODE_SESSION_ATTENDED: "0", CLAUDECODE: "1" });
+      expect(out.code).toBe(0);
+      expect(out.stdout).not.toContain("dreaming in the background");
+      expect(read((c) => c.dreams.nightRun())).toMatchObject({ session: "unattended-1", date: today() });
+      expect(logRows("adapter.dream.unwatched").map((r) => r["data"])).toEqual([{ started: true, entrypoint }]);
+      await nightEnded();
+      expect(stubCalls()).toBeGreaterThan(0);
+    }, 60_000);
+  }
+
+  for (const [what, host] of [
+    ["an unknown entrypoint with no word from the host", { CLAUDE_CODE_ENTRYPOINT: "claude-brand-new", CLAUDECODE: "1" }],
+    ["no entrypoint and no word from the host", { CLAUDECODE: "1" }],
+    ["the host's word over a headless name", { CLAUDE_CODE_ENTRYPOINT: "sdk-cli", CLAUDE_CODE_SESSION_ATTENDED: "1", CLAUDECODE: "1" }],
+  ] as const) {
+    test(`${what} reads as a person`, async () => {
+      dueStore();
+      const out = promptHook("person-1", host);
+      expect((JSON.parse(out.stdout) as { systemMessage?: string }).systemMessage).toContain("dreaming in the background");
+      expect(read((c) => c.dreams.nightRun()?.session)).toBe("person-1");
+      await nightEnded();
+    }, 60_000);
+  }
+});
+
+describe("what a headless session leaves behind doesn't spend the day", () => {
+  function startHook(session: string, host: Record<string, string>): number | null {
+    const res = spawnSync(process.execPath, ["run", HOOK, "--config", cfg], {
+      input: JSON.stringify({ hook_event_name: "SessionStart", session_id: session, cwd: work, source: "startup" }),
+      env: envOf(host),
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    return res.status;
+  }
+
+  test("a headless first wake and prompt, then a person's wake and prompt: the person's starts the night", async () => {
+    dueStore();
+    expect(startHook("print-1", CLAUDE_P)).toBe(0);
+    expect(promptHook("print-1", CLAUDE_P).code).toBe(0);
+    expect(read((c) => c.dreams.nightRun())).toBeNull();
+    expect(read((c) => c.store.dreamAsk(today()))).toBeUndefined();
+
+    expect(startHook("person-1", PERSON)).toBe(0);
+    const person = promptHook("person-1", PERSON);
+    expect((JSON.parse(person.stdout) as { systemMessage?: string }).systemMessage).toContain("dreaming in the background");
+    expect(read((c) => c.dreams.nightRun()?.session)).toBe("person-1");
+    await nightEnded();
+  }, 60_000);
+
+  test("a person's session open since before midnight takes it at its next prompt", async () => {
+    dueStore();
+    recordSession(store, { sessionId: "open-1", scope: work, phase: "start", at: Date.now() - 20 * HOUR, entrypoint: "cli" });
+    expect(promptHook("print-1", CLAUDE_P).code).toBe(0);
+    expect(read((c) => c.dreams.nightRun())).toBeNull();
+    expect(promptHook("open-1", PERSON).code).toBe(0);
+    expect(read((c) => c.dreams.nightRun()?.session)).toBe("open-1");
+    await nightEnded();
+  }, 60_000);
+});
+
+/**
+ * A RUN ASLEEP PAST MIDNIGHT (review of #712). Before NT1 a Mac's plain timer killed it on wake,
+ * ahead of the morning's first prompt. Now it wakes and goes on, so the gate has to hold the
+ * second one off across the date too.
+ */
+describe("a run asleep past midnight", () => {
+  function yesterdaysRun(sleptMs: number | undefined): void {
+    const startedAt = Date.now() - 9 * HOUR;
+    const c = Counterpart.open({ dir: store });
+    try {
+      c.dreams.recordNightRun({
+        run: "nrn_lastnight",
+        date: addDays(today(), -1),
+        kind: "night",
+        session: "person-0",
+        state: "started",
+        startedAt,
+        timeoutMs: nightRowTimeoutMs({ dataDir: store }, "night"),
+        endedAt: null,
+        reason: null,
+        detail: null,
+        code: null,
+        dream: null,
+        reflection: null,
+        ...(sleptMs === undefined ? {} : { sleptMs }),
+      });
+    } finally {
+      c.close();
+    }
+  }
+
+  test("still under way, it holds the morning's prompt off, and the day isn't spent", () => {
+    dueStore();
+    yesterdaysRun(8.5 * HOUR);
+    const out = promptHook("person-1", PERSON);
+    expect(out.code).toBe(0);
+    expect(out.stdout).not.toContain("dreaming in the background");
+    expect(logRows("adapter.night.started")).toEqual([]);
+    expect(read((c) => c.dreams.nightRun()?.run)).toBe("nrn_lastnight");
+    expect(read((c) => c.store.dreamAsk(today()))).toBeUndefined();
+  }, 30_000);
+
+  test("really gone (nothing added its sleep), the morning's prompt starts today's", async () => {
+    dueStore();
+    yesterdaysRun(undefined);
+    expect(promptHook("person-1", PERSON).code).toBe(0);
+    expect(logRows("adapter.night.started")).toHaveLength(1);
+    expect(read((c) => c.dreams.nightRun()?.session)).toBe("person-1");
+    await nightEnded();
+  }, 60_000);
+
+  test("a dead row dated ahead, from a clock since put right, blocks nothing", () => {
+    dueStore();
+    const c = Counterpart.open({ dir: store });
+    try {
+      c.dreams.recordNightRun({
+        run: "nrn_ahead",
+        date: addDays(today(), 400),
+        kind: "night",
+        session: "person-0",
+        state: "started",
+        startedAt: Date.now() + 400 * 24 * HOUR,
+        timeoutMs: HOUR,
+        endedAt: null,
+        reason: null,
+        detail: null,
+        code: null,
+        dream: null,
+        reflection: null,
+      });
+    } finally {
+      c.close();
+    }
+    expect(read((c2) => c2.dreams.offer({ at: today(), session: "person-1" })?.headless)).toBe(true);
+  });
 });
 
 describe("a night row doesn't read as lost while its run sleeps", () => {

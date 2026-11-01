@@ -142,13 +142,19 @@ describe("auto: a headless session leaves the run to a person's session (2026-11
     expect(cli.dream?.notice).toBe('Counterparts: dreaming in the background (a few minutes). Say "no dreams" to turn it off.');
   });
 
-  test("the reading is the host's first (`isInteractive`): `cli` it says nobody attends passes; `sdk-cli` it says somebody attends starts", () => {
+  test("the reading is the list's (`passesOnNight`): `cli` the host says nobody attends starts it, unwatched; a person's background session is one", () => {
     const a = hooks();
     lived(a);
     a.counterpart.dreams.setSetting("auto", { by: "owner" });
-    a.userPromptSubmit(input("s-nobody", "cli", "good morning", false));
-    expect(spawned).toBe(0);
-    expect(a.counterpart.store.dreamAsk(AT)).toBeUndefined();
+    const told = a.userPromptSubmit(input("s-nobody", "cli", "good morning", false));
+    expect(spawned).toBe(1);
+    expect(told.dream).toBeUndefined();
+  });
+
+  test("`sdk-cli` the host says somebody attends starts it", () => {
+    const a = hooks();
+    lived(a);
+    a.counterpart.dreams.setSetting("auto", { by: "owner" });
     a.userPromptSubmit(input("s-somebody", "sdk-cli", "good morning", true));
     expect(spawned).toBe(1);
   });
