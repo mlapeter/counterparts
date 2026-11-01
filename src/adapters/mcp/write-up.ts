@@ -658,7 +658,9 @@ function finish(
     deposited: deposits.deposited,
     refused: entries - deposits.deposited,
     outcomes: deposits.outcomes,
-    ...(threw === 0 ? {} : { notLanded: threw, notLandedDetail: `${String(threw)} of these memories did not land, and this part is closed. Save each of them with remember.` }),
+    // A granted runner writes up and nothing else (`server.ts`, `write-up-runner`):
+    // `remember` is refused to it, so it isn't told to.
+    ...(threw === 0 ? {} : { notLanded: threw, notLandedDetail: `${String(threw)} of these memories did not land, and this part is closed.${st.granted ? " This run can't save them." : " Save each of them with remember."}` }),
   };
   if (elsewhere.length > 0) {
     saveWriteUpProgress(input.counterpart.store, st.key, { ...base, done: part, answer: said, waiting: true });

@@ -23,6 +23,7 @@ import { SpanBuffer, keyFor, retentionSources } from "../src/core/remember/index
 import type { ProposalRecord } from "../src/core/remember/index.js";
 import { planUnboundLines } from "../src/core/remember/owes.js";
 import { DATABASE_FILE } from "../src/core/store/paths.js";
+import { runCycle } from "../src/core/sleep/index.js";
 import { isFailure, logged } from "../src/adapters/log/index.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
@@ -267,6 +268,87 @@ describe("a real kill inside the mint", () => {
     expect(lineHashes(s)).toHaveLength(1);
     expect(s.counterpart.spans.coverage(scope)).toHaveLength(1);
   }, 30_000);
+
+  test("SIGKILL after the commit and before the claim: a repeat mints a twin, recall leaves it out, and sleep folds it", async () => {
+    const child = join(root, "kid.ts");
+    const mcp = fileURLToPath(new URL("../src/adapters/mcp/index.ts", import.meta.url));
+    const remember = fileURLToPath(new URL("../src/core/remember/index.ts", import.meta.url));
+    writeFileSync(
+      child,
+      [
+        `import { openServer } from ${JSON.stringify(mcp)};`,
+        `import { SpanBuffer } from ${JSON.stringify(remember)};`,
+        `const [dir, scope, session, text] = process.argv.slice(2) as [string, string, string, string];`,
+        `SpanBuffer.prototype.claimCoverage = () => { process.kill(process.pid, "SIGKILL"); return []; };`,
+        `const s = openServer({ dir, scope, session });`,
+        `await s.call("remember", { text });`,
+        `process.exit(7);`,
+      ].join("\n"),
+      "utf8",
+    );
+    const kid = Bun.spawn([process.execPath, child, dir, scope, SESSION, NOTE], { stdout: "ignore", stderr: "ignore" });
+    expect(await kid.exited).not.toBe(7);
+    expect(kid.signalCode).toBe("SIGKILL");
+
+    // The memory is on disk with nothing claimed, its line still owed.
+    const s = server();
+    const first = memoryIds(s);
+    expect(first).toHaveLength(1);
+    expect(ledger(s)).toEqual([]);
+    expect(s.counterpart.spans.coverage(scope)).toEqual([]);
+
+    // Other memories in the store, as any real one has: on a store of two rows the
+    // word search scores a word in both at nothing.
+    for (let i = 0; i < 30; i++) await s.call("remember", { text: `The survey crew walked the alder path on morning number ${String(i)} of the autumn count.` });
+
+    // The repeat can't see the row: a twin, and from here the ledger answers.
+    expect(payload(await s.call("remember", { text: NOTE }))["stored"]).toBe(true);
+    const same = (): string[] => memoryIds(s).filter((id) => s.counterpart.store.row(id)?.body === NOTE);
+    expect(same()).toHaveLength(2);
+    expect(payload(await s.call("remember", { text: NOTE }))["reason"]).toBe("duplicate-content");
+
+    // Asked for, it comes back once.
+    const answer = String(payload(await s.call("recall", { question: "cabin booking third week of March", mode: "facts" }))["answer"]);
+    expect(answer.split(NOTE).length - 1).toBeLessThanOrEqual(2); // its title line and its body, one result
+    expect(answer).toContain("near-duplicate");
+
+    // The next sleep folds it: one live, and the same text is still a duplicate.
+    runCycle({ store: s.counterpart.store, date: s.counterpart.store.today() });
+    expect(same().filter((id) => s.counterpart.store.row(id)?.archived === 0)).toHaveLength(1);
+    expect(payload(await s.call("remember", { text: NOTE }))["reason"]).toBe("duplicate-content");
+  }, 30_000);
+});
+
+describe("a repeat that isn't a retry doesn't take a line", () => {
+  const spanOf = (s: McpServer, id: string): unknown => (s.counterpart.store.readProse(id).meta["origin"] as { spanHash?: unknown } | undefined)?.spanHash;
+
+  test("the same words from another session: the first session's line stays its own", async () => {
+    const a = server();
+    await withLock(storeFile(), () => a.call("remember", { text: NOTE }));
+    expect(memoryIds(a)).toEqual([]);
+
+    const b = server("22222222-2222-4222-8222-222222222222");
+    const out = payload(await b.call("remember", { text: NOTE }));
+    expect(out["stored"]).toBe(true);
+    expect(spanOf(b, out["id"] as string)).toBeUndefined();
+    // Still the one line, and still unclaimed: it's the first session's to write up.
+    expect(lineHashes(b)).toHaveLength(1);
+    expect(b.counterpart.spans.coverage(scope)).toEqual([]);
+  });
+
+  test("a line something else already claimed: the note lands, and the claim stands as it was", async () => {
+    const s = server();
+    await withLock(storeFile(), () => s.call("remember", { text: NOTE }));
+    await s.call("session_end", { session: SESSION, memories: [ENTRY] });
+    const marks = s.counterpart.spans.coverage(scope);
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.own).toBe(false);
+
+    const out = payload(await s.call("remember", { text: NOTE }));
+    expect(out["stored"]).toBe(true);
+    expect(spanOf(s, out["id"] as string)).toBeUndefined();
+    expect(s.counterpart.spans.coverage(scope)).toEqual(marks);
+  });
 });
 
 describe("session_end: a mint that threw", () => {

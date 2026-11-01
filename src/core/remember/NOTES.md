@@ -776,8 +776,15 @@ memory stands and a retry says `duplicate-content`. Measured with a real lock on
 **The window left.** A kill after the commit and before the ledger append, in one synchronous
 stretch: a memory with no row and its words unclaimed. A repeat mints a twin, which sleep's
 content-hash pass folds, and the words read as owed until something claims them. Duplication
-over loss, as `CaptureResult.deduped` has always said. Not run on a real kill: there's no
-await to land one in.
+over loss, as `CaptureResult.deduped` has always said. Run on a real SIGKILL at that point, by
+patching the claim in a child (separate review, the same day): with other memories in the store,
+recall answers once and says "1 near-duplicate left out"; `meaning` counts two moments until the
+next sleep, which folds it, dated, open thread and revision too. Which twin survives is the id's
+tie-break, so a revision's forward pointers can name the one archived. On a store of nothing but
+the two rows, `facts` answers "0 match" until the fold, on master too (inferred: a word in every
+row scores nothing). Left open: a read for a same-body row in the scope before each mint is under
+a millisecond at 15,000 rows, but it has to get removed rows and redacted bodies right, and the
+window takes a kill landing inside one synchronous stretch.
 
 **A ledger that can't be written still means no memory.** `proposalLedgerWritable` is an empty
 append before the mint, so `io-failed` keeps its answer and now leaves no marks either. A
@@ -798,10 +805,17 @@ no row anywhere, and `gate.deposit` is written after the mint, so it can't show 
 
 - A last write-up part where one memory landed and another threw: the one that landed took the
   session's words (`cover`), so it owes nothing and the door refuses a resend. The part closes
-  and says `notLanded`, with "save each of them with remember". A nightly runner may not.
+  and says `notLanded`, with "save each of them with remember". A nightly runner can't: it's
+  refused `remember` (`write-up-runner`), so it's told so, and that memory is gone.
+- A `session_end` where one entry threw and another landed, on any door: the one that landed
+  claims the whole stretch, the words the thrown one was about included. A resend lands it
+  (measured, a real lock held past one entry's wait), but nobody resending means they go on the
+  3-day clock. Better than before, when the throw itself claimed them. Not closed.
 - A claim already on disk from before this change stays: no retry of it lands.
-- Moving the ledger row after the mint widens the two-process race on identical text across
-  `guardUpdate`'s awaits. That race was already open across the gate's. It costs a twin.
+- Moving the ledger row after the mint widens the two-process race on identical text: it now
+  runs through `guardUpdate`'s awaits and the mint, a lock's wait included. Measured with two real
+  servers sent the same text at once, 60 rounds each: twins 45 to 47 with no embedder, 53 to 59
+  with one, and 42 to 58 through `session_end`. It was mostly open already, and it costs a twin.
 - A store whose index throws after the commit still reports a failure for a memory that
   landed, and skips what follows the mint (a reminder's move, a declared revision). Not new.
 
