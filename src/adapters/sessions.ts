@@ -2514,6 +2514,28 @@ export function saveWriteUpProgress(
 }
 
 /**
+ * START A SESSION'S UNFINISHED WRITE-UPS AGAIN (2026-11-01). The door counts
+ * parts from the session's oldest words, so when retention takes lines off the
+ * front of the unbound bucket (`remember/owes.ts#planUnboundLines`) the parts
+ * not yet served move forward, and `done` would skip what moved into a part
+ * already counted; the last part's claim would then close words nobody read.
+ * Served again costs a writer a second read; a skip costs the words. A write-up
+ * whose last part came back (`answer`) has read everything and is left alone.
+ * Returns whether it landed; never throws.
+ */
+export function rewindWriteUps(store: Pick<Store, "updateMeta">, session: string): boolean {
+  return updateWriteUpProgress(store, (all) => {
+    let changed = false;
+    for (const [key, p] of Object.entries(all)) {
+      if (!key.startsWith(`${session}|`) || p.answer !== undefined || p.done === 0) continue;
+      all[key] = { ...p, done: 0 };
+      changed = true;
+    }
+    return changed;
+  });
+}
+
+/**
  * THE POINTER'S NEWEST OUTCOME — pointed, or deferred and by how much — kept
  * DURABLY in box 2's meta so doctor can say why nothing is being written up
  * (PR #192 review, MAJOR 1). One key, overwritten each time: the question it

@@ -21,11 +21,19 @@
  * nothing. A run that crashes after taking the latch spends that date; the next
  * date runs again, and nothing it did not finish is lost — the sessions it did
  * not reach are still due.
+ *
+ * **The unbound bucket, line by line** (2026-11-01). `"mcp"` is every sessionless
+ * note's shared id, so whole-session judgement let each new note hold all the
+ * old ones. After the sessions, this strikes its lines past their own age
+ * (`owes.ts#planUnboundLines`) through the same door, naming hashes within that
+ * one session. No line of any other session can match.
  */
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { planRetention } from "./owes.js";
+import { UNBOUND_SESSION } from "../types.js";
+
+import { planRetention, planUnboundLines } from "./owes.js";
 import type { RetentionReport, RetentionSources } from "./owes.js";
 import { strikeSpans } from "./owner-strike-seam.js";
 import type { SpanBuffer } from "./spans.js";
@@ -44,6 +52,7 @@ const EMPTY_REPORT: Omit<RetentionReport, "reason"> = {
   failed: 0,
   lines: 0,
   bytes: 0,
+  unboundLines: 0,
 };
 
 /**
@@ -128,9 +137,25 @@ export function pruneRetention(
     }
     lines += struck.struck;
   }
+  // The bucket, line by line, unless the sessions' rule just took all of it.
+  const whole = plan.some((h) => h.session === UNBOUND_SESSION && h.verdict === "deleted");
+  let unboundLines = 0;
+  let unboundBytes = 0;
+  for (const aged of whole ? [] : planUnboundLines(buffer, sources)) {
+    const struck = strikeSpans(buffer, { scope: aged.scope, hashes: aged.hashes, within: UNBOUND_SESSION, by: "retention" });
+    if (struck.reason === "OBSERVER" || struck.reason === "IO_FAILED") {
+      failedSessions.add(UNBOUND_SESSION);
+      if (struck.reason === "OBSERVER") observed = true;
+      else ioFailed = true;
+      continue;
+    }
+    lines += struck.struck;
+    unboundLines += struck.struck;
+    unboundBytes += aged.bytes;
+  }
   const deletedPlan = plan.filter((h) => h.verdict === "deleted" && !failedSessions.has(h.session));
   const report: RetentionReport = {
-    reason: observed ? "OBSERVER" : ioFailed ? "IO_FAILED" : deletedPlan.length > 0 ? "PRUNED" : "NOTHING",
+    reason: observed ? "OBSERVER" : ioFailed ? "IO_FAILED" : deletedPlan.length > 0 || unboundLines > 0 ? "PRUNED" : "NOTHING",
     scopes: new Set(plan.flatMap((h) => h.scopes)).size,
     deleted: deletedPlan.length,
     keptOwed: plan.filter((h) => h.verdict === "kept-owed").length,
@@ -138,7 +163,8 @@ export function pruneRetention(
     keptLive: plan.filter((h) => h.verdict === "kept-live").length,
     failed: failedSessions.size,
     lines,
-    bytes: deletedPlan.reduce((n, h) => n + h.bytes, 0),
+    bytes: deletedPlan.reduce((n, h) => n + h.bytes, 0) + unboundBytes,
+    unboundLines,
   };
   buffer.emit("remember.retention", undefined, {
     reason: report.reason,
@@ -149,6 +175,7 @@ export function pruneRetention(
     keptLive: report.keptLive,
     failed: report.failed,
     lines: report.lines,
+    unboundLines: report.unboundLines,
   });
   return report;
 }
