@@ -184,7 +184,7 @@ reply actually used reconsolidates, where in humans every retrieval does.
   not unknown, archived, a handoff, superseded or faded under a newer one); a rating of
   such a memory is still recorded. Co-used memories are linked (associate G1). And a
   memory rated 0 in `HABITUATION_MIN_SESSIONS` (2) sessions within
-  `HABITUATION_WINDOW_DAYS` (7) lived days is HABITUATED: the gate raises the bar it faces
+  `HABITUATION_WINDOW_DAYS` (14) lived days is HABITUATED: the gate raises the bar it faces
   by `HABITUATION_BAR_LIFT` (×1.5), after the floor, in both tiers, until those ratings age
   out or a later rating of 2 or more clears them (`habituation.ts`). A penalty on its
   chance to show, never on its strength; never a veto; quiet pointers and deliberate
