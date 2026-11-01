@@ -128,11 +128,11 @@ describe("a note every 2 days, through the door and the worker", () => {
       // Nothing past the 3-day clock survives a pass, at any point in the run.
       for (const line of jotsOf(UNBOUND_SESSION)) expect(at(day) - line.at).toBeLessThan(3 * DAY);
     }
-    // Filed where the brief says it is, and day 0 outlived only one pass.
+    // Filed under the shared id, and day 0 outlived one pass and went at the next.
     expect(held[0]).toBe(1);
     expect(held[2]).toBe(2);
     expect(held[4]).toBe(2);
-    // At the end: the two newest, nothing else, 20 days after the last gap could have cleared it.
+    // At the end: the two newest and nothing else, with no gap ever long enough to clear the bucket.
     expect(jotsOf(UNBOUND_SESSION).map((l) => l.text)).toEqual([note(38), note(40)]);
 
     // The memories themselves are not touched: all 21, words intact.
