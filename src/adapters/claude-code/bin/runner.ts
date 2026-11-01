@@ -85,7 +85,6 @@ import type { HostSessionEvidence, RetentionReport } from "../../../core/remembe
 import { pruneRetention } from "../../../core/remember/retention.js";
 import { dataDir, describeGuardRefusal } from "../../../core/store/index.js";
 import type { Store } from "../../../core/store/index.js";
-import { UNBOUND_SESSION } from "../../../core/types.js";
 import { hostSessionEvidence, installedVersion, rewindWriteUps, writeUpSources } from "../../sessions.js";
 import { openLog } from "../../log/index.js";
 import { BINARY, TRANSPILED } from "../../runtime.js";
@@ -199,6 +198,7 @@ const EMPTY_RETENTION: RetentionReport = {
   lines: 0,
   bytes: 0,
   unboundLines: 0,
+  unboundSessions: [],
 };
 
 /**
@@ -287,9 +287,11 @@ export function retentionJob(input: {
     if (report.reason === "IO_FAILED" && report.failed === 0 && report.scopes === 0) {
       return { ...none, reason: "failed", code: "LATCH_FAILED" };
     }
-    // Lines gone from the head of the bucket move every part after them, so a
+    // Lines gone from the head of a bucket move every part after them, so a
     // write-up of it part way through starts again rather than skip what moved.
-    if (report.unboundLines > 0) rewindWriteUps(store, UNBOUND_SESSION);
+    // Only that bucket: a write-up of the other lost nothing, and starting it
+    // again on every pass could keep it from ever finishing.
+    for (const session of report.unboundSessions) rewindWriteUps(store, session);
     let recorded = false;
     try {
       store.appendEvent({

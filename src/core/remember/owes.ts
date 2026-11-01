@@ -54,15 +54,16 @@
  * Every failure to read a fact moves toward KEEPING: a host that cannot answer
  * is read as holding the session open.
  *
- * ── THE ONE BUCKET THAT IS NOT A SESSION ──────────────────────────────────
+ * ── THE TWO BUCKETS THAT ARE NOT SESSIONS ─────────────────────────────────
  *
- * `UNBOUND_SESSION` ("mcp") is the shared id of every server that does not know
- * its session. Judged as one session, each new note restarted the clocks for
- * all of them, so a note every two days kept day 0's raw copy for ever
- * (2026-11-01, measured). `planUnboundLines` judges each of its lines as a
- * session of one: on the line's own `at`, 3 days when the line owes nothing
- * and 14 whatever it owes. The session rule above still runs over the bucket
- * and may clear it sooner. Every other session is judged as it always was.
+ * `SHARED_SESSIONS`: `UNBOUND_SESSION` ("mcp") is the shared id of every server
+ * that does not know its session, and `CONSOLE_SESSION` ("console") of every
+ * `counterparts note`. Judged as one session, each new note restarted the clocks
+ * for all of them, so a note every two days kept day 0's raw copy for ever
+ * (2026-11-01, measured on both). `planUnboundLines` judges each of their lines
+ * as a session of one: on the line's own `at`, 3 days when the line owes nothing
+ * and 14 whatever it owes. The session rule above still runs over a bucket and
+ * may clear it sooner. Every other session is judged as it always was.
  */
 import { Buffer } from "node:buffer";
 
@@ -70,7 +71,7 @@ import { ledger } from "../coverage/index.js";
 import type { LedgerEntry, SessionState } from "../coverage/index.js";
 import type { Store } from "../store/index.js";
 import { resolveZone } from "../time.js";
-import { UNBOUND_SESSION } from "../types.js";
+import { SHARED_SESSIONS } from "../types.js";
 
 import type { Span, SpanBuffer } from "./spans.js";
 import { TUNABLES } from "./tunables.js";
@@ -327,9 +328,11 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
   return out;
 }
 
-/** The lines of the unbound bucket one scope may let go, on their own age. */
+/** The lines of one shared id that one scope may let go, on their own age. */
 export interface AgedLines {
   readonly scope: string;
+  /** Which of `SHARED_SESSIONS` they are filed under. */
+  readonly session: string;
   /** The lines' hashes, for the strike to name. Never a pattern, never a word. */
   readonly hashes: readonly string[];
   readonly lines: number;
@@ -337,7 +340,7 @@ export interface AgedLines {
 }
 
 /**
- * THE LINES OF THE UNBOUND BUCKET PAST THEIR OWN AGE, per scope. Read-only.
+ * THE LINES OF THE SHARED IDS PAST THEIR OWN AGE, per scope and id. Read-only.
  *
  * Each line is judged the way a session holding only that line would be:
  *
@@ -354,7 +357,8 @@ export interface AgedLines {
  *     than 14 days" costs.
  *
  * A line whose `at` will not read is never judged, and a hash also on a line
- * still inside its clock stays with it (the strike names hashes).
+ * of the same id still inside its clock stays with it (the strike names hashes
+ * within one id, so the other id's line is not named either way).
  */
 export function planUnboundLines(buffer: SpanBuffer, sources: RetentionSources): AgedLines[] {
   const now = buffer.now();
@@ -363,33 +367,38 @@ export function planUnboundLines(buffer: SpanBuffer, sources: RetentionSources):
   const out: AgedLines[] = [];
   for (const scope of buffer.scopes()) {
     const covered = buffer.coveredHashes(scope);
-    const due = new Map<string, { lines: number; bytes: number }>();
-    const stays = new Set<string>();
-    const judge = (s: Span): void => {
-      if (s.session !== UNBOUND_SESSION) return;
-      const at = numberOr(s.at, 0);
-      const written = s.kind === "assistant" || covered.has(s.hash);
-      if (at <= 0 || now - at < (written ? retentionMs : maxMs)) {
-        stays.add(s.hash);
-        return;
+    const held: readonly Span[] = [
+      ...buffer.spans(scope),
+      ...buffer.assistantSpans(scope),
+      ...buffer.quarantined(scope),
+      ...buffer.claimedSpans(scope),
+    ];
+    for (const session of SHARED_SESSIONS) {
+      const due = new Map<string, { lines: number; bytes: number }>();
+      const stays = new Set<string>();
+      for (const s of held) {
+        if (s.session !== session) continue;
+        const at = numberOr(s.at, 0);
+        const written = s.kind === "assistant" || covered.has(s.hash);
+        if (at <= 0 || now - at < (written ? retentionMs : maxMs)) {
+          stays.add(s.hash);
+          continue;
+        }
+        const cell = due.get(s.hash) ?? { lines: 0, bytes: 0 };
+        cell.lines += 1;
+        cell.bytes += Buffer.byteLength(s.text, "utf8");
+        due.set(s.hash, cell);
       }
-      const cell = due.get(s.hash) ?? { lines: 0, bytes: 0 };
-      cell.lines += 1;
-      cell.bytes += Buffer.byteLength(s.text, "utf8");
-      due.set(s.hash, cell);
-    };
-    for (const s of buffer.spans(scope)) judge(s);
-    for (const s of buffer.assistantSpans(scope)) judge(s);
-    for (const s of buffer.quarantined(scope)) judge(s);
-    for (const s of buffer.claimedSpans(scope)) judge(s);
-    const hashes = [...due.keys()].filter((h) => !stays.has(h));
-    if (hashes.length === 0) continue;
-    out.push({
-      scope,
-      hashes,
-      lines: hashes.reduce((n, h) => n + (due.get(h)?.lines ?? 0), 0),
-      bytes: hashes.reduce((n, h) => n + (due.get(h)?.bytes ?? 0), 0),
-    });
+      const hashes = [...due.keys()].filter((h) => !stays.has(h));
+      if (hashes.length === 0) continue;
+      out.push({
+        scope,
+        session,
+        hashes,
+        lines: hashes.reduce((n, h) => n + (due.get(h)?.lines ?? 0), 0),
+        bytes: hashes.reduce((n, h) => n + (due.get(h)?.bytes ?? 0), 0),
+      });
+    }
   }
   return out;
 }
@@ -420,9 +429,13 @@ export interface RetentionReport {
   readonly lines: number;
   /** Bytes of text held by the deleted sessions and aged lines, as planned. */
   readonly bytes: number;
-  /** Of `lines`, those the unbound bucket let go on their own age
-   *  (`planUnboundLines`): the bucket itself is not in `deleted`. */
+  /** Of `lines`, those the shared ids let go on their own age
+   *  (`planUnboundLines`): the buckets themselves are not in `deleted`. */
   readonly unboundLines: number;
+  /** Which of `SHARED_SESSIONS` those lines left: the one thing here that is
+   *  not a count, and two constants, not anyone's session. It is not recorded:
+   *  the worker rewinds a write-up only of a bucket whose parts really moved. */
+  readonly unboundSessions: readonly string[];
 }
 
 /** The payload of one `remember.prune` row. `clocks` is the run's own, when

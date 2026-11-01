@@ -22,16 +22,15 @@
  * date runs again, and nothing it did not finish is lost — the sessions it did
  * not reach are still due.
  *
- * **The unbound bucket, line by line** (2026-11-01). `"mcp"` is every sessionless
- * note's shared id, so whole-session judgement let each new note hold all the
- * old ones. After the sessions, this strikes its lines past their own age
- * (`owes.ts#planUnboundLines`) through the same door, naming hashes within that
- * one session. No line of any other session can match.
+ * **The shared ids, line by line** (2026-11-01). `"mcp"` is every sessionless
+ * note's shared id and `"console"` every `counterparts note`'s, so whole-session
+ * judgement let each new note hold all the old ones. After the sessions, this
+ * strikes their lines past their own age (`owes.ts#planUnboundLines`) through
+ * the same door, naming hashes within one id at a time. No line of any other
+ * session can match.
  */
 import { closeSync, mkdirSync, openSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-
-import { UNBOUND_SESSION } from "../types.js";
 
 import { planRetention, planUnboundLines } from "./owes.js";
 import type { RetentionReport, RetentionSources } from "./owes.js";
@@ -53,6 +52,7 @@ const EMPTY_REPORT: Omit<RetentionReport, "reason"> = {
   lines: 0,
   bytes: 0,
   unboundLines: 0,
+  unboundSessions: [],
 };
 
 /**
@@ -137,14 +137,15 @@ export function pruneRetention(
     }
     lines += struck.struck;
   }
-  // The bucket, line by line. Planned after the strikes above, so a bucket the
+  // The buckets, line by line. Planned after the strikes above, so a bucket the
   // sessions' rule just took whole has no line left to count twice.
   let unboundLines = 0;
   let unboundBytes = 0;
+  const unboundSessions = new Set<string>();
   for (const aged of planUnboundLines(buffer, sources)) {
-    const struck = strikeSpans(buffer, { scope: aged.scope, hashes: aged.hashes, within: UNBOUND_SESSION, by: "retention" });
+    const struck = strikeSpans(buffer, { scope: aged.scope, hashes: aged.hashes, within: aged.session, by: "retention" });
     if (struck.reason === "OBSERVER" || struck.reason === "IO_FAILED") {
-      failedSessions.add(UNBOUND_SESSION);
+      failedSessions.add(aged.session);
       if (struck.reason === "OBSERVER") observed = true;
       else ioFailed = true;
       continue;
@@ -152,6 +153,7 @@ export function pruneRetention(
     lines += struck.struck;
     unboundLines += struck.struck;
     unboundBytes += aged.bytes;
+    if (struck.struck > 0) unboundSessions.add(aged.session);
   }
   const deletedPlan = plan.filter((h) => h.verdict === "deleted" && !failedSessions.has(h.session));
   const report: RetentionReport = {
@@ -165,6 +167,7 @@ export function pruneRetention(
     lines,
     bytes: deletedPlan.reduce((n, h) => n + h.bytes, 0) + unboundBytes,
     unboundLines,
+    unboundSessions: [...unboundSessions],
   };
   buffer.emit("remember.retention", undefined, {
     reason: report.reason,
