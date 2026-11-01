@@ -117,19 +117,12 @@ commitment, and anyone can reopen it sooner.
 
 **Reopen sooner if:** Mike or a session notices a ruling it wanted didn't come up, or a memory rated 3 sits in the held list.
 
-**The review:** rerun the replay on a fresh store copy, 7 against 14, on the days since release. Steps and scripts are in
-`~/counterparts-notes/2026-11-01-briefs/habituation-replay/PROGRESS.md` (read-only, takes minutes; `held.py` for the held
-list). The scripts carry scratch paths from 11-01, so point them at the new copy. Read useful lost, rulings held and
-held-set size. Read the replay rather than noise alone: R3S lands just before this and moves the same number.
+**The review:** ROADMAP holds this read. On a fresh store copy, read-only, a small script: memories held on a given day that were later opened, asked for or rated 2-3 (the `asked` and `opened` lanes on `recall.rated`), plus a read of the extra footnotes the 7-day arm would have shown. Replay steps and scripts are in
+`~/counterparts-notes/2026-11-01-briefs/habituation-replay/PROGRESS.md` (`held.py` for the held list). They carry scratch paths from 11-01, so point them at the new copy. Also read held-set size and rulings held. R3S lands just before this and moves the same noise number, so don't read noise alone.
 
-**Useful lost won't read the way it did on 11-01.** That replay could score what 14 took away because live ran at 7, so those
-footnotes were shown and rated. Once live runs at 14, what it holds mostly isn't shown, so it has no rating, and `an.py`'s
-useful-lost count falls toward zero whatever is true. Treat it as a floor. Nearer the question, not built yet: memories the
-14 arm held on a turn that the same session then asked for or opened and rated 2 or 3 (the `asked` and `opened` lanes on
-`recall.rated`).
+**Useful lost can't be read after release, by live or by a replay.** The 11-01 replay could score what 14 took away because live ran at 7, so those footnotes were shown and rated. Once live runs at 14, what it holds mostly isn't shown, so it has no rating. The "5% of removed rated showings" test applied only to the 10-26..31 replay (4.2%, 5 of 120).
 
-**What would change it:** useful lost past about 5% of removed rated showings, or a ruling Mike uses staying held. Then back
-to 7 or something between. If noise keeps falling with no such loss, leave it. It's also worth reading once the history
+**What would change it:** held memories later turning out wanted, the extra footnotes reading as ones we'd have wanted, or a ruling Mike uses staying held. Then back to 7 or something between. If none of those shows, leave it. It's also worth reading once the history
 is older than 21 days, since 14 and 21 can only part then.
 
 **The 11-01 replay, corrected:** its 14 and 21 arms first read the window through `eventLog`'s default of 500 rows, oldest
