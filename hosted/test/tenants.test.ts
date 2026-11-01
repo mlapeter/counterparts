@@ -175,7 +175,7 @@ describe("two people, two stores, one door", () => {
     await tool(r.url, "wake", {}, auth(r.tokens.b));
     const dir = tenantDir(r.tenants.root, r.callers.b.storeId);
     const config = JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) as Record<string, unknown>;
-    assert.deepEqual(config, { dataDir: join(dir, "store"), timeZone: "Pacific/Kiritimati", updateCheck: false });
+    assert.deepEqual(config, { dataDir: join(dir, "store"), timeZone: "Pacific/Kiritimati", updateCheck: false, snapshots: { daily: false } });
     assert.equal(statSync(join(dir, "config.json")).mode & 0o777, 0o600);
   });
 
