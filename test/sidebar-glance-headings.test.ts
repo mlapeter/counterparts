@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { STANDS_HEAD, standsLadder } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
 import { yesterdaySummaryForms } from "../src/core/handoff/last-here.js";
@@ -104,6 +105,34 @@ describe("the sidebar's glance reads the headings core writes", () => {
     recordSession(dir, { sessionId: "sess_1", scope: HERE, phase: "start" });
     a.counterpart.handoffs.write({ body: "The glaze tiles dry on rack two.", scope: HERE, session: "sess_1" });
     expect(parseGlance(wake(a))).toEqual({ head: "Last here", text: "The glaze tiles dry on rack two." });
+  });
+
+  // WK2 (0.3.43): the shaped wake, behind `counterparts wake-shape on`, writes its own
+  // "Where this folder stands:" block: the header alone, a "Handoff, …" line, then the lead indented.
+  test("the shaped wake (wake-shape on): the newest handoff's first line, not Coming up", () => {
+    const a = adapter();
+    withPage(a);
+    const c = a.counterpart;
+    c.store.setMeta(WAKE_SHAPE_KEY, "on");
+    expect(c.wakeShapeOn()).toBe(true);
+    const today = c.store.today();
+    const before = new Date(Date.parse(`${today}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+    c.store.put({ type: "memory", kind: "person", body: "Return the borrowed tiller.", learnedOn: before, eventDate: today, salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } });
+    recordSession(dir, { sessionId: "sess_1", scope: HERE, phase: "start" });
+    c.handoffs.write({ body: "The glaze tiles dry on rack two.\nNext, check the kiln.", scope: HERE, session: "sess_1" });
+    const text = wake(a);
+    expect(text).toContain(`${STANDS_HEAD}\nHandoff, `);
+    expect(text).toContain(FRAMING.horizon);
+    expect(parseGlance(text)).toEqual({ head: "Last here", text: "The glaze tiles dry on rack two." });
+  });
+
+  test("the shaped wake with no handoff: never its note to the model", () => {
+    const a = adapter();
+    withPage(a);
+    a.counterpart.store.setMeta(WAKE_SHAPE_KEY, "on");
+    const text = wake(a);
+    expect(text).toContain(`${STANDS_HEAD}\nNo handoff here.`);
+    expect(parseGlance(text)?.text ?? "").not.toContain("session_end");
   });
 
   test("every rung the composer can write, down to the chapter alone, says where things were left", () => {

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.43 — 2026-11-01
+
+Nearly nothing changes by default. A folder you set off, observer or paused no longer puts its plain work reminders in the line above the wake: one is said if the folder is turned back on within a week of its day, and doctor counts the ones waiting. `recall "elsewhere"` lists the other folders the way the wake's Elsewhere reads them. The wake's new shape is in, switched off: with it off, every wake is byte-for-byte what 0.3.42 writes, and `counterparts wake-shape on` turns it on for one store (`off` or `default` turns it back). No store-format change (store v15, cache v7); the switch is one setting kept in the store, with no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.42 needs no store restore: `counterparts disconnect`, 0.3.42's install, then `counterparts connect`; 0.3.42 ignores the switch.
+
+- **The wake's approved shape, built, and off.** One section per question, no item twice, and a thing that doesn't fit becomes a whole
+  title and a door. Nothing changes until it's turned on, one store at a time, with `counterparts wake-shape on`.
+- **Two new doors work either way:** `recall "coming up"` lists what's due by whole title, and `recall "handoffs"` lists this
+  folder's handoffs with what came after the newest.
+- **`session_end` now asks a handoff to lead with what comes next**, as `next: X (waiting on Y)`, and to retire a finished one.
+- **`recall "elsewhere"` lists the other folders a wake's Elsewhere had no room for**, in its order and by its rules, with the shape
+  on or off. The shaped wake's `+N more folders` now points there, and its count is what the door lists past the lines it printed.
+- **A plain reminder from a folder set off, observer or paused isn't said above the wake any more.** It isn't marked told either: turn
+  the folder on and it's said then, on its day or within the week after. One marked about you, or with no folder, is still said
+  wherever it was written. Doctor no longer counts one held back as missed, and its Fired line says how many are held back. With the
+  wake's shape off, the wake's own Coming up still lists it, as 0.3.42 did; with the shape on, it doesn't.
+
 ## 0.3.42 — 2026-10-30
 
 The wake is cleaner: it no longer lists bare ids, "Might be relevant" is gone once a store has its page, and where this folder stands is one block, led by the newest handoff. Yesterday's day summary shows again when a late write-up of another day used to hide it. Turns are faster on a large store and a late one is shown rather than lost. A folder set off, paused or to observe now stays out of the night and the catch-up, and a folder setting file that won't read stops the night and says so instead of thinning the page. No store-format change (store v15, cache v7), and nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. The first background run after updating builds recall's new index by itself, about half a second, no migration, and the cache file grows by about 15 MB. Going back to 0.3.41 needs no store restore: `counterparts disconnect`, 0.3.41's install, then `counterparts connect`.
