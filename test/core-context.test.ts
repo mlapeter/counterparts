@@ -193,7 +193,7 @@ describe("the helper and consolidation agree", () => {
 });
 
 describe("the helper and consolidation agree with the support door on (E2 review)", () => {
-  // The support door deciding: "on" explicitly (the default is "shadow" since the E2 addendum).
+  // The support door deciding: "on" explicitly (the default is "off": the shadow retired 2026-11-01).
   withCoreDoor("on");
   test("door closed and open, before and after real uses: row by row, the helper's context reaches consolidation's verdict", () => {
     expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("on");

@@ -114,7 +114,8 @@ brief left open, and why.
    carries a six-word run of the dream's gist is refused (`dreamed-words-on-the-page`).
    *(2026-09-28: the gist-words check is removed and the core rule is a note — see that
    day's entry below.)*
-   The prompt asks for craft under "## How I work"; nothing enforces headings.
+   The prompt asks for craft under "## How I work"; nothing enforces headings. *(2026-11-01, PF1: not on a
+   store whose meta `self.page_form` is `own`; there the clause is dropped and the page is amended in its own form.)*
 6. **The page write claims the night.** `writePage` records a `self.page.writer.ran` row
    (mode `session`, outcome `revised`) for `pageWriterNight`'s date. That is why the old
    SessionStart writer is LEFT IN PLACE: on a night the reflection wrote the page it
