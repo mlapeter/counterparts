@@ -119,7 +119,7 @@ export interface CueFlushReport {
  * empty — null means no filter runs anywhere, so an empty list is the code
  * path cue learning had before it.
  */
-export function cueStopPredicate(list: readonly (string | RegExp)[]): ((token: string) => boolean) | null {
+export function cueStopPredicate(list: readonly (string | RegExp)[]): ((word: string) => boolean) | null {
   if (list.length === 0) return null;
   const words = new Set<string>();
   const patterns: RegExp[] = [];
@@ -130,7 +130,7 @@ export function cueStopPredicate(list: readonly (string | RegExp)[]): ((token: s
       words.add(stemTerm(w));
     } else patterns.push(e);
   }
-  return (token) => words.has(token) || patterns.some((p) => p.test(token));
+  return (word) => words.has(word) || patterns.some((p) => p.test(word));
 }
 
 /**
@@ -340,7 +340,7 @@ export class Associate {
   private readonly ring: AssociateEvent[] = [];
   private flushing = false;
   /** `CUE_STOP_LIST` as a predicate, null when the list is empty (R3S). */
-  private readonly cueStop: ((token: string) => boolean) | null;
+  private readonly cueStop: ((word: string) => boolean) | null;
 
   constructor(opts: AssociateOptions) {
     this.store = opts.store;
