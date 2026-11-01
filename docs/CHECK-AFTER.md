@@ -74,10 +74,10 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | 0.3.36, 10-24 | 3–5 days after the release that carries it (read 11-01: never fired, 0 rows — re-read when awake beliefs are written) | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
 | An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | 0.3.36, 10-24 | ~7 lived days after install (read 11-01: fired 1 of 2,317 turns, no cost side; kept) | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
-| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune (read 11-01: lanes 1, door 5 over 7 nights — Mike decides) | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
+| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune (read 11-01: lanes 1, door 5 over 7 nights. Mike 11-01: shadow retired, switch off, code left inert; reflection-alone admission stays (09-27 ruling); no promotions or demotions; undo = one switch; closed) | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
 | A `still open` recall handle that lists what "Still open" carries (and the facts questions asking for that list), named in the wake's tail (O1); before the day's run the night line names the latest finished night, dated (L1) | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the still open handle and the dated night" below |
-| Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | 0.3.37, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints (read 11-01: person-turn noise 42% / useful 17%, past the range — trigger met, Mike's call) | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
+| Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | 0.3.37, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints (read 11-01: person-turn noise 42% / useful 17%, past the range — trigger met. Not attributable: the 10-22..25 baseline was a low outlier; the turn-1 control shows the 10-26 step isn't S1 (ROADMAP's S1-review.md, ~/counterparts-notes/). Mike 11-01: S1 stays on, no off-test; closed) | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
 | What stopped a memory, counted (N1, observation only): `recall.decision` carries `habituationCut`, `nearMiss {margin 0.1, count}`, `capped`, `budgetTrimmed`, `inhibited` beside the echo/project skips; `adapter.recall` the same flat (the near miss as `nearMissCount`), with `turn` and `startedBy` (`person`/`host`/`unattended`); switch `recall.STOP_COUNTS` | 0.3.37, 10-25 | a week after install: what stopped memories on the turns a person typed, by day (read 11-01: near miss 0.92, cross lift 0.56 per person turn; kept) | "Due a week after the stop counts" below; `src/core/recall/NOTES.md` "N1" |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | 0.3.34, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | 0.3.34, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
@@ -673,7 +673,7 @@ Changes it: Mike reading a true memory pushed below a wrong "newer" more than on
 first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
 turn and its row exactly as before), or revert the PR.
 
-## Due ~1 week after this-turn meaning (2026-10-25, S1, Mike's "switch on", lightly held — `recall.SEMANTIC_THIS_TURN`) — checked 2026-11-01, below
+## Due ~1 week after this-turn meaning (2026-10-25, S1, Mike's "switch on", lightly held — `recall.SEMANTIC_THIS_TURN`) — checked 2026-11-01, below; closed 11-01 (stays on)
 
 What: the meaning lookup on an ambient turn is the turn's own prompt, embedded and ranked in line, instead of the
 worker's rank of the previous exchange (which 77% of ambient turns used before). Past `SEMANTIC_INLINE_MAX_VECTORS`
@@ -741,7 +741,7 @@ while shown falls, the bar is not what moved; if it climbs as shown falls, read 
 Off: `recall.STOP_COUNTS=false` in `src/core/recall/tunables.ts` (the counts absent; `adapter.recall` keeps `turn` and
 `startedBy`).
 
-## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`) — checked 2026-11-01, below
+## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`) — checked 2026-11-01, below; closed 11-01 (shadow retired, switch off)
 
 What: the core's door as one support arc, in place of the fast and slow lanes — **merged in shadow**. The two lanes
 still decide what becomes core, exactly as before; each night sleep also asks the support door about every candidate
@@ -829,7 +829,8 @@ from each row plus two session-only scripts (`bun`, store opened `observer`). Bu
 `build.<v>.since`, what doctor's Builds line reads): 0.3.35 from day 33 (10-24), 0.3.36 day 34 (10-25), 0.3.37 day 35
 (10-26), 0.3.38/.39 day 37 (10-28), 0.3.40 day 38 (10-29), 0.3.41/.42 day 39 (10-30). So "the week" is days 34–41,
 0.3.36 → 0.3.42. **Nothing reverted, nothing changed.** Three rows need Mike: S1 (its trigger is met), R3 (two of its
-named shapes are present) and E2 (on, off or tune).
+named shapes are present) and E2 (on, off or tune). (Mike 11-01: S1 stays on and E2's shadow is retired, both closed
+below; R3 still his.)
 
 - **R2, own-write (0.3.35 on).** 239 birth-day credits from another session on days 33–41 (0 before: the old rule),
   0 from the writing session; mostly `ontopic` (weight ~0.06) and `shown` (~0.03), so glimpse-sized. Of the memories
@@ -879,6 +880,9 @@ named shapes are present) and E2 (on, off or tune).
   be split; no complaint found in memories written since 10-26. **For Mike:** the row's own next step is "try off, or
   tune the ambient profile apart from the deliberate one, before reverting": a few days with
   `recall.SEMANTIC_THIS_TURN=false` as an A/B is the cheap read; his call.
+  **Outcome (11-01): not attributable.** The 10-22..25 baseline was a low outlier; the turn-1 control shows the
+  10-26 step isn't S1 (ROADMAP's S1-review.md, ~/counterparts-notes/). **Mike 11-01: S1 stays on, no off-test.
+  Closed.**
 - **N1, stop counts (0.3.37 on).** Person turns 10-26..31 (n 923), per turn: shown 1.23, near miss 0.92,
   cross-project lift 0.56, habituation 0.34, inhibited 0.22, echo 0.21, capped 0.00, budget 0.00, project 0; margin
   0.1 on all 2,192 rows. Against the replay: near miss the same (0.87), cross lift doubled (0.28) and now the second
@@ -896,7 +900,9 @@ named shapes are present) and E2 (on, off or tune).
   on the harness's list), mem_57c155c319af (us; 0.116, 2), mem_d2797af60368 (us; 0.129, 2),
   mem_a0ba38997b7a (us; 0.142, 2), mem_e6470328929b (me; 0.182, 3). `band.promoted` since 0.3.36:
   1, reflection-only 1. **For Mike: on, off or tune** — and whether he wants these five as core, and the waking memory
-  held out.
+  held out. **Mike 11-01: shadow retired, switch off, code left inert; reflection-alone admission stays (09-27
+  ruling); no promotions or demotions; undo = one switch** (`physics.CORE_DOOR_SUPPORT` back to `"shadow"`;
+  `docs/decisions.d/fix-e2-shadow-off.md`). **Closed.**
 - **Emotion's weight (EMO_Q 0.5, the 10-18 method) — first read by Étienne in ~/random (random-54); superseded in part by ROADMAP's challenge review below.** On a copy of the live
   store, 0.3.42, lived day 41; script and lists in `~/counterparts-notes/2026-11-01-felt-review/` (`felt.ts` runs
   against a copy; `felt-q.ts` is a what-if taking `EMO_Q` from env). Method check: on the 10-19 snapshot the script

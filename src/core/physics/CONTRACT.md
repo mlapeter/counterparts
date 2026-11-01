@@ -236,6 +236,10 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   harness the arc grew the core about half as fast as the lanes (days 7/14/21/28/end
   0/0/3/4/6 against 0/6/10/11/12), against Mike's 10-20/10-21 rulings that the core was
   starving; a week of shadow rows on his store decides on, off or tune — one value.
+  *(Amended 2026-11-01 — Mike, lightly held: the shadow RETIRED.)* The default is `"off"`:
+  the lanes decide as before and no shadow row is written; the shadow and the arc stay in
+  the code, inert. A reflection's citation alone still admits to core (the 09-27 ruling).
+  Undo: the one value back to `"shadow"`.
 
   *(Amended 2026-10-24, E2 — Mike's go 14:36, lightly held, an experiment behind
   `CORE_DOOR_SUPPORT`; elegance check §2. Old contracts don't hold us back: the lanes'

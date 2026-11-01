@@ -3,9 +3,9 @@
  * the core's door is one support arc (physics §5.3); the describes that
  * document the fast and slow lanes it replaced — kept as lineage, and as the
  * proof that the switch off is still them — call this to run with the door
- * off. The door itself is `test/core-door-support.test.ts`'s. (Since the
- * shadow became the default the lanes decide unpinned too; pinned "off",
- * these run with no shadow beside them.)
+ * off. The door itself is `test/core-door-support.test.ts`'s. (The lanes
+ * decide unpinned too: the default was "shadow" from 2026-10-24 and is "off"
+ * since 2026-11-01; pinned "off", these run with no shadow beside them.)
  */
 import { afterAll, beforeAll } from "bun:test";
 
