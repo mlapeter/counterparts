@@ -2992,3 +2992,17 @@ for what reads it (doctor, the dashboard, the dream's input, a delivery the comp
   page-less store's lanes count as `page`.
 - **`arrivingTense` still runs, on nothing**: it looks under the last `Coming up:` for the old dated forms, and the shaped
   lines don't have them. `Coming up:` always prints as a heading, so a page's own "Coming up:" line is never taken for the lane.
+
+## PF1, 2026-11-01: the page in its own form, one store at a time
+
+- **Read at the store, in two places, by one reader.** `writer.ts#pageFormOf` reads meta `self.page_form`; `Self#pageWriterInput`
+  puts `pageForm: "own"` on the `WriterInput` (so `writerInstructionOverhead` measures the same block), and `reflect.ts` reads it
+  for its own page line. Absent is the default because there's no tunable: nobody else gets it.
+- **Off is the same strings, not a rebuild of them.** `pageWritingRule(null)` returns the `PAGE_WRITING_RULE` constant itself, and
+  each of the four sites keeps master's literal on its off branch. Checked against master by dumping day's end's block and the
+  reflection's begin, on a store with no row, for every combination of `PAGE_SPLIT`, `CORE_FROM_BELIEFS` and `DAYS_END_INPUT`:
+  byte for byte the same (`test/page-form.test.ts` pins the phrases; the dump is in the PR).
+- **`default` empties the row** instead of deleting it, as WK2's switch does; the store has no meta delete, and empty reads absent.
+- **Not touched:** the room, the cadence, the door (`splicePageLane` splits by any heading), `CRAFT_IN_WAKE`, the self_page tool's
+  text and the wake. The sharp edge is room, switch or not: a page at its room sends any added line back to be cut, and stories
+  are the longest lines (CHECK-AFTER, PF1).

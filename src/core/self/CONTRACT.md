@@ -701,6 +701,13 @@ proposals and their archive; render and delivery telemetry.
     one calendar day `learned_on` is a date, `birth_day` is the lived day and ids are
     random, so there is no recency to sort by. What is guaranteed is that the cut is
     deterministic (§1 G3), not that it is the end of the day.
+    **The page's form, one store at a time** (PF1, 2026-11-01, an experiment, review
+    2026-11-08): both nightly writers are told "## How I work" is a few short lessons
+    (`HOW_I_WORK_RULE`, in `PAGE_WRITING_RULE`), unless the store's meta `self.page_form` is
+    `own` (`counterparts page-form own|default`, `writer.ts#pageFormOf`): then they are told
+    to amend the page in its own form (`OWN_FORM_RULE`) and no instruction names "## How I
+    work". Words only; nothing checks a heading. With no row (every store but one), or a
+    store that won't answer, every writer's prompt is byte for byte what it was.
 20. **[M]** **THE WRITER CAN WRITE THE PAGE AND ONE ROW, AND NOTHING ELSE.** The page goes
     through `revisePage` — the one seam, with its caps, its gate battery and its version
     chain — and `writer.ts` never touches it; what this module writes is the run's own
