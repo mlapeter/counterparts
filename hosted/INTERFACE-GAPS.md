@@ -119,10 +119,12 @@
 
 Retention runs in the worker, and a hosted worker starts only after a `wake`. A person who
 stops coming keeps the raw copies of their notes (`spans/`) past the clocks until their next
-wake, or until the account is deleted. No sweep was built. Nothing a hosted person reads
-promises otherwise: there is no doctor, console or mechanisms page here, and the claude.ai
-line (`onboarding.ts#WEB_RETENTION_LINE`) names no number. Say a number on a hosted page only
-with a sweep behind it.
+wake, or until the account is deleted. No sweep was built. There is no doctor, console or
+mechanisms page here, and the claude.ai line (`onboarding.ts#WEB_RETENTION_LINE`) names no
+number. /privacy/ does name one, and says what it hangs on (live 11-01, site 93aa053): raw
+copies are "due to go within about two weeks of [their] conversation going quiet", at the next
+wake, and wait if chats stop or are far apart. So a number on a hosted page stays tied to the
+next wake unless a sweep is built; whether to build one is Mike's, open.
 
 ## The 24-hour delete (R6, 10-27)
 
@@ -163,10 +165,8 @@ with a sweep behind it.
 
 ## Raw copies of notes with no live session (found 2026-11-01)
 
-42. **A note filed under the shared `"mcp"` session can keep its raw copy past 14 days.** A `remember` with no live
-    session (no `wake` within 4 hours, or an id gone stale because the chat was reopened later) lands under `"mcp"`.
-    Retention judges a session as one, from its last activity (`remember/owes.ts#planRetention`), so each new note restarts
-    the clock for all of them: while the pass finds one less than 3 days old, nothing in that bucket is deleted, with no
-    upper limit. Proved on a temp tenant through `/mcp` and the real worker: notes every 2 days, day 0's raw copy still on
-    disk at day 40. A gap of 3 days or more at a pass clears the whole bucket. Desktop and a Claude Code server that
-    can't find its session file the same way, so a fix reaches them too: an owner decision, not built.
+42. **Fixed by #710 (11-01): a note filed under the shared `"mcp"` session could keep its raw copy past 14 days.** A
+    `remember` with no live session lands under `"mcp"`, and each new note used to restart the clock for all of them (a
+    day-0 raw copy on disk at day 40). Now each line goes on its own age, 3 days if it owes nothing and 14 regardless
+    (`remember/owes.ts#planUnboundLines`). Live on hosted; local installs get it in the release after 0.3.44. It still
+    needs a worker to run, so on hosted it waits for the next wake (above).
