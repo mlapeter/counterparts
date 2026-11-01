@@ -327,7 +327,10 @@ describe("a write-up of the bucket part way through", () => {
     closers.push(() => c.close());
     saveWriteUpProgress(c.store, consoleKey, { ...part, done: 2 });
     try {
-      expect(retentionJob({ counterpart: c, date: dateOf(4) }).report?.unboundSessions).toEqual([CONSOLE_SESSION]);
+      const report = retentionJob({ counterpart: c, date: dateOf(4) }).report;
+      expect(report?.unboundSessions).toEqual([CONSOLE_SESSION]);
+      // Root writes through the mode bits, so the strike only truly fails for anyone else.
+      if (process.getuid?.() !== 0) expect(report?.reason).toBe("IO_FAILED");
     } finally {
       chmodSync(claims, 0o755);
     }
