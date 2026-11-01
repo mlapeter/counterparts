@@ -23,6 +23,7 @@ import { SpanBuffer, keyFor, retentionSources } from "../src/core/remember/index
 import type { ProposalRecord } from "../src/core/remember/index.js";
 import { planUnboundLines } from "../src/core/remember/owes.js";
 import { DATABASE_FILE } from "../src/core/store/paths.js";
+import { isFailure, logged } from "../src/adapters/log/index.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 
@@ -168,13 +169,53 @@ describe("remember: a mint that threw, through the real door under a real lock",
     expect(memoryIds(s)).toEqual([id]);
   });
 
-  test("the failure leaves a row the log and doctor read", async () => {
-    const s = server();
+  test("the failure leaves a row the log keeps and doctor counts, with no words in it", async () => {
+    const seen: { name: string; data?: Record<string, unknown> }[] = [];
+    const s = openServer({ dir, scope, session: SESSION, onCounterpartEvent: (e: { name: string; data?: Record<string, unknown> }) => seen.push(e) });
+    open.push(s.counterpart);
+    shortWait(s);
     await withLock(storeFile(), () => s.call("remember", { text: NOTE }));
-    const event = s.counterpart.events().find((e) => e.name === "counterpart.deposit.mint.failed");
+    const event = seen.find((e) => e.name === "counterpart.deposit.mint.failed");
     expect(event?.data).toMatchObject({ source: "jot", landed: false });
-    // Ids and codes only: the note's words are in no event.
-    expect(JSON.stringify(s.counterpart.events())).not.toContain("cabin");
+    expect(logged(event?.name as string)).toBe(true);
+    expect(isFailure(event as { name: string })).toBe(true);
+    expect(JSON.stringify(seen)).not.toContain("cabin");
+  });
+
+  test("a thrown embedder at the gate: refused before any claim, and the retry lands on the same line", async () => {
+    const s = server();
+    const cp = s.counterpart as unknown as { vectors: unknown };
+    cp.vectors = {
+      vector: () => Promise.reject(new Error("embedder down")),
+      context: () => [],
+    };
+    const failed = await s.call("remember", { text: NOTE });
+    expect(payload(failed)["reason"]).toBe("gate-failed");
+    expect(memoryIds(s)).toEqual([]);
+    expect(ledger(s)).toEqual([]);
+    expect(s.counterpart.spans.coverage(scope)).toEqual([]);
+
+    cp.vectors = undefined;
+    expect(payload(await s.call("remember", { text: NOTE }))["stored"]).toBe(true);
+    expect(memoryIds(s)).toHaveLength(1);
+    expect(lineHashes(s)).toHaveLength(1);
+    expect(s.counterpart.spans.coverage(scope).map((m) => m.own)).toEqual([true]);
+  });
+
+  test("an embedder that throws inside the store's put: the row committed first, so the memory stands, once", async () => {
+    const s = server();
+    const store = s.counterpart.store as unknown as { embed: unknown };
+    const real = store.embed;
+    store.embed = (): number[] => {
+      throw new Error("embedder down");
+    };
+    const failed = await s.call("remember", { text: NOTE });
+    store.embed = real;
+    expect(payload(failed)["reason"]).toBe("threw");
+    expect(memoryIds(s)).toHaveLength(1);
+    expect(ledger(s)).toHaveLength(1);
+    expect(payload(await s.call("remember", { text: NOTE }))["reason"]).toBe("duplicate-content");
+    expect(memoryIds(s)).toHaveLength(1);
   });
 });
 
