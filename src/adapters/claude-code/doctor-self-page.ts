@@ -235,7 +235,7 @@ function lastNightFindings(input: DoctorInput, store: Store): Finding[] {
         lost && setting === "auto" ? "amber" : "green",
         "Nightly run",
         lost
-          ? `${setting}; the run of ${run.date} started ${mins(now - run.startedAt)} ago and never reported an end — its process went away (a sleep, a restart, a kill)`
+          ? `${setting}; the run of ${run.date} started ${mins(now - run.startedAt)} ago and never reported an end — its process went away (a restart, a kill)`
           : `${setting}; running now (${what}), started ${mins(now - run.startedAt)} ago`,
         lost ? "The next session asks instead of starting another headless run. If this repeats, run claude -p once by hand in a terminal to see whether it hangs (a login, an update prompt)." : "",
         data,

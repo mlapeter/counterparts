@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | the release after 0.3.43 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
@@ -107,6 +108,30 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
+
+**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#isInteractive`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/decisions.d/fix-nt1-night-holes.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
+
+**What to look at, about a week after release.** On a copy or read-only, ids and numbers only:
+
+```sql
+SELECT seq, ref, json_extract(payload,'$.state') AS state, json_extract(payload,'$.session') AS session,
+       json_extract(payload,'$.ms') AS ms, json_extract(payload,'$.sleptMs') AS slept
+FROM events WHERE name = 'dream.night' ORDER BY seq DESC LIMIT 40;
+SELECT seq, ref, json_extract(payload,'$.state') AS state, json_extract(payload,'$.ms') AS ms, json_extract(payload,'$.sleptMs') AS slept,
+       json_extract(payload,'$.limit') AS lim
+FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
+```
+
+- **A run spanning sleep:** a `dream.night` row with `sleptMs`, and `adapter.night.slept` in `sessions/log/`. A night the lid closed on and no `sleptMs` means the gap went unnoticed. Compare `ms - sleptMs` with what the children really took.
+- **No catch-up stopped by a watchdog after a sleep:** no `adapter.night.writeup` row with `state` `timed-out` and a `sleptMs`; none with `limit` `time` unless it really worked for an hour awake.
+- **Which session started each night:** the row's `session` against its registry entrypoint. No `sdk-cli` or `sdk-ts`. `adapter.dream.unwatched` in the log: `passed: "headless"` lines are a session passing, `started: true` is a turn no person started in a person's session (10-25 and 10-31 were `cli`; the log can't say whether they were a hand-back or `ATTENDED=0`).
+- **Any day with no night:** a lived day with memories saved and no `dream.night` row, and what sessions it had. A day used only headless gets none, and that's expected; doctor says so once it's been two days.
+
+**What would change it:** a watchdog still firing on wake (read `adapter.night.slept` against the row, then whether the gap is too wide); a real child killed late because stalls read as sleep; days with no night that a person would have wanted (a schedule comes back on the table, as Mike said).
+
+**How to revert:** the two are separate. For the night's start, send `!isInteractive(input)` back to `startUnwatched` in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
 
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 

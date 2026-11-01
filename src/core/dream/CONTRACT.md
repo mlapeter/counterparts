@@ -126,8 +126,8 @@ dreamer is the model (a background agent the session launches), outside this pro
   windowless session (claude-code `night-run.ts`); the model launches nothing and is
   told so, and the person is shown "dreaming in the background (a few minutes). Say
   "no dreams" to turn it off." when there is room. When that run could not do its job —
-  `could-not-start`, or `timed-out` / `failed` / LOST (a `started` row past its watchdog
-  and `NIGHT_LOST_GRACE_MS`) having begun nothing — the line falls back to an ask with the
+  `could-not-start`, or `timed-out` / `failed` / LOST (a `started` row past its watchdog,
+  what the host says it slept through (`sleptMs`, 2026-11-01) and `NIGHT_LOST_GRACE_MS`) having begun nothing — the line falls back to an ask with the
   reason, at once: "I couldn't start dreaming on my own: <reason>. Say "dream" to do it
   here." — recorded `offered` after `could-not-start`, not counted as a relaunch. A run
   still inside its watchdog makes the gate `dreaming-now`. The next calendar day tries

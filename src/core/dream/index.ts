@@ -793,7 +793,7 @@ export function nightRunWords(run: Pick<NightRun, "state" | "reason" | "detail" 
     case "watchdog":
       return (run.dream ?? null) === null && (run.reflection ?? null) === null ? "it ran too long and was stopped before it finished anything" : "it ran too long and was stopped";
     case "lost":
-      return "it never reported back (its process went away — a sleep, a restart, a kill)";
+      return "it never reported back (its process went away — a restart, a kill)";
     case "refused":
       return `it was refused before it started${run.detail === null ? "" : ` (${run.detail})`}`;
     case "folder-setting":
