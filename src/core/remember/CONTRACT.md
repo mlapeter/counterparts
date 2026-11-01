@@ -284,12 +284,13 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     pass runs once per date, and only when the worker runs, so a store nobody is using, a
     quiet hosted tenant's included, waits for its next run), and none of it in a snapshot: since
     2026-10-13 `spans/` is out of the backup set (`store/paths.ts#LAYOUT`). **The shared
-    `UNBOUND_SESSION` id ("mcp") is not a session, so it is also judged line by line**
+    ids in `SHARED_SESSIONS` ("mcp", `UNBOUND_SESSION`, and "console", `CONSOLE_SESSION`)
+    are not sessions, so they are also judged line by line**
     (2026-11-01, `owes.ts#planUnboundLines`): each line goes as a session of one would, on
     its own `at`, 3 days when it owes nothing and 14 whatever it owes, however many notes
-    came after it. It is struck through the same door, naming hashes within that one
-    session, and counted as `unboundLines` on the same row. The whole-session rule still
-    runs over the bucket and may clear it sooner. No other session is judged this way. The only way
+    came after it. They are struck through the same door, naming hashes within one id at a
+    time, and counted as `unboundLines` on the same row. The whole-session rule still
+    runs over each and may clear it sooner. No other session is judged this way. The only way
     out of owing — the write-up mark — is a grant behind a pinned seam
     (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
     no text, and a run is visible from the moment it holds its date (`STARTED`). Its two

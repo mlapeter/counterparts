@@ -48,7 +48,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | 0.3.42, 10-30 (#688) | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
-| Raw copies under the shared "mcp" id go line by line on their own age: 3 days when nothing is owed, 14 whatever is | next release after 0.3.43, 11-01 (fix/mcp-bucket-age-limit) | ~1 week after release: copies past the limit in `"mcp"` (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
+| Raw copies under the shared "mcp" and "console" ids go line by line on their own age: 3 days when nothing is owed, 14 whatever is | next release after 0.3.43, 11-01 (fix/mcp-bucket-age-limit, fix/console-bucket-age-limit) | ~1 week after release: copies past the limit under either id (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -148,7 +148,7 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 
 ## Due ~1 week after the shared bucket went line by line (2026-11-01, coordinator's brief marked for Mike's review — a fix, no switch)
 
-**What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and each new note restarted the
+**What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and `counterparts note`'s share `"console"`, and each new note restarted the
 clock for the rest. Each line now goes on its own age. `docs/decisions.d/fix-mcp-bucket-age-limit.md`.
 
 **What to look at.**
@@ -164,7 +164,7 @@ clock for the rest. Each line now goes on its own age. `docs/decisions.d/fix-mcp
 2. Copies past the limit that are still there. Counts and ages only; it prints no words:
 
    ```sh
-   bun -e 'const fs=require("fs"),p=require("path"),s=process.env.HOME+"/.counterparts/store/spans";let n=0,old=0,past=0;for(const d of fs.readdirSync(s)){const f=p.join(s,d,"jots.jsonl");if(!fs.existsSync(f))continue;for(const l of fs.readFileSync(f,"utf8").split("\n")){if(!l)continue;let x;try{x=JSON.parse(l)}catch{continue}if(x.session!=="mcp")continue;n++;const a=(Date.now()-x.at)/864e5;if(a>=4)old++;if(a>=15)past++}}console.log({lines:n,over4days:old,over15days:past})'
+   bun -e 'const fs=require("fs"),p=require("path"),s=process.env.HOME+"/.counterparts/store/spans";let n=0,old=0,past=0;for(const d of fs.readdirSync(s)){const f=p.join(s,d,"jots.jsonl");if(!fs.existsSync(f))continue;for(const l of fs.readFileSync(f,"utf8").split("\n")){if(!l)continue;let x;try{x=JSON.parse(l)}catch{continue}if(x.session!=="mcp"&&x.session!=="console")continue;n++;const a=(Date.now()-x.at)/864e5;if(a>=4)old++;if(a>=15)past++}}console.log({lines:n,over4days:old,over15days:past})'
    ```
 
 3. `counterparts doctor --all`, the Raw transcripts line: `N old notes with no session let go` on a day lines went.
