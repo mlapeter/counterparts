@@ -318,6 +318,8 @@ export interface AdapterConfig {
     readonly dir?: string;
     readonly keep?: number;
     readonly mirror?: string;
+    /** `false`: no daily copy (`adapters/snapshots.ts#SnapshotsConfig.daily`). Hosted's; no install writes it. */
+    readonly daily?: boolean;
     /**
      * What this file could not read inside the block, phrased for a person —
      * "snapshots.keep was 0; using 14". Empty is absent. It is a REPORT, not a
@@ -462,7 +464,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     socketLifetimeMs?: number;
     watchdogMs?: number;
     embedder?: { enabled: boolean; kind?: EmbedderKind };
-    snapshots?: { dir?: string; keep?: number; mirror?: string; ignored?: string[] };
+    snapshots?: { dir?: string; keep?: number; mirror?: string; daily?: boolean; ignored?: string[] };
     pageWriter?: { mode: PageWriterMode; ignored?: string[] };
     dreaming?: { model?: string; timeoutMs?: number; maxTurns?: number; ignored?: string[] };
     retention?: { afterWriteUpDays?: number; maxDays?: number; ignored?: string[] };
@@ -925,7 +927,7 @@ function readSnapshots(raw: unknown): {
   const ignored = (line: string): void => {
     raws.push(line);
   };
-  const out: { dir?: string; keep?: number; mirror?: string; ignored?: string[] } = {};
+  const out: { dir?: string; keep?: number; mirror?: string; daily?: boolean; ignored?: string[] } = {};
   const done = (): typeof out =>
     raws.length === 0 ? out : { ...out, ignored: tidy(raws) };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -933,7 +935,7 @@ function readSnapshots(raw: unknown): {
     return done();
   }
   const sn = raw as Record<string, unknown>;
-  const known = new Set(["dir", "keep", "mirror"]);
+  const known = new Set(["dir", "keep", "mirror", "daily"]);
   for (const key of Object.keys(sn)) {
     // An unknown sub-key is REPORTED rather than dropped in silence: a typo'd
     // `"mirrors"` that quietly did nothing is how somebody believes they have a
@@ -971,6 +973,11 @@ function readSnapshots(raw: unknown): {
     } else {
       out.keep = keep;
     }
+  }
+  const daily = sn["daily"];
+  if (daily !== undefined) {
+    if (typeof daily !== "boolean") ignored(`"snapshots.daily" was ${JSON.stringify(daily)}; taking the daily copy`);
+    else out.daily = daily;
   }
   return done();
 }

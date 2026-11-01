@@ -151,3 +151,13 @@
 41. **A lost `keys/keys.sqlite` moved to a new bucket on purpose** is refused (`NEW_BUCKET` doesn't count once a key
     file says the volume was backed up): its stores' keys are in the old bucket only. Today's answer is "go back to
     the old bucket"; with the old bucket gone too there is none, as in §33.
+
+## Raw copies of notes with no live session (found 2026-11-01)
+
+42. **A note filed under the shared `"mcp"` session can keep its raw copy past 14 days.** A `remember` with no live
+    session (no `wake` within 4 hours, or an id gone stale because the chat was reopened later) lands under `"mcp"`.
+    Retention judges a session as one, from its last activity (`remember/owes.ts#planRetention`), so each new note restarts
+    the clock for all of them: while the pass finds one less than 3 days old, nothing in that bucket is deleted, with no
+    upper limit. Proved on a temp tenant through `/mcp` and the real worker: notes every 2 days, day 0's raw copy still on
+    disk at day 40. A gap of 3 days or more at a pass clears the whole bucket. Desktop and a Claude Code server that
+    can't find its session file the same way, so a fix reaches them too: an owner decision, not built.
