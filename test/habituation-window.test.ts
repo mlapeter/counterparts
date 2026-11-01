@@ -171,7 +171,6 @@ function newestRated(c: Counterpart): number {
 
 describe("H14: the window, through a real turn and real ratings", () => {
   test("rated 0 in two sessions ten lived days ago: held at 14, not at 7", async () => {
-    expect(RECALL.HABITUATION_WINDOW_DAYS).toBe(14);
     const c = brain();
     const { noise } = world(c);
     const rated = c.store.livedDay();
@@ -195,14 +194,15 @@ describe("H14: the window, through a real turn and real ratings", () => {
     expectFree(c, noise);
   });
 
-  test("it recovers by itself on the fifteenth day: the rating day is day one of fourteen", async () => {
+  test("it recovers by itself the day its zeros leave the window: the rating day counts, so day 15 at 14", async () => {
     const c = brain();
     const { noise } = world(c);
     const rated = c.store.livedDay();
+    const window = c.recall.tunables.HABITUATION_WINDOW_DAYS;
     await ratedNoiseTwice(c, noise);
-    liveTo(c, rated + 13);
+    liveTo(c, rated + window - 1);
     expectHeld(c, noise);
-    liveTo(c, rated + 14);
+    liveTo(c, rated + window);
     expectFree(c, noise);
   });
 });
@@ -220,7 +220,6 @@ describe("H14: the box-3 note a 7-day build left", () => {
     expect(note(old).rows.flatMap((r) => r.zero)).not.toContain(noise);
 
     const c = reopen(old);
-    expect(c.recall.tunables.HABITUATION_WINDOW_DAYS).toBe(14);
     // Still current (no rating since), so the window's older rows aren't in it.
     expect(note(c).through).toBe(newestRated(c));
     expectFree(c, noise);

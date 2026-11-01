@@ -1710,6 +1710,9 @@ Read across: with the default read the newest ratings were dropped, so a later 2
 the newest row, so every prompt read the rows instead. Taking the newest first, with a bound (`HABITUATION_ROWS_MAX`),
 fixes both, and a store past the bound loses the window's oldest rows, which are the least of it.
 
+The held counts here are from the 11-01 snapshot. The 271 and 138 elsewhere come from the replay's `held.py`, on a
+different store copy.
+
 **The cost on the prompt path isn't noticeable.** A turn reads the note once for the gate and, when it has beliefs to
 offer, once more: about 1 ms a turn at 14 days. Timed with other work running on the laptop, 200 reads each.
 
