@@ -111,7 +111,7 @@ effect on archives folds into the late-October forgetting check). Details: `~/co
 ## Due ~14 lived days after the longer habituation window (2026-11-01, H14, Mike's call 12:07, lightly held — `recall.HABITUATION_WINDOW_DAYS`)
 
 **What we're trying:** a memory rated 0 in two sessions faces the raised bar for 14 lived days, not 7. Replaying 2,037 real
-turns (10-26..31) at 14 removed 260 showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost
+turns (10-26..31) at 14 removed 261 showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost
 is about twice as many memories held down at once (271 against 138 on lived day 41). This is a starting point, not a
 commitment, and anyone can reopen it sooner.
 
@@ -122,13 +122,22 @@ commitment, and anyone can reopen it sooner.
 list). The scripts carry scratch paths from 11-01, so point them at the new copy. Read useful lost, rulings held and
 held-set size. Read the replay rather than noise alone: R3S lands just before this and moves the same number.
 
+**Useful lost won't read the way it did on 11-01.** That replay could score what 14 took away because live ran at 7, so those
+footnotes were shown and rated. Once live runs at 14, what it holds mostly isn't shown, so it has no rating, and `an.py`'s
+useful-lost count falls toward zero whatever is true. Treat it as a floor. Nearer the question, not built yet: memories the
+14 arm held on a turn that the same session then asked for or opened and rated 2 or 3 (the `asked` and `opened` lanes on
+`recall.rated`).
+
 **What would change it:** useful lost past about 5% of removed rated showings, or a ruling Mike uses staying held. Then back
 to 7 or something between. If noise keeps falling with no such loss, leave it. It's also worth reading once the history
 is older than 21 days, since 14 and 21 can only part then.
 
-**Reading the 11-01 replay:** its 14 and 21 arms read the window through `eventLog`'s default of 500 rows, oldest first,
-which this change fixes (`recall/NOTES.md`, H14). The window passes 500 rows on lived days 39–40 (10-30, 10-31), so those
-arms missed their newest ratings there. The rerun has the fix; a gap against the 11-01 numbers can come from this.
+**The 11-01 replay, corrected:** its 14 and 21 arms first read the window through `eventLog`'s default of 500 rows, oldest
+first, which this change fixes (`recall/NOTES.md`, H14). The window passes 500 rows on lived days 39–40 (10-30, 10-31), so
+those arms missed their newest ratings there. Rerunning those two days (698 turns) with the fix changed 2 turns at 14 and 6
+at 21, and none in the 7-day control. At 14: 261 removed (first run 260), 5 useful of 120 rated (5 of 119), 4.2% both. At 21:
+268 removed (266), 6 useful of 121 (6 of 120), 5.0% both. Noise stays 40.3% to 37.7% in both arms, so 14 and 21 still
+don't part. The numbers above are the corrected ones.
 
 **On the upgrade:** the box-3 note a 7-day build left reads as current until the next rating row, so memories rated 0 only
 in the older 7 days aren't held until then. The next rating row rebuilds it (tested through `session_end`).

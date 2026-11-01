@@ -199,10 +199,22 @@ describe("H14: the window, through a real turn and real ratings", () => {
     const { noise } = world(c);
     const rated = c.store.livedDay();
     const window = c.recall.tunables.HABITUATION_WINDOW_DAYS;
+    expect(window).toBe(14);
     await ratedNoiseTwice(c, noise);
     liveTo(c, rated + window - 1);
     expectHeld(c, noise);
     liveTo(c, rated + window);
+    expectFree(c, noise);
+  });
+
+  test("a rating row the note hasn't seen: the rows answer, not the note", async () => {
+    const c = brain();
+    const { noise } = world(c);
+    await ratedNoiseTwice(c, noise);
+    expectHeld(c, noise);
+    // A row whose note write never happened (a busy cache, a process that died after its row).
+    c.store.appendEvent({ name: RATED_EVENT_NAME, day: c.store.livedDay(), ref: "elsewhere", payload: { session: "elsewhere", ratings: [{ id: noise, score: 2 }] } });
+    expect(note(c).through).toBeLessThan(newestRated(c));
     expectFree(c, noise);
   });
 });

@@ -56,7 +56,10 @@ interface Note {
  * peaks at 73 a day. Past that default an oldest-first read dropped the NEWEST
  * rows, the ones that clear a hold, and left a note that never caught up. This
  * bound is about five times a fortnight at that peak, and the read below takes
- * the newest first, so a store past it loses the window's oldest rows instead. CAL.
+ * the newest first, so a store past it loses the window's oldest rows instead:
+ * a hold can end early, nothing else, and nothing says so. It is here because
+ * the prompt path parses what this read becomes (about 730 KB and 5 ms at the
+ * bound, `recall/NOTES.md`, H14). CAL.
  */
 export const HABITUATION_ROWS_MAX = 5_000;
 

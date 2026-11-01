@@ -1,7 +1,7 @@
 ### Decided by Mike, 2026-11-01, lightly held (habituation's window, 7 to 14 lived days)
 
 - Decided by Mike, 2026-11-01, lightly held: `recall.HABITUATION_WINDOW_DAYS` is 14 (it was 7). Min sessions, the bar lift
-  and the clear score stay, and the store doesn't change. Why: replaying 2,037 real turns (10-26..31) at 14 removed 260
+  and the clear score stay, and the store doesn't change. Why: replaying 2,037 real turns (10-26..31) at 14 removed 261
   showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost is about twice as many memories
   held down at once. These are estimates: the replay's control reproduced 66.5% of live footnotes. Undo: the same line
   back to 7. `docs/CHECK-AFTER.md` says how to read it again and what would change it.

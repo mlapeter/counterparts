@@ -1717,4 +1717,25 @@ different store copy.
 offer, once more: about 1 ms a turn at 14 days. Timed with other work running on the laptop, 200 reads each.
 
 **The 11-01 replay ran on the default read,** so its 14 and 21 arms missed their newest ratings on lived days 39–40. The
-review in `docs/CHECK-AFTER.md` runs with the fix.
+separate review reran those two days (698 turns) with the fix: 2 turns moved at 14, 6 at 21, none at 7. At 14 it is 261
+removed rather than 260; the useful share (4.2%) and the noise (40.3% to 37.7%) don't move. `docs/CHECK-AFTER.md` has both
+arms. The same rerun is the proof of the undo at the read's level: at 7, the new read gave the same footnotes and loud
+memories as the old on every one of those turns, and the same note on all 583 prefixes of the rating rows.
+
+**What the bound is.** Not the mechanism: the window is, and it already bounds the read. `HABITUATION_ROWS_MAX` is a ceiling
+on a note the prompt path parses, about nine times the owner's fortnight. Past it the read keeps the newest rows, the note
+stays current, and the only loss is that a hold can end early: dropping the oldest rows never held anything the full window
+didn't (all 508 cuts of the real rows). Nothing says it was reached. On real payloads recycled onto a store copy:
+
+| rows in the window | note | read, p50 | rebuild and write after a rating, p50 |
+|---:|---:|---:|---:|
+| 546 | 79 KB | 0.5 ms | 3 ms |
+| 1,000 | 147 KB | 0.9 ms | 6 ms |
+| 2,500 | 367 KB | 2.4 ms | 16 ms |
+| 5,000 | 732 KB | 4.6 ms | 33 ms |
+
+**What actually grows on the prompt path is `newestSeq`, not the note.** It filters on `events_name` (name, ref) and sorts,
+so it visits every `recall.rated` row the store keeps, window or no window: 0.09 ms at 583 rows, 1.7 ms at 5,000, 10 ms at
+15,000. `SELECT MAX(seq)` on the same rows was 0.03, 0.16 and 0.5 ms. With the note's parse flat at about 0.35 ms when no
+rows are added to the window, that is the part to change if this ever shows up. Left alone here: it predates H14 and the
+event log's 90-day prune should hold it to a few thousand rows.

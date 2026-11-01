@@ -271,7 +271,7 @@ export interface RecallTunables {
   // noise drops. Revert by setting `HABITUATION_BAR_LIFT` to 0.
   /** How far back, in lived days (today included), a rating of 0 counts toward
    *  habituation. Why 14 (it was 7, the first brief's week, until 2026-11-01):
-   *  replaying 2,037 real turns (10-26..31) at 14 took 260 showings away for 5
+   *  replaying 2,037 real turns (10-26..31) at 14 took 261 showings away for 5
    *  useful ones lost, and rated noise from 40.3% to 37.7%. The cost: about
    *  twice as many memories held down at once (271 against 138 on lived day
    *  41). An estimate (the replay's control reproduced 66.5% of live
