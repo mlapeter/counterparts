@@ -121,6 +121,11 @@ but dedup, so the blast radius is unchanged; the honest fix is also unchanged �
 key (or an explicitly session-free deliberate mode) is what would end the
 borrowing rather than narrowing it.
 
+**A second thing did key off it (2026-11-01).** A `remember` with no live session files
+its raw copy under the same id, and retention judged all of those as one session, so a
+new note restarted the clocks for the rest. Retention now judges that id's lines one by
+one (`remember/owes.ts#planUnboundLines`). The id itself is unchanged.
+
 ## 7. `openServer` has no embedder socket — a memory noted through the tool gets no vector — CLOSED 2026-09-23 (#190)
 
 **Closed by #190 (roadmap C1), option 1 below.** `OpenServerOptions` carries `embed?:

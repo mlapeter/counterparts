@@ -765,9 +765,15 @@ working default).** `hooks.ts#isInteractive`: the host's own `CLAUDE_CODE_SESSIO
 `sessions.ts#NON_INTERACTIVE_ENTRYPOINTS` (`sdk-cli` is `claude -p`; the SDKs; `mcp`; the
 GitHub action) claims none of them — the dream line, a night run's hand-back, a carried
 share, a raised contradiction, plain reminders (at SessionStart and at a prompt), the update
-notice. An unknown or absent value is a person's. It may still START the day's headless run
-(`startUnwatched`); the line it would have been told is held (`Dreams#holdTold`) and the next
-interactive prompt says it while the run is still going, claimed at delivery (`claimHeld`,
+notice. An unknown or absent value is a person's. Since 2026-11-01 (NT1) a name on that list,
+unless the host says `ATTENDED=1`, leaves the day's headless run too (`passesOnNight`,
+`passOnNight`): it reads the offer, claims nothing, and the next session a person starts takes the
+night, with one `adapter.dream.unwatched` log line (`passed: "headless"`) when a night was due.
+That is narrower than `isInteractive` on purpose, so a wrong reading costs a held line rather than
+the night: `ATTENDED=0` off the list (a person's `claude --bg`, a teammate, a host name the host's
+own list lacks) and a turn no person started in a person's session (`startedByHost`) may still
+START it (`startUnwatched`); the line it would have been told is held (`Dreams#holdTold`) and the
+next prompt a person starts says it while the run is still going, claimed at delivery (`claimHeld`,
 an event latch per run) — once the run has ended its hand-back tells what it did instead. An
 `ask` is left unclaimed for the next interactive session. Every day's line now tells the
 model to say it ONCE, in its first reply, as one plain sentence (`dream/#sayOnce`); the
@@ -947,7 +953,12 @@ they still owe, over the ceiling, busy elsewhere, batches, what stopped it, stat
 process-log line record it, and doctor's Nightly run and Catch-up lines read it through one
 renderer (`catchUpWords`). Nothing owed: no child, no row. The hook's `started` row carries
 the catch-up's whole watchdog from the start (`nightRowTimeoutMs`), so a long catch-up is
-not read as lost. A clean exit that stopped short of
+not read as lost. **Every one of these watchdogs counts time awake (2026-11-01, NT1;
+`awake.ts`):** a child's (`child.ts`), the run's hour (`NIGHT_WRITE_UP_TOTAL_MS`), and the row's,
+where the waiting process adds each sleep it notices to `NightRun.sleptMs` so a run asleep isn't
+read as lost and a dead one stops adding. A sleep also renews the batch's claims and its runner's
+record (`renewCatchUp`, `WRITE_UP_CLAIM_MS`), so the waking child still holds what it was writing.
+A child truly stuck awake is killed on schedule, a tick late at worst. A clean exit that stopped short of
 its allowance — some granted session neither written up nor brought to its `upTo` part —
 is recorded `partial`, not `done` (a usage limit exits 0 too; its output is not read), and
 starts no further batch. A runner record a killed process left open is ended at the

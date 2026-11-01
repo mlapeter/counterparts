@@ -414,6 +414,13 @@ describe("Raw transcripts — what the newest retention pass did", () => {
     );
   });
 
+  test("old notes with no session, let go on their own age, are named beside the sessions when there are any", () => {
+    pruneRow({ date: "2026-09-22", reason: "PRUNED", ...counts, unboundLines: 4 });
+    const f = by(reading(undefined), "retention");
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("· 3 pruned 2026-09-22 · 4 old notes with no session let go · 1 kept until written up · 2 still open");
+  });
+
   test("the clocks come from the configuration's retention block, and a field it could not read is amber", () => {
     pruneRow({ date: "2026-09-22", reason: "NOTHING", ...counts, deleted: 0 });
     const s = Store.open({ dir, observer: true });

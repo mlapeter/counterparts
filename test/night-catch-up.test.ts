@@ -36,6 +36,7 @@ import {
   endStaleRunners,
   grantCatchUp,
   planCatchUp,
+  renewCatchUp,
   runCatchUp,
 } from "../src/adapters/claude-code/night-catch-up.js";
 import type { CatchUpReport } from "../src/adapters/claude-code/night-catch-up.js";
@@ -55,6 +56,8 @@ import {
   WRITE_UP_PART_BYTES,
   WRITE_UP_REPLY_BYTES,
   WRITE_UP_REPLY_MARK,
+  claimedByOther,
+  liveClaim,
   owedWriteUps,
   progressKey,
   readSession,
@@ -883,6 +886,108 @@ describe("everything owed (2026-10-11): no session bound, a sanity ceiling and a
     }
   });
 
+  test("its hour counts time awake (NT1): a child that slept 55 minutes of it leaves the next batch its turn, and the row says so", async () => {
+    lived("old-1", proj);
+    lived("old-2", proj, { at: YESTERDAY_10() + HOUR });
+    let clock = Date.now();
+    const seen: ChildPlan[] = [];
+    const { TUNABLES: T } = await import("../src/adapters/config.js");
+    const before = T.NIGHT_WRITE_UP_BATCH_PARTS;
+    (T as { NIGHT_WRITE_UP_BATCH_PARTS: number }).NIGHT_WRITE_UP_BATCH_PARTS = 1;
+    let asleep = 0;
+    try {
+      const report = await runCatchUp({
+        open: () => openNightCounterpart(config()),
+        config: config(),
+        run: "nrn_slept",
+        scope: launch,
+        seat: seatFor(async (p) => {
+          const r = await drivingChild(seen)(p);
+          clock += 55 * MIN;
+          asleep += 55 * MIN;
+          return r;
+        }),
+        now: () => clock,
+        awake: () => ({ asleepMs: () => asleep, stop: () => undefined }),
+      });
+      expect(seen.length).toBeGreaterThan(1);
+      expect(report).toMatchObject({ limit: null, sleptMs: asleep });
+      expect(report?.ms).toBe(asleep);
+      const c = openNightCounterpart(config());
+      closers.push(c);
+      expect(catchUpOf(c.store, "nrn_slept")).toMatchObject({ run: "nrn_slept" });
+      const row = c.store.eventLog({ name: "adapter.night.writeup" }).find((r) => r.ref === "nrn_slept");
+      expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ sleptMs: asleep });
+    } finally {
+      (T as { NIGHT_WRITE_UP_BATCH_PARTS: number }).NIGHT_WRITE_UP_BATCH_PARTS = before;
+    }
+  });
+
+  test("a sleep past the claim's life (NT1): the claim, the grant and the door all still hold for the waking child, and nobody else takes the subject", async () => {
+    lived("old-1", proj);
+    let clock = Date.now();
+    let slept: ((ms: number) => void) | null = null;
+    const seen: ChildPlan[] = [];
+    let young = false;
+    let otherHeld: unknown = "unread";
+    const report = await runCatchUp({
+      open: () => openNightCounterpart(config()),
+      config: config(),
+      run: "nrn_asleep",
+      scope: launch,
+      seat: seatFor(async (p) => {
+        // The laptop slept three hours mid-child, and the waiter noticed on waking.
+        clock += 3 * HOUR;
+        const runner = catchUpRunner("nrn_asleep");
+        (slept as unknown as (ms: number) => void)(3 * HOUR);
+        const c = openNightCounterpart(config());
+        try {
+          otherHeld = claimedByOther(readWriteUpProgress(c.store), "old-1", "someone-else", clock)?.by ?? null;
+        } finally {
+          c.close();
+        }
+        // The door reads the real time, so the record's own age is what counts: three hours back
+        // would refuse it (`grant-expired`), and what `renewCatchUp` wrote is the wall clock's now.
+        young = clock - (readSession(dir, runner)?.lastBoundaryAt ?? 0) < 2 * HOUR;
+        return drivingChild(seen)(p);
+      }),
+      now: () => clock,
+      awake: (onSlept) => {
+        slept = onSlept;
+        return { asleepMs: () => 0, stop: () => undefined };
+      },
+    });
+    expect(otherHeld).toBe(catchUpRunner("nrn_asleep"));
+    expect(young).toBe(true);
+    expect(report?.state).toBe("done");
+    expect(report?.written).toBe(1);
+  });
+
+  test("the door itself, past the claim's life: refused unrenewed, served renewed; a subject another writer took stays theirs", async () => {
+    lived("old-1", proj);
+    const c = openNightCounterpart(config());
+    closers.push(c);
+    const long = c.store.now() - 3 * HOUR;
+    const runner = catchUpRunner("nrn_door");
+    const plan = planCatchUp(c, { run: "nrn_door", runner, now: long, room: 10 });
+    const held = grantCatchUp(c, plan, { scope: launch, now: long });
+    if (held === null) throw new Error("no grant");
+    const s = openServer({ dir, session: runner, scope: launch });
+    closers.push(s.counterpart);
+    expect(payload(await s.call("session_end", { session: runner, writeUp: "old-1" }))).toMatchObject({ reason: "grant-expired" });
+    renewCatchUp(c, held, { scope: launch, now: c.store.now() });
+    expect(payload(await s.call("session_end", { session: runner, writeUp: "old-1" }))).not.toMatchObject({ reason: "grant-expired" });
+    expect(liveClaim(Object.values(readWriteUpProgress(c.store))[0], c.store.now())?.by).toBe(runner);
+
+    updateWriteUpProgress(c.store, (map) => {
+      for (const [k, p] of Object.entries(map)) map[k] = { ...p, claim: { by: "here-1", at: long } };
+      return true;
+    });
+    renewCatchUp(c, held, { scope: launch, now: c.store.now() });
+    const after = Object.values(readWriteUpProgress(c.store))[0];
+    expect(after?.claim).toEqual({ by: "here-1", at: long });
+  });
+
   test("a batch that brings nothing back starts no other: the run is `partial`, and says so", async () => {
     lived("n-1", proj);
     const seen: ChildPlan[] = [];
@@ -1448,7 +1553,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(nightPlans()).toHaveLength(1);
   });
 
-  test("the exclusions hold: an observer and a night child's own prompt start nothing; a session nobody watches may start it, and holds no line for it", () => {
+  test("the exclusions hold: an observer, a night child's own prompt and a headless session start nothing, and a person's session then does", () => {
     lived("day1-a", proj);
     const watcher = hooksAt({ observer: true });
     prompt(watcher, "obs-1");
@@ -1458,6 +1563,9 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     prompt(a, "child-1", { nightRun: true });
     expect(nightPlans()).toHaveLength(0);
     prompt(a, "sdk-1", { entrypoint: "sdk-cli" });
+    expect(nightPlans()).toHaveLength(0);
+    expect(a.counterpart.store.dreamAsk(TODAY())).toBeUndefined();
+    prompt(a, "person-1");
     expect(nightPlans()).toHaveLength(1);
     expect(nightPlans()[0]?.env[NIGHT_KIND_ENV]).toBe("catch-up:first-day");
     expect(a.counterpart.dreams.heldTold(TODAY(), "next-1")).toBeNull();

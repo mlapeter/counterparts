@@ -59,6 +59,10 @@ metabolic limits.
   nothing at all under observer — written or read. Erasing a memory deletes its pairs (the
   removal counts them), and every pair out of one of its words that no memory holds after it
   (the privacy guard, df > 0, kept true after the fact — review of #613); a pruned or merged one's are swept at the next cue flush.
+  *Since 2026-11-01 (R3S, Mike's call, lightly held):* a word on `CUE_STOP_LIST` (path
+  fragments, hex ids, acknowledgements) learns no pair — dropped at the cue flush, the one
+  place every delta passes, and counted — and the read does not ask it, so pairs it learned
+  before stay in the table untouched and conduct nothing. Empty list: no filter runs.
 - **An erased or pruned id must stop conducting.** [v1] scar §2.2 — v1's erase deleted edge
   rows from the index and then `rebuild()` reloaded the edge file wholesale and
   **resurrected them**, so the erased id kept conducting activation between its former

@@ -36,7 +36,9 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   twice, not sight of the material. Since 2026-10-11 a note written in the moment (source
   `jot`) claims only its own turn — its span and the turn's conversation, by cursor
   `from` — and a session-end write-up the rest (`coverage/` CONTRACT §5 G7; NOTES §8).
-- **A rejected proposal claims no coverage.** [v1] §4.1 G5.
+- **A rejected proposal claims no coverage.** [v1] §4.1 G5. Nor does one whose memory did
+  not land: the ledger row and the coverage marks are written after the mint (2026-11-01,
+  §5 G6; NOTES, "A failed mint").
 - **Coverage marks are prompt-side only** — never in the text the gates check, *so no gate
   can be loosened by a mark the engine wrote.* [v1] §4.1 G6.
 - **A malformed proposal degrades to an ordinary span**, read by the fallback. [v1] §4.1 G8.
@@ -206,7 +208,10 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
    next-session write-up's door: `false` on an earlier part, the ENDED session on the last,
    so a writer's own words are never marked written up by a write-up (PR #192 review,
    MAJOR 4).
-6. **[M] A rejected proposal claims no coverage.**
+6. **[M] A rejected proposal claims no coverage, and a proposal claims nothing until its
+   memory exists.** `prepareProposal` decides, the caller mints, `settleProposal` claims
+   (2026-11-01). A mint that throws leaves no ledger row and no marks, so the retry lands
+   and the words still read as owed; one that throws with its row on disk settles.
 7. **[M] Coverage marks never enter gated text.**
 8. **[M] Observer sessions capture nothing, ask for nothing, and write nothing** — checked
    at the store seam, not only at the entry point (scar E7).
@@ -280,8 +285,17 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     behind an `O_EXCL` latch, before the day's snapshot, leaving one `remember.prune` row
     (`deleted`, `keptOwed`, `keptYoung`, `keptLive`, `failed`). Cursors, boundaries,
     coverage, proposals and the ledgers are not text and are kept. Raw text therefore lives
-    at most 14 days in the store (by default), and none of it in a snapshot: since
-    2026-10-13 `spans/` is out of the backup set (`store/paths.ts#LAYOUT`). The only way
+    at most 14 days in the store (by default, counted to the first pass at or past them: a
+    pass runs once per date, and only when the worker runs, so a store nobody is using, a
+    quiet hosted tenant's included, waits for its next run), and none of it in a snapshot: since
+    2026-10-13 `spans/` is out of the backup set (`store/paths.ts#LAYOUT`). **The shared
+    ids in `SHARED_SESSIONS` ("mcp", `UNBOUND_SESSION`, and "console", `CONSOLE_SESSION`)
+    are not sessions, so they are also judged line by line**
+    (2026-11-01, `owes.ts#planUnboundLines`): each line goes as a session of one would, on
+    its own `at`, 3 days when it owes nothing and 14 whatever it owes, however many notes
+    came after it. They are struck through the same door, naming hashes within one id at a
+    time, and counted as `unboundLines` on the same row. The whole-session rule still
+    runs over each and may clear it sooner. No other session is judged this way. The only way
     out of owing — the write-up mark — is a grant behind a pinned seam
     (`write-up-seam.ts`), refusing an unknown scope, a free-text author and a session with
     no text, and a run is visible from the moment it holds its date (`STARTED`). Its two

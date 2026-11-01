@@ -11,10 +11,10 @@
  */
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import * as oauth from "oauth4webapi";
@@ -471,6 +471,37 @@ describe("delete, the default: locked at once, kept within 24 hours", () => {
     // The other person is untouched.
     await assertKept(r, other.storeId);
     assert.equal(r.app.accounts.person(other.personId)!.state, "active");
+  });
+
+  test("a copy on the volume from before snapshots were off: not in the sidecar's configuration, there through the 24 hours, gone with the erase", async () => {
+    const r = await rig();
+    const later = await signUp(r, "later-copy@example.com");
+    const now = await signUp(r, "now-copy@example.com");
+    const copyOf = (storeId: string): string => join(tenantDir(r.app.tenants.root, storeId), "snapshots", "2026-10-30T12-00-00-000Z", "counterparts.sqlite");
+    for (const id of [later.storeId, now.storeId]) {
+      await r.app.tenants.withTenant(id, {}, async () => undefined);
+      await replicate(r, id);
+      mkdirSync(dirname(copyOf(id)), { recursive: true });
+      writeFileSync(copyOf(id), "a day's copy");
+    }
+    const sidecar = readFileSync(r.app.backups!.configPath, "utf8");
+    assert.match(sidecar, new RegExp(`${later.storeId}/store/counterparts\\.sqlite`));
+    assert.doesNotMatch(sidecar, /snapshots\//, "the sidecar watches each store's database and nothing beside it");
+
+    const t0 = r.clock.at;
+    assert.equal((await deleteLater(later.browser, "later-copy@example.com")).status, 200);
+    r.clock.at = t0 + DELETE_GRACE_MS - 1;
+    await ticks();
+    assert.ok(existsSync(copyOf(later.storeId)), "a keep brings everything back, so it stays for the 24 hours");
+    r.clock.at = t0 + DELETE_GRACE_MS;
+    await until(() => r.app.accounts.person(later.personId)!.state === "deleted", "the erase");
+    assert.equal(existsSync(copyOf(later.storeId)), false, "gone at the erase");
+    await assertErased(r, later.storeId);
+
+    const page = await (await now.browser.go("/account")).text();
+    assert.equal((await now.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "now-copy@example.com" })).status, 200);
+    assert.equal(existsSync(copyOf(now.storeId)), false, "gone at delete everything now");
+    await assertErased(r, now.storeId);
   });
 
   test("a keep after the deadline, before the timer's tick, is refused: the erase is due, and runs", async () => {
