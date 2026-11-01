@@ -193,8 +193,8 @@ export function createApp(opts: AppOptions): App {
   let scheduleRef: ((personId: string) => Promise<number | null>) | null = null;
   let keepRef: ((personId: string) => boolean) | null = null;
 
-  // Export's plaintext copy is made on the data volume (encrypted at rest, and
-  // swept at start-up after a crash), never in the container's /tmp.
+  // Export's plaintext copy is made on the data volume (swept at start-up after
+  // a crash), never in the container's /tmp.
   const scratchRoot = join(opts.dataRoot, "scratch");
   const exportStore = async (personId: string): Promise<{ path: string; filename: string; cleanup: () => void }> => {
     const storeId = accounts.person(personId)?.storeId;

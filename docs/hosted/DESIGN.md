@@ -399,20 +399,21 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 
 **The honest privacy claim this supports** (for OL3's privacy page, plain words):
 
-> Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
-> account alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
+> Backups of your memory that leave our server go to Cloudflare R2, encrypted with a key that belongs to your account
+> alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
 > memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and your key are erased, unless you sign
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
 > is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
-> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Forgetting one memory removes it from
-> your memory at once; traces of it can stay in unused space in your memory's file and its backups until they are
-> overwritten or expire, and erasing your account makes all of it unreadable at once. We hold the keys, so this
-> protects your memory from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our
-> promise, kept by access controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees
-> what Claude reads.
+> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Removing a
+> single memory isn't available on hosted: you can download your whole memory, or delete your account, which erases all
+> of it. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
+> the key whenever a backup is read or written. "We don't read it" is our promise, kept by access controls and an audit
+> log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
 >
-> (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph.)
+> (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
+> claimed encrypted disks, which is unverified (above and §5.4), and a single-memory forget, which hosted has no door
+> for. Say either again only once it is true.)
 
 **What file encryption would add,** if Mike wants it later: "even a copy of our server's disk is unreadable without our
 key service". It is a contained follow-up, because of the key hierarchy below. Measure the native driver first.

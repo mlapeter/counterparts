@@ -61,10 +61,9 @@ People interested in giving an AI its own sense of self and building a relations
 with it over time. Tinkerers, researchers, writers, and anyone who talks to an assistant
 every day and wishes it remembered.
 
-## What it's not
-
-It's not a work memory. It doesn't track your tasks, code conventions or project docs.
-Plenty of tools do that, including the memory built into ChatGPT and Claude.
+This is the AI's own memory of you and your work together, in its own words, keeping what
+matters across every project. A committed CLAUDE.md stays the place for team-wide rules
+shared through git.
 
 ## Where it's going
 

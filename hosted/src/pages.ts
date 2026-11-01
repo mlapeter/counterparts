@@ -94,7 +94,7 @@ const DELETE_LATER_WORDS =
 const DELETE_NOW_WORDS = "your memory, its backups and its key are erased at once, and your account is closed. It can't be undone.";
 const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted account backups within 24 hours of the erase.";
 const FORGET_WORDS =
-  "Forgetting one memory is different: it is gone from your memory at once, though traces can stay in unused space in your memory's file (on our encrypted disks) and in its encrypted backups until they are overwritten or expire. When your account is erased, all of it becomes unreadable at once.";
+  "Removing a single memory isn't available on hosted. You can download your whole memory, or delete your account, which erases all of it.";
 const KEEP_WORDS = "Keeping it brings your account and memory back as they were. Your connected AIs stay disconnected: connect them again from Claude.";
 // The done pages' words, shared with their emails (R9) so the two say the same thing.
 const LOCKED_WORDS = "Your account and memory are locked, every connected AI is disconnected, and you're signed out.";
