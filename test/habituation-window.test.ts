@@ -127,7 +127,7 @@ function verdict(d: RecallDecision, id: string): CandidateVerdict | undefined {
 }
 
 async function rate(c: Counterpart, session: string, rated: { id: string; score: number }[]): Promise<Record<string, unknown>> {
-  const s = new McpServer({ counterpart: c, session, scope: "/work/h14", registryDir: join(dir, "registry"), now: () => new Date(`${date()}T12:00:00.000Z`) });
+  const s = new McpServer({ counterpart: c, session, scope: "/work/h14", registryDir: join(dir, "registry"), now: () => Date.parse(`${date()}T12:00:00.000Z`) });
   const out = (await s.call("session_end", { session, memories: [], rated })).structuredContent;
   return out["rated"] as Record<string, unknown>;
 }
