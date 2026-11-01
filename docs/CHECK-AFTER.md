@@ -81,7 +81,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | What stopped a memory, counted (N1, observation only): `recall.decision` carries `habituationCut`, `nearMiss {margin 0.1, count}`, `capped`, `budgetTrimmed`, `inhibited` beside the echo/project skips; `adapter.recall` the same flat (the near miss as `nearMissCount`), with `turn` and `startedBy` (`person`/`host`/`unattended`); switch `recall.STOP_COUNTS` | 0.3.37, 10-25 | a week after install: what stopped memories on the turns a person typed, by day (read 11-01: near miss 0.92, cross lift 0.56 per person turn; kept) | "Due a week after the stop counts" below; `src/core/recall/NOTES.md` "N1" |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | 0.3.34, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | 0.3.34, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
-| Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 (PROVISIONAL, pending ROADMAP challenge review; read 11-01 by random-54: ratios unchanged, felt share in reach fell 16.8% → 11.6%, no pile-up; EMO_Q 0.5 kept; re-read ~11-15..20) | "Checked 2026-10-18" and "Checked 2026-11-01" below |
+| Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | lived day ~120 (~2027-01-19) on Mike's store, or the first new-user store at day 60–90 (read 11-01 by random-54, challenged by ROADMAP: keep EMO_Q 0.5, too early to call harmless; trip-wire below) | "Checked 2026-10-18" and "Checked 2026-11-01" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
@@ -897,7 +897,7 @@ named shapes are present) and E2 (on, off or tune).
   mem_a0ba38997b7a (us; 0.142, 2), mem_e6470328929b (me; 0.182, 3). `band.promoted` since 0.3.36:
   1, reflection-only 1. **For Mike: on, off or tune** — and whether he wants these five as core, and the waking memory
   held out.
-- **Emotion's weight (EMO_Q 0.5, the 10-18 method) — read by Étienne in ~/random (random-54). PROVISIONAL: a ROADMAP challenge review is under way (~/counterparts-notes/2026-11-01-felt-review/ROADMAP-REVIEW.md); final wording follows it.** On a copy of the live
+- **Emotion's weight (EMO_Q 0.5, the 10-18 method) — first read by Étienne in ~/random (random-54); superseded in part by ROADMAP's challenge review below.** On a copy of the live
   store, 0.3.42, lived day 41; script and lists in `~/counterparts-notes/2026-11-01-felt-review/` (`felt.ts` runs
   against a copy; `felt-q.ts` is a what-if taking `EMO_Q` from env). Method check: on the 10-19 snapshot the script
   gives 177 / 116 / 31 against 10-18's 176 / 119 / 31. The ratio table is unchanged, as the formula sets it: ×3.3 /
@@ -913,6 +913,20 @@ named shapes are present) and E2 (on, off or tune).
   every number it shared; the one addition it keeps: by birth cohort on the new curve, the felt share of in-reach is
   12% / 8% / 8% for days 21–27 / 28–34 / 35–41.)
 
+- **Emotion's weight, after ROADMAP's challenge review (2026-11-01; `~/counterparts-notes/2026-11-01-felt-review/ROADMAP-REVIEW.md`). Final for this read.**
+  **Keep EMO_Q 0.5.** No problem seen: felt footnotes are rated like unfelt ones, by about-mark too (since day 35:
+  43% vs 40% noise; within the same mark felt is no worse), and only 1 of 594 felt shows depended on EMO_Q being above
+  0.2. **Too early to call it harmless:** every shown memory was 20 lived days old or less, so EMO_Q couldn't have
+  bitten yet. Corrections to the first read: the 16.8% → 11.6% fall was a denominator effect (felt in reach doubled to
+  336; ~3,100 new work memories, 1.6% felt), and by body text 10 of the 62 felt work memories are routine, not ~5.
+  **Most persistence isn't EMO_Q:** felt memories carry higher explicit claims (felt work ~0.56 vs ~0.25), and the
+  night favours them (reflection/dream returns 48–52% vs 1–8% at the same salience), which re-anchors them; at EMO_Q 0
+  the median felt memory still stays in reach ~161 days. **Re-read** at lived day ~120 (~2027-01-19) on Mike's store,
+  or the first new-user store at day 60–90; read what's SHOWN and how it's rated, not what's in reach. **Trip-wire**
+  (over ≥200 ratings): felt ≥10 points noisier than unfelt in the same about-mark; or felt >35% of footnotes; or one
+  felt memory keeps returning rated 0 past habituation. If it trips, look in this order: the habit of tagging feelings
+  on "me" notes (55% of interactive "me" notes are felt), then the night's preference for felt memories, then
+  EMO_Q 0.5 → 0.35.
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 
 All four entries due today were read on the live store (read-only) after the 00:19 night run. Nothing here
