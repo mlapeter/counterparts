@@ -206,6 +206,11 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
     expect(out.at(-1)).toContain("the default");
     expect(await run(["page-form", "on", "--dir", dir], opts)).not.toBe(0);
     expect(await run(["page-form", "own", "extra", "--dir", dir], opts)).not.toBe(0);
+    // An observer console reads it but may not set it.
+    expect(await run(["page-form", "own", "--dir", dir, "--observer"], opts)).not.toBe(0);
+    expect(out.at(-1)).toContain("observer");
+    expect(await run(["page-form", "--dir", dir, "--observer"], opts)).toBe(0);
+    expect(out.at(-1)).toContain("the default");
     const c = open();
     try {
       expect(pageFormOf(c.store)).toBeNull();
