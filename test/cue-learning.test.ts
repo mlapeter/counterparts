@@ -25,7 +25,7 @@ import { scopesPath } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { composeTurn } from "../src/core/retrieval.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
-import { TUNABLES as ASSOCIATE } from "../src/core/associate/index.js";
+import { TUNABLES as ASSOCIATE, cueStopPredicate } from "../src/core/associate/index.js";
 import { CUES_KIND } from "../src/core/recall/index.js";
 import { SCHEMA_VERSION, Store, paths, stemTerm } from "../src/core/store/index.js";
 import { findable, stripV15 } from "./store-fixture.js";
@@ -565,23 +565,38 @@ describe("R3S — the cue stop-list", () => {
     const day = a.counterpart.store.livedDay();
     // A pair as an older build would have left it: "tmp" → the relay memory, strong.
     a.counterpart.store.writeCueEdges([{ token: TMP, memoryId: relay, weight: 0.9, lastDay: day, source: "use" }]);
-    const rows = (): string => JSON.stringify(a.counterpart.store.cueEdgesFor([TMP]));
-    const stored = rows();
+    // And one faded out long ago: on the list or not, the sweep takes it as before.
+    a.counterpart.store.writeCueEdges([{ token: stemTerm("fyi"), memoryId: relay, weight: 0.021, lastDay: day - 400, source: "use" }]);
+    /** Every column of a word's rows, read past the store's own reader (which returns four of the seven). */
+    const raw = (token: string): string => {
+      const db = new Database(paths.operational(dir), { readonly: true });
+      try {
+        return JSON.stringify(db.query("SELECT * FROM cue_edges WHERE token = ? ORDER BY memory_id").all(token));
+      } finally {
+        db.close();
+      }
+    };
+    const stored = raw(TMP);
     expect(stored).toContain(relay);
+    expect(stored).toContain("updated_at");
 
     // Read: nothing learned for "tmp"; the turn weighs the memory exactly as with no reader at all.
     expect(a.counterpart.associate.learnedCues([TMP]).size).toBe(0);
     const withPair = weigh(a, "sess-tmp-probe", "tmp").find((v) => v.id === relay);
     const noReader = a.counterpart.recall.build({ sessionId: "sess-tmp-probe", text: "tmp" }).decision.verdicts.find((v) => v.id === relay);
+    expect(withPair).toBeDefined();
     expect(withPair?.activation).toBe(noReader?.activation);
     expect(withPair?.verdict).toBe(noReader?.verdict);
-    // Through the hook: a bare "tmp" turn, then the worker and a flush.
+    // Through the hook: a bare "tmp" turn.
     const turn = prompt(a, "sess-tmp", "tmp");
     expect(turn.surfaced).not.toContain(relay);
-    work(a);
-    a.counterpart.associate.flushCues();
-    // Not touched: the row is byte-for-byte what was written.
-    expect(rows()).toBe(stored);
+    // A flush that really runs (a rated turn saying "tmp", so the write and the sweep both happen).
+    const cues = await trainRelay(a, relay, "sess-tmp-train");
+    expect(cues?.stopped).toBe(STOPPED_TERMS.length);
+    expect(cues?.rows ?? 0).toBeGreaterThan(0);
+    // Not touched: every column of the row is what was written. The faded one went: not for being listed, for fading.
+    expect(raw(TMP)).toBe(stored);
+    expect(raw(stemTerm("fyi"))).toBe("[]");
 
     // The same store with the list emptied: the old pair reads again, and brings the memory back loud.
     emptyStopList();
@@ -601,6 +616,41 @@ describe("R3S — the cue stop-list", () => {
     const learned = new Set(a.counterpart.store.cueEdgesOf(relay).map((r) => r.token));
     for (const t of [...STOPPED_TERMS, stemTerm("relay")]) expect(learned.has(t)).toBe(true);
     expect(a.counterpart.associate.learnedCues([stemTerm("tmp")]).get(stemTerm("tmp"))?.[0]?.id).toBe(relay);
+  });
+
+  test("an ordinary word beside a stop-listed one keeps the share it had: the listed word's memory loses its lift, the other's activation doesn't move", async () => {
+    const a = adapter();
+    const relay = await relayWorld(a);
+    const ledger = await remember(a, WRITER, { text: "Widget ledger: the quarterly count lives in the ledger tab." });
+    const day = a.counterpart.store.livedDay();
+    a.counterpart.store.writeCueEdges([
+      { token: stemTerm("tmp"), memoryId: relay, weight: 0.9, lastDay: day, source: "use" },
+      { token: stemTerm("widget"), memoryId: ledger, weight: 0.5, lastDay: day, source: "use" },
+    ]);
+    const act = (x: Adapter, text: string, id: string) => weigh(x, "sess-share-probe", text).find((v) => v.id === id)?.activation ?? 0;
+    const onLedger = act(a, "tmp widget", ledger);
+    const onRelay = act(a, "tmp widget", relay);
+    emptyStopList();
+    const off = adapter();
+    expect(onLedger).toBeGreaterThan(0);
+    expect(onLedger).toBe(act(off, "tmp widget", ledger));
+    expect(onRelay).toBeLessThan(act(off, "tmp widget", relay));
+    // The share is still a share: the listed word in the turn still takes its part, list on or off.
+    expect(onLedger).toBeLessThan(act(off, "widget", ledger));
+  });
+
+  test("what the list stops, and the neighbours it doesn't", () => {
+    const stop = cueStopPredicate(ASSOCIATE.CUE_STOP_LIST);
+    const stopped = (word: string): boolean => stop?.(stemTerm(word)) === true;
+    // By the index term: a form of a listed word stops, real senses included (NOTES, R3S).
+    for (const w of ["thanks", "thanked", "lets", "letting", "sounds", "sounding", "goods", "fined", "cooling", "crossing", "socks", "vars"]) expect(stopped(w)).toBe(true);
+    // A word that only starts like one is its own term.
+    for (const w of ["socket", "sockets", "letter", "goodness", "cooler", "greater", "thankful", "soundtrack", "various", "variable", "temp", "etcd"]) expect(stopped(w)).toBe(false);
+    // The hex rule: seven or more hex characters, a digit AND a letter.
+    for (const w of ["3ee3383", "2d998d1c230c", "550e8400", "ed25519"]) expect(stopped(w)).toBe(true);
+    for (const w of ["a1b2c3", "4f2a", "1234567", "446655440000", "deadbeef", "defaced"]) expect(stopped(w)).toBe(false);
+    // Empty: no predicate at all, so no filter runs anywhere.
+    expect(cueStopPredicate([])).toBeNull();
   });
 });
 
