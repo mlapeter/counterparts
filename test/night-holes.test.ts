@@ -300,6 +300,8 @@ function envOf(host: Record<string, string>): Record<string, string> {
     USERPROFILE: home,
     BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+    // The hook's day has to be this test's day, in whatever zone it runs.
+    ...(process.env["TZ"] === undefined ? {} : { TZ: process.env["TZ"] }),
     ...host,
   };
 }
