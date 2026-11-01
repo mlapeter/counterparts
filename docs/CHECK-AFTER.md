@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): rerun the replay, 7 against 14: useful lost, rulings held, held-set size. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | built, off, in review 10-30 | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
@@ -106,6 +107,34 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~14 lived days after the longer habituation window (2026-11-01, H14, Mike's call 12:07, lightly held — `recall.HABITUATION_WINDOW_DAYS`)
+
+**What we're trying:** a memory rated 0 in two sessions faces the raised bar for 14 lived days, not 7. Replaying 2,037 real
+turns (10-26..31) at 14 removed 260 showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost
+is about twice as many memories held down at once (271 against 138 on lived day 41). This is a starting point, not a
+commitment, and anyone can reopen it sooner.
+
+**Reopen sooner if:** Mike or a session notices a ruling it wanted didn't come up, or a memory rated 3 sits in the held list.
+
+**The review:** rerun the replay on a fresh store copy, 7 against 14, on the days since release. Steps and scripts are in
+`~/counterparts-notes/2026-11-01-briefs/habituation-replay/PROGRESS.md` (read-only, takes minutes; `held.py` for the held
+list). The scripts carry scratch paths from 11-01, so point them at the new copy. Read useful lost, rulings held and
+held-set size. Read the replay rather than noise alone: R3S lands just before this and moves the same number.
+
+**What would change it:** useful lost past about 5% of removed rated showings, or a ruling Mike uses staying held. Then back
+to 7 or something between. If noise keeps falling with no such loss, leave it. It's also worth reading once the history
+is older than 21 days, since 14 and 21 can only part then.
+
+**Reading the 11-01 replay:** its 14 and 21 arms read the window through `eventLog`'s default of 500 rows, oldest first,
+which this change fixes (`recall/NOTES.md`, H14). The window passes 500 rows on lived days 39–40 (10-30, 10-31), so those
+arms missed their newest ratings there. The rerun has the fix; a gap against the 11-01 numbers can come from this.
+
+**On the upgrade:** the box-3 note a 7-day build left reads as current until the next rating row, so memories rated 0 only
+in the older 7 days aren't held until then. The next rating row rebuilds it (tested through `session_end`).
+
+**How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
+once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
 
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 

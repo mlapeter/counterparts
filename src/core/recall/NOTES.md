@@ -1689,3 +1689,29 @@ runs as long as it stalls, and the 25-second hook is still possible. Bounding it
 inside `activate`, a worker thread or a host timeout. A deadline checked in the lexical loop gave up
 half of what was shown at 150 ms in the deep read, but that was measured before these fixes, with
 the subjects scan eating most of the budget, so its numbers understate it.
+
+## H14 — habituation's window, 7 to 14 lived days (2026-11-01, Mike's call, lightly held)
+
+The one-line change wasn't enough, and the owner's store is what showed it. `habituationRows` read the window with no
+`limit`, so `eventLog` gave it its default: the oldest 500 rows. The store has 546 rating rows in the 14 days ending lived
+day 41 (73 on its busiest day); 7 days never came near 500. Measured on a copy of the 11-01 snapshot:
+
+| | window 7 | window 14, default read | window 14, this read |
+|---|---:|---:|---:|
+| rating rows in the window | 286 | 546 | 546 |
+| rows in the note | 268 | 467 | 507 |
+| note `through` equals the newest row | yes | **no, never** | yes |
+| note size | 42.1 KB | 74.5 KB | 80.6 KB |
+| memories held | 136 | 252 | 270 |
+| `habituatedIds`, p50 / p95 | 0.36 / 1.02 ms | 3.00 / 3.46 ms | 0.51 / 1.67 ms |
+| the note's rebuild after a rating, p50 | 1.8 ms | 3.0 ms | 3.2 ms |
+
+Read across: with the default read the newest ratings were dropped, so a later 2 didn't clear, and the note never matched
+the newest row, so every prompt read the rows instead. Taking the newest first, with a bound (`HABITUATION_ROWS_MAX`),
+fixes both, and a store past the bound loses the window's oldest rows, which are the least of it.
+
+**The cost on the prompt path isn't noticeable.** A turn reads the note once for the gate and, when it has beliefs to
+offer, once more: about 1 ms a turn at 14 days. Timed with other work running on the laptop, 200 reads each.
+
+**The 11-01 replay ran on the default read,** so its 14 and 21 arms missed their newest ratings on lived days 39–40. The
+review in `docs/CHECK-AFTER.md` runs with the fix.
