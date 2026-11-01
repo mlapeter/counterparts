@@ -92,7 +92,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
 | K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | when 3+ beliefs about other people pass the 0.3 floor, with the beliefs slot's own read: did they show, and how were they rated? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
-| R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | its own release after 0.3.42, 11-01 (#706) | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/decisions.d/feat-r3s-cue-stop-list.md` |
+| R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | its own release, the one after PF1's, 11-01 (#706) | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/decisions.d/feat-r3s-cue-stop-list.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -454,17 +454,23 @@ edited: old stop-listed pairs stay in `cue_edges` and fade and are swept as any 
 
 Look at (read-only, rows since the release that carries it; `<ms>` its install time, `<build>` its version):
 - new pairs a week: `SELECT COUNT(*), COUNT(DISTINCT token), COUNT(DISTINCT memory_id) FROM cue_edges WHERE created_at >= <ms>;`
-  against the 11-01 read's ~3,200 in its first week;
+  against the 11-01 read's ~3,200 in its first week. That week began from an empty table and a retrained pair keeps its
+  `created_at`, so this number falls some with no change at all; `updated_at >= <ms>` counts pairs touched;
 - the stop-listed share of what training sent: `SELECT SUM(json_extract(payload,'$.cueStopped')), SUM(json_extract(payload,'$.cueDeltas')) FROM events WHERE name='associate.flush' AND json_extract(payload,'$.build') >= '<build>';`
-  (11-01 equivalent: about 10% of pairs); and no new row on a stop-listed word:
-  `SELECT token, COUNT(*) FROM cue_edges WHERE created_at >= <ms> AND token IN ('tmp','uds','sock','cross','etc','usr','var','sound','good','ahead','let','okay','yes','yeah','yep','sure','fine','cool','great','thank','fyi') GROUP BY token;` (expect none);
-- the widest words now: `SELECT token, COUNT(*) n FROM cue_edges GROUP BY token ORDER BY n DESC LIMIT 20;` (counts only):
-  a new fragment or filler class at dozens of memories is the next candidate;
-- footnote ratings by build from `recall.rated` (noise / useful): the 11-01 read was 40.7% / 16.7% (n 1,500).
+  (a string compare, fine while versions keep their width). `cueStopped` is new, so there is no 11-01 count. The nearest
+  baseline: on the 11-01 copy 7.4% of the words in recorded turns were on the list (1,473 of 19,806), an estimate, since
+  not every turn is credited; the 10% is of pairs, another unit. And no new row on a stop-listed word:
+  `SELECT token, COUNT(*) FROM cue_edges WHERE created_at >= <ms> AND token IN ('tmp','uds','sock','cross','etc','usr','var','sound','good','ahead','let','okay','yes','yeah','yep','sure','fine','cool','great','thank','fyi') GROUP BY token;` (expect none; hex ids aren't named here, `cueStopped` counts them);
+- the widest new words: `SELECT token, COUNT(*) n FROM cue_edges WHERE created_at >= <ms> GROUP BY token ORDER BY n DESC LIMIT 20;`
+  (counts only; without the `created_at` the old listed rows, still in the table and not read, top it): a new fragment or
+  filler class at dozens of memories is the next candidate;
+- footnote ratings by build from `recall.rated` (noise / useful), read as R3's row reads them: the 11-01 read was 40.7% /
+  16.7% (n 1,500). Expect a small move at most: a listed word still matches a memory that holds it, only its learned
+  pairs are gone.
 
-Changes it: a stop-listed share well above 10%, or new filler or path words at the top of the fan-out → widen the list or
-move to a rule (a minimum informativeness for learned words) instead of naming words. Growth still ~3,000 a week with the
-noise share small → the growth is ordinary words and the question is the training rate or the floor, not this list.
+Changes it: a stop-listed share well above the 7–10% above, or new filler or path words at the top of the fan-out → widen
+the list or move to a rule (a minimum informativeness for learned words) instead of naming words. Growth still ~3,000 a
+week with the noise share small → the growth is ordinary words and the question is the training rate or the floor, not this list.
 A stop-listed word Mike wants learned → take it off. Undo: `CUE_STOP_LIST = []` (nothing filtered, cue learning exactly
 as before, the old pairs read again).
 

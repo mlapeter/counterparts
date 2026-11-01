@@ -252,7 +252,9 @@ export interface AssociateTunables {
    *   tail; 22 pairs);
    * - acknowledgements, which say "go on" and nothing about a subject
    *   (`ahead` 19, `let` 18, `sound` 18, `thank` 13, `fyi` 12, `yeah` 11, ...;
-   *   the cap-1.5 words all led by one memory).
+   *   `ahead`, `let`, `sound` and `yeah` sit at or near the 1.5 cap, `ahead` and
+   *   `sound` led by the same memory).
+   * It is one list for every store, so a real sense goes with the word: NOTES.
    * Words under `recall.MIN_CUE_LENGTH` ("go", "ok") never reach a cue and are
    * not listed. Already-learned pairs stay in the table, untouched; they fade
    * and are swept as before. Undo: empty this list — then nothing is filtered

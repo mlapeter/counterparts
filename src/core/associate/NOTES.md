@@ -613,3 +613,21 @@ evaporation can do it.
   prompts, ratings, worker, probes), its decisions, pairs and flush rows dumped with ids
   normalized — same sha256 from master and from this branch with the list emptied, three
   runs each; with the list on the dump differs (only the ordinary words learn).
+- Re-proved by the reviewer the same day, not sharing that script: real processes only (the
+  stdio MCP server, the hook, the worker), every row of `events` and `cue_edges` and every
+  injection dumped. Same sha256, master and emptied, two runs each, once a rerun's own noise
+  is out (clocks, durations, the temp path's scope hash, a pair's id order). One store taken
+  across builds: master learned and left a pending file, the listed build's worker absorbed
+  it (stopped counted, old rows the same on all seven columns, the sweep still taking a faded
+  listed pair), and the listed build read the store exactly as an emptied build reads a copy
+  with those rows deleted.
+- **What a real word pays.** The match is by index term, so a word's forms and real senses
+  go with it: `sound`/`sounding`, `cool`/`cooling`, `good`/`goods`, `fine`/`fined`,
+  `cross`/`crossing`, `sock`/`socks`, `var`/`vars`, `let`/`letting`, and any 7-character hex
+  name with a digit (`ed25519`). `socket`, `letter`, `cooler`, `goodness`, `variable` are their
+  own terms and are not touched. What's lost is the learned pair only: the word still matches
+  a memory that holds it. On the 11-01 copy 24 of the 317 listed pairs pointed at a memory
+  whose text holds the word (`cross` 1 of 53, `sound` 1 of 18, `fine` 1 of 7), so little on
+  this store; the list is one constant for every store, and that is the part still open.
+- `harness --set associate.CUE_STOP_LIST=...` is refused (`SETTING_TYPE`: not a number or
+  boolean). To compare, use `compare --base/--branch`.
