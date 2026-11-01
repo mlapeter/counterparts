@@ -144,6 +144,9 @@ export function pruneRetention(
   const unboundSessions = new Set<string>();
   for (const aged of planUnboundLines(buffer, sources)) {
     const struck = strikeSpans(buffer, { scope: aged.scope, hashes: aged.hashes, within: aged.session, by: "retention" });
+    // Before the failure check: a strike that fails on its second file has still
+    // taken lines from its first, and a write-up's parts moved with them.
+    if (struck.struck > 0) unboundSessions.add(aged.session);
     if (struck.reason === "OBSERVER" || struck.reason === "IO_FAILED") {
       failedSessions.add(aged.session);
       if (struck.reason === "OBSERVER") observed = true;
@@ -153,7 +156,6 @@ export function pruneRetention(
     lines += struck.struck;
     unboundLines += struck.struck;
     unboundBytes += aged.bytes;
-    if (struck.struck > 0) unboundSessions.add(aged.session);
   }
   const deletedPlan = plan.filter((h) => h.verdict === "deleted" && !failedSessions.has(h.session));
   const report: RetentionReport = {

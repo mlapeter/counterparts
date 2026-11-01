@@ -432,9 +432,10 @@ export interface RetentionReport {
   /** Of `lines`, those the shared ids let go on their own age
    *  (`planUnboundLines`): the buckets themselves are not in `deleted`. */
   readonly unboundLines: number;
-  /** Which of `SHARED_SESSIONS` those lines left: the one thing here that is
-   *  not a count, and two constants, not anyone's session. It is not recorded:
-   *  the worker rewinds a write-up only of a bucket whose parts really moved. */
+  /** Which of `SHARED_SESSIONS` lost lines, a strike that failed part way
+   *  included: the one thing here that is not a count, and two constants, not
+   *  anyone's session. It is not recorded: the worker rewinds a write-up only of
+   *  a bucket whose parts really moved. */
   readonly unboundSessions: readonly string[];
 }
 

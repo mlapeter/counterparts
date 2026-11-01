@@ -10,7 +10,7 @@
  * Hermetic: a fresh temp dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -281,6 +281,58 @@ describe("a write-up of the bucket part way through", () => {
     expect(readWriteUpProgress(c.store)[consoleKey]).toMatchObject({ done: 0, rewound: true });
     expect(readWriteUpProgress(c.store)[mcpKey]?.done).toBe(2);
     expect(readWriteUpProgress(c.store)[mcpKey]?.rewound).toBeUndefined();
+  }, 60_000);
+
+  test("both buckets lose lines in one pass, through the real doors: both start again, doctor counts them together, and the ids stay off the durable row", async () => {
+    const remember = async (text: string): Promise<void> => {
+      const s = openServer({ dir, scope: SCOPE, env: {}, manifestVersion: () => null });
+      await s.call("remember", { text });
+      s.counterpart.close();
+    };
+    await remember(words(0));
+    await note(words(1));
+    setSystemTime(new Date(at(4)));
+    await remember(words(4));
+    await note(words(5));
+    const c = Counterpart.open({ dir });
+    closers.push(() => c.close());
+    saveWriteUpProgress(c.store, consoleKey, { ...part, done: 2 });
+    saveWriteUpProgress(c.store, mcpKey, { ...part, done: 2 });
+    const report = (await worker(4)).retention?.report;
+    expect(report).toMatchObject({ unboundLines: 2, lines: 2 });
+    expect(report?.unboundSessions).toEqual([UNBOUND_SESSION, CONSOLE_SESSION]);
+    expect(readWriteUpProgress(c.store)[consoleKey]).toMatchObject({ done: 0, rewound: true });
+    expect(readWriteUpProgress(c.store)[mcpKey]).toMatchObject({ done: 0, rewound: true });
+    expect((await cli(["doctor", "--all"])).out.join("\n")).toContain("2 old notes with no session let go");
+    const row = c.store.eventLog({ name: "remember.prune", limit: 200 }).at(-1);
+    expect(row).toBeDefined();
+    expect(JSON.stringify(row)).not.toContain("unboundSessions");
+    expect(narrate(c.store, row as NonNullable<typeof row>).text).toBe("The raw copy of 2 old notes with no session were let go.");
+  }, 60_000);
+
+  test("a strike that fails part way has still moved the parts: the write-up starts again", async () => {
+    await note(words(0));
+    const scopeDir = join(dir, "spans", keyFor(SCOPE));
+    const claims = join(scopeDir, "claims");
+    // An aged line in a claim file that will not rewrite, as an unwritable folder leaves it,
+    // beside one in the stream that will.
+    mkdirSync(claims, { recursive: true });
+    const [own] = rawLines("jots.jsonl");
+    writeFileSync(join(claims, "held.jsonl"), `${own as string}\n`);
+    chmodSync(claims, 0o555);
+    // A young note, so this is the line-by-line strike and not the whole bucket's.
+    setSystemTime(new Date(at(4)));
+    await note(words(4));
+    const c = Counterpart.open({ dir });
+    closers.push(() => c.close());
+    saveWriteUpProgress(c.store, consoleKey, { ...part, done: 2 });
+    try {
+      expect(retentionJob({ counterpart: c, date: dateOf(4) }).report?.unboundSessions).toEqual([CONSOLE_SESSION]);
+    } finally {
+      chmodSync(claims, 0o755);
+    }
+    expect(jotsOf(CONSOLE_SESSION).map((l) => l.text)).toEqual([words(4)]);
+    expect(readWriteUpProgress(c.store)[consoleKey]).toMatchObject({ done: 0, rewound: true });
   }, 60_000);
 
   test("a writer holding a part across the pass, through the real door: what moved is still served", async () => {

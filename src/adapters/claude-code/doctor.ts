@@ -975,8 +975,8 @@ function retentionFindings(input: DoctorInput, store: Store): Finding[] {
   if (unfinished) {
     return [finding("retention", "green", TITLE, `${policy} · a pass started today`, "", data)];
   }
-  // The notes filed with no session go line by line, on their own age
-  // (`remember/owes.ts#planUnboundLines`), so they are not in `deleted`.
+  // The notes filed under a shared id, "mcp" or "console", go line by line, on
+  // their own age (`remember/owes.ts#planUnboundLines`), so they are not in `deleted`.
   const unbound =
     run.unboundLines > 0 ? ` · ${String(run.unboundLines)} old note${run.unboundLines === 1 ? "" : "s"} with no session let go` : "";
   const counts = `${String(run.deleted)} pruned ${run.date}${unbound} · ${String(run.keptOwed)} kept until written up · ${String(run.keptLive)} still open`;

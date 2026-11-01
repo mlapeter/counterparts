@@ -771,5 +771,9 @@ pass per id. What was checked before calling a console line the same kind of thi
   same way. Older than this and not about retention, so not changed. Line-by-line only shortens
   that span.
 - **What it costs.** A refused console note's words are nowhere else, so at 14 days they go
-  unwritten, as a refused sessionless `remember`'s do.
+  unwritten, as a refused sessionless `remember`'s do. The two holes the entry above leaves
+  open apply here and go at 3 days, not 14: a mint that throws after its claim (measured on the
+  real command, with the store locked past its busy timeout: `note failed`, a retry refused as
+  a duplicate, the line gone by the next pass past 3 days, where the old restart kept it while
+  notes kept coming), and a refused note claimed unread by a last write-up part.
 

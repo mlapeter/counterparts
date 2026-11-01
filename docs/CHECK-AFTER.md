@@ -148,8 +148,9 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 
 ## Due ~1 week after the shared bucket went line by line (2026-11-01, coordinator's brief marked for Mike's review — a fix, no switch)
 
-**What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and `counterparts note`'s share `"console"`, and each new note restarted the
-clock for the rest. Each line now goes on its own age. `docs/decisions.d/fix-mcp-bucket-age-limit.md`.
+**What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and `counterparts note`'s share
+`"console"`, and each new note restarted the clock for the rest. Each line now goes on its own age.
+`docs/decisions.d/fix-mcp-bucket-age-limit.md`.
 
 **What to look at.**
 
