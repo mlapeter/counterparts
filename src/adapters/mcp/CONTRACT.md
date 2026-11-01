@@ -775,4 +775,5 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
    when there is one and under the literal `"mcp"` when there is not. Letting it BIND
    would give an in-the-moment jot the power to claim a day, which is more privilege
    than the tool needs; leaving it means an unbound server's notes still carry no
-   session. Neither is obviously right yet.
+   session. Neither is obviously right yet. (Their raw copies go line by line on their own
+   age since 2026-11-01, `remember/owes.ts#planUnboundLines`.)

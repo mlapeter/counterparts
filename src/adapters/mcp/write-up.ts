@@ -361,7 +361,9 @@ async function handOver(
       detail: "This session has written up its part. The next part is handed over at a later session start here.",
     });
   }
-  const current = st.granted && answered ? undefined : mine;
+  // REWOUND since this writer's fetch: its part number belongs to the old text,
+  // so it is served from the start like anyone else.
+  const current = (st.granted && answered) || p?.rewound === true ? undefined : mine;
   const chunk = p?.chunk ?? WRITE_UP_PART_BYTES;
   const parts = writeUpPartsDated(writeUpEntries(counterpart.spans, { session: ended, scopes: [st.here] }), chunk);
   if (parts.length === 0) return refused("owes-nothing", { writeUp: ended, why: "no-text" });
@@ -387,8 +389,9 @@ async function handOver(
       detail: "This batch's allowance for that session is spent. The rest stays owed, for the next batch or a later catch-up.",
     });
   }
+  const { rewound: _cutFromOldText, ...before } = p ?? ({} as Partial<WriteUpProgress>);
   const next: WriteUpProgress & { readonly claim: WriteUpClaim } = {
-    ...(p ?? {}),
+    ...before,
     chunk,
     parts: parts.length,
     // The parts passed over count as written: every word in them already was.
@@ -540,7 +543,9 @@ async function takeBack(
     // its claim and goes on (2026-10-01).
     const { claim, ...rest } = p;
     const kept = st.granted && claim !== undefined ? { ...rest, claim: { ...claim, at: input.now } } : rest;
-    const advanced = saveWriteUpProgress(counterpart.store, st.key, { ...kept, done: part });
+    // A part cut from the old text (`rewound`) is not a part done: counting it
+    // would skip what moved into the new parts before it.
+    const advanced = saveWriteUpProgress(counterpart.store, st.key, { ...kept, done: p.rewound === true ? p.done : part });
     return {
       reason: "part-written",
       isError: false,
