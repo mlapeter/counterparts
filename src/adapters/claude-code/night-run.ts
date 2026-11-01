@@ -828,12 +828,14 @@ async function theNight(input: NightRunInput, meter: AwakeMeter): Promise<NightR
   // a `skipped` row the claim wrote before it is not the writer having run,
   // and the dream's quick exit is not read as something begun (review of #603).
   let writerAt: number | null = null;
+  let writerMark: number | null = null;
   let writerAnswer: NightAnswer | null = null;
   if (split) {
     const w = await writerFirst(input, seat, writerPrompt, now);
     if (w !== null) {
       children.push(w.line);
       writerAt = w.at;
+      writerMark = w.mark;
       writerAnswer = w.answer;
     }
     // A PAGE THE WRITER WAS HELD ON AND NEVER SENT AGAIN IS KEPT NOW, before
@@ -853,6 +855,7 @@ async function theNight(input: NightRunInput, meter: AwakeMeter): Promise<NightR
     }
   }
   const dreamAt = now();
+  const dreamMark = eventMark(input.open);
   const firstAct: NightChild = input.kind.kind === "night" ? "dream" : "reflection";
   const ran: NightAnswer[] = [];
   let one: NightAnswer;
@@ -875,7 +878,7 @@ async function theNight(input: NightRunInput, meter: AwakeMeter): Promise<NightR
   // single run did. Not started when the first child could not run at all, or
   // a reflection already finished today.
   if (input.kind.kind === "night") {
-    const next = reflectionAfter(input.open, one, input.session, split ? dreamAt : startedAt);
+    const next = reflectionAfter(input.open, one, input.session, split ? { at: dreamAt, mark: dreamMark } : { at: startedAt, mark: null });
     if ("skipped" in next) children.push({ child: "reflection", code: null, ms: 0, skipped: next.skipped });
     else {
       try {
@@ -933,7 +936,7 @@ async function theNight(input: NightRunInput, meter: AwakeMeter): Promise<NightR
       // The writer's phase was REACHED: it leaves a row carrying the session.
       // While split: what the writer's own child did, from when it was asked.
       const writerSince = split ? writerAt : startedAt;
-      writerRan = writerSince !== null && c.pageWriterRuns({ limit: 20 }).some((r) => r.at >= writerSince && r.session === input.session);
+      writerRan = writerSince !== null && c.pageWriterRuns({ limit: 20 }).some((r) => after(r, { at: writerSince, mark: split ? writerMark : null }) && r.session === input.session);
       dreamed = dreams.some((d) => d.state === "journaled");
       const journaled = dreams.find((d) => d.state === "journaled");
       const reflected = reflections.find((r) => r.state === "reflected");
@@ -1348,8 +1351,9 @@ async function writerFirst(
   seat: Seat<NightAnswer>,
   prompt: string,
   now: () => number,
-): Promise<{ readonly line: NightChildRun; readonly at: number | null; readonly answer: NightAnswer | null } | null> {
-  const line = (l: NightChildRun, at: number | null = null, answer: NightAnswer | null = null) => ({ line: l, at, answer });
+): Promise<{ readonly line: NightChildRun; readonly at: number | null; readonly mark: number | null; readonly answer: NightAnswer | null } | null> {
+  let mark: number | null = null;
+  const line = (l: NightChildRun, at: number | null = null, answer: NightAnswer | null = null) => ({ line: l, at, mark, answer });
   // Nothing for it tonight is no child and no line, as the tagging's: a
   // night's row reads as it did before the writer had a child of its own.
   if (input.config.pageWriter?.mode === "off") return null;
@@ -1373,6 +1377,7 @@ async function writerFirst(
     return line({ child: "writer", code: null, ms: 0, skipped: "unread" });
   }
   const at = now();
+  mark = eventMark(input.open);
   try {
     const out = await seat.answer(seatAsk("writer", { prompt, run: input.run, session: input.session, scope: input.scope, limits: { turns: TUNABLES.NIGHT_WRITER_MAX_TURNS, ms: TUNABLES.NIGHT_WRITER_MS } }));
     if (out.refused !== null) return line({ child: "writer", code: null, ms: 0, skipped: out.refused }, at);
@@ -1418,6 +1423,35 @@ async function tagsAfter(open: () => Counterpart, seat: Seat<NightAnswer>, ask: 
 }
 
 /**
+ * WHERE THE EVENT LOG STOOD when a child was asked: a row is that child's only
+ * when it came after this, by sequence (2026-11-01). The clock cannot say: the
+ * writer's `skipped` claim just before a child and a row the child writes at
+ * once can share a millisecond with the moment the child was asked, and the
+ * order of the log is the only thing that tells them apart. Null when the log
+ * will not read (readers then fall back to the millisecond).
+ */
+function eventMark(open: () => Counterpart): number | null {
+  try {
+    const c = open();
+    try {
+      return c.store.eventLog({ order: "desc", limit: 1 })[0]?.seq ?? 0;
+    } finally {
+      c.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** When a reading starts: the moment, and the log's mark when one was taken. */
+type Since = { readonly at: number; readonly mark: number | null };
+
+/** Is this writer row from after `since`: by log order when marked, else by the millisecond. */
+function after(r: { readonly at: number; readonly seq: number }, since: Since): boolean {
+  return since.mark !== null ? r.seq > since.mark : r.at >= since.at;
+}
+
+/**
  * THE REFLECTION'S CHILD, DECIDED (2026-10-11), after the dream's child
  * ended: its prompt, on tonight's journaled dream or (none journaled — the
  * dream failed or was skipped) on the last few days. Not started after a
@@ -1425,12 +1459,12 @@ async function tagsAfter(open: () => Counterpart, seat: Seat<NightAnswer>, ask: 
  * a second `claude` would stop the same way), when a reflection already
  * finished today, or when the store will not open. Never throws.
  */
-function reflectionAfter(open: () => Counterpart, first: NightAnswer, session: string, since: number): { prompt: string; dream: string | null } | { skipped: string } {
+function reflectionAfter(open: () => Counterpart, first: NightAnswer, session: string, since: Since): { prompt: string; dream: string | null } | { skipped: string } {
   try {
     const c = open();
     try {
-      const dreams = c.store.dreams({ sinceAt: since, limit: 5 });
-      const began = dreams.length > 0 || c.pageWriterRuns({ limit: 20 }).some((r) => r.at >= since && r.session === session);
+      const dreams = c.store.dreams({ sinceAt: since.at, limit: 5 });
+      const began = dreams.length > 0 || c.pageWriterRuns({ limit: 20 }).some((r) => after(r, since) && r.session === session);
       if (!began && first.code !== 0 && !first.timedOut && first.ms < TUNABLES.NIGHT_QUICK_EXIT_MS) return { skipped: "quick-exit" };
       const today = c.store.today();
       if (c.store.reflections({ limit: 5 }).some((x) => x.state === "reflected" && x.date === today)) return { skipped: "reflected-today" };

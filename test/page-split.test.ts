@@ -445,6 +445,46 @@ describe("review of #603: the awkward states", () => {
     ]);
   });
 
+  test("a frozen clock: the writer's skipped claim shares the dream's millisecond and is not the dream having begun", async () => {
+    const T = Date.now();
+    const quick = (): Seat<NightAnswer> => ({ name: "test", answer: () => Promise.resolve({ refused: null, started: true, code: 1, timedOut: false, error: null, ms: 1 }) });
+    const c = Counterpart.open({ dir, now: () => T });
+    c.store.put({ type: "memory", kind: "fact", body: "Something from two days ago.", learnedOn: "2020-01-01" });
+    c.close();
+    const on = await runNight({ open: () => Counterpart.open({ dir, now: () => T }), config: { dataDir: dir }, now: () => T, run: "nrn_frozen", session: SESSION, scope: "/proj", kind: { kind: "night" }, seat: quick() });
+    expect(on).toMatchObject({ state: "could-not-start", reason: "quick-exit" });
+    expect(on.children?.slice(0, 2).map((ch) => [ch.child, ch.skipped ?? null])).toEqual([
+      ["dream", null],
+      ["reflection", "quick-exit"],
+    ]);
+  });
+
+  test("a frozen clock: a row the dream child writes in the same millisecond is still the dream having begun", async () => {
+    const T = Date.now();
+    const asks: string[] = [];
+    const seat: Seat<NightAnswer> = {
+      name: "test",
+      answer: (ask) => {
+        asks.push(ask.act);
+        if (ask.act === "dream") {
+          const me = Counterpart.open({ dir, now: () => T });
+          try {
+            // The child's own row, at the very millisecond it was asked.
+            me.recordPageWriterRun({ about: "2020-01-01", mode: "session", outcome: "started", session: SESSION, run: "nrn_frozen_row" });
+          } finally {
+            me.close();
+          }
+        }
+        return Promise.resolve({ refused: null, started: true, code: 1, timedOut: false, error: null, ms: 1 });
+      },
+    };
+    const c = Counterpart.open({ dir, now: () => T });
+    c.store.put({ type: "memory", kind: "fact", body: "Something from two days ago.", learnedOn: "2020-01-01" });
+    c.close();
+    await runNight({ open: () => Counterpart.open({ dir, now: () => T }), config: { dataDir: dir }, now: () => T, run: "nrn_frozen_row", session: SESSION, scope: "/proj", kind: { kind: "night" }, seat });
+    expect(asks).toContain("reflection");
+  });
+
   test("a writer held past the room and never sent again: its page is kept before the reflection writes Core, so the day's update lands", async () => {
     const c = brain();
     const core = c.store.put({ type: "memory", kind: "self", body: "I say what I do not know before I guess.", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 } });
