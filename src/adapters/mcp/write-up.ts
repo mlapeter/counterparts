@@ -61,6 +61,8 @@
  *     captured something today and has not ended — `core/coverage/`);
  *   - `other-project` — ended in another directory;
  *   - `already-written-up` — so a second write-up of the same id is refused;
+ *   - `part-not-landed` — a memory of this part threw, and the same memories can
+ *     come back: the part stays open;
  *   - `owes-nothing` — `core/coverage/`'s rule says it owes nothing (`why`:
  *     below-threshold, answered, lapsed, no-text);
  *   - `not-asked` — a fetch for a session the hook did not point this one at,
@@ -141,6 +143,7 @@ export const WRITE_UP_REFUSALS = [
   "part-already-written",
   "memories-required",
   "nothing-landed",
+  "part-not-landed",
   "io-failed",
   "claimed",
   "allowance-spent",
@@ -536,14 +539,17 @@ async function takeBack(
       },
     };
   }
-  // A MEMORY THAT THREW HOLDS THE PART OPEN (2026-11-01). Closing it beside the
-  // ones that landed would leave that memory nowhere: its part is done, its words
-  // read as written up on the last part, and a resend is refused. So the part stays
-  // fetched and owed, as a refused `[]` does: the same memories again land what did
-  // not and answer duplicate-content for what did, and a batch that ends here
-  // leaves it for the next run.
+  // A MEMORY THAT THREW HOLDS THE PART OPEN (2026-11-01), while the same memories
+  // can still come back: closed beside the ones that landed, it would be nowhere,
+  // its part done and a resend refused. The part stays fetched and owed, as a
+  // refused `[]` does; a resend lands what did not and answers duplicate-content
+  // for what did, and a batch that ends here leaves it for the next run.
+  //
+  // NOT ON A LAST PART WHERE ONE LANDED: that memory's claim took the session's
+  // words (`cover`), so it owes nothing and this door refuses a resend. There the
+  // part closes as it did, and the reply says where the rest goes (`finish`).
   const threw = deposits.outcomes.filter((o) => o["reason"] === "threw").length;
-  if (threw > 0) {
+  if (threw > 0 && (!final || deposits.deposited === 0)) {
     return {
       reason: "part-not-landed",
       isError: true,
@@ -640,6 +646,7 @@ function finish(
   // Every part here is back: the claim is let go with it (2026-10-01).
   const { claim: _released, ...base } = st.progress ?? { chunk: WRITE_UP_PART_BYTES, parts: part, done: 0, handedAt: input.now };
   const entries = deposits.outcomes.length;
+  const threw = deposits.outcomes.filter((o) => o["reason"] === "threw").length;
   const common = {
     writeUp: true,
     answer: said,
@@ -651,6 +658,7 @@ function finish(
     deposited: deposits.deposited,
     refused: entries - deposits.deposited,
     outcomes: deposits.outcomes,
+    ...(threw === 0 ? {} : { notLanded: threw, notLandedDetail: `${String(threw)} of these memories did not land, and this part is closed. Save each of them with remember.` }),
   };
   if (elsewhere.length > 0) {
     saveWriteUpProgress(input.counterpart.store, st.key, { ...base, done: part, answer: said, waiting: true });

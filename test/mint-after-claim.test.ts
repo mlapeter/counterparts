@@ -9,8 +9,8 @@
  * Through the real door on a temp store. The lock is a real second connection
  * holding `BEGIN IMMEDIATE`; only the server's busy wait is shortened, so a test
  * isn't five seconds each. The kill is a real child process, SIGKILLed inside its
- * busy wait. The one patched throw is a `Store#put` for the write-up door's
- * two-entry case, where a lock can't fail one entry and pass the next.
+ * busy wait. The write-up door's own case is in `write-up.test.ts`, beside the
+ * helpers that point a session at a part.
  */
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -19,14 +19,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Counterpart } from "../src/core/counterpart.js";
 import { SpanBuffer, keyFor, retentionSources } from "../src/core/remember/index.js";
 import type { ProposalRecord } from "../src/core/remember/index.js";
 import { planUnboundLines } from "../src/core/remember/owes.js";
 import { DATABASE_FILE } from "../src/core/store/paths.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { recordSession } from "../src/adapters/sessions.js";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const NOTE = "The owner keeps the cabin booking for the third week of March, whatever the agent says.";
@@ -271,61 +269,5 @@ describe("the ledger still decides first when it can't be written", () => {
     expect(s.counterpart.spans.coverage(scope)).toHaveLength(before);
     expect(payload(await s.call("remember", { text: NOTE }))["stored"]).toBe(true);
     expect(memoryIds(s)).toHaveLength(2);
-  });
-});
-
-describe("a write-up part where one memory threw", () => {
-  const ENDED = "22222222-2222-4222-8222-222222222222";
-  const LIVE = "33333333-3333-4333-8333-333333333333";
-  const SECOND = { content: "The relief valve must be seated first or the loop will not hold its pressure.", kind: "fact" };
-
-  /** An ended session with words here, seeded in the past on a turned clock. */
-  function endedSession(): void {
-    const start = Date.now() - 3 * 86_400_000;
-    let at = start;
-    const c = Counterpart.open({ dir, now: () => at });
-    recordSession(dir, { sessionId: ENDED, scope, phase: "start", at: start });
-    const turns: { role: "user" | "assistant"; text: string }[] = [];
-    for (let i = 0; i < 6; i++) {
-      at = start + i * 300_000;
-      turns.push({ role: "user", text: `#${String(i)} the reservoir loop keeps its pressure only when the relief valve is seated first. `.repeat(3) });
-      c.captureSpans({ session: ENDED, scope, turns: [...turns] });
-    }
-    c.boundary({ session: ENDED, scope, kind: "session-end" });
-    recordSession(dir, { sessionId: ENDED, scope, phase: "end", at: start + 1_800_000 });
-    c.close();
-  }
-
-  test("the part stays open and its words owed; the same memories again land the one and finish it", async () => {
-    endedSession();
-    const s = server(LIVE);
-    const fetched = payload(await s.call("session_end", { session: LIVE, writeUp: ENDED, memories: [] }));
-    expect(fetched["reason"]).toBe("part");
-
-    // The store fails the second entry's write and no other, as a lock passing
-    // between them would.
-    const store = s.counterpart.store as unknown as { put(input: unknown): string };
-    const realPut = store.put.bind(store);
-    let puts = 0;
-    store.put = (input: unknown): string => {
-      puts += 1;
-      if (puts === 2) throw new Error("database is locked");
-      return realPut(input);
-    };
-    const first = await s.call("session_end", { session: LIVE, writeUp: ENDED, part: 1, memories: [ENTRY, SECOND] });
-    store.put = realPut;
-    expect(first.isError).toBe(true);
-    expect(payload(first)["reason"]).toBe("part-not-landed");
-    expect(payload(first)["deposited"]).toBe(1);
-    expect(memoryIds(s).filter((id) => s.counterpart.store.row(id)?.source === "authored")).toHaveLength(1);
-    expect(s.counterpart.spans.writeUps(scope)).toEqual([]);
-
-    const again = await s.call("session_end", { session: LIVE, writeUp: ENDED, part: 1, memories: [ENTRY, SECOND] });
-    expect(again.isError).not.toBe(true);
-    expect(payload(again)["reason"]).toBe("written-up");
-    const outcomes = payload(again)["outcomes"] as Record<string, unknown>[];
-    expect(outcomes.map((o) => o["reason"])).toEqual(["duplicate-content", "minted"]);
-    expect(memoryIds(s).filter((id) => s.counterpart.store.row(id)?.source === "authored")).toHaveLength(2);
-    expect(s.counterpart.spans.writeUps(scope)).toHaveLength(1);
   });
 });
