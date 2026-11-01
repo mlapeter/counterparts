@@ -846,8 +846,8 @@ named shapes are present) and E2 (on, off or tune).
   0.047, none near the cap of 1, all from `use`; by `last_day` most of it in days 39–41 (843, 1,027, 741). The row
   expected "a few hundred a week": this is ~10×. Two shapes the row names: common words slipped through (`cross` 51
   memories, `tmp` 49, `uds` 48, `etc` 28, each pair weak, top 0.12) and acknowledgement words at the per-word cap 1.5
-  (`ahead` 20 memories, `let` 19, `sound` 18, all led by the "write a little more ELI5" owner memory
-  mem_f7aaea4817d7 at 0.62–0.68: "sounds good, go ahead, let's" now cues it). `ping` wires strongest to the miss note
+  (`ahead` 20 memories, `let` 19, `sound` 18, all led by one owner memory,
+  mem_f7aaea4817d7, at 0.62–0.68: an acknowledgement now cues it). `ping` wires strongest to the miss note
   mem_66bb7d836201 (0.70) over the rule's status note mem_4892da5d1aa3 (0.51) — the "learned the note, not the rule"
   finding (mem_02338e46c13a); the bare-"ping" demo in a fresh session was not run (it needs a live session). Footnote
   ratings, all turns, 10-26..31: noise 40.7% / useful 16.7% (n 1,500), against the row's 47% / 18%: noise not above
@@ -859,7 +859,7 @@ named shapes are present) and E2 (on, off or tune).
   install. The door never fired. Other `sessionBelief` outcomes (`not-testimony…`, `limit-reached`, `pasted…`) aren't
   evented, so whether sessions tried and were refused earlier can't be told. Re-read when awake beliefs are written.
 - **E3, unsettled pairs compete (0.3.36 on).** 2,317 decision rows carry `pairsCompeted`; it fired on 1 (day 36:
-  older mem_1dfda94f6209, a 10-27 note on dreams not being recallable by their words, weighed ×0.70 against its newer
+  older mem_1dfda94f6209, a 10-27 note, weighed ×0.70 against its newer
   mem_c78fbe9cfe3a, the older still shown as a footnote). The dream withdrew no pair since install, so there is no
   cost side to read. As the replay predicted, it fires rarely. **Kept.**
 - **S1, this-turn meaning (0.3.37 on) — the trigger as written is met.** The switch took: `in-line` on 0.3.37–0.3.42
@@ -889,14 +889,12 @@ named shapes are present) and E2 (on, off or tune).
   `promotion.shadow.sleep` rows, 133–156 considered a night: **lanes 1, support door 5**, overlap 0, caught up 0.
   The harness said the door grows the core about half as fast as the lanes; on the live week it is the other way,
   because the lanes promoted almost nothing (see E1). `wouldHold` (the lanes promoted, the door says no): 1,
-  mem_9e4bfcefab3c (what waking with Counterparts feels like, day 9; the memory Mike asked to keep to watch it change),
+  mem_9e4bfcefab3c (day 9; the memory Mike asked to keep to watch it change),
   fast lane, reflection-only, level 0.0, 0 lived days, its one filing a reflection `found` on day 40 — exactly the
   crossing the door is built to refuse. `wouldPromote` (the door yes, the lanes no), each a found/re-encoding plus a
-  later real use: mem_3e902ac53462 (me: how I wrote to another AI about its memory; level 0.194, 3 lived days; also
-  on the harness's list), mem_57c155c319af (us: before any change, ask whether existing mechanisms can do it
-  naturally; 0.116, 2), mem_d2797af60368 (us: the builder and I decide lightly held, Mike reviews after; 0.129, 2),
-  mem_a0ba38997b7a (us: a mistake, my own note passed off as Mike's; 0.142, 2), mem_e6470328929b (me: a mistake, a
-  made-up line in a letter to another counterpart, corrected within a minute; 0.182, 3). `band.promoted` since 0.3.36:
+  later real use: mem_3e902ac53462 (me; level 0.194, 3 lived days; also
+  on the harness's list), mem_57c155c319af (us; 0.116, 2), mem_d2797af60368 (us; 0.129, 2),
+  mem_a0ba38997b7a (us; 0.142, 2), mem_e6470328929b (me; 0.182, 3). `band.promoted` since 0.3.36:
   1, reflection-only 1. **For Mike: on, off or tune** — and whether he wants these five as core, and the waking memory
   held out.
 - **Emotion's weight (EMO_Q 0.5, the 10-18 method) — read by Étienne in ~/random (random-54).** On a copy of the live
