@@ -130,7 +130,7 @@ to either is a new tarball and a new run.
 
 - the check against a copy of the owner's memories, which is private and can't go near a
   public log. The release brief says what to look at. A snapshot carries no cache, so run
-  `counterparts verify --rebuild --keep-vectors` on the copy first, or recall finds nothing;
+  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing;
 - the bundles (section 3b), then the plugin loop on the release head, which needs a real
   `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)):
   `tools/plugin-loop/run.sh --bundle=core`, `--bundle=directory`, and `tools/plugin-loop/split.sh`.
