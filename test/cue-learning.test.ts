@@ -63,6 +63,7 @@ const COMPETITORS: readonly { title: string; text: string }[] = [
 let dir: string;
 const closers: { close(): void }[] = [];
 const learning = PHYSICS.CUE_LEARNING;
+const stopList = ASSOCIATE.CUE_STOP_LIST;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-cues-"));
@@ -71,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   (PHYSICS as { CUE_LEARNING: boolean }).CUE_LEARNING = learning;
+  (ASSOCIATE as { CUE_STOP_LIST: typeof stopList }).CUE_STOP_LIST = stopList;
   setSystemTime();
   for (const c of closers.splice(0)) {
     try {
@@ -498,6 +500,105 @@ describe("R3 — cue learning", () => {
     expect(kinds.has(CUES_KIND)).toBe(false);
     expect(kinds.has("cuetrain")).toBe(false);
     expect(a.counterpart.store.cueEdgesOf(ping)).toEqual([]);
+  });
+});
+
+// ── R3S (2026-11-01): the stop-list ─────────────────────────────────────────
+// Path fragments, hex ids and acknowledgements learn nothing and cue nothing;
+// pairs learned before the list stay in the table, untouched, and read as if
+// they weren't there. Emptied, the list filters nothing.
+
+const RELAY = "Relay socket: the relay listens on a uds socket under tmp; commit 3ee338395c6f moved it.";
+/** Every stop-listed word in the training prompt, as index terms. */
+const STOPPED_TERMS = ["tmp", "uds", "3ee338395c6f", "sounds", "good", "ahead", "yeah"].map((w) => stemTerm(w));
+const RELAY_PROMPT = "yeah sounds good, go ahead: relay tmp uds 3ee338395c6f";
+
+function emptyStopList(): void {
+  (ASSOCIATE as { CUE_STOP_LIST: typeof stopList }).CUE_STOP_LIST = [];
+}
+
+/** The relay world: filler (one note holds the acknowledgements, so they are index words), and the relay memory. */
+async function relayWorld(a: Adapter): Promise<string> {
+  findable(a.counterpart.store);
+  for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+  a.counterpart.store.put({ type: "memory", kind: "fact", body: "Yeah, it sounds good to go ahead with the garden plan." });
+  return remember(a, WRITER, { text: RELAY });
+}
+
+/** One session says the relay prompt, is shown the relay memory, and rates it 3; the worker writes it down. */
+async function trainRelay(a: Adapter, relay: string, session: string) {
+  const turn = prompt(a, session, RELAY_PROMPT);
+  expect([...turn.surfaced, ...turn.footnotes]).toContain(relay);
+  expect((await rate(a, session, [{ id: relay, score: 3 }]))["rated"]).toBe(1);
+  return work(a).cues;
+}
+
+describe("R3S — the cue stop-list", () => {
+  test("a stop-listed word neither learns nor cues; an ordinary word in the same turn still does", async () => {
+    const a = adapter();
+    const relay = await relayWorld(a);
+    const RELAY_TERM = stemTerm("relay");
+    const before = weigh(a, "sess-relay-probe-0", "relay").find((v) => v.id === relay)?.activation ?? 0;
+
+    const cues = await trainRelay(a, relay, "sess-relay-C");
+    // Dropped at the flush, and counted: one delta per stop-listed word of the turn.
+    expect(cues?.stopped).toBe(STOPPED_TERMS.length);
+    // Learns: the ordinary word is wired; no stop-listed word is.
+    expect(pairWeight(a, RELAY_TERM, relay)).toBeGreaterThan(0);
+    expect(a.counterpart.store.cueEdgesFor(STOPPED_TERMS)).toEqual([]);
+    const learnedTerms = a.counterpart.store.cueEdgesOf(relay).map((r) => r.token);
+    for (const t of STOPPED_TERMS) expect(learnedTerms).not.toContain(t);
+
+    // Cues: the ordinary word now lifts the memory; a stop-listed word reads nothing.
+    const after = weigh(a, "sess-relay-probe-1", "relay").find((v) => v.id === relay)?.activation ?? 0;
+    expect(after).toBeGreaterThan(before);
+    expect(a.counterpart.associate.learnedCues([RELAY_TERM]).get(RELAY_TERM)?.[0]?.id).toBe(relay);
+    expect(a.counterpart.associate.learnedCues(STOPPED_TERMS).size).toBe(0);
+  });
+
+  test("pairs learned before the list read as if they weren't there, and their rows are not touched", async () => {
+    const a = adapter();
+    const relay = await relayWorld(a);
+    const TMP = stemTerm("tmp");
+    const day = a.counterpart.store.livedDay();
+    // A pair as an older build would have left it: "tmp" → the relay memory, strong.
+    a.counterpart.store.writeCueEdges([{ token: TMP, memoryId: relay, weight: 0.9, lastDay: day, source: "use" }]);
+    const rows = (): string => JSON.stringify(a.counterpart.store.cueEdgesFor([TMP]));
+    const stored = rows();
+    expect(stored).toContain(relay);
+
+    // Read: nothing learned for "tmp"; the turn weighs the memory exactly as with no reader at all.
+    expect(a.counterpart.associate.learnedCues([TMP]).size).toBe(0);
+    const withPair = weigh(a, "sess-tmp-probe", "tmp").find((v) => v.id === relay);
+    const noReader = a.counterpart.recall.build({ sessionId: "sess-tmp-probe", text: "tmp" }).decision.verdicts.find((v) => v.id === relay);
+    expect(withPair?.activation).toBe(noReader?.activation);
+    expect(withPair?.verdict).toBe(noReader?.verdict);
+    // Through the hook: a bare "tmp" turn, then the worker and a flush.
+    const turn = prompt(a, "sess-tmp", "tmp");
+    expect(turn.surfaced).not.toContain(relay);
+    work(a);
+    a.counterpart.associate.flushCues();
+    // Not touched: the row is byte-for-byte what was written.
+    expect(rows()).toBe(stored);
+
+    // The same store with the list emptied: the old pair reads again, and brings the memory back loud.
+    emptyStopList();
+    const open = adapter();
+    expect(open.counterpart.associate.learnedCues([TMP]).get(TMP)?.[0]?.id).toBe(relay);
+    const lifted = weigh(open, "sess-tmp-probe-2", "tmp").find((v) => v.id === relay)?.activation ?? 0;
+    expect(lifted).toBeGreaterThan(withPair?.activation ?? 0);
+    expect(prompt(open, "sess-tmp-2", "tmp").surfaced).toContain(relay);
+  });
+
+  test("emptied, the list filters nothing: stop-listed words learn and cue like any word, and the flush report carries no count", async () => {
+    emptyStopList();
+    const a = adapter();
+    const relay = await relayWorld(a);
+    const cues = await trainRelay(a, relay, "sess-relay-C");
+    expect(cues !== undefined && "stopped" in cues).toBe(false);
+    const learned = new Set(a.counterpart.store.cueEdgesOf(relay).map((r) => r.token));
+    for (const t of [...STOPPED_TERMS, stemTerm("relay")]) expect(learned.has(t)).toBe(true);
+    expect(a.counterpart.associate.learnedCues([stemTerm("tmp")]).get(stemTerm("tmp"))?.[0]?.id).toBe(relay);
   });
 });
 
