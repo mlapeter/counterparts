@@ -169,7 +169,7 @@ function lastNightFindings(input: DoctorInput, store: Store): Finding[] {
   }
   if (run === null) {
     if (setting !== "auto") return [];
-    return [finding("night-run", "green", "Nightly run", "auto; no headless run yet — the first session of a day with enough new memory, or with write-ups owed from an earlier day, starts one", "", { setting, state: null })];
+    return [finding("night-run", "green", "Nightly run", "auto; no headless run yet — the first session a person starts on a day with enough new memory, or with write-ups owed from an earlier day, starts one", "", { setting, state: null })];
   }
   // ITS MORNING CATCH-UP (2026-10-01, build 3), when it had anything owed.
   const cu = catchUpOf(store, run.run);
