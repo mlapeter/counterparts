@@ -48,7 +48,7 @@ function setDoor(mode: CoreDoorMode | boolean): void {
 beforeEach(() => {
   dateN = 0;
   doorWas = PHYSICS.CORE_DOOR_SUPPORT;
-  // The support door deciding, explicitly: the default is "shadow" since the E2 addendum.
+  // The support door deciding, explicitly: the default is "off" (the shadow retired 2026-11-01).
   setDoor("on");
   dir = mkdtempSync(join(tmpdir(), "counterparts-core-door-"));
 });
@@ -615,10 +615,10 @@ describe("the shadow: the lanes decide, the support door records what it would h
    *   - `late` (0.8), the same as `reflected`, then used for real two days later: the lanes take it with
    *     `reflected`; support takes it the night after the use (the shadow's `caughtUp`).
    */
-  async function script(mode: CoreDoorMode, nights = 8): Promise<Run> {
+  async function script(mode: CoreDoorMode | boolean, nights = 8): Promise<Run> {
     setDoor(mode);
     dateN = 0;
-    dir = mkdtempSync(join(tmpdir(), `counterparts-core-shadow-${mode}-`));
+    dir = mkdtempSync(join(tmpdir(), `counterparts-core-shadow-${String(mode)}-`));
     let c = brain();
     nextDay(c);
     const ids = {} as Record<Role, string>;
@@ -681,10 +681,32 @@ describe("the shadow: the lanes decide, the support door records what it would h
     return run;
   }
 
-  test("the default is the shadow", () => {
+  // THE SHADOW RETIRED (2026-11-01, Mike): the default is off; the shadow's code stays, inert.
+  test("the default is off: the shadow retired", () => {
     setDoor(doorWas);
-    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("shadow");
-    expect(coreDoorMode()).toBe("shadow");
+    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("off");
+    expect(coreDoorMode()).toBe("off");
+  });
+
+  test("the default, unpinned, decides as the shadow did and as off does over eight real sleeps, and records no shadow row or mark", async () => {
+    const byDefault = await script(doorWas);
+    const shadow = await script("shadow");
+    const off = await script("off");
+    for (const other of [shadow, off]) {
+      expect(byDefault.nights).toEqual(other.nights);
+      expect(byDefault.core).toEqual(other.core);
+      expect(byDefault.coreEvents).toEqual(other.coreEvents);
+      expect(byDefault.bandPromoted).toEqual(other.bandPromoted);
+      expect(byDefault.records).toEqual(other.records);
+    }
+    // The lanes' answer, as written (the reflection-only memory still crosses: the 09-27 ruling stands).
+    expect(byDefault.core).toEqual(["felt", "late", "reflected"]);
+    expect(byDefault.shadow).toEqual([]);
+    expect(byDefault.sleeps).toEqual([]);
+    expect(byDefault.marks).toEqual({});
+    // The shadow still works when set back: the undo is one value.
+    expect(shadow.sleeps.length).toBe(8);
+    expect(shadow.shadow.length).toBeGreaterThan(0);
   });
 
   test("shadow leaves the same core as off after eight sleeps, and its rows name what on would have done", async () => {

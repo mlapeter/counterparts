@@ -200,7 +200,8 @@ each memory each kind once, `ref` the memory, the level, line, lived days, sum a
 ids and numbers only) and one `promotion.shadow.sleep` row per sleep (N lanes, M support, K
 overlap, the disagreements, `caughtUp`). What the arc has decided per memory sits in `meta`
 `sleep.shadow.<id>` (read by the shadow only). Nothing the core, the page or the wake reads
-changes.
+changes. Since 2026-11-01 (Mike, lightly held) the default is `"off"`: no shadow row or mark
+is written, and this code stays in place, inert, until the switch is set back.
 The legacy
 consolidation marking runs first, for legacy rows only; a post-upgrade row is counted
 `not-legacy`. The first decay pass after the v8 upgrade runs a one-time census
