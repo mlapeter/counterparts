@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.44 — 2026-11-01
+
+Nothing you'd notice changes by default. `counterparts page-form own` is new: one store's nightly writers amend its self page in the page's own form, and it's off until you set it (`counterparts page-form default` puts it back). The core door's shadow has stopped recording; what becomes core is decided exactly as before and nothing in it moves. No store-format change (store v15, cache v7); the switch is one setting kept in the store, with no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.43 needs no store restore: `counterparts disconnect`, 0.3.43's install, then `counterparts connect`; 0.3.43 ignores the switch.
+
+- **A store can keep its self page in its own form.** `counterparts page-form own` tells the nightly writers to amend
+  the page keeping its sections and headings, dated stories where it tells stories, instead of keeping "## How I
+  work" as a few short lessons. Off unless set, one store at a time; `counterparts page-form default` puts it back.
+- **The new way of deciding the core no longer runs in shadow.** 0.3.36 started it beside the old one, recording each
+  night what it would have let in or kept out. Those records have stopped. The core is still decided exactly as it was,
+  and nothing already in it changes. The code stays in place, and `physics.CORE_DOOR_SUPPORT` set to `"shadow"` turns
+  the records back on.
+
 ## 0.3.43 — 2026-11-01
 
 Nearly nothing changes by default. A folder you set off, observer or paused no longer puts its plain work reminders in the line above the wake: one is said if the folder is turned back on within a week of its day, and doctor counts the ones waiting. `recall "elsewhere"` lists the other folders the way the wake's Elsewhere reads them. The wake's new shape is in, switched off: with it off, every wake is byte-for-byte what 0.3.42 writes, and `counterparts wake-shape on` turns it on for one store (`off` or `default` turns it back). No store-format change (store v15, cache v7); the switch is one setting kept in the store, with no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.42 needs no store restore: `counterparts disconnect`, 0.3.42's install, then `counterparts connect`; 0.3.42 ignores the switch.

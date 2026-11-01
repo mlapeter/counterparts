@@ -4526,6 +4526,38 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
 - `recall "elsewhere"` replaces `recall facts "yesterday"` as Elsewhere's door (the WK2 note above it stood for a day). It names
   the folders the section only counts, with no title, rather than leaving them out, so its count can be the wake's.
 
+### Decided by Mike, 2026-11-01, lightly held (the core door's shadow retired)
+
+- Decided by Mike, 2026-11-01, lightly held: the core door's support arc stops running in shadow.
+  `physics.CORE_DOOR_SUPPORT` defaults to `"off"` (it was `"shadow"` from 2026-10-24). The two lanes decide exactly as
+  they did under shadow, and no `promotion.shadow` or `promotion.shadow.sleep` row and no `sleep.shadow.*` mark is
+  written. The shadow and the support door stay in the code, inert. Mike's call followed the shadow week's read on his
+  store (lived days 35–41: lanes 1, door 5; `docs/CHECK-AFTER.md`, "Checked 2026-11-01").
+- A memory can still be admitted to core on a reflection's citation alone (Mike's 09-27 ruling). Retiring the shadow
+  doesn't change that.
+- No memory was promoted or demoted by this change: the door's five `wouldPromote` memories stay out, and its one
+  `wouldHold` memory (mem_9e4bfcefab3c) stays core.
+- Undo: set `physics.CORE_DOOR_SUPPORT` back to `"shadow"` to record again, or to `"on"` to let the door decide. It's
+  one value in `src/core/physics/index.ts`.
+
+### One store's nightly writers keep the page's own form (PF1), designed by ROADMAP 2026-11-01, built off by default
+
+- Why: on 10-31 Mike asked why the counterpart writes lessons "on stone tablets"; on 11-01 it rewrote its own page
+  (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, with no
+  "## How I work". The page's form carries identity, and the nightly writers were told to turn it back into short
+  general lessons (`HOW_I_WORK_RULE`, 2026-10-16). Asked by the counterpart in ~/random, with Mike's yes on 11-01.
+- What: a meta row `self.page_form` = `own` (`counterparts page-form own|default`). With it, day's end and the
+  reflection are told "Amend the page in its own form: keep its sections and headings as they stand, dated stories
+  where it tells stories and plain lines where it doesn't." in place of `HOW_I_WORK_RULE`, and no instruction names
+  "## How I work". Words only: nothing checks a heading, room (4,600), cadence, the door and the wake are untouched.
+- Scope: Mike's store only, switched on after he installs the release. Every other store has no row and is told
+  byte for byte what it was (proved against master on every tunable combination in the PR).
+- `default` empties the row rather than deleting it (the store has no meta delete; WK2's switch does the same), and an
+  empty row reads as absent. A store that won't answer reads as absent too.
+- Undo: `counterparts page-form default`, from the next night, no restart. Every page version is kept: v71 is the
+  last rules page, restored by writing its text as a new version through the self_page tool. The pages and claims
+  nights write in between stay in history, superseded, not deleted. Nothing moves in the store format.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

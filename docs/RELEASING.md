@@ -107,7 +107,9 @@ committed (section 3). The push run is:
 The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
 at its log (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`); a job that failed on a
 timeout gets one rerun (`gh run rerun <id> --failed`), and a second failure gets a real look.
-Report both numbers.
+So does a test the release doesn't touch that has also failed on master: `test/plugin-binary.test.ts`'s
+"download once" did, on the Kiritimati suite (0.3.44). A rerun of the failed job keeps the run's id and
+runs the `release` jobs it skipped. Report both numbers.
 
 **Before the push, on the laptop, the release job's quick steps.** Nothing runs them on a pull
 request, and in CI they come after about 15 minutes of suites, so whatever master has gathered
@@ -128,7 +130,7 @@ to either is a new tarball and a new run.
 
 - the check against a copy of the owner's memories, which is private and can't go near a
   public log. The release brief says what to look at. A snapshot carries no cache, so run
-  `counterparts verify --rebuild --keep-vectors` on the copy first, or recall finds nothing;
+  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing;
 - the bundles (section 3b), then the plugin loop on the release head, which needs a real
   `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)):
   `tools/plugin-loop/run.sh --bundle=core`, `--bundle=directory`, and `tools/plugin-loop/split.sh`.
@@ -142,6 +144,12 @@ to either is a new tarball and a new run.
   0.3.42, so that release made one from the person cards on the memory copy
   (`subject_kind = 'person'`) and kept it in the release folder. It's short, so also read the
   capitalized words new since the last release.
+
+A brief asking for a wake byte-identical to the last release's can't be met literally by the
+release commit: a handoff in the wake says "release X then, Y now", naming the running version.
+Compare the pre-bump commit against the last release's tag for the raw `cmp`, then the extracted
+tarball with that one version swapped. Don't use the release worktree for the second: a checkout on
+an unmerged branch also adds doctor's Checkout line to the hook's `systemMessage` (0.3.44).
 
 ## 3. The single binaries
 
