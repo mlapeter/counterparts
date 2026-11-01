@@ -718,9 +718,24 @@ about 3 days cleared the bucket, which is why it had not shown.
   lines leaving the head move later words into a part already counted, and the last part's
   claim would close them unread. `sessions.ts#rewindWriteUps` starts an unfinished write-up
   of the bucket again when lines went. It can serve words twice; duplicates dedup at the
-  gate. Left open: a writer holding a fetched part across the pass answers that part's old
-  number, and the next fetch counts from it. It takes a multi-part bucket and a writer
-  spanning a pass.
+  gate. A writer holding a fetched part across the pass was the hole the review found, on
+  the real door: it answered its old part number, the next fetch counted from it, and four
+  owed notes were closed unread. Now the rewind leaves `rewound` on the progress: that
+  answer stands but is not a part done, and a fetch serves from the start of the new text.
+- **No write-up mark in the plan.** Only a claim makes a line "written". One mark can close
+  a write-up another folder finished earlier, so a line older than the mark may be a note
+  nobody read; the door's own claim already covers what it served.
+- **Left open, with the doors as they are.** A note refused between a last part's fetch and
+  its answer is claimed unread (the last part claims every unclaimed line of the session)
+  and goes at 3 days, not 14. An append landing in the moment of a strike can be lost: 1 in
+  about 500 strikes with three writers appending flat out, on this laptop; rarer by orders
+  of magnitude at a note every few minutes (inferred from that rate). It is the door every
+  session's strike uses. And a mint that throws after its claim (a store locked past its
+  busy timeout, measured) leaves a note with no memory that reads as owing nothing and a
+  retry refused as a duplicate; older than this change, and every session's too.
+- **The other shared id.** `counterparts note` files under the literal `"console"`, judged as
+  one session, so the same restart holds there: a note every 2 days kept all 11 of its lines
+  at day 20 (measured). Not changed here.
 - **Still long-lived, on purpose.** A real session appended to every few days keeps every
   line: the ceiling reads its last activity, so its oldest line has no bound while it keeps
   moving. Same shape, not the same bug: it is one conversation, and its whole text is what

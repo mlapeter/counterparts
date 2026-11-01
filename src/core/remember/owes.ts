@@ -341,9 +341,12 @@ export interface AgedLines {
  *
  * Each line is judged the way a session holding only that line would be:
  *
- *   - **It owes nothing** (the assistant's own turn, or a piece `coverage/`
- *     reads as written: a claim in `coverage.jsonl`, which a note that landed
- *     made for itself, or a write-up mark at or after it): 3 days from its `at`.
+ *   - **It owes nothing** (the assistant's own turn, or a piece with a claim in
+ *     `coverage.jsonl`, which a note that landed makes for itself and a write-up
+ *     makes for what it read): 3 days from its `at`. A write-up MARK does not
+ *     count: the bucket keeps taking notes, and one mark can close a write-up
+ *     another folder finished earlier, so a line older than the mark may be one
+ *     nobody read. A mark that landed without its claim costs a wait, not words.
  *   - **Otherwise** (a note whose memory did not land, or a line a write-up
  *     still owes): the ceiling, 14 days from its `at`. Past the ceiling it goes
  *     owed or not, as a real session's does. It is the only way this drops
@@ -357,22 +360,15 @@ export function planUnboundLines(buffer: SpanBuffer, sources: RetentionSources):
   const now = buffer.now();
   const maxMs = clockOr(sources.maxMs, TUNABLES.RETENTION_MAX_MS);
   const retentionMs = Math.min(clockOr(sources.retentionMs, TUNABLES.RETENTION_MS), maxMs);
-  const scopes = buffer.scopes();
-  let writtenUpAt = 0;
-  for (const scope of scopes) {
-    for (const w of buffer.writeUps(scope)) {
-      if (w.session === UNBOUND_SESSION) writtenUpAt = Math.max(writtenUpAt, numberOr(w.at, 0));
-    }
-  }
   const out: AgedLines[] = [];
-  for (const scope of scopes) {
+  for (const scope of buffer.scopes()) {
     const covered = buffer.coveredHashes(scope);
     const due = new Map<string, { lines: number; bytes: number }>();
     const stays = new Set<string>();
     const judge = (s: Span): void => {
       if (s.session !== UNBOUND_SESSION) return;
       const at = numberOr(s.at, 0);
-      const written = s.kind === "assistant" || covered.has(s.hash) || (at > 0 && at <= writtenUpAt);
+      const written = s.kind === "assistant" || covered.has(s.hash);
       if (at <= 0 || now - at < (written ? retentionMs : maxMs)) {
         stays.add(s.hash);
         return;

@@ -12,7 +12,7 @@
  * Hermetic: a fresh temp dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,9 +25,11 @@ import { UNBOUND_SESSION } from "../src/core/types.js";
 import { retentionClocks } from "../src/adapters/config.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { WRITE_UP_PART_BYTES, progressKey, readWriteUpProgress, saveWriteUpProgress, writeUpPlan, writeUpStanding } from "../src/adapters/sessions.js";
+import { WRITE_UP_PART_BYTES, progressKey, readWriteUpProgress, recordSession, saveWriteUpProgress, writeUpPlan, writeUpStanding } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import { WRITE_UP_ASK_COUNT_KEY, WRITE_UP_ASK_DATE_KEY } from "../src/adapters/claude-code/hooks.js";
 
 const DAY = 86_400_000;
 const MIN = 60_000;
@@ -335,6 +337,47 @@ describe("the plan's edges", () => {
     expect(planUnboundLines(buffer, src)).toEqual([]);
   });
 
+  test("every file that holds text is judged: quarantine and a claim go at the ceiling, an assistant turn at 3 days, another session's lines stay", async () => {
+    const s = sessionless();
+    await remember(s, { text: note(0) });
+    const live = join(dir, "spans", keyFor(SCOPE));
+    const line = (session: string, kind: string, tag: string, day: number): string =>
+      `${JSON.stringify({ hash: `${tag}-${session}`, session, scope: SCOPE, kind, text: `${tag} words`, at: at(day), day: 1, from: 0, to: 0 })}\n`;
+    mkdirSync(join(live, "claims"), { recursive: true });
+    for (const [file, kind, tag] of [["quarantine.jsonl", "jot", "quarantined"], ["claims/clm_test.jsonl", "jot", "claimed"], ["assistant.jsonl", "assistant", "replied"]] as const) {
+      // The real session's own line is young, so its own clocks leave it alone throughout.
+      appendFileSync(join(live, file), line(UNBOUND_SESSION, kind, tag, 0) + line(REAL_SESSION, kind, tag, 13), "utf8");
+    }
+    const held = (file: string): string[] => rawLines(file).map((l) => (JSON.parse(l) as { session: string }).session);
+    setSystemTime(new Date(at(13)));
+    await remember(s, { text: note(13) });
+    const c = s.counterpart;
+    // Day 13: past 3 days, not past 14. The note's own line and the assistant's turn owe nothing.
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(13) }).unboundLines).toBe(2);
+    expect(held("assistant.jsonl")).toEqual([REAL_SESSION]);
+    expect(held("quarantine.jsonl")).toEqual([UNBOUND_SESSION, REAL_SESSION]);
+    expect(held("claims/clm_test.jsonl")).toEqual([UNBOUND_SESSION, REAL_SESSION]);
+    // Day 14: the ceiling takes the rest, and the real session's lines are untouched.
+    setSystemTime(new Date(at(14)));
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(14) }).unboundLines).toBe(2);
+    expect(held("quarantine.jsonl")).toEqual([REAL_SESSION]);
+    expect(held("claims/clm_test.jsonl")).toEqual([REAL_SESSION]);
+  });
+
+  test("a write-up mark alone does not make an unread line written: only a claim does", async () => {
+    const s = sessionless();
+    await remember(s, { text: "A refused note nobody read, kept only as a raw copy.", feelings: "not a list" });
+    const c = s.counterpart;
+    setSystemTime(new Date(at(1)));
+    appendFileSync(join(dir, "spans", keyFor(SCOPE), "writeups.jsonl"), `${JSON.stringify({ session: UNBOUND_SESSION, scope: SCOPE, at: at(1), by: "next-session" })}\n`, "utf8");
+    await remember(s, { text: note(1) });
+    setSystemTime(new Date(at(13)));
+    await remember(s, { text: note(13) });
+    expect(planUnboundLines(c.spans, sources(c))).toHaveLength(1);
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(13) }).unboundLines).toBe(1);
+    expect(jotsOf(UNBOUND_SESSION).some((l) => l.text.startsWith("A refused note"))).toBe(true);
+  });
+
   test("the configuration's clocks are the ones it reads, and a write-up clock past the ceiling stops at the ceiling", async () => {
     const s = sessionless();
     await remember(s, { text: note(0) });
@@ -396,4 +439,125 @@ describe("a write-up of the bucket part way through", () => {
     expect(retentionJob({ counterpart: c, date: dateOf(4) }).report?.unboundLines).toBe(1);
     expect(readWriteUpProgress(c.store)[real]?.done).toBe(1);
   });
+});
+
+describe("a writer holding a part of the bucket across a pass, through the real door", () => {
+  const HOUR = 60 * MIN;
+  /** 3 KB of words that name themselves, so what the door served can be counted. */
+  const words = (i: number): string => {
+    const unit = `TAG${String(i).padStart(3, "0")}END the ridge survey counted nests by the water. `;
+    return unit.repeat(Math.ceil(3000 / unit.length)).slice(0, 3000);
+  };
+
+  /** A new session starting here: the real SessionStart, which points at the debt. */
+  function pointed(live: string): boolean {
+    const c = Counterpart.open({ dir });
+    c.store.setMeta(WRITE_UP_ASK_DATE_KEY, "1999-01-01");
+    c.store.setMeta(WRITE_UP_ASK_COUNT_KEY, "0");
+    c.close();
+    recordSession(dir, { sessionId: live, scope: SCOPE, phase: "start", at: Date.now() });
+    const a = openAdapter({ dataDir: dir }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), scope: { mode: "on", matched: SCOPE, entry: null } });
+    const out = a.sessionStart({ sessionId: live, scope: SCOPE, at: new Date().toISOString().slice(0, 10) });
+    a.counterpart.close();
+    return (out.ask ?? "").includes(`writeUp: ${UNBOUND_SESSION}`);
+  }
+
+  /** Twelve notes refused on day 0 (past the ceiling at the pass), twelve on day 5: three parts. */
+  async function refusedNotes(): Promise<void> {
+    const s = sessionless();
+    let i = 0;
+    for (const base of [0, 5]) {
+      for (let n = 0; n < 12; n++) {
+        setSystemTime(new Date(at(base) + n * 10 * MIN));
+        expect((await remember(s, { text: words(i), feelings: "not a list" }))["reason"]).toBe("feelings-malformed");
+        i += 1;
+      }
+    }
+    closers.pop();
+    s.counterpart.close();
+  }
+
+  const served = new Set<string>();
+  const server = (): McpServer => {
+    const s = openServer({ dir, scope: SCOPE, env: {}, manifestVersion: () => null });
+    closers.push(() => s.counterpart.close());
+    return s;
+  };
+  async function fetchPart(s: McpServer, live: string): Promise<number> {
+    const out = (await s.call("session_end", { session: live, writeUp: UNBOUND_SESSION })).structuredContent;
+    for (const m of String(out["text"]).matchAll(/TAG(\d+)END/g)) served.add(m[1] as string);
+    return out["part"] as number;
+  }
+  const answer = async (s: McpServer, live: string): Promise<unknown> =>
+    (await s.call("session_end", { session: live, writeUp: UNBOUND_SESSION, memories: [] })).structuredContent["reason"];
+  function pass(): void {
+    setSystemTime(new Date(at(14) + 3 * HOUR));
+    const c = Counterpart.open({ dir });
+    expect(retentionJob({ counterpart: c, date: dateOf(14) }).report?.unboundLines).toBe(12);
+    c.close();
+  }
+  /** Later sessions, one part each, until the bucket reads as written up. */
+  async function writeUpTheRest(): Promise<void> {
+    for (let w = 0; w < 8; w++) {
+      setSystemTime(new Date(at(14) + (4 + w) * HOUR));
+      const live = `later-${String(w)}`;
+      expect(pointed(live)).toBe(true);
+      const s = server();
+      await fetchPart(s, live);
+      if ((await answer(s, live)) === "written-up") return;
+    }
+    throw new Error("the write-up never finished");
+  }
+  /** The words that outlived the pass, day 5's, every one served to someone. */
+  const expectAllServed = (): void => {
+    for (let i = 12; i < 24; i++) expect(served.has(String(i).padStart(3, "0"))).toBe(true);
+  };
+  beforeEach(() => served.clear());
+
+  test("it answers part 2 after the pass: what moved into part 1 is still served", async () => {
+    await refusedNotes();
+    setSystemTime(new Date(at(13)));
+    expect(pointed("writer-a")).toBe(true);
+    const a = server();
+    expect(await fetchPart(a, "writer-a")).toBe(1);
+    expect(await answer(a, "writer-a")).toBe("part-written");
+    setSystemTime(new Date(at(13) + 3 * HOUR));
+    expect(pointed("writer-b")).toBe(true);
+    const b = server();
+    expect(await fetchPart(b, "writer-b")).toBe(2);
+    pass();
+    expect(await answer(b, "writer-b")).toBe("part-written");
+    await writeUpTheRest();
+    expectAllServed();
+  }, 60_000);
+
+  test("it answers part 1 after the pass: that part is not counted, so part 1 of the new text is served", async () => {
+    await refusedNotes();
+    setSystemTime(new Date(at(13)));
+    expect(pointed("writer-a")).toBe(true);
+    const a = server();
+    expect(await fetchPart(a, "writer-a")).toBe(1);
+    pass();
+    expect(await answer(a, "writer-a")).toBe("part-written");
+    await writeUpTheRest();
+    expectAllServed();
+  }, 60_000);
+
+  test("it fetches again after the pass: it is served from the start of the new text, not its old part number", async () => {
+    await refusedNotes();
+    setSystemTime(new Date(at(13)));
+    expect(pointed("writer-a")).toBe(true);
+    const a = server();
+    await fetchPart(a, "writer-a");
+    await answer(a, "writer-a");
+    setSystemTime(new Date(at(13) + 3 * HOUR));
+    expect(pointed("writer-b")).toBe(true);
+    const b = server();
+    expect(await fetchPart(b, "writer-b")).toBe(2);
+    pass();
+    expect(await fetchPart(b, "writer-b")).toBe(1);
+    expect(await answer(b, "writer-b")).toBe("part-written");
+    await writeUpTheRest();
+    expectAllServed();
+  }, 60_000);
 });
