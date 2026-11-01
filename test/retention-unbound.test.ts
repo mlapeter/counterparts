@@ -12,7 +12,7 @@
  * Hermetic: a fresh temp dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,11 +25,12 @@ import { UNBOUND_SESSION } from "../src/core/types.js";
 import { retentionClocks } from "../src/adapters/config.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { WRITE_UP_PART_BYTES, progressKey, readWriteUpProgress, saveWriteUpProgress } from "../src/adapters/sessions.js";
+import { WRITE_UP_PART_BYTES, progressKey, readWriteUpProgress, saveWriteUpProgress, writeUpPlan, writeUpStanding } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { retentionJob, runOnce } from "../src/adapters/claude-code/bin/runner.js";
 
 const DAY = 86_400_000;
+const MIN = 60_000;
 const SCOPE = "/scope/unbound";
 const REAL_SESSION = "real-session-1";
 const T0 = Date.parse("2026-11-01T15:00:00Z");
@@ -176,6 +177,58 @@ describe("a note every 2 days, through the door and the worker", () => {
     expect(jotsOf(UNBOUND_SESSION).map((l) => l.text)).toEqual([note(38), note(40)]);
     for (const [day, id] of memories) expect(await memoryHolds(s, id, note(day))).toBe(true);
   }, 60_000);
+});
+
+describe("what a write-up of the bucket can still use", () => {
+  test("uncovered lines make the bucket a real debt the door offers, kept until the ceiling takes them", async () => {
+    const s = sessionless();
+    const c = s.counterpart;
+    for (let i = 0; i < 12; i++) {
+      setSystemTime(new Date(T0 + i * 10 * MIN));
+      await remember(s, { text: `Refused note ${String(i)} about the ridge survey, kept only as a raw copy.`, feelings: "not a list" });
+    }
+    setSystemTime(new Date(at(1)));
+    const standing = writeUpStanding(writeUpPlan({ store: c.store, spans: c.spans }), c.store.dir, UNBOUND_SESSION, SCOPE, at(1));
+    expect(standing).toMatchObject({ status: "owed", short: false });
+
+    // Thirteen days on it is still all there, and a note arriving does not hide it.
+    setSystemTime(new Date(at(13)));
+    await remember(s, { text: note(13) });
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(13) }).unboundLines).toBe(0);
+    expect(jotsOf(UNBOUND_SESSION)).toHaveLength(13);
+
+    // The ceiling takes them on their own age; the new note stays.
+    setSystemTime(new Date(at(14) + 2 * 60 * MIN));
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(14) }).unboundLines).toBe(12);
+    expect(jotsOf(UNBOUND_SESSION).map((l) => l.text)).toEqual([note(13)]);
+  });
+
+  test("a crashed strike's aside comes home first: its survivors are safe, and an old line in it goes at the next pass", async () => {
+    const s = sessionless();
+    const c = s.counterpart;
+    await remember(s, { text: note(0) });
+    const [old] = rawLines("jots.jsonl");
+    const live = join(dir, "spans", keyFor(SCOPE), "jots.jsonl");
+    // As a crash between the rename and the append back leaves it.
+    renameSync(live, `${live}.striking`);
+    setSystemTime(new Date(at(2)));
+    await remember(s, { text: note(2) });
+    setSystemTime(new Date(at(4)));
+    await remember(s, { text: note(4) });
+
+    // Day 2's line comes due at day 6: that strike folds the aside home first.
+    setSystemTime(new Date(at(6)));
+    await remember(s, { text: note(6) });
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(6) })).toMatchObject({ failed: 0, unboundLines: 1 });
+    expect(existsSync(`${live}.striking`)).toBe(false);
+    expect(rawLines("jots.jsonl")).toContain(old as string);
+    expect(jotsOf(UNBOUND_SESSION).map((l) => l.text).sort()).toEqual([note(0), note(4), note(6)].sort());
+
+    // Home again, day 0's line is judged like any other at the next pass.
+    setSystemTime(new Date(at(7)));
+    expect(pruneRetention(c.spans, sources(c), { date: dateOf(7) }).unboundLines).toBe(2);
+    expect(jotsOf(UNBOUND_SESSION).map((l) => l.text)).toEqual([note(6)]);
+  });
 });
 
 describe("a real session is judged as it was", () => {

@@ -137,11 +137,11 @@ export function pruneRetention(
     }
     lines += struck.struck;
   }
-  // The bucket, line by line, unless the sessions' rule just took all of it.
-  const whole = plan.some((h) => h.session === UNBOUND_SESSION && h.verdict === "deleted");
+  // The bucket, line by line. Planned after the strikes above, so a bucket the
+  // sessions' rule just took whole has no line left to count twice.
   let unboundLines = 0;
   let unboundBytes = 0;
-  for (const aged of whole ? [] : planUnboundLines(buffer, sources)) {
+  for (const aged of planUnboundLines(buffer, sources)) {
     const struck = strikeSpans(buffer, { scope: aged.scope, hashes: aged.hashes, within: UNBOUND_SESSION, by: "retention" });
     if (struck.reason === "OBSERVER" || struck.reason === "IO_FAILED") {
       failedSessions.add(UNBOUND_SESSION);

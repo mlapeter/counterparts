@@ -115,6 +115,15 @@
     stays unbacked: nothing mints for it, and `start-over` refuses while its database is here. An operator command
     (`start-over --rekey`, with the same checks minus that one, after a human has looked) would be the path.
 
+## A quiet tenant's raw copies wait (11-01)
+
+Retention runs in the worker, and a hosted worker starts only after a `wake`. A person who
+stops coming keeps the raw copies of their notes (`spans/`) past the clocks until their next
+wake, or until the account is deleted. No sweep was built. Nothing a hosted person reads
+promises otherwise: there is no doctor, console or mechanisms page here, and the claude.ai
+line (`onboarding.ts#WEB_RETENTION_LINE`) names no number. Say a number on a hosted page only
+with a sweep behind it.
+
 ## The 24-hour delete (R6, 10-27)
 
 34. **Closed 2026-10-27 (R9, on Mike's "yes send email"): a confirmation email at a delete.** One at the delete,

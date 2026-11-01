@@ -695,3 +695,39 @@ session: the new memory is not confidential.
   `other-directory` refusal and the `owner` on `DepositContext` are gone, and so is
   the keep-open path that refusal fed. The `ThreadRefusal` variant stays until the
   leftover types go.
+
+## 2026-11-01 — the shared "mcp" id goes line by line
+
+Measured on a temp tenant through real `/mcp` and the real worker: with a note every 2 days
+and no live session, day 0's raw copy was still there on day 40, because `planRetention`
+judged every such note as one session and each new one restarted both clocks. Gaps over
+about 3 days cleared the bucket, which is why it had not shown.
+
+- **Two clocks, not one age.** A line is judged as a session of one: 3 days when it owes
+  nothing (a note that landed claims its own line), 14 whatever it owes. One flat 14 would
+  have made "never more than 14" true and left "3 days after it's written up" false, and
+  kept up to 7 raw copies at this cadence to no use.
+- **What it can cost.** A line a write-up still owes (the note's memory did not land) goes
+  at 14 days from its own time. Three or more of those over 15 minutes are a full debt the
+  door really offers, so past the ceiling those words can be lost unwritten. That is the
+  ceiling's price for any session, said here because the bucket used to dodge it.
+- **Hashes within one session, not a new matcher.** The strike got `within`, so a line of
+  another session with the same words is not named. A hash still on a line inside its clock
+  is left. The rename-aside choreography is unchanged.
+- **The write-up's parts shift.** The door counts parts from the session's oldest words, so
+  lines leaving the head move later words into a part already counted, and the last part's
+  claim would close them unread. `sessions.ts#rewindWriteUps` starts an unfinished write-up
+  of the bucket again when lines went. It can serve words twice; duplicates dedup at the
+  gate. Left open: a writer holding a fetched part across the pass answers that part's old
+  number, and the next fetch counts from it. It takes a multi-part bucket and a writer
+  spanning a pass.
+- **Still long-lived, on purpose.** A real session appended to every few days keeps every
+  line: the ceiling reads its last activity, so its oldest line has no bound while it keeps
+  moving. Same shape, not the same bug: it is one conversation, and its whole text is what
+  its own write-up reads. Not changed.
+- **What "never more than 14" still doesn't cover.** A pass runs once per date, so a line
+  can outlive the clock by up to a day, as a session's always could. No worker, no pass: a
+  quiet hosted tenant waits for its next `wake`, a laptop for its next session. And a
+  crashed strike's `.striking` aside is invisible to the plan until a strike in that scope
+  folds it home; true of the session path too.
+
