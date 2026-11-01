@@ -12,5 +12,8 @@
 - Still not covered by the promise: a pass runs once per date (up to a day over), and only when the worker runs, so a
   quiet hosted tenant waits for its next `wake` and a laptop for its next session. No sweep was built
   (`hosted/INTERFACE-GAPS.md`). Nothing a hosted person reads says 14.
-- Undo: remove the `planUnboundLines` loop in `src/core/remember/retention.ts`; the bucket goes back to one session.
-  What already went doesn't come back.
+- `counterparts note`'s shared `"console"` id goes the same way, through the same code (`SHARED_SESSIONS`, same day, on
+  the same measurement: 11 of 11 lines kept at day 20). Only that id's write-up rewinds when its lines go.
+- Undo: remove the `planUnboundLines` loop in `src/core/remember/retention.ts`; the bucket goes back to one session. To
+  undo only the console's, take `CONSOLE_SESSION` out of `SHARED_SESSIONS` in `src/core/types.ts`. What already went
+  doesn't come back.

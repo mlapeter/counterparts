@@ -394,7 +394,7 @@ describe("the plan's edges", () => {
   });
 
   test("a row written before this keeps reading: no count is 0", () => {
-    const row = retentionRow({ reason: "NOTHING", scopes: 0, deleted: 0, keptOwed: 0, keptYoung: 0, keptLive: 0, failed: 0, lines: 0, bytes: 0, unboundLines: 0 }, "2026-11-01");
+    const row = retentionRow({ reason: "NOTHING", scopes: 0, deleted: 0, keptOwed: 0, keptYoung: 0, keptLive: 0, failed: 0, lines: 0, bytes: 0, unboundLines: 0, unboundSessions: [] }, "2026-11-01");
     expect(row["unboundLines"]).toBe(0);
     const c = Counterpart.open({ dir });
     closers.push(() => c.close());

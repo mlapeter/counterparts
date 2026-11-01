@@ -2521,7 +2521,7 @@ export function saveWriteUpProgress(
 /**
  * START A SESSION'S UNFINISHED WRITE-UPS AGAIN (2026-11-01). The door counts
  * parts from the session's oldest words, so when retention takes lines off the
- * front of the unbound bucket (`remember/owes.ts#planUnboundLines`) the parts
+ * front of a shared id's bucket (`remember/owes.ts#planUnboundLines`) the parts
  * not yet served move forward, and `done` would skip what moved into a part
  * already counted; the last part's claim would then close words nobody read.
  * Served again costs a writer a second read; a skip costs the words. A write-up

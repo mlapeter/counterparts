@@ -733,8 +733,8 @@ about 3 days cleared the bucket, which is why it had not shown.
   session's strike uses. (A mint that threw after its claim was the third, closed the same
   day: "A failed mint", below.)
 - **The other shared id.** `counterparts note` files under the literal `"console"`, judged as
-  one session, so the same restart holds there: a note every 2 days kept all 11 of its lines
-  at day 20 (measured). Not changed here.
+  one session, so the same restart held there: a note every 2 days kept all 11 of its lines
+  at day 20 (measured). It goes the same way now; see the entry below.
 - **Still long-lived, on purpose.** A real session appended to every few days keeps every
   line: the ceiling reads its last activity, so its oldest line has no bound while it keeps
   moving. Same shape, not the same bug: it is one conversation, and its whole text is what
@@ -820,3 +820,35 @@ no row anywhere, and `gate.deposit` is written after the mint, so it can't show 
   landed, and skips what follows the mint (a reminder's move, a declared revision). Not new.
 
 `test/mint-after-claim.test.ts`, and the write-up door's cases in `test/write-up.test.ts`.
+
+## 2026-11-01, later — the "console" id goes the same way
+
+`planUnboundLines` now walks `SHARED_SESSIONS` ("mcp" and "console"): the same mechanism, one
+pass per id. What was checked before calling a console line the same kind of thing:
+
+- **Only `note` writes under it.** `commands-note.ts` is the only code that files under the id.
+  `ask`, all three paths, opens in observer stance and passes the id only as a reader;
+  `test/retention-console.test.ts` holds `spans/` byte for byte across them.
+- **A landed note owes nothing, truly.** Capture and deposit run in one process and the memory
+  is minted before the command returns; the note claims its own line, as `remember` does. A
+  note that is refused keeps an unclaimed line and goes at 14. A repeat writes no second line.
+- **The write-up door really offers it.** Refused notes under "console" are a debt it serves,
+  so it needed the rewind too, and the door's writer-holding-a-part hole was real here as well.
+- **The rewind is per id.** `RetentionReport.unboundSessions` says which id lost lines, and only
+  that id's write-up starts again. Rewinding both on any strike would be simpler, and would
+  send a write-up of one id back to the start whenever the other's notes aged out, which with
+  a note every couple of days could keep it from ever finishing. The field is not on the
+  durable row, which stays counts: `unboundLines` is the sum, and "old notes with no session"
+  is a true name for either.
+- **`isKnownSession` still says "console" is a session.** So `sessionsHere` lists it, which means
+  a memory written in the bucket's time span can read as placed in "session console", or fail to
+  be placed at all (`mcp/deliberate.ts#placedByTime`), and its memories' provenance names it the
+  same way. Older than this and not about retention, so not changed. Line-by-line only shortens
+  that span.
+- **What it costs.** A refused console note's words are nowhere else, so at 14 days they go
+  unwritten, as a refused sessionless `remember`'s do. A refused note claimed unread by a last
+  write-up part goes at 3, the hole the "mcp" entry names. A note whose mint threw claims nothing
+  since the entry above, so it is kept to 14 and a retry lands; measured on the real command with
+  the store locked, against this change alone (gone by day 4, with newer notes coming) and with
+  that one (kept to 14). A claim on disk from before that change still reads as written, so the
+  first pass after updating takes such a line, and with it the only copy of those words.
