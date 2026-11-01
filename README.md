@@ -52,7 +52,8 @@ to be deleted. The full walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART
 - **It's yours.** Everything lives on your machine in one SQLite file you can read,
   export or delete. No API keys, no accounts, nothing sent anywhere. The text of your
   conversations is kept only until it's written up: deleted 3 days after that, or at most
-  about two weeks after the conversation goes quiet, the next time it runs, and never in a backup. You can delete the conversation text,
+  about two weeks after the conversation goes quiet, whichever comes first, once Counterparts
+  next runs, and never in a backup. You can delete the conversation text,
   the backups or the activity log on their own at any time (`counterparts delete`).
 
 ## Who it's for
