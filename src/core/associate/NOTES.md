@@ -588,3 +588,28 @@ evaporation can do it.
   the brief (an instrument neither writes nor reads cue pairs).
 - The cue flush sweeps pairs into a memory no longer live (archived, superseded, gone, denied)
   and faded ones; the owner's removal deletes a removed memory's pairs in the chase.
+
+## R3S — the cue stop-list (2026-11-01, Mike's call, lightly held)
+
+- `TUNABLES.CUE_STOP_LIST`: plain words (matched as written and by `stemTerm`, so
+  "thanks" stops `thank`) and RegExps tested on the index term. Chosen from a read-only copy
+  of the 11-01 store: 3,184 pairs; path fragments 180 (`cross` 53, `uds` 50, `tmp` 49, `etc`
+  27), acknowledgements 115, hex ids 22 — about 10% of pairs and of weight. Words the brief
+  named with no pairs and a real meaning (`home`, `private`, `users`) are left off; words
+  under `MIN_CUE_LENGTH` ("go", "ok") never become cues. Pure numbers are left off too: some
+  are a path's uid, more are PR numbers, which are real cues.
+- Write side: filtered in `flushCues`, not `depositCues`, because the hook process drains to
+  the pending file and the worker absorbs; the flush is the one place every delta passes,
+  including a pending line an older build wrote. Counted as `stopped` on the report and
+  `cueStopped` on the `associate.flush` row, both absent while the list is empty.
+- The training split (`Recall#cueTraining`) and the read's share (`activate.ts`) are not
+  changed: an ordinary word in a "sounds good, ship it" turn gets the share it had. Moving
+  the share onto the remaining words would be a second change.
+- Read side: `learnedCues` drops stop-listed terms before `cueEdgesFor`. The sweep is not
+  told about the list: old stop-listed rows fade and are swept like any pair, never deleted
+  for being on it (deleting them is a store change for Mike).
+- Empty list: `cueStopPredicate` returns null and no filter runs. Shown byte-identical to
+  master (db7d27ff) on 11-01: one scripted run through the MCP and hook doors (remember,
+  prompts, ratings, worker, probes), its decisions, pairs and flush rows dumped with ids
+  normalized — same sha256 from master and from this branch with the list emptied, three
+  runs each; with the list on the dump differs (only the ordinary words learn).

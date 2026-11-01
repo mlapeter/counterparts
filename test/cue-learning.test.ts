@@ -543,6 +543,8 @@ describe("R3S — the cue stop-list", () => {
     const cues = await trainRelay(a, relay, "sess-relay-C");
     // Dropped at the flush, and counted: one delta per stop-listed word of the turn.
     expect(cues?.stopped).toBe(STOPPED_TERMS.length);
+    const row = a.counterpart.store.eventLog({ name: "associate.flush", order: "desc", limit: 1 })[0];
+    expect((JSON.parse(row?.payload ?? "{}") as { cueStopped?: number }).cueStopped).toBe(STOPPED_TERMS.length);
     // Learns: the ordinary word is wired; no stop-listed word is.
     expect(pairWeight(a, RELAY_TERM, relay)).toBeGreaterThan(0);
     expect(a.counterpart.store.cueEdgesFor(STOPPED_TERMS)).toEqual([]);
