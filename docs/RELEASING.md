@@ -269,8 +269,12 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
 
 ## 5. Publish
 
-1. From the release folder, on the PUBLISH sheet as one line, so a changed file stops it:
-   `shasum -a 256 -c SHA256 && npm publish ./counterparts-<version>.tgz --otp=<code>`.
+1. Whoever hands over (the coordinator) first runs `shasum -a 256 -c SHA256` in the release
+   folder; a mismatch stops the release there. The PUBLISH sheet then gives the owner two
+   lines and nothing else to run (Mike, 2026-11-01):
+   `npm publish <full path to the release folder>/counterparts-<version>.tgz --otp=CODE`, and
+   the install line, `bun add -g counterparts@<version> && counterparts --version`.
+   After publishing, check npm's `dist.integrity` against the tarball's sha512.
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh
