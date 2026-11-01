@@ -97,6 +97,14 @@ export function schemaUnreadableRefusal(host: string = DEFAULT_HOST): string {
 export const SCHEMA_UNREADABLE_REFUSAL = schemaUnreadableRefusal(DEFAULT_HOST);
 
 /** And when the store was merely busy past the wait: a retry, not a reconnect. */
+/**
+ * A WRITE THAT THREW (2026-11-01). True however far it got: nothing is claimed
+ * unless the memory is on disk, so the same call either lands or says so.
+ */
+export function threwDetail(err: unknown): string {
+  return `${String((err as Error).message ?? err)}. The memory may not have been saved: send the same thing again. It lands, or comes back duplicate-content if it already had.`;
+}
+
 export const STORE_BUSY_REFUSAL =
   "The memory store was busy, so this tool did nothing. Try again in a moment.";
 

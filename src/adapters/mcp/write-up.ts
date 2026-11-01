@@ -536,6 +536,31 @@ async function takeBack(
       },
     };
   }
+  // A MEMORY THAT THREW HOLDS THE PART OPEN (2026-11-01). Closing it beside the
+  // ones that landed would leave that memory nowhere: its part is done, its words
+  // read as written up on the last part, and a resend is refused. So the part stays
+  // fetched and owed, as a refused `[]` does: the same memories again land what did
+  // not and answer duplicate-content for what did, and a batch that ends here
+  // leaves it for the next run.
+  const threw = deposits.outcomes.filter((o) => o["reason"] === "threw").length;
+  if (threw > 0) {
+    return {
+      reason: "part-not-landed",
+      isError: true,
+      body: {
+        stored: deposits.deposited > 0,
+        writeUp: true,
+        reason: "part-not-landed",
+        ended,
+        part,
+        entries: raw.length,
+        deposited: deposits.deposited,
+        refused: raw.length - deposits.deposited,
+        outcomes: deposits.outcomes,
+        detail: `${String(threw)} of these memories did not land, so part ${String(part)} stays open. Send the same memories again.`,
+      },
+    };
+  }
   const answered = markWriteUpFetched(input.registryDir, input.session, { session: ended, part, answer: said2 });
   if (!final) {
     // An ordinary writer is done with its one part: its claim is let go, so
