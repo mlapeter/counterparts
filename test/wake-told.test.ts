@@ -3,11 +3,12 @@
  * 09-30 plan's build 4).
  *
  * Found that morning: the day's first prompt came from an SDK-launched session
- * (`entrypoint: sdk-cli`) with no terminal. It started the nightly run, which
- * was fine, and claimed the once-a-day dream line, which nobody saw. Only an
- * interactive session claims the day's told lines now; a headless one may
- * still start the run, and its line waits for the next session someone is
- * watching, which says it once, in its first reply.
+ * (`entrypoint: sdk-cli`) with no terminal. It started the nightly run and
+ * claimed the once-a-day dream line, which nobody saw. Only an interactive
+ * session claims the day's told lines now, and since 2026-11-01 (NT1) a headless
+ * one leaves the run too. A turn no person started in a person's session may
+ * still start it, and its line waits for the next turn a person starts, which
+ * says it once, in its first reply.
  *
  * Hermetic: every test makes its own temp directory and removes it. Every
  * memory is invented for the test.
@@ -64,14 +65,17 @@ function hooks(): ClaudeCodeAdapter {
   });
 }
 
-function input(session: string, entrypoint: string | undefined): HookInput {
+const HAND_BACK = "<task-notification>the agent finished</task-notification>";
+
+function input(session: string, entrypoint: string | undefined, prompt = "good morning", attended?: boolean): HookInput {
   const hook: HookInput = {
     sessionId: session,
     scope: "proj",
     turns: [],
     at: AT,
-    prompt: "good morning",
+    prompt,
     ...(entrypoint === undefined ? {} : { entrypoint }),
+    ...(attended === undefined ? {} : { attended }),
   };
   recordSession(dir, { sessionId: session, scope: "proj", phase: "start", ...(entrypoint === undefined ? {} : { entrypoint }) });
   return hook;
@@ -118,18 +122,56 @@ describe("who is watching (`isInteractive`)", () => {
   });
 });
 
-describe("auto: a headless session starts the run; its line waits for a watched one", () => {
-  test("the SDK prompt starts ONE run and is told nothing; the next terminal prompt says it once, and claims it", () => {
+describe("auto: a headless session leaves the run to a person's session (2026-11-01, NT1)", () => {
+  test("the SDK prompt starts nothing, claims nothing and is told nothing; the next terminal prompt starts ONE run", () => {
     const a = hooks();
     lived(a);
     expect(a.counterpart.dreams.setSetting("auto", { by: "owner" }).ok).toBe(true);
 
     const sdk = a.userPromptSubmit(input("s-sdk", "sdk-cli"));
-    expect(spawned).toBe(1);
-    expect(a.counterpart.dreams.nightRun()).toMatchObject({ state: "started", session: "s-sdk", date: AT });
-    expect(a.counterpart.store.dreamAsk(AT)?.state).toBe("launched");
+    expect(spawned).toBe(0);
+    expect(a.counterpart.dreams.nightRun()).toBeNull();
+    expect(a.counterpart.store.dreamAsk(AT)).toBeUndefined();
     expect(sdk.dream).toBeUndefined();
     expect(sdk.injection).not.toContain("nightly run");
+
+    const cli = a.userPromptSubmit(input("s-cli", "cli"));
+    expect(spawned).toBe(1);
+    expect(a.counterpart.dreams.nightRun()).toMatchObject({ state: "started", session: "s-cli", date: AT });
+    expect(a.counterpart.store.dreamAsk(AT)?.state).toBe("launched");
+    expect(cli.dream?.notice).toBe('Counterparts: dreaming in the background (a few minutes). Say "no dreams" to turn it off.');
+  });
+
+  test("the reading is the list's (`passesOnNight`): `cli` the host says nobody attends starts it, unwatched; a person's background session is one", () => {
+    const a = hooks();
+    lived(a);
+    a.counterpart.dreams.setSetting("auto", { by: "owner" });
+    const told = a.userPromptSubmit(input("s-nobody", "cli", "good morning", false));
+    expect(spawned).toBe(1);
+    expect(told.dream).toBeUndefined();
+  });
+
+  test("`sdk-cli` the host says somebody attends starts it", () => {
+    const a = hooks();
+    lived(a);
+    a.counterpart.dreams.setSetting("auto", { by: "owner" });
+    a.userPromptSubmit(input("s-somebody", "sdk-cli", "good morning", true));
+    expect(spawned).toBe(1);
+  });
+});
+
+describe("auto: a turn no person started, in a person's session, starts the run; its line waits for a person's turn", () => {
+  test("the hand-back starts ONE run and is told nothing; the next person's prompt says it once, and claims it", () => {
+    const a = hooks();
+    lived(a);
+    expect(a.counterpart.dreams.setSetting("auto", { by: "owner" }).ok).toBe(true);
+
+    const back = a.userPromptSubmit(input("s-back", "cli", HAND_BACK));
+    expect(spawned).toBe(1);
+    expect(a.counterpart.dreams.nightRun()).toMatchObject({ state: "started", session: "s-back", date: AT });
+    expect(a.counterpart.store.dreamAsk(AT)?.state).toBe("launched");
+    expect(back.dream).toBeUndefined();
+    expect(back.injection).not.toContain("nightly run");
 
     const cli = a.userPromptSubmit(input("s-cli", "cli"));
     expect(spawned).toBe(1);
@@ -152,7 +194,7 @@ describe("auto: a headless session starts the run; its line waits for a watched 
     const a = hooks();
     lived(a);
     a.counterpart.dreams.setSetting("auto", { by: "owner" });
-    a.userPromptSubmit(input("s-sdk", "sdk-cli"));
+    a.userPromptSubmit(input("s-back", "cli", HAND_BACK));
     const one = a.userPromptSubmit(input("s-cli", "cli"));
     const two = a.userPromptSubmit(input("s-cli-2", "cli"));
     deliverTurn("user-prompt-submit", one, {}, null, doors(a), input("s-cli", "cli"));
@@ -165,7 +207,7 @@ describe("auto: a headless session starts the run; its line waits for a watched 
     const a = hooks();
     lived(a);
     a.counterpart.dreams.setSetting("auto", { by: "owner" });
-    a.userPromptSubmit(input("s-sdk", "sdk-cli"));
+    a.userPromptSubmit(input("s-back", "cli", HAND_BACK));
     const night = a.counterpart.dreams.nightRun();
     if (night === null) throw new Error("no run");
     a.counterpart.dreams.recordNightRun({ ...night, state: "failed", endedAt: Date.now(), reason: "exit" });

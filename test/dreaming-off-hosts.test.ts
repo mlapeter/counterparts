@@ -63,7 +63,7 @@ afterEach(async () => {
 
 /** Claude Code's words, as they were before OL1d — held byte for byte. */
 const CLAUDE_CODE_SAID = {
-  auto: "Dreaming on its own: once a day, the first session starts the nightly run by itself, in a separate windowless session in the background, and says so in one line. Today's run is still yours to start, if the owner asked for it.",
+  auto: "Dreaming on its own: once a day, the first session a person starts begins the nightly run by itself, in a separate windowless session in the background, and says so in one line. Today's run is still yours to start, if the owner asked for it.",
   ask: "Dreaming asks first: once a day, the first session shows the owner the question in the terminal and waits for their word.",
   off: "No dreams: nothing starts the nightly run and nothing asks. It can be turned back on with this phase (value ask or auto) when the owner says so.",
 } as const;

@@ -20,18 +20,21 @@
  *   6. the store is private (R1): a new store's database family 0600 in this
  *      process under umask 022, and the console as a child under umask 022
  *      leaves every file 0600 and every directory 0700, its backup copy too.
- *   7. a night child that fails signed out says why on the run's row (R4).
+ *   7. a night child that fails signed out says why on the run's row (R4);
+ *   8. a child's watchdog counts time awake (NT1): a real waiter stopped past it
+ *      gets the rest of its time when it continues.
  *
  * Hermetic: every child gets HOME pointed into the temp directory and
  * `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, and nothing here names a default path.
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { openNightCounterpart, runNight } from "../src/adapters/claude-code/night-run.js";
 import { hookCommand, runCommand } from "../src/adapters/cli/install.js";
@@ -334,6 +337,28 @@ describe("under Node", () => {
     } finally {
       c.close();
     }
+  });
+
+  test("a watchdog counts time awake (NT1): stopped past it with SIGSTOP, a real waiter gets the rest of its time", async () => {
+    const fixture = fileURLToPath(new URL("./fixtures/awake-child.ts", import.meta.url));
+    const child = spawn(process.execPath, [...scriptArgs(fixture, process.execPath), "800", "50", "500"], { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    const ready = new Promise<void>((done) => {
+      child.stdout.on("data", (b: Buffer) => {
+        out += b.toString("utf8");
+        if (out.includes("ready")) done();
+      });
+    });
+    const closed = new Promise<void>((done) => child.on("close", () => done()));
+    await ready;
+    await delay(150);
+    child.kill("SIGSTOP");
+    await delay(2_000);
+    child.kill("SIGCONT");
+    await closed;
+    const r = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { ms: number; timedOut: boolean };
+    assert.equal(r.timedOut, true);
+    assert.ok(r.ms >= 2_700, `killed at ${String(r.ms)} ms: the stop was charged`);
   });
 
   test("the update check's request runs under Node: a stub answer read, an endless body cut at the cap, a hang timed out (U1b)", async () => {

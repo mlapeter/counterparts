@@ -138,6 +138,12 @@ export const TUNABLES = {
    *  row carries it from the start (`night-run.ts#nightRowTimeoutMs`), so a
    *  long catch-up is never read as a lost run. */
   NIGHT_WRITE_UP_TOTAL_MS: 60 * 60_000,
+  /** How often a night's wait looks at the time, ms (2026-11-01, NT1;
+   *  `claude-code/awake.ts`). Each of these watchdogs counts time awake. */
+  NIGHT_AWAKE_TICK_MS: 1_000,
+  /** A tick this late, ms, means the machine slept and the time isn't charged.
+   *  A shorter sleep is charged: a busy machine's stall is never read as sleep. */
+  NIGHT_ASLEEP_GAP_MS: 30_000,
   /** One child's turn ceiling: two calls a part for the most parts a child
    *  takes (2 × 16), and 16 more — room to look a tool up and for the odd
    *  re-sent answer (one in five parts on 2026-10-11). A child that hits it
