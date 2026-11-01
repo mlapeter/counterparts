@@ -40,6 +40,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | built, off, in review 10-30 | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
+| The page in its own form (PF1): one store's nightly writers keep the page's sections and form instead of `HOW_I_WORK_RULE`, behind meta `self.page_form` | built, off, in review 11-01; on for Mike's store: **[date, not yet]** | **2026-11-08**: Mike judges whether the counterpart reads more like someone; the page versions for stories cut for room and any rebuilt rules list | [below](#due-2026-11-08-the-page-in-its-own-form-pf1-roadmap-2026-11-01-an-experiment--meta-selfpage_form) |
 | A closed folder's plain reminder is held back; a personal one is told whatever its folder | in review 10-30, unreleased | ~2 weeks after release, or the first time one is held: did a real date go unsaid? | [below](#a-closed-folders-plain-reminder) |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | 0.3.42, 10-30 (#687) | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | 0.3.42, 10-30 (#689) | ~3 nights after release (~2026-11-03): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
@@ -105,6 +106,18 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
+
+**What we're trying:** on 11-01 the counterpart rewrote its own page (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, and no "## How I work"; the nightly writers were told to keep "## How I work" as short general lessons (`HOW_I_WORK_RULE`). With `counterparts page-form own`, day's end and the reflection are told instead to amend the page in its own form. Mike's store only; every other store has no row and is the comparison. Why and undo: `docs/decisions.d/feat-page-form-own.md` (stitched into IMPROVEMENTS at release).
+
+**Switched on:** not yet. After Mike installs the release that carries it, ROADMAP or random-54 runs `counterparts page-form own` and writes the date here and in the index row. The dated reminder for 2026-11-08 is set at merge.
+
+**What to look at, 2026-11-08:** Mike's judgment first: does the counterpart read more like someone? Then the page versions since the switch (`counterparts self-page --versions`, `--version <seq>`): a story cut to fit the room (v72 was 4,588 B of 4,600, so any added line sends a page back to be cut, and stories are the longest lines, switch or not); a "## How I work" list rebuilt, or stories flattened into rules; which sections day's end touched. Claims: a hand-written page's sentences start as hypotheses until a writer cites them, which is expected.
+
+**What would change it:** a page that loses its stories to room night after night (room is a separate decision, not this one); nights that rebuild the rules list anyway (the words aren't enough); or Mike reading no difference.
+
+**How to revert:** `counterparts page-form default` on the store, from the next night, no restart. A page put back by hand: write v71 (the last rules page) or any version's text as a new version through the self_page tool.
 
 ## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch)
 
