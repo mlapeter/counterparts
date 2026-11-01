@@ -67,21 +67,21 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | 0.3.34, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | 0.3.34, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
 | The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | 0.3.35, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
-| Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
-| Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | 0.3.36, 10-24 | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
-| Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | 0.3.36, 10-24 | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
+| Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth (read 11-01: 239 birth-day credits from other sessions, none promoted; kept) | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
+| Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | 0.3.36, 10-24 | ~7 nights after install (read 11-01: ran nightly, 1 promotion in 8 nights, core 16; kept) | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
+| Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | 0.3.36, 10-24 | ~7 lived days after install (read 11-01: 3,268 pairs, ~10× expected; common and acknowledgement words wired — Mike's call) | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
 | "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | 0.3.36, 10-24 (W1, W1b); its fixes Y1, Y2 in 0.3.37 | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
-| An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | 0.3.36, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
-| An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | 0.3.36, 10-24 | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
+| An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | 0.3.36, 10-24 | 3–5 days after the release that carries it (read 11-01: never fired, 0 rows — re-read when awake beliefs are written) | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
+| An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | 0.3.36, 10-24 | ~7 lived days after install (read 11-01: fired 1 of 2,317 turns, no cost side; kept) | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
-| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
+| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune (read 11-01: lanes 1, door 5 over 7 nights — Mike decides) | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
 | A `still open` recall handle that lists what "Still open" carries (and the facts questions asking for that list), named in the wake's tail (O1); before the day's run the night line names the latest finished night, dated (L1) | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the still open handle and the dated night" below |
-| Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | 0.3.37, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
-| What stopped a memory, counted (N1, observation only): `recall.decision` carries `habituationCut`, `nearMiss {margin 0.1, count}`, `capped`, `budgetTrimmed`, `inhibited` beside the echo/project skips; `adapter.recall` the same flat (the near miss as `nearMissCount`), with `turn` and `startedBy` (`person`/`host`/`unattended`); switch `recall.STOP_COUNTS` | 0.3.37, 10-25 | a week after install: what stopped memories on the turns a person typed, by day | "Due a week after the stop counts" below; `src/core/recall/NOTES.md` "N1" |
+| Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | 0.3.37, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints (read 11-01: person-turn noise 42% / useful 17%, past the range — trigger met, Mike's call) | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
+| What stopped a memory, counted (N1, observation only): `recall.decision` carries `habituationCut`, `nearMiss {margin 0.1, count}`, `capped`, `budgetTrimmed`, `inhibited` beside the echo/project skips; `adapter.recall` the same flat (the near miss as `nearMissCount`), with `turn` and `startedBy` (`person`/`host`/`unattended`); switch `recall.STOP_COUNTS` | 0.3.37, 10-25 | a week after install: what stopped memories on the turns a person typed, by day (read 11-01: near miss 0.92, cross lift 0.56 per person turn; kept) | "Due a week after the stop counts" below; `src/core/recall/NOTES.md` "N1" |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | 0.3.34, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | 0.3.34, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
-| Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
+| Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | lived day ~120 (~2027-01-19) on Mike's store, or the first new-user store at day 60–90 (read 11-01 by random-54, challenged by ROADMAP: keep EMO_Q 0.5, too early to call harmless; trip-wire below) | "Checked 2026-10-18" and "Checked 2026-11-01" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
@@ -379,7 +379,7 @@ drops every candidate, all of which carry a directory scope). Marked 0 for three
 line is ignored, not lost: read an entry's `about` part. Revert: the record is a record; the room change goes with
 `dream.REFLECT_ROOM_ORDER=false` (#383's bound, as before), or revert the PR.
 
-## Due ~7 nights after own-write (2026-10-24, R2, Mike's go, lightly held — `physics.OWN_WRITE_GATE`)
+## Due ~7 nights after own-write (2026-10-24, R2, Mike's go, lightly held — `physics.OWN_WRITE_GATE`) — checked 2026-11-01, below
 
 What: use credit refuses the session that wrote a memory on its birth day (`own-write`), not every session. Another
 session that draws on a newborn memory credits it once that day (0.1, a glimpse); unknown or unbound writers ("mcp",
@@ -394,7 +394,7 @@ Look at, over ~7 nights since install (read-only):
 Changes it: core growth that outruns the reflection's capacity to read it, or promotions of memories that were only
 glimpsed. Revert: `physics.OWN_WRITE_GATE=false` (exactly as before), or revert the PR.
 
-## Due ~7 nights after daily consolidation (2026-10-24, E1, Mike's go 14:19, lightly held — `sleep` `CADENCE.consolidate`)
+## Due ~7 nights after daily consolidation (2026-10-24, E1, Mike's go 14:19, lightly held — `sleep` `CADENCE.consolidate`) — checked 2026-11-01, below
 
 What: the consolidate phase, which decides the core, runs at every lived day's sleep instead of every third. The only
 reason given for 3 was v0's "every 3 days"; eligibility is arithmetic over rows written in real time, so waiting
@@ -420,7 +420,7 @@ What would change it: a core growing faster than ~3 a week for more than a week,
 the dashboard and mechanisms read it).
 
 
-## Due ~7 lived days after cue learning (2026-10-24, R3, Mike's go 14:01, ships on its own store bump — `physics.CUE_LEARNING`)
+## Due ~7 lived days after cue learning (2026-10-24, R3, Mike's go 14:01, ships on its own store bump — `physics.CUE_LEARNING`) — checked 2026-11-01, below
 
 What: a credited use or a rating of a shown memory wires that turn's index words to it (`cue_edges`: token, memory_id,
 weight, last_day, source); a learned pair then reads as one more cue at the word's share of the turn, so a bare word
@@ -625,7 +625,7 @@ false: the wake byte for byte as before), or revert the PR.
   `recallTool` (nothing is stored by either); in `nightLine`, drop the `latestFinished` branch (the line reads
   "none yet today" again).
 
-## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
+## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`) — checked 2026-11-01, below
 
 What: a session's belief that says what an existing belief says used to file nothing (review of #583: eight repeats
 had pumped one belief to 8 in a session). Now its memory counts as support for that belief, once per belief per
@@ -650,7 +650,7 @@ belief instead of noticing new things), or a belief reaching the page on awake r
 `schemas.AWAKE_SUPPORT_ON_DUPLICATE=false` (the old reply, nothing filed; rows already filed stay, counted), or revert
 the PR. Step 2 of B1 (`supports:` on remember) is briefed from these numbers.
 
-## Due ~7 lived days after unsettled competition (2026-10-24, E3, Mike's go 14:47, lightly held — `recall.UNSETTLED_COMPETES`)
+## Due ~7 lived days after unsettled competition (2026-10-24, E3, Mike's go 14:47, lightly held — `recall.UNSETTLED_COMPETES`) — checked 2026-11-01, below
 
 What: when a turn reaches both members of a standing unsettled pair (the slot detector's "newer state of" proposal, or
 a dream's unsettled flag), the older one, already labelled "Unsettled — may be out of date", counts at
@@ -673,7 +673,7 @@ Changes it: Mike reading a true memory pushed below a wrong "newer" more than on
 first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
 turn and its row exactly as before), or revert the PR.
 
-## Due ~1 week after this-turn meaning (2026-10-25, S1, Mike's "switch on", lightly held — `recall.SEMANTIC_THIS_TURN`)
+## Due ~1 week after this-turn meaning (2026-10-25, S1, Mike's "switch on", lightly held — `recall.SEMANTIC_THIS_TURN`) — checked 2026-11-01, below
 
 What: the meaning lookup on an ambient turn is the turn's own prompt, embedded and ranked in line, instead of the
 worker's rank of the previous exchange (which 77% of ambient turns used before). Past `SEMANTIC_INLINE_MAX_VECTORS`
@@ -699,7 +699,7 @@ complaint more than once; p95 cost past ~50 ms. Then try off, or tune the ambien
 one before reverting. Revert: `recall.SEMANTIC_THIS_TURN=false` in `src/core/recall/tunables.ts` (a fresh lag row
 wins again, exactly the 0.3.36 behaviour), or revert the PR. If it stays: retiring the lag writer is the follow-up.
 
-## Due a week after the stop counts (2026-10-25, N1, Mike's OK 11:44 via roadmap 3b — observation only, `recall.STOP_COUNTS`)
+## Due a week after the stop counts (2026-10-25, N1, Mike's OK 11:44 via roadmap 3b — observation only, `recall.STOP_COUNTS`) — checked 2026-11-01, below
 
 What: shown per Mike-typed turn fell (~1.9 → 1.2–1.6) and only the echo skip could be named. Each turn now counts what
 each mechanism kept from showing: `habituationCut` (habituation's lift alone, not one the cross-project lift already
@@ -741,7 +741,7 @@ while shown falls, the bar is not what moved; if it climbs as shown falls, read 
 Off: `recall.STOP_COUNTS=false` in `src/core/recall/tunables.ts` (the counts absent; `adapter.recall` keeps `turn` and
 `startedBy`).
 
-## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`)
+## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`) — checked 2026-11-01, below
 
 What: the core's door as one support arc, in place of the fast and slow lanes — **merged in shadow**. The two lanes
 still decide what becomes core, exactly as before; each night sleep also asks the support door about every candidate
@@ -822,6 +822,111 @@ past ~60–80k tokens a night → raise turning it off (`schemas.TAGS_NIGHT=fals
 usage (stopped mid-stream); many of those is its own question. Revert of the record itself: revert the PR (nothing
 reads `usage` but the two lines above).
 
+## Checked 2026-11-01 (lived day 41, on 0.3.42: the 0.3.35–0.3.37 week, E2's shadow week, and emotion's weight)
+
+Read on a copy of the live store taken 11-01 ~10:40 (after the day-41 sleep at 09:17), never the store itself; SQL
+from each row plus two session-only scripts (`bun`, store opened `observer`). Builds by lived day (`meta`
+`build.<v>.since`, what doctor's Builds line reads): 0.3.35 from day 33 (10-24), 0.3.36 day 34 (10-25), 0.3.37 day 35
+(10-26), 0.3.38/.39 day 37 (10-28), 0.3.40 day 38 (10-29), 0.3.41/.42 day 39 (10-30). So "the week" is days 34–41,
+0.3.36 → 0.3.42. **Nothing reverted, nothing changed.** Three rows need Mike: S1 (its trigger is met), R3 (two of its
+named shapes are present) and E2 (on, off or tune).
+
+- **R2, own-write (0.3.35 on).** 239 birth-day credits from another session on days 33–41 (0 before: the old rule),
+  0 from the writing session; mostly `ontopic` (weight ~0.06) and `shown` (~0.03), so glimpse-sized. Of the memories
+  credited that way 158 are work, 61 unmarked, 10 us, 3 me, 4 owner: **none promoted**. Promotions days 33–41: 0 on
+  every night but day 41 (1, a day-9 memory). No jump; the trigger (core outrunning the reflection, glimpsed
+  promotions) is not met. **Kept.**
+- **E1, daily consolidation (0.3.36 on).** Consolidate ran every lived day 34–41 (`ran` / `ran-nothing-found`, one
+  each), `promotion:cap` empty every night. Promotions per night 0,0,0,0,0,0,0,1 (day 41, fast lane,
+  mem_9e4bfcefab3c); core 15 → 16, against 0–3 every third night before. Far under "~3 a week". New, not a trigger:
+  from day 39 the pass hits its budget (`budgetExhausted`, skipped 273 / 816 / 1,032 on days 39/40/41); the cursor
+  rotates, so a nightly pass covers the store in about two nights, but at every-third-night the same budget would
+  leave more unvisited. **Kept.**
+- **R3, cue learning (0.3.36 on) — not green.** `cue_edges` 3,268 pairs, 1,255 words, 379 memories, top 0.70, mean
+  0.047, none near the cap of 1, all from `use`; by `last_day` most of it in days 39–41 (843, 1,027, 741). The row
+  expected "a few hundred a week": this is ~10×. Two shapes the row names: common words slipped through (`cross` 51
+  memories, `tmp` 49, `uds` 48, `etc` 28, each pair weak, top 0.12) and acknowledgement words at the per-word cap 1.5
+  (`ahead` 20 memories, `let` 19, `sound` 18, all led by one owner memory,
+  mem_f7aaea4817d7, at 0.62–0.68: an acknowledgement now cues it). `ping` wires strongest to the miss note
+  mem_66bb7d836201 (0.70) over the rule's status note mem_4892da5d1aa3 (0.51) — the "learned the note, not the rule"
+  finding (mem_02338e46c13a); the bare-"ping" demo in a fresh session was not run (it needs a live session). Footnote
+  ratings, all turns, 10-26..31: noise 40.7% / useful 16.7% (n 1,500), against the row's 47% / 18%: noise not above
+  it, but it moved with S1's in the same window (below), so R3's share can't be split from the store (`learned` per
+  turn isn't recorded). **For Mike:** a stop-list or minimum-informativeness for learned words (path fragments,
+  acknowledgements), or leave it; nothing to revert alone.
+- **B1, awake belief support (0.3.36 on) — can't be read.** Zero `belief.support.awake` rows, zero
+  `near-duplicate` anything since day 34; three beliefs were born in the moment at all (days 33, 35, 40), 2 since
+  install. The door never fired. Other `sessionBelief` outcomes (`not-testimony…`, `limit-reached`, `pasted…`) aren't
+  evented, so whether sessions tried and were refused earlier can't be told. Re-read when awake beliefs are written.
+- **E3, unsettled pairs compete (0.3.36 on).** 2,317 decision rows carry `pairsCompeted`; it fired on 1 (day 36:
+  older mem_1dfda94f6209, a 10-27 note, weighed ×0.70 against its newer
+  mem_c78fbe9cfe3a, the older still shown as a footnote). The dream withdrew no pair since install, so there is no
+  cost side to read. As the replay predicted, it fires rarely. **Kept.**
+- **S1, this-turn meaning (0.3.37 on) — the trigger as written is met.** The switch took: `in-line` on 0.3.37–0.3.42
+  is 2,294 of 2,296 `adapter.recall` rows (`lagged` 1, `stale` 1), against 12–28% on 0.3.32–0.3.36; the lag writer
+  still stores every row (195–609 a day). Footnote ratings on person turns (`startedBy` `person`, the hook's own
+  reading, not the re-read's transcript class), 10-26..31: **noise 42.4% / useful 17.1% (n 932)**, against human-typed
+  10-22..24 at 38/30/29% and 23/21/22%: both past the range, the wrong way. The method reproduces the re-read's own
+  all-turn baseline exactly (30.2% / 21.2%, n 510), so the comparison holds. By day: 49/12, 39/20, 41/18, 41/23, 47/12,
+  27/24 (10-26..31). Two cautions: 10-22..24 was itself the low outlier (10-20/21 read 43–47% noise, and the re-read
+  blamed the day mix), and 10-26..31 is back at that level; but there is a step at the boundary — 10-25, the last
+  lagged day (0.3.35/.36), all turns 25% / 18% (n 134), then 10-26, the first S1 day, 43% / 15% (n 298) — and R3's
+  words grew in the same window. Items shown per person turn 1.23 (n 923) against 1.19 / 1.61 / 1.28: in range;
+  first prompts (turn 1, person) 1.33 (n 83) against ~2.0: lower. Cost: `elapsedMs` p50 by date rose 163–228 ms
+  (10-22..24) → 286 (10-25) → 311–453 (10-26..29), already climbing before S1, so its own +4–7 ms can't be seen; 0.3.42
+  brought p50 to 90–99, p95 156–177. The row's "p95 past ~50 ms" could never be met (p95 was 500+ ms at baseline): it
+  meant S1's added cost, which isn't separable here. Short prompts: prompt text isn't stored, so ≤3-word turns can't
+  be split; no complaint found in memories written since 10-26. **For Mike:** the row's own next step is "try off, or
+  tune the ambient profile apart from the deliberate one, before reverting": a few days with
+  `recall.SEMANTIC_THIS_TURN=false` as an A/B is the cheap read; his call.
+- **N1, stop counts (0.3.37 on).** Person turns 10-26..31 (n 923), per turn: shown 1.23, near miss 0.92,
+  cross-project lift 0.56, habituation 0.34, inhibited 0.22, echo 0.21, capped 0.00, budget 0.00, project 0; margin
+  0.1 on all 2,192 rows. Against the replay: near miss the same (0.87), cross lift doubled (0.28) and now the second
+  named stopper, echo far lower (1.43; live rows count the session window). Shown didn't fall over the week (1.08–1.56
+  a day, flat), so the "bar moved?" question doesn't arise; near miss steady. Host turns: shown 0.24–1.25. Observation
+  only; **kept on.**
+- **E2, the support door's shadow week (due 10-31, read here; 0.3.36 → 0.3.42, days 35–41).** Seven
+  `promotion.shadow.sleep` rows, 133–156 considered a night: **lanes 1, support door 5**, overlap 0, caught up 0.
+  The harness said the door grows the core about half as fast as the lanes; on the live week it is the other way,
+  because the lanes promoted almost nothing (see E1). `wouldHold` (the lanes promoted, the door says no): 1,
+  mem_9e4bfcefab3c (day 9; the memory Mike asked to keep to watch it change),
+  fast lane, reflection-only, level 0.0, 0 lived days, its one filing a reflection `found` on day 40 — exactly the
+  crossing the door is built to refuse. `wouldPromote` (the door yes, the lanes no), each a found/re-encoding plus a
+  later real use: mem_3e902ac53462 (me; level 0.194, 3 lived days; also
+  on the harness's list), mem_57c155c319af (us; 0.116, 2), mem_d2797af60368 (us; 0.129, 2),
+  mem_a0ba38997b7a (us; 0.142, 2), mem_e6470328929b (me; 0.182, 3). `band.promoted` since 0.3.36:
+  1, reflection-only 1. **For Mike: on, off or tune** — and whether he wants these five as core, and the waking memory
+  held out.
+- **Emotion's weight (EMO_Q 0.5, the 10-18 method) — first read by Étienne in ~/random (random-54); superseded in part by ROADMAP's challenge review below.** On a copy of the live
+  store, 0.3.42, lived day 41; script and lists in `~/counterparts-notes/2026-11-01-felt-review/` (`felt.ts` runs
+  against a copy; `felt-q.ts` is a what-if taking `EMO_Q` from env). Method check: on the 10-19 snapshot the script
+  gives 177 / 116 / 31 against 10-18's 176 / 119 / 31. The ratio table is unchanged, as the formula sets it: ×3.3 /
+  ×7.4 / ×11 / ×24.5 by band. Correction to the 10-18 row: `STABILITY_GAIN` is 8 and stability is S0·e^(8q) with
+  q = clamp01(sal + 0.5·I), so the factor is e^(4I), capped once q reaches 1. **The felt share of in-reach non-core
+  memories fell**, 16.8% on day 28 to 11.6% now (169 / 1,006 against 336 / 2,902), because unfelt memories grew faster.
+  Routine felt work notes in reach: about 5 of 62 (three day chapters, one validator pass, one review note); the rest
+  are lessons, rulings and milestones. No pile-up. What-if at EMO_Q 0.2: 10 of 336 felt memories would leave reach;
+  the 6 work ones are lessons or rulings, and none of the routine notes would leave. **Decision: keep EMO_Q 0.5**
+  (Mike's 10-18 call stands). Watch item: in practice felt memories never leave reach (felt in reach grows ~13 a day;
+  199 of 199 felt memories on the new curve are in reach). Re-read at lived day ~55–60 (~2026-11-15..20): has any felt
+  memory with I ≥ 0.4 left reach, and are day chapters or status notes piling up? (This session's own read agreed on
+  every number it shared; the one addition it keeps: by birth cohort on the new curve, the felt share of in-reach is
+  12% / 8% / 8% for days 21–27 / 28–34 / 35–41.)
+
+- **Emotion's weight, after ROADMAP's challenge review (2026-11-01; `~/counterparts-notes/2026-11-01-felt-review/ROADMAP-REVIEW.md`). Final for this read.**
+  **Keep EMO_Q 0.5.** No problem seen: felt footnotes are rated like unfelt ones, by about-mark too (since day 35:
+  43% vs 40% noise; within the same mark felt is no worse), and only 1 of 594 felt shows depended on EMO_Q being above
+  0.2. **Too early to call it harmless:** every shown memory was 20 lived days old or less, so EMO_Q couldn't have
+  bitten yet. Corrections to the first read: the 16.8% → 11.6% fall was a denominator effect (felt in reach doubled to
+  336; ~3,100 new work memories, 1.6% felt), and by body text 10 of the 62 felt work memories are routine, not ~5.
+  **Most persistence isn't EMO_Q:** felt memories carry higher explicit claims (felt work ~0.56 vs ~0.25), and the
+  night favours them (reflection/dream returns 48–52% vs 1–8% at the same salience), which re-anchors them; at EMO_Q 0
+  the median felt memory still stays in reach ~161 days. **Re-read** at lived day ~120 (~2027-01-19) on Mike's store,
+  or the first new-user store at day 60–90; read what's SHOWN and how it's rated, not what's in reach. **Trip-wire**
+  (over ≥200 ratings): felt ≥10 points noisier than unfelt in the same about-mark; or felt >35% of footnotes; or one
+  felt memory keeps returning rated 0 past habituation. If it trips, look in this order: the habit of tagging feelings
+  on "me" notes (55% of interactive "me" notes are felt), then the night's preference for felt memories, then
+  EMO_Q 0.5 → 0.35.
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 
 All four entries due today were read on the live store (read-only) after the 00:19 night run. Nothing here
