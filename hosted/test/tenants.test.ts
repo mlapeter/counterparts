@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
+import { retentionRuns } from "../../src/core/remember/index.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { SpawnPlan } from "../../src/adapters/spawn.js";
 import { createHostedServer, resourceMetadataUrl } from "../src/server.js";
@@ -504,7 +505,14 @@ describe("hardening from the stack's review", () => {
       assert.equal(exits.length, 1);
       assert.equal(exits[0]!.code, 0, exits[0]!.err.slice(0, 2000));
       // The child wrote into its own tenant, and nowhere else under the root.
-      assert.ok(existsSync(join(tenantDir(tenants.root, id), "store", "counterparts.sqlite")));
+      const dir = tenantDir(tenants.root, id);
+      assert.ok(existsSync(join(dir, "store", "counterparts.sqlite")));
+      // It did its day, not just exit 0 (a worker that stands down exits 0 too)...
+      await tenants.withTenant(id, {}, async (_t, server) => {
+        assert.ok(retentionRuns(server.counterpart.store).length > 0, "the worker's retention pass ran");
+      });
+      // ...and took no copy of the store: Litestream is a hosted store's backup (DESIGN §2.4).
+      assert.equal(existsSync(join(dir, "snapshots")), false, "no snapshots directory");
     } finally {
       delete process.env["HOSTED_KEKS"];
     }

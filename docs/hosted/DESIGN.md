@@ -145,7 +145,7 @@ one store in the beta. The table allows more, for later.
 rows:
 
 ```
-{ dataDir: <tenant>/store, timeZone: people.time_zone, snapshots: { dir: <none> }, pageWriter: default, embedder: default }
+{ dataDir: <tenant>/store, timeZone: people.time_zone, snapshots: { daily: false }, pageWriter: default, embedder: default }
 ```
 
 - The server uses it in memory.
@@ -153,8 +153,10 @@ rows:
   `livePathRefusal` already refuses a config inside a live store.
 - **`time_zone` is a column in `people`.** The night and "yesterday" turn on it. It is set at sign-up from the browser's
   `Intl` zone, and can be changed on the account page.
-- **Snapshots are off for hosted stores.** Litestream is the backup (§5.3). A pre-migration copy (`pre-migration.ts`)
-  still goes to `<tenant>/premigration/`, outside the store dir, and is deleted after a successful migration plus 7 days.
+- **Snapshots are off for hosted stores** (`snapshots: { daily: false }`, since 2026-11-01; until then the worker took
+  them anyway). Litestream is the backup (§5.3). A pre-migration copy (`pre-migration.ts`) still goes to
+  `<tenant>/snapshots/`, outside the store dir, and the worker deletes it once it is 14 days old. So does any daily copy
+  the worker took before this was switched off. All of them leave with the tenant dir at an erase.
 
 ### 2.5 The background worker (Q7)
 

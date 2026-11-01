@@ -299,6 +299,54 @@ describe("the directory rotation deletes inside — every refusal", () => {
   });
 });
 
+// ── a configuration that takes no daily copy (hosted's) ─────────────────────
+
+describe("snapshots.daily: false", () => {
+  test("no copy, no directory, no row; without it the same store takes one", () => {
+    const c = seeded();
+    open.push(c);
+    const off = runSnapshot({ counterpart: c, dataDir: dir, config: { daily: false }, now: NOW, date: TODAY });
+    expect(off.reason).toBe("off");
+    expect(off.name).toBeNull();
+    expect(existsSync(snapsDir)).toBe(false);
+    expect(rowsOf(c, "snapshot.taken")).toHaveLength(0);
+    expect(rowsOf(c, "snapshot.rotated")).toHaveLength(0);
+    // The default is untouched: absent, and `true`, both take the day's copy.
+    expect(runSnapshot({ counterpart: c, dataDir: dir, config: { daily: true }, now: NOW, date: TODAY }).reason).toBe("taken");
+    expect(snapshotNamesIn(snapsDir)).toHaveLength(1);
+  });
+
+  test("what is already there goes at 14 days, daily and pre-migration alike, and leaves a row; younger copies and anything not ours stay", () => {
+    const c = seeded();
+    open.push(c);
+    fakeSnapshot("2026-09-01T12-00-00-000Z");
+    fakeSnapshot("2026-09-10T12-00-00-000Z");
+    fakeSnapshot("2026-09-01T10-00-00-000Z-pre-migration-v6-to-v7");
+    fakeSnapshot("2026-09-10T10-00-00-000Z-pre-migration-v7-to-v8");
+    mkdirSync(join(snapsDir, "mine"));
+    const report = runSnapshot({ counterpart: c, dataDir: dir, config: { daily: false }, now: NOW, date: TODAY });
+    expect(report.reason).toBe("off");
+    expect([...(report.rotation?.deleted ?? [])].sort()).toEqual(["2026-09-01T10-00-00-000Z-pre-migration-v6-to-v7", "2026-09-01T12-00-00-000Z"]);
+    expect(readdirSync(snapsDir).sort()).toEqual(["2026-09-10T10-00-00-000Z-pre-migration-v7-to-v8", "2026-09-10T12-00-00-000Z", "mine"]);
+    expect(rowsOf(c, "snapshot.rotated")).toHaveLength(1);
+    expect(rowsOf(c, "snapshot.taken")).toHaveLength(0);
+  });
+
+  test("the worker honours it from the configuration: its run takes no copy", async () => {
+    seeded().close();
+    const report = await runOnce({ config: loadConfig({ dataDir: dir, snapshots: { daily: false } }).config, embedder: null, build: null });
+    expect(report.snapshot?.reason).toBe("off");
+    expect(existsSync(snapsDir)).toBe(false);
+  });
+
+  test("the configuration reads a boolean and reports anything else, taking the copy", () => {
+    expect(loadConfig({ snapshots: { daily: false } }).config.snapshots?.daily).toBe(false);
+    const bad = loadConfig({ snapshots: { daily: "off" } }).config.snapshots;
+    expect(bad?.daily).toBeUndefined();
+    expect(bad?.ignored?.join(" ")).toContain("snapshots.daily");
+  });
+});
+
 // ── danger 1: what rotation is willing to delete ────────────────────────────
 
 /**
