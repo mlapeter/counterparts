@@ -618,7 +618,8 @@ anything else: `sqlite3 "$DB" "UPDATE meta SET value = '$V' WHERE key = 'schemaV
 - **Duplicates count as landed**, and an empty batch is a real answer (owner, 2026-09-23):
   a batch whose every entry is `duplicate-content` says what the store already holds, and
   `[]` says nothing in the part was worth keeping. Only a non-empty batch the gate refused
-  entirely (`nothing-landed`) leaves the part open.
+  entirely (`nothing-landed`), or one with an entry whose mint threw (`part-not-landed`,
+  2026-11-01), leaves the part open.
 - **A write-up's PROPOSALS are the WRITING session's, and B3 reads them that way** (the
   MEMORY is the ended session's since 2026-10-01: origin, lived date, `secondHand`). They
   are accepted `session-end` proposals under the live session's id, so if that session

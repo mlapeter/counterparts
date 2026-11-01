@@ -975,6 +975,78 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(v.later.get("old-1")).toBe("deleted");
   });
 
+  // A patched `Store#put`, because a lock can't fail one entry and pass the next;
+  // the lock itself is in `mint-after-claim.test.ts`.
+  function failSecondPut(s: McpServer): () => void {
+    const store = s.counterpart.store as unknown as { put(input: unknown): string };
+    const realPut = store.put.bind(store);
+    let puts = 0;
+    store.put = (input: unknown): string => {
+      puts += 1;
+      if (puts === 2) throw new Error("database is locked");
+      return realPut(input);
+    };
+    return () => {
+      store.put = realPut;
+    };
+  }
+  const SECOND_MEMORY = { content: "The relief valve seats only after the loop has drained below its working pressure.", kind: "fact" };
+
+  test("the last part, nothing landed because the store threw: a resend lands it and finishes (2026-11-01)", async () => {
+    seeded();
+    const { s } = await pointAndFetch("new-1");
+    const authored = (): string[] => s.counterpart.store.list({ type: "memory", source: "authored" });
+    const before = authored().length;
+    const store = s.counterpart.store as unknown as { put(input: unknown): string };
+    const realPut = store.put.bind(store);
+    store.put = (): string => {
+      throw new Error("database is locked");
+    };
+    const failed = await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: [MEMORY] });
+    store.put = realPut;
+    expect(failed.isError).toBe(true);
+    expect(payload(failed)["reason"]).toBe("nothing-landed");
+    expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
+    expect(authored().length).toBe(before);
+
+    // Before the claim moved, this answered duplicate-content, closed the part and
+    // marked the session written up with no memory behind it.
+    const again = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: [MEMORY] }));
+    expect(again).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+    expect(authored().length).toBe(before + 1);
+  });
+
+  test("the last part, one of two threw: the one that landed took the words, so it closes and says to use remember (2026-11-01)", async () => {
+    seeded();
+    const { s } = await pointAndFetch("new-1");
+    const restore = failSecondPut(s);
+    const first = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: [MEMORY, SECOND_MEMORY] }));
+    restore();
+    expect(first).toMatchObject({ reason: "written-up", deposited: 1, refused: 1, notLanded: 1 });
+    expect(String(first["notLandedDetail"])).toContain("remember");
+  });
+
+  test("an earlier part, one of two threw: the part stays open and a resend lands it (2026-11-01)", async () => {
+    const seed = seeder();
+    ended(seed, "long-1", { at: Date.now() - 2 * DAY, bytes: 3 * WRITE_UP_PART_BYTES });
+    seed.done();
+    const { s, fetched } = await pointAndFetch("new-1");
+    expect(fetched["of"]).toBeGreaterThan(1);
+    const authored = (): string[] => s.counterpart.store.list({ type: "memory", source: "authored" });
+    const before = authored().length;
+    const restore = failSecondPut(s);
+    const first = await s.call("session_end", { session: "new-1", writeUp: "long-1", memories: [MEMORY, SECOND_MEMORY] });
+    restore();
+    expect(first.isError).toBe(true);
+    expect(payload(first)).toMatchObject({ reason: "part-not-landed", part: 1, deposited: 1, refused: 1 });
+    expect(authored().length).toBe(before + 1);
+
+    const again = payload(await s.call("session_end", { session: "new-1", writeUp: "long-1", memories: [MEMORY, SECOND_MEMORY] }));
+    expect(again).toMatchObject({ reason: "part-written", part: 1, deposited: 1 });
+    expect((again["outcomes"] as Record<string, unknown>[]).map((o) => o["reason"])).toEqual(["duplicate-content", "minted"]);
+    expect(authored().length).toBe(before + 2);
+  });
+
   test("a batch the gate refuses entirely lands nothing and marks nothing", async () => {
     seeded();
     const { s } = await pointAndFetch("new-1");

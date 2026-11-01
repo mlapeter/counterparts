@@ -112,7 +112,7 @@ export async function noteCommand(
     const scope = filedUnder ?? process.cwd();
     // Step 1 of 2, and the ORDER is the rule (see the docblock above).
     const captured = counterpart.captureJot({ session, scope, text });
-    const ownSpanHash = captured.spans[0]?.hash ?? null;
+    const ownSpanHash = captured.spans[0]?.hash ?? captured.heldLine ?? null;
 
     const draft: Record<string, unknown> = { content: text };
     if (typeof parsed.flags["kind"] === "string") draft["kind"] = parsed.flags["kind"];

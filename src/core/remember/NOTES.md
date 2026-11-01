@@ -730,9 +730,8 @@ about 3 days cleared the bucket, which is why it had not shown.
   and goes at 3 days, not 14. An append landing in the moment of a strike can be lost: 1 in
   about 500 strikes with three writers appending flat out, on this laptop; rarer by orders
   of magnitude at a note every few minutes (inferred from that rate). It is the door every
-  session's strike uses. And a mint that throws after its claim (a store locked past its
-  busy timeout, measured) leaves a note with no memory that reads as owing nothing and a
-  retry refused as a duplicate; older than this change, and every session's too.
+  session's strike uses. (A mint that threw after its claim was the third, closed the same
+  day: "A failed mint", below.)
 - **The other shared id.** `counterparts note` files under the literal `"console"`, judged as
   one session, so the same restart held there: a note every 2 days kept all 11 of its lines
   at day 20 (measured). It goes the same way now; see the entry below.
@@ -745,6 +744,82 @@ about 3 days cleared the bucket, which is why it had not shown.
   quiet hosted tenant waits for its next `wake`, a laptop for its next session. And a
   crashed strike's `.striking` aside is invisible to the plan until a strike in that scope
   folds it home; true of the session path too.
+
+## 2026-11-01 — A failed mint
+
+The claim (a `proposals.jsonl` row, `coverage.jsonl` marks) was written first and the memory
+second. Measured on a temp store through the real doors, with a second connection holding
+the write lock past the busy timeout: no memory, `remember` left as a protocol error nothing
+logged, `session_end` as `threw`, and every retry answered `duplicate-content` from the
+ledger row. The marks read the words as owing nothing, so the raw line went on the 3-day
+clock. A `session_end`'s first entry claims the session's whole unclaimed stretch, so one
+thrown mint marked all of it. On the write-up door a resend then counted as landed (a
+duplicate does) and closed the part, marking the session written up with no memory behind it.
+
+**The order is now write, then claim.** `submitProposal` is `prepareProposal` then
+`settleProposal`, and `counterpart-deposit.ts#deposit` mints between them. `remember/` still
+touches no store. The other shapes, and why not:
+
+- **Letting a retry through when no memory has the claim's id** is one line in the dedup
+  check, and leaves the marks. A note nobody retries still reads as written up and goes at 3
+  days with no memory anywhere, which is the common case: a Stop's `session_end` that saw
+  `threw` usually isn't sent again. Fixing that would have retention read the store.
+- **Releasing the claim on failure** needs a retraction line in two append-only ledgers, and
+  a kill doesn't run the release.
+
+**What each failure does now.** A lock, a full disk at the SQLite write, the schema guard's
+refusal, or a kill before the commit: no claim, the line owed, a retry lands once. A throw
+after the row committed (`Store#put` indexes after its commit, and the freeze seam runs after
+it): `deposit` looks for the row by `origin_ref`, settles if it's there, and rethrows, so the
+memory stands and a retry says `duplicate-content`. Measured with a real lock on the cache.
+
+**The window left.** A kill after the commit and before the ledger append, in one synchronous
+stretch: a memory with no row and its words unclaimed. A repeat mints a twin, which sleep's
+content-hash pass folds, and the words read as owed until something claims them. Duplication
+over loss, as `CaptureResult.deduped` has always said. Run on a real SIGKILL at that point, by
+patching the claim in a child (separate review, the same day): with other memories in the store,
+recall answers once and says "1 near-duplicate left out"; `meaning` counts two moments until the
+next sleep, which folds it, dated, open thread and revision too. Which twin survives is the id's
+tie-break, so a revision's forward pointers can name the one archived. On a store of nothing but
+the two rows, `facts` answers "0 match" until the fold, on master too (inferred: a word in every
+row scores nothing). Left open: a read for a same-body row in the scope before each mint is under
+a millisecond at 15,000 rows, but it has to get removed rows and redacted bodies right, and the
+window takes a kill landing inside one synchronous stretch.
+
+**A ledger that can't be written still means no memory.** `proposalLedgerWritable` is an empty
+append before the mint, so `io-failed` keeps its answer and now leaves no marks either. A
+ledger that takes the probe and then fails costs a repeat a twin, and emits
+`counterpart.deposit.ledger.failed`.
+
+**A retried note rides its own line** (`CaptureResult.heldLine`). The retry's capture is
+`DEDUPED`, so without this its memory had no span: nothing claimed the line, and removal's
+chase (`own: true` marks, `origin.spanHash`) couldn't find the words. It's this session's own
+jot, unclaimed, so the same note that was refused by a gate and later accepted also gets it.
+
+**Said out loud.** `remember` answers `threw` as a tool result, which also makes it an
+`mcp.refused` row. `counterpart.deposit.mint.failed` (source, landed, code; no words) is in
+the log through its `.failed` suffix, so doctor counts it. Before this, a thrown `remember` left
+no row anywhere, and `gate.deposit` is written after the mint, so it can't show one either.
+
+**Left open.**
+
+- A last write-up part where one memory landed and another threw: the one that landed took the
+  session's words (`cover`), so it owes nothing and the door refuses a resend. The part closes
+  and says `notLanded`, with "save each of them with remember". A nightly runner can't: it's
+  refused `remember` (`write-up-runner`), so it's told so, and that memory is gone.
+- A `session_end` where one entry threw and another landed, on any door: the one that landed
+  claims the whole stretch, the words the thrown one was about included. A resend lands it
+  (measured, a real lock held past one entry's wait), but nobody resending means they go on the
+  3-day clock. Better than before, when the throw itself claimed them. Not closed.
+- A claim already on disk from before this change stays: no retry of it lands.
+- Moving the ledger row after the mint widens the two-process race on identical text: it now
+  runs through `guardUpdate`'s awaits and the mint, a lock's wait included. Measured with two real
+  servers sent the same text at once, 60 rounds each: twins 45 to 47 with no embedder, 53 to 59
+  with one, and 42 to 58 through `session_end`. It was mostly open already, and it costs a twin.
+- A store whose index throws after the commit still reports a failure for a memory that
+  landed, and skips what follows the mint (a reminder's move, a declared revision). Not new.
+
+`test/mint-after-claim.test.ts`, and the write-up door's cases in `test/write-up.test.ts`.
 
 ## 2026-11-01, later — the "console" id goes the same way
 
@@ -771,9 +846,9 @@ pass per id. What was checked before calling a console line the same kind of thi
   same way. Older than this and not about retention, so not changed. Line-by-line only shortens
   that span.
 - **What it costs.** A refused console note's words are nowhere else, so at 14 days they go
-  unwritten, as a refused sessionless `remember`'s do. The two holes the entry above leaves
-  open apply here and go at 3 days, not 14: a mint that throws after its claim (measured on the
-  real command, with the store locked past its busy timeout: `note failed`, a retry refused as
-  a duplicate, the line gone by the next pass past 3 days, where the old restart kept it while
-  notes kept coming), and a refused note claimed unread by a last write-up part.
-
+  unwritten, as a refused sessionless `remember`'s do. A refused note claimed unread by a last
+  write-up part goes at 3, the hole the "mcp" entry names. A note whose mint threw claims nothing
+  since the entry above, so it is kept to 14 and a retry lands; measured on the real command with
+  the store locked, against this change alone (gone by day 4, with newer notes coming) and with
+  that one (kept to 14). A claim on disk from before that change still reads as written, so the
+  first pass after updating takes such a line, and with it the only copy of those words.
