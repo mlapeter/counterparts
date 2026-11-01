@@ -243,7 +243,7 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
         expect(has(t, pageWritingRule("own"))).toBe(true);
       }
       if (split) {
-        expect(writer).toContain("and the page's other sections, in their own form from the day.");
+        expect(writer).toContain("and the page's other sections from the day, in their own form.");
         expect(has(reflect, "day's end amends the other sections (every section but Core) from the day")).toBe(true);
       } else {
         expect(has(reflect, "put craft")).toBe(false);
