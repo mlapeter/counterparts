@@ -155,8 +155,10 @@ rows:
   `Intl` zone, and can be changed on the account page.
 - **Snapshots are off for hosted stores** (`snapshots: { daily: false }`, since 2026-11-01; until then the worker took
   them anyway). Litestream is the backup (§5.3). A pre-migration copy (`pre-migration.ts`) still goes to
-  `<tenant>/snapshots/`, outside the store dir, and the worker deletes it once it is 14 days old. So does any daily copy
-  the worker took before this was switched off. All of them leave with the tenant dir at an erase.
+  `<tenant>/snapshots/`, outside the store dir, and the first worker run after it is more than 14 days old deletes it. So
+  does any daily copy the worker took before this was switched off. A worker runs only after a `wake` (§2.5), so for
+  someone who has gone quiet these copies stay, unencrypted on the volume, until they come back or are erased. All of them
+  leave with the tenant dir at an erase.
 
 ### 2.5 The background worker (Q7)
 
