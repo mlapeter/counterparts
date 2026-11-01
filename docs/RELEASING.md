@@ -260,10 +260,21 @@ last 30 days, and a rerun of the `release` job makes a new one.
 Add a `release-notes.md` (the version's CHANGELOG entry), run the laptop checks from section
 2, then open the release PR.
 
+Fetching again into the same folder, after the release branch gained a commit that ships
+nothing (a test, `hooks/`), stops with "`<folder>/COMMIT` is already there and differs;
+nothing written": the tarball and `SHA256` are the same, the commit isn't, and the script
+never overwrites. Move the folder's `COMMIT` to the Trash first (and `SHA256` and the
+tarball too, if the new run's hash differs), then fetch from the new commit's green run.
+0.3.42 hit this.
+
 ## 5. Publish
 
-1. From the release folder, on the PUBLISH sheet as one line, so a changed file stops it:
-   `shasum -a 256 -c SHA256 && npm publish ./counterparts-<version>.tgz --otp=<code>`.
+1. Whoever hands over (the coordinator) first runs `shasum -a 256 -c SHA256` in the release
+   folder; a mismatch stops the release there. The PUBLISH sheet then gives the owner two
+   lines and nothing else to run (Mike, 2026-11-01):
+   `npm publish <full path to the release folder>/counterparts-<version>.tgz --otp=CODE`, and
+   the install line, `bun add -g counterparts@<version> && counterparts --version`.
+   After publishing, check npm's `dist.integrity` against the tarball's sha512.
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh
