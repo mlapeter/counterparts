@@ -49,6 +49,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
 | Raw copies under the shared "mcp" id go line by line on their own age: 3 days when nothing is owed, 14 whatever is | next release after 0.3.43, 11-01 (fix/mcp-bucket-age-limit) | ~1 week after release: copies past the limit in `"mcp"` (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
+| The claim comes after the mint: a memory that threw claims nothing, and a retry lands it | next release after 0.3.43, 11-01 (fix/mint-after-claim) | ~2 weeks after release: `counterpart.deposit.mint.failed` in the log, retries that landed, any twins | [A failed mint](#a-failed-mint) |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -1968,3 +1969,12 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
 
+## A failed mint
+
+`remember` and `session_end` wrote the claim, then the memory, so a mint that threw lost the note and marked its words as written up. The claim now comes after the mint (`src/core/remember/NOTES.md`, "A failed mint"; docs/decisions.d/fix-mint-after-claim.md). Before the fix, on the owner's logs (10-25 to 11-01): no lock or full-disk lines in 29,622; `session_end` 1,791 entries, 1,787 stored. `remember` wasn't visible at all.
+
+**Check, ~2 weeks after release:** count `counterpart.deposit.mint.failed` in `sessions/log/` by `landed` and `source`, and `mcp.refused` with `reason: threw` for `remember`. `counterparts doctor` counts them among its failures. For any that happened: did a retry land (a memory with the note's session within minutes), and did twins appear (same body, two ids, before a sleep pass folded them)?
+
+**What would change it:** a steady rate of `landed: false` means writers are holding the lock past 5 seconds, which is its own fix. Twins that sleep doesn't fold mean the kill window isn't as small as it reads. A `notLanded` on a nightly write-up with nothing saved after it means that last-part case needs a resend.
+
+**How to revert:** `counterpart-deposit.ts#deposit` back to `submitProposal` before the mint. That restores the loss.
