@@ -107,6 +107,8 @@ import { OBSERVER_ENV } from "../stance-env.js";
 
 import { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, TUNABLES, nightDebugDir } from "../config.js";
 import type { AdapterConfig } from "../config.js";
+import { awakeMeter } from "./awake.js";
+import type { AwakeMeter } from "./awake.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
 import { runCatchUp } from "./night-catch-up.js";
 import { foldersOn, readScopes, scopesPath } from "../scopes.js";
@@ -611,6 +613,32 @@ export interface NightRunInput {
   readonly now?: () => number;
   /** The process log's (`adapters/log/`), for what the store does not write. */
   readonly onEvent?: (e: CounterpartEvent) => void;
+  /** TESTS ONLY: what tells this run it slept; absent, `awake.ts#awakeMeter`. */
+  readonly awake?: (onSlept: (ms: number) => void) => AwakeMeter;
+}
+
+/**
+ * A SLEEP THE RUN NOTICED (2026-11-01, NT1) goes on its row as soon as it is
+ * noticed, so the next prompt reads a run that slept as still under way and no
+ * second run starts beside it (`nightRunLost`). Never throws.
+ */
+function noteSlept(input: NightRunInput, ms: number): void {
+  try {
+    const c = input.open();
+    try {
+      const row = c.dreams.nightRun();
+      if (row !== null && row.run === input.run && row.state === "started") c.dreams.recordNightRun({ ...row, sleptMs: (row.sleptMs ?? 0) + ms });
+    } finally {
+      c.close();
+    }
+  } catch {
+    /* it reads as lost a little sooner; the run still goes on */
+  }
+  try {
+    input.onEvent?.({ at: input.now?.() ?? Date.now(), name: "adapter.night.slept", ref: input.run, data: { ms } });
+  } catch {
+    /* never the run's problem */
+  }
 }
 
 /**
@@ -624,6 +652,18 @@ export interface NightRunInput {
  * (`transcript.ts#parseToolSpills`). Nothing under `~/.claude` is read.
  */
 export async function runNight(input: NightRunInput): Promise<NightRun> {
+  const onSlept = (ms: number): void => {
+    noteSlept(input, ms);
+  };
+  const meter = input.awake?.(onSlept) ?? awakeMeter({ onSlept });
+  try {
+    return await theNight(input, meter);
+  } finally {
+    meter.stop();
+  }
+}
+
+async function theNight(input: NightRunInput, meter: AwakeMeter): Promise<NightRun> {
   const now = input.now ?? ((): number => Date.now());
   const startedAt = now();
   let date = input.date ?? "";
@@ -635,9 +675,9 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   let writerPrompt = "";
   // THE MORNING CATCH-UP FIRST (2026-10-01, build 3): owed stretches in any
   // directory are written up before the page writer reads the day, by a short
-  // child of their own (`night-catch-up.ts`). Its time is added to the run's
-  // watchdog on the row, so the gate does not read a run that is still going
-  // as lost.
+  // child of their own (`night-catch-up.ts`). Its time awake is added to the
+  // run's watchdog on the row (what it slept is on `sleptMs` with the rest), so
+  // the gate does not read a run that is still going as lost.
   let catchUpMs = 0;
   // WHICH CHILDREN RAN (2026-10-11), in order, on every row that ends the run.
   const children: NightChildRun[] = [];
@@ -647,14 +687,18 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // A WEEK OF DEBUG TRANSCRIPTS AT MOST (2026-10-23), pruned whether or not
   // the switch is on now, so turning it off leaves nothing behind for long.
   pruneNightTranscripts(input.config.dataDir, input.configPath, localDate(startedAt, input.config.timeZone));
-  const base = (c: Counterpart | null): Omit<NightRun, "state" | "endedAt" | "reason" | "detail" | "code" | "dream" | "reflection"> => ({
-    run: input.run,
-    date: date.length > 0 ? date : (c?.store.today() ?? ""),
-    kind: input.kind.kind,
-    session: input.session,
-    startedAt,
-    timeoutMs: nightChildrenTimeoutMs(input.config, input.kind.kind) + catchUpMs,
-  });
+  const base = (c: Counterpart | null): Omit<NightRun, "state" | "endedAt" | "reason" | "detail" | "code" | "dream" | "reflection"> => {
+    const slept = meter.asleepMs();
+    return {
+      run: input.run,
+      date: date.length > 0 ? date : (c?.store.today() ?? ""),
+      kind: input.kind.kind,
+      session: input.session,
+      startedAt,
+      timeoutMs: nightChildrenTimeoutMs(input.config, input.kind.kind) + catchUpMs,
+      ...(slept > 0 ? { sleptMs: slept } : {}),
+    };
+  };
   const record = (run: NightRun): NightRun => {
     try {
       const c = input.open();
@@ -717,7 +761,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
       parts: TUNABLES.NIGHT_WRITE_UP_PARTS,
       ...(input.onEvent === undefined ? {} : { onEvent: input.onEvent }),
     });
-    if (report !== null) catchUpMs = report.ms;
+    if (report !== null) catchUpMs = Math.max(0, report.ms - (report.sleptMs ?? 0));
     // THE CATCH-UP ALONE (2026-10-11): started because write-ups from an
     // earlier day were owed while the dream was not due. Its dream and its
     // reflection are skipped, and the row says why — never a failed dream.
