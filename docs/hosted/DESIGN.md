@@ -547,7 +547,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
    passing on the real binary (RUNBOOK, "The drill"). Equal bytes under the same label open what Railway's ring
    opens, and the drill proves the restore itself. (Mike, 2026-11-02: this replaces 10-27's "typed from the offline
    copies", which proved only that the copies agree with each other, and put the real KEK on the Mac.) The drill
-   passed 2026-11-02 (3fe0aa75).
+   passed 2026-11-02 (3fe0aa75); the fingerprints weren't recorded as matching by then, so the gate is half met.
 
 ---
 

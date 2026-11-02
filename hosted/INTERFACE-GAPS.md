@@ -71,8 +71,8 @@
     with real load.
 15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
     only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5).
-16. **Closed 2026-11-02: what the real binary does with a configured database that doesn't exist yet** (a store
-    signed up and not yet opened; the #653 review, M4). In the drill, each sign-up's reload was a plain
+16. **What the real binary does with a configured database that doesn't exist yet** (a store signed up and not yet
+    opened; the #653 review, M4): **closed 2026-11-02** by the drill. Each sign-up's reload was a plain
     `sidecar.exit` then `sidecar.start`, with no back-off, and the control database replicated while no store database
     existed. The never-opened store then restored without a failure.
 

@@ -445,7 +445,8 @@ them by name (`-e NAME`). The steps, and what each proves:
 token and the empty bucket in Cloudflare, and the logs directory when you're done reading it.
 
 **Run it again after each new KEK version, or a Litestream bump.** A new KEK version needs steps 2-4 again, for the
-new version. A Litestream bump needs the script.
+new version: paste each copy without its label, or change `v1` in the command, since a label it doesn't strip gives a
+wrong fingerprint, not an error. A Litestream bump needs the script.
 
 **2026-11-02:** passed, all 14 steps, on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
 bucket unchanged. B, written just before the stop, came back. The old token and the refresh both worked after
