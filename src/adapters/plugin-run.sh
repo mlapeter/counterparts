@@ -294,8 +294,8 @@ lock="$bindir/download-$version.lock" # a file, taken by take_file
 failed="$bindir/download-$version.failed"
 
 # Create a file only if it is not there, and say which: one winner, however many
-# try at once. The shell's own noclobber (O_EXCL), not `mkdir`: the mkdir Ubuntu
-# ships since 25.10 (uutils) answers 0 to a loser that arrives between its own
+# try at once. The shell's own noclobber (O_EXCL), not `mkdir`: Ubuntu 26.04's
+# mkdir (uutils 0.10.0) answers 0 to a loser that arrives between its own
 # existence check and the system call, so with it two processes both held a
 # directory lock.
 take_file() { (set -C && : >"$1") 2>/dev/null; }

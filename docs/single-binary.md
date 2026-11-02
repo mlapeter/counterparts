@@ -82,9 +82,9 @@ With none of them, it fetches the binary:
   - It runs in the background, detached: `setsid` where it exists, job control
     otherwise.
   - It runs once: a lock file in `$CLAUDE_PLUGIN_DATA/bin`, taken by the hook or the
-    server, whichever starts first, with the shell's noclobber (uutils' `mkdir`, Ubuntu's
-    since 25.10, can tell two processes they both made a directory); a lock older than 30
-    minutes is a dead download (curl gives up at 25).
+    server, whichever starts first, with the shell's noclobber (Ubuntu 26.04's `mkdir`,
+    uutils 0.10.0, can tell two processes they both made a directory); a lock older than
+    30 minutes is a dead download (curl gives up at 25).
   - `curl` takes HTTPS only, redirects included, at most five redirects and no more
     bytes than `binaries.json` names. GitHub hands a release asset on to its own CDN,
     whose host curl can't pin (and GitHub has changed it before); the pinned sha256 is
