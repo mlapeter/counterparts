@@ -22,7 +22,8 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    **Keep it offline in two places before you use it**: a password manager, as "Counterparts hosted KEK v1", and
    a paper copy somewhere safe. **Without it, every backup is unreadable.** Railway's variable is the only copy
    online, and it isn't a backup: losing the Railway account loses it. Do the same for every later version (v2, …)
-   before it goes into `HOSTED_KEKS`.
+   before it goes into `HOSTED_KEKS`. Once it is in Railway, write its fingerprint beside both copies ("The drill",
+   steps 2-4).
 2. **Generate the cookie keys** (these sign the OAuth library's cookies):
 
    ```sh
@@ -197,8 +198,9 @@ What it never holds:
   a restore;
 - `journal/` and `spans/`, which are derived or conversation text, never backed up.
 
-**You need the KEK ring that wrapped the keys.** A restore with a ring that can't open a key object refuses, and it
-writes nothing.
+**You need the KEK ring that wrapped the keys.** A restore with a ring that can't open a key object refuses. It
+writes nothing to the bucket, and leaves only an empty `keys/keys.sqlite` on the volume, which a retry with the right
+ring doesn't mind ("If a start refuses").
 
 ### The whole volume is gone (or it's a new volume, or a move to Fly)
 
@@ -278,6 +280,16 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   weeks, logs `…was used once already: nothing moved`. `…claimed but the move didn't finish` means the server stopped
   between the two; `control/` is where it was. **To do it again on purpose, set a new label** (`CONTROL_ASIDE=2`,
   then `3`, …). The used labels are in `/data/overrides/`.
+- **"did not start: a store's key object in the bucket doesn't open with the KEK ring: put the old version back in
+  the ring and run rewrap again"**, on a restore (`RESTORE_ON_BOOT=1`, a new or empty volume): usually a mistyped
+  KEK, not a rotation. **Compare fingerprints first**: fingerprint each version in `HOSTED_KEKS` and check it against
+  the key-check value beside the offline copies ("The drill", steps 2-4), and check the label (`v1:`). Nothing was
+  restored, and the bucket wasn't touched. The start leaves `keys/keys.sqlite` on the volume, with no key in it.
+  Leave it: fix `HOSTED_KEKS` and deploy again with `RESTORE_ON_BOOT=1` still set, and the restore goes on as on an
+  empty volume. No `rm -rf /data/keys` is needed (read from the code, and `ops.test.ts`'s drill does exactly that,
+  under a wrong ring and then the right one). The plural **"N wrapped store keys don't open with the KEK ring"** is
+  the other case: the keys in `keys/keys.sqlite`, at a start, after a version was dropped before its rewrap
+  finished ("Rotating the KEK").
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
 - **"…the bucket R2_ENDPOINT and R2_BUCKET name ("<host>/<bucket>") has no control key"** (R7): this volume has
@@ -352,47 +364,109 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   (`RESEND_API_KEY`, `MAIL_FROM`'s domain); sign-in links would be failing too. `storeTag=none` is possible: the
   account had no store left to name.
 
-### The drill with the real binary (do it once, soon after the first deploy)
+### The drill with the real binary (again after each new KEK version, or a Litestream bump)
 
 The hermetic test (`hosted/test/ops.test.ts`) drives the restore through a stand-in Litestream. It proves our side:
 the key objects, the configuration, the arguments, the layout, the cache rebuild, and the words coming back
-through `/mcp`. It doesn't prove Litestream itself. This does. It runs on your Mac, with Docker, against a **second
-bucket** (e.g. `counterparts-drill`, with its own token scoped to it), and **the real KEK, typed in from an offline
-copy, never copied from the Railway variable.** That is the test: a restore that works only with Railway's copy
-proves nothing about the day Railway is gone. Type it from one copy for step 1 and from the other copy for step 5,
-so both copies are proven:
+through `/mcp`. It doesn't prove Litestream itself, R2 or SSE-C, and it doesn't prove that the offline copies of
+the KEK are production's. The drill proves those, in two halves.
+
+**Why two halves.** Until 2026-11-02 the drill typed the real KEK from each offline copy into a container on your
+Mac. That proved only that the two copies agree with each other, and it put the real KEK on the Mac. So now:
+
+- **The copies are proven by fingerprints.** You fingerprint each offline copy and Railway's `HOSTED_KEKS`, and all
+  three must match. A wrapped key opens only with the right key bytes and the right version label (`keys.ts`, the
+  label is in the AAD). Railway's own start-ups prove that its ring opens the bucket's keys: the running deploy
+  started after the last edit to `HOSTED_KEKS` and opens its stores. So copies whose bytes equal Railway's, under
+  the same label (`v1`), open the bucket too. (With one version in the ring, `HOSTED_KEK_CURRENT` can only be unset
+  or `v1`: any other value refuses at start-up, `keys.ts`.)
+- **The restore is proven with a throwaway KEK.** The script runs production's deployed image, the real Litestream
+  and a drill bucket on R2. The key material is made for the drill and thrown away after it.
+
+**Your steps** (once per KEK version, and the bucket once per drill):
+
+1. **A drill bucket and its own token.** In Cloudflare R2, make a fresh, empty bucket `counterparts-drill` in the same
+   account (defaults), and a token with Object Read & Write on **that bucket only**. Save it as
+   `~/.config/counterparts-drill.env` with `chmod 600`, never in `~/counterparts-notes` (it pushes to GitHub):
+
+   ```
+   R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com     # no /bucket on the end
+   R2_BUCKET=counterparts-drill
+   R2_ACCESS_KEY_ID=...
+   R2_SECRET_ACCESS_KEY=...
+   ```
+
+   The script refuses any other bucket name.
+2. **Fingerprint each offline copy** (the password manager's, then the paper's). Run it twice for each. It prints
+   8 hex characters, or `NOT 32 BYTES`. It strips a leading `v1:`, and the key never shows on screen:
+
+   ```sh
+   read -rs -p "KEK: " K; echo; K="$K" node -e 'const s=process.env.K.trim().replace(/^v1:/,"");const b=Buffer.from(s,"base64");if(b.length!==32){console.log("NOT 32 BYTES ("+b.length+")");process.exit(1)}console.log(require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8))'; unset K
+   ```
+
+3. **Fingerprint Railway's copy**, the same computation on each version in `HOSTED_KEKS`. Run it on your Mac, from
+   `~/counterparts`, where Railway is linked. The variables go straight into `node`, and only the fingerprints are
+   printed:
+
+   ```sh
+   railway variables --kv | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=d.split("\n").find(x=>x.startsWith("HOSTED_KEKS="));if(!l){console.log("NO HOSTED_KEKS");return}for(const e of l.slice(12).split(",")){const i=e.indexOf(":");const b=Buffer.from(e.slice(i+1).trim(),"base64");console.log(e.slice(0,i).trim(),b.length===32?require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8):"NOT 32 BYTES")}})'
+   ```
+
+   Expect one line per version (`v1 <8 hex>`), `v1` only today. Check that the running deploy started after the last
+   edit to `HOSTED_KEKS`, so the ring it proved is this one. A service that is serving with one version has
+   `HOSTED_KEK_CURRENT` unset or `v1`, since any other value refuses at start-up.
+4. **All three equal?** Then write the 8 hex beside both offline copies, as their **key-check value**. On the day
+   Railway is gone, it tells you a copy is the right one before anything is restored. If one differs, fix that copy
+   now, while Railway's still works.
+
+**The script** runs the other half. It needs Docker, `gh` signed in, and bun, from a checkout with hosted's
+dependencies. Run it as one background process (about five minutes):
 
 ```sh
-docker build -f hosted/Dockerfile -t counterparts-hosted .
-read -rs -p "KEK v1 from the password manager: " K && export HOSTED_KEKS="v1:$K"; unset K; echo
-run() { docker run --rm -p 127.0.0.1:8080:8080 -v cp-drill:/data \
-  -e HOSTED_DATA_ROOT=/data -e PUBLIC_ORIGIN=http://127.0.0.1:8080 -e MAIL=log \
-  -e HOSTED_KEKS \
-  -e R2_ENDPOINT -e R2_BUCKET=counterparts-drill -e R2_ACCESS_KEY_ID -e R2_SECRET_ACCESS_KEY "$@" counterparts-hosted; }
-run --name drill -d                                          # 1. serve (the drill bucket's token in R2_* of this shell)
-docker exec drill node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite
-#    sign up at http://127.0.0.1:8080/login (the link is in `docker logs drill`), connect any MCP client, remember a line
-docker stop -t 60 drill                                      # 2. Litestream's last sync on SIGTERM (give it time)
-docker volume rm cp-drill                                    # 3. the volume is gone
-run --name drill -d                                          # 4. must REFUSE: the volume is empty, the bucket isn't
-read -rs -p "KEK v1 from the paper copy: " K && export HOSTED_KEKS="v1:$K"; unset K; echo
-run --name drill -d -e RESTORE_ON_BOOT=1                     # 5. restores; recall the line through the client
-unset HOSTED_KEKS K
+bun install --cwd hosted --frozen-lockfile
+hosted/drill/drill.sh --rehearse     # optional first: steps 0-3 with BACKUPS=off, no bucket and no credentials
+hosted/drill/drill.sh                # the drill; after a failure, hosted/drill/drill.sh --from <step>
 ```
 
-`-e HOSTED_KEKS` passes it by name, so it never shows in `ps`. `docker inspect` shows it while the container runs,
-which is acceptable on your own Mac, and `--rm` removes it. If step 5 refuses because the ring can't open a key,
-the paper copy doesn't match: fix the copy now, while the password manager's still works. Run the drill again after each new KEK version.
+Everything it writes goes to `$COUNTERPARTS_DRILL_DIR` (default `$TMPDIR/counterparts-drill`), outside the
+repository: `RESULTS.md` (one line per step, pass or FAIL, and what it saw), the container logs, and a 0600 state
+file with the throwaway KEKs, deleted at the end. It never prints a key, a token or the R2 secret. Docker gets
+them by name (`-e NAME`). The steps, and what each proves:
 
-Afterwards, empty the drill bucket: it holds keys wrapped under the real KEK. Things to note for the coordinator:
+| Step | What it does | What it proves |
+| --- | --- | --- |
+| 0 | Reads production's deployed commit from GitHub's deployments, builds the image from a worktree at it, checks Litestream's version, empties the drill bucket, makes throwaway K1 and K2 (same `v1` label, other bytes) | the drill runs what production runs |
+| 1-2 | Serves under K1, two invites, two sign-ups through the emailed link; user 2 never connects | a store signed up and never opened doesn't upset Litestream (INTERFACE-GAPS §16) |
+| 3 | OAuth as claude.ai does it (DCR, PKCE, Allow), `wake`, `remember` A | the real door |
+| 4 | Waits for the store and both control databases to replicate, by TXID | Litestream replicates to R2 |
+| 5 | A plain GET of every replica object; the store's own object with its key | SSE-C: nothing readable without the key |
+| 6 | `remember` B, then `docker stop` at once | the shutdown sync (step 10 tells whether B survived) |
+| 7-8 | Removes the volume; starts without `RESTORE_ON_BOOT` | an empty volume beside a bucket with backups refuses, the bucket unchanged |
+| 9 | `RESTORE_ON_BOOT=1` under K2 | a mistyped KEK refuses, the bucket unchanged |
+| 10 | `RESTORE_ON_BOOT=1` under K1; recall A and B with the token from before; refresh | everything comes back, the person stays connected, the never-opened store doesn't fail |
+| 11 | `remember` C, waits for it to replicate | replication goes on after a restore |
+| 12 | A second cycle: stop, volume gone, restore, recall A, B and C | a restored server restores again |
+| 13 | Cleanup: container, volume, bucket emptied, image, worktree, state | nothing of the drill is left but its logs |
 
-- **first: whether step 1's Litestream accepted the configuration.** It lists a store that signed up but was never
-  opened, whose database file doesn't exist yet. The log should show Litestream waiting on it, not exiting;
-- the time step 2 took (that's the final sync). On Railway, the old container gets a drain time before it is
-  killed. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` so that sync can finish (unverified; check Railway's
-  current name for it);
-- whether step 5's recall found the line;
-- whether R2's object browser shows the store's objects under `tenants/<id>/` and none readable without the key.
+**Cleanup.** A rehearsal that passes removes its container, volume and state; one that fails leaves them for
+`--from`, and holds port 8080 until you clean it up:
+`docker rm -f drill-rehearsal; docker volume rm cp-drill-rehearsal; rm "$COUNTERPARTS_DRILL_DIR"/rehearsal-state.*`.
+Step 13 empties the bucket and removes everything local except the logs. Then you delete the drill
+token and the empty bucket in Cloudflare, and the logs directory when you're done reading it.
+
+**Run it again after each new KEK version, or a Litestream bump.** A new KEK version needs steps 2-4 again, for the
+new version: the offline-copy command strips only `v1:`, so a copy pasted with another label prints `NOT 32 BYTES`;
+paste it without the label. A Litestream bump needs the script.
+
+**2026-11-02: both halves passed.** The fingerprints: at about 10:19, KEK v1 from the password manager, from the paper
+copy and from Railway's `HOSTED_KEKS` (a single `v1` entry) all matched, and the fingerprint is written beside both
+offline copies. The script: steps 0-13 passed (one resume at step 4 after a script bug), on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
+bucket unchanged. B, written just before the stop, came back. The old token and the refresh both worked after
+the restore. Plain GETs answered `400 InvalidRequest` (×32).
+
+Still open from the first deploy: Railway's drain time. On Railway, the old container gets a drain time before it
+is killed. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` so the final sync can finish (unverified; check Railway's
+current name for it). The drill's `docker stop` took 0.6 s on the Mac, which says nothing about Railway.
 
 ## Rotating the KEK
 
@@ -411,7 +485,8 @@ Afterwards, empty the drill bucket: it holds keys wrapped under the real KEK. Th
    If it's wrong, the key service is still better than an environment variable, but it is less urgent.
 2. When the key service holds the KEK, **export its key to the same two offline places**, recorded before the
    rewrap onto it. Losing the Cloudflare account must not lose the memories.
-3. Rewrap onto it as in "Rotating the KEK", then run the drill with the exported copy.
+3. Rewrap onto it as in "Rotating the KEK", then fingerprint the exported copies against the key service's ("The
+   drill", steps 2-4).
 4. **With the key service down, a restart can't open any store until it's back** (the same shape as an R2 outage
    blocking a start). A running server keeps serving. Accepted.
 

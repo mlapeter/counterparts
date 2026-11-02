@@ -18,7 +18,7 @@
  * 127.0.0.1 that ENFORCES SSE-C (an object put under a key is refused to a GET
  * without it), and a stand-in Litestream binary (`fixtures/litestream-standin.mjs`)
  * that proves our plumbing, not Litestream's replication. The real binary's
- * drill is a runbook step (docs/hosted/RUNBOOK.md).
+ * drill is `hosted/drill/drill.sh` (docs/hosted/RUNBOOK.md, "The drill").
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -267,7 +267,16 @@ describe("the restore drill, through the door", () => {
     assert.match(String(refused.refusal), /RESTORE_ON_BOOT=1/);
     assert.equal(existsSync(join(dataRoot, "control", "accounts.sqlite")), false);
 
-    // 5. RESTORE_ON_BOOT: the control databases first, then the stores, then serve.
+    // 4b. RESTORE_ON_BOOT under a mistyped KEK (the same label, other bytes): refused before anything is restored.
+    // It leaves keys/keys.sqlite behind, with no key in it, and nothing else (the 11-02 drill, step 9).
+    const bucketBefore = [...s3.objects.keys()].sort();
+    await assert.rejects(prepareVolume(dataRoot, backupOptions(s3, new Map([["v1", randomBytes(32)]]), null), run), /doesn't open with the KEK ring/);
+    assert.deepEqual(readdirSync(dataRoot), ["keys"]);
+    assert.ok(existsSync(join(dataRoot, "keys", "keys.sqlite")));
+    assert.equal(existsSync(join(dataRoot, "control")), false);
+    assert.deepEqual([...s3.objects.keys()].sort(), bucketBefore, "the bucket unchanged by the wrong-ring attempt");
+
+    // 5. RESTORE_ON_BOOT with the right KEK on that same volume: the leftover keys.sqlite is no obstacle.
     const prepared = await prepareVolume(dataRoot, backupB, run);
     assert.match(String(prepared.restored), /^2 restored/);
     const b = await rig({ dataRoot, port: a.port, backup: backupB, start: false });

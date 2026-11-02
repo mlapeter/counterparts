@@ -471,3 +471,18 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
 - `self.WAKE_SHAPE` is off, and the one way to turn it on for a store is the console (`counterparts wake-shape on`, a meta row). A
   tenant has no console and this app has no setting for it, so a tenant stays on the old road. ROADMAP, 10-30: fine for now. The
   composer does serve a hosted wake when the row is set (`chatLanesFirst` knows its framing line); what's missing is the route.
+
+## 2026-11-02 — the real-binary drill (`hosted/drill/`)
+
+- **It passed on the first full run** (one resume after a script bug at step 4, not the server's). The results are in
+  the RUNBOOK ("The drill") and INTERFACE-GAPS §5.
+- **Typing the real KEK proved less than it seemed.** Two offline copies typed into a drill prove that they agree
+  with each other, not that they are Railway's. Fingerprints prove that, and a throwaway KEK proves the restore, so
+  the real KEK no longer goes to the Mac (DESIGN §5.4, gate 4).
+- **Litestream 0.5.17 logs to stdout** unless `logging.stderr`, and the sidecar drops the child's stdout, so
+  production never saw a sync error. The drill had to read `litestream ltx` by hand (the follow-up sets
+  `logging.stderr`).
+- **A wrong-KEK restore leaves an empty `keys/keys.sqlite`** (the `KeyStore` opens before the adopt fails). A retry
+  with the right ring reads it as no control key and restores as on an empty volume. `ops.test.ts`'s drill pins it.
+- **The image copies the build context's modes as they are** and runs as `node`, so a worktree checked out under
+  `umask 077` builds an image that can't read its own `src/`. The script makes its worktree under `umask 022`.

@@ -464,8 +464,9 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
     test pins that.
   - **The beta holds the KEK in a Railway secret**: `HOSTED_KEKS` holds the ring of versions and `HOSTED_KEK_CURRENT`
     names the one in use (`EnvKeyWrapper`). Losing the KEK means losing every backup, so every version is kept offline
-    in two places (a password manager and paper), recorded before the version is used. The restore drill types the
-    KEK from those copies, not from the Railway variable (RUNBOOK, "The drill").
+    in two places (a password manager and paper), recorded before the version is used. Each copy carries the
+    version's fingerprint (the first 8 hex of the SHA-256 of its 32 bytes), which must equal the fingerprint of
+    Railway's. The restore drill itself runs on a throwaway KEK (RUNBOOK, "The drill").
   - **Later**, Mike moves it to our own small Cloudflare Worker key service, called only from Railway's fixed egress IP.
     That is a second `KeyWrapper` and nothing else changes. Its key is exported to the same two offline places, so
     losing the Cloudflare account doesn't lose the memories. With the key service down, a restart can't open stores
@@ -541,8 +542,14 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 3. **The account email encrypted under the person's DEK, with a keyed hash for lookup.** The hash key sits next to the
    KEK, behind `KeyWrapper`. Shredding the DEK then leaves only the hash in old copies, so the email goes "at once" like
    everything else. It is built in the same hardening pass as the key service. Not built now.
-4. **Lockout proven.** Every KEK version in use is held offline in two places, and the real-binary drill has restored
-   with the KEK typed from them (RUNBOOK).
+4. **Lockout proven.** Every KEK version in use is held offline in two places, and both copies are proven: three
+   matching fingerprints (each offline copy and Railway's `HOSTED_KEKS`, same label), and the throwaway-KEK drill
+   passing on the real binary (RUNBOOK, "The drill"). Equal bytes under the same label open what Railway's ring
+   opens, and the drill proves the restore itself. (Mike, 2026-11-02: this replaces 10-27's "typed from the offline
+   copies", which proved only that the copies agree with each other, and put the real KEK on the Mac.) **Met
+   2026-11-02**: v1's three fingerprints matched (Railway holds v1 only), and the drill passed on 3fe0aa75. That
+   Railway's v1 is the ring in use rests on the running service: its deploy started after `HOSTED_KEKS` was last set
+   and it opens its stores, and with one version any `HOSTED_KEK_CURRENT` but `v1` refuses at start-up.
 
 ---
 
