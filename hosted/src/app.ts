@@ -27,7 +27,7 @@ import { accountPages } from "./pages.js";
 import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import { Csrf } from "./web.js";
-import type { HostedCallRecord } from "./server.js";
+import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
@@ -65,6 +65,8 @@ export interface AppOptions {
   readonly cimdFetch?: CimdFetch;
   readonly allowedOrigins?: readonly string[];
   readonly onCall?: (record: HostedCallRecord) => void;
+  /** Each error that became a 500 or an "internal error" (`server.ts#HostedServerOptions.onError`). */
+  readonly onError?: (where: ErrorWhere, store: string | null, err: unknown) => void;
   readonly maxOpenStores?: number;
   readonly backup?: AppBackupOptions;
   /** `/mcp`'s per-account limits (`limits.ts`); each absent number is that file's default. */
@@ -438,6 +440,7 @@ export function createApp(opts: AppOptions): App {
     readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
+    ...(opts.onError === undefined ? {} : { onError: opts.onError }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.logForwardedFor === undefined ? {} : { logForwardedFor: opts.logForwardedFor }),
   });
