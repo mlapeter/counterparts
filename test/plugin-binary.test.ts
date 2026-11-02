@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -186,9 +186,116 @@ describe.skipIf(process.platform === "win32")("plugin-run.sh with no runtime: th
     expect(requests).toBe(1);
   });
 
+  // The race itself, many times over: a single pass lost it about one time in ten
+  // on Ubuntu 26.04, whose mkdir let two processes hold the old directory lock.
+  test("many launchers at once, on many first starts: one download each time", async () => {
+    plugin();
+    const go = (mode: string, input: string): Promise<void> =>
+      new Promise((done) => {
+        const child = spawn("/bin/sh", [join(pluginRoot, "src", "adapters", "plugin-run.sh"), mode], { env: env(), stdio: ["pipe", "ignore", "ignore"] });
+        child.stdin.end(input);
+        child.on("close", () => done());
+      });
+    const home = data;
+    const each: number[] = [];
+    for (let round = 0; round < 30; round += 1) {
+      data = join(home, String(round));
+      requests = 0;
+      await Promise.all([go("hook", sessionStart()), go("mcp", ""), go("hook", sessionStart("s3")), go("mcp", "")]);
+      expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+      each.push(requests);
+    }
+    data = home;
+    expect(each.filter((n) => n !== 1)).toEqual([]);
+  }, 60_000);
+
+  test("a download that finishes just after a launcher looked for the program is not fetched again", async () => {
+    plugin();
+    // `find` runs between the launcher's look for the program and its taking the
+    // lock: this one puts the finished program in place at exactly that moment.
+    const shim = join(work, "shim");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(work, "finished"), FAKE);
+    writeFileSync(
+      join(shim, "find"),
+      `#!/bin/sh\nmkdir -p "${join(data, "bin", VERSION)}"\ncp "${join(work, "finished")}" "${bin()}"\nchmod 700 "${bin()}"\nexec /usr/bin/find "$@"\n`,
+    );
+    chmodSync(join(shim, "find"), 0o755);
+    const r = launch("hook", sessionStart(), env({ PATH: `${shim}:/usr/bin:/bin:/usr/sbin:/sbin` }));
+    expect(r.code).toBe(0);
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    await Bun.sleep(300); // a fetch started anyway would have asked by now
+    expect(requests).toBe(0);
+    expect(existsSync(failed())).toBe(false);
+    expect(launch("hook", sessionStart("s2")).stdout).toBe("fake counterparts hook\n");
+  });
+
+  test("a stale lock two launchers find together is broken once: the slower does not take the new lock from the faster", async () => {
+    plugin();
+    mkdirSync(join(data, "bin"), { recursive: true });
+    writeFileSync(lock(), "");
+    const old = new Date(Date.now() - 31 * 60_000);
+    utimesSync(lock(), old, old);
+    hold = Bun.sleep(1500); // the faster one's download stays in flight past the slower one's waking
+    // The slower launcher: it saw the old lock, and is held just after looking.
+    const shim = join(work, "shim");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, "find"), `#!/bin/sh\n/usr/bin/find "$@"\ncode=$?\nsleep 0.3\nexit $code\n`);
+    chmodSync(join(shim, "find"), 0o755);
+    const slow = spawn("/bin/sh", [join(pluginRoot, "src", "adapters", "plugin-run.sh"), "mcp"], { env: env({ PATH: `${shim}:/usr/bin:/bin:/usr/sbin:/sbin` }), stdio: ["pipe", "ignore", "ignore"] });
+    const slowDone = new Promise<void>((done) => slow.on("close", () => done()));
+    slow.stdin.end("");
+    await Bun.sleep(150);
+    const first = launch("hook", sessionStart());
+    expect(message(first.stdout)).toContain("getting ready");
+    await slowDone;
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(requests).toBe(1);
+    expect(existsSync(`${lock()}.breaking`)).toBe(false);
+  });
+
+  test("a breaker killed in its moment holds things up only until it is old too, and the launcher that loses to it still speaks", async () => {
+    plugin();
+    mkdirSync(join(data, "bin"), { recursive: true });
+    writeFileSync(lock(), "");
+    writeFileSync(`${lock()}.breaking`, "");
+    const old = new Date(Date.now() - 31 * 60_000);
+    utimesSync(lock(), old, old);
+    // Its breaker is fresh: this launcher loses that take, and goes on to say so.
+    expect(message(launch("hook", sessionStart()).stdout)).toContain("getting ready");
+    await Bun.sleep(300);
+    expect(requests).toBe(0);
+    expect(existsSync(lock())).toBe(true);
+    // Its breaker is old: nobody is breaking anything, so this one does.
+    utimesSync(`${lock()}.breaking`, old, old);
+    expect(message(launch("hook", sessionStart("s2")).stdout)).toContain("getting ready");
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(requests).toBe(1);
+    expect(existsSync(`${lock()}.breaking`)).toBe(false);
+  });
+
+  test.skipIf(!existsSync("/bin/zsh"))("with zsh as sh, a first start still downloads: its refusing `set -m` does not stop the download starting", async () => {
+    plugin();
+    const shim = join(work, "shim");
+    mkdirSync(shim, { recursive: true });
+    symlinkSync("/bin/zsh", join(shim, "sh"));
+    const r = spawnSync(join(shim, "sh"), [join(pluginRoot, "src", "adapters", "plugin-run.sh"), "hook"], {
+      input: sessionStart(),
+      encoding: "utf8",
+      env: env({ PATH: `${shim}:/usr/bin:/bin:/usr/sbin:/sbin` }),
+      timeout: 30_000,
+    });
+    expect(r.status).toBe(0);
+    expect(message(r.stdout)).toContain("getting ready");
+    expect(r.stderr).toBe("");
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(requests).toBe(1);
+  });
+
   test("while it downloads, the server answers with no tools and says why", () => {
     plugin();
-    mkdirSync(lock(), { recursive: true }); // a download in flight
+    mkdirSync(join(data, "bin"), { recursive: true });
+    writeFileSync(lock(), ""); // a download in flight
     try {
       const rpc = [
         JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "t" } } }),
