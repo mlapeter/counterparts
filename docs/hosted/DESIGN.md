@@ -547,7 +547,9 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
    passing on the real binary (RUNBOOK, "The drill"). Equal bytes under the same label open what Railway's ring
    opens, and the drill proves the restore itself. (Mike, 2026-11-02: this replaces 10-27's "typed from the offline
    copies", which proved only that the copies agree with each other, and put the real KEK on the Mac.) **Met
-   2026-11-02**: v1's three fingerprints matched (Railway holds v1 only), and the drill passed on 3fe0aa75.
+   2026-11-02**: v1's three fingerprints matched (Railway holds v1 only), and the drill passed on 3fe0aa75. That
+   Railway's v1 is the ring in use rests on the running service: its deploy started after `HOSTED_KEKS` was last set
+   and it opens its stores, and with one version any `HOSTED_KEK_CURRENT` but `v1` refuses at start-up.
 
 ---
 

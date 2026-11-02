@@ -33,10 +33,14 @@ case $SCRATCH/ in
   /*) ;;
   *) echo "COUNTERPARTS_DRILL_DIR must be an absolute path" >&2; exit 2 ;;
 esac
-case $SCRATCH/ in
-  "$REPO"/*) echo "COUNTERPARTS_DRILL_DIR is inside the repository ($REPO): the drill's state, KEKs and logs never go there" >&2; exit 2 ;;
-esac
+MADE=0; [[ -d $SCRATCH ]] || MADE=1
 mkdir -p "$SCRATCH"
+SCRATCH=$(cd "$SCRATCH" && pwd -P)
+# Inside ANY git work tree (this repository, a worktree of it, ~/counterparts-notes): refused, it could be pushed.
+if git -C "$SCRATCH" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  (( MADE )) && rmdir "$SCRATCH" 2>/dev/null
+  echo "COUNTERPARTS_DRILL_DIR ($SCRATCH) is inside a git work tree: the drill's state, KEKs and logs never go there" >&2; exit 2
+fi
 WT=$SCRATCH/worktree   # production's deployed commit, for the image (made at step 0, removed at step 13)
 SHA=''                 # that commit: read from GitHub's deployments at step 0, kept in the state for a resume
 IMAGE=''
@@ -101,7 +105,11 @@ now() { perl -MTime::HiRes=time -e 'printf "%.1f", time'; }
 # One container, detached (no --rm: this script removes it, so a killed script never takes
 # the container with it), its output appended to $LOG after a start marker by a
 # `docker logs -f` follower. RUN_PID is the follower: it ends when the container stops.
-port_free() { [[ -z $(lsof -nP -iTCP:8080 -sTCP:LISTEN 2>/dev/null) ]] || fail "port 8080 free" "$(lsof -nP -iTCP:8080 -sTCP:LISTEN | tail -1 | awk '{print $1, $2}')"; }
+port_free() { # names a container holding the port (a rehearsal's left after a failure: docker rm -f drill-rehearsal)
+  [[ -z $(lsof -nP -iTCP:8080 -sTCP:LISTEN 2>/dev/null) ]] && return 0
+  local who; who=$(docker ps --filter publish=8080 --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
+  fail "port 8080 free" "${who:+container $who(docker rm -f $who) }$(lsof -nP -iTCP:8080 -sTCP:LISTEN | tail -1 | awk '{print $1, $2}')"
+}
 start() { # start <log> [docker args, e.g. -e RESTORE_ON_BOOT=1]
   LOG=$1; shift
   gone || fail "no $NAME container before a start (docker stop $NAME; docker rm $NAME first)" "one exists"
@@ -261,7 +269,8 @@ step_0() { # preflight: deployed sha and its worktree, Docker, port, no leftover
   if (( ! REHEARSE )); then cn r2-empty; fi
   docker build -f "$WT/hosted/Dockerfile" -t "$IMAGE" "$WT" > "$LOG" 2>&1 || fail "the image builds" "docker build failed"
   local lsv; lsv=$(docker run --rm --entrypoint litestream "$IMAGE" version)
-  [[ $lsv == *0.5.17* ]] || fail "Litestream 0.5.17 in the image" "$lsv"
+  local want; want=$(sed -n 's/^ARG LITESTREAM_VERSION=//p' "$WT/hosted/Dockerfile")
+  [[ -n $want && $lsv == *"$want"* ]] || fail "Litestream ${want:-(no ARG LITESTREAM_VERSION in the Dockerfile)} in the image, as the Dockerfile pins" "$lsv"
   local r1 r2 k
   r1=$(openssl rand -base64 32) || fail "openssl rand to succeed" "it failed"
   r2=$(openssl rand -base64 32) || fail "openssl rand to succeed" "it failed"
@@ -484,5 +493,11 @@ for (( s = FROM; s <= LAST; s++ )); do
   "step_$s"
   [[ -f $STATE ]] && save REACHED "$s"
 done
-(( REHEARSE )) && note "- rehearsal done through step $LAST (container left running for inspection: $NAME on $VOL)"
+if (( REHEARSE )); then
+  # A rehearsal cleans up after itself, so the drill finds port 8080 free and no state (a failed one stays, for --from).
+  docker stop -t 60 "$NAME" >/dev/null; end_follower; remove
+  docker volume rm -f "$VOL" >/dev/null
+  rm -f "$STATE" "$DRILL_STATE"
+  note "- rehearsal done through step $LAST; container, volume $VOL and state removed (the image and the worktree stay for the drill)"
+fi
 exit 0

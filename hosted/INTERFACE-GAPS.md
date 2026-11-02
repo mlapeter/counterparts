@@ -74,7 +74,7 @@
 16. **What the real binary does with a configured database that doesn't exist yet** (a store signed up and not yet
     opened; the #653 review, M4): **closed 2026-11-02** by the drill. Each sign-up's reload was a plain
     `sidecar.exit` then `sidecar.start`, with no back-off, and the control database replicated while no store database
-    existed. The never-opened store then restored without a failure.
+    existed. The never-opened store then caused no failure on restore.
 
 ## Low, named so they are decisions
 

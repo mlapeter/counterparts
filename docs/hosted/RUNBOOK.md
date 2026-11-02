@@ -372,8 +372,10 @@ Mac. That proved only that the two copies agree with each other, and it put the 
 
 - **The copies are proven by fingerprints.** You fingerprint each offline copy and Railway's `HOSTED_KEKS`, and all
   three must match. A wrapped key opens only with the right key bytes and the right version label (`keys.ts`, the
-  label is in the AAD). Railway's own start-ups prove that its ring opens the bucket's keys. So copies whose bytes
-  equal Railway's, under the same label (`v1`), open the bucket too.
+  label is in the AAD). Railway's own start-ups prove that its ring opens the bucket's keys: the running deploy
+  started after the last edit to `HOSTED_KEKS` and opens its stores. So copies whose bytes equal Railway's, under
+  the same label (`v1`), open the bucket too. (With one version in the ring, `HOSTED_KEK_CURRENT` can only be unset
+  or `v1`: any other value refuses at start-up, `keys.ts`.)
 - **The restore is proven with a throwaway KEK.** The script runs production's deployed image, the real Litestream
   and a drill bucket on R2. The key material is made for the drill and thrown away after it.
 
@@ -406,10 +408,9 @@ Mac. That proved only that the two copies agree with each other, and it put the 
    railway variables --kv | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=d.split("\n").find(x=>x.startsWith("HOSTED_KEKS="));if(!l){console.log("NO HOSTED_KEKS");return}for(const e of l.slice(12).split(",")){const i=e.indexOf(":");const b=Buffer.from(e.slice(i+1).trim(),"base64");console.log(e.slice(0,i).trim(),b.length===32?require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8):"NOT 32 BYTES")}})'
    ```
 
-   Expect one line per version (`v1 <8 hex>`), `v1` only today. In Railway's variables, `HOSTED_KEK_CURRENT` should be
-   unset or `v1`. Check that the running
-   deploy started after the last edit to `HOSTED_KEKS`, so the ring it proved is this one. `e3b0c442` is the
-   SHA-256 of nothing: a failed read, never a match.
+   Expect one line per version (`v1 <8 hex>`), `v1` only today. Check that the running deploy started after the last
+   edit to `HOSTED_KEKS`, so the ring it proved is this one. A service that is serving with one version has
+   `HOSTED_KEK_CURRENT` unset or `v1`, since any other value refuses at start-up.
 4. **All three equal?** Then write the 8 hex beside both offline copies, as their **key-check value**. On the day
    Railway is gone, it tells you a copy is the right one before anything is restored. If one differs, fix that copy
    now, while Railway's still works.
@@ -443,16 +444,19 @@ them by name (`-e NAME`). The steps, and what each proves:
 | 12 | A second cycle: stop, volume gone, restore, recall A, B and C | a restored server restores again |
 | 13 | Cleanup: container, volume, bucket emptied, image, worktree, state | nothing of the drill is left but its logs |
 
-**Cleanup.** Step 13 empties the bucket and removes everything local except the logs. Then you delete the drill
+**Cleanup.** A rehearsal that passes removes its container, volume and state; one that fails leaves them for
+`--from`, and holds port 8080 until you clean it up:
+`docker rm -f drill-rehearsal; docker volume rm cp-drill-rehearsal; rm "$COUNTERPARTS_DRILL_DIR"/rehearsal-state.*`.
+Step 13 empties the bucket and removes everything local except the logs. Then you delete the drill
 token and the empty bucket in Cloudflare, and the logs directory when you're done reading it.
 
 **Run it again after each new KEK version, or a Litestream bump.** A new KEK version needs steps 2-4 again, for the
-new version: paste each copy without its label, or change `v1` in the command, since a label it doesn't strip gives a
-wrong fingerprint, not an error. A Litestream bump needs the script.
+new version: the offline-copy command strips only `v1:`, so a copy pasted with another label prints `NOT 32 BYTES`;
+paste it without the label. A Litestream bump needs the script.
 
 **2026-11-02: both halves passed.** The fingerprints: at about 10:19, KEK v1 from the password manager, from the paper
 copy and from Railway's `HOSTED_KEKS` (a single `v1` entry) all matched, and the fingerprint is written beside both
-offline copies. The script: all 14 steps passed, on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
+offline copies. The script: steps 0-13 passed (one resume at step 4 after a script bug), on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
 bucket unchanged. B, written just before the stop, came back. The old token and the refresh both worked after
 the restore. Plain GETs answered `400 InvalidRequest` (×32).
 
