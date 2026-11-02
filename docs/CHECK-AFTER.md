@@ -991,6 +991,8 @@ reverted, nothing changed.** Two things need Mike: the dream queue (unchanged as
   704 → 985 → 1,389 (waiting 638 → 924 → 1,331) on 10-24 / 10-28 / 11-02, ~76 a night, agedOut 91–168 a night;
   draining it needs `FRESH_SHARE` or `NIGHT_CHARS` (tokens). No further intake read is due; re-read only if he moves
   the queue.
+  What would change it: dreams noticeably thinner on a night-by-night read (changes, links, gists, journal all down
+  together for several nights, not one build's dip) → `dream.NEIGHBOURS` back to 6; the queue's growth alone does not.
 - **PP1, see-also from named ids (0.3.41 on) — the bar is not met, on too few to act; kept on, re-check ~11-09.**
   Footnotes by `via` and build (all `recall.decision` rows): 0.3.40 plain 132, link 2, see-also 0 (the control);
   0.3.41 277 / 2 / 3; 0.3.42 248 / 5 / 3; 0.3.43 206 / 1 / 3; 0.3.44 17 / 0 / 0; 0.3.45 8 / 0 / 0. So 9 see-also'd of
