@@ -233,12 +233,6 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   }
 }
 
-/**
- * `serve`'s log line for an app event: limit refusals, stores waiting on a
- * restore, a new store's failed backup set-up (R3), a delete's email that
- * didn't send (R9). The event and the hashed
- * store tag, nothing else: never an id, an address or an error's text.
- */
 /** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
 export function callLine(r: HostedCallRecord): string {
   const parts = [`store=${r.store}`, `method=${r.method}`];
@@ -253,6 +247,12 @@ export function callLine(r: HostedCallRecord): string {
   return `[hosted] mcp ${parts.join(" ")}\n`;
 }
 
+/**
+ * `serve`'s log line for an app event: limit refusals, stores waiting on a
+ * restore, a new store's failed backup set-up (R3), a delete's email that
+ * didn't send (R9). The event and the hashed
+ * store tag, nothing else: never an id, an address or an error's text.
+ */
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;

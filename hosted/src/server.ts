@@ -101,7 +101,7 @@ export interface Readiness {
 
 export const MCP_PATHS = new Set(["/mcp", "/mcp/"]);
 
-export type ErrorWhere = "call" | "door" | "tenant" | "route";
+export type ErrorWhere = "call" | "door" | "tenant" | "route" | "auth";
 
 /**
  * One log line for an error that became a 500 (or a JSON-RPC "internal error"): its type, its `code` when that
@@ -109,13 +109,19 @@ export type ErrorWhere = "call" | "door" | "tenant" | "route";
  * path inside the app. Never the message, never anything the request carried.
  */
 export function errorLine(where: ErrorWhere, store: string | null, err: unknown): string {
-  const e = err !== null && typeof err === "object" ? (err as { name?: unknown; code?: unknown; stack?: unknown }) : {};
+  const e = err !== null && typeof err === "object" ? (err as { name?: unknown; code?: unknown; errcode?: unknown; syscall?: unknown; message?: unknown; stack?: unknown }) : {};
   const name = typeof e.name === "string" && /^[A-Za-z0-9_$]{1,40}$/.test(e.name) ? e.name : typeof err;
   const code = typeof e.code === "string" && /^[A-Z0-9_]{1,40}$/.test(e.code) ? ` code=${e.code}` : "";
+  // node:sqlite gives every error code=ERR_SQLITE_ERROR; errcode (5 BUSY, 11 CORRUPT, 14 CANTOPEN…) tells them apart.
+  const errcode = typeof e.errcode === "number" && Number.isInteger(e.errcode) ? ` errcode=${String(e.errcode)}` : "";
+  const syscall = typeof e.syscall === "string" && /^[a-z_]{1,20}$/.test(e.syscall) ? ` syscall=${e.syscall}` : "";
   const frames: string[] = [];
   if (typeof e.stack === "string") {
-    for (const line of e.stack.split("\n")) {
-      const m = /^\s+at (?:([\w$.<> ]{1,60}) \()?(.*?):(\d+):\d+\)?$/.exec(line);
+    // The stack starts with the message, which may run over several lines: those are skipped, so a message
+    // line shaped like a frame is never read as one.
+    const skip = typeof e.message === "string" ? e.message.split("\n").length : 1;
+    for (const line of e.stack.split("\n").slice(skip)) {
+      const m = /^\s+at (?:((?:new |async )?[\w$.<>]{1,60}) \()?(.*?):(\d+):\d+\)?$/.exec(line);
       if (m === null) continue;
       const file = m[2] ?? "";
       const cut = /(?:^|\/)((?:hosted\/)?src\/.*|node_modules\/.*)$/.exec(file);
@@ -125,7 +131,7 @@ export function errorLine(where: ErrorWhere, store: string | null, err: unknown)
       if (frames.length === 5) break;
     }
   }
-  return `[hosted] error where=${where}${store === null ? "" : ` store=${store}`} name=${name}${code} at=${frames.length === 0 ? "?" : frames.join(" < ")}\n`;
+  return `[hosted] error where=${where}${store === null ? "" : ` store=${store}`} name=${name}${code}${errcode}${syscall} at=${frames.length === 0 ? "?" : frames.join(" < ")}\n`;
 }
 
 /** The Protected Resource Metadata URL the 401 points at (path-inserted, RFC 9728 §3.1). */
@@ -194,7 +200,8 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     let caller: Caller | null;
     try {
       caller = token === null ? null : await opts.authenticate(token);
-    } catch {
+    } catch (err) {
+      report("auth", null, err);
       req.resume();
       text(res, 503, "503\n", { "Retry-After": "30", ...hsts });
       return;
@@ -249,7 +256,8 @@ export function createHostedServer(opts: HostedServerOptions): Server {
               let now: Caller | null;
               try {
                 now = await opts.authenticate(token!);
-              } catch {
+              } catch (err) {
+                report("auth", store, err);
                 throw new RecheckFailed();
               }
               if (now === null || now.personId !== caller.personId || now.storeId !== caller.storeId) throw new TokenRevoked();

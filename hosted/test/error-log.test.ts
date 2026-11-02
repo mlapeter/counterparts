@@ -56,6 +56,15 @@ describe("errors that become a 500", () => {
     assert.equal(errorLine("door", null, SECRET), "[hosted] error where=door name=string at=?\n");
   });
 
+  test("errorLine: a message line shaped like a frame is never read as one; sqlite's errcode and a syscall are kept", () => {
+    const message = `first line\n    at Mike.wrote (/data/tenants/0123abcd/what-he-said.ts:1:2)`;
+    const err = Object.assign(new Error(message), { code: "ERR_SQLITE_ERROR", errcode: 11, syscall: "open" });
+    err.stack = `Error: ${message}\n    at Store.open (/app/src/core/store/index.ts:120:9)`;
+    const line = errorLine("tenant", null, err);
+    assert.equal(line, "[hosted] error where=tenant name=Error code=ERR_SQLITE_ERROR errcode=11 syscall=open at=Store.open@src/core/store/index.ts:120\n");
+    assert.ok(!line.includes("Mike") && !line.includes("what-he-said"));
+  });
+
   test("the store's open throws: 500, told once as `tenant` with the store tag, no message", async () => {
     const d = await door(() => Promise.reject(new Error(SECRET)));
     const out = await rpc(d.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } }, d.headers);
