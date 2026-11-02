@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
@@ -110,6 +111,36 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~14 lived days after the longer habituation window (2026-11-01, H14, Mike's call 12:07, lightly held — `recall.HABITUATION_WINDOW_DAYS`)
+
+**What we're trying:** a memory rated 0 in two sessions faces the raised bar for 14 lived days, not 7. Replaying 2,037 real
+turns (10-26..31) at 14 removed 261 showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost
+is about twice as many memories held down at once (271 against 138 on lived day 41). This is a starting point, not a
+commitment, and anyone can reopen it sooner.
+
+**Reopen sooner if:** Mike or a session notices a ruling it wanted didn't come up, or a memory rated 3 sits in the held list.
+
+**The review:** ROADMAP holds this read. On a fresh store copy, read-only, a small script: memories held on a given day that were later opened, asked for or rated 2-3 (the `asked` and `opened` lanes on `recall.rated`), plus a read of the extra footnotes the 7-day arm would have shown. Replay steps and scripts are in
+`~/counterparts-notes/2026-11-01-briefs/habituation-replay/PROGRESS.md` (`held.py` for the held list). They carry scratch paths from 11-01, so point them at the new copy. Also read held-set size and rulings held. R3S lands just before this and moves the same noise number, so don't read noise alone.
+
+**Useful lost can't be read after release, by live or by a replay.** The 11-01 replay could score what 14 took away because live ran at 7, so those footnotes were shown and rated. Once live runs at 14, what it holds mostly isn't shown, so it has no rating. The "5% of removed rated showings" test applied only to the 10-26..31 replay (4.2%, 5 of 120).
+
+**What would change it:** held memories later turning out wanted, the extra footnotes reading as ones we'd have wanted, or a ruling Mike uses staying held. Then back to 7 or something between. If none of those shows, leave it. It's also worth reading once the history
+is older than 21 days, since 14 and 21 can only part then.
+
+**The 11-01 replay, corrected:** its 14 and 21 arms first read the window through `eventLog`'s default of 500 rows, oldest
+first, which this change fixes (`recall/NOTES.md`, H14). The window passes 500 rows on lived days 39–40 (10-30, 10-31), so
+those arms missed their newest ratings there. Rerunning those two days (698 turns) with the fix changed 2 turns at 14 and 6
+at 21, and none in the 7-day control. At 14: 261 removed (first run 260), 5 useful of 120 rated (5 of 119), 4.2% both. At 21:
+268 removed (266), 6 useful of 121 (6 of 120), 5.0% both. Noise stays 40.3% to 37.7% in both arms, so 14 and 21 still
+don't part. The numbers above are the corrected ones.
+
+**On the upgrade:** the box-3 note a 7-day build left reads as current until the next rating row, so memories rated 0 only
+in the older 7 days aren't held until then. The next rating row rebuilds it (tested through `session_end`).
+
+**How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
+once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
