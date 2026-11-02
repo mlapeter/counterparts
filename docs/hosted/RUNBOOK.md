@@ -171,7 +171,7 @@ extend `deniedMcpServers`. It already lists `*.trycloudflare.com`, `claude.ai co
 
 ## 8. The connector
 
-1. claude.ai → Settings → Connectors → Add custom connector.
+1. claude.ai → Customize > Connectors, + Add → Add custom connector.
 2. The name is `Counterparts` (the same name as in step 7). The URL is `https://app.counterparts.ai/mcp`.
 3. Connect, sign in, then Allow. Your account page now lists it.
 4. In a new chat, ask it to wake. The first wake offers the first meeting.
