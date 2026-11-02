@@ -538,7 +538,9 @@ Look at (read-only, rows since the release that carries it, 0.3.45; `<ms>` its i
   filler class at dozens of memories is the next candidate;
 - footnote ratings by build from `recall.rated` (noise / useful), read as R3's row reads them: the 11-01 read was 40.7% /
   16.7% (n 1,500). Expect a small move at most: a listed word still matches a memory that holds it, only its learned
-  pairs are gone.
+  pairs are gone. Read turns made of listed words on their own: the turn's bar is relative, so quiet pairs lower it and other
+  memories clear it. On the 0.3.45 copy, of 7 such prompts through the hook, footnotes went 1→4, 1→5, 2→1, one swapped, 3 the
+  same; 5 prompts with no listed word didn't move. "sounds good, go ahead" can bring more footnotes, not fewer.
 
 Changes it: a stop-listed share well above the 7–10% above, or new filler or path words at the top of the fan-out → widen
 the list or move to a rule (a minimum informativeness for learned words) instead of naming words. Growth still ~3,000 a

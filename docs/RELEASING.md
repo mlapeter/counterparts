@@ -150,6 +150,12 @@ release commit: a handoff in the wake says "release X then, Y now", naming the r
 Compare the pre-bump commit against the last release's tag for the raw `cmp`, then the extracted
 tarball with that one version swapped. Don't use the release worktree for the second: a checkout on
 an unmerged branch also adds doctor's Checkout line to the hook's `systemMessage` (0.3.44).
+Two things that comparison needs (0.3.45). The same store path on both sides: the wake's tag carries a store id made from
+the salt and the path, so two copies at two paths never `cmp` equal; put a fixed `sessions/expansions.salt` in the copy, and
+run each side at one path in turn. And a frozen clock, which the code has no switch for: `BUN_OPTIONS=--preload=<a file that
+replaces Date>` reaches the hook through its launcher and the detached worker as well. To wait for a worker on a copy, look
+for the store's path with `ps -E`: it's in the worker's environment, not its arguments. The laptop's disk has run close to
+full: `cp -c` clones a copy instead of writing it, and the Trash doesn't give the space back.
 
 ## 3. The single binaries
 
