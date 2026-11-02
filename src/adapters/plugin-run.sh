@@ -432,7 +432,7 @@ if [ -z "$why" ]; then
   # so one of them breaks it, and looks again first: the other may have broken it
   # and taken a new one since this one looked.
   if is_old "$lock"; then
-    is_old "$lock.breaking" && rm -f "$lock.breaking"
+    is_old "$lock.breaking" && rm -f "$lock.breaking" 2>/dev/null
     if take_file "$lock.breaking"; then
       is_old "$lock" && rm -rf "$lock"
       rm -f "$lock.breaking"
@@ -451,8 +451,10 @@ if [ -z "$why" ]; then
     if command -v setsid >/dev/null 2>&1; then
       setsid sh "$0" __fetch </dev/null >/dev/null 2>&1 &
     else
+      # Tried in a subshell first: zsh as sh refuses `set -m` with no terminal, and
+      # a refused `set` would end this subshell before the download started.
       (
-        set -m 2>/dev/null
+        (set -m) 2>/dev/null && set -m 2>/dev/null
         sh "$0" __fetch </dev/null >/dev/null 2>&1 &
       )
     fi
