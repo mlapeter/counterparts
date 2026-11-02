@@ -68,7 +68,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | 0.3.31, 10-22 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
 | Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | 0.3.32, 10-22 | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments (read 10-29: slot and tag priming kept); **the beliefs slot's own read: when 3+ beliefs about other people pass the 0.3 floor** (beliefs about me or us are page-only by design, so it has only ever shown one belief) | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
 | Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21; 14 once P2 #674 ships, and a one-off date past its grace no longer exempt — read a check after that release against 14) lived days — out of Still open, its count and `staleOpen`; the share says the count once | 0.3.32, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
-| The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | 0.3.33, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
+| The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | 0.3.33, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) (read 10-29: fresh took, dreams a little thinner, re-check 11-02; read 11-02: fresh 55–63 a night on 0.3.39–0.3.45, links/gists/journal back to the 0.3.32 level a night, not thinner; kept, intake closed. Queue 704 → 1,389 since 10-24: Mike's call) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | 0.3.34, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | 0.3.34, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
 | The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | 0.3.35, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
@@ -91,7 +91,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 | S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | 0.3.38, 10-28 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
 | P2: open items untouched 14 lived days are parked (the 10-22 carry rule at 14, was 21): out of Still open and its count, `· N parked` on its count line, listed last and marked by `recall "still open"`; never a date still to come (ahead, in its grace week, repeating), `asked` or `settlesWhen` item; doctor's Open items line | 0.3.40, 10-29 (#674, #675) | ~3 mornings after install: doctor's open/carried/parked, the first night's share count (every item 14–20 days untouched counts as newly parked once), whether a parked thread Mike still wanted came back by a touch or had to be found | `docs/decisions.d/feat-p2-park-old-threads.md` |
-| PP1: a memory whose text names another's id brings it along (`See also:`, one per shown memory, two a turn); used, it gets the turn's cue credit (the ping/pong fix) | 0.3.41, 10-30 (#681) | ~3 lived days after install: see-also'd footnotes rated at least as well as plain ones; the ping demo holds on the live store | "Due ~3 lived days after see-also from named ids" below; `docs/decisions.d/feat-see-also-named-ids.md` |
+| PP1: a memory whose text names another's id brings it along (`See also:`, one per shown memory, two a turn); used, it gets the turn's cue credit (the ping/pong fix) | 0.3.41, 10-30 (#681) | ~3 lived days after install: see-also'd footnotes rated at least as well as plain ones; the ping demo holds on the live store (read 11-02: 9 see-also'd of 748 footnotes on 0.3.41–0.3.43, mean 0.62 / 50% zero against plain 0.84 / 39% — bar not met, n 8 too few to act; kept on, re-check ~11-09. Bare "ping" shows the 10-27 fold, FI1's cause; a rated-1 see-also of the rule wired no `ping` pair, under `CUE_FLOOR` — Mike's call) | "Due ~3 lived days after see-also from named ids" below; `docs/decisions.d/feat-see-also-named-ids.md` |
 | FI1: a fold or merge keeps the ids its sources named (a last `Names:` line, at most 4 named in all); see-also doesn't bring a memory the folder setting has closed | 0.3.42, 10-30 (#697) | ~2026-11-06: a NEW fold keeps its sources' named ids and they come through as see-also. NOT the bare "ping" on the live store: that fold keeps no id, and the check fails before and after | "Due ~2026-11-06: folds keep named ids" below; `docs/decisions.d/feat-fi1-folds-keep-named-ids.md` |
 | K1 (the 10-29 read): context priming's train share 0 (`recall.PRIME_TRAIN_SHARE`, was 0.5): the train scores nothing, the row says `primed.train: false`; link and tag priming unchanged | 0.3.41, 10-30 (#680) | ~2 weeks after the release that carries it (~2026-11-13): footnote noise/useful by build, the link-lifted and tag-lifted groups, shown per person turn | "Due ~2 weeks after the 10-29 knobs" below; `docs/decisions.d/chore-read-1029-knobs.md` |
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
@@ -609,7 +609,7 @@ naming each other's neighbours), or folds with a line of ids rated or found wors
 vector (numbers in the decision; leaving the line out of what's indexed is the fix to try). Revert: the PR; what's
 written stays as text, and is harmless.
 
-## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`)
+## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`) — checked 2026-11-02, below; re-check ~11-09
 
 What: a memory a turn shows (loud or a cued footnote) whose text names another memory's id (`mem_…`) brings the
 memory that holds now along as one `See also:` footnote, one per shown memory, two a turn, after every other
@@ -962,6 +962,70 @@ FROM events WHERE name = 'dream.night' AND json_extract(payload,'$.usage') IS NO
 past ~60–80k tokens a night → raise turning it off (`schemas.TAGS_NIGHT=false`). A child's `null` means it said no
 usage (stopped mid-stream); many of those is its own question. Revert of the record itself: revert the PR (nothing
 reads `usage` but the two lines above).
+
+## Checked 2026-11-02 (lived day 42, on 0.3.45: the dream's fresh intake again, and PP1 see-also from named ids)
+
+Read on a copy of the live store taken 11-02 08:02 (after the day-42 dream at 07:49), never the store itself; SQL from
+each row plus one read-only script over the copy (no counterparts code run). Builds as `recall.decision` and
+`dream.begun` carry them: 0.3.39 10-28/29, 0.3.40 10-29 14:08 → 10-30 08:42, 0.3.41 10-30 08:43 → 20:38, 0.3.42
+10-30 20:40 → 11-01 11:39, 0.3.43 11-01 11:40 → 16:54, 0.3.44 11-01 16:54 → 19:25, 0.3.45 from 11-01 19:42.
+`build.0.3.40`–`0.3.45.settings` are all `[]` (no override). No dream ran on 0.3.41, 0.3.43 or 0.3.44. **Nothing
+reverted, nothing changed.** Two things need Mike: the dream queue (unchanged ask from 10-29) and PP1's cue floor.
+
+- **The dream's fresh intake (0.3.33 on) — kept; the intake is closed.** `dream.begun` by night and build, fresh /
+  queue / waiting / agedOut / whole: 0.3.39 10-29 60 / 1,037 / 977 / 158 / 1; 0.3.40 10-30 55 / 1,022 / 967 / 91 / 28;
+  0.3.42 10-31 63 / 1,277 / 1,214 / 148 / 1; 0.3.42 11-01 55 / 1,202 / 1,147 / 128 / 37; 0.3.45 11-02 58 / 1,389 /
+  1,331 / 168 / 3 (3 parts each). **Fresh took and holds**: 55–66 every night since 0.3.33 (42 on the last 0.3.32
+  night, 41–46 the week before). `whole` is not "near 11": it swings 1–37 (mean 14 over these five, 15/5/33/3/4 on
+  10-24..28). Output, by the 10-29 read's own counts (all `dream_changes` rows, replays included; journal = the
+  dream's journal length): 8 nights 10-16..23 (≤ 0.3.32) / 5 nights 10-24..28 (0.3.33–0.3.37, the 10-29 read) /
+  5 nights 10-29..11-02 (0.3.39–0.3.45) — changes a night 36.9 / 34.8 / 45.6; links 15.1 / 13.8 / 15.8; gists 2.9 /
+  2.2 / 2.8; journal 1,942 / 1,498 / 1,959 chars; contradictions raised 1 / 0 / 3; gist body mean 697 / 722 / 742
+  chars (FI1's `Names:` line adds a little from 0.3.42); changes per fresh 0.86 / 0.56 / 0.78. Part of the last
+  window's rise is replay (`replayed` 13.3 / 13.6 / 20.0 a night): without replays, changes per fresh are 0.55 / 0.34 /
+  0.44. By build in the new window (changes, links, gists, journal): 0.3.39 33, 10, 3, 1,461; 0.3.40 50, 17, 2,
+  1,792; 0.3.42 59 and 39, 20 and 15, 5 and 1, 3,066 and 1,439; 0.3.45 47, 17, 3, 2,038. **Not thinner a night**; the
+  10-24..28 dip did not last. Less work per fresh memory is the expected price of ~50% more fresh at the same night,
+  not a thinner dream. Journal texts weren't read for this note (counts and lengths only). The row's trigger ("dreams
+  noticeably thinner → NEIGHBOURS back to 6") is not met. **For Mike (unchanged since 10-29):** the queue keeps growing,
+  704 → 985 → 1,389 (waiting 638 → 924 → 1,331) on 10-24 / 10-28 / 11-02, ~76 a night, agedOut 91–168 a night;
+  draining it needs `FRESH_SHARE` or `NIGHT_CHARS` (tokens). No further intake read is due; re-read only if he moves
+  the queue.
+  What would change it: dreams noticeably thinner on a night-by-night read (changes, links, gists, journal all down
+  together for several nights, not one build's dip) → `dream.NEIGHBOURS` back to 6; the queue's growth alone does not.
+- **PP1, see-also from named ids (0.3.41 on) — the bar is not met, on too few to act; kept on, re-check ~11-09.**
+  Footnotes by `via` and build (all `recall.decision` rows): 0.3.40 plain 132, link 2, see-also 0 (the control);
+  0.3.41 277 / 2 / 3; 0.3.42 248 / 5 / 3; 0.3.43 206 / 1 / 3; 0.3.44 17 / 0 / 0; 0.3.45 8 / 0 / 0. So 9 see-also'd of
+  748 footnotes on 0.3.41–0.3.43 (10-30..11-01), 1.2% against the 2.5% estimated from the 10-29 snapshot. Ratings,
+  each footnote joined to the next `recall.rated` of its id in the same session: **see-also'd n 9, 8 rated, mean
+  0.62, 50% rated 0, 1 rated 2+**; plain footnotes the same builds and days n 731, 638 rated, mean 0.84, 39% rated 0,
+  18% rated 2+; link footnotes n 8, mean 1.00, 38% rated 0. Per build the see-also'd are 3 / 3 / 3, so nothing can be
+  split by build. One rating moved from 0 to 2 would put the mean at 0.88: the gap is a single rating. The ids, for the
+  record (shown ← by, rating): 0.3.41 mem_0ca7f032368a ← mem_4b5443fd6fb6 1, mem_4892da5d1aa3 ← mem_e30218a0669f 1,
+  mem_79f3fc7811b0 ← mem_aae06b19c6f6 0; 0.3.42 mem_161de5ecff03 ← mem_872deb537320 0, mem_9e4bfcefab3c ←
+  mem_99de92c5c9eb 2, mem_5cc192306e1e ← mem_aab5bc0d2ba7 0; 0.3.43 mem_9e4bfcefab3c ← mem_00ba40ad8d81 unrated,
+  mem_0a5b6dfd024c ← mem_6902723f4655 0, mem_49c36763565c ← mem_37eaa8a54a55 1. Bytes, 0.3.41–0.3.43 turns with any
+  footnote: with a see-also 8 turns, mean 438 (max 566); without 498 turns, mean 353; `budgetTrimmed` 0 on both.
+  **The ping demo does not hold, and it fails in two halves for two causes:**
+  (1) *The bare "ping" doesn't bring the rule — FI1's cause, not PP1's.* Six bare-"ping" turns (one cue word) since
+  0.3.40: 10-29 ×2 and 10-30 ×1 on 0.3.40, 10-30 ×2 on 0.3.41, 10-31 ×1 on 0.3.42. Every one showed
+  mem_4892da5d1aa3 loud and nothing else: that is the 10-27 dream's gist over five notes including the miss note
+  mem_66bb7d836201, and its text names no id, so see-also has nothing to read. The miss note does name the rule, but
+  the fold, not the note, wins the bare word. This is exactly the fold FI1's row says keeps no id; not counted against
+  PP1.
+  (2) *A credited see-also of the rule wired no `ping` pair — PP1's own "changes it" names this.* On 0.3.41 (10-30,
+  session 1372bd3f, turn 15) the rule mem_0ca7f032368a came along as see-also, by mem_4b5443fd6fb6, and was rated 1;
+  `gate_session` records the training (`cuetrain` t15 0.25). That turn had 22 cue words, `ping` 4.8% of their weight,
+  so the pair's delta was `CUE_TRAIN_RATE` 0.5 × `CUE_TRAIN_RATED_ONE` 0.25 × 0.048 ≈ 0.006, and `associate/edges.ts`
+  writes a pair at or under `CUE_FLOOR` 0.02 as 0. `cue_edges` has no row for the rule at all (nor for the memory that
+  brought it); `ping` still wires to mem_66bb7d836201 0.703 and mem_4892da5d1aa3 0.507 (both last day 39), four
+  others under 0.04. So the retrain half of PP1 can only write a one-word pair on a turn where that word is a large
+  share: a full use (rated 2 or 3) on this turn would give ≈ 0.024, barely over the floor; a rated 1 needs the word to be
+  over ~16% of the turn. Nothing broke; it is how the floor meets a long turn. **For Mike:** a see-also'd use writes
+  its pairs before the floor (or with a lift), or leave it — and a bare "ping" that shows the rule needs FI1's new
+  folds or the old fold re-made.
+  What would change it is in the row; one addition: if by ~11-09 (or at 30 rated see-also'd footnotes, whichever is
+  later) they still sit under plain footnotes by mean and zero-share, lower `SEE_ALSO_MAX` to 1 as the row says.
 
 ## Checked 2026-11-01 (lived day 41, on 0.3.42: the 0.3.35–0.3.37 week, E2's shadow week, and emotion's weight)
 
@@ -1949,7 +2013,7 @@ sorts them (the record lists what each was).
   the prose. A summary that shows a closed folder's words: revert.
 - **Revert:** put the `inDay` clause, the scope-count clause and no time bound back in `daySummaryShown`; the row can stay.
 
-## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md)
+## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md) — read 10-29 (`~/counterparts-notes/2026-10-29-read.md` item 5) and checked 2026-11-02, above
 
 **What changed.** The dream's fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000; Mike okayed 24k, see the decision) and each
 new memory carries 4 nearest older neighbours (`dream.NEIGHBOURS`, was 6). The composition compare on the 10-22
