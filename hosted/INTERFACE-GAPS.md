@@ -10,7 +10,7 @@
      can't open stores (accepted, like item 9);
    - lockout: every KEK version held offline in two places before use, both copies proven by fingerprints equal to
      Railway's, and the throwaway-KEK drill (item 5) passing on the real binary (DESIGN §5.4 gate 4, as of
-     2026-11-02). The drill passed 11-02; the fingerprints are Mike's steps (RUNBOOK, "The drill", 2-4).
+     2026-11-02). Met 11-02: v1's three fingerprints matched and the drill passed (RUNBOOK, "The drill").
 2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
    lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
    service. Not built now.

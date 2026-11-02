@@ -398,14 +398,16 @@ Mac. That proved only that the two copies agree with each other, and it put the 
    read -rs -p "KEK: " K; echo; K="$K" node -e 'const s=process.env.K.trim().replace(/^v1:/,"");const b=Buffer.from(s,"base64");if(b.length!==32){console.log("NOT 32 BYTES ("+b.length+")");process.exit(1)}console.log(require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8))'; unset K
    ```
 
-3. **Fingerprint Railway's copy**, the same computation on each version in `HOSTED_KEKS`. Run it in `railway ssh`
-   (whether that shell has the service's variables is unverified; if it doesn't, the line prints `NOT 32 BYTES (0)`):
+3. **Fingerprint Railway's copy**, the same computation on each version in `HOSTED_KEKS`. Run it on your Mac, from
+   `~/counterparts`, where Railway is linked. The variables go straight into `node`, and only the fingerprints are
+   printed:
 
    ```sh
-   node -e 'for (const e of (process.env.HOSTED_KEKS ?? "").split(",")) { const i = e.indexOf(":"); const b = Buffer.from(e.slice(i + 1).trim(), "base64"); console.log(e.slice(0, i).trim() || "(no label)", b.length === 32 ? require("crypto").createHash("sha256").update(b).digest("hex").slice(0, 8) : "NOT 32 BYTES (" + b.length + ")"); } console.log("current:", process.env.HOSTED_KEK_CURRENT ?? "(unset: the only version)")'
+   railway variables --kv | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=d.split("\n").find(x=>x.startsWith("HOSTED_KEKS="));if(!l){console.log("NO HOSTED_KEKS");return}for(const e of l.slice(12).split(",")){const i=e.indexOf(":");const b=Buffer.from(e.slice(i+1).trim(),"base64");console.log(e.slice(0,i).trim(),b.length===32?require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8):"NOT 32 BYTES")}})'
    ```
 
-   Expect one line per version, `v1` only today, and `HOSTED_KEK_CURRENT` unset or `v1`. Check that the running
+   Expect one line per version (`v1 <8 hex>`), `v1` only today. In Railway's variables, `HOSTED_KEK_CURRENT` should be
+   unset or `v1`. Check that the running
    deploy started after the last edit to `HOSTED_KEKS`, so the ring it proved is this one. `e3b0c442` is the
    SHA-256 of nothing: a failed read, never a match.
 4. **All three equal?** Then write the 8 hex beside both offline copies, as their **key-check value**. On the day
@@ -448,7 +450,9 @@ token and the empty bucket in Cloudflare, and the logs directory when you're don
 new version: paste each copy without its label, or change `v1` in the command, since a label it doesn't strip gives a
 wrong fingerprint, not an error. A Litestream bump needs the script.
 
-**2026-11-02:** passed, all 14 steps, on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
+**2026-11-02: both halves passed.** The fingerprints: at about 10:19, KEK v1 from the password manager, from the paper
+copy and from Railway's `HOSTED_KEKS` (a single `v1` entry) all matched, and the fingerprint is written beside both
+offline copies. The script: all 14 steps passed, on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
 bucket unchanged. B, written just before the stop, came back. The old token and the refresh both worked after
 the restore. Plain GETs answered `400 InvalidRequest` (×32).
 

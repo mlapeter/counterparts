@@ -546,8 +546,8 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
    matching fingerprints (each offline copy and Railway's `HOSTED_KEKS`, same label), and the throwaway-KEK drill
    passing on the real binary (RUNBOOK, "The drill"). Equal bytes under the same label open what Railway's ring
    opens, and the drill proves the restore itself. (Mike, 2026-11-02: this replaces 10-27's "typed from the offline
-   copies", which proved only that the copies agree with each other, and put the real KEK on the Mac.) The drill
-   passed 2026-11-02 (3fe0aa75); the fingerprints weren't recorded as matching by then, so the gate is half met.
+   copies", which proved only that the copies agree with each other, and put the real KEK on the Mac.) **Met
+   2026-11-02**: v1's three fingerprints matched (Railway holds v1 only), and the drill passed on 3fe0aa75.
 
 ---
 
