@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.45 — 2026-11-01
+
+Nearly nothing you'd notice changes. **One thing happens at once: the first pass after upgrading deletes the raw copies of notes saved with no session or with `counterparts note` that are already past their age (3 days once the memory has landed, 14 whatever). Memories aren't touched, and raw text deleted this way doesn't come back, even if you go back to 0.3.44.** Learned cue words skip path fragments and acknowledgements. A memory that couldn't be saved can be sent again. A laptop's sleep no longer stops the night's work, and a headless session leaves the night to the next one a person starts. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.44 needs no store restore: `counterparts disconnect`, 0.3.44's install, then `counterparts connect`.
+
+- **Learned cue words skip path fragments and acknowledgements.** Words from file and socket paths (`tmp`, `uds`, ...),
+  hex ids, and replies like "sounds good, go ahead" no longer wire themselves to a memory, and what they learned before
+  is ignored. Nothing in your store is changed.
+- **Notes saved with no session, or with `counterparts note`, now lose their raw copies on time.** Those copies shared
+  a label, so each new note restarted the clock for the old ones, and with a note every couple of days the oldest was
+  never deleted. Each now goes on its own age: 3 days once its memory has landed, never more than 14. The memories
+  themselves aren't touched. The first run after updating deletes every such copy already past those ages, at once;
+  doctor's Raw transcripts line says how many.
+- **A laptop's sleep no longer stops the night's work.** A night's watchdogs count time awake now, so a machine that
+  slept mid-run picks up where it left off instead of killing the child on waking. What a run slept through is on its
+  row, and a run that's asleep isn't read as lost, so no second one starts beside it. A child that's really stuck is
+  still stopped on schedule.
+- **A headless session no longer starts the night.** `claude -p` and the Agent SDK leave it for the next session a
+  person starts, which runs it as usual, so nothing is lost by waiting. `counterparts catch-up` is run by hand as before.
+  A store that only headless sessions use gets no nights, and doctor says so after two days.
+- **A memory that couldn't be saved can be saved again.** When the store was locked or full
+  at the moment of writing, the note was recorded as handled anyway: nothing was stored, sending
+  it again was refused as a duplicate, and its raw copy started its 3-day clock, along with
+  everything else that session had said if it was a `session_end`. Now nothing is marked
+  until the memory is on disk, so sending it again saves it once, and an unsaved note's words
+  stay owed for a later write-up. `remember` says what happened and to send it again, and the
+  failure shows in doctor. A write-up part with a memory that didn't land stays open to be
+  sent again, unless it's the last part and another memory from it landed; then the reply
+  says to save the rest with `remember`.
+
 ## 0.3.44 — 2026-11-01
 
 Nothing you'd notice changes by default. `counterparts page-form own` is new: one store's nightly writers amend its self page in the page's own form, and it's off until you set it (`counterparts page-form default` puts it back). The core door's shadow has stopped recording; what becomes core is decided exactly as before and nothing in it moves. No store-format change (store v15, cache v7); the switch is one setting kept in the store, with no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.43 needs no store restore: `counterparts disconnect`, 0.3.43's install, then `counterparts connect`; 0.3.43 ignores the switch.

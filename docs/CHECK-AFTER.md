@@ -37,7 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | the release after 0.3.43 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
+| The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off by default; **on for Mike's store from 11-01** (he ran `counterparts wake-shape on`) | a few days of real wakes on his store: ROADMAP holds the read, reminder 11-04, no default change before it | [below](#the-wakes-shape-wk2) |
@@ -48,8 +48,8 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | 0.3.42, 10-30 (#688) | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
-| Raw copies under the shared "mcp" and "console" ids go line by line on their own age: 3 days when nothing is owed, 14 whatever is | next release after 0.3.43, 11-01 (fix/mcp-bucket-age-limit, fix/console-bucket-age-limit) | ~1 week after release: copies past the limit under either id (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
-| The claim comes after the mint: a memory that threw claims nothing, and a retry lands it | next release after 0.3.43, 11-01 (fix/mint-after-claim) | ~2 weeks after release: `counterpart.deposit.mint.failed` in the log, retries that landed, any twins | [A failed mint](#a-failed-mint) |
+| Raw copies under the shared "mcp" and "console" ids go line by line on their own age: 3 days when nothing is owed, 14 whatever is | 0.3.45, 11-01 (#710, #715) | ~1 week after release: copies past the limit under either id (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
+| The claim comes after the mint: a memory that threw claims nothing, and a retry lands it | 0.3.45, 11-01 (#714) | ~2 weeks after release: `counterpart.deposit.mint.failed` in the log, retries that landed, any twins | [A failed mint](#a-failed-mint) |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -96,7 +96,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
 | K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | when 3+ beliefs about other people pass the 0.3 floor, with the beliefs slot's own read: did they show, and how were they rated? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
-| R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | its own release, the one after PF1's, 11-01 (#706) | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/decisions.d/feat-r3s-cue-stop-list.md` |
+| R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | 0.3.45, 11-01 (#706), not on its own as first planned: it ships with #710, #712 and #714, so its effect is read by replay | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/IMPROVEMENTS.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -113,7 +113,7 @@ effect on archives folds into the late-October forgetting check). Details: `~/co
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
-**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#passesOnNight`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/decisions.d/fix-nt1-night-holes.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
+**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#passesOnNight`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/IMPROVEMENTS.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
 
 **What to look at, about a week after release.** On a copy or read-only, ids and numbers only:
 
@@ -151,7 +151,7 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 
 **What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and `counterparts note`'s share
 `"console"`, and each new note restarted the clock for the rest. Each line now goes on its own age.
-`docs/decisions.d/fix-mcp-bucket-age-limit.md`.
+`docs/IMPROVEMENTS.md`.
 
 **What to look at.**
 
@@ -175,7 +175,7 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 a broken `at` or a stranded `.striking` file. `over4days` above 0 is normal only for notes whose memory did not land.
 A real note's words missing from a write-up later would mean the rewind isn't doing its job (`remember/NOTES.md`).
 
-**Revert.** `docs/decisions.d/fix-mcp-bucket-age-limit.md`, Undo.
+**Revert.** `docs/IMPROVEMENTS.md`, Undo.
 
 ## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch)
 
@@ -514,7 +514,7 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
 
-## Due ~7 lived days after the cue stop-list (2026-11-01, R3S, Mike's call 11-01, lightly held; its own release so its effect stays separable)
+## Due ~7 lived days after the cue stop-list (2026-11-01, R3S, Mike's call 11-01, lightly held; shipped in 0.3.45 beside #710, #712 and #714, so read by replay)
 
 What: words on `associate.CUE_STOP_LIST` (path fragments `tmp uds sock cross etc usr var`, a hex id of 7+ characters,
 acknowledgements `sounds good ahead let okay yes yeah yep sure fine cool great thanks fyi`) learn no cue pair, dropped
@@ -522,7 +522,9 @@ at the cue flush and counted (`cueStopped` on the `associate.flush` row), and th
 edited: old stop-listed pairs stay in `cue_edges` and fade and are swept as any pair does. On the 11-01 copy they were
 317 of 3,184 pairs (about 10%, and 10% of the weight), so this is hygiene, not the cause of the ~10× growth.
 
-Look at (read-only, rows since the release that carries it; `<ms>` its install time, `<build>` its version):
+This was meant to ship alone so a before-and-after would be its own. It didn't: 0.3.45 also changes the night (#712), the write path (#714) and raw retention (#710, #715). So numbers since the install can't be credited to the list alone: read its effect by replay, the same recorded days on a copy of the store with `CUE_STOP_LIST` as shipped and emptied (free, no model; `tools/replay/`). The rows below still say what the store did.
+
+Look at (read-only, rows since the release that carries it, 0.3.45; `<ms>` its install time, `<build>` `0.3.45`):
 - new pairs a week: `SELECT COUNT(*), COUNT(DISTINCT token), COUNT(DISTINCT memory_id) FROM cue_edges WHERE created_at >= <ms>;`
   against the 11-01 read's ~3,200 in its first week. That week began from an empty table and a retrained pair keeps its
   `created_at`, so this number falls some with no change at all; `updated_at >= <ms>` counts pairs touched;
@@ -1972,7 +1974,7 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 ## A failed mint
 
-`remember` and `session_end` wrote the claim, then the memory, so a mint that threw lost the note and marked its words as written up. The claim now comes after the mint (`src/core/remember/NOTES.md`, "A failed mint"; docs/decisions.d/fix-mint-after-claim.md). Before the fix, on the owner's logs (10-25 to 11-01): no lock or full-disk lines in 29,622; `session_end` 1,791 entries, 1,787 stored. `remember` wasn't visible at all.
+`remember` and `session_end` wrote the claim, then the memory, so a mint that threw lost the note and marked its words as written up. The claim now comes after the mint (`src/core/remember/NOTES.md`, "A failed mint"; docs/IMPROVEMENTS.md). Before the fix, on the owner's logs (10-25 to 11-01): no lock or full-disk lines in 29,622; `session_end` 1,791 entries, 1,787 stored. `remember` wasn't visible at all.
 
 **Check, ~2 weeks after release:** count `counterpart.deposit.mint.failed` in `sessions/log/` by `landed` and `source`, and `mcp.refused` with `reason: threw` for `remember`. `counterparts doctor` counts them among its failures. For any that happened: did a retry land (a memory with the note's session within minutes), and did twins appear (same body, two ids, before a sleep pass folded them)?
 

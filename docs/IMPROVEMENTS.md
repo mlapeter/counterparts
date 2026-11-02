@@ -4558,6 +4558,102 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
   last rules page, restored by writing its text as a new version through the self_page tool. The pages and claims
   nights write in between stay in history, superseded, not deleted. Nothing moves in the store format.
 
+### Decided by the R3S builder, 2026-11-01, on Mike's call that morning, lightly held (a stop-list for learned cue words)
+
+- Cue learning no longer learns from path fragments (`tmp`, `uds`, `sock`, `cross`, `etc`, `usr`, `var`), hex ids (7+
+  hex characters with a digit and a letter) or acknowledgements (`sounds`, `good`, `ahead`, `let`, `okay`, `yes`,
+  `yeah`, `yep`, `sure`, `fine`, `cool`, `great`, `thanks`, `fyi`), and ignores the pairs they learned before when it
+  reads. Why: the 11-01 read of R3 found 3,268 pairs in a week, about 10× what was expected, and path fragments and
+  acknowledgements among the widest words (`cross` 53 memories, `uds` 50, `tmp` 49; `ahead`, `let`, `sound`, `yeah` at
+  or near the per-word cap). On a store copy these classes were about 10% of pairs: hygiene, not the cause of the
+  growth. Of those 317 pairs, 24 point at a memory whose own text holds the word.
+- It is one list for every store, matched by index term, so a real sense goes with the word: `sound` and `sounding`,
+  `cool` and `cooling`, `good` and `goods`, `fine` and `fined`, `cross` and `crossing`, `socks`, `ed25519`. Those words
+  no longer learn a pair; they still match by the words of a memory as any word does.
+- No store row is edited. Deleting the old pairs would be a change to real users' stores, which goes to Mike first;
+  they fade and are swept as before.
+- Undo: empty `associate.TUNABLES.CUE_STOP_LIST` (one constant). Then no filter runs and cue learning is exactly what
+  it was, the old pairs read again. What to read and what would change it: `docs/CHECK-AFTER.md`, "Due ~7 lived days
+  after the cue stop-list".
+
+### The shared "mcp" id goes line by line (coordinator's brief, 2026-11-01, marked for Mike's review)
+
+- A sessionless `remember`'s raw copy is filed under the shared id `"mcp"`, and retention judged all of those as one
+  session, so each new note restarted the clocks for the rest. With a note every 2 days, day 0's copy was still there on
+  day 40. "Never more than 14 days" (README, doctor, onboarding) was false for it, and is now true of it.
+- Each line is judged as a session of one, on its own time: 3 days when it owes nothing, 14 whatever it owes. A flat 14
+  was the smaller change and left "3 days after it's written up" false for these notes.
+- **Past the ceiling a line a write-up still owes goes unwritten.** That is the ceiling's price for any session; this
+  bucket used to dodge it. It affects notes whose memory did not land, whose words are nowhere else.
+- Not changed: a real session that keeps being appended to keeps all its lines while it moves. It is one conversation,
+  and its write-up reads all of it. `src/core/remember/NOTES.md` has the rest.
+- Still not covered by the promise: a pass runs once per date (up to a day over), and only when the worker runs, so a
+  quiet hosted tenant waits for its next `wake` and a laptop for its next session. No sweep was built
+  (`hosted/INTERFACE-GAPS.md`). Nothing a hosted person reads says 14.
+- `counterparts note`'s shared `"console"` id goes the same way, through the same code (`SHARED_SESSIONS`, same day, on
+  the same measurement: 11 of 11 lines kept at day 20). Only that id's write-up rewinds when its lines go.
+- Undo: remove the `planUnboundLines` loop in `src/core/remember/retention.ts`; the bucket goes back to one session. To
+  undo only the console's, take `CONSOLE_SESSION` out of `SHARED_SESSIONS` in `src/core/types.ts`. What already went
+  doesn't come back.
+
+### Decided by Mike, 2026-11-01, lightly held (when the night runs)
+
+- Decided by Mike, 2026-11-01, lightly held: the night keeps starting at the first message, with no scheduler, and its two
+  holes close. Why: on 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got
+  about 15 s awake, the laptop slept 853 s, and the 10-minute watchdog fired on wake. Revisit a schedule if nights keep
+  failing after this (`docs/CHECK-AFTER.md`, "Due ~1 week after the night's two holes").
+
+### Decided by the NT1 builder, 2026-11-01, lightly held (how the holes close)
+
+- A watchdog counts time awake by looking for a late tick on the wall clock (`claude-code/awake.ts`; every
+  `NIGHT_AWAKE_TICK_MS`, 1 s; a tick `NIGHT_ASLEEP_GAP_MS`, 30 s, late is a sleep). Why: no clock JavaScript can read stops
+  for sleep on both platforms, and macOS and Linux go opposite ways (`adapters/claude-code/NOTES.md`, "the night's two
+  holes"). A sleep under the gap is charged, so a busy machine's stall is never read as sleep. A stepped wall clock costs
+  one misread.
+- "Headless" for the night is the entrypoint list (`hooks.ts#passesOnNight`), the same reading as doctor's
+  (`sessions.ts#notPointableWhy`), unless the host says `ATTENDED=1`. Not `isInteractive`, which reads `ATTENDED` first and
+  decides who gets the day's told lines. Changed in the review of #712: the host's `ATTENDED` is 0 for a person's
+  `claude --bg` (kind `bg`, entrypoint `cli`), a teammate, and any process with no terminal whose entrypoint isn't on the
+  host's own list (read from the 2.1.316 binary, `XU()`). A wrong "nobody's watching" holds a line; a wrong "headless" here
+  stops nights, and doctor couldn't have said so. So those start the night unwatched, as they always did, with the line held.
+  The cost: a `claude -p` an agent runs inside a VS Code or Desktop session may inherit that entrypoint and start the night.
+- A turn no person started in a person's session (`startedByHost`, a subagent's hand-back) still starts the night, as it
+  did. The brief named headless sessions, the session has a person in it, and a sleep no longer costs that run anything.
+  On Mike's store two of the last eight nights started from an unwatched `cli` turn (10-25, 10-31), and both were hand-backs
+  (read from the host's transcripts in the review). Open: it would be one line to send hand-backs to `passOnNight` too.
+- What a run slept through is a field on its row (`NightRun.sleptMs`, on the `dream.night` event too), read by
+  `nightRunLost`. No store-format change. Only the living process adds to it, so a run that really died still goes lost.
+- A sleep renews the catch-up batch's claims and its runner's record (`renewCatchUp`), rather than the door learning
+  about sleep. Only claims still its own: a subject another writer took stays theirs.
+- A store only headless sessions use gets no night under `auto`, as it already got none under `ask`. One doctor line,
+  amber, after two days without one (`night-headless`, the entrypoint list over the registry's week). Nothing more.
+- A run under way holds a second one off across the date too (`Dreams#status`, review of #712; it was the same date only).
+  Before NT1 a Mac's timer killed a run asleep past midnight on wake, ahead of the morning's first prompt; now it wakes and
+  goes on, so without this the prompt starts another on its dream. A run really gone is lost as before. A row dated ahead
+  (a clock since put right) holds nothing.
+
+### The claim comes after the mint (coordinator's brief, 2026-11-01, marked for Mike's review)
+
+- `remember` and `session_end` wrote the claim, then the memory. A mint that threw (a store
+  locked past its busy timeout, measured) left no memory, a retry refused as a duplicate, and
+  words marked as written up. Now: write, then claim. No store-format change, and the
+  successful path gives the same ids and the same dedup answer.
+- **Why not let a retry through when no memory has the claim's id.** It's smaller, and a note
+  nobody retried would still read as written up and go at 3 days. Most wouldn't be retried: a
+  Stop's `session_end` that saw `threw` isn't usually sent again.
+- **The window left fails the other way.** A kill between the commit and the ledger append
+  leaves a memory with no row: a repeat mints a twin, which sleep folds. Duplication over loss.
+- **A write-up part with a memory that threw stays open**, because closing it left that memory
+  nowhere. The exception is a last part where another memory landed: its claim took the words,
+  so the door would refuse a resend. That part closes and says `notLanded`. A nightly runner
+  can't act on it (it's refused `remember`), so on that path the memory is gone. Mike could
+  decide to make that case resendable too; it means the door reading past "owes nothing" for a
+  part it handed out.
+- **`remember` now answers `threw` as a tool result** instead of a protocol error, which makes
+  it a logged `mcp.refused` row. Undo: drop the `try` around `submitJot` in `rememberCore`.
+- Undo of the whole change: `counterpart-deposit.ts#deposit` back to `submitProposal` before the
+  mint. It restores the loss.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
