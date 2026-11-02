@@ -8,8 +8,9 @@
      both the KEK and the R2 credentials. First verify the reported Railway environment breach (unverified); it
      changes the urgency, not the direction. Its key is exported to the two offline places. With it down, a restart
      can't open stores (accepted, like item 9);
-   - lockout: every KEK version held offline in two places before use, and the drill (item 5) restored with the KEK
-     typed from them, not from the Railway variable.
+   - lockout: every KEK version held offline in two places before use, both copies proven by fingerprints equal to
+     Railway's, and the throwaway-KEK drill (item 5) passing on the real binary (DESIGN §5.4 gate 4, as of
+     2026-11-02). The drill passed 11-02; the fingerprints are Mike's steps (RUNBOOK, "The drill", 2-4).
 2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
    lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
    service. Not built now.
@@ -30,20 +31,13 @@
    2026-10-29: a direct request carries two entries, the client's address and then a Railway edge hop. So
    `TRUST_PROXY` is now a hop count, set to `2` on Railway, and `web.ts#clientIp` takes the entry that many from the
    end (the socket address when the header is shorter). The RUNBOOK keeps the check (§5.3): Railway could change it.
-5. **The real-binary restore drill.** The hermetic drill (`test/ops.test.ts`) drives a stand-in Litestream. It proves
-   our side: the key objects, the configuration, the arguments, the layout, the cache rebuild, and the words back
-   through `/mcp` with the same token. It doesn't prove Litestream's replication or its SSE-C against R2.
-   - The classifier refused downloading and running the binary on the build Mac. The image's build did fetch it,
-     checked its sha256 and ran `litestream version`.
-   - No MinIO image could be pulled: `minio/minio` is gone from Docker Hub. Our own S3 stand-in doesn't speak enough
-     of S3 for the AWS SDK.
-   - So the RUNBOOK's drill (a second bucket, the real KEK typed from its offline copies, Docker on the Mac) is the
-     first run of the real binary.
-   - Read from Litestream 0.5.17's source, not run:
-     - `sse-customer-key-path` is the key name, and the file holds the base64 of a 32-byte key, as generated;
-     - `restore` takes `-config` or a replica URL, never both;
-     - a shutdown sync on SIGTERM exists (`shutdown-sync-timeout`);
-     - path-style is the default with an endpoint.
+5. **The real-binary restore drill: passed 2026-11-02** on the deployed image (3fe0aa75, Litestream 0.5.17, arm64),
+   against a drill bucket on R2, with a throwaway KEK (`hosted/drill/`, RUNBOOK "The drill"). It proved replication
+   to R2 by TXID, SSE-C on every replica object, the shutdown sync, both refusals (an empty volume, a wrong KEK) with
+   the bucket unchanged, the restore with the old token and the refresh, replication after it, and a second cycle.
+   The hermetic drill (`test/ops.test.ts`) still covers our side on every run; this one is run again after each new
+   KEK version or a Litestream bump. Not proven: the production bucket at its real size and age (a read-only
+   `restore --all` on Railway's side would be; never `serve` a drill container against the production bucket).
 6. **Volume ownership.** The image runs as `node`, and Railway mounts volumes owned by root. The RUNBOOK's answer is
    Railway's `RAILWAY_RUN_UID=0` (unverified), which runs it as root. An entrypoint that chowns and drops privileges
    would keep `node`.
@@ -77,8 +71,10 @@
     with real load.
 15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
     only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5).
-16. **What the real binary does with a configured database that doesn't exist yet** (a store signed up and not yet
-    opened) is unverified. It's the RUNBOOK drill's first check (the #653 review, M4).
+16. **Closed 2026-11-02: what the real binary does with a configured database that doesn't exist yet** (a store
+    signed up and not yet opened; the #653 review, M4). In the drill, each sign-up's reload was a plain
+    `sidecar.exit` then `sidecar.start`, with no back-off, and the control database replicated while no store database
+    existed. The never-opened store then restored without a failure.
 
 ## Low, named so they are decisions
 
