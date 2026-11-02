@@ -514,7 +514,7 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
 
-## Due ~7 lived days after the cue stop-list (2026-11-01, R3S, Mike's call 11-01, lightly held; shipped in 0.3.45 beside #710, #712 and #714, so read by replay)
+## Due ~7 lived days after the cue stop-list (2026-11-01, R3S, Mike's call 11-01, lightly held; shipped in 0.3.45 beside #710, #712 and #714, read live and by build, split by turn)
 
 What: words on `associate.CUE_STOP_LIST` (path fragments `tmp uds sock cross etc usr var`, a hex id of 7+ characters,
 acknowledgements `sounds good ahead let okay yes yeah yep sure fine cool great thanks fyi`) learn no cue pair, dropped
@@ -522,7 +522,11 @@ at the cue flush and counted (`cueStopped` on the `associate.flush` row), and th
 edited: old stop-listed pairs stay in `cue_edges` and fade and are swept as any pair does. On the 11-01 copy they were
 317 of 3,184 pairs (about 10%, and 10% of the weight), so this is hygiene, not the cause of the ~10× growth.
 
-This was meant to ship alone so a before-and-after would be its own. It didn't: 0.3.45 also changes the night (#712), the write path (#714) and raw retention (#710, #715). So numbers since the install can't be credited to the list alone: read its effect by replay, the same recorded days on a copy of the store with `CUE_STOP_LIST` as shipped and emptied (free, no model; `tools/replay/`). The rows below still say what the store did.
+This was meant to ship alone so a before-and-after would be its own. It didn't: 0.3.45 also changes the night (#712), the write path (#714) and raw retention (#710, #715). From v0.3.44 to this release `src/core/recall`, `associate` and `physics` change only through R3S's commits, so those three could move footnotes only indirectly. New pairs and `cueStopped` are this list's own and read as they are.
+
+**The main read is live, by build, split by turn:** turns holding a listed word against turns with none, on footnotes per turn and rated noise / useful, 0.3.45 against the 11-01 read. Turns with none are the control: on the copy 5 of 5 didn't move, and anything else in the release would hit both groups. This may touch many turns rather than a corner, since the list is everyday replies; the share isn't measured. Listed-word turns against the rest, joined through the host's transcripts (`~/counterparts-notes/2026-11-01-briefs/habituation-replay/moments.py`, its dates moved; Claude Code sessions only, about 94% of turns matched on 10-26..31). Read-only, counts only in the output; the prompt text stays in temp. The before side comes from the same script on the same fresh store copy, with pre-0.3.45 dates. Limits: other hosts' turns don't get split, and the match is by time, not a shared id. Match listed words with the shipped `cueStopPredicate`, not a copy of the list. `recall.rated` joins `recall.decision` by `session` and `turn`.
+
+If a replay is wanted, it's `~/counterparts-notes/2026-11-01-briefs/habituation-replay/replay.ts` on a store copy with a second arm with the list emptied. That needs a small change: it overrides only `cp.recall.tunables`, and `cueStop` is set in the Associate constructor. It's an estimate (that replay reproduced 66.5% of live footnotes) and counts only: footnotes R3S adds have no rating in a replay, so it can't say whether they're noise. `tools/replay/` doesn't do this (it feeds v1's recorded month into a fresh store), and `harness --set associate.CUE_STOP_LIST` is refused; `compare --base/--branch` is the harness's way. ROADMAP holds this read.
 
 Look at (read-only, rows since the release that carries it, 0.3.45; `<ms>` its install time, `<build>` `0.3.45`):
 - new pairs a week: `SELECT COUNT(*), COUNT(DISTINCT token), COUNT(DISTINCT memory_id) FROM cue_edges WHERE created_at >= <ms>;`
@@ -545,6 +549,7 @@ Look at (read-only, rows since the release that carries it, 0.3.45; `<ms>` its i
 Changes it: a stop-listed share well above the 7–10% above, or new filler or path words at the top of the fan-out → widen
 the list or move to a rule (a minimum informativeness for learned words) instead of naming words. Growth still ~3,000 a
 week with the noise share small → the growth is ordinary words and the question is the training rate or the floor, not this list.
+Listed-word turns getting more footnotes than the control, with noise up on those turns → look at the relative bar or a floor on those turns; the list staying right and the bar being wrong is a possible outcome, so don't default to pulling the list.
 A stop-listed word Mike wants learned → take it off. Undo: `CUE_STOP_LIST = []` (nothing filtered, cue learning exactly
 as before, the old pairs read again).
 
