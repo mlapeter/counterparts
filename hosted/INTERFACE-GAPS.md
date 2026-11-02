@@ -76,7 +76,11 @@
     event loop). Acceptable for an invite-only beta of about 20; a shared budget or a cost weight per tool comes
     with real load.
 15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
-    only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5).
+    only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5). Since 2026-11-02
+    that is all of Litestream's lines (`logging.stderr` in the generated configuration; before, they went to stdout
+    and were dropped). They carry paths, the bucket and the endpoint at the default level, never a key:
+    `LOG_LEVEL` and `LITESTREAM_S3_DEBUG`, which would log requests, never reach the child. `restore`'s failure
+    message keeps only Litestream's `Error:` line, so the restore CLI still names a store by its tag.
 16. **What the real binary does with a configured database that doesn't exist yet** (a store signed up and not yet
     opened) is unverified. It's the RUNBOOK drill's first check (the #653 review, M4).
 

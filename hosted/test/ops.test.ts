@@ -829,11 +829,14 @@ describe("#653 review: restores and deletes", () => {
   test("L5: the restore CLI names a failing store by its tag, never its id", async () => {
     const { s3, ring, dataRoot, who } = await livedStore();
     rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
-    const failing = async (): Promise<{ code: number; stderr: string }> => ({ code: 1, stderr: "standin: the bucket answered 500" });
+    // Litestream's own log lines come first on its stderr (`logging.stderr`), and name the path: they are left out.
+    const logLine = `time=2026-11-02T10:00:00Z level=INFO msg="restoring snapshot" db=${join(dataRoot, "tenants", who.storeId, "store", "counterparts.sqlite")}`;
+    const failing = async (): Promise<{ code: number; stderr: string }> => ({ code: 1, stderr: `${logLine}\nstandin: the bucket answered 500\n` });
     const out = await restoreCommand(dataRoot, backupOptions(s3, ring, null), failing, ["--all"], null);
     assert.equal(out.failed, 1);
     assert.doesNotMatch(out.text, new RegExp(who.storeId));
     assert.match(out.text, new RegExp(storeTag(who.storeId)));
+    assert.match(out.text, /the bucket answered 500/);
   });
 
   test("L8: start-over frees a store that lived and never reached the bucket; refused while the bucket has a replica", async () => {
