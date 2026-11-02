@@ -1,6 +1,6 @@
 # The Counterparts Constitution
 
-_Ratified by the owner 2026-08-25; last amended 2026-10-20 (this file's git history is
+_Ratified by the owner 2026-08-25; last amended 2026-11-02 (this file's git history is
 the amendment log). This is the ONE page with standing authority — everything else,
 including owner answers given during the build, is a working default, open to discussion
 at any time and revisable without ceremony. Changing THIS page is deliberate and rare._
@@ -30,9 +30,11 @@ at any time and revisable without ceremony. Changing THIS page is deliberate and
 
 **Properties — what must stay true**
 
-6. **The owner owns the data.** Local-first, portable formats, memories kept as prose
-   the owner can view. Data leaves the machine only by the owner's explicit choice,
-   never silently.
+6. **The owner owns the data.** Local is always available, and the owner can always take
+   their memory home. Memories are written as prose and kept in open, portable formats, a
+   database file or readable files, and the owner can read their own memories wherever
+   they live. Data leaves the machine only by the owner's explicit choice, never
+   silently. _(Amended 2026-11-02.)_
 7. **Memory changes like human memory.** Revision, fading, and forgetting are the
    system working. Revisions keep their history; nothing bulk-wipes silently; backups
    catch catastrophe. No ceremony beyond that.
