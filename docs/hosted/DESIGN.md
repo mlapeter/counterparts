@@ -145,7 +145,7 @@ one store in the beta. The table allows more, for later.
 rows:
 
 ```
-{ dataDir: <tenant>/store, timeZone: people.time_zone, snapshots: { dir: <none> }, pageWriter: default, embedder: default }
+{ dataDir: <tenant>/store, timeZone: people.time_zone, snapshots: { daily: false }, pageWriter: default, embedder: default }
 ```
 
 - The server uses it in memory.
@@ -153,8 +153,12 @@ rows:
   `livePathRefusal` already refuses a config inside a live store.
 - **`time_zone` is a column in `people`.** The night and "yesterday" turn on it. It is set at sign-up from the browser's
   `Intl` zone, and can be changed on the account page.
-- **Snapshots are off for hosted stores.** Litestream is the backup (§5.3). A pre-migration copy (`pre-migration.ts`)
-  still goes to `<tenant>/premigration/`, outside the store dir, and is deleted after a successful migration plus 7 days.
+- **Snapshots are off for hosted stores** (`snapshots: { daily: false }`, since 2026-11-01; until then the worker took
+  them anyway). Litestream is the backup (§5.3). A pre-migration copy (`pre-migration.ts`) still goes to
+  `<tenant>/snapshots/`, outside the store dir, and the first worker run after it is more than 14 days old deletes it. So
+  does any daily copy the worker took before this was switched off. A worker runs only after a `wake` (§2.5), so for
+  someone who has gone quiet these copies stay, unencrypted on the volume, until they come back or are erased. All of them
+  leave with the tenant dir at an erase.
 
 ### 2.5 The background worker (Q7)
 
@@ -399,20 +403,21 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 
 **The honest privacy claim this supports** (for OL3's privacy page, plain words):
 
-> Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
-> account alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
+> Backups of your memory that leave our server go to Cloudflare R2, encrypted with a key that belongs to your account
+> alone. When you delete your account, it is locked at once: every connected AI is disconnected, and your
 > memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and your key are erased, unless you sign
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
 > is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
-> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Forgetting one memory removes it from
-> your memory at once; traces of it can stay in unused space in your memory's file and its backups until they are
-> overwritten or expire, and erasing your account makes all of it unreadable at once. We hold the keys, so this
-> protects your memory from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our
-> promise, kept by access controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees
-> what Claude reads.
+> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Removing a
+> single memory isn't available on hosted: you can download your whole memory, or delete your account, which erases all
+> of it. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
+> the key whenever a backup is read or written. "We don't read it" is our promise, kept by access controls and an audit
+> log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
 >
-> (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph.)
+> (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
+> claimed encrypted disks, which is unverified (above and §5.4), and a single-memory forget, which hosted has no door
+> for. Say either again only once it is true.)
 
 **What file encryption would add,** if Mike wants it later: "even a copy of our server's disk is unreadable without our
 key service". It is a contained follow-up, because of the key hierarchy below. Measure the native driver first.

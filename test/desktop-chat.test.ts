@@ -825,6 +825,41 @@ describe("writeUpFor's shape — `mayWriteUp` on the runner's own record — and
     expect(spans.writeUps(proj).some((w) => w.session === "old-1")).toBe(true);
   });
 
+  test("granted, the last part, one memory of two threw: it closes, and isn't told to use a tool it's refused (2026-11-01)", async () => {
+    const proj = join(root, "proj");
+    const runnerDir = join(root, "runner");
+    mkdirSync(proj, { recursive: true });
+    mkdirSync(runnerDir, { recursive: true });
+    endedOwing("old-1", proj);
+    expect(grantWriteUps(dir, { runner: "night-1", scope: runnerDir, subjects: ["old-1"] })).toBe(true);
+    recordSession(dir, { sessionId: "night-1", scope: runnerDir, phase: "boundary" });
+    const s = server({ scope: runnerDir });
+    expect(payload(await s.call("session_end", { session: "night-1", writeUp: "old-1" }))).toMatchObject({ reason: "part", part: 1 });
+
+    const store = s.counterpart.store as unknown as { put(input: unknown): string };
+    const realPut = store.put.bind(store);
+    let puts = 0;
+    store.put = (input: unknown): string => {
+      puts += 1;
+      if (puts === 2) throw new Error("database is locked");
+      return realPut(input);
+    };
+    const answered = payload(
+      await s.call("session_end", {
+        session: "night-1",
+        writeUp: "old-1",
+        memories: [
+          { content: "The relief valve must be seated before the pump runs, or the reservoir loop loses pressure.", kind: "fact" },
+          { content: "The loop drains from the low valve only once the pump has stopped for an hour.", kind: "fact" },
+        ],
+      }),
+    );
+    store.put = realPut;
+    expect(answered).toMatchObject({ reason: "written-up", deposited: 1, refused: 1, notLanded: 1 });
+    expect(String(answered["notLandedDetail"])).not.toContain("remember");
+    expect(payload(await s.call("remember", { session: "night-1", text: "The loop drains from the low valve only once the pump has stopped for an hour." }))["reason"]).toBe("write-up-runner");
+  });
+
   test("the door rule, each arm: not listed → other-project; listed and still at work today → live-session; a crash with no end, quiet since → served (2026-10-01); a model cannot grant", async () => {
     const proj = join(root, "proj");
     const runnerDir = join(root, "runner");

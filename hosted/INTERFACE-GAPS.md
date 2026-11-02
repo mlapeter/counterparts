@@ -115,6 +115,17 @@
     stays unbacked: nothing mints for it, and `start-over` refuses while its database is here. An operator command
     (`start-over --rekey`, with the same checks minus that one, after a human has looked) would be the path.
 
+## A quiet tenant's raw copies wait (11-01)
+
+Retention runs in the worker, and a hosted worker starts only after a `wake`. A person who
+stops coming keeps the raw copies of their notes (`spans/`) past the clocks until their next
+wake, or until the account is deleted. No sweep was built. There is no doctor, console or
+mechanisms page here, and the claude.ai line (`onboarding.ts#WEB_RETENTION_LINE`) names no
+number. /privacy/ does name one, and says what it hangs on (live 11-01, site 93aa053): raw
+copies are "due to go within about two weeks of [their] conversation going quiet", at the next
+wake, and wait if chats stop or are far apart. So a number on a hosted page stays tied to the
+next wake unless a sweep is built; whether to build one is Mike's, open.
+
 ## The 24-hour delete (R6, 10-27)
 
 34. **Closed 2026-10-27 (R9, on Mike's "yes send email"): a confirmation email at a delete.** One at the delete,
@@ -151,3 +162,11 @@
 41. **A lost `keys/keys.sqlite` moved to a new bucket on purpose** is refused (`NEW_BUCKET` doesn't count once a key
     file says the volume was backed up): its stores' keys are in the old bucket only. Today's answer is "go back to
     the old bucket"; with the old bucket gone too there is none, as in §33.
+
+## Raw copies of notes with no live session (found 2026-11-01)
+
+42. **Fixed by #710 (11-01): a note filed under the shared `"mcp"` session could keep its raw copy past 14 days.** A
+    `remember` with no live session lands under `"mcp"`, and each new note used to restart the clock for all of them (a
+    day-0 raw copy on disk at day 40). Now each line goes on its own age, 3 days if it owes nothing and 14 regardless
+    (`remember/owes.ts#planUnboundLines`). Live on hosted; local installs get it in the release after 0.3.44. It still
+    needs a worker to run, so on hosted it waits for the next wake (above).

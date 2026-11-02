@@ -4498,6 +4498,66 @@ replay compare read 0 lines differing).
   fenced", and widening it is a separate question.
 - An inhibited note's named ids don't ride along, ROADMAP's lean, for now (`core/recall/NOTES.md`).
 
+### Mike approved the shape 10-30 14:12 (draft 5); built by the WK2 builder, 2026-10-30, off by default
+
+The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.ts`. What the spec left open, and the call:
+
+- A store turns it on by a meta row (`counterparts wake-shape on|off|default`), not a config key. Why: one store, every host on it, at once, and back by a word. A config key is one host at a time.
+- A store with no page yet keeps "Might be relevant", above the folder. WK1's exception holds.
+- The published bundle is untouched, and is delivered if the composer declines (no budget or date, a ceiling too small for the frame, anything that throws). Why: "off" is then the same code, and doctor and the dashboard read it either way.
+- The project line (`WAKE_PROJECT_LINE`) isn't in the shape: the table has no section for it, and no row is written with the shape on.
+- "Since, here" leaves out open threads and dated items, for their own sections. A row left out still counts as "later", so no false nothing.
+- With no handoff and nothing since yesterday, the folder names its last chapter, so a folder left a while ago keeps what "Last here" gave it.
+- Spare room on Coming up reaches later items only, up to 3, and never past 2 overdue (round 4: past that it flooded). Spare on Elsewhere stops at 8 folders.
+- `Elsewhere`'s rest reads `+2 more folders; recall facts "yesterday"` (ROADMAP, the spec's floor: no count without a door). It is a question, not a list, so it answers for yesterday's work; a folder only worked in today isn't on it.
+- A seat is an all-caps first word in the handoff itself, not a list of seats: the prototype's coordinator/roadmap words are one owner's. No seat: the session's short id.
+- Sections give way in the order elsewhere, open, coming, yesterday, night, folder; a plain reminder's room is kept until the others have given.
+- Last night's budget is 450, not 350: a 300-byte line and two titles passed 350 on every case in round 4.
+- A joined folder is here (`PROJECTS_TRAVEL`), as on the old road: its work is in "Since, here" and its sessions in "Open here now". "This folder only" in the spec is against other folders; `project join` says each one's wake shows the work of all of them.
+- `Still open:` and `Coming up:` always print a heading, with `Nothing open.` or `Nothing dated.` under it, so "nothing owed" is said rather than left to silence.
+
+### Decided by the elsewhere-door builder, 2026-10-30, lightly held (a closed folder's plain reminder)
+
+- Decided by the elsewhere-door builder, 2026-10-30, lightly held: a plain reminder is held back from the lines above a wake when
+  the fence closes it and it is work by the wake's rule. Marked me, us, owner or world, or with no folder, it is told whatever the
+  folder. Why: a birthday or a deadline the owner asked to be told is said once, and losing it silently costs more than a personal
+  line from a folder later set off. This differs from Coming up, which holds whatever the mark (#697): with the shape on, such a
+  reminder is said above the wake and not listed under Coming up. Dropping one line in `reminderHeldBack` would match them.
+- `recall "elsewhere"` replaces `recall facts "yesterday"` as Elsewhere's door (the WK2 note above it stood for a day). It names
+  the folders the section only counts, with no title, rather than leaving them out, so its count can be the wake's.
+
+### Decided by Mike, 2026-11-01, lightly held (the core door's shadow retired)
+
+- Decided by Mike, 2026-11-01, lightly held: the core door's support arc stops running in shadow.
+  `physics.CORE_DOOR_SUPPORT` defaults to `"off"` (it was `"shadow"` from 2026-10-24). The two lanes decide exactly as
+  they did under shadow, and no `promotion.shadow` or `promotion.shadow.sleep` row and no `sleep.shadow.*` mark is
+  written. The shadow and the support door stay in the code, inert. Mike's call followed the shadow week's read on his
+  store (lived days 35–41: lanes 1, door 5; `docs/CHECK-AFTER.md`, "Checked 2026-11-01").
+- A memory can still be admitted to core on a reflection's citation alone (Mike's 09-27 ruling). Retiring the shadow
+  doesn't change that.
+- No memory was promoted or demoted by this change: the door's five `wouldPromote` memories stay out, and its one
+  `wouldHold` memory (mem_9e4bfcefab3c) stays core.
+- Undo: set `physics.CORE_DOOR_SUPPORT` back to `"shadow"` to record again, or to `"on"` to let the door decide. It's
+  one value in `src/core/physics/index.ts`.
+
+### One store's nightly writers keep the page's own form (PF1), designed by ROADMAP 2026-11-01, built off by default
+
+- Why: on 10-31 Mike asked why the counterpart writes lessons "on stone tablets"; on 11-01 it rewrote its own page
+  (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, with no
+  "## How I work". The page's form carries identity, and the nightly writers were told to turn it back into short
+  general lessons (`HOW_I_WORK_RULE`, 2026-10-16). Asked by the counterpart in ~/random, with Mike's yes on 11-01.
+- What: a meta row `self.page_form` = `own` (`counterparts page-form own|default`). With it, day's end and the
+  reflection are told "Amend the page in its own form: keep its sections and headings as they stand, dated stories
+  where it tells stories and plain lines where it doesn't." in place of `HOW_I_WORK_RULE`, and no instruction names
+  "## How I work". Words only: nothing checks a heading, room (4,600), cadence, the door and the wake are untouched.
+- Scope: Mike's store only, switched on after he installs the release. Every other store has no row and is told
+  byte for byte what it was (proved against master on every tunable combination in the PR).
+- `default` empties the row rather than deleting it (the store has no meta delete; WK2's switch does the same), and an
+  empty row reads as absent. A store that won't answer reads as absent too.
+- Undo: `counterparts page-form default`, from the next night, no restart. Every page version is kept: v71 is the
+  last rules page, restored by writing its text as a new version through the self_page tool. The pages and claims
+  nights write in between stay in history, superseded, not deleted. Nothing moves in the store format.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

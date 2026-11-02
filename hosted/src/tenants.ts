@@ -311,6 +311,9 @@ export class Tenants {
       // HOSTED IS ALWAYS CURRENT (U1b): its workers never ask npm for a newer
       // version. Here and in `workerEnv`, so either alone would hold.
       updateCheck: false,
+      // NO DAILY COPY: Litestream is a hosted store's backup (DESIGN §2.4). A
+      // copy here would be unencrypted, outside Litestream, and on this person's quota.
+      snapshots: { daily: false },
     };
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(configPath, 0o600);

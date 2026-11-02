@@ -2942,3 +2942,56 @@ still merge an off folder's memories into a new row filed where the night ran. O
 `verifyRebuild` left `skippedArchived` out of what it counted; the plain arm has counted it since I13. On
 a copy of the live store the difference was exactly the archived rows (621; superseded rows are all archived
 too). A miscount in the check, and no row was unaccounted for.
+
+## 2026-11-01 — the night's two holes (NT1)
+
+**What the clocks do, and how we know.** Nothing in JavaScript exposes a clock that stops for sleep everywhere, and
+the two platforms go opposite ways. So `awake.ts` depends on neither: it looks for a late tick on the wall clock.
+
+- macOS, RUN on this laptop, 2026-11-01: `CLOCK_MONOTONIC` was 197,008 s and `CLOCK_UPTIME_RAW` 151,537 s, so the
+  first runs through sleep and the second doesn't. Node 20.19, 22.23 and 24.22's `process.hrtime` read about 197,014 to
+  197,057 s, on the sleep-counting side (they follow `CLOCK_MONOTONIC_RAW`). READ: libuv's `darwin.c` takes `uv__hrtime`
+  from `mach_continuous_time`, and the event loop's time, which `setTimeout` runs on, comes from `uv__hrtime`.
+- bun on macOS: its `process.hrtime` starts at 0 for each process, so running it says nothing about sleep. The evidence is
+  the live log of 11-01 (the MCP server runs under bun here): started 16:02:33Z, `adapter.night.writeup` `state: timed-out`
+  at 16:17:02Z, `ms: 868484`, on a 600,000 ms timer. So its timer counted the sleep and fired on wake. Bun's source wasn't read.
+- Linux, READ ONLY (no Linux machine, no Docker): libuv's `linux.c` uses `CLOCK_MONOTONIC` (or `_COARSE`), which
+  `clock_gettime(2)` says doesn't count suspended time, and `CLOCK_BOOTTIME` only for `uv_uptime`. So under Node on Linux a
+  plain `setTimeout` already waits out a suspend. Bun on Linux was neither run across a suspend nor read. The fix doesn't
+  care: a tick a suspend delays shows the same gap on the wall clock whichever way the timer behaves.
+- RUN, SIGSTOP, bun 1.3.10 and Node 22.23, macOS: an 800 ms plain timer in a process stopped from 150 to 2,150 ms fires at
+  2,154 ms under both. The clocks ran on through the stop, as they do through a Mac's sleep. CI runs the awake-time version
+  of that under bun and Node on Linux and macOS (`night-holes.test.ts`, `node-smoke.ts`). A stop isn't a sleep: the child
+  keeps running through it, and on Linux the clocks wouldn't run on through a suspend. It proves the gap is told from the
+  watchdog in a real process. Real sleep gets read live (`docs/CHECK-AFTER.md`).
+
+**The tick looks at the wall clock, not the runtime's monotonic clock,** because a monotonic clock that stops for a suspend
+would show no gap at all. A stepped wall clock costs one misread: forward reads as sleep (the watchdog is that much longer),
+back reads as no time (a tick shorter).
+
+**Separate meters.** The child's watchdog, the catch-up's hour and the run's row each keep their own, each a timer a second
+in a process that's otherwise waiting. Sharing one would thread it through the seat, and a seat that isn't Claude Code's
+would lose the row and the hour.
+
+**A small window on wake.** The renewals and the row wait for the first tick after waking: right away on a Mac, up to a
+second on Linux. A person's prompt or the child's own tool call inside that second can still read a claim or a row as
+expired, as it would have before.
+
+**A run asleep past midnight (review of #712).** `Dreams#status` held a second run off only for a row of the same date. That
+looked older than NT1, but on a Mac the plain timer used to kill such a run on wake, ahead of the morning's first prompt. Now it
+wakes and goes on, and after hours of quiet its dream reads as abandoned, so the prompt would start a second run that resumes
+the same dream. The gate now holds for any date up to today (`night.date <= at`), until the run ends or is lost. Nothing ends up
+waiting long: only a living process adds to `sleptMs`, and its watchdogs count time awake.
+
+**What the host's `ATTENDED` means (review of #712, READ from the 2.1.316 binary, not run).** `XU()`: false for a session of kind
+`bg`, `daemon` or `daemon-worker` and for a teammate, even with a terminal; true with a terminal; otherwise true only for a
+non-child process whose entrypoint is on the host's own list (`claude-vscode`, `claude-desktop`, `claude-desktop-3p`,
+`local-agent`, `remote`, `remote_desktop`, `remote_mobile`, `remote_projects`, `remote_cowork`, `ssh-remote`, Slack, Teams,
+`claude-coworker`, and so on). Hooks always get it, so the entrypoint fallback in `isInteractive` doesn't run on a current host.
+A person's `claude --bg` is `cli` with `ATTENDED=0`, and a new host with no terminal is `ATTENDED=0` under a name nobody knows.
+So the night reads the list (`passesOnNight`), and only the told lines read `ATTENDED`. Not measured in a real `--bg` session.
+
+**A headless-only store.** A night waits for a session a person starts, so a store only `claude -p` or the Agent SDK uses gets
+none under `auto`, as it already got none under `ask`. An app a person really talks to through the Agent SDK reads as
+headless too, unless the host says `ATTENDED=1`. Doctor's `night-headless` line says so after two days without a night; nothing
+more was built.

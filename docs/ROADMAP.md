@@ -12,7 +12,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.42 (Oct 30) |
+| **On npm** | 0.3.44 (Nov 1) |
 | **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
@@ -97,8 +97,11 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 
 - **claude.ai**: it reaches only remote servers, so it needs a tunnel or a hosted piece. Desktop chat shipped in 0.3.9, so this is the next host to decide on.
 - **The site as public roadmap**: counterparts.ai should mirror this page. Not set up yet.
-- **The nightly run's timing**: it runs at the day's first prompt now. A real night run would need a scheduler.
 - **Dates written into memories' words**: why it happens, and whether to fix it at write time.
+
+Decided for now:
+
+- **The nightly run's timing** (Mike, 2026-11-01, lightly held): it stays at the first prompt of the day from a session a person starts, with no scheduler. Sleep isn't charged to a run, and a headless session leaves the night (NT1). Revisit a schedule if nights keep failing after this ([CHECK-AFTER](CHECK-AFTER.md), "Due ~1 week after the night's two holes").
 
 ---
 

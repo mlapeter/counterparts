@@ -328,7 +328,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
     `part-already-written`, `memories-required` (present and not a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
-    landed), `io-failed` (the fetch could not record the hand-over, so hands nothing),
+    landed), `part-not-landed` (a memory of this part threw and the same memories can come
+    back: what landed stands and the part stays open; on a last part where one landed its
+    claim took the words, so the part closes and says `notLanded`), `io-failed` (the fetch could not record the hand-over, so hands nothing),
     `claimed` (another writer holds it now), `allowance-spent` (a granted runner past
     the part its launcher allowed tonight) and `grant-expired` (a nightly runner whose
     record ended, or is older than `WRITE_UP_CLAIM_MS` because its process was killed).
@@ -775,4 +777,5 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
    when there is one and under the literal `"mcp"` when there is not. Letting it BIND
    would give an in-the-moment jot the power to claim a day, which is more privilege
    than the tool needs; leaving it means an unbound server's notes still carry no
-   session. Neither is obviously right yet.
+   session. Neither is obviously right yet. (Their raw copies go line by line on their own
+   age since 2026-11-01, `remember/owes.ts#planUnboundLines`.)

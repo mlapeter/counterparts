@@ -930,6 +930,13 @@ describe("totality: nothing the core can record has nowhere to go", () => {
       expect(done.tone).toBe("calm");
       expect(done.text).toContain("3 sessions older than a week was let go");
       expect(done.text).toContain("1 is kept until written up");
+      expect(done.text).not.toContain("with no session");
+      c.store.appendEvent({ name: "remember.prune", day: 1, payload: { date: "2026-09-24", reason: "PRUNED", ...counts, unboundLines: 2 } });
+      const aged = c.store.eventLog({ name: "remember.prune", limit: 10 }).at(-1)!;
+      expect(narrate(c.store, aged).text).toContain("the raw copy of 2 old notes with no session");
+      c.store.appendEvent({ name: "remember.prune", day: 1, payload: { date: "2026-09-25", reason: "PRUNED", ...counts, deleted: 0, keptOwed: 0, unboundLines: 1 } });
+      const onlyNotes = c.store.eventLog({ name: "remember.prune", limit: 10 }).at(-1)!;
+      expect(narrate(c.store, onlyNotes).text).toBe("The raw copy of 1 old note with no session was let go.");
       const held = narrate(c.store, rows[1]!);
       expect(held.tone).toBe("amber");
       expect(held.text).toContain("Raw transcripts");

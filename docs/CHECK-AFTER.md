@@ -38,16 +38,19 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): rerun the replay, 7 against 14: useful lost, rulings held, held-set size. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
+| The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | the release after 0.3.43 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
-| The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | built, off, in review 10-30 | **from the day it's turned on**, not merge: a few days of real wakes on one store before any default changes | [below](#the-wakes-shape-wk2) |
-| The page in its own form (PF1): one store's nightly writers keep the page's sections and form instead of `HOW_I_WORK_RULE`, behind meta `self.page_form` | built, off, in review 11-01; on for Mike's store: **[date, not yet]** | **2026-11-08**: Mike judges whether the counterpart reads more like someone; the page versions for stories cut for room and any rebuilt rules list | [below](#due-2026-11-08-the-page-in-its-own-form-pf1-roadmap-2026-11-01-an-experiment--meta-selfpage_form) |
-| A closed folder's plain reminder is held back; a personal one is told whatever its folder | in review 10-30, unreleased | ~2 weeks after release, or the first time one is held: did a real date go unsaid? | [below](#a-closed-folders-plain-reminder) |
+| The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off by default; **on for Mike's store from 11-01** (he ran `counterparts wake-shape on`) | a few days of real wakes on his store: ROADMAP holds the read, reminder 11-04, no default change before it | [below](#the-wakes-shape-wk2) |
+| The page in its own form (PF1): one store's nightly writers keep the page's sections and form instead of `HOW_I_WORK_RULE`, behind meta `self.page_form` | 0.3.44, 11-01 (#701), off; on for Mike's store: **[date, not yet]** | **2026-11-08**: Mike judges whether the counterpart reads more like someone; the page versions for stories cut for room and any rebuilt rules list | [below](#due-2026-11-08-the-page-in-its-own-form-pf1-roadmap-2026-11-01-an-experiment--meta-selfpage_form) |
+| A closed folder's plain reminder is held back; a personal one is told whatever its folder | 0.3.43, 11-01 (#700) | ~2 weeks after release, or the first time one is held: did a real date go unsaid? | [below](#a-closed-folders-plain-reminder) |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | 0.3.42, 10-30 (#687) | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
 | The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | 0.3.42, 10-30 (#689) | ~3 nights after release (~2026-11-03): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | 0.3.42, 10-30 (#688) | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
 | Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
+| Raw copies under the shared "mcp" and "console" ids go line by line on their own age: 3 days when nothing is owed, 14 whatever is | next release after 0.3.43, 11-01 (fix/mcp-bucket-age-limit, fix/console-bucket-age-limit) | ~1 week after release: copies past the limit under either id (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
+| The claim comes after the mint: a memory that threw claims nothing, and a retry lands it | next release after 0.3.43, 11-01 (fix/mint-after-claim) | ~2 weeks after release: `counterpart.deposit.mint.failed` in the log, retries that landed, any twins | [A failed mint](#a-failed-mint) |
 | The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -76,7 +79,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | 0.3.36, 10-24 | 3–5 days after the release that carries it (read 11-01: never fired, 0 rows — re-read when awake beliefs are written) | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
 | An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | 0.3.36, 10-24 | ~7 lived days after install (read 11-01: fired 1 of 2,317 turns, no cost side; kept) | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
-| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune (read 11-01: lanes 1, door 5 over 7 nights. Mike 11-01: shadow retired, switch off, code left inert; reflection-alone admission stays (09-27 ruling); no promotions or demotions; undo = one switch; closed) | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
+| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24; retired in 0.3.44 (#705) | a week of 0.3.36 shadow rows, then Mike decides on, off or tune (read 11-01: lanes 1, door 5 over 7 nights. Mike 11-01: shadow retired, switch off, code left inert; reflection-alone admission stays (09-27 ruling); no promotions or demotions; undo = one switch; closed) | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
 | A `still open` recall handle that lists what "Still open" carries (and the facts questions asking for that list), named in the wake's tail (O1); before the day's run the night line names the latest finished night, dated (L1) | 0.3.37, 10-25 | ~3 mornings after install | "Due ~3 mornings after the still open handle and the dated night" below |
 | Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | 0.3.37, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints (read 11-01: person-turn noise 42% / useful 17%, past the range — trigger met. Not attributable: the 10-22..25 baseline was a low outlier; the turn-1 control shows the 10-26 step isn't S1 (ROADMAP's S1-review.md, ~/counterparts-notes/). Mike 11-01: S1 stays on, no off-test; closed) | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
@@ -94,6 +97,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | K1: the night's kinds ask covers 30 cards (`schemas.TAGS_KINDS_PER_NIGHT`, was 10) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): kindless live cards (144 of 207 on 10-29) falling, not growing; the tags child's read size and whether it timed out | "Due ~2 weeks after the 10-29 knobs" below |
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
 | K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | when 3+ beliefs about other people pass the 0.3 floor, with the beliefs slot's own read: did they show, and how were they rated? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
+| R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | its own release, the one after PF1's, 11-01 (#706) | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/decisions.d/feat-r3s-cue-stop-list.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -138,17 +142,71 @@ in the older 7 days aren't held until then. The next rating row rebuilds it (tes
 **How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
 once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
 
+## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
+
+**What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#passesOnNight`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/decisions.d/fix-nt1-night-holes.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
+
+**What to look at, about a week after release.** On a copy or read-only, ids and numbers only:
+
+```sql
+SELECT seq, ref, json_extract(payload,'$.state') AS state, json_extract(payload,'$.session') AS session,
+       json_extract(payload,'$.ms') AS ms, json_extract(payload,'$.sleptMs') AS slept
+FROM events WHERE name = 'dream.night' ORDER BY seq DESC LIMIT 40;
+SELECT seq, ref, json_extract(payload,'$.state') AS state, json_extract(payload,'$.ms') AS ms, json_extract(payload,'$.sleptMs') AS slept,
+       json_extract(payload,'$.limit') AS lim
+FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
+```
+
+- **A run spanning sleep:** a `dream.night` row with `sleptMs`, and `adapter.night.slept` in `sessions/log/`. A night the lid closed on and no `sleptMs` means the gap went unnoticed. Compare `ms - sleptMs` with what the children really took.
+- **No catch-up stopped by a watchdog after a sleep:** no `adapter.night.writeup` row with `state` `timed-out` and a `sleptMs`; none with `limit` `time` unless it really worked for an hour awake.
+- **Which session started each night:** `adapter.night.started` in the log carries the `session` and `entrypoint`. No `sdk-cli` or `sdk-ts`. `adapter.dream.unwatched` beside it: `passed: "headless"` lines are a session passing, `started: true` is a hand-back in a person's session or a session the host calls unattended off the headless list (10-25 and 10-31 were `cli` hand-backs). Its `session` against the host's transcript tells those apart.
+- **Any day with no night:** a lived day with memories saved and no `dream.night` row, and what sessions it had. A day used only headless gets none, and that's expected; doctor says so once it's been two days.
+
+**What would change it:** a watchdog still firing on wake (read `adapter.night.slept` against the row, then whether the gap is too wide); a real child killed late because stalls read as sleep; days with no night that a person would have wanted (a schedule comes back on the table, as Mike said).
+
+**How to revert:** the two are separate. For the night's start, drop the `passesOnNight` branch in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
+
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 
-**What we're trying:** on 11-01 the counterpart rewrote its own page (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, and no "## How I work"; the nightly writers were told to keep "## How I work" as short general lessons (`HOW_I_WORK_RULE`). With `counterparts page-form own`, day's end and the reflection are told instead to amend the page in its own form. Mike's store only; every other store has no row and is the comparison. Why and undo: `docs/decisions.d/feat-page-form-own.md` (stitched into IMPROVEMENTS at release).
+**What we're trying:** on 11-01 the counterpart rewrote its own page (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, and no "## How I work"; the nightly writers were told to keep "## How I work" as short general lessons (`HOW_I_WORK_RULE`). With `counterparts page-form own`, day's end and the reflection are told instead to amend the page in its own form. Mike's store only; every other store has no row and is the comparison. Why and undo: `docs/IMPROVEMENTS.md`, "One store's nightly writers keep the page's own form".
 
-**Switched on:** not yet. After Mike installs the release that carries it, ROADMAP or random-54 runs `counterparts page-form own` and writes the date here and in the index row. The dated reminder for 2026-11-08 is set at merge.
+**Switched on:** not yet. After Mike installs 0.3.44, which carries it, ROADMAP or random-54 runs `counterparts page-form own` and writes the date here and in the index row. The dated reminder for 2026-11-08 is set at merge.
 
 **What to look at, 2026-11-08:** Mike's judgment first: does the counterpart read more like someone? Then the page versions since the switch (`counterparts self-page --versions`, `--version <seq>`): a story cut to fit the room (v72 was 4,588 B of 4,600, so any added line sends a page back to be cut, and stories are the longest lines, switch or not); a "## How I work" list rebuilt, or stories flattened into rules; which sections day's end touched. Claims: a hand-written page's sentences start as hypotheses until a writer cites them, which is expected.
 
 **What would change it:** a page that loses its stories to room night after night (room is a separate decision, not this one); nights that rebuild the rules list anyway (the words aren't enough); or Mike reading no difference.
 
 **How to revert:** `counterparts page-form default` on the store, from the next night, no restart. A page put back by hand: write v71 (the last rules page) or any version's text as a new version through the self_page tool.
+
+## Due ~1 week after the shared bucket went line by line (2026-11-01, coordinator's brief marked for Mike's review — a fix, no switch)
+
+**What we're trying and why.** Sessionless notes' raw copies share the id `"mcp"`, and `counterparts note`'s share
+`"console"`, and each new note restarted the clock for the rest. Each line now goes on its own age.
+`docs/decisions.d/fix-mcp-bucket-age-limit.md`.
+
+**What to look at.**
+
+1. Lines deleted per pass (the first pass after updating takes the whole backlog):
+
+   ```sql
+   SELECT json_extract(payload, '$.date') AS date, json_extract(payload, '$.reason') AS reason,
+          json_extract(payload, '$.unboundLines') AS unbound_lines, json_extract(payload, '$.deleted') AS sessions
+   FROM events WHERE name = 'remember.prune' ORDER BY seq DESC LIMIT 14;
+   ```
+
+2. Copies past the limit that are still there. Counts and ages only; it prints no words:
+
+   ```sh
+   bun -e 'const fs=require("fs"),p=require("path"),s=process.env.HOME+"/.counterparts/store/spans";let n=0,old=0,past=0;for(const d of fs.readdirSync(s)){const f=p.join(s,d,"jots.jsonl");if(!fs.existsSync(f))continue;for(const l of fs.readFileSync(f,"utf8").split("\n")){if(!l)continue;let x;try{x=JSON.parse(l)}catch{continue}if(x.session!=="mcp"&&x.session!=="console")continue;n++;const a=(Date.now()-x.at)/864e5;if(a>=4)old++;if(a>=15)past++}}console.log({lines:n,over4days:old,over15days:past})'
+   ```
+
+3. `counterparts doctor --all`, the Raw transcripts line: `N old notes with no session let go` on a day lines went.
+
+**What would change it.** `over15days` above 0 on a store whose worker ran that day means a line is escaping: look for
+a broken `at` or a stranded `.striking` file. `over4days` above 0 is normal only for notes whose memory did not land.
+A real note's words missing from a write-up later would mean the rewind isn't doing its job (`remember/NOTES.md`).
+
+**Revert.** `docs/decisions.d/fix-mcp-bucket-age-limit.md`, Undo.
 
 ## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch)
 
@@ -486,6 +544,36 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~7 lived days after the cue stop-list (2026-11-01, R3S, Mike's call 11-01, lightly held; its own release so its effect stays separable)
+
+What: words on `associate.CUE_STOP_LIST` (path fragments `tmp uds sock cross etc usr var`, a hex id of 7+ characters,
+acknowledgements `sounds good ahead let okay yes yeah yep sure fine cool great thanks fyi`) learn no cue pair, dropped
+at the cue flush and counted (`cueStopped` on the `associate.flush` row), and their old pairs are not read. No row was
+edited: old stop-listed pairs stay in `cue_edges` and fade and are swept as any pair does. On the 11-01 copy they were
+317 of 3,184 pairs (about 10%, and 10% of the weight), so this is hygiene, not the cause of the ~10× growth.
+
+Look at (read-only, rows since the release that carries it; `<ms>` its install time, `<build>` its version):
+- new pairs a week: `SELECT COUNT(*), COUNT(DISTINCT token), COUNT(DISTINCT memory_id) FROM cue_edges WHERE created_at >= <ms>;`
+  against the 11-01 read's ~3,200 in its first week. That week began from an empty table and a retrained pair keeps its
+  `created_at`, so this number falls some with no change at all; `updated_at >= <ms>` counts pairs touched;
+- the stop-listed share of what training sent: `SELECT SUM(json_extract(payload,'$.cueStopped')), SUM(json_extract(payload,'$.cueDeltas')) FROM events WHERE name='associate.flush' AND json_extract(payload,'$.build') >= '<build>';`
+  (a string compare, fine while versions keep their width). `cueStopped` is new, so there is no 11-01 count. The nearest
+  baseline: on the 11-01 copy 7.4% of the words in recorded turns were on the list (1,473 of 19,806), an estimate, since
+  not every turn is credited; the 10% is of pairs, another unit. And no new row on a stop-listed word:
+  `SELECT token, COUNT(*) FROM cue_edges WHERE created_at >= <ms> AND token IN ('tmp','uds','sock','cross','etc','usr','var','sound','good','ahead','let','okay','yes','yeah','yep','sure','fine','cool','great','thank','fyi') GROUP BY token;` (expect none; hex ids aren't named here, `cueStopped` counts them);
+- the widest new words: `SELECT token, COUNT(*) n FROM cue_edges WHERE created_at >= <ms> GROUP BY token ORDER BY n DESC LIMIT 20;`
+  (counts only; without the `created_at` the old listed rows, still in the table and not read, top it): a new fragment or
+  filler class at dozens of memories is the next candidate;
+- footnote ratings by build from `recall.rated` (noise / useful), read as R3's row reads them: the 11-01 read was 40.7% /
+  16.7% (n 1,500). Expect a small move at most: a listed word still matches a memory that holds it, only its learned
+  pairs are gone.
+
+Changes it: a stop-listed share well above the 7–10% above, or new filler or path words at the top of the fan-out → widen
+the list or move to a rule (a minimum informativeness for learned words) instead of naming words. Growth still ~3,000 a
+week with the noise share small → the growth is ordinary words and the question is the training rate or the floor, not this list.
+A stop-listed word Mike wants learned → take it off. Undo: `CUE_STOP_LIST = []` (nothing filtered, cue learning exactly
+as before, the old pairs read again).
 
 ## Due ~2026-11-06: folds keep named ids (2026-10-30, FI1, a lost-information fix; no switch of its own, `recall.SEE_ALSO_NAMED_IDS` still rules what's read)
 
@@ -898,7 +986,7 @@ below; R3 still his.)
   ratings, all turns, 10-26..31: noise 40.7% / useful 16.7% (n 1,500), against the row's 47% / 18%: noise not above
   it, but it moved with S1's in the same window (below), so R3's share can't be split from the store (`learned` per
   turn isn't recorded). **For Mike:** a stop-list or minimum-informativeness for learned words (path fragments,
-  acknowledgements), or leave it; nothing to revert alone.
+  acknowledgements), or leave it; nothing to revert alone. *Mike, 11-01: a stop-list → R3S (#706), its own row above.*
 - **B1, awake belief support (0.3.36 on) — can't be read.** Zero `belief.support.awake` rows, zero
   `near-duplicate` anything since day 34; three beliefs were born in the moment at all (days 33, 35, 40), 2 since
   install. The door never fired. Other `sessionBelief` outcomes (`not-testimony…`, `limit-reached`, `pasted…`) aren't
@@ -946,7 +1034,7 @@ below; R3 still his.)
   1, reflection-only 1. **For Mike: on, off or tune** — and whether he wants these five as core, and the waking memory
   held out. **Mike 11-01: shadow retired, switch off, code left inert; reflection-alone admission stays (09-27
   ruling); no promotions or demotions; undo = one switch** (`physics.CORE_DOOR_SUPPORT` back to `"shadow"`;
-  `docs/decisions.d/fix-e2-shadow-off.md`). **Closed.**
+  `docs/IMPROVEMENTS.md`, "the core door's shadow retired"). **Closed.**
 - **Emotion's weight (EMO_Q 0.5, the 10-18 method) — first read by Étienne in ~/random (random-54); superseded in part by ROADMAP's challenge review below.** On a copy of the live
   store, 0.3.42, lived day 41; script and lists in `~/counterparts-notes/2026-11-01-felt-review/` (`felt.ts` runs
   against a copy; `felt-q.ts` is a what-if taking `EMO_Q` from env). Method check: on the 10-19 snapshot the script
@@ -1905,7 +1993,7 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **What we're trying:** the wake designed top-down, one question per section, no item twice, a whole title or a door where something doesn't fit. Built behind `self.WAKE_SHAPE`, off; one store on first (`counterparts wake-shape on`).
 
-**The clock starts when it's turned on, not at merge.** ROADMAP sets the dated reminder then (settles when the reading's written up).
+**The clock started when it was turned on, not at merge: on for Mike's store from 11-01.** ROADMAP holds the read, with the dated reminder at 11-04 (settles when the reading's written up), and no default changes before it.
 
 **What to look at, a few days after:** real wakes in the folders that use them most, read for the draft's test: without a tool call, what's live, what's owed, what changed since this note? And `adapter.wake.injected` rows by `sec_*`: bytes per section against the table in the PR; `pageRung` whole every day; any `counterpart.wake.shape.declined` or `.failed` in the process log; how often `Nothing here since.` prints (0 of 30 in the prototype's sweep; a line that never prints can go). Then: is the door used? `mcp.recall.comingup` and `mcp.recall.handoffshere` by day.
 
@@ -1913,3 +2001,12 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
 
+## A failed mint
+
+`remember` and `session_end` wrote the claim, then the memory, so a mint that threw lost the note and marked its words as written up. The claim now comes after the mint (`src/core/remember/NOTES.md`, "A failed mint"; docs/decisions.d/fix-mint-after-claim.md). Before the fix, on the owner's logs (10-25 to 11-01): no lock or full-disk lines in 29,622; `session_end` 1,791 entries, 1,787 stored. `remember` wasn't visible at all.
+
+**Check, ~2 weeks after release:** count `counterpart.deposit.mint.failed` in `sessions/log/` by `landed` and `source`, and `mcp.refused` with `reason: threw` for `remember`. `counterparts doctor` counts them among its failures. For any that happened: did a retry land (a memory with the note's session within minutes), and did twins appear (same body, two ids, before a sleep pass folded them)?
+
+**What would change it:** a steady rate of `landed: false` means writers are holding the lock past 5 seconds, which is its own fix. Twins that sleep doesn't fold mean the kill window isn't as small as it reads. A `notLanded` on a nightly write-up with nothing saved after it means that last-part case needs a resend.
+
+**How to revert:** `counterpart-deposit.ts#deposit` back to `submitProposal` before the mint. That restores the loss.
