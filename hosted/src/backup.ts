@@ -432,9 +432,9 @@ export class Backups {
       const out = `${path}.restoring`;
       for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
       const r = await run(["restore", "-config", this.configPath, "-o", out, "-if-replica-exists", path]);
-      // Its `Error:` line, not its log lines (`time=… level=… path=…`, on stderr
-      // since `config`'s `logging.stderr`): those name the database's path, and so
-      // the store id, which the restore CLI never prints (the #653 review, L5).
+      // Drops Litestream's log lines (`time=… level=…`, on stderr since `config`'s
+      // `logging.stderr`); the restore CLI replaces the id by its tag in the
+      // message (the #653 review, L5), since an `Error:` line can name the path too.
       if (r.code !== 0) throw new Error(`litestream restore exited ${String(r.code)}: ${r.stderr.trim().split("\n").filter((l) => !l.startsWith("time=")).slice(-2).join(" / ").slice(0, 300)}`);
       if (!existsSync(out)) {
         empty += 1;
@@ -491,8 +491,9 @@ export class Backups {
     // snapshots a day instead of one, and a 12 h point-in-time window.
     // LITESTREAM'S OWN LINES TO STDERR (0.5.17 logs to stdout unless
     // `logging.stderr`): the sidecar inherits stderr into the container's log,
-    // so a sync error, an R2 403 or an SSE-C refusal shows there, and `restore`'s
-    // captured stderr carries its last line before the `Error:`. At the default
+    // so a sync error, an R2 403 or an SSE-C refusal shows there. `restore`'s
+    // failure message drops Litestream's log lines; the restore CLI replaces the
+    // id by its tag in the message. At the default
     // level (INFO) a line names paths, the bucket and the endpoint, never a key:
     // LOG_LEVEL and LITESTREAM_S3_DEBUG never reach the child (`litestreamEnv`).
     const lines = [

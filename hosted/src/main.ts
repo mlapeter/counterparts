@@ -217,7 +217,9 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
       } catch (err) {
         failed += 1;
         // A tag, not the id (the #653 review, L5): matchable against the audit by whoever has the id, nothing more.
-        lines.push(`store ${storeTag(id)}: ${err instanceof Error ? err.message : String(err)}`);
+        // The message too: Litestream's own `Error:` lines name the database's path, and so the id.
+        const message = err instanceof Error ? err.message : String(err);
+        lines.push(`store ${storeTag(id)}: ${message.split(id).join(storeTag(id))}`);
       }
     }
     lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(failed)} failed, ${String(live.length - ids.length)} already here`);

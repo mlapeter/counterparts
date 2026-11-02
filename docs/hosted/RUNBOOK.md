@@ -140,8 +140,8 @@ the domain on Cloudflare.
 5. **Litestream's own words**: the log has Litestream's start lines (`level=INFO msg=litestream version=…`, then
    `msg="initialized db"` and `msg="replicating to" … bucket=… endpoint=…` for each database), and no repeated
    `sidecar.backoff`. A sync that fails says so in its own `level=ERROR` or `level=WARN` lines (an R2 `403`, a refused
-   SSE-C key). These lines reach the log since 2026-11-02: before that, Litestream wrote them to stdout, which the
-   sidecar drops, so `/readyz` showed only that the process ran.
+   SSE-C key). These lines reach the log since the build with `logging.stderr`: before it, Litestream wrote them to
+   stdout, which the sidecar drops, so `/readyz` showed only that the process ran.
 
 ## 6. Your invite, and you
 
@@ -450,8 +450,10 @@ the hosted server exists. The volume and the bucket stay as they are, so startin
   email purged from backups within 24 hours" promise needs a different number.
 - **The final sync on SIGTERM.** Litestream 0.5.17's source has a shutdown sync (`shutdown-sync-timeout`). At each
   redeploy, the old container's log should end with Litestream's shutdown lines, `msg="signal received, litestream
-  shutting down"` and then `msg="litestream shut down"`, before `[hosted] sidecar.exit`. A `level=ERROR` line between
-  them is a final sync that failed; `[hosted] sidecar.kill` is one cut short.
+  shutting down"` and then `msg="litestream shut down"`, before `[hosted] sidecar.exit`. A `level=ERROR` or
+  `level=WARN` shutdown sync line between them (`shutdown sync …`: failed, retrying, interrupted or skipped) is a
+  final sync that had trouble; `[hosted] sidecar.kill` is one cut short. The same shutdown lines appear at every
+  sidecar reload too (each sign-up or delete), not only at a redeploy.
 - **Limits.** `[hosted] limit.rate-limited` / `limit.store-full` / `limit.in-flight` lines. Each line is a hashed
   store tag and nothing else. (Litestream's own lines, from the sidecar child, do name database paths, and so store
   ids, and the bucket and endpoint; never a key. Railway's log is the operator's, not a place anyone else reads.) The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
