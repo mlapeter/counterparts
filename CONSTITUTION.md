@@ -31,8 +31,8 @@ at any time and revisable without ceremony. Changing THIS page is deliberate and
 **Properties — what must stay true**
 
 6. **The owner owns the data.** Local is always available, and the owner can always take
-   their memory home. Memories are written as prose and kept in open, portable formats, a
-   database file or readable files, and the owner can read their own memories wherever
+   their memory home. Memories are written as prose and kept in open, portable formats (a
+   database file or readable files), and the owner can read their own memories wherever
    they live. Data leaves the machine only by the owner's explicit choice, never
    silently. _(Amended 2026-11-02.)_
 7. **Memory changes like human memory.** Revision, fading, and forgetting are the

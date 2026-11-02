@@ -62,7 +62,7 @@ ended up with canonical state spread across a prose store plus half a dozen side
   acceptable.*
 - **A store directory is self-contained.** A copy, a move or a restored backup reads and
   removes its OWN memories and never another store's (finding I22, 2026-09-05).
-  Constitution line 6 — local-first, portable — and line 7's "backups catch catastrophe"
+  Constitution line 6 — local always available, portable — and line 7's "backups catch catastrophe"
   both rest on it: a backup that still pointed at the live store was not a backup. *G15
   below: structural since the floor rather than enforced.*
 
