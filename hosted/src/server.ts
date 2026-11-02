@@ -80,6 +80,13 @@ export interface HostedServerOptions {
   readonly limits?: McpLimits;
   /** Told each limit refusal and each store refused for a missing restore, with the hashed store tag only. A throw is swallowed. */
   readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
+  /**
+   * Told each error that became a 500 or a JSON-RPC "internal error": where (`call` a tool or method threw,
+   * `door` the MCP transport, `tenant` opening or queuing the store, `route` anything else), the hashed store
+   * tag when there is one, and the error. Format it with `errorLine`, which keeps its type, code and code
+   * locations, never its message (it could name a path or carry what a person wrote). A throw is swallowed.
+   */
+  readonly onError?: (where: ErrorWhere, store: string | null, err: unknown) => void;
   /** `/readyz`: names of checks and their states only, never an id or a secret. Absent ⇒ `/readyz` answers like `/healthz`. */
   readonly readiness?: () => Promise<Readiness>;
   /** First deploy only (`LOG_FORWARDED_FOR=1`): told the raw `X-Forwarded-For` of each `/readyz` request, to check the proxy's hops (INTERFACE-GAPS §4). */
@@ -93,6 +100,33 @@ export interface Readiness {
 }
 
 export const MCP_PATHS = new Set(["/mcp", "/mcp/"]);
+
+export type ErrorWhere = "call" | "door" | "tenant" | "route";
+
+/**
+ * One log line for an error that became a 500 (or a JSON-RPC "internal error"): its type, its `code` when that
+ * is a short constant (`SQLITE_BUSY`, `ENOENT`), and up to five code locations from its stack, each cut to the
+ * path inside the app. Never the message, never anything the request carried.
+ */
+export function errorLine(where: ErrorWhere, store: string | null, err: unknown): string {
+  const e = err !== null && typeof err === "object" ? (err as { name?: unknown; code?: unknown; stack?: unknown }) : {};
+  const name = typeof e.name === "string" && /^[A-Za-z0-9_$]{1,40}$/.test(e.name) ? e.name : typeof err;
+  const code = typeof e.code === "string" && /^[A-Z0-9_]{1,40}$/.test(e.code) ? ` code=${e.code}` : "";
+  const frames: string[] = [];
+  if (typeof e.stack === "string") {
+    for (const line of e.stack.split("\n")) {
+      const m = /^\s+at (?:([\w$.<> ]{1,60}) \()?(.*?):(\d+):\d+\)?$/.exec(line);
+      if (m === null) continue;
+      const file = m[2] ?? "";
+      const cut = /(?:^|\/)((?:hosted\/)?src\/.*|node_modules\/.*)$/.exec(file);
+      const at = cut?.[1] ?? file.split("/").pop() ?? "?";
+      const fn = (m[1] ?? "").replace(/^async /, "").trim();
+      frames.push(`${fn === "" ? "" : `${fn}@`}${at.slice(0, 80)}:${m[3] ?? "?"}`);
+      if (frames.length === 5) break;
+    }
+  }
+  return `[hosted] error where=${where}${store === null ? "" : ` store=${store}`} name=${name}${code} at=${frames.length === 0 ? "?" : frames.join(" < ")}\n`;
+}
 
 /** The Protected Resource Metadata URL the 401 points at (path-inserted, RFC 9728 §3.1). */
 export function resourceMetadataUrl(publicOrigin: string): string {
@@ -231,6 +265,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
             // locked or a token revoked meanwhile, never a 200 "internal error".
             refusal: (err) => (err instanceof StoreLocked || err instanceof TokenRevoked ? unauthorized : err instanceof RecheckFailed ? { status: 503, headers: { "Retry-After": "30" } } : null),
             onCall: (r) => opts.onCall?.({ ...r, store }),
+            onError: (where, err) => report(where, store, err),
           });
         }),
       );
@@ -244,13 +279,29 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       }
       // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
       // 503, so the client retries later instead of asking the person to sign in again.
-      if (!(err instanceof StoreNeedsRestore) || res.headersSent) throw err;
+      if (!(err instanceof StoreNeedsRestore) || res.headersSent) {
+        report("tenant", store, err);
+        throw err;
+      }
       req.resume();
       event("store.needs-restore", store);
       text(res, 503, "503: this memory is being restored\n", { "Retry-After": "300" });
     } finally {
       req.socket.removeListener("close", release);
       release();
+    }
+  };
+  // Each error is told once: one the store's path already told isn't told again by the route catch-all.
+  const told = new WeakSet<object>();
+  const report = (where: ErrorWhere, store: string | null, err: unknown): void => {
+    if (err !== null && typeof err === "object") {
+      if (told.has(err)) return;
+      told.add(err);
+    }
+    try {
+      opts.onError?.(where, store, err);
+    } catch {
+      /* a log, not a gate */
     }
   };
   const event = (name: `limit.${LimitReason}` | "store.needs-restore", store: string): void => {
@@ -311,8 +362,9 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       }
       req.resume();
       text(res, 404, "Not found\n", hsts);
-    })().catch(() => {
+    })().catch((err: unknown) => {
       // Never the message: it could name a path on disk.
+      report("route", null, err);
       if (!res.headersSent) text(res, 500, "500\n");
       else res.destroy();
     });

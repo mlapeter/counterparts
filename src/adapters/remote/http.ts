@@ -122,6 +122,9 @@ export interface McpPostOptions {
   /** Told the status of each request refused before it reached the server
    *  (413, 400). A throw is swallowed. */
   readonly onRefused?: (status: number) => void;
+  /** Told each error that became a JSON-RPC "internal error" (`call`) or an HTTP 500 (`door`). The error itself,
+   *  for the door to log what it may (its type and where it was thrown, never its message). A throw is swallowed. */
+  readonly onError?: (where: "call" | "door", err: unknown) => void;
   readonly now?: () => number;
   /**
    * Asked once the whole body has arrived, before any message reaches the
@@ -279,6 +282,7 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
       throw new Refused(refused, request.id);
     }
     ran.any = true; // it reached the server, and may have written before it threw
+    tell(() => opts.onError?.("call", err));
     // The message stays on this machine: it could name a path on disk.
     response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
   }
@@ -425,7 +429,8 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
         return;
       }
       json(res, 200, batch ? responses : responses[0], headers);
-    })().catch(() => {
+    })().catch((err: unknown) => {
+      tell(() => opts.onError?.("door", err));
       if (!res.headersSent) refuse(500);
     });
   });

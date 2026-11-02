@@ -51,6 +51,8 @@ import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
+import { errorLine } from "./server.js";
+import type { HostedCallRecord } from "./server.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun } from "./backup.js";
 import { signupsCommand } from "./signups.js";
@@ -237,6 +239,20 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
  * didn't send (R9). The event and the hashed
  * store tag, nothing else: never an id, an address or an error's text.
  */
+/** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
+export function callLine(r: HostedCallRecord): string {
+  const parts = [`store=${r.store}`, `method=${r.method}`];
+  if (r.tool !== undefined) parts.push(`tool=${r.tool}`);
+  parts.push(`ok=${String(r.ok)}`);
+  if (r.reason !== undefined) parts.push(`reason=${r.reason}`);
+  parts.push(`ms=${String(Math.round(r.ms))}`);
+  if (r.connection !== null) parts.push(`conn=${r.connection.slice(0, 8)}`);
+  if (r.client !== undefined && r.client !== null) parts.push(`client=${JSON.stringify(r.client)}`);
+  if (r.clientVersion !== undefined && r.clientVersion !== null) parts.push(`clientVersion=${JSON.stringify(r.clientVersion)}`);
+  if (r.protocolVersion !== undefined) parts.push(`protocol=${r.protocolVersion}`);
+  return `[hosted] mcp ${parts.join(" ")}\n`;
+}
+
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;
@@ -687,6 +703,10 @@ async function main(): Promise<void> {
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
+    // Every /mcp message, ids and codes only (CONTRACT §6), and every error that became a 500 or an
+    // "internal error", by type and code location, never its message (11-02: claude.ai got a 500 nothing logged).
+    onCall: (r) => process.stderr.write(callLine(r)),
+    onError: (where, store, err) => process.stderr.write(errorLine(where, store, err)),
     // First deploy only: the raw X-Forwarded-For of each /readyz request, to count the proxy's hops. Unset it after.
     ...(env["LOG_FORWARDED_FOR"] === "1" ? { logForwardedFor: (raw: string) => process.stderr.write(`[hosted] /readyz X-Forwarded-For: ${raw}\n`) } : {}),
   });
