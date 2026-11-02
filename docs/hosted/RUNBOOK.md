@@ -137,7 +137,11 @@ the domain on Cloudflare.
    - Then **delete `LOG_FORWARDED_FOR`** and redeploy.
 4. **The bucket**: after a minute, R2's object browser shows `keys/control.wrapped` and `control/accounts.sqlite/…`.
    VERIFIED 2026-10-29: the bucket showed `control/` and `keys/`.
-5. **Litestream's own words**: the log has Litestream's start lines, and no repeated `sidecar.backoff`.
+5. **Litestream's own words**: the log has Litestream's start lines (`level=INFO msg=litestream version=…`, then
+   `msg="initialized db"` and `msg="replicating to" … bucket=… endpoint=…` for each database), and no repeated
+   `sidecar.backoff`. A sync that fails says so in its own `level=ERROR` or `level=WARN` lines (an R2 `403`, a refused
+   SSE-C key). These lines reach the log since the build with `logging.stderr`: before it, Litestream wrote them to
+   stdout, which the sidecar drops, so `/readyz` showed only that the process ran.
 
 ## 6. Your invite, and you
 
@@ -445,10 +449,14 @@ the hosted server exists. The volume and the bucket stay as they are, so startin
   deploy, R2's `control/accounts.sqlite/` should hold no snapshot older than about 24 h. If it does, the "account
   email purged from backups within 24 hours" promise needs a different number.
 - **The final sync on SIGTERM.** Litestream 0.5.17's source has a shutdown sync (`shutdown-sync-timeout`). At each
-  redeploy, the old container's log should end with Litestream's shutdown lines, before `sidecar.exit`.
+  redeploy, the old container's log should end with Litestream's shutdown lines, `msg="signal received, litestream
+  shutting down"` and then `msg="litestream shut down"`, before `[hosted] sidecar.exit`. A `level=ERROR` or
+  `level=WARN` shutdown sync line between them (`shutdown sync …`: failed, retrying, interrupted or skipped) is a
+  final sync that had trouble; `[hosted] sidecar.kill` is one cut short. The same shutdown lines appear at every
+  sidecar reload too (each sign-up or delete), not only at a redeploy.
 - **Limits.** `[hosted] limit.rate-limited` / `limit.store-full` / `limit.in-flight` lines. Each line is a hashed
   store tag and nothing else. (Litestream's own lines, from the sidecar child, do name database paths, and so store
-  ids. Railway's log is the operator's, not a place anyone else reads.) The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
+  ids, and the bucket and endpoint; never a key. Railway's log is the operator's, not a place anyone else reads.) The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
   1 GiB a store.
 - **An R2 outage stops a restart.** Start-up reads the bucket (`keys/`), so a deploy during an R2 outage refuses to
   start. It says `the object store (R2_ENDPOINT) didn't answer`. A server that is already running keeps serving.

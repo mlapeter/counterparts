@@ -280,6 +280,8 @@ describe("Backups", () => {
     assert.match(yml, /control\/accounts\.sqlite/);
     // The "purged within 24 h" bound: snapshots every 12 h, kept 12 h (backup.ts#config).
     assert.match(yml, /^snapshot:\n {2}interval: 12h\n {2}retention: 12h$/m);
+    // Litestream's own lines reach the container's log (0.5.17 logs to stdout, which the sidecar doesn't keep).
+    assert.match(yml, /^logging:\n {2}stderr: true$/m);
     assert.doesNotMatch(yml, new RegExp(litestreamKey(dek).replace(/[+/=]/g, ".")));
     assert.ok(!yml.includes(keys.wrapped(id)!));
     assert.equal(reloads, 2);
