@@ -100,6 +100,7 @@ import { chaseRemoved, unarchiveMerged } from "../src/core/store/owner-op-seam.j
 // about: a belief that stopped being a belief.
 import { Schemas } from "../src/core/schemas/index.js";
 import { applyRevision } from "../src/core/revision.js";
+import { isTold } from "../src/core/told.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -470,7 +471,8 @@ describe("init", () => {
   });
 
   test("install and init seed the SAME core, so the two paths make the same store", async () => {
-    // §3 says both commands mean the same thing by `--name`. Until 2026-09-04
+    // Both commands mean the same thing by `--name` (S1: not by the store —
+    // init makes a bare store, with no starter notes; install sets up yours). Until 2026-09-04
     // they did not: `init` minted the core, `install` deferred it to the first
     // hook, and a reader who followed §3 and then §7 saw a different live-row
     // count than the page had captured. One assertion, both doors.
@@ -489,8 +491,10 @@ describe("init", () => {
       const core = findIdentityCore(brain.store);
       expect(core).not.toBe(null);
       expect(brain.store.readProse(core as string).meta["name"]).toBe("Ada");
-      // One live row each, and it is the core — the shape §7's capture counts on.
-      expect(brain.store.list({ archived: false }).length).toBe(1);
+      // One live row each besides the starter memories (which only a store
+      // `install` creates begins with, S1), and it is the core — the shape
+      // §7's capture counts on.
+      expect(brain.store.list({ archived: false }).filter((id) => !isTold(brain.store.row(id))).length).toBe(1);
       brain.close();
     }
   });
@@ -5442,7 +5446,7 @@ describe("install", () => {
     // AND THE CORE EXISTS NOW, not at the first hook. `install` used to write
     // the name into the config and leave the minting to `openAdapter` at the
     // first session, while `init --name` minted immediately — so the two
-    // commands §3 calls interchangeable produced different stores, and §7's
+    // commands then called interchangeable produced different stores, and §7's
     // captured `considered N of M live rows` was reproducible only on one of
     // them (2026-09-04).
     expect(printed).toContain("identity core seeded for Ada");

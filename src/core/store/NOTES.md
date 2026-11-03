@@ -2470,3 +2470,10 @@ there. A test holds that.
 
 The plans of the other queries on the table don't change (`SELECT DISTINCT memory_id`, the lengths'
 `GROUP BY`, one document's rows, the delete): they stay on the primary key's index.
+
+## 2026-11-03 — `told`, a source with no schema change (S1)
+
+`MEMORY_SOURCES` gains `told` (`core/told.ts`): a starter memory, planted once in a new store. `source` is free
+text, so no format change. `newMemoryIds` leaves it out (never what a night sorts), `memoryTexts` and
+`liveMemoryTexts` leave it out (never a card's names), and `toldIds()` lists the set for the night's fence and the
+tests. An older build opening a store with told rows reads them as ordinary memories with an unknown source.

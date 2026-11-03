@@ -486,3 +486,11 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
   with the right ring reads it as no control key and restores as on an empty volume. `ops.test.ts`'s drill pins it.
 - **The image copies the build context's modes as they are** and runs as `node`, so a worktree checked out under
   `umask 077` builds an image that can't read its own `src/`. The script makes its worktree under `umask 022`.
+
+## 2026-11-03 — a new person's store begins with the starter memories (S1)
+
+`startNewStore` plants the set in hosted's words (`plantTold(store, "hosted")`, `src/core/told.ts`), beside
+`beginNewInstall`, only on the open that created the store. Claude Code connected here reads the same store, so it
+gets the same words. Two hosted lines wait on decisions and are constants at the top of `told.ts`: the night line
+(the first claude.ai chat of the day runs the night, Mike 11-03) and single-memory delete. Pinned through the real
+signup in `hosted/test/oauth.test.ts`.

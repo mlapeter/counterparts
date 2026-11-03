@@ -27,6 +27,7 @@ import type { App } from "../src/app.js";
 import { cimdFetch, memoryMailer } from "../src/egress.js";
 import { clientLabel, returnsTo } from "../src/oauth.js";
 import { listen, rpc, tempRoot, tool } from "./helpers.js";
+import { toldSet } from "../../src/core/told.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -267,6 +268,36 @@ describe("connecting, as claude.ai does", () => {
       assert.ok(!bytes.includes(c.access), `${f} holds the access token`);
       assert.ok(!bytes.includes(c.refresh), `${f} holds the refresh token`);
     }
+  });
+
+  test("a new person's store starts with the starter memories, in hosted's words, marked told, the set's version in meta (S1)", async () => {
+    const r = await rig();
+    const { code } = r.app.accounts.createInvite();
+    const c = await connect(r, "new@example.com", { invite: code });
+    const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
+    const person = r.app.accounts.person(r.app.accounts.sessionPerson([...c.browser.jar].find(([k]) => k.startsWith("cp_session|"))![1].v)!)!;
+    await r.app.tenants.withTenant(person.storeId!, {}, async (_t, server) => {
+      const store = server.counterpart.store;
+      const rows = store.toldIds().map((id) => store.row(id)!);
+      assert.deepEqual(rows.map((x) => x.title).sort(), toldSet("hosted").map((m) => m.title).sort());
+      assert.equal(rows.length, 11);
+      for (const x of rows) {
+        assert.equal(x.source, "told");
+        assert.ok(x.body.startsWith("Told, not lived: "), x.body);
+        assert.equal(x.archived, 0);
+      }
+      assert.equal(store.getMeta("told.set"), "v1");
+      assert.equal(store.getMeta("told.surface"), "hosted");
+      const all = rows.map((x) => x.body).join("\n");
+      assert.match(all, /account page/);
+      assert.doesNotMatch(all, /`counterparts (doctor|export|scope)/);
+      // #7 on hosted: one account is one memory, never a folder (ROADMAP, 11-03).
+      const scope = rows.find((x) => x.title === "Told: turning memory on or off")!;
+      assert.match(scope.body, /One account is one memory: they can pause it or turn it off, and back on\./);
+      assert.doesNotMatch(scope.body, /folder/);
+    });
+    // The wake never shows one: seen only by asking.
+    assert.doesNotMatch(JSON.stringify(woke), /Told: /);
   });
 
   test("CIMD: a metadata URL as client_id; the Allow page names the app by its host, not by what it calls itself", async () => {
