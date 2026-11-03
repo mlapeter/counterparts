@@ -471,7 +471,8 @@ describe("init", () => {
   });
 
   test("install and init seed the SAME core, so the two paths make the same store", async () => {
-    // §3 says both commands mean the same thing by `--name`. Until 2026-09-04
+    // Both commands mean the same thing by `--name` (S1: not by the store —
+    // init makes a bare store, with no starter notes; install sets up yours). Until 2026-09-04
     // they did not: `init` minted the core, `install` deferred it to the first
     // hook, and a reader who followed §3 and then §7 saw a different live-row
     // count than the page had captured. One assertion, both doors.
@@ -5445,7 +5446,7 @@ describe("install", () => {
     // AND THE CORE EXISTS NOW, not at the first hook. `install` used to write
     // the name into the config and leave the minting to `openAdapter` at the
     // first session, while `init --name` minted immediately — so the two
-    // commands §3 calls interchangeable produced different stores, and §7's
+    // commands then called interchangeable produced different stores, and §7's
     // captured `considered N of M live rows` was reproducible only on one of
     // them (2026-09-04).
     expect(printed).toContain("identity core seeded for Ada");

@@ -291,6 +291,10 @@ describe("connecting, as claude.ai does", () => {
       const all = rows.map((x) => x.body).join("\n");
       assert.match(all, /account page/);
       assert.doesNotMatch(all, /`counterparts (doctor|export|scope)/);
+      // #7 on hosted: one account is one memory, never a folder (ROADMAP, 11-03).
+      const scope = rows.find((x) => x.title === "Told: turning memory on or off")!;
+      assert.match(scope.body, /One account is one memory: they can pause it or turn it off, and back on\./);
+      assert.doesNotMatch(scope.body, /folder/);
     });
     // The wake never shows one: seen only by asking.
     assert.doesNotMatch(JSON.stringify(woke), /Told: /);

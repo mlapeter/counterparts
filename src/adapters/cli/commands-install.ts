@@ -271,7 +271,7 @@ export function installCommand(
   // `Counterpart.open`, so the core appeared only when a session first fired.
   // Two things were wrong with that. §3 says "It seeds the identity core" of a
   // command that had not yet; and `init --name` DID seed it immediately, so the
-  // two commands the same page calls interchangeable produced different stores
+  // two commands (then called interchangeable) produced different cores
   // (found 2026-09-04, when a captured recall reproduced one row higher than
   // the page said). Same door as `init`: `Counterpart.open`'s own option, which
   // is an ENSURE, so the hook's later call finds it and mints nothing.
@@ -351,9 +351,9 @@ export function installCommand(
   } else {
     say(`  ${config.what} ${config.path}`);
   }
-  // The SAME sentence `init` prints, because the two commands did the same
-  // thing: a page that calls them interchangeable and then has them say it
-  // differently has made the reader do the comparison.
+  // The SAME sentence `init` prints, because the two seed the core the same
+  // way. They are not interchangeable since S1 (ROADMAP, 11-03): "init makes a
+  // bare store, with no starter notes; install sets up yours."
   // The conversation (`installInteractive`) has already said this, one step up, in
   // the person's own answer; saying it twice is the wall of text the owner named.
   if (seeded && opts.nameAlreadySaid !== true) {

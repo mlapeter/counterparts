@@ -87,7 +87,7 @@ describe("the headline (round 4, 2026-09-28)", () => {
       expect(owner).not.toBeNull();
       const tail = today.newToday > 0 ? ` · ${today.newToday} new today` : "";
       expect(hero.headline).toBe(`Day ${src.store.livedDay()} with ${owner} · ${live} memories${tail}`);
-      expect(Object.keys(hero).sort()).toEqual(["headline", "memories", "newToday"]);
+      expect(Object.keys(hero).sort()).toEqual(["headline", "memories", "newToday", "starter"]);
       expect(hero.memories).toBe(live);
       expect(hero.newToday).toBe(today.newToday);
       // No mechanism score and no tiles: those went to Health, or went.

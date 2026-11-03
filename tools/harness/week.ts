@@ -47,6 +47,7 @@ import { McpServer } from "../../src/adapters/mcp/index.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
 import { readSession } from "../../src/adapters/sessions.js";
 import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
+import { plantTold } from "../../src/core/told.js";
 import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
 import { childInit, modelSeat, SERVE_AT_SCRIPT } from "./model-seat.js";
@@ -120,6 +121,13 @@ export interface WeekOptions {
    * `false`: a bare store.
    */
   readonly install?: boolean | "without-meeting";
+  /**
+   * Plant the starter memories as `counterparts install` does on a store it
+   * creates (S1, `core/told.ts`; default true, with any `install` but
+   * `false`), so the week measures the first week a new user has. `false`
+   * (`--no-told`): a store without them, as before S1.
+   */
+  readonly told?: boolean;
   readonly workRoot?: string;
   /** Where to write the week's store as one file, for `cli.ts replay`. */
   readonly out?: string;
@@ -641,6 +649,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // A SCRIPTED SEAT BEGINS WITHOUT THE MEETING by default: the night's gate waits while one is pending, and no model is there to hold it.
   const install = opts.install ?? (scripted ? "without-meeting" : true);
   if (install !== false) counterpart.store.setMetaMany(install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
+  // AND THE STARTER MEMORIES, as install plants them in a store it creates (S1).
+  if (install !== false && opts.told !== false) plantTold(counterpart.store, "local");
 
   // THE PRODUCT DECIDES WHAT RUNS: its spawner is asked for the night (at a
   // morning's first prompt, when the gate says so) and for the worker (at each

@@ -466,7 +466,7 @@ describe("uninstall, plain", () => {
     // `~/…` on screen (item 13), and the absolute path nowhere on it.
     expect(said).toContain("~/.counterparts/store");
     expect(said).not.toContain(base());
-    expect(said).toContain("memories are still at");
+    expect(said).toMatch(/memories( \([^)]*starter notes?\))? are still at/);
     expect(said).toContain(`To remove the program too: ${REMOVE_PACKAGE}`);
     expect(said).toContain("--park");
   });
@@ -1515,7 +1515,8 @@ describe("the count", () => {
     );
     const line = status.out.find((l) => l.startsWith("Memories: ")) as string;
     const shown = Number(/^Memories: (\d+)/.exec(line)?.[1] ?? "-1");
-    expect(census.memories).toBe(shown);
+    // `status` says the lived memories, the starter notes apart (S1); the census counts both and says so.
+    if (census.kind === "memories") expect(census.memories - census.told).toBe(shown);
     expect(census.journal).toBeGreaterThanOrEqual(0);
   });
 
@@ -1964,7 +1965,7 @@ describe("uninstall, plain — the offer to delete", () => {
     expect(readHost(home, home, ENV).events).toEqual([]);
     expect(fingerprint(base(), true)).toBe(before);
     expect(text(c.out)).not.toContain(DELETE_QUESTION);
-    expect(text(c.out)).toContain("memories are still at");
+    expect(text(c.out)).toMatch(/memories( \([^)]*starter notes?\))? are still at/);
   });
 
   test("--yes at a terminal takes the ordinary answer — keep — and asks nothing", async () => {

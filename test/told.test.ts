@@ -22,6 +22,8 @@ import type { NightAnswer } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { Dashboard } from "../src/adapters/dashboard/index.js";
+import { router } from "../src/adapters/dashboard/web/server.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -116,6 +118,10 @@ describe("a new store starts with the set; nothing else ever gets it", () => {
       const all = rows.map((r) => r.body).join("\n");
       expect(all).toContain("`counterparts doctor`");
       expect(all).not.toContain("account page");
+      // ROADMAP's 11-03 wording: a reminder saved with its date as a plain one; a pause lasts until resumed.
+      expect(all).toContain('"Remind me Thursday to ...": I save it with the date and as a plain reminder, so it comes up that day, or the next time we talk.');
+      expect(all).toContain("pause it until they say to resume");
+      expect(all).not.toContain("for a while");
       // Never the self: no core, no page.
       expect(rows.every((r) => r.promoted_identity === 0 && r.band !== "identity")).toBe(true);
     });
@@ -200,6 +206,59 @@ describe("counts and asks that read lived memories leave the set out", () => {
       expect(s.countMemories({ archived: false, notSource: TOLD_SOURCE })).toBe(1);
       expect(hasDayBefore(s, "2999-01-01")).toBe(true);
     });
+  });
+});
+
+// ── the counts a person reads ───────────────────────────────────────────────
+
+function said(): { io: Io; out: string[] } {
+  const out: string[] = [];
+  return { io: { out: (l) => out.push(l), err: (l) => out.push(l) }, out };
+}
+
+describe("day one never claims memories nobody made (ROADMAP, 11-03)", () => {
+  test("status, doctor, the dashboard and uninstall say the lived memories and the starter notes apart", async () => {
+    await install();
+    const status = said();
+    expect(await run(["status", "--dir", storeDir], { io: status.io, env: {}, home })).toBe(EXIT.ok);
+    const text = status.out.join("\n");
+    expect(text).toContain("Memories: 0 · 11 starter notes");
+    expect(text).toMatch(/Today \(\d{4}-\d{2}-\d{2}\): 0 new/);
+
+    const doctor = said();
+    await run(["doctor", "--config", cfg], { io: doctor.io, env: {}, home });
+    const read = doctor.out.join("\n");
+    expect(read).toContain("— 0 memories · 11 starter notes");
+    expect(read).toContain("11 starter notes not searchable by meaning yet");
+
+    const dash = Dashboard.open({ dir: storeDir });
+    try {
+      const overview = JSON.parse(router(new URL("http://127.0.0.1:4747/api/overview"), "127.0.0.1:4747", dash.source).body) as { hero: { headline: string; memories: number; newToday: number } };
+      expect(overview.hero.headline).toContain("0 memories · 11 starter notes");
+      expect(overview.hero.newToday).toBe(0);
+      const memories = JSON.parse(router(new URL("http://127.0.0.1:4747/api/memories"), "127.0.0.1:4747", dash.source).body) as { total: number; starter: number };
+      expect([memories.total, memories.starter]).toEqual([0, 11]);
+    } finally {
+      dash.close();
+    }
+
+    const leaving = said();
+    await run(["uninstall", "--config", cfg, "--keep-memories", "--yes"], { io: leaving.io, env: {}, home });
+    expect(leaving.out.join("\n")).toContain("11 memories (11 of them starter notes) are still at");
+  });
+
+  test("init makes a bare store, with no starter notes; install sets up yours — and help says so", async () => {
+    const bare = join(root, "bare");
+    expect(await run(["init", "--dir", bare], { io: quiet(), env: {}, home })).toBe(EXIT.ok);
+    const s = Store.open({ dir: bare });
+    try {
+      expect(toldRows(s)).toHaveLength(0);
+    } finally {
+      s.close();
+    }
+    const help = said();
+    await run(["help", "init"], { io: help.io, env: {}, home });
+    expect(help.out.join("\n")).toContain("init makes a bare store, with no starter notes; install sets up yours.");
   });
 });
 

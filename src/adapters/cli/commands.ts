@@ -642,7 +642,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
     "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
   uninstall:
     "Leave: disconnect Claude Code, then say where your memory still is and how to remove the package. At a terminal it then asks whether to delete your memory too (Enter keeps it; a yes asks you to type a phrase). Otherwise it never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
-  init: "Just a store: create a data dir and PRINT the install steps. For a second store or a scratch one.",
+  init: "init makes a bare store, with no starter notes; install sets up yours. It creates a data dir and PRINTS the install steps: for a second store or a scratch one.",
   "start-fresh":
     "Begin again as a stranger (or --undo to put the parked store back): park the store your configuration names beside itself under a dated name, park its snapshots the same way, and create a blank store at the same path. One atomic rename each — it never copies, never deletes, and never opens the old store, not even read-only. The configuration is kept byte for byte.",
   rollback:

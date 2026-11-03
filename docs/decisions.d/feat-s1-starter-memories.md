@@ -13,5 +13,11 @@
   them out (they are no moment of anyone's arc).
 - Counts that drive behaviour count lived rows (ROADMAP, 11-03, at review): recall's cold start (the candidate cap,
   the gate's regime), day's end's "a day before", meaning mode's common-word gate. Word rarity and the floor unit
-  keep the whole store, the population the word counts are taken over. Display counts (status, the dashboard,
-  uninstall) are the builder's next change.
+  keep the whole store, the population the word counts are taken over (kept on purpose at review; ROADMAP agreed).
+- Display counts (ROADMAP, 11-03): `status`, the dashboard (home headline, Today, the memories header) and doctor's
+  memory line and not-searchable count say the lived memories as the number and the starter notes apart ("0
+  memories · 11 starter notes"); a starter memory is never "new today". `uninstall` counts both and says so ("11
+  memories (11 of them starter notes)"). The wake's preface line still counts every memory row; left for now.
+- `init` stays bare (ROADMAP, 11-03): "init makes a bare store, with no starter notes; install sets up yours."
+- The harness `week` plants the set as install does, by default; `--no-told` (`told: false`) leaves it out, so a
+  Dana run measures the first week a new user has. Its day-end counts include the 11.

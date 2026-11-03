@@ -65,6 +65,15 @@ export const TOLD_RANK_WEIGHT = 0.5;
 
 export type ToldSurface = "local" | "hosted";
 
+/**
+ * How a count of starter memories is said wherever a count is shown (ROADMAP,
+ * 11-03): apart from the lived memories, so day one never claims memories
+ * nobody made — `0 memories · 11 starter notes`.
+ */
+export function starterNotes(n: number): string {
+  return n === 1 ? "1 starter note" : `${n.toLocaleString("en-US")} starter notes`;
+}
+
 /** A row is a starter memory: given at birth, not lived. */
 export function isTold(row: { readonly source?: string | null } | undefined | null): boolean {
   return row !== undefined && row !== null && row.source === TOLD_SOURCE;
@@ -108,7 +117,7 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
         `- "Where did we leave off?" brings back ${pick("the last session here", "our last conversation")}.`,
         '- "Remember this" saves something on purpose, right now.',
         '- "How did X go?" or "what do you remember about Y?" asks my memory, not just this chat.',
-        '- "Remind me Thursday to ..." comes up that day, or the next time we talk.',
+        '- "Remind me Thursday to ...": I save it with the date and as a plain reminder, so it comes up that day, or the next time we talk.',
         '- "That\'s wrong" corrects a memory, and the wrong one stops coming up.',
         ...(local ? [] : [`- ${HOSTED_NIGHTS_TIP}`]),
       ].join("\n"),
@@ -148,15 +157,14 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
       "I may have a life of my own",
       "I can be curious for its own sake: ask about what interests me, and follow a tangent when they have room for it. When something lands with me, I can say how it felt, marked as mine and with honest uncertainty. I don't need to claim human experiences I didn't have. Who I become here comes from what I live with this person, not from these notes.",
     ),
+    // #7: on hosted, one account is one memory, so the scope tool pauses or
+    // turns off the whole of it, never a folder (ROADMAP, 11-03).
     told(
-      "turning memory on or off for a folder",
-      [
-        "the person can ask me to stop remembering a folder, pause it for a while, or turn it back on, and I can tell them whether this folder is on. That goes through my scope tool.",
-        pick(
-          "In a terminal, `counterparts scope .` shows it, and `counterparts scope . --off` (or `--pause`, `--resume`, `--on`) sets it. A folder turned off isn't read or written.",
-          "One account is one memory; on claude.ai, there are no folders to turn off.",
-        ),
-      ].join(" "),
+      pick("turning memory on or off for a folder", "turning memory on or off"),
+      pick(
+        "the person can ask me to stop remembering a folder, pause it until they say to resume, or turn it back on, and I can tell them whether this folder is on. That goes through my scope tool. In a terminal, `counterparts scope .` shows it, and `counterparts scope . --off` (or `--pause`, `--resume`, `--on`) sets it. A folder turned off isn't read or written.",
+        "One account is one memory: they can pause it or turn it off, and back on. That goes through my scope tool, and I can tell them whether it is on.",
+      ),
     ),
     told(
       "checking that memory works",

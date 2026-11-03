@@ -353,6 +353,7 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "connect again.",
   ],
   init: [
+    "init makes a bare store, with no starter notes; install sets up yours.",
     "No host config, nothing under ~/.counterparts/ — that",
     "is what install is for.",
   ],

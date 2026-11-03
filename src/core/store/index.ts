@@ -5432,12 +5432,17 @@ export class Store {
     return memoryReads.tombstones(this);
   }
 
-  /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
   /** The starter memories (`source = 'told'`, S1, `core/told.ts`), live or not: ids only. */
   toldIds(): string[] {
     return this.ops.all<{ id: string }>("SELECT id FROM memories WHERE source = 'told' ORDER BY id").map((r) => r.id);
   }
 
+  /** How many starter memories are live (not archived, not superseded): the count shown apart from the lived ones. */
+  liveToldCount(): number {
+    return this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE source = 'told' AND archived = 0 AND superseded_by IS NULL")?.n ?? 0;
+  }
+
+  /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
   deniedIds(): string[] {
     return this.ops
       .all<{ memory_id: string }>(

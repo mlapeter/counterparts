@@ -5,3 +5,6 @@
   memory first and never shows a starter one loud; the deliberate `recall` ranks one below a lived match of
   comparable score. The night, the wake, the core, beliefs and cards never read them. An upgraded store never gets
   them. No store-format change.
+  `status`, doctor and the dashboard count them apart ("0 memories · 11 starter notes"), and `uninstall` says how
+  many of the memories it counts are starter notes. `init` still makes a bare store; the harness `week` starts with
+  the set unless given `--no-told`.
