@@ -3046,3 +3046,9 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   wrote. In Dana's WK2 week the launch row didn't `updates` the launch day, and they shared only the "Dana" card. What
   would make it exact: the session's `remember` linking the done row to the dated one (`updates`, which settles it today).
   Saves the plain line and the Due-today line, ~260 B, on d6s1/d6s2.
+- **On for new stores.** `beginNewInstall` writes `self.wake_shape = on` (`NEW_INSTALL_WAKE_SHAPE`): the same "new store"
+  door #729's starter memories use. `counterparts install` calls it only for a store that call created (`!existed`,
+  `start-fresh`'s blank store included), and hosted's `startNewStore` for a person's new store. The tunable stays false, so
+  every store that already existed keeps its own word or off. The harness's `NEW_INSTALL_META` mirrors it, held equal by
+  `test/harness-week.test.ts`, so a `week` run is shaped with no `--set`. `WAKE_SHAPE_KEY` moved to `self/tunables.ts` (re-
+  exported from the composer) so onboarding reads it from a leaf.

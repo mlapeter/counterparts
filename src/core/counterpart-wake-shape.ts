@@ -66,8 +66,8 @@ import { TOLD_SOURCE, isTold } from "./told.js";
 import { happenedAlready, sinceLastNight } from "./counterpart-wake-news.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
 
-/** The meta key that sets the shape for one store (`counterparts wake-shape on|off`): `on`, `off`, or absent for `self.WAKE_SHAPE`. */
-export const WAKE_SHAPE_KEY = "self.wake_shape";
+/** The meta key that sets the shape for one store (`self/tunables.ts#WAKE_SHAPE_KEY`, where a new install's state can read it too). */
+export { WAKE_SHAPE_KEY } from "./self/tunables.js";
 
 /** The door a section's rest goes behind. Each is a `recall` handle that lists what it counts. */
 export const COMING_UP_HANDLE = "coming up";

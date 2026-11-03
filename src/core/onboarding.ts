@@ -38,6 +38,7 @@
  */
 import { AUTO_RESET_KEY, DREAMING_SETTING_KEY } from "./dream/index.js";
 import type { Store } from "./store/index.js";
+import { WAKE_SHAPE_KEY } from "./self/tunables.js";
 
 type MetaReader = Pick<Store, "getMeta">;
 type MetaStore = Pick<Store, "getMeta" | "setMeta" | "setMetaMany">;
@@ -125,9 +126,12 @@ export const NEW_INSTALL_DREAMING_LINE =
 export const NEW_INSTALL_DREAMING_LINE_PLUGIN =
   "(Daily tidy-up, called dreaming, is on; say \"no dreams\" to turn it off.)";
 
+/** The wake's shape a NEW install starts with (WF1, 2026-11-03): on. A store with no word reads `self.WAKE_SHAPE` (off). */
+export const NEW_INSTALL_WAKE_SHAPE = "on";
+
 /**
  * A NEW INSTALL'S STARTING STATE — written by `install`, only into a store it
- * has just created: the meeting `not_started`, and dreaming `auto` (with the
+ * has just created: the meeting `not_started`, the wake's shape on (WF1), and dreaming `auto` (with the
  * marker that says the setting was chosen on this version, so the once-only
  * reset of an explicit `auto` — `Dreams#resetAutoOnce` — never undoes it).
  * A store that already existed is never passed here.
@@ -135,6 +139,11 @@ export const NEW_INSTALL_DREAMING_LINE_PLUGIN =
 export function beginNewInstall(store: MetaStore, opts: { dreaming?: boolean } = {}): void {
   store.setMetaMany([
     [ONBOARDING_MEET_KEY, "not_started"],
+    // THE WAKE'S SHAPE ON FOR A NEW STORE (WF1, 2026-11-03; ROADMAP's brief,
+    // Mike's go 14:41): the same door as the starter memories (#729), a store
+    // this install created. Every store that already existed keeps its own word
+    // or `self.WAKE_SHAPE`'s default (off).
+    [WAKE_SHAPE_KEY, NEW_INSTALL_WAKE_SHAPE],
     ...(opts.dreaming === false
       ? []
       : ([

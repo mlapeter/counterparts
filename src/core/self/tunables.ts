@@ -601,6 +601,14 @@ export const SELF_TUNABLES: SelfTunables = {
 };
 
 /**
+ * The meta key that sets the wake's shape for one store (`counterparts wake-shape
+ * on|off`): `on`, `off`, or absent (or empty) for `WAKE_SHAPE`. A new install
+ * writes `on` (WF1, `onboarding.ts#beginNewInstall`); a store that already
+ * existed keeps whatever it had.
+ */
+export const WAKE_SHAPE_KEY = "self.wake_shape";
+
+/**
  * EVERY LIMIT THE WAKE'S SHAPE SETS (`self.WAKE_SHAPE`, `core/counterpart-wake-shape.ts`),
  * each with its reason (Mike: list them, say why). Bytes are draft 5's judgment,
  * measured on six real days (wake-compare/round-4); counts are what its cold reader

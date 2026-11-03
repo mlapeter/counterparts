@@ -21,13 +21,14 @@ import { join } from "node:path";
 import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
+import { EXIT, run } from "../src/adapters/cli/index.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, plantTold } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
-import { DATABASE_FILE } from "../src/core/store/index.js";
+import { DATABASE_FILE, Store } from "../src/core/store/index.js";
 import { monthDay } from "../src/core/time.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
@@ -333,5 +334,52 @@ describe("a dated item that already happened settles", () => {
     const text = full(SHOP);
     expect(text).toContain(`Plain reminder (they asked to be told) — Today: ${LAUNCH_DAY}`);
     expect(section(text.slice(text.indexOf("<!-- counterparts:wake ")), "Coming up:")).toContain("- Due today · Dana's pottery shop launches today");
+  });
+});
+
+describe("the wake's shape is on for a new store, and only a new one", () => {
+  const quiet = { out: (): void => undefined, err: (): void => undefined };
+
+  /** The real hook on the store an install's config names. */
+  function wakeOf(cfg: string, dir: string): string {
+    const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: READER, hook_event_name: "SessionStart", source: "startup", cwd: SHOP }),
+      env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: dir, COUNTERPARTS_CONFIG: cfg, HOME: join(root, "home") },
+    });
+    expect(r.status).toBe(0);
+    return r.stdout;
+  }
+
+  test("install into a store it creates: on, by the store's own word, and the first wake is shaped", async () => {
+    const cfg = join(root, "cp", "claude-code.json");
+    const dir = join(root, "cp", "store");
+    mkdirSync(join(root, "home"), { recursive: true });
+    expect(await run(["install", "--config", cfg, "--no-connect"], { io: quiet, env: {}, home: join(root, "home") })).toBe(EXIT.ok);
+    const s = Store.open({ dir });
+    expect(s.getMeta(WAKE_SHAPE_KEY)).toBe("on");
+    s.close();
+    const c = Counterpart.open({ dir });
+    expect(c.self.tunables.WAKE_SHAPE).toBe(false);
+    expect(c.wakeShapeOn()).toBe(true);
+    c.close();
+    expect(wakeOf(cfg, dir)).toContain("Where this folder stands:");
+  });
+
+  test("a store that already existed keeps its setting through install: off stays the build's default", async () => {
+    const cfg = join(root, "cp", "claude-code.json");
+    const dir = join(root, "cp", "store");
+    mkdirSync(join(root, "home"), { recursive: true });
+    const old = Store.open({ dir });
+    old.put({ type: "memory", kind: "fact", body: "A memory from before WF1." });
+    old.close();
+    expect(await run(["install", "--config", cfg, "--no-connect"], { io: quiet, env: {}, home: join(root, "home") })).toBe(EXIT.ok);
+    const s = Store.open({ dir });
+    expect(s.getMeta(WAKE_SHAPE_KEY)).toBeUndefined();
+    s.close();
+    const c = Counterpart.open({ dir });
+    expect(c.wakeShapeOn()).toBe(false);
+    c.close();
+    expect(wakeOf(cfg, dir)).not.toContain("Where this folder stands:");
   });
 });

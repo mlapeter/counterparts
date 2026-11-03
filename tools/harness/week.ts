@@ -79,11 +79,12 @@ type DreamTold = NonNullable<ReturnType<ClaudeCodeAdapter["sessionStart"]>["drea
 /**
  * WHAT A NEW INSTALL WRITES before the first session (`core/onboarding.ts#
  * beginNewInstall`, run by `counterparts install`): the meeting not yet
- * started, dreaming on. Not in the package's public seams, so mirrored here;
+ * started, the wake's shape on (WF1), dreaming on. Not in the package's public seams, so mirrored here;
  * `test/harness-week.test.ts` holds the two to the same keys and values.
  */
 export const NEW_INSTALL_META: readonly (readonly [string, string])[] = [
   ["onboarding.meet", "not_started"],
+  ["self.wake_shape", "on"],
   ["dream.setting", "auto"],
   ["dream.setting.headless-reset", "chosen"],
 ];
