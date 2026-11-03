@@ -907,12 +907,15 @@ export function activate(
   /** The row, when this id is live memory that may be recalled at all; the
    *  same test for a candidate, a link-only pointer and a named one
    *  (`recallableRow`, see-also 2026-10-29). */
+  /** Starter memories among the rows read (S1), noted as they are read, so no row is read twice for it. */
+  const toldSeen = new Set<string>();
   const recallable = (id: string): ReturnType<Store["row"]> => {
     const r = recallableRow(store, id, { denied, ambient, day: input.day });
     if (r === "below-reach") {
       belowReachCount += 1;
       return undefined;
     }
+    if (isTold(r)) toldSeen.add(id);
     return r;
   };
 
@@ -1419,7 +1422,7 @@ export function activate(
       trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0 || c.feeling > 0,
       // §12 G5: temporal ALONE reaches the footnote tier at most.
       maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
-      ...(isTold(store.row(id)) ? { told: true as const } : {}),
+      ...(toldSeen.has(id) ? { told: true as const } : {}),
       ...(c.feeling > 0 ? { feeling: c.feeling } : {}),
       ...(c.stamp > 0 ? { stamp: c.stamp } : {}),
       ...(topIds.has(id) ? {} : { pastCut: true as const }),
@@ -1482,7 +1485,7 @@ export function activate(
       // a use like any other, and it is what confirms the link.
       trains: true,
       maxTier: "footnoted",
-      ...(isTold(row) ? { told: true as const } : {}),
+      ...(toldSeen.has(id) ? { told: true as const } : {}),
       linkOnly: true,
       linkedFrom: linkOnlyFrom.get(id) ?? {},
     });
