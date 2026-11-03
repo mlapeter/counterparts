@@ -1432,5 +1432,5 @@ A `told` memory is never in the queue (`store.newMemoryIds` leaves `source = 'to
 as lived since the last dream), never `showable` to a dream (so no lane hands one over and no change can name one),
 never in the reflection's `see` or its main loop (so no `recent`, core ask, candidate, cite or belief rests on
 one), and closed to the night's own `recall` (`McpServer#nightClosed`). Day's end leaves them out of the day
-(`self/writer.ts`), and the page's and day summary's cites refuse one. Tagging may still tag one: a tag is a recall
-aid, not the self. Pinned by one night through `runNight` in `test/told.test.ts`.
+(`self/writer.ts`), and the page's and day summary's cites refuse one. Nor the night's tag ask (`untaggedMemories`,
+at review): a tag on one would count toward a topic card's bar. Pinned by one night through `runNight` in `test/told.test.ts`.

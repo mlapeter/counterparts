@@ -11,7 +11,7 @@
   every lived one before inhibition and the footnote cap, so it only takes a quiet slot no lived memory wanted.
   Not a salience knob (§9 G8). Deliberate recall: facts orders a told match at half its score; meaning mode leaves
   them out (they are no moment of anyone's arc).
-- The store size recall reads (`countMemories`) still counts the seeds, so a new store leaves the gate's cold-start
-  regime (`COLD_START_MIN_STORE`, 15) at about 4 lived memories rather than 15, and word rarity is measured over 11
-  more rows. Left as is, a watch for Mike's fresh-user test: the ranking test (25 lived) shows no lived match lost,
-  and the seeds are outside the turn's background either way.
+- Counts that drive behaviour count lived rows (ROADMAP, 11-03, at review): recall's cold start (the candidate cap,
+  the gate's regime), day's end's "a day before", meaning mode's common-word gate. Word rarity and the floor unit
+  keep the whole store, the population the word counts are taken over. Display counts (status, the dashboard,
+  uninstall) are the builder's next change.

@@ -1769,5 +1769,8 @@ never loud (`told-quiet` in `loudBlockedBy`); and `admitted` is ordered lived-fi
 footnote cap, so a told one only takes a quiet slot no lived memory wanted, and is the one inhibited when the two
 read alike. Quiet pointers are ordered the same way. Facts mode orders a told match at `TOLD_RANK_WEIGHT` (0.5) of
 its score; meaning mode leaves them out. Pinned through the hook in `test/told.test.ts` on a 25-lived store against
-a twin without the set. Open watch: `countMemories` counts the seeds, so cold start ends at ~4 lived memories and
-rarity is measured over 11 more rows (`docs/decisions.d/feat-s1-starter-memories.md`).
+a twin without the set. Cold start ends on LIVED memories (review, ROADMAP 11-03): `Recall.build` counts
+`notSource: "told"` for the candidate cap, `gate.ts#background`'s regime and activate's mirror of it, and the cut
+ranks lived candidates first, so on cold start's three slots a seed never takes a lived one's place; pinned at five
+lived. Rarity and the floor unit keep the whole store, since `docFrequency` counts the seeds' words too: a word the
+seeds use ("memory", "folder", "night") is a little less rare for a lived memory than in a store without them.
