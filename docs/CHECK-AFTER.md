@@ -978,7 +978,7 @@ running 10-31 02:40, and four nights have run on it: 10-31 and 11-01 on 0.3.42, 
 W1 and LT1 are partial (3.7 of ~7 days), finish ~11-07. One thing needs Mike (W1's after-done bar).
 
 - **NC1, the catch-up leaves out a not-on folder (0.3.42 on) — holds; not exercised live.** Two folders are not on:
-  one off since 10-26, one observer since 10-07. Neither has had a Claude Code session since 10-26 / 10-09, so nothing
+  one off since 10-26, one observer since 10-07. Neither has had a Claude Code session since 10-26 / 10-13, so nothing
   was there to leave out. New memories from either folder since the fix: 0. All three ever written from them are the
   10-29 three (birth day 38), and those are now archived `removed-by-owner`. `coverage` for 10-26 through 11-03 on the
   copy: the off folder's two 10-26 sessions read "all written up" (they were, on 10-29 under 0.3.39); "Owed now: 1
@@ -990,7 +990,9 @@ W1 and LT1 are partial (3.7 of ~7 days), finish ~11-07. One thing needs Mike (W1
   the same before and after. **To see the door bite, on the copy only:** with ~/counterparts set off in a copied
   settings file, `coverage` moves 74f9ad97 and one short session to "Not asked for (folder off, observer or paused): 2",
   "Owed now: nothing", and doctor's Catch-up reads "nothing owed" (Authorship drops its "1 session awaiting
-  catch-up"). The readers still agree. Doctor's line doesn't say how many it isn't asking for; coverage does.
+  catch-up"). The readers still agree. Doctor's line doesn't say how many it isn't asking for; coverage does. (Run
+  coverage under the scratch `HOME` without `--dir`: with `--dir` or `COUNTERPARTS_DATA_DIR` it reads no folder
+  setting, so it still lists 74f9ad97 as owed while doctor says nothing is.)
   Re-read the first time a folder with recent sessions goes off, observer or paused. What would change it is in the
   row.
 - **The night's fence (0.3.42 on) — holds; not exercised live.** Every night ran normally: no `could-not-start`
@@ -1001,8 +1003,10 @@ W1 and LT1 are partial (3.7 of ~7 days), finish ~11-07. One thing needs Mike (W1
   them is in any dream's or reflection's `shown`, any `dream_changes` row or any memory's sources since 10-29, so no
   closed folder's words reached a dream, reflection or day summary, but there were none to keep out. Dream intake
   didn't fall: fresh 63 / 55 / 58 / 58 (60 / 55 the two nights before), shown 273–276. Night times 15.4, 25.8, 6.4,
-  6.6 min against 6.0 and 8.0; 11-01's extra is the 14.5-minute write-up timeout above, and 10-31's is the dream
-  (24,680 output tokens against 3–9k on every other night with a usage row since 10-25, $5.18 the night; not read further). The tagging
+  6.6 min against 6.0 and 8.0; 11-01's extra is the 14.5-minute write-up timeout above and an 8-minute page writer
+  (asked 16:17, refused past-room 16:25, then revised), and 10-31's is the dream and the reflection (24,680 and 20,396
+  output tokens, against 3–9k and 5–13k on the other seven nights with usage since 10-25; $5.18 the night; not read
+  further). The tagging
   child ran every night before and after, with real work (40 memories, 30 cards, 2,412 untagged waiting), and the
   fenced bundle is identical to the unfenced one, so "closed rows left untagged start a child each night" didn't
   arise. **On the copy only:** with another work folder set off, the fence closes 509 rows (494 memories, 13 chapters,
@@ -1013,7 +1017,8 @@ W1 and LT1 are partial (3.7 of ~7 days), finish ~11-07. One thing needs Mike (W1
   0.3.39 232, 6.5 / 15.9 / 42, 76%, 202; 0.3.40 160, 7.8 / 20.0 / 380, 77%, 808; 0.3.41 470, 4.9 / 8.3 / 59, 76%, 355;
   **0.3.42 379, 1.3 / 2.6 / 6.6, 64%, 30; 0.3.43 301, 1.6 / 3.4 / 13, 65%, 47; 0.3.44 46, 1.5 / 3.0 / 3.4, 66%, 3;
   0.3.45 363, 1.6 / 3.2 / 935, 43%, 26.** 0.3.45's two long ones (935 s at 11-02 03:07, 411 s at 03:46) are the laptop
-  asleep, not cost: the whole log is silent for 933 s and 411 s around them and they used 2.9 s and 1.6 s of CPU.
+  asleep, not cost: the whole log is silent for 933 s and 411 s around them and they used 2.9 s and 1.6 s of CPU;
+  macOS's power log (`pmset -g log`) has the machine asleep 03:07:20 → 03:22:54 and 03:46:37 → 03:53:30.
   Without them 0.3.45 is 65%. Median per-worker after-done 58–59% on 0.3.42–0.3.45, 74–77% before. By day, overlap
   went 120–1,082 s a day (10-27..10-30) to 14–62 s (11-01..11-03), with no worker over 100 s but the two asleep. So
   p50 is well under the 2.5 s bar and the overlap that 10-30 showed is gone, but after-done is about 0.9 s of 1.4 s,
