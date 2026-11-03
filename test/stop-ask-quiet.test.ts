@@ -37,6 +37,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { describeScopeTrouble, readScopes, scopesPath } from "../src/adapters/scopes.js";
 import { markNothingNew, readSession, recordSession } from "../src/adapters/sessions.js";
 import { SELF_TUNABLES } from "../src/core/self/tunables.js";
+import { enters } from "../src/core/remember/spans.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const UUID = "7c973b1c-d40a-47e5-92bb-8cdb1823a06d";
@@ -224,11 +225,30 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(parseTranscript(jsonl([typedEntry(shapes[0] ?? "")])).turns[0]?.source).toBe("conversation");
     // Some OTHER hook's additional context is not ours: on the host's own
     // (isMeta) line it is not kept at all (2026-10-12, `hostRecord`); written
-    // as bare user text it is still injected.
+    // as bare user text it was injected, and since 2026-11-03 (WP1) it is
+    // plumbing — a hook's output, not anything said — and enters nothing.
     const other = "<system-reminder>\nPostToolUse hook additional context: run the linter\n</system-reminder>";
     expect(parseTranscript(jsonl([metaEntry(other)])).turns).toEqual([]);
-    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("injected");
-    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("injected");
+    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("plumbing");
+  });
+
+  test("plumbing never takes the person's words (review of #731): only the WHOLE block is plumbing", () => {
+    const src = (text: string): unknown => parseTranscript(jsonl([bareEntry(text)])).turns.map((t) => t.source);
+    // The host's two lines, whole: plumbing, entering nothing.
+    expect(src("[Request interrupted by user for tool use]")).toEqual(["plumbing"]);
+    expect(src("<system-reminder>\nPostToolUse hook additional context: x\n</system-reminder>")).toEqual(["plumbing"]);
+    // Anything said with them, or a bare line a person on an older build may have
+    // typed, is kept (it enters capture).
+    for (const text of [
+      "[Request interrupted by user for tool use] no, don't touch that file",
+      "<system-reminder>\nPostToolUse hook additional context: x\n</system-reminder>\nMy dog Biscuit had surgery today.",
+      "<system-reminder>\nStop hook success: ok\n</system-reminder>\nwhy does this keep showing?\n<system-reminder>\nStop hook success: ok\n</system-reminder>",
+      "Stop hook success: why does this keep showing up in my terminal?",
+    ]) {
+      const read = parseTranscript(jsonl([bareEntry(text)]));
+      expect(read.turns.length).toBe(1);
+      expect(`${text} -> ${String(read.turns.every((t) => enters(t)))}`).toBe(`${text} -> true`);
+    }
   });
 
   test("a v1 marker is still FOREIGN on an isMeta entry — the refusals come before the metadata", () => {
@@ -307,7 +327,10 @@ describe("pacing counts only what the person typed (decision 3)", () => {
       ]),
     );
     // 2026-10-12 (`hostRecord`): the four isMeta / isCompactSummary lines
-    // enter no turn; the three bare lines are still read as injected.
+    // enter no turn; the three bare lines are still read as injected. A BARE
+    // hook line stays injected (review of #731): with no metadata it cannot be
+    // told from a person asking about their hook. Only a whole system reminder
+    // holding a hook's output is plumbing (2026-11-03, WP1).
     expect(read.turns.map((t) => t.source)).toEqual(Array.from({ length: 3 }, () => "injected"));
     expect(read.turns.map((t) => t.text).join(" ")).not.toContain("continued from a previous conversation");
     expect(substanceOf(read.turns)).toEqual({ turns: 0, bytes: 0 });
