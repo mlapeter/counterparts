@@ -218,6 +218,7 @@ import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
 import { UNDATED_LAST, WAKE_SHAPE_KEY, headlessOf, readCues, readElsewhere, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
+import { happenedAlready } from "./counterpart-wake-news.js";
 import type { Cue, ElsewhereListed, SinceItem } from "./counterpart-wake-shape.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
@@ -3384,6 +3385,9 @@ export class Counterpart {
     const out: PlainReminder[] = [];
     try {
       for (const due of this.prospective.plainDue({ at: input.at })) {
+        // ALREADY HAPPENED (WF1, 2026-11-03): a newer done memory says so, as
+        // the shop that launched a day early did; nobody is told it's today.
+        if (happenedAlready(this.store, due.memoryId) !== null) continue;
         let what = "";
         try {
           const doc = this.store.readProse(due.memoryId);

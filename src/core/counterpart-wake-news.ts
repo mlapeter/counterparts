@@ -27,6 +27,7 @@ import { isNightRow, memoryClosedTo, memoryFolder } from "./dream/slices.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import { stemTerm } from "./store/stem.js";
 import type { MemoryRow, Store } from "./store/index.js";
+import { recurrenceOfRow } from "./store/shapes.js";
 import { addDays, isDay, localDate, stampDay, startOfLocalDay } from "./time.js";
 import { isTold } from "./told.js";
 
@@ -187,11 +188,10 @@ function headOf(title: string): string | null {
  * bounded by `HAPPENED_READ`. `open`, when given, is the reader's fence: a row
  * it may not read settles nothing. Never throws.
  */
-export function happenedAlready(store: Store, id: string, opts: { readonly recurring?: boolean; readonly open?: (row: MemoryRow) => boolean } = {}): string | null {
-  if (opts.recurring === true) return null;
+export function happenedAlready(store: Store, id: string, opts: { readonly open?: (row: MemoryRow) => boolean } = {}): string | null {
   try {
     const item = store.row(id);
-    if (item === undefined || item.created_at === null || item.created_at === undefined) return null;
+    if (item === undefined || item.created_at === null || item.created_at === undefined || recurrenceOfRow(item) !== null) return null;
     const name = nameOf(item);
     const want = stems(name);
     if (want.size < SHAPE.HAPPENED_SHARED) return null;

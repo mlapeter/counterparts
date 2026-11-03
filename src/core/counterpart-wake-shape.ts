@@ -63,7 +63,7 @@ import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
-import { sinceLastNight } from "./counterpart-wake-news.js";
+import { happenedAlready, sinceLastNight } from "./counterpart-wake-news.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
 
 /** The meta key that sets the shape for one store (`counterparts wake-shape on|off`): `on`, `off`, or absent for `self.WAKE_SHAPE`. */
@@ -181,6 +181,10 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     if (row === undefined || row.band === "identity" || row.archived === 1) continue;
     // The fence's own rule (#697): whatever its mark, and a night's row by what it rests on.
     if (here?.exportsFrom !== undefined && memoryClosedTo(store, row, here.exportsFrom, norm(here.scope ?? ""))) continue;
+    // Already happened (WF1): a newer done memory this reader may read says so (the shop that launched a day early).
+    const fence = here?.exportsFrom;
+    const own = norm(here?.scope ?? "");
+    if (happenedAlready(store, h.id, { open: (r) => (fence === undefined ? norm(r.origin_scope ?? "") === own : !memoryClosedTo(store, r, fence, own)) }) !== null) continue;
     const place = threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false }, folders, rule);
     let folder: string | null = null;
     if (place === "out") {

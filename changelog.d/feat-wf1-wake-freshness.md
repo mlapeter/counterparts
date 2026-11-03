@@ -7,3 +7,5 @@
   whole and first for days.
 - **No empty sections in the wake.** "Nothing open.", "Nothing dated." and "Open here now: no other session." are gone,
   with their headings: a section with nothing in it isn't printed.
+- **Something that already happened stops being "due today".** When a newer memory marked done says a dated thing
+  happened (the shop launched a day early), its reminder isn't told and it leaves Coming up.

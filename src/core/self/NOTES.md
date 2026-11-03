@@ -3038,3 +3038,11 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   33 times in 11 wakes (~25–30 B each, ~60–90 B a wake). `arrivingTense` reads under the last `Coming up:`; with the lane
   absent it would read a page's own `Coming up:` line, which no page has had, and a line there would have to start
   `- due YYYY-MM-DD` to be touched.
+- **A dated item that already happened settles** (`counterpart-wake-news.ts#happenedAlready`): a newer live memory marked
+  done, not the night's and not told, sharing at least 2 of the item's words (stems, no date words) and every word of its
+  head when its title has one ("Shop launch day: …" needs shop and launch), else half its words. Coming up drops it (behind
+  the reader's fence), and so does the plain reminder (`Counterpart#plainDueToday`, both roads: it isn't the shape's). A
+  recurring item never settles this way. Word overlap, lightly held: it is the deterministic stand-in for a link nobody
+  wrote. In Dana's WK2 week the launch row didn't `updates` the launch day, and they shared only the "Dana" card. What
+  would make it exact: the session's `remember` linking the done row to the dated one (`updates`, which settles it today).
+  Saves the plain line and the Due-today line, ~260 B, on d6s1/d6s2.

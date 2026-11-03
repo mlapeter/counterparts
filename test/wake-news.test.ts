@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, plantTold } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
@@ -283,5 +284,54 @@ describe("a stale handoff steps down", () => {
     const stands = section(hook(SHOP).wake, "Where this folder stands:");
     expect(stands).toContain("waiting on Dana to pick a platform");
     expect(stands).toStartWith("Where this folder stands:\nHandoff, session eeee0001");
+  });
+});
+
+describe("a dated item that already happened settles", () => {
+  const LAUNCH_DAY = "Shop launch day: Saturday 7 Mar 2026 — Dana nervous nobody will buy";
+  const S1 = "dddd0001-0000-4000-8000-000000000000";
+  const S2 = "dddd0002-0000-4000-8000-000000000000";
+
+  /** Dana's WK2 d6s1: the launch set for today as a plain reminder, then a done memory the day before, both through remember. */
+  async function launch(news: string): Promise<void> {
+    const { c, at, today } = brain();
+    at(NOW - 3 * 24 * HOUR);
+    recordSession(storeDir, { sessionId: S1, scope: SHOP, phase: "start", at: NOW - 3 * 24 * HOUR });
+    await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S1 }).call("remember", { kind: "fact", title: LAUNCH_DAY, text: "Dana's pottery shop launches today; nervous nobody will buy.", eventDate: today, remind: "plain", status: "planned", about: "work" });
+    at(NOW - 24 * HOUR);
+    recordSession(storeDir, { sessionId: S2, scope: SHOP, phase: "start", at: NOW - 24 * HOUR });
+    await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S2 }).call("remember", { kind: "fact", title: news, text: `${news}.`, status: "done", about: "us" });
+    at(NOW);
+    c.close();
+  }
+
+  /** The hook's whole context, the plain reminder included, as a session in notes reads it. */
+  function full(cwd: string): string {
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    if (!existsSync(join(conf, "scopes.json"))) scopes({ [NOTES]: "on", [SHOP]: "on" });
+    const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: READER, hook_event_name: "SessionStart", source: "startup", cwd }),
+      env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
+    });
+    expect(r.status).toBe(0);
+    return r.stdout.startsWith("{") ? String((JSON.parse(r.stdout) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? "") : r.stdout;
+  }
+
+  test("the shop launched a day early: not today's plain reminder, not due today in Coming up", async () => {
+    await launch("Shop launched: 11 pieces sold in the first two hours");
+    const text = full(SHOP);
+    expect(text).toContain("Shop launched: 11 pieces sold");
+    expect(text).not.toContain("Plain reminder (they asked to be told)");
+    expect(text).not.toContain("Shop launch day");
+    expect(text).not.toContain("pottery shop launches today");
+  });
+
+  test("a done memory that names the launch but not the shop's launch settles nothing", async () => {
+    await launch("Drafted Dana's launch post, short and long versions");
+    const text = full(SHOP);
+    expect(text).toContain(`Plain reminder (they asked to be told) — Today: ${LAUNCH_DAY}`);
+    expect(section(text.slice(text.indexOf("<!-- counterparts:wake ")), "Coming up:")).toContain("- Due today · Dana's pottery shop launches today");
   });
 });
