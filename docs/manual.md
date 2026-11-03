@@ -89,7 +89,7 @@ The memory is the person's to keep or take with them.
 - [local] `counterparts uninstall` disconnects Claude Code and keeps the memory unless they say otherwise; `--keep-memories` keeps it without asking.
 - [local] `counterparts start-fresh` sets this memory aside and starts a blank one; `counterparts start-fresh --undo` brings it back. Nothing is deleted.
 - [local] `counterparts rollback` puts the memory back as it was before an upgrade (since 0.3.17).
-- [hosted] The account page's "Download my memory" gives the whole memory as one SQLite file, the shape a local install can take in. "Delete my account" locks it at once and erases the memory, its backups and its key after 24 hours, unless they sign in and keep it; "Delete everything now" erases at once.
+- [hosted] The account page's "Download my memory" gives the whole memory as one SQLite file, readable by any SQLite tool. "Delete my account" locks it at once and erases the memory, its backups and its key after 24 hours, unless they sign in and keep it; "Delete everything now" erases at once.
 
 ## Checking that it works
 
