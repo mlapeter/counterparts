@@ -101,7 +101,11 @@ loses is of turns older than the window). The kinds that keep their own write da
 singly from a session active across more than 90 lived days: `credited` (inert by then —
 the gate refuses a re-credit only on the same lived day), `asked` (an answer that old
 stops counting as shown, which narrows credit, never widens it), the wake's open-thread
-`prime` row, and `cuetrain` (whose cue words left on the 14-day clock long before). One
+`prime` row, `cuetrain` (whose cue words left on the 14-day clock long before), and the
+credit pass's `judged` mark (stamped with the boundary's day, and only when it judged a
+new turn: one that goes while the scalar stays makes the next boundary re-score showings
+already scored, a measurement repeat on `recall.credit`, never a credit — reachable only
+after 90 lived days of turns with no replied boundary). One
 cosmetic edge: a boundary credit more than 90 lived days after a session's last turn
 leaves a `credited` row newer than its scalar, so after the sweep that session loads
 `unreadable` rather than `absent` — the same fresh gate, a different count.
