@@ -203,32 +203,36 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
 const TOLD_KIND: Kind = "fact";
 
 /**
- * PLANT THE SET in a store its caller has just created. Writes each memory
- * through `Store#put` with source `told`, weak, and the set's version into the
- * store's meta. A store that already records a set (or holds a told row) is
- * left as it is: never planted twice. Returns the ids written.
+ * PLANT THE SET in a store its caller has just created. Writes the memories in
+ * ONE transaction (`Store#putMany`, atomic: a crash leaves all of them or
+ * none), with source `told`, weak, then the set's version into the store's
+ * meta. A store that already records a set, or already holds a told row, gets
+ * no rows: never planted twice (one holding the rows but not the meta, a crash
+ * between the two writes, has the meta written). Returns the ids written.
  */
 export function plantTold(store: Store, surface: ToldSurface): string[] {
   if (store.getMeta(TOLD_SET_KEY) !== undefined) return [];
-  const day = store.livedDay();
-  const ids: string[] = [];
-  for (const m of toldSet(surface)) {
-    ids.push(
-      store.put({
-        type: "memory",
-        kind: TOLD_KIND,
-        title: m.title,
-        body: m.body,
-        salience: { novelty: null, relevance: TOLD_CLAIM, emotional: 0, predictive: TOLD_CLAIM, claimed: TOLD_CLAIM },
-        physics: { birthDay: day, lastUsedDay: day },
-        source: TOLD_SOURCE,
-        meta: { told: TOLD_SET_VERSION },
-      }),
-    );
-  }
-  store.setMetaMany([
+  const meta: [string, string][] = [
     [TOLD_SET_KEY, TOLD_SET_VERSION],
     [TOLD_SURFACE_KEY, surface],
-  ]);
+  ];
+  if (store.toldIds().length > 0) {
+    store.setMetaMany(meta);
+    return [];
+  }
+  const day = store.livedDay();
+  const ids = store.putMany(
+    toldSet(surface).map((m) => ({
+      type: "memory" as const,
+      kind: TOLD_KIND,
+      title: m.title,
+      body: m.body,
+      salience: { novelty: null, relevance: TOLD_CLAIM, emotional: 0, predictive: TOLD_CLAIM, claimed: TOLD_CLAIM },
+      physics: { birthDay: day, lastUsedDay: day },
+      source: TOLD_SOURCE,
+      meta: { told: TOLD_SET_VERSION },
+    })),
+  );
+  store.setMetaMany(meta);
   return ids;
 }
