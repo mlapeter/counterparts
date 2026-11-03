@@ -90,6 +90,26 @@ there is no clean end signal; the sweep covers ended and killed sessions alike. 
 other gate kinds hold no typed text: `surfaced`, `credited` and `asked` are memory ids,
 `semantic` is `{id, score}` plus a model name, `judged` is a turn number.
 
+**2026-11-03, the rows get their caller.** The sleep cycle's `versions` phase now calls
+`Store#pruneGateSessions` every lived day, beside the version prune and on its window
+(`retentionDays`, 90 lived days by default). It deletes by row, `last_day` past the
+cutoff. What that means to the gate: every save re-stamps the scalar, surfaced, folded
+and belief rows with the session's latest recall day, so a session used inside the
+window keeps every row `loadGateState` reads; a session idle past it loses them all and
+loads `absent` (a fresh gate: dedup, refractory and carry reset — the no-repeat memory it
+loses is of turns older than the window). The kinds that keep their own write day can go
+singly from a session active across more than 90 lived days: `credited` (inert by then —
+the gate refuses a re-credit only on the same lived day), `asked` (an answer that old
+stops counting as shown, which narrows credit, never widens it), the wake's open-thread
+`prime` row, `cuetrain` (whose cue words left on the 14-day clock long before), and the
+credit pass's `judged` mark (stamped with the boundary's day, and only when it judged a
+new turn: one that goes while the scalar stays makes the next boundary re-score showings
+already scored, a measurement repeat on `recall.credit`, never a credit — reachable only
+after 90 lived days of turns with no replied boundary). One
+cosmetic edge: a boundary credit more than 90 lived days after a session's last turn
+leaves a `credited` row newer than its scalar, so after the sweep that session loads
+`unreadable` rather than `absent` — the same fresh gate, a different count.
+
 ## 7. Deliberately NOT built (Amendment 15 — complexity is earned)
 
 - **Deliberate recall (§9.1)** — the explicit ask, its lower-confidence labeled tier and
