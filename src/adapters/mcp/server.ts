@@ -2402,7 +2402,12 @@ export class McpServer {
    * fenced. Asked once per recall.
    */
   private nightClosed(): ReadonlySet<string> {
-    return this.nightReading() ? this.counterpart.fenceNight(this.folderOn()) : NOTHING_CLOSED;
+    if (!this.nightReading()) return NOTHING_CLOSED;
+    // Nor the starter memories (S1, `core/told.ts`): told, not lived, so never
+    // what the night reads, from its bundles or by asking.
+    const fenced = this.counterpart.fenceNight(this.folderOn());
+    const told = this.counterpart.store.toldIds();
+    return told.length === 0 ? fenced : new Set([...fenced, ...told]);
   }
 
   private nightReading(): boolean {

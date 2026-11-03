@@ -35,6 +35,7 @@ import {
 } from "./install.js";
 import type { InstallLayout, ParkedSighting } from "./install.js";
 import { NEW_INSTALL_DREAMING_LINE, beginNewInstall } from "../../core/onboarding.js";
+import { plantTold } from "../../core/told.js";
 // The console's shared manners (2026-09-21): is there a person here, ask them,
 // and say one marked line back.
 import { isPromptAborted, ui, ask } from "./ui.js";
@@ -253,6 +254,10 @@ export function installCommand(
   if (!existed) {
     try {
       beginNewInstall(store, { dreaming: opts.newInstall !== "start-fresh" });
+      // THE STARTER MEMORIES (S1, `core/told.ts`): told, not lived, planted
+      // only here, in a store this call created — `start-fresh`'s blank store
+      // included, since it is a new store with a new counterpart in it.
+      plantTold(store, "local");
     } catch (err) {
       store.close();
       io.err(prefixedRefusal(describeDirRefusal(err, layout.store)));

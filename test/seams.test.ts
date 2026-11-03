@@ -24,6 +24,7 @@ import {
   strength,
 } from "../src/core/physics/index.js";
 import { MEMORY_SOURCES } from "../src/core/types.js";
+import { plantTold } from "../src/core/told.js";
 import { Dreams, Reflections } from "../src/core/dream/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import {
@@ -2083,6 +2084,9 @@ describe("MemorySource is TOTAL — every member has a live writer that lands it
       cites: [cite],
     });
     seen.set("reflection", finished.ok ? (finished.outcome.entryId ?? "missing") : "missing");
+
+    // told: a starter memory, through the one writer that plants the set (S1, 2026-11-03).
+    seen.set("told", plantTold(s, "local")[0] ?? "missing");
 
     for (const member of MEMORY_SOURCES) {
       const id = seen.get(member);

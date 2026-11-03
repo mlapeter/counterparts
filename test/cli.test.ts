@@ -100,6 +100,7 @@ import { chaseRemoved, unarchiveMerged } from "../src/core/store/owner-op-seam.j
 // about: a belief that stopped being a belief.
 import { Schemas } from "../src/core/schemas/index.js";
 import { applyRevision } from "../src/core/revision.js";
+import { isTold } from "../src/core/told.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -489,8 +490,10 @@ describe("init", () => {
       const core = findIdentityCore(brain.store);
       expect(core).not.toBe(null);
       expect(brain.store.readProse(core as string).meta["name"]).toBe("Ada");
-      // One live row each, and it is the core — the shape §7's capture counts on.
-      expect(brain.store.list({ archived: false }).length).toBe(1);
+      // One live row each besides the starter memories (which only a store
+      // `install` creates begins with, S1), and it is the core — the shape
+      // §7's capture counts on.
+      expect(brain.store.list({ archived: false }).filter((id) => !isTold(brain.store.row(id))).length).toBe(1);
       brain.close();
     }
   });

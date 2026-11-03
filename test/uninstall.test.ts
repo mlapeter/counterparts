@@ -83,6 +83,7 @@ import type { UninstallInput } from "../src/adapters/cli/uninstall.js";
 import { PARKED_INFIX } from "../src/adapters/cli/start-fresh.js";
 import { PROMPT_CANCEL } from "../src/adapters/cli/ui.js";
 import { Store } from "../src/core/store/index.js";
+import { toldSet } from "../src/core/told.js";
 import type { ProcessLister, SpawnResult, Spawner } from "../src/adapters/cli/wire.js";
 import { DATABASE_FILE, dateOf } from "../src/core/store/index.js";
 
@@ -657,8 +658,10 @@ describe("uninstall --delete-memories", () => {
   });
 
   test("a store with NO memories never reads as a bare zero", async () => {
-    // A fresh install holds an identity core and no memories, so the whole
-    // account of the store going used to be "0 memories".
+    // A store with an identity core and no memories, so the whole account of
+    // the store going used to be "0 memories". Since S1 a store install CREATES
+    // holds the starter memories, so this one is made first and installed over.
+    expect(await run(["init", "--dir", storePath()], { io: consoleWith().io, env: ENV, home })).toBe(EXIT.ok);
     await install();
     const c = consoleWith([DELETE_PHRASE]);
     expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
@@ -1519,10 +1522,11 @@ describe("the count", () => {
   test("beliefs, entities and the self page are NOT counted as memories", async () => {
     await install();
     // `--name` seeds the identity core, which is a schema row: `status` calls
-    // it a belief, and the warning used to call it a memory.
+    // it a belief, and the warning used to call it a memory. What it counts is
+    // the starter memories a new store begins with (S1), and nothing else.
     const census = censusOf(base(), storePath());
     expect(census.kind).toBe("memories");
-    if (census.kind === "memories") expect(census.memories).toBe(0);
+    if (census.kind === "memories") expect(census.memories).toBe(toldSet("local").length);
   });
 
   test("counting opens the store READ-ONLY: no lock is taken and nothing is written", async () => {

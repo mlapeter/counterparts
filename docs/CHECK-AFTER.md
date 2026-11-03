@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | in review 11-03 (S1 PR) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
@@ -111,6 +112,25 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## When Mike runs his fresh-user test: starter memories (S1)
+
+S1 (2026-11-03, Mike approved draft 3, lightly held): a store `install`, `start-fresh` or hosted signup creates
+begins with the 11 starter memories, source `told` (`src/core/told.ts`). No date: this settles when Mike runs his
+fresh-user test on a new store, local or hosted. What to read in that store's first week:
+
+- **Used?** Which seeds were footnoted (`recall.decision` verdicts on ids from `store.toldIds()`), opened or quoted
+  (credit rows, `uses`), and which faded untouched. A seed opened on a turn about it is the point.
+- **Crowding?** Turns where a told footnote sat beside fewer than `MAX_FOOTNOTES` lived ones is fine; a lived
+  memory turned away while a seed showed would be a bug (the gate fills lived first). Deliberate `recall`: a seed
+  above a lived match of comparable score is a bug too.
+- **Kept out?** No starter words on the page, in Lately, the core, beliefs or cards after the first nights; no seed
+  in a dream's or reflection's bundle.
+- **Felt?** Mike's own read: did the counterpart offer tips once, at good moments, or recite them; and the visible
+  cost — `status` and the dashboard count the 11 from day one.
+
+Revert: stop calling `plantTold` (`cli/commands-install.ts`, `hosted/src/tenants.ts#startNewStore`); stores already
+planted keep their seeds, which fade unless used.
 
 ## Due ~14 lived days after the longer habituation window (2026-11-01, H14, Mike's call 12:07, lightly held — `recall.HABITUATION_WINDOW_DAYS`)
 

@@ -67,6 +67,7 @@ import { cosine } from "./prime.js";
 import type { PrimeActivation, PrimeSourceKind } from "./prime.js";
 import type { CandidateVerdict, Verdict } from "./gate.js";
 import { headOf } from "./standing.js";
+import { isTold } from "../told.js";
 
 export interface Candidate {
   readonly id: string;
@@ -106,6 +107,13 @@ export interface Candidate {
    *  never make it loud (prospective §12 G5). Absent from the gate's other rules
    *  by design — it caps, it never admits. */
   readonly maxTier: "surfaced" | "footnoted";
+  /**
+   * A STARTER MEMORY (S1, `core/told.ts`): told, not lived. The gate leaves it
+   * out of the turn's background, keeps it out of the loud tier, and fills the
+   * quiet tier with every lived memory it admitted before any told one. Absent
+   * on every lived candidate.
+   */
+  readonly told?: true;
   /**
    * A QUIET POINTER (association build 2, 2026-09-28): a memory no cue and no
    * embedding reached, brought here ONLY by links from memories that were
@@ -1411,6 +1419,7 @@ export function activate(
       trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0 || c.feeling > 0,
       // §12 G5: temporal ALONE reaches the footnote tier at most.
       maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
+      ...(isTold(store.row(id)) ? { told: true as const } : {}),
       ...(c.feeling > 0 ? { feeling: c.feeling } : {}),
       ...(c.stamp > 0 ? { stamp: c.stamp } : {}),
       ...(topIds.has(id) ? {} : { pastCut: true as const }),
@@ -1473,6 +1482,7 @@ export function activate(
       // a use like any other, and it is what confirms the link.
       trains: true,
       maxTier: "footnoted",
+      ...(isTold(row) ? { told: true as const } : {}),
       linkOnly: true,
       linkedFrom: linkOnlyFrom.get(id) ?? {},
     });

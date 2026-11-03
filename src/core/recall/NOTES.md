@@ -1759,3 +1759,15 @@ so it visits every `recall.rated` row the store keeps, window or no window: 0.09
 15,000. `SELECT MAX(seq)` on the same rows was 0.03, 0.16 and 0.5 ms. With the note's parse flat at about 0.35 ms when no
 rows are added to the window, that is the part to change if this ever shows up. Left alone here: it predates H14 and the
 event log's 90-day prune should hold it to a few thousand rows.
+
+## S1 — starter memories rank below lived ones (2026-11-03, Mike: "real user memories always rank higher")
+
+A new store begins with eleven `told` memories (`core/told.ts`). The gate keeps them weaker than anything lived
+without touching salience (§9 G8): a told candidate (`Candidate.told`, set in `activate.ts` from the row's source)
+is outside the turn's background sample, so a lived memory faces the bar it would face without the set; it is
+never loud (`told-quiet` in `loudBlockedBy`); and `admitted` is ordered lived-first before inhibition and the
+footnote cap, so a told one only takes a quiet slot no lived memory wanted, and is the one inhibited when the two
+read alike. Quiet pointers are ordered the same way. Facts mode orders a told match at `TOLD_RANK_WEIGHT` (0.5) of
+its score; meaning mode leaves them out. Pinned through the hook in `test/told.test.ts` on a 25-lived store against
+a twin without the set. Open watch: `countMemories` counts the seeds, so cold start ends at ~4 lived memories and
+rarity is measured over 11 more rows (`docs/decisions.d/feat-s1-starter-memories.md`).
