@@ -42,7 +42,7 @@
  * window keeps all of them; a session idle past it loses them all and loads
  * `absent` — a fresh gate, its no-repeat memory of turns older than the window
  * gone. The one piece that is the person's words, the carried cues, is emptied
- * sooner, on the 14-day clock, by `clearIdleCarries` below.)
+ * sooner, on the 14-day clock, by `clearIdleCarries` below.
  * **Observer:** never written. An instrument deposits nothing, so its gate state
  * lives and dies in the process (`Recall` holds it in memory and stands down at
  * the write).
