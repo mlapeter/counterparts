@@ -565,6 +565,36 @@ async function livedStore(o: { tls?: boolean } = {}): Promise<{ s3: S3StandIn; b
 }
 
 
+describe("Litestream's own state (11-03: claude.ai's 500 after sign-in)", () => {
+  test("a store whose old Litestream state sits in store/ opens again: the state moves beside it, its position kept", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const dir = tenantDir(join(dataRoot, "tenants"), who.storeId);
+    // What Litestream 0.5.17 leaves by default, and what the old config let it leave.
+    const old = join(dir, "store", ".counterparts.sqlite-litestream");
+    rmSync(join(dir, "litestream-meta"), { recursive: true, force: true });
+    mkdirSync(join(old, "ltx", "0"), { recursive: true });
+    writeFileSync(join(old, "ltx", "0", "position"), "kept");
+    const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null) });
+    const res = await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access));
+    assert.equal(res.status, 200);
+    assert.equal(existsSync(old), false);
+    assert.equal(readFileSync(join(dir, "litestream-meta", "ltx", "0", "position"), "utf8"), "kept");
+  });
+
+  test("with a new position already beside the store, the old one in store/ goes and the store opens", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const dir = tenantDir(join(dataRoot, "tenants"), who.storeId);
+    const old = join(dir, "store", ".counterparts.sqlite-litestream");
+    mkdirSync(old, { recursive: true });
+    mkdirSync(join(dir, "litestream-meta"), { recursive: true });
+    writeFileSync(join(dir, "litestream-meta", "new"), "new");
+    const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null) });
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    assert.equal(existsSync(old), false);
+    assert.equal(readFileSync(join(dir, "litestream-meta", "new"), "utf8"), "new");
+  });
+});
+
 describe("restore, when things go wrong", () => {
   test("a store dir left behind with NO database (a restore that failed or found nothing) still waits: 503, and no empty database is made", async () => {
     const { s3, ring, dataRoot, port, who } = await livedStore();
@@ -636,6 +666,7 @@ describe("restore, when things go wrong", () => {
     assert.equal(aside.length, 1);
     assert.deepEqual(readFileSync(join(storeDir, aside[0]!)), before);
     assert.equal(existsSync(meta), false);
+    assert.equal(existsSync(join(tenantDir(join(dataRoot, "tenants"), who.storeId), "litestream-meta")), false);
   });
 
   test("a store that lived, whose key is gone here AND in the bucket, is never given a new key; the start goes on", async () => {

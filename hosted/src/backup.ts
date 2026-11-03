@@ -35,7 +35,7 @@ import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
 import type { KeyStore } from "./keys.js";
 import { litestreamKey } from "./keys.js";
-import { RESTORED_MARKER, STORE_ID, tenantDir } from "./tenants.js";
+import { LITESTREAM_META, RESTORED_MARKER, STORE_ID, oldLitestreamMeta, settleLitestreamMeta, tenantDir } from "./tenants.js";
 
 /** The pseudo-store whose DEK keys the control databases' backups. */
 export const CONTROL_KEY_ID = "control";
@@ -457,6 +457,11 @@ export class Backups {
       for (const f of [path, `${path}-wal`]) if (existsSync(f)) renameSync(f, `${f}.pre-restore-${stamp}`);
       rmSync(`${path}-shm`, { force: true });
       rmSync(join(dirname(path), `.${basename(path)}-litestream`), { recursive: true, force: true });
+      if (id !== CONTROL_KEY_ID) {
+        const dir = tenantDir(this.tenantsRoot(), id);
+        rmSync(join(dir, LITESTREAM_META), { recursive: true, force: true });
+        rmSync(oldLitestreamMeta(dir), { recursive: true, force: true });
+      }
       renameSync(out, path);
       if (existsSync(`${out}-wal`)) renameSync(`${out}-wal`, `${path}-wal`);
       rmSync(`${out}-shm`, { force: true });
@@ -520,7 +525,8 @@ export class Backups {
       // missing file at its replica's prefix. A store never opened yet stays in,
       // so its first database is replicated from the start.
       if (id !== restoring && this.opts.openedBefore?.(id) === true && !existsSync(join(dir, "store", DATABASE_FILE))) continue;
-      lines.push(`  - path: ${yamlString(join(dir, "store", DATABASE_FILE))}`, ...replica(replicaPrefix(id).slice(0, -1), this.keyFile(id)));
+      // Its own state beside the store, never in it (`tenants.ts#LITESTREAM_META`).
+      lines.push(`  - path: ${yamlString(join(dir, "store", DATABASE_FILE))}`, `    meta-path: ${yamlString(join(dir, LITESTREAM_META))}`, ...replica(replicaPrefix(id).slice(0, -1), this.keyFile(id)));
       listed.push(id);
     }
     this.lastListed = listed;
@@ -550,6 +556,16 @@ export class Backups {
   /** The end of start-up's phase: the configuration written, the sidecar started on it. */
   async release(): Promise<void> {
     this.held = false;
+    // Before the sidecar starts on a `meta-path` outside `store/`: a position
+    // an older build left inside it moves there, so Litestream carries on from it.
+    for (const id of this.opts.keys.storeIds()) {
+      if (id === CONTROL_KEY_ID || !STORE_ID.test(id)) continue;
+      try {
+        settleLitestreamMeta(tenantDir(this.tenantsRoot(), id));
+      } catch {
+        /* the store's next open tries again (`tenants.ts#openHandle`) */
+      }
+    }
     await this.reload();
   }
 
