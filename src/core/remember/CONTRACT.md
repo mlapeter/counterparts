@@ -75,6 +75,11 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   (`dream/mark.ts`), and `enters()` refuses any turn that carries it, by source (`dream`,
   the Claude Code reader's tag) and by the mark itself, so no host's reader can let one
   through. What was dreamed is not what happened.
+- **Plumbing never enters either** (2026-11-03, WP1) — a host's own line about the
+  machinery, not said by the person or the counterpart (Claude Code's
+  `[Request interrupted by user for tool use]` after a declined permission prompt, a
+  hook's output written as user text), is `plumbing`, and `enters()` refuses it, counted.
+  What either of them said about it is conversation and still enters.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 

@@ -40,6 +40,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | in review 11-03 (S1 PR) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
+| Write-ups skip plumbing (WP1): the host's line after a declined permission prompt and a hook's output enter no capture; every write-up is told permission prompts, refused tool calls and the system's own notices aren't events between the two | in review 11-03 | a few nights after release (dated reminder set at merge): no write-up memory about a permission prompt or a refused tool, and the person's own words about one still kept | "Due a few nights after write-ups skip plumbing" below |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty | "Due a week after the night's own line" below |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off by default; **on for Mike's store from 11-01** (he ran `counterparts wake-shape on`) | a few days of real wakes on his store: ROADMAP holds the read, reminder 11-04, no default change before it | [below](#the-wakes-shape-wk2) |
@@ -161,6 +162,45 @@ in the older 7 days aren't held until then. The next rating row rebuilds it (tes
 
 **How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
 once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
+
+## Due a few nights after write-ups skip plumbing (2026-11-03, WP1, Mike's OK 14:41, lightly held — a fix, no switch)
+
+**What we're trying.** In the 11-03 Dana re-run the night's catch-up wrote a refused tool call into memory ("Declined
+permission to mark a note delivered") and the session's asides about it as an `about: me` lesson; the first then
+headed day 4's notes wake. Two changes: the transcript reader tags the host's `[Request interrupted by user for tool
+use]` line and a hook's output written as user text inside a system reminder `plumbing`, which enters no capture
+(`claude-code/transcript.ts#PLUMBING_FRAMES`, `remember/spans.ts#enters`); and every write-up of an ended session (the
+catch-up's prompt and the door's `next`, so the pointer's writer too) carries `sessions.ts#WRITE_UP_PLUMBING_RULE`.
+The Dana memories came from the counterpart's own replies, which no reader may drop, so the sentence is the half that
+answers them.
+
+**What to look at, a few nights after release.** Read-only, titles and counts only:
+
+```sql
+SELECT id, about, title, json_extract(meta,'$.build') AS build FROM memories
+WHERE json_extract(meta,'$.secondHand') = 1
+  AND (lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%permission%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%declined%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%tool%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%hook%')
+ORDER BY created_at DESC LIMIT 30;
+```
+
+- **None about plumbing** on the new build: no write-up memory whose subject is a permission prompt, a refused or
+  failed tool, a hook, or the system marking or saving something. A memory where the person said something about one
+  ("why do you keep asking me to allow that?") is the exception the rule keeps.
+- **Nothing lost:** the sessions those nights wrote up still have memories of what was said (a night writing `[]`
+  for parts that held real talk would be the sentence overreaching).
+- The harness's next Dana week, item 8: the `reflect` refusals there come from the harness's allowlist and still
+  produce asides; the write-ups should leave them out.
+
+**What would change it:** plumbing memories still landing (the sentence is too weak, or sits where the writer skims);
+real exchanges skipped as plumbing (it is too broad); the person's typed reason for declining a prompt, which the host
+puts inside the rejected `tool_result` and so has never reached capture, turning out to matter.
+
+**How to revert:** the two are separate. The sentence: drop `WRITE_UP_PLUMBING_RULE` from `catchUpPrompt` and the
+door's `next`. The reader: move the two frames back into `HOST_FRAMES` (both read as `injected` again, and the hook
+frame inside a system reminder goes back to `classifyBlock`'s `injected`). Neither touches the store's shape.
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 

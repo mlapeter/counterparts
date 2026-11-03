@@ -25,13 +25,23 @@
  *
  * WEAKER THAN ANYTHING LIVED, and kept out of the self — the rules live where
  * the readers are, each keyed on `isTold`: recall's gate fills its tiers
- * lived-first and leaves told rows out of a turn's background
- * (`recall/gate.ts`); the deliberate recall ranks them after lived matches
- * (`mcp/facts.ts`, `mcp/meaning.ts`); the night never sees them (the dream's
+ * lived-first, leaves told rows out of a turn's background, and reads every
+ * count that drives it (cold start, the floor unit, the one-memory loud cap)
+ * on lived memories only (`recall/gate.ts`); the deliberate recall ranks them
+ * after lived matches (`mcp/facts.ts`, `mcp/meaning.ts`); the night never sees them (the dream's
  * queue and bundle, the reflection's, day's end), nor does the wake, the
  * core's lanes, a belief's evidence or a card's names. They start weak
  * (`TOLD_CLAIM`), fade unless used, are credited when used, and can be
  * corrected (`remember` with `updates`) or let go like any memory.
+ *
+ * FACTS MODE PUTS EVERY LIVED MATCH FIRST, WHATEVER ITS SCORE, THEN THE SEEDS
+ * (ROADMAP 11-03, replacing a half-score weight that let a seed sharing one
+ * question word outrank a lived memory found by meaning). On purpose, so do not
+ * "fix" it back to a score blend: a "how do I…" question on a young store still
+ * gets its seed answer, since few lived matches sit above it (and the weak
+ * tail in `mcp/facts.ts` bars a lived match by lived ones only, so no seed
+ * pushes one out); on a big store, where lived matches fill the page, recall's
+ * "manual" (H1, PR #730) is the road to how the memory works.
  */
 import type { Kind } from "./types.js";
 import type { Store } from "./store/index.js";
@@ -54,14 +64,6 @@ export const TOLD_BODY_PREFIX = "Told, not lived: ";
  * counterpart lived, not prunable from birth, and rising only by being used.
  */
 export const TOLD_CLAIM = 0.3;
-
-/**
- * Deliberate recall (facts mode) orders a starter memory at this share of its
- * match, so any lived memory matching at least half as well comes first
- * (`mcp/facts.ts`). Ambient recall needs no weight: its gate fills each tier
- * lived-first (`recall/gate.ts`).
- */
-export const TOLD_RANK_WEIGHT = 0.5;
 
 export type ToldSurface = "local" | "hosted";
 

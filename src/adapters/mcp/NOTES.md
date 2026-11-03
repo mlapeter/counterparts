@@ -2002,3 +2002,25 @@ nothing. The file ships four ways (npm `files`, the plugin bundle by `packagePat
 literal, the single binary's `embeddedFiles`, the hosted image); `test/manual.test.ts`
 holds all four, and checks every code span in the manual against the dispatch table, the
 declared flags, the served tools and their fields, and the recall handles.
+
+## 2026-11-03 — the meeting's questions, round 2 (Q1)
+
+- **Mike's calls (11-03).** `love` ("What do you love most about what you do?") is dropped with no replacement: it
+  overlapped `work`. `work` asks "What are you working on right now?" (the old "lately that you're actually enjoying"
+  was hard to answer). `origin` asks the "into lately" question for everyone; the "what got you started building
+  things?" branch is gone. The one-word swap replaces only `saturday`. The order is name, week, work, origin, saturday,
+  then style. Both the Claude Code and the claude.ai meeting read the same script (`meetingInstructions`), so both
+  changed at once.
+- **What a meeting in flight is.** The store keeps no current step. It keeps the state row (`onboarding.meet`:
+  `offered`, or `later` if they paused) and `onboarding.answers` (`{ <step>: <memory id> }`). The window that started
+  the meeting holds the script it read. So an in-flight meeting is a client sending the old script's step names, and
+  the only renamed or removed name is `love`. `work` and `origin` keep their ids; only the words changed.
+- **`love` is retired, not aliased.** `RETIRED_ANSWER_STEPS` lists it. `meet` still takes it with an answer, writes
+  the memory, and files it under `love`. A bare one gets `MEET_NO_ANSWER`, like any other answer step. It is not in
+  `MEET_STEPS`, so the schema never offers it. It isn't served as `work` the way `started` is served as `origin`:
+  `love` has no new step, and `recordAnswer` filed under `work` would replace the work answer that `ahaDue` reads
+  first. `ahaDue` already lists `love`.
+- **Tests** (`test/onboarding.test.ts`, over the stdio door): one meeting on the new script from start to finish, and
+  one in-flight meeting for each changed step (`love` after a `later`; `work` from a dropped session; `origin`, sent as
+  the older `started`). Each in-flight meeting starts in one session through `meet` and resumes in another. The
+  script it reads there is the new one, and the old script's next step lands.

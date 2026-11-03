@@ -1126,7 +1126,8 @@ no content was copied. `parseTranscript` reads only entries with a `message.role
 | the compaction summary | `isCompactSummary: true`, `isVisibleInTranscriptOnly` | `This session is being continued…` | `injected` (was `conversation`) |
 | slash-command echo, `!`-command | no metadata | `<command-name>`, `<local-command-stdout>`, `<bash-input>`, `<bash-stdout>` | unchanged text rule; `<bash-stdout>`/`<bash-stderr>` now `injected` |
 | an interrupt | `interruptedMessageId`, no origin | `[Request interrupted by user]` | `injected` |
-| hook output (`UserPromptSubmit hook success`, `hook_additional_context`, `hook_system_message`) | `type: "attachment"`, **no role** | — | never a turn (unchanged) |
+| a declined permission prompt (measured 2026-11-03: after the rejected `tool_result`, its own entry) | no metadata | exactly `[Request interrupted by user for tool use]` | `plumbing` since 2026-11-03 (WP1; was `injected`, and reached the night's write-up) |
+| hook output (`UserPromptSubmit hook success`, `hook_additional_context`, `hook_system_message`) | `type: "attachment"`, **no role** | — | never a turn (unchanged); should a build write it as user text, bare or in a system reminder, `plumbing` since 2026-11-03 (was `injected`) |
 | **a prompt typed while the model works** (review M3: 76 seen) | `type: "attachment"`, `attachment.type: "queued_command"`, `commandMode: "prompt"`, `origin.kind: "human"` | — | `conversation` since 2026-09-24 — see "Prompts typed mid-turn" below (was never a turn) |
 | an API error written as the assistant | `isApiErrorMessage: true`, `model: "<synthetic>"` | `API Error: …` | `injected` (was `conversation`) |
 

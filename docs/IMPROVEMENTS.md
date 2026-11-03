@@ -1755,6 +1755,9 @@ were refined by b2+f8 at the review of #369, named where they were):
   work/loved/problem/peeves/outside. "When Claude Code goes wrong for you" (peeves) is dropped too: it is not one
   of Mike's five and not a settings question. Step names are `week`, `work`, `love`, `saturday`, `started` (`origin` since 2026-10-29, H1). The
   second session's line still reads a 0.3.18/0.3.19 meeting's answers under their old names.
+- Decided by Mike, 2026-11-03 (Q1): four questions now. `love` is dropped, `work` asks "What are you working on
+  right now?", `origin` asks the "into lately" question for everyone, and the one-word swap replaces only
+  `saturday`. `meet` still takes `love` with an answer, for a meeting in flight (mcp NOTES, 2026-11-03).
 - Decided by the onboarding round-1 core builder, 2026-10-12, lightly held: the close leaves out retention and
   uninstalling. The script keeps both for when the person asks, and retention as one exact line
   (`RETENTION_LINE`) that Claude is told not to paraphrase. The `/counterparts` sidebar line is said only on a

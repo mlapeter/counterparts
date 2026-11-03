@@ -111,7 +111,11 @@ describe("a cold first chat on claude.ai meets", () => {
     const session = String((await call(url, "wake", {})).structured["session"]);
     const script = await call(url, "meet", { session });
     expect(script.text).toContain("Now → no meet call: go on to the next step.");
-    expect(script.text).toContain('origin: "What got you started building things?"');
+    // Q1 (2026-11-03): the web shares the script, so it asks the new questions too.
+    expect(script.text).toContain('origin: "What\'s something you\'ve been into lately that has nothing to do with work — a show, a game, food, anything?"');
+    expect(script.text).toContain('work: "What are you working on right now?"');
+    expect(script.text).not.toContain("got you started building things");
+    expect(script.text).not.toContain("love most about what you do");
 
     // What claude.ai's Claude sent on 2026-10-28, after "Now (about 5 minutes)".
     const rows = (): (string | null)[] => {
@@ -137,7 +141,13 @@ describe("a cold first chat on claude.ai meets", () => {
     expect((await call(url, "meet", { session, step: "name", answer: "Wren" })).structured).toMatchObject({ recorded: "name", stored: 1 });
     expect((await call(url, "meet", { session, step: "origin", answer: "Wren started building things with a broken radio." })).structured).toMatchObject({ recorded: "origin", stored: 1 });
     expect((await call(url, "meet", { session, step: "started", answer: "Wren also fixed bikes as a kid." })).structured).toMatchObject({ recorded: "origin", stored: 1 });
+    // Q1: the retired `love`, from a chat that read the old script, lands under its own name; bare, it is no error.
+    const bareLove = await call(url, "meet", { session, step: "love" });
+    expect(bareLove.isError).toBe(false);
+    expect(bareLove.text).toBe(MEET_NO_ANSWER);
+    expect((await call(url, "meet", { session, step: "love", answer: "Wren loves the quiet of a finished repair." })).structured).toMatchObject({ recorded: "love", stored: 1 });
     expect((await call(url, "meet", { session, step: "done" })).structured).toMatchObject({ recorded: "done", meet: "done" });
+    expect(Object.keys(JSON.parse(rows()[1] ?? "{}") as Record<string, string>).sort()).toEqual(["love", "name", "origin"]);
   });
 
   test("with dreaming on, the first dream is the routine's, never an ask", () => {

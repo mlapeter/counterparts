@@ -103,12 +103,12 @@ import { coreNewer, newerStoreRemedy } from "../update-words.js";
 import type { NewerStoreInput } from "../update-words.js";
 import {
   MEET_STEPS,
-  ANSWER_STEPS,
   MEET_NO_ANSWER,
   STYLE_CHOICES,
   addressMemory,
   answerText,
   finishText,
+  isAnswerStep,
   meetState,
   meetStepOf,
   meetingHold,
@@ -122,7 +122,7 @@ import {
   recordWhere,
   styleMemories,
 } from "../../core/onboarding.js";
-import type { AnswerStep, MeetStep, StyleChoice } from "../../core/onboarding.js";
+import type { AnswerStep, MeetStep, RetiredAnswerStep, StyleChoice } from "../../core/onboarding.js";
 import type { RefusalPlace } from "../hosts.js";
 import { TUNABLES as ADAPTER_TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
@@ -1572,7 +1572,8 @@ export class McpServer {
    * script and the state, and the offer is recorded (`offered`), so neither
    * the wake's line nor the mod offers it again today. With a step:
    *
-   *   - an answer (name, week, work, love, saturday, origin) becomes ONE
+   *   - an answer (name, week, work, origin, saturday; the retired `love`
+   *     still, for a meeting in flight from before Q1) becomes ONE
    *     memory through `remember`'s own door — about the owner, said by the
    *     owner, marked "(from onboarding)" — and its id is kept for the second
    *     session's line; a skipped question is never sent, so nothing is stored;
@@ -1636,14 +1637,14 @@ export class McpServer {
       return { content: [{ type: "text", text: script }], structuredContent: { ...onboardingView(store), name, script } };
     }
     if (this.observer) return this.standDown("meet");
-    if (typeof step !== "string" || !(MEET_STEPS as readonly string[]).includes(step)) {
+    if (typeof step !== "string" || !((MEET_STEPS as readonly string[]).includes(step) || isAnswerStep(step))) {
       return this.refuse("meet", "step-unknown", { detail: `step is one of ${MEET_STEPS.join(", ")} — or omit it for the script.` });
     }
     const answer = typeof args["answer"] === "string" ? args["answer"].trim() : "";
     // AN ANSWER STEP WITH NO ANSWER (H1b): not an error (claude.ai draws those
     // as a red Failed card), and not progress either: it comes before the
     // offer mark, so it moves no meeting state, and nothing is written.
-    if (answer.length === 0 && (ANSWER_STEPS as readonly string[]).includes(step as string)) {
+    if (answer.length === 0 && isAnswerStep(step)) {
       this.emit("mcp.meet.unanswered", undefined, { step });
       return { content: [{ type: "text", text: MEET_NO_ANSWER }], structuredContent: { step, stored: 0, ...onboardingView(store), next: MEET_NO_ANSWER } };
     }
@@ -1708,10 +1709,10 @@ export class McpServer {
         return done({ stored: ids.length, ids });
       }
       default: {
-        // An answer: name, week, work, love, saturday, origin (a bare one was answered above).
+        // An answer: name, week, work, origin, saturday, or the retired `love` (a bare one was answered above).
         const text = step === "name" ? `They like to be called ${answer}.` : answer;
         const ids = await this.meetWrite([answerText(text)]);
-        if (ids[0] !== undefined) recordAnswer(store, step as AnswerStep, ids[0]);
+        if (ids[0] !== undefined) recordAnswer(store, step as AnswerStep | RetiredAnswerStep, ids[0]);
         return done({ stored: ids.length, ...(ids[0] === undefined ? {} : { id: ids[0] }) });
       }
     }

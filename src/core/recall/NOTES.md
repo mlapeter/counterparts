@@ -1774,3 +1774,28 @@ a twin without the set. Cold start ends on LIVED memories (review, ROADMAP 11-03
 ranks lived candidates first, so on cold start's three slots a seed never takes a lived one's place; pinned at five
 lived. Rarity and the floor unit keep the whole store, since `docFrequency` counts the seeds' words too: a word the
 seeds use ("memory", "folder", "night") is a little less rare for a lived memory than in a store without them.
+
+## S1 fix — a seed set facts mode's weak bar, and the gate's floors (2026-11-03, ROADMAP rulings)
+
+The single-binary smoke's meaning-only step ("which coffee maker do we own?" for a note about a Rancilio Silvia)
+failed on a fresh install: three seeds matched the question word "own" plus meaning (1.10, 1.04, 0.83) and the lived
+note matched by meaning only (0.16), under the weak tail's 0.2 × best = 0.22. The half-score weight was order only
+and ran after the cut. Facts mode now sets a lived match's weak bar from lived matches only (a seed faces the whole
+pool's), and orders every lived match before every seed whatever the scores (`TOLD_RANK_WEIGHT` is gone; the reason
+is in `core/told.ts`'s header).
+
+The footnotes had their own form of it. Cold start's floor is `COLD_START_FLOOR_UNITS × floorUnit(N)`; with N the
+whole store, eleven seeds beside five lived memories took it from 0.44 to 0.86, and a semantic activation (not in IDF
+units, so it does not rise with N) fell under it: a kettle at 0.62 for "what do we boil water with?" was footnoted
+without the set and below the floor with it. The floor unit (hard gate (b) and cold start) and the `MIN_RARITY_STORE`
+loud cap now read the lived count, as cold start's regime already did. Cue weights keep the whole store's rarity, so
+beside the set one rare word weighs about two lived floor units where it weighs one without it, and a word match
+clears the footnote floor much more easily; a seed still takes only a slot no lived memory wanted. The loud tier's
+strong floor stays in the whole store's unit for that reason: read on the lived count (the fix's first round), a
+five-lived seeded store put "is Juniper ok in storms?", "Rancilio" and "what does Dana like to drink?" in the loud
+tier where its twin without the set footnoted them (review of #733). Pinned in `test/told.test.ts`: the hook on the
+real table against a twin without the set (never missing, never louder), and the loud-tier checks on hand-built
+candidates. A seed has its own bar (ROADMAP 11-03): its floor and absolute bar stay in the whole store's unit, the
+stricter ones from before this fix, so the lower lived floor never lets a loosely matched seed into a turn no lived
+memory answers ("what pet do we have?" footnoted two seeds on a young store until then; an empty footnote beats
+noise). "Fill what's left" means room, not a lower bar. Pinned in `test/told.test.ts` through the hook.
