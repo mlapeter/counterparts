@@ -40,7 +40,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     # A green run takes under five minutes; Windows' smoke test hung once (2026-10-09).
-    timeout-minutes: 20
+    # Windows (experimental) has run to its timeout and been cancelled on every
+    # run since: 8 minutes there, so it stops sitting on every PR (2026-11-03).
+    timeout-minutes: ${{ matrix.experimental && 8 || 20 }}
     strategy:
       fail-fast: false
       matrix:

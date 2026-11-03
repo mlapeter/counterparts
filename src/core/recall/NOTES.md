@@ -1775,16 +1775,20 @@ ranks lived candidates first, so on cold start's three slots a seed never takes 
 lived. Rarity and the floor unit keep the whole store, since `docFrequency` counts the seeds' words too: a word the
 seeds use ("memory", "folder", "night") is a little less rare for a lived memory than in a store without them.
 
-## S1 fix — a seed set facts mode's weak bar (2026-11-03)
+## S1 fix — a seed set facts mode's weak bar, and the gate's floors (2026-11-03, ROADMAP rulings)
 
 The single-binary smoke's meaning-only step ("which coffee maker do we own?" for a note about a Rancilio Silvia)
 failed on a fresh install: three seeds matched the question word "own" plus meaning (1.10, 1.04, 0.83) and the lived
-note matched by meaning only (0.16), under the weak tail's 0.2 × best = 0.22. The `TOLD_RANK_WEIGHT` halving is order
-only and runs after the cut, so it never helped. Facts mode now sets a lived match's weak bar from lived matches only;
-a seed faces the whole pool's. Pinned in `test/told.test.ts` on the real table. With the fix the lived note still ranks
-below the three seeds at half score (0.55, 0.52, 0.42 against 0.16); half score orders, it does not put lived first.
+note matched by meaning only (0.16), under the weak tail's 0.2 × best = 0.22. The half-score weight was order only
+and ran after the cut. Facts mode now sets a lived match's weak bar from lived matches only (a seed faces the whole
+pool's), and orders every lived match before every seed whatever the scores (`TOLD_RANK_WEIGHT` is gone; the reason
+is in `core/told.ts`'s header).
 
-The footnotes have their own form of it, not changed here: cold start's floor is `COLD_START_FLOOR_UNITS ×
-floorUnit(storeSize)`, and the seeds raise `storeSize` from 5 to 16, so the floor goes from 0.44 to 0.86. A semantic
-activation is not in IDF units and does not rise with it, so a lived memory reached by meaning alone (a kettle at
-0.62 for "what do we boil water with?") is footnoted without the set and below the floor with it.
+The footnotes had their own form of it. Cold start's floor is `COLD_START_FLOOR_UNITS × floorUnit(N)`; with N the
+whole store, eleven seeds beside five lived memories took it from 0.44 to 0.86, and a semantic activation (not in IDF
+units, so it does not rise with N) fell under it: a kettle at 0.62 for "what do we boil water with?" was footnoted
+without the set and below the floor with it. The floor unit (hard gate (b) and cold start), the loud tier's strong
+floor and the `MIN_RARITY_STORE` loud cap now read the lived count, as cold start's regime already did. Cue weights
+keep the whole store's rarity, so a word match clears the lower floor a little more easily beside the set; a seed
+still takes only a slot no lived memory wanted. Pinned in `test/told.test.ts`: the hook on the real table against a
+twin without the set, and the two loud-tier checks on hand-built candidates.

@@ -31,6 +31,11 @@ import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import { Store, paths } from "../src/core/store/index.js";
 import { Recall } from "../src/core/recall/index.js";
+import type { Candidate } from "../src/core/recall/activate.js";
+import { gate } from "../src/core/recall/gate.js";
+import { freshGateState } from "../src/core/recall/session.js";
+import { TUNABLES } from "../src/core/recall/tunables.js";
+import type { MemoryPhysics } from "../src/core/types.js";
 import { resolveStaticWeights } from "../src/core/embed/static.js";
 import { recallTurn } from "../src/core/retrieval.js";
 import { hasDayBefore } from "../src/core/self/writer.js";
@@ -535,6 +540,135 @@ describe.skipIf(WEIGHTS === null)("a seed never pushes out a lived match found b
       expect({ question, meaning: seeded.meaning["ids"] }).toEqual({ question, meaning: expect.arrayContaining([seeded.lived]) });
     });
   }
+});
+
+// ── counts that drive the gate are lived only (S1 fix, ROADMAP 11-03) ─────────
+
+/** A young store's lived memories: five, a kettle among them that the next turn reaches by meaning only. */
+const LIVED_FIVE = [
+  "The espresso machine in the kitchen is a Rancilio Silvia.",
+  "The kettle in the studio is a Fellow Stagg.",
+  "Our dog Juniper is scared of thunderstorms.",
+  "The garden fence on the north side needs new posts.",
+  "Dana prefers tea over coffee in the afternoon.",
+];
+
+describe.skipIf(WEIGHTS === null)("the footnote floor reads lived memories (real table, through the hook)", () => {
+  test("five lived beside the set: a memory reached by meaning alone is footnoted, as it is in a store without the set", async () => {
+    const world = async (seeded: boolean): Promise<{ a: Adapter; dir: string; told: Set<string> }> => {
+      const dir = seeded ? storeDir : join(root, "plain", "store");
+      if (seeded) await install();
+      const emb = openStaticEmbedder({ env: {} });
+      const a = openAdapter({ dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: emb });
+      closers.push(a.counterpart);
+      const session = "s-lived-0005";
+      const s = new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: join(dir, "..", "registry"), embedder: emb });
+      for (const text of LIVED_FIVE) expect((await s.call("remember", { session, text })).isError).not.toBe(true);
+      return { a, dir, told: new Set(a.counterpart.store.toldIds()) };
+    };
+    const seeded = await world(true);
+    const plain = await world(false);
+    expect(seeded.told.size).toBe(11);
+    const bodies = (w: { a: Adapter; told: Set<string> }, ids: readonly string[]): string[] =>
+      ids.filter((id) => !w.told.has(id)).map((id) => w.a.counterpart.store.readProse(id).body);
+    for (const [i, text] of ["what do we boil water with?", "which coffee maker do we own?"].entries()) {
+      const session = `s-floor-${String(i).padStart(4, "0")}`;
+      const withSet = await prompt(seeded.a, seeded.dir, session, text);
+      const without = await prompt(plain.a, plain.dir, session, text);
+      const shown = bodies(seeded, [...withSet.surfaced, ...withSet.footnotes]);
+      const shownPlain = bodies(plain, [...without.surfaced, ...without.footnotes]);
+      // The kettle is the lived memory meaning alone reaches; the twin footnotes it.
+      expect(shownPlain).toContain("The kettle in the studio is a Fellow Stagg.");
+      expect({ text, missing: shownPlain.filter((b) => !shown.includes(b)) }).toEqual({ text, missing: [] });
+    }
+  });
+});
+
+/** A hand-built lived candidate (the gate's own unit; `head-stands-in-bar.test.ts`'s shape). */
+function lived(id: string, activation: number): Candidate {
+  return {
+    id,
+    kind: "fact",
+    doc: { id, type: "memory", body: `lived note ${id}` } as Candidate["doc"],
+    physics: { salience: { relevance: 0.5, emotional: 0, predictive: 0.5 } } as unknown as MemoryPhysics,
+    strength: 1,
+    sal: 0.5,
+    mood: 0,
+    cue: activation,
+    temporal: 0,
+    semantic: 0,
+    arrival: 0,
+    hops: 0,
+    activation,
+    cueFraction: 1,
+    matched: 1,
+    trains: true,
+    maxTier: "surfaced",
+  };
+}
+
+describe("the gate's other store counts read lived memories", () => {
+  const verdict = (candidates: Candidate[], storeSize: number, livedSize?: number) =>
+    gate(
+      { candidates, state: freshGateState("s-gate"), storeSize, ...(livedSize === undefined ? {} : { livedSize }), affectStated: false, turn: 1 },
+      TUNABLES,
+    ).verdicts.find((v) => v.id === candidates[0]?.id);
+
+  test("the loud tier's strong floor: five lived beside the set face the five-memory floor", () => {
+    // 4.5 units: 4.94 at five memories, 9.63 at sixteen. A lived match at 6 is loud in a five-memory store.
+    const twin = verdict([lived("m1", 6)], 5);
+    expect(twin?.verdict).toBe("surfaced");
+    const seeded = verdict([lived("m1", 6)], 16, 5);
+    expect({ verdict: seeded?.verdict, loudBlockedBy: seeded?.loudBlockedBy }).toEqual({ verdict: twin?.verdict, loudBlockedBy: twin?.loudBlockedBy });
+  });
+
+  test("the one-memory loud cap: one lived note beside the set is a one-memory store, never loud on arrival", () => {
+    const twin = verdict([lived("m1", 20)], 1);
+    expect(twin).toMatchObject({ verdict: "footnoted", loudBlockedBy: "cold-start-undiscriminating" });
+    const seeded = verdict([lived("m1", 20)], 12, 1);
+    expect({ verdict: seeded?.verdict, loudBlockedBy: seeded?.loudBlockedBy }).toEqual({ verdict: twin?.verdict, loudBlockedBy: twin?.loudBlockedBy });
+  });
+});
+
+describe("facts mode: every lived match first, then the seeds (ROADMAP 11-03, `core/told.ts`)", () => {
+  test("on a ~25-memory store, no seed is ever ordered above a lived match, whatever the scores", async () => {
+    await install();
+    const a = adapter(storeDir);
+    await liveIn(a, storeDir);
+    const s = new McpServer({ counterpart: a.counterpart, session: "s-order-0001", scope: SCOPE, registryDir: join(root, "registry") });
+    const told = new Set(a.counterpart.store.toldIds());
+    let mixed = 0;
+    for (const question of TURNS) {
+      const got = sc(await s.call("recall", { question, mode: "facts" }));
+      const ids = [...String(got["answer"]).matchAll(/^\d+\. .* · (mem_[0-9a-f]+) · /gm)].map((m) => m[1] as string);
+      const firstTold = ids.findIndex((id) => told.has(id));
+      if (firstTold < 0) continue;
+      if (ids.some((id) => !told.has(id))) mixed += 1;
+      expect({ question, livedAfterASeed: ids.slice(firstTold).filter((id) => !told.has(id)) }).toEqual({ question, livedAfterASeed: [] });
+    }
+    expect(mixed).toBeGreaterThan(0);
+  });
+
+  test("a young store: \"how do I turn off this folder?\" still gets its seed, after the lived matches", async () => {
+    await install();
+    const a = adapter(storeDir);
+    const session = "s-young-0001";
+    const s = new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: join(root, "registry") });
+    // Three lived memories, one sharing only the word "folder" with the question: the seed matches it far better.
+    const young = ["Dana keeps the seed catalogues in a blue folder in the shed.", LIVED[10] as string, LIVED[12] as string];
+    for (const text of young) expect((await s.call("remember", { session, text })).isError).not.toBe(true);
+    const store = a.counterpart.store;
+    const folder = store.toldIds().find((id) => store.row(id)?.title === "Told: turning memory on or off for a folder") as string;
+    const got = sc(await s.call("recall", { question: "how do I turn off this folder?", mode: "facts" }));
+    const ids = [...String(got["answer"]).matchAll(/^\d+\. .* · (mem_[0-9a-f]+) · /gm)].map((m) => m[1] as string);
+    const told = new Set(store.toldIds());
+    const catalogues = store.sessionMemoryIds(session).find((id) => store.readProse(id).body.startsWith("Dana keeps")) as string;
+    // The seed answers, and the lived match comes first however weakly it matched.
+    expect(ids).toContain(folder);
+    expect(ids).toContain(catalogues);
+    expect(ids.indexOf(catalogues)).toBeLessThan(ids.indexOf(folder));
+    expect(ids.slice(ids.indexOf(folder)).filter((id) => !told.has(id))).toEqual([]);
+  });
 });
 
 // ── correcting one ──────────────────────────────────────────────────────────

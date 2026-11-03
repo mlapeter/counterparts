@@ -144,7 +144,7 @@ import {
   nightlyMade,
   provenanceParts,
 } from "./deliberate.js";
-import { TOLD_RANK_WEIGHT, isTold } from "../../core/told.js";
+import { isTold } from "../../core/told.js";
 
 // ── the working defaults (held lightly; revisit after a few days of use) ────
 
@@ -885,13 +885,12 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     const r = rows.get(id);
     return r === undefined ? 0 : (r.type === "episode" ? (r.updated_at ?? r.created_at ?? 0) : (r.created_at ?? 0));
   };
-  // A STARTER MEMORY RANKS BELOW A LIVED ONE (S1, `core/told.ts`): ordered
-  // at `TOLD_RANK_WEIGHT` of its match, so a lived memory of comparable match
-  // comes first; it is never dropped for it (the weak tail above sets a lived
-  // match's bar from lived matches only).
-  const ranked = (c: Candidate): number => (told(c.id) ? c.score * TOLD_RANK_WEIGHT : c.score);
+  // EVERY LIVED MATCH BEFORE EVERY STARTER ONE (S1 fix, ROADMAP 11-03; see
+  // `core/told.ts`): whatever the scores, lived matches first, then the seeds,
+  // each by its match. A seed is never dropped for a lived one either (the weak
+  // tail above sets a lived match's bar from lived matches only).
   const order = (a: Candidate, b: Candidate): number =>
-    ranked(b) - ranked(a) || moment(b.id) - moment(a.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    (told(a.id) ? 1 : 0) - (told(b.id) ? 1 : 0) || b.score - a.score || moment(b.id) - moment(a.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   main.sort(order);
 
   // ── near-duplicates, walked in order as far as this page needs ─────────

@@ -277,10 +277,19 @@ export function background(
   const mean = n === 0 ? 0 : activations.reduce((a, b) => a + b, 0) / n;
   const varSum = activations.reduce((acc, x) => acc + (x - mean) * (x - mean), 0);
   const sd = n === 0 ? 0 : Math.sqrt(varSum / n);
-  const unit = floorUnit(storeSize);
+  // THE FLOOR UNIT IS THE LIVED STORE'S (S1 fix, 2026-11-03, ROADMAP: counts
+  // that drive behaviour are lived only). With the whole store's, eleven seeds
+  // beside five lived memories doubled cold start's floor (0.44 to 0.86), and a
+  // lived memory reached by meaning alone — a semantic activation, which is
+  // not in IDF units and does not rise with the store — fell below it where a
+  // store without the set footnoted it. Cue weights keep the whole store's
+  // rarity (`docFrequency` counts seed words), so a word match clears this
+  // floor a little more easily beside the set; a seed still takes only a slot
+  // no lived memory wanted (the lived-first order below).
+  const unit = floorUnit(livedSize);
 
   // Cold start ends on LIVED memories (S1 review): the starter set is no
-  // evidence the store has grown. The unit stays the whole store's (rarity).
+  // evidence the store has grown.
   if (livedSize < t.COLD_START_MIN_STORE) {
     const cold = t.COLD_START_FLOOR_UNITS * unit;
     return {
@@ -378,8 +387,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
   ];
   const bg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize);
-  /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`). */
-  const loudUnit = floorUnit(input.storeSize);
+  /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`): the lived store's (S1 fix). */
+  const livedSize = input.livedSize ?? input.storeSize;
+  const loudUnit = floorUnit(livedSize);
   const sum = acts.reduce((a, b) => a + b, 0);
   const sumSq = acts.reduce((a, b) => a + b * b, 0);
   const n = acts.length;
@@ -608,7 +618,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       // opened when the turn wants it; never the loud tier's one slot.
       loud = false;
       loudBlock.set(c.id, "told-quiet");
-    } else if (input.storeSize < MIN_RARITY_STORE) {
+    } else if (livedSize < MIN_RARITY_STORE) {
+      // (Lived memories, S1 fix: a lone lived note beside the set is a
+      // one-memory store for this, as it is without the set.)
       // Cold start is STRICTER, not looser — and below `MIN_RARITY_STORE` the
       // strictness the floors provide is not available, because the unit the
       // floors are denominated in is itself the thing that has stopped
