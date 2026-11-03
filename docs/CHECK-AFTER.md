@@ -45,13 +45,13 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The page in its own form (PF1): one store's nightly writers keep the page's sections and form instead of `HOW_I_WORK_RULE`, behind meta `self.page_form` | 0.3.44, 11-01 (#701), off; on for Mike's store: **[date, not yet]** | **2026-11-08**: Mike judges whether the counterpart reads more like someone; the page versions for stories cut for room and any rebuilt rules list | [below](#due-2026-11-08-the-page-in-its-own-form-pf1-roadmap-2026-11-01-an-experiment--meta-selfpage_form) |
 | A closed folder's plain reminder is held back; a personal one is told whatever its folder | 0.3.43, 11-01 (#700) | ~2 weeks after release, or the first time one is held: did a real date go unsaid? | [below](#a-closed-folders-plain-reminder) |
 | The wake's room (WK1): "Might be relevant" off, no bare ids, one "where this folder stands" block led by the newest handoff, up to 5 lines | 0.3.42, 10-30 (#687) | ~11-06: the next ~/random wake read, and a week of `self.briefing` trimmed counts | [below](#the-wakes-room-wk1) |
-| The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | 0.3.42, 10-30 (#689) | ~3 nights after release (~2026-11-03): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up | "Due ~3 nights after the catch-up respects a folder that is off" below |
+| The catch-up leaves out a session whose folder is now off, observer or paused (NC1) | 0.3.42, 10-30 (#689) | ~3 nights after release (~2026-11-03): no new write-ups from such folders; `coverage` and doctor's count agree; on folders still written up (read 11-03, on 0.3.42 from 10-31 02:40 UTC: holds, not exercised live — no session in a not-on folder since 10-26, 0 new write-ups from one, coverage and doctor agree on 1 owed; on a copy with ~/counterparts set off both readers drop it. Re-read the first time a folder with recent sessions goes off) | "Due ~3 nights after the catch-up respects a folder that is off" below |
 | The day-summary gate reads only what day's end could have been handed: a row written that day about another day, or born after the summary was told, no longer holds it back; a summary held back leaves one `handoff.daysummary.held` row per date and cause | 0.3.42, 10-30 (#688) | ~1 week after release: rows by `what`/`why`, how many written summaries each morning's wake showed | "Due ~1 week after release (the day-summary gate)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
-| The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
-| Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` | "Due ~1 week after recall stopped dropping late turns" below |
+| The night doesn't read a folder that doesn't export (`dream/slices.ts`): day's end, the dream, the reflection and the tagging, and their recall; no merge or gist from one | 0.3.42, 10-30 (#688) | ~3 nights after release: writer runs' `omitted`, whether dream and reflection counts fall, nothing refused that should have landed (read 11-03, four nights on 0.3.42/0.3.45: holds, not exercised live — `omitted` 0, no hold or fence refusal, intake 55–63 fresh, closed set only 3 archived rows; on a copy with a work folder set off it closes 509 rows, day's end 35 → 28 entries, walk ≤ 346 ms. Re-read with NC1's trigger) | "Due ~3 nights after release (the night's fence)" below; `docs/decisions.d/fix-day-summary-held-1030.md` |
+| Recall shows a late turn instead of dropping it; covering index on the word index; subjects compile only what the text may name | 0.3.42, 10-30 (#691) | ~1 week after release: late rate, recall p50, the hook's `ms` (read 11-03, partial, 3.7 days on 0.3.42–0.3.45: index took; `elapsedMs` p50 232 on 0.3.41 → 101–152, late 1 of 1,048, hook p50 155–220 ms, none over 5,000; daily p50 rising 98 → 158, a watch; finish ~11-07) | "Due ~1 week after recall stopped dropping late turns" below |
 | Raw copies under the shared "mcp" and "console" ids go line by line on their own age: 3 days when nothing is owed, 14 whatever is | 0.3.45, 11-01 (#710, #715) | ~1 week after release: copies past the limit under either id (expect 0), lines deleted, doctor's Raw transcripts line | "Due ~1 week after the shared bucket went line by line" below |
 | The claim comes after the mint: a memory that threw claims nothing, and a retry lands it | 0.3.45, 11-01 (#714) | ~2 weeks after release: `counterpart.deposit.mint.failed` in the log, retries that landed, any twins | [A failed mint](#a-failed-mint) |
-| The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) | "Due ~1 week after the worker's cost" below |
+| The per-turn worker's cost: the sidebar's file reads the words only; the reserve reads settled pairs once | 0.3.42, 10-30 (#685) | ~1 week after release: worker ms from the log (p50, p90, after-done share) (read 11-03, partial, 3.7 days: p50 4.9–7.8 s → 1.3–1.6 s, overlap minutes a day → 14–62 s, but after-done 64–66%, over the half bar — Mike's call; no worker ≥ 20 s overlaps a prompt now; finish ~11-07) | "Due ~1 week after the worker's cost" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -208,7 +208,7 @@ A real note's words missing from a write-up later would mean the rewind isn't do
 
 **Revert.** `docs/IMPROVEMENTS.md`, Undo.
 
-## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch)
+## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch) — checked 2026-11-03, below; re-read when a folder with recent sessions goes off
 
 **What we're trying.** The night's catch-up, `counterparts catch-up` and the pointer leave out a session whose folder
 is now off, observer or paused. Nothing about it is marked, so its text goes with retention and a resumed folder is owed
@@ -284,7 +284,7 @@ mostly NULL: move the ask to its own step after the first `finish`, and fence th
 it. Empty often is fine in itself, as long as those nights were quiet ones. **Revert.** Take the `line` bullet out of
 `Reflections#instructions`; nothing is sent after that, and what's on old rows does nothing.
 
-## Due ~1 week after recall stopped dropping late turns (2026-10-30, LT1, ROADMAP's decision marked for Mike's review — a fix, no switch)
+## Due ~1 week after recall stopped dropping late turns (2026-10-30, LT1, ROADMAP's decision marked for Mike's review — a fix, no switch) — read 2026-11-03 (partial), below; finish ~11-07
 
 **What we're trying.** A turn past `BUDGET_MS` shows its finished answer and says `lateMs`, where it used to show
 nothing. Recall also got a covering index on the word index and stopped compiling a regex per card per prompt. On a
@@ -308,7 +308,7 @@ open). Prompts over 5,000 ms staying common: a held lock is the likely cause, an
 `docs/decisions.d` wants answering. **Revert.** The commits are small. Without the index, recall just reads as it did:
 `DROP INDEX doc_tokens_cover; CREATE INDEX doc_tokens_token ON doc_tokens (token)` on the cache, or a rebuild on the older build.
 
-## Due ~1 week after the worker's cost (2026-10-30, W1, coordinator's brief marked for Mike's review — a fix, no switch)
+## Due ~1 week after the worker's cost (2026-10-30, W1, coordinator's brief marked for Mike's review — a fix, no switch) — read 2026-11-03 (partial), below; finish ~11-07
 
 **What we're trying.** The per-turn worker reads what the sidebar's file carries rather than 60 full memory cards, and
 the boundary's reserve reads the settled pairs once. On a copy of the corpus: 3.4 s to 1.0 s per worker, after-done
@@ -962,6 +962,92 @@ FROM events WHERE name = 'dream.night' AND json_extract(payload,'$.usage') IS NO
 past ~60–80k tokens a night → raise turning it off (`schemas.TAGS_NIGHT=false`). A child's `null` means it said no
 usage (stopped mid-stream); many of those is its own question. Revert of the record itself: revert the PR (nothing
 reads `usage` but the two lines above).
+
+## Checked 2026-11-03 (lived day 43, on 0.3.45: NC1 the catch-up and a folder that is off, the night's fence, W1 the worker's cost with LT1's latency)
+
+Read on a copy of the live store, cache and process logs taken 11-03 18:39 UTC (after the day-43 night at 15:01 UTC),
+never the store itself; SQL, one read-only script over the logs, and the installed 0.3.45 `counterparts coverage` and
+`doctor` run against the copy under a scratch `HOME`. Two probes call `dream/slices.ts`, `dream/tags.ts` and
+`adapters/scopes.ts` from master on the copy (no diff from v0.3.45 in those files). Times are UTC. Builds as the
+hook's rows carry them (`recall.decision` `$.build`; workers and prompt hooks are spawned by the build installed, so the
+log is split at the same times): 0.3.41 10-30 14:43 → 10-31 02:38, **0.3.42 10-31 02:40** → 11-01 18:38, 0.3.43 11-01
+18:40 → 23:54, 0.3.44 23:54 → 11-02 02:25, 0.3.45 from 11-02 02:42. So the "10-30" release in these rows started
+running 10-31 02:40, and four nights have run on it: 10-31 and 11-01 on 0.3.42, 11-02 and 11-03 on 0.3.45, all `done`.
+`build.0.3.42`–`0.3.45.settings` are `[]`. The folder settings file was last changed 10-30 20:41, before the install.
+**Nothing reverted, nothing changed.** NC1 and the fence hold on the live window but were never put to the test there;
+W1 and LT1 are partial (3.7 of ~7 days), finish ~11-07. One thing needs Mike (W1's after-done bar).
+
+- **NC1, the catch-up leaves out a not-on folder (0.3.42 on) — holds; not exercised live.** Two folders are not on:
+  one off since 10-26, one observer since 10-07. Neither has had a Claude Code session since 10-26 / 10-09, so nothing
+  was there to leave out. New memories from either folder since the fix: 0. All three ever written from them are the
+  10-29 three (birth day 38), and those are now archived `removed-by-owner`. `coverage` for 10-26 through 11-03 on the
+  copy: the off folder's two 10-26 sessions read "all written up" (they were, on 10-29 under 0.3.39); "Owed now: 1
+  session" (74f9ad97, ~/counterparts, ended 11-03 local morning), and doctor's Catch-up says "1 session to catch up":
+  the two readers agree. `adapter.night.writeup` granted/written: 10-31 6/6, 11-01 1/0, 11-02 4/4, 11-03 4/4 (before:
+  10-29 12/12, 10-30 3/3); `left`/`partsLeft` 0 except 11-01, where the one granted session (~/counterparts-site, on)
+  timed out (868 s, code 143, the first `timed-out` write-up; two `failed` on 10-27/28) and was written up the next
+  night. On folders still written up: yes. `coverage.lapsed` 1–5 a night, all 1–4-piece sessions of 10-14..10-20,
+  the same before and after. **To see the door bite, on the copy only:** with ~/counterparts set off in a copied
+  settings file, `coverage` moves 74f9ad97 and one short session to "Not asked for (folder off, observer or paused): 2",
+  "Owed now: nothing", and doctor's Catch-up reads "nothing owed" (Authorship drops its "1 session awaiting
+  catch-up"). The readers still agree. Doctor's line doesn't say how many it isn't asking for; coverage does.
+  Re-read the first time a folder with recent sessions goes off, observer or paused. What would change it is in the
+  row.
+- **The night's fence (0.3.42 on) — holds; not exercised live.** Every night ran normally: no `could-not-start`
+  `folder-setting`, no `mcp.refused` with a fence reason (refusals were the usual `mode-required`, `session-required`,
+  `past-room`, `already-written-up`, the same mix before), no `mcp.recall` `closed-to-the-night`, and doctor on the copy
+  has no `night-held`. `self.page.writer.ran` `omitted` is 0 on all four nights, as it should be: no closed folder had a
+  day. The closed set on the real settings is 3 rows, the archived three above (walk 110–257 ms on the copy). None of
+  them is in any dream's or reflection's `shown`, any `dream_changes` row or any memory's sources since 10-29, so no
+  closed folder's words reached a dream, reflection or day summary, but there were none to keep out. Dream intake
+  didn't fall: fresh 63 / 55 / 58 / 58 (60 / 55 the two nights before), shown 273–276. Night times 15.4, 25.8, 6.4,
+  6.6 min against 6.0 and 8.0; 11-01's extra is the 14.5-minute write-up timeout above, and 10-31's is the dream
+  (24,680 output tokens against 3–9k on every other night with a usage row since 10-25, $5.18 the night; not read further). The tagging
+  child ran every night before and after, with real work (40 memories, 30 cards, 2,412 untagged waiting), and the
+  fenced bundle is identical to the unfenced one, so "closed rows left untagged start a child each night" didn't
+  arise. **On the copy only:** with another work folder set off, the fence closes 509 rows (494 memories, 13 chapters,
+  2 handoffs; walk 128 ms) and day's end for 11-02 drops 2 of 10 chapters (35 → 28 entries); with ~/counterparts-site
+  off, 368 rows, 346 ms. The walk is in the ~150 ms the row guessed, per night call. Re-read with NC1's trigger.
+- **W1, the worker's cost (0.3.42 on) — partial: p50 bar met, after-done bar not met; finish ~11-07.** Workers from
+  `process.end` (proc `worker`), by build — n, p50 / p90 / max s, after-done share, seconds with two or more at once:
+  0.3.39 232, 6.5 / 15.9 / 42, 76%, 202; 0.3.40 160, 7.8 / 20.0 / 380, 77%, 808; 0.3.41 470, 4.9 / 8.3 / 59, 76%, 355;
+  **0.3.42 379, 1.3 / 2.6 / 6.6, 64%, 30; 0.3.43 301, 1.6 / 3.4 / 13, 65%, 47; 0.3.44 46, 1.5 / 3.0 / 3.4, 66%, 3;
+  0.3.45 363, 1.6 / 3.2 / 935, 43%, 26.** 0.3.45's two long ones (935 s at 11-02 03:07, 411 s at 03:46) are the laptop
+  asleep, not cost: the whole log is silent for 933 s and 411 s around them and they used 2.9 s and 1.6 s of CPU.
+  Without them 0.3.45 is 65%. Median per-worker after-done 58–59% on 0.3.42–0.3.45, 74–77% before. By day, overlap
+  went 120–1,082 s a day (10-27..10-30) to 14–62 s (11-01..11-03), with no worker over 100 s but the two asleep. So
+  p50 is well under the 2.5 s bar and the overlap that 10-30 showed is gone, but after-done is about 0.9 s of 1.4 s,
+  still over half. `runner.steps` (mean ms a worker on 0.3.45): sidebar 721, cycle 585, wake 414, coverage 142; the
+  sidebar step, mostly CPU, is what's left after done. **For Mike:** keep "under about half" as the bar at under a
+  second, or take the sidebar step as the next cut. Keep `runner.steps` in `LOGGED`; this read used it.
+- **LT1 with W1: latency before and after (0.3.42 on) — partial, holds so far; finish ~11-07.** First, the index took:
+  `doc_tokens_cover` is on the cache, and the `postings` lap was 377 ms once (10-31 02:41, the first 0.3.42 worker),
+  never again; the cache has 19,487 pages, freelist 0. `recall.decision` `elapsedMs` p50 / p90 by build: 0.3.39 411 /
+  773, 0.3.40 434 / 655, **0.3.41 232 / 450**, 0.3.42 101 / 148, 0.3.43 123 / 210, 0.3.44 120 / 158, 0.3.45 152 / 235.
+  The step at 0.3.41's install (about 480 → 250 in the hours either side) came with no latency change; it's
+  unexplained and not read here. So LT1's own step is 232 → 101, and the row's 411 / 699 baseline is before both.
+  Dropped turns (`adapter.recall` `latency-abort` over decisions plus aborts): 4.1–7.5% on 0.3.37–0.3.40, 1.7% on
+  0.3.41, 0 from 0.3.42, but that is by construction, since a late turn now shows its answer; the after-measure is
+  `lateMs`: 1 of 1,048 decisions on 0.3.42–0.3.45 (0.3.43, 11-01 19:43, 814 ms late). The prompt hook's `ms`
+  (`hook:user-prompt-submit` `process.end`): p50 / p90 / max 510 / 1,174 / 4,107 on 0.3.39, 520 / 956 / 25,457 on
+  0.3.40 (6 over 5,000), 305 / 533 / 2,864 on 0.3.41, 155 / 216 / 381 on 0.3.42, 184 / 298 / 3,716 on 0.3.43, 220 /
+  313 / 1,027 on 0.3.45; none over 5,000 since 0.3.40. **A watch, not yet a fault:** the daily `elapsedMs` p50 has risen
+  every day since: 98 (10-31, 0.3.42), 103 (11-01, 0.3.42), 123 (11-01, 0.3.43), 125 (11-02, 0.3.44), 147 (11-02,
+  0.3.45), 158 (11-03, 0.3.45), with no step at an install hour and the same across turn
+  numbers (1–5, 6–20, 21–60 all ~135–160 on 0.3.45, ~92–104 on 0.3.42). Still under the row's ~200 ms; if it passes
+  200 by the week read, check `page_count` and the 0.3.45 read path. **Separating W1 from LT1** (the reminder
+  mem_988702ebf22e asks it): on each prompt hook, the longest worker running at the same time, 10-27..10-31 02:40
+  against 0.3.42 on. Before: abort rate 3.4% with no worker (1,452 turns), 0% beside one under 5 s (42), 4.6% at
+  5–20 s (131), 43.5% at 20–60 s (23), 100% over 60 s (6), the pass3 gradient again; 22 of 72 aborts had a worker
+  running (pass3's "about 9%" counted another way, so not a contradiction). After: no worker of 20 s or more overlaps
+  any turn, and turns with a worker running fell from 12.2% to 7.3% (78 of 1,068); that is W1's part. Turns with no
+  worker went p50 436 → 184 ms and 3.4% → 0 aborts, which W1 can't have done; that is LT1's part (with 0.3.41's step).
+  Beside a worker the hook is no slower now: p50 145 vs 156 (0.3.42), 179 vs 185 (0.3.43), 171 vs 221 (0.3.45).
+  What would change it is in the row; one addition: `elapsedMs` p50 over 200 ms on the build then running at the
+  week read.
+
+Privacy: ids, kinds, counts, times and dates only; no memory text or session content quoted, and the observer
+folder isn't named.
 
 ## Checked 2026-11-02 (lived day 42, on 0.3.45: the dream's fresh intake again, and PP1 see-also from named ids)
 
@@ -1984,7 +2070,7 @@ or bring back the person rule for cards the ask has not reached. A twin the owne
 once; after it, the undo door); revert the commits for the rest. The repaired kinds stay NULL until the ask
 sorts them (the record lists what each was).
 
-## Due ~3 nights after release (the night's fence, 2026-10-30 — docs/decisions.d/fix-day-summary-held-1030.md)
+## Due ~3 nights after release (the night's fence, 2026-10-30 — docs/decisions.d/fix-day-summary-held-1030.md) — checked 2026-11-03, above; re-read with NC1's trigger
 
 - **What we're trying:** a folder that doesn't export is closed to the whole night (`dream/slices.ts`).
 - **Look at:** `self.page.writer.ran` rows' `omitted` (0 unless a closed folder had that day); `mcp.recall` rows with
