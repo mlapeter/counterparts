@@ -224,11 +224,11 @@ describe("pacing counts only what the person typed (decision 3)", () => {
     expect(parseTranscript(jsonl([typedEntry(shapes[0] ?? "")])).turns[0]?.source).toBe("conversation");
     // Some OTHER hook's additional context is not ours: on the host's own
     // (isMeta) line it is not kept at all (2026-10-12, `hostRecord`); written
-    // as bare user text it is still injected.
+    // as bare user text it was injected, and since 2026-11-03 (WP1) it is
+    // plumbing — a hook's output, not anything said — and enters nothing.
     const other = "<system-reminder>\nPostToolUse hook additional context: run the linter\n</system-reminder>";
     expect(parseTranscript(jsonl([metaEntry(other)])).turns).toEqual([]);
-    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("injected");
-    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("injected");
+    expect(parseTranscript(jsonl([bareEntry(other)])).turns[0]?.source).toBe("plumbing");
   });
 
   test("a v1 marker is still FOREIGN on an isMeta entry — the refusals come before the metadata", () => {
@@ -307,8 +307,9 @@ describe("pacing counts only what the person typed (decision 3)", () => {
       ]),
     );
     // 2026-10-12 (`hostRecord`): the four isMeta / isCompactSummary lines
-    // enter no turn; the three bare lines are still read as injected.
-    expect(read.turns.map((t) => t.source)).toEqual(Array.from({ length: 3 }, () => "injected"));
+    // enter no turn; the three bare lines are still turns, two read as
+    // injected and the hook's output as plumbing (2026-11-03, WP1).
+    expect(read.turns.map((t) => t.source)).toEqual(["injected", "plumbing", "injected"]);
     expect(read.turns.map((t) => t.text).join(" ")).not.toContain("continued from a previous conversation");
     expect(substanceOf(read.turns)).toEqual({ turns: 0, bytes: 0 });
   });
