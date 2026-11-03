@@ -46,8 +46,7 @@ import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { McpServer } from "../../src/adapters/mcp/index.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
 import { readSession } from "../../src/adapters/sessions.js";
-import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
-import { plantTold } from "../../src/core/told.js";
+import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs, plantTold } from "../../src/core/counterpart.js";
 import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
 import { childInit, modelSeat, SERVE_AT_SCRIPT } from "./model-seat.js";
