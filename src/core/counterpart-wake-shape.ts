@@ -61,6 +61,7 @@ import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay,
 import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
+import { TOLD_SOURCE, isTold } from "./told.js";
 
 /** The meta key that sets the shape for one store (`counterparts wake-shape on|off`): `on`, `off`, or absent for `self.WAKE_SHAPE`. */
 export const WAKE_SHAPE_KEY = "self.wake_shape";
@@ -310,7 +311,7 @@ export function sinceHere(
     if (opts.skip?.has(r.id) === true || (r.meta ?? "").includes('"unresolved":true')) continue;
     if (opts.reader !== null && r.origin_session === opts.reader) continue;
     const title = (r.title ?? "").trim();
-    if (title.length === 0 || r.source === "episode" || (r.origin_ref ?? "").startsWith("epi_") || isNightRow(r) || (r.meta ?? "").includes('"episodeId"')) continue;
+    if (title.length === 0 || r.source === "episode" || isTold(r) || (r.origin_ref ?? "").startsWith("epi_") || isNightRow(r) || (r.meta ?? "").includes('"episodeId"')) continue;
     if (!r.status && !isWorkMemory({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false })) continue;
     // A closing batch from the handoff's own session echoes its lead.
     const at = r.created_at ?? 0;
@@ -387,7 +388,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     system: WAKE_SYSTEM,
     day,
     ...(delivery.date === undefined ? {} : { date: delivery.date }),
-    memories: store.countMemories({ type: "memory", archived: false }),
+    // The lived memories are the number; the starter notes are said apart (S1; ROADMAP, 11-03).
+    memories: store.countMemories({ type: "memory", archived: false, notSource: TOLD_SOURCE }),
+    starter: store.countMemories({ type: "memory", archived: false, source: TOLD_SOURCE }),
     liveRows: store.countMemories({ archived: false }),
     assembled: true,
   });

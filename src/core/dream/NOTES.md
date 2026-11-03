@@ -1425,3 +1425,12 @@ Left out on purpose:
 - A reflection's entry, a chapter's summary and the page: each is new writing citing what it read, not a memory
   standing in for others.
 
+
+## 2026-11-03 — the starter memories are never the night's (S1, `core/told.ts`)
+
+A `told` memory is never in the queue (`store.newMemoryIds` leaves `source = 'told'` out, so the set does not count
+as lived since the last dream), never `showable` to a dream (so no lane hands one over and no change can name one),
+never in the reflection's `see` or its main loop (so no `recent`, core ask, candidate, cite or belief rests on
+one), and closed to the night's own `recall` (`McpServer#nightClosed`). Day's end leaves them out of the day
+(`self/writer.ts`), and the page's and day summary's cites refuse one. Nor the night's tag ask (`untaggedMemories`,
+at review): a tag on one would count toward a topic card's bar. Pinned by one night through `runNight` in `test/told.test.ts`.

@@ -405,6 +405,12 @@ export type { Seat, SeatAct, SeatAnswer, SeatAsk, SeatTool } from "./seat.js";
 export { beliefCoreCandidates, coreBeliefFloors, coreBeliefMiss, coreFromBeliefs, livedSupportDays } from "./self/measures.js";
 export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measures.js";
 
+// The starter memories (S1, `told.ts`): the one writer that plants the set in a
+// store its caller has just created, here so a host that makes its own stores
+// (hosted's signup, the harness's week) reaches it through the package entry.
+export { plantTold } from "./told.js";
+export type { ToldSurface } from "./told.js";
+
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
 
 /**

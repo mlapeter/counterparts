@@ -68,6 +68,8 @@ export type Verdict =
   | "cold-start-undiscriminating"
   /** Reached the bar, but not the loud tier's per-kind floor. */
   | "below-strong-floor"
+  /** A starter memory (S1, `Candidate.told`): told, not lived, so quiet at most. */
+  | "told-quiet"
   /** Lateral inhibition: a near-duplicate of a stronger admitted candidate. */
   | "inhibited"
   /** Admitted but past the tier cap. An empty slot stays quiet; a full one closes. */
@@ -167,6 +169,9 @@ export interface GateInput {
   readonly candidates: readonly Candidate[];
   readonly state: GateState;
   readonly storeSize: number;
+  /** Live memories LIVED, the starter set left out (S1 review): the cold-start
+   *  regime reads this. Absent: `storeSize`. */
+  readonly livedSize?: number | undefined;
   /** The turn stated a feeling (any subject) — the affect flag's turn gate. */
   readonly affectStated: boolean;
   readonly turn: number;
@@ -266,6 +271,7 @@ export function background(
   activations: readonly number[],
   storeSize: number,
   t: RecallTunables,
+  livedSize: number = storeSize,
 ): Background {
   const n = activations.length;
   const mean = n === 0 ? 0 : activations.reduce((a, b) => a + b, 0) / n;
@@ -273,7 +279,9 @@ export function background(
   const sd = n === 0 ? 0 : Math.sqrt(varSum / n);
   const unit = floorUnit(storeSize);
 
-  if (storeSize < t.COLD_START_MIN_STORE) {
+  // Cold start ends on LIVED memories (S1 review): the starter set is no
+  // evidence the store has grown. The unit stays the whole store's (rarity).
+  if (livedSize < t.COLD_START_MIN_STORE) {
     const cold = t.COLD_START_FLOOR_UNITS * unit;
     return {
       regime: "absolute-cold-start",
@@ -360,14 +368,16 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // A head brought in for an earlier memory (`standsFor`, 2026-10-11) is the
   // same reach counted twice: outside the sample too — but it faces the bar
   // of the one it stands for (`barOf`), not the whole sample's.
-  const inSample = (c: Candidate): boolean => c.pastCut !== true && c.standsFor === undefined && c.cue - (c.stamp ?? 0) + c.semantic > 0;
+  // A STARTER MEMORY (S1, `Candidate.told`) is outside the sample too: what a
+  // lived memory faces is what it would face in a store without the starter set.
+  const inSample = (c: Candidate): boolean => c.pastCut !== true && c.standsFor === undefined && c.told !== true && c.cue - (c.stamp ?? 0) + c.semantic > 0;
   // A stand-in the words also reached on their own keeps that reach in the
   // background (`directReach`, review of #526): what the words found, once.
   const acts = [
     ...input.candidates.filter(inSample).map(own),
     ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
   ];
-  const bg = background(acts, input.storeSize, t);
+  const bg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize);
   /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`). */
   const loudUnit = floorUnit(input.storeSize);
   const sum = acts.reduce((a, b) => a + b, 0);
@@ -593,6 +603,11 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     if (c.maxTier === "footnoted") {
       loud = false;
       loudBlock.set(c.id, "cue-only-temporal");
+    } else if (c.told === true) {
+      // A STARTER MEMORY IS QUIET AT MOST (S1): its title in the footnotes,
+      // opened when the turn wants it; never the loud tier's one slot.
+      loud = false;
+      loudBlock.set(c.id, "told-quiet");
     } else if (input.storeSize < MIN_RARITY_STORE) {
       // Cold start is STRICTER, not looser — and below `MIN_RARITY_STORE` the
       // strictness the floors provide is not available, because the unit the
@@ -624,7 +639,11 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // ── lateral inhibition on PURE activation (§9 G8: admission, inhibition and
   // the footnote tier never see salience — that is what keeps the footnote tier
   // a recency DISCOVERY channel rather than a second salience ranking).
-  admitted.sort((a, b) => b.c.activation - a.c.activation || (a.c.id < b.c.id ? -1 : 1));
+  // LIVED FIRST (S1, Mike: "real user memories always rank higher"): every
+  // lived memory admitted is ranked ahead of every starter memory, so a told
+  // one only takes a quiet slot no lived one wanted, and is the one inhibited
+  // when it reads like a lived one — never the other way round.
+  admitted.sort((a, b) => (a.c.told === true ? 1 : 0) - (b.c.told === true ? 1 : 0) || b.c.activation - a.c.activation || (a.c.id < b.c.id ? -1 : 1));
   // THE CHAIN HEAD WINS (2026-10-11, Group 2; review 04 change 1): a memory a
   // later one settled over is inhibited when the one that holds now is
   // admitted beside it or is already in this session — before the
@@ -695,7 +714,8 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     Object.entries(p.linkedFrom ?? {}).reduce((sum, [id, a]) => (shownIds.has(id) ? sum + a : sum), 0);
   const ranked = pointerPool
     .map((p) => ({ p, a: anchored(p) }))
-    .sort((x, y) => y.a - x.a || (x.p.id < y.p.id ? -1 : 1));
+    // Lived first here too (S1): a told pointer only takes a slot no lived one did.
+    .sort((x, y) => (x.p.told === true ? 1 : 0) - (y.p.told === true ? 1 : 0) || y.a - x.a || (x.p.id < y.p.id ? -1 : 1));
   const pointers: Candidate[] = [];
   for (const { p, a } of ranked) {
     if (!(a > 0) || a < anchorBar) {

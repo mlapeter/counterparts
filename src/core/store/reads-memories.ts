@@ -636,9 +636,11 @@ export function newMemoryIds(store: Store, filter: { sinceAt: number | null; sin
   // Nor a dream's own MERGES (origin `dream:<id>`): a merged memory is a
   // rewording of what a dream already saw, and counting it as new would let
   // one dream's output raise the next day's ask by itself (review of #251).
+  // Nor a STARTER memory (`source = 'told'`, S1): told at birth, not lived,
+  // so never what a night sorts.
   const base = `SELECT id FROM memories
                    WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND protected = 0
-                     AND (source IS NULL OR source != 'dreamed')
+                     AND (source IS NULL OR source NOT IN ('dreamed', 'told'))
                      AND (origin_ref IS NULL OR origin_ref NOT LIKE 'dream:%')`;
   const order = "ORDER BY COALESCE(created_at, 0) DESC, birth_day DESC, id LIMIT ?";
   // SQLite reads a negative LIMIT as none.

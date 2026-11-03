@@ -2286,15 +2286,21 @@ describe("wake: publish, deliver, reconcile", () => {
       day: 999_999,
       date: "2026-09-04",
       memories: 999_999_999,
+      starter: 999,
       liveRows: 999_999_999,
     });
     expect(byteLength(worst)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
-    expect(worst).toContain("· 999,999,999 memories (composed at the last boundary). ");
+    expect(worst).toContain("· 999,999,999 memories · 999 starter notes (composed at the last boundary). ");
     expect(groupDigits(15_409)).toBe("15,409");
     expect(groupDigits(0)).toBe("0");
     // No date reported by the host is a preface without one, never an invented
     // date and never a crash.
     expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3 })).toContain("day 1 · 2 memories");
+    // The starter notes said apart (S1), and nothing said when there are none.
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 0, memories: 0, starter: 11, liveRows: 11, assembled: true })).toBe(
+      `${WAKE_SYSTEM} memory, day 0 · 0 memories · 11 starter notes. ${WAKE_WHOLE_SENTENCE}`,
+    );
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, starter: 0, liveRows: 3 })).not.toContain("starter");
     // Assembled at session start: no "composed" clause, the line is shorter still.
     expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3, assembled: true })).toBe(
       `${WAKE_SYSTEM} memory, day 1 · 2 memories. ${WAKE_WHOLE_SENTENCE}`,

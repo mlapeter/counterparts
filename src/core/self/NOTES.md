@@ -3006,3 +3006,11 @@ for what reads it (doctor, the dashboard, the dream's input, a delivery the comp
 - **Not touched:** the room, the cadence, the door (`splicePageLane` splits by any heading), `CRAFT_IN_WAKE`, the self_page tool's
   text and the wake. The sharp edge is room, switch or not: a page at its room sends any added line back to be cut, and stories
   are the longest lines (CHECK-AFTER, PF1).
+
+## S1, 2026-11-03: the starter memories stay out of the self
+
+The eleven `told` memories a new store begins with (`core/told.ts`) are never the day's (`writer.ts#dayMemories`,
+`dayIsEmpty`), never a page claim's cite (`self_page` refuses one), never a wake lane's (`identity.ts#scanOne`,
+`counterpart-wake-shape.ts#sinceHere`; defensive: at their weak start no lane picks one today), never a core
+candidate (`sleep/consolidate.ts` blocks `told`), never a belief's evidence (`schemas` `NOT_LIVED_SOURCES`), and
+never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: recall, the dashboard, `ask`.

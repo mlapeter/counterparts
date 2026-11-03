@@ -421,7 +421,8 @@ describe("start-fresh, end to end", () => {
     // And a blank store where the old one was.
     const fresh = Store.open({ dir: storePath(), observer: true });
     try {
-      expect(fresh.list().length).toBe(0);
+      // Blank but for the starter memories a new store begins with (S1, `core/told.ts`).
+      expect(fresh.list().map((id) => fresh.row(id)?.source)).toEqual(Array.from({ length: 11 }, () => "told"));
     } finally {
       fresh.close();
     }
@@ -934,7 +935,8 @@ describe(`cut-over day: this build, and a store written by ${PINNED_TAG}`, () =>
     expect(storeExists(storePath())).toBe(true);
     const fresh = Store.open({ dir: storePath(), observer: true });
     try {
-      expect(fresh.list().length).toBe(0);
+      // Blank but for the starter memories a new store begins with (S1, `core/told.ts`).
+      expect(fresh.list().map((id) => fresh.row(id)?.source)).toEqual(Array.from({ length: 11 }, () => "told"));
     } finally {
       fresh.close();
     }

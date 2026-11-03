@@ -230,6 +230,7 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(seatName === "scripted" ? { seat: "scripted" as const } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
+      ...(args.includes("--no-told") ? { told: false } : {}),
       ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),
       ...((): { model?: string } => {
         const v = flag(args, "--model");
@@ -279,7 +280,7 @@ async function main(argv: readonly string[]): Promise<number> {
         "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--preset <name>] [--base-preset <name>] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
         "       (replay, night and week also take --set module.KEY=V and --preset <name>, and night and week --page-out <file>)\n" +
         "       bun tools/harness/cli.ts corpus [--from <snapshot folder>] [--snapshots <dir>] [--out <dir>] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--model <name>] [--out <week.sqlite>] [--keep] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--model <name>] [--out <week.sqlite>] [--keep] [--json <out>]\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;

@@ -52,6 +52,7 @@ import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
 import { DATABASE_FILE, isWithin } from "../../src/core/store/paths.js";
 import { beginNewInstall } from "../../src/core/onboarding.js";
+import { plantTold } from "../../src/core/told.js";
 import { STATIC_WEIGHTS_ENV } from "../../src/core/embed/static.js";
 
 /** 128 bits as lowercase hex: the only shape a store id may have. */
@@ -446,6 +447,10 @@ export class Tenants {
 export function startNewStore(server: McpServer): void {
   const store = server.counterpart.store;
   beginNewInstall(store);
+  // THE STARTER MEMORIES (S1, `src/core/told.ts`), in hosted's words: this
+  // host's store knows it is hosted, and Claude Code connected here reads the
+  // same store, so it gets the same set.
+  plantTold(store, "hosted");
 }
 
 /** The environment keys a worker child may inherit, beyond the `COUNTERPARTS_*` the plan pinned. */
