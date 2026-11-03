@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openAdapter, runNight } from "../src/adapters/claude-code/index.js";
+import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import type { NightAnswer } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { EXIT, run } from "../src/adapters/cli/index.js";
@@ -30,6 +31,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import { Store, paths } from "../src/core/store/index.js";
 import { Recall } from "../src/core/recall/index.js";
+import { resolveStaticWeights } from "../src/core/embed/static.js";
 import { recallTurn } from "../src/core/retrieval.js";
 import { hasDayBefore } from "../src/core/self/writer.js";
 import { TOLD_SET_KEY, TOLD_SET_VERSION, TOLD_SOURCE, TOLD_SURFACE_KEY, isTold, plantTold, toldSet } from "../src/core/told.js";
@@ -480,6 +482,59 @@ describe("weaker than anything lived — ambient recall and its footnotes", () =
     expect(firstTold).toBeGreaterThan(0);
     expect(told.has(ids[0] as string)).toBe(false);
   });
+});
+
+// ── a lived match found by meaning alone (the single-binary smoke, 2026-11-03) ──
+
+const WEIGHTS = resolveStaticWeights({ env: {} });
+
+/**
+ * The smoke's own steps, through the real table: a fresh install (the set
+ * planted), one lived note, then a question sharing no content word with it.
+ * Before the fix the seeds that shared a question word ("own") set
+ * facts mode's weak bar, and the lived note — reached by meaning only — was cut
+ * as a weak match (`mcp/facts.ts`, the weak tail).
+ */
+describe.skipIf(WEIGHTS === null)("a seed never pushes out a lived match found by meaning alone (real table)", () => {
+  const CASES = [
+    { note: "The espresso machine in the kitchen is a Rancilio Silvia.", question: "which coffee maker do we own?" },
+  ];
+
+  async function asked(seeded: boolean, note: string, question: string): Promise<{ lived: string; facts: Record<string, unknown>; meaning: Record<string, unknown>; told: number }> {
+    const dir = seeded ? storeDir : join(root, "plain", "store");
+    if (seeded) await install();
+    const emb = openStaticEmbedder({ env: {} });
+    const a = openAdapter({ dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: emb });
+    closers.push(a.counterpart);
+    const session = "s-smoke-0001";
+    const s = new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: join(dir, "..", "registry"), embedder: emb });
+    expect((await s.call("remember", { session, text: note })).isError).not.toBe(true);
+    const [lived] = a.counterpart.store.sessionMemoryIds(session);
+    const facts = sc(await s.call("recall", { question, mode: "facts" }));
+    const meaning = sc(await s.call("recall", { question, mode: "meaning" }));
+    return { lived: lived as string, facts, meaning, told: a.counterpart.store.toldIds().length };
+  }
+
+  for (const { note, question } of CASES) {
+    test(`facts and meaning mode: "${question}" finds the lived note beside the set, as it does without it`, async () => {
+      // No content word in common: what finds it is the meaning.
+      const words = (t: string): Set<string> => new Set(t.toLowerCase().match(/[a-z]+/g) ?? []);
+      const shared = [...words(question)].filter((w) => words(note).has(w));
+      expect(shared.filter((w) => !["the", "in", "is", "a", "we", "do", "with", "which", "what"].includes(w))).toEqual([]);
+
+      const plain = await asked(false, note, question);
+      expect(plain.told).toBe(0);
+      expect(plain.facts["semantic"]).toBe("in-line");
+      expect(plain.facts["ids"]).toContain(plain.lived);
+
+      const seeded = await asked(true, note, question);
+      expect(seeded.told).toBe(11);
+      expect(seeded.facts["semantic"]).toBe("in-line");
+      expect({ question, facts: seeded.facts["ids"] }).toEqual({ question, facts: expect.arrayContaining([seeded.lived]) });
+      // Meaning mode leaves the set out altogether, so the lived note is there.
+      expect({ question, meaning: seeded.meaning["ids"] }).toEqual({ question, meaning: expect.arrayContaining([seeded.lived]) });
+    });
+  }
 });
 
 // ── correcting one ──────────────────────────────────────────────────────────

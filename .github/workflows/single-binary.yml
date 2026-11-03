@@ -13,15 +13,17 @@ name: single binary
 
 on:
   pull_request:
+    # EVERY PR touching src/ (2026-11-03): the binary embeds all of src, and the
+    # smoke test's install-then-recall is end to end. A narrower filter skipped
+    # #729 (starter memories), whose seeds broke the smoke's meaning-only recall;
+    # it surfaced only on the next binary PR. Linux and macOS finish in 1-2 min.
     paths:
+      - "src/**"
       - "tools/single-binary/**"
-      - "src/adapters/plugin-run.sh"
-      - "src/adapters/runtime.ts"
-      - "src/adapters/plugin.ts"
-      - "src/adapters/host-wiring.ts"
       - ".claude-plugin/**"
       - "test/single-binary.test.ts"
       - "test/plugin-binary.test.ts"
+      - "test/project-env.test.ts"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/single-binary.yml"
