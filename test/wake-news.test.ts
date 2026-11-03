@@ -21,11 +21,13 @@ import { join } from "node:path";
 import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
+import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, plantTold } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { DATABASE_FILE } from "../src/core/store/index.js";
+import { monthDay } from "../src/core/time.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
 const MIN = 60_000;
@@ -222,5 +224,60 @@ describe("since the last night", () => {
     expect(block).toContain(LAUNCH);
     expect(block).not.toContain("11 pieces sold\n");
     expect(block.split("\n").length).toBe(2);
+  });
+});
+
+describe("a stale handoff steps down", () => {
+  const PLATFORM = "next: build Dana's product page (waiting on Dana to pick a platform). Layout agreed: photos first, then the glaze badge.";
+  const SEAT1 = "eeee0001-0000-4000-8000-000000000000";
+
+  /** Dana's shop: the day-1 handoff, then sessions here that left no handoff of their own. */
+  function shop(c: Counterpart, at: (t: number) => void, sessionsSince: number): string {
+    at(NOW - 5 * 24 * HOUR);
+    recordSession(storeDir, { sessionId: SEAT1, scope: SHOP, phase: "start", at: NOW - 5 * 24 * HOUR });
+    const id = c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 }).id;
+    for (let i = 0; i < sessionsSince; i++) {
+      const t = NOW - (4 - i) * 24 * HOUR;
+      at(t);
+      const s = `ffff000${String(i)}-0000-4000-8000-000000000000`;
+      recordSession(storeDir, { sessionId: s, scope: SHOP, phase: "start", at: t });
+      note(c, `Shop voice: friendly, not cutesy ${String(i)}`, { scope: SHOP, about: "work", session: s, status: "done" });
+    }
+    at(NOW);
+    return id;
+  }
+
+  test("five days old with sessions here since: one line with its age, after what came since, not whole", () => {
+    const { c, at } = brain();
+    const id = shop(c, at, 3);
+    c.close();
+    const { wake } = hook(SHOP);
+    const stands = section(wake, "Where this folder stands:");
+    expect(stands).not.toContain("waiting on Dana to pick a platform");
+    expect(stands).not.toContain("Layout agreed");
+    const lines = stands.split("\n");
+    const last = lines.findIndex((l) => l.startsWith("Last handoff, session eeee0001, "));
+    expect(lines[last]).toBe(`Last handoff, session eeee0001, ${monthDay(new Date(NOW - 5 * 24 * HOUR).toISOString().slice(0, 10))} (5 days old; 3 sessions here since): recall ${id}`);
+    expect(lines.findIndex((l) => l === "Since, here:")).toBeLessThan(last);
+    expect(stands).not.toContain("Nothing here since.");
+  });
+
+  test("no session here since, or not yet half a day: the handoff stays whole and first", () => {
+    const { c, at } = brain();
+    shop(c, at, 0);
+    c.close();
+    expect(section(hook(SHOP).wake, "Where this folder stands:")).toContain("waiting on Dana to pick a platform");
+    rmSync(storeDir, { recursive: true, force: true });
+    const fresh = brain();
+    fresh.at(NOW - 2 * HOUR);
+    recordSession(storeDir, { sessionId: SEAT1, scope: SHOP, phase: "start", at: NOW - 2 * HOUR });
+    fresh.c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 });
+    fresh.at(NOW - HOUR);
+    recordSession(storeDir, { sessionId: "ffff0009-0000-4000-8000-000000000000", scope: SHOP, phase: "start", at: NOW - HOUR });
+    fresh.at(NOW);
+    fresh.c.close();
+    const stands = section(hook(SHOP).wake, "Where this folder stands:");
+    expect(stands).toContain("waiting on Dana to pick a platform");
+    expect(stands).toStartWith("Where this folder stands:\nHandoff, session eeee0001");
   });
 });

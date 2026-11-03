@@ -437,6 +437,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const elsewhere = safe(() => elsewhereFacts(cp, gate, sessions, sinceY, now, reader, factAt), { list: [] as ElsewhereRow[], quiet: [] as string[] });
   const said = scope.length === 0 ? null : safe(() => saidHere(cp, scope, here, sessions, headless, chaptersHere, newest ?? null, reader, zone, now), null);
   const liveHere = sessions.filter((s) => s.live && s.session !== reader && hereFolders.includes(norm(s.scope)));
+  // THE HANDOFF STEPS DOWN (WF1): past `HANDOFF_STEP_DOWN_MS` with a session
+  // here since, it is one line with its age after what came since, not whole
+  // and first (Dana's day-1 "waiting on Dana to pick a platform" led every shop
+  // wake through day 6). Sessions since: the host's registry, and where it has
+  // none, the chapters and memories written here by another session.
+  const sinceSessions = newest === undefined || newestAt === null ? 0 : sessionsSince(cp, { at: newestAt, own: newest.session, reader, folders: hereFolders, sessions, headless, chapters: chaptersHere, now });
+  const stepDown = newestAt !== null && now - newestAt >= SHAPE.HANDOFF_STEP_DOWN_MS && sinceSessions > 0;
   const night = safe(() => nightWords(cp, at, here, scope), null);
   const installed = here?.installed ?? null;
   const news = safe(() => sinceLastNight(cp, at, here, { ours: new Set(hereFolders), skip: cueIds }), { items: [] as NewsItem[], since: 0, night: false });
@@ -476,8 +483,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number } => {
       const out = ["Where this folder stands:"];
       let leadSize = 0;
+      let stepped: string | null = null;
       if (newest === undefined) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
-      else {
+      else if (stepDown) {
+        const seat = seatOf(newest.body) ?? `session ${shortSession(newest.session)}`;
+        stepped = `Last handoff, ${seat}, ${monthDay(newest.writtenOn)} (${ageOf(newestAt ?? startOfLocalDay(newest.writtenOn, zone))} old; ${plural(sinceSessions, "session")} here since${hs.length > 1 ? `; newest of ${String(hs.length)}` : ""}): recall ${newest.id}`;
+        leadSize = byteLength(`${stepped}\n`);
+      } else {
         const lead = leadOf(newest.body, n.lead, leadBytes);
         const seat = seatOf(newest.body) ?? `session ${shortSession(newest.session)}`;
         const when = `${monthDay(newest.writtenOn)}${newestAt === null ? "" : ` ${localStamp(newestAt, zone).split(" ")[1] ?? ""}`}`;
@@ -503,7 +515,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       } else if (newest !== undefined && (later?.older ?? 0) > 0) {
         out.push(`Nothing new here; ${plural(later?.older ?? 0, "older note")} added.`);
       } else if (later !== null && later.rawLater === 0) {
-        if (newest !== undefined) out.push("Nothing here since.");
+        if (newest !== undefined) {
+          if (!stepDown) out.push("Nothing here since.");
+        }
         else {
           // No handoff and a quiet day: the last chapter here, so a folder a
           // session left a while ago still says what happened in it.
@@ -511,6 +525,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
           out.push(last === undefined ? "Nothing here since yesterday." : `Last here: chapter "${flatten((last.title ?? "").trim() || last.excerpt)}" (${ageOf(last.writtenAt)})`);
         }
       }
+      if (stepped !== null) out.push(stepped);
       const rest = hs.length - 1;
       if (rest > 0) {
         out.push(`Older handoffs: ${String(rest)}; recall "${HANDOFFS_HANDLE}"`);
@@ -520,7 +535,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       if (n.said && said !== null) out.push(said.line);
       return { lines: out, leadBytes: leadSize };
     };
-    const most = newest === undefined ? 1 : Math.max(1, leadOf(newest.body, leadLines, leadBytes).lines.length);
+    const most = newest === undefined || stepDown ? 1 : Math.max(1, leadOf(newest.body, leadLines, leadBytes).lines.length);
     const n = { lead: most, since: Math.min(SHAPE.SINCE_SHOWN, sinceLines.length), older: Math.min(SHAPE.OLDER_SHOWN, olderPick.length), said: said !== null };
     const size = (): number => byteLength(blockOf(build(n).lines));
     while (size() > b && n.older > 0) n.older -= 1;
@@ -781,6 +796,38 @@ function finish(
     sections: { head: result.bytes - others - w.closingBytes, ...w.sections, end: w.closingBytes },
     page: w.rung,
   };
+}
+
+/**
+ * HOW MANY SESSIONS WORKED HERE SINCE A HANDOFF: the host's registry's (in this
+ * folder or its project's, started after it, not the handoff's own, not this
+ * reader, not one nobody attended), else, for a host with no registry, the
+ * distinct other sessions that wrote a chapter or a memory here since. Never throws.
+ */
+function sessionsSince(
+  cp: Counterpart,
+  o: {
+    readonly at: number;
+    readonly own: string | null;
+    readonly reader: string | null;
+    readonly folders: readonly string[];
+    readonly sessions: readonly WakeSession[];
+    readonly headless: ReadonlySet<string>;
+    readonly chapters: readonly ChapterHere[];
+    readonly now: number;
+  },
+): number {
+  const other = (s: string | null): s is string => s !== null && s.length > 0 && s !== o.own && s !== o.reader && !o.headless.has(s);
+  const seen = new Set<string>();
+  for (const s of o.sessions) if (s.startedAt > o.at && o.folders.includes(norm(s.scope)) && other(s.session)) seen.add(s.session);
+  if (o.sessions.length > 0) return seen.size;
+  for (const c of o.chapters) if (c.writtenAt > o.at && other(c.session)) seen.add(c.session);
+  try {
+    for (const f of o.folders) for (const r of cp.store.memoriesWrittenHereSince(f, o.at, o.now, SHAPE.SINCE_READ)) if (other(r.origin_session ?? null)) seen.add(r.origin_session as string);
+  } catch {
+    /* what the chapters said */
+  }
+  return seen.size;
 }
 
 /** Up to `OLDER_SHOWN` of the older handoffs, one per seat, not the lead's, newest of each. */

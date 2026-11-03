@@ -618,6 +618,8 @@ export const WAKE_SHAPE_LIMITS = {
   /** Spare room finishes a cut lead first (round 4: 922 B unused while a lead was cut at 573). */
   LEAD_LINES_SPARE: 8,
   LEAD_BYTES_SPARE: 960,
+  /** A handoff this old, with a session here since, steps down to one line (WF1): half a day lets a session that stops for lunch pick its own up whole, and Dana's day-1 handoff stepped down on day 3. */
+  HANDOFF_STEP_DOWN_MS: 12 * 60 * 60_000,
   /** "Since, here" lines before `+N`: more echoed the lead. */
   SINCE_SHOWN: 3,
   /** A closing batch echoes the lead; a later correction doesn't. Ten minutes tells them apart well enough on the real days. */

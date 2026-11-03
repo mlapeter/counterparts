@@ -3027,3 +3027,9 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   chapter copies, an older fact noted again (a stated day before the window), and an echo of a stronger title. Nothing new,
   no section. It costs ~100 B a title; Dana's two cases are one line each. In the shaped wake only: the old road's
   `ROOM_ORDER` and its byte-identical tests were not touched.
+- **A stale handoff steps down.** Older than `HANDOFF_STEP_DOWN_MS` (12 h) with a session here since (the host's registry,
+  this folder or its project's, not the handoff's own session, not the reader, not a headless one; with no registry, the
+  other sessions that wrote a chapter or memory here), the newest handoff is one line, after "Since, here": `Last handoff,
+  <seat>, <day> (<age> old; N sessions here since): recall sch_…`. None of its words: the point is that it no longer leads.
+  "Nothing here since." goes with it (sessions came, so it would contradict the line). Saves ~300–560 B a wake from day 3
+  of Dana's shop on; costs ~20 B over the old head line.
