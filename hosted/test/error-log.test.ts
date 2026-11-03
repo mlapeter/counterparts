@@ -15,6 +15,7 @@ import type { Caller, ErrorWhere } from "../src/server.js";
 import type { Tenants } from "../src/tenants.js";
 import { callLine } from "../src/main.js";
 import { listen, rpc, storeId } from "./helpers.js";
+import { StoreError } from "../../src/core/store/errors.js";
 
 const SECRET = "what Mike wrote /data/tenants/0123abcd/store/counterparts.sqlite";
 
@@ -63,6 +64,16 @@ describe("errors that become a 500", () => {
     const line = errorLine("tenant", null, err);
     assert.equal(line, "[hosted] error where=tenant name=Error code=ERR_SQLITE_ERROR errcode=11 syscall=open at=Store.open@src/core/store/index.ts:120\n");
     assert.ok(!line.includes("Mike") && !line.includes("what-he-said"));
+  });
+
+  test("errorLine: a store refused for an unclassified name says which name (a file the host wrote), and only that code does", () => {
+    const err = new StoreError("LAYOUT_UNCLASSIFIED", { name: ".counterparts.sqlite-litestream" });
+    err.stack = "StoreError: x\n    at assertLayoutClassified (/app/src/core/store/paths.ts:374:13)";
+    assert.equal(errorLine("tenant", null, err), "[hosted] error where=tenant name=StoreError code=LAYOUT_UNCLASSIFIED entry=.counterparts.sqlite-litestream at=assertLayoutClassified@src/core/store/paths.ts:374\n");
+    const odd = Object.assign(new StoreError("LAYOUT_UNCLASSIFIED", { name: `${SECRET} /x` }), { stack: "" });
+    assert.equal(errorLine("tenant", null, odd), "[hosted] error where=tenant name=StoreError code=LAYOUT_UNCLASSIFIED entry=? at=?\n");
+    const other = Object.assign(new StoreError("DB_CLOSED", { name: "kept-out" }), { stack: "" });
+    assert.ok(!errorLine("tenant", null, other).includes("kept-out"));
   });
 
   test("the store's open throws: 500, told once as `tenant` with the store tag, no message", async () => {

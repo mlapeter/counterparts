@@ -115,6 +115,10 @@ export function errorLine(where: ErrorWhere, store: string | null, err: unknown)
   // node:sqlite gives every error code=ERR_SQLITE_ERROR; errcode (5 BUSY, 11 CORRUPT, 14 CANTOPEN…) tells them apart.
   const errcode = typeof e.errcode === "number" && Number.isInteger(e.errcode) ? ` errcode=${String(e.errcode)}` : "";
   const syscall = typeof e.syscall === "string" && /^[a-z_]{1,20}$/.test(e.syscall) ? ` syscall=${e.syscall}` : "";
+  // A store refused for a top-level name it doesn't classify: the name is a file the host wrote, never words,
+  // and without it the line can't say what to fix (11-03: Litestream's own directory).
+  const d = (err as { detail?: { name?: unknown } } | null)?.detail;
+  const entry = code === " code=LAYOUT_UNCLASSIFIED" && typeof d?.name === "string" ? ` entry=${/^[A-Za-z0-9._-]{1,60}$/.test(d.name) ? d.name : "?"}` : "";
   const frames: string[] = [];
   if (typeof e.stack === "string") {
     // The stack starts with the message, which may run over several lines: those are skipped, so a message
@@ -131,7 +135,7 @@ export function errorLine(where: ErrorWhere, store: string | null, err: unknown)
       if (frames.length === 5) break;
     }
   }
-  return `[hosted] error where=${where}${store === null ? "" : ` store=${store}`} name=${name}${code}${errcode}${syscall} at=${frames.length === 0 ? "?" : frames.join(" < ")}\n`;
+  return `[hosted] error where=${where}${store === null ? "" : ` store=${store}`} name=${name}${code}${errcode}${syscall}${entry} at=${frames.length === 0 ? "?" : frames.join(" < ")}\n`;
 }
 
 /** The Protected Resource Metadata URL the 401 points at (path-inserted, RFC 9728 §3.1). */

@@ -277,6 +277,9 @@ describe("Backups", () => {
     assert.match(yml, new RegExp(`path: ".*/tenants/${id}/store/counterparts.sqlite"`));
     assert.match(yml, new RegExp(`path: "tenants/${id}"`));
     assert.match(yml, /sse-customer-key-path: ".*litestream.key"/);
+    // Litestream's own state beside the store, never in it: the core layout refuses a name it doesn't know (11-03).
+    assert.match(yml, new RegExp(`counterparts.sqlite"\n {4}meta-path: ".*/tenants/${id}/litestream-meta"\n`));
+    assert.equal((yml.match(/meta-path:/g) ?? []).length, 1); // the control databases aren't a store: Litestream's default stays
     assert.match(yml, /control\/accounts\.sqlite/);
     // The "purged within 24 h" bound: snapshots every 12 h, kept 12 h (backup.ts#config).
     assert.match(yml, /^snapshot:\n {2}interval: 12h\n {2}retention: 12h$/m);

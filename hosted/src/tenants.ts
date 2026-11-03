@@ -36,7 +36,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../../src/adapters/hosts.js";
@@ -110,6 +110,40 @@ export class StoreLocked extends Error {
 
 /** Beside a store just restored (`backup.ts#restore`): its next open rebuilds the cache, which no backup holds. */
 export const RESTORED_MARKER = "restored.marker";
+
+/**
+ * LITESTREAM'S OWN STATE, BESIDE THE STORE, NEVER INSIDE IT (11-03). Litestream
+ * 0.5 keeps each database's replication position in a directory; by default a
+ * hidden `.<file>-litestream` next to the database file, which put
+ * `.counterparts.sqlite-litestream` in `store/`. The core layout refuses any
+ * top-level name it doesn't classify (store CONTRACT §5 G11), so once the
+ * sidecar had run, every later open of that store refused with
+ * LAYOUT_UNCLASSIFIED: claude.ai's 500 after sign-in, 11-02. It hid because a
+ * store stays open in this process, and the drill only opened stores before
+ * replication began or after a restore had removed the directory.
+ * `backup.ts#config` names this path as each tenant database's `meta-path`.
+ */
+export const LITESTREAM_META = "litestream-meta";
+
+/** Where Litestream put its state for a tenant's database before `meta-path` was set. */
+export function oldLitestreamMeta(dir: string): string {
+  return join(dir, "store", `.${DATABASE_FILE}-litestream`);
+}
+
+/**
+ * Move Litestream's state out of `store/` to `LITESTREAM_META`, keeping its
+ * position; if Litestream has already started a new one there, the old one
+ * goes. Runs before every open (here) and before the sidecar starts
+ * (`backup.ts#release`). Nothing in it is memory: a lost position costs one
+ * fresh snapshot to the bucket.
+ */
+export function settleLitestreamMeta(dir: string): void {
+  const old = oldLitestreamMeta(dir);
+  if (!existsSync(old)) return;
+  const meta = join(dir, LITESTREAM_META);
+  if (existsSync(meta)) rmSync(old, { recursive: true, force: true });
+  else renameSync(old, meta);
+}
 
 /**
  * A store that was opened before and whose files are gone from this volume.
@@ -304,6 +338,7 @@ export class Tenants {
     const fresh = !existsSync(join(storeDir, DATABASE_FILE));
     if (fresh && this.opts.openedBefore?.(storeId) === true) throw new StoreNeedsRestore();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+    settleLitestreamMeta(dir);
     const configPath = join(dir, "config.json");
     const config: AdapterConfig = {
       dataDir: storeDir,
