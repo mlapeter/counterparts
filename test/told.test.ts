@@ -247,6 +247,54 @@ describe("day one never claims memories nobody made (ROADMAP, 11-03)", () => {
     expect(leaving.out.join("\n")).toContain("11 memories (11 of them starter notes) are still at");
   });
 
+  test("with lived memories beside the set, and seeds revised both ways: every count says the lived ones, and the wake's opening line too", async () => {
+    await install();
+    const a = adapter(storeDir);
+    const store = a.counterpart.store;
+    const session = "s-counts-0001";
+    const mcp = new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: join(root, "registry") });
+    for (const text of LIVED.slice(9, 11)) expect((await mcp.call("remember", { session, text })).isError).not.toBe(true);
+    const byTitle = (t: string): string => store.toldIds().find((id) => store.row(id)?.title === t) as string;
+    // One seed corrected (it leaves), one changed (both were true at their time).
+    expect((await mcp.call("remember", { session, text: "I used to think status counted only memories; it counts memories and recent activity, and doctor checks everything.", updates: byTitle("Told: checking that memory works"), how: "corrected" })).isError).not.toBe(true);
+    expect((await mcp.call("remember", { session, text: "I used to think export only made an encrypted copy; it can also write plaintext with --plaintext, said out loud.", updates: byTitle("Told: taking the memory with them"), how: "changed" })).isError).not.toBe(true);
+    const lived = store.countMemories({ type: "memory", archived: false, notSource: TOLD_SOURCE });
+    const told = store.countMemories({ type: "memory", archived: false, source: TOLD_SOURCE });
+    expect(lived).toBe(4);
+    const pair = `${lived} memories · ${told} starter notes`;
+
+    const status = said();
+    expect(await run(["status", "--dir", storeDir], { io: status.io, env: {}, home })).toBe(EXIT.ok);
+    expect(status.out.join("\n")).toContain(`Memories: ${lived} · ${told} starter notes`);
+    expect(status.out.join("\n")).toMatch(new RegExp(`Today \\(\\d{4}-\\d{2}-\\d{2}\\): ${lived} new`));
+
+    const doctor = said();
+    await run(["doctor", "--config", cfg], { io: doctor.io, env: {}, home });
+    expect(doctor.out.join("\n")).toContain(`— ${pair}`);
+
+    const dash = Dashboard.open({ dir: storeDir });
+    try {
+      const overview = JSON.parse(router(new URL("http://127.0.0.1:4747/api/overview"), "127.0.0.1:4747", dash.source).body) as { hero: { headline: string; newToday: number } };
+      expect(overview.hero.headline).toContain(pair);
+      expect(overview.hero.newToday).toBe(lived);
+    } finally {
+      dash.close();
+    }
+
+    // The wake's opening line: the lived memories are the number.
+    await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: 9_000 });
+    const woke = a.sessionStart(toHookInput({ session_id: "s-wake-0001", hook_event_name: "SessionStart", cwd: SCOPE, source: "startup" }, { scope: SCOPE, timeZone: ZONE, env: { CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ATTENDED: "1" }, dataDir: storeDir }));
+    expect(woke.injection).toContain(`· ${pair}`);
+  });
+
+  test("a fresh store's wake opens on no memories and the starter notes", async () => {
+    await install();
+    const a = adapter(storeDir);
+    await a.counterpart.sessionEnd({ date: "2026-01-02", budgetBytes: 9_000 });
+    const woke = a.sessionStart(toHookInput({ session_id: "s-wake-0002", hook_event_name: "SessionStart", cwd: SCOPE, source: "startup" }, { scope: SCOPE, timeZone: ZONE, env: { CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ATTENDED: "1" }, dataDir: storeDir }));
+    expect(woke.injection).toContain("· 0 memories · 11 starter notes");
+  });
+
   test("init makes a bare store, with no starter notes; install sets up yours — and help says so", async () => {
     const bare = join(root, "bare");
     expect(await run(["init", "--dir", bare], { io: quiet(), env: {}, home })).toBe(EXIT.ok);

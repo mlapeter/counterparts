@@ -759,7 +759,7 @@ describe("the tense, as a function", () => {
   });
 
   test("the widest preface and every Arriving line turned past still fit the preface's reserve", () => {
-    const worst = prefaceLine({ system: WAKE_SYSTEM, day: 999_999, date: "2026-09-04", memories: 999_999_999, liveRows: 999_999_999 });
+    const worst = prefaceLine({ system: WAKE_SYSTEM, day: 999_999, date: "2026-09-04", memories: 999_999_999, starter: 999, liveRows: 999_999_999 });
     // The line, its newline, a digit more in each byte count, and "was " on
     // every Arriving line the lane can hold.
     const was = Buffer.byteLength("was ");
