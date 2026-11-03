@@ -412,12 +412,17 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Removing a
 > single memory isn't available on hosted: you can download your whole memory, or delete your account, which erases all
 > of it. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
-> the key whenever a backup is read or written. "We don't read it" is our promise, kept by access controls and an audit
-> log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
+> the key whenever a backup is read or written. "We don't read it" is our promise, not something the system enforces or
+> records. Only we can reach the server and its backups, through our accounts at Railway (which runs it) and Cloudflare
+> (which stores the backups); there is no admin page, and each connection reaches only its own account's memory. The
+> audit log records account events (sign-ups, sign-ins, connections, exports, deletes), not anyone opening your memory.
+> And when Claude reads your memory, Anthropic sees what Claude reads.
 >
 > (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
 > claimed encrypted disks, which is unverified (above and §5.4), and a single-memory forget, which hosted has no door
-> for. Say either again only once it is true.)
+> for. Say either again only once it is true. Corrected 2026-11-03: it said the promise was "kept by access controls and
+> an audit log", but every audit row is an account event (`accounts.audit` in hosted/src) and nothing records a read of a
+> store, an operator's `railway ssh` included.)
 
 **What file encryption would add,** if Mike wants it later: "even a copy of our server's disk is unreadable without our
 key service". It is a contained follow-up, because of the key hierarchy below. Measure the native driver first.
