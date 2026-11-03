@@ -159,8 +159,10 @@ answers them.
 ```sql
 SELECT id, about, title, json_extract(meta,'$.build') AS build FROM memories
 WHERE json_extract(meta,'$.secondHand') = 1
-  AND (lower(title || ' ' || body) LIKE '%permission%' OR lower(title || ' ' || body) LIKE '%declined%'
-       OR lower(title || ' ' || body) LIKE '%tool%' OR lower(title || ' ' || body) LIKE '%hook%')
+  AND (lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%permission%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%declined%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%tool%'
+       OR lower(coalesce(title,'') || ' ' || coalesce(body,'')) LIKE '%hook%')
 ORDER BY created_at DESC LIMIT 30;
 ```
 
