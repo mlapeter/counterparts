@@ -74,6 +74,14 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   // Without the meeting: the night's gate waits while one is pending, and a stub never holds one.
   const r = await runWeek({ script: SCRIPT, start, install: "without-meeting", workRoot: join(root, "work"), out, env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
   expect(r.days).toBe(3);
+  // Begun as install begins a store it creates: the starter memories planted (S1).
+  const told = (file: string): number => {
+    const db = new Database(file, { readonly: true });
+    const n = (db.query("SELECT COUNT(*) AS n FROM memories WHERE source = 'told'").get() as { n: number }).n;
+    db.close();
+    return n;
+  };
+  expect(told(out)).toBe(11);
   // The build the run ran, beside its settings (2026-10-22).
   expect(r.build).toBe(runningBuild());
   expect(r.sessions.map((x) => [x.day, x.scope, x.turns, x.failedTurns])).toEqual([
@@ -203,7 +211,12 @@ test("--no-nights runs no night, whatever the product asks for", async () => {
     }
     return Promise.resolve({ code: 0, timedOut: false, error: null, output: result("ok") });
   };
-  const r = await runWeek({ script: SCRIPT, start, install: "without-meeting", nights: false, workRoot: join(root, "w"), env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
+  const bare = join(root, "bare.sqlite");
+  const r = await runWeek({ script: SCRIPT, start, install: "without-meeting", nights: false, told: false, out: bare, workRoot: join(root, "w"), env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
   expect(r.nights).toEqual([]);
+  // `--no-told`: no starter memories.
+  const db = new Database(bare, { readonly: true });
+  expect((db.query("SELECT COUNT(*) AS n FROM memories WHERE source = 'told'").get() as { n: number }).n).toBe(0);
+  db.close();
   expect(r.boundaries).toBeGreaterThan(0);
 });

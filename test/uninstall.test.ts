@@ -83,6 +83,7 @@ import type { UninstallInput } from "../src/adapters/cli/uninstall.js";
 import { PARKED_INFIX } from "../src/adapters/cli/start-fresh.js";
 import { PROMPT_CANCEL } from "../src/adapters/cli/ui.js";
 import { Store } from "../src/core/store/index.js";
+import { toldSet } from "../src/core/told.js";
 import type { ProcessLister, SpawnResult, Spawner } from "../src/adapters/cli/wire.js";
 import { DATABASE_FILE, dateOf } from "../src/core/store/index.js";
 
@@ -465,7 +466,7 @@ describe("uninstall, plain", () => {
     // `~/…` on screen (item 13), and the absolute path nowhere on it.
     expect(said).toContain("~/.counterparts/store");
     expect(said).not.toContain(base());
-    expect(said).toContain("memories are still at");
+    expect(said).toMatch(/memories( \([^)]*starter notes?\))? are still at/);
     expect(said).toContain(`To remove the program too: ${REMOVE_PACKAGE}`);
     expect(said).toContain("--park");
   });
@@ -657,8 +658,10 @@ describe("uninstall --delete-memories", () => {
   });
 
   test("a store with NO memories never reads as a bare zero", async () => {
-    // A fresh install holds an identity core and no memories, so the whole
-    // account of the store going used to be "0 memories".
+    // A store with an identity core and no memories, so the whole account of
+    // the store going used to be "0 memories". Since S1 a store install CREATES
+    // holds the starter memories, so this one is made first and installed over.
+    expect(await run(["init", "--dir", storePath()], { io: consoleWith().io, env: ENV, home })).toBe(EXIT.ok);
     await install();
     const c = consoleWith([DELETE_PHRASE]);
     expect(await uninstall(input({ io: c.io, deleteMemories: true }))).toBe("ok");
@@ -1512,17 +1515,19 @@ describe("the count", () => {
     );
     const line = status.out.find((l) => l.startsWith("Memories: ")) as string;
     const shown = Number(/^Memories: (\d+)/.exec(line)?.[1] ?? "-1");
-    expect(census.memories).toBe(shown);
+    // `status` says the lived memories, the starter notes apart (S1); the census counts both and says so.
+    if (census.kind === "memories") expect(census.memories - census.told).toBe(shown);
     expect(census.journal).toBeGreaterThanOrEqual(0);
   });
 
   test("beliefs, entities and the self page are NOT counted as memories", async () => {
     await install();
     // `--name` seeds the identity core, which is a schema row: `status` calls
-    // it a belief, and the warning used to call it a memory.
+    // it a belief, and the warning used to call it a memory. What it counts is
+    // the starter memories a new store begins with (S1), and nothing else.
     const census = censusOf(base(), storePath());
     expect(census.kind).toBe("memories");
-    if (census.kind === "memories") expect(census.memories).toBe(0);
+    if (census.kind === "memories") expect(census.memories).toBe(toldSet("local").length);
   });
 
   test("counting opens the store READ-ONLY: no lock is taken and nothing is written", async () => {
@@ -1960,7 +1965,7 @@ describe("uninstall, plain — the offer to delete", () => {
     expect(readHost(home, home, ENV).events).toEqual([]);
     expect(fingerprint(base(), true)).toBe(before);
     expect(text(c.out)).not.toContain(DELETE_QUESTION);
-    expect(text(c.out)).toContain("memories are still at");
+    expect(text(c.out)).toMatch(/memories( \([^)]*starter notes?\))? are still at/);
   });
 
   test("--yes at a terminal takes the ordinary answer — keep — and asks nothing", async () => {
