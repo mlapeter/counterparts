@@ -122,6 +122,13 @@ export interface WeekOptions {
    */
   readonly install?: boolean | "without-meeting";
   /**
+   * The wake's shape for this week's store (WF1): a new install writes `on`
+   * (`NEW_INSTALL_META`); `"off"` (`--wake-shape off`) writes the store's own
+   * `off` after it, so a week can read the old road's furniture ("Last here",
+   * what tier 0 checks), as every store from before WF1 still has it.
+   */
+  readonly wakeShape?: "on" | "off";
+  /**
    * Plant the starter memories as `counterparts install` does on a store it
    * creates (S1, `core/told.ts`; default true, with any `install` but
    * `false`), so the week measures the first week a new user has. `false`
@@ -649,6 +656,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // A SCRIPTED SEAT BEGINS WITHOUT THE MEETING by default: the night's gate waits while one is pending, and no model is there to hold it.
   const install = opts.install ?? (scripted ? "without-meeting" : true);
   if (install !== false) counterpart.store.setMetaMany(install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
+  if (opts.wakeShape !== undefined) counterpart.store.setMeta("self.wake_shape", opts.wakeShape);
   // AND THE STARTER MEMORIES, as install plants them in a store it creates (S1).
   if (install !== false && opts.told !== false) plantTold(counterpart.store, "local");
 
