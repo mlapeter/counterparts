@@ -581,6 +581,19 @@ describe.skipIf(WEIGHTS === null)("the footnote floor reads lived memories (real
       expect(shownPlain).toContain("The kettle in the studio is a Fellow Stagg.");
       expect({ text, missing: shownPlain.filter((b) => !shown.includes(b)) }).toEqual({ text, missing: [] });
     }
+    // And never LOUDER than the twin (review of #733): cue weights are in the
+    // whole store's rarity, so a loud floor read on the lived count let one
+    // rare word put a lived memory in the loud tier its twin only footnoted.
+    for (const [i, text] of ["is Juniper ok in storms?", "Rancilio", "what does Dana like to drink?"].entries()) {
+      const session = `s-loud-${String(i).padStart(4, "0")}`;
+      const withSet = await prompt(seeded.a, seeded.dir, session, text);
+      const without = await prompt(plain.a, plain.dir, session, text);
+      const loudPlain = bodies(plain, without.surfaced);
+      const shownPlain = bodies(plain, [...without.surfaced, ...without.footnotes]);
+      expect(shownPlain.length).toBeGreaterThan(0);
+      expect({ text, louder: bodies(seeded, withSet.surfaced).filter((b) => !loudPlain.includes(b)) }).toEqual({ text, louder: [] });
+      expect({ text, missing: shownPlain.filter((b) => !bodies(seeded, [...withSet.surfaced, ...withSet.footnotes]).includes(b)) }).toEqual({ text, missing: [] });
+    }
   });
 });
 
@@ -614,12 +627,13 @@ describe("the gate's other store counts read lived memories", () => {
       TUNABLES,
     ).verdicts.find((v) => v.id === candidates[0]?.id);
 
-  test("the loud tier's strong floor: five lived beside the set face the five-memory floor", () => {
-    // 4.5 units: 4.94 at five memories, 9.63 at sixteen. A lived match at 6 is loud in a five-memory store.
-    const twin = verdict([lived("m1", 6)], 5);
-    expect(twin?.verdict).toBe("surfaced");
+  test("the loud tier's strong floor stays in the whole store's unit, the unit cue weights come in", () => {
+    // 4.5 units: 4.94 at five memories, 9.63 at sixteen. Cue weights beside the
+    // set are sixteen-memory weights, so the floor is too (review of #733; the
+    // real-table check is the hook test above).
     const seeded = verdict([lived("m1", 6)], 16, 5);
-    expect({ verdict: seeded?.verdict, loudBlockedBy: seeded?.loudBlockedBy }).toEqual({ verdict: twin?.verdict, loudBlockedBy: twin?.loudBlockedBy });
+    expect({ verdict: seeded?.verdict, loudBlockedBy: seeded?.loudBlockedBy }).toEqual({ verdict: "footnoted", loudBlockedBy: "below-strong-floor" });
+    expect(verdict([lived("m1", 6)], 16)?.verdict).toBe("footnoted");
   });
 
   test("the one-memory loud cap: one lived note beside the set is a one-memory store, never loud on arrival", () => {

@@ -283,9 +283,11 @@ export function background(
   // lived memory reached by meaning alone — a semantic activation, which is
   // not in IDF units and does not rise with the store — fell below it where a
   // store without the set footnoted it. Cue weights keep the whole store's
-  // rarity (`docFrequency` counts seed words), so a word match clears this
-  // floor a little more easily beside the set; a seed still takes only a slot
-  // no lived memory wanted (the lived-first order below).
+  // rarity (`docFrequency` counts seed words), so beside the set one rare word
+  // weighs about two of these units where it weighs one without it: a word
+  // match clears this floor much more easily, which is why the loud tier's
+  // strong floor (`gate`) stays in the whole store's unit. A seed still takes
+  // only a slot no lived memory wanted (the lived-first order below).
   const unit = floorUnit(livedSize);
 
   // Cold start ends on LIVED memories (S1 review): the starter set is no
@@ -387,9 +389,16 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
   ];
   const bg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize);
-  /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`): the lived store's (S1 fix). */
+  /**
+   * The loud tier's strong floor stays in the WHOLE store's unit, the unit cue
+   * weights come in (`informativeness(df, storeSize)`; `floorUnit` is its df=1
+   * value). Read on the lived count it halved beside the set while one rare
+   * word still weighed a whole-store unit, and a young seeded store went loud
+   * on lived matches its twin without the set only footnoted (review of #733).
+   * The one-memory cap below reads the lived count, which only makes it stricter.
+   */
   const livedSize = input.livedSize ?? input.storeSize;
-  const loudUnit = floorUnit(livedSize);
+  const loudUnit = floorUnit(input.storeSize);
   const sum = acts.reduce((a, b) => a + b, 0);
   const sumSq = acts.reduce((a, b) => a + b * b, 0);
   const n = acts.length;
