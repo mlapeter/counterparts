@@ -2055,10 +2055,11 @@ export const WRITE_UP_REPLY_MARK = "[its reply]";
  * happened between the two of them. The reader drops the host's own line
  * about a refusal (`transcript.ts#PLUMBING_FRAMES`); what the session SAID
  * about one is its real words and stays in the part, so this sentence is
- * what keeps it out of memory.
+ * what keeps it out of memory. Not "tool calls" at large (review of #731): in
+ * a working session what the tools found or changed is what happened.
  */
 export const WRITE_UP_PLUMBING_RULE =
-  "Tool calls, permission prompts, refused tools and this memory system's own notices (saving, marking, the nightly run) are plumbing, not events between you and them: write nothing about them, even where a reply mentions one, unless the person talked about it.";
+  "Permission prompts, refused tool calls and this memory system's own notices (saving, marking, the nightly run) are plumbing, not events between you and them: write nothing about them, even where a reply mentions one, unless the person talked about them.";
 /** What ends a reply cut at `WRITE_UP_REPLY_BYTES`. */
 export const WRITE_UP_REPLY_CUT = " [… the rest of this reply is not shown]";
 /**

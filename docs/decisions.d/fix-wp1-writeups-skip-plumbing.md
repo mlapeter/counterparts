@@ -11,8 +11,9 @@
   refused source, `plumbing`, for two anchored whole-block host frames: Claude Code's
   `[Request interrupted by user for tool use]` (its own user-role line after a declined
   permission prompt, measured on the owner's transcripts, `injected` and kept until now) and a
-  hook's output written as user text, bare or inside a system reminder (moved out of
-  `HOST_FRAMES`). Why a new source and not `tool`: `enters()` refuses it by name and the
+  hook's output written as user text, as a whole system reminder with nothing after it (the
+  bare form stays in `HOST_FRAMES`, kept: one bare line cannot be told from a person on an
+  older build asking about their hook; review of #731). Why a new source and not `tool`: `enters()` refuses it by name and the
   boundary's `excluded` count still counts it; a plain `[Request interrupted by user]` stays
   `injected`, because stopping a reply is something the person did. On an `isMeta` line it
   enters no turn, as `injected` didn't, so a live session's cursor doesn't move across the

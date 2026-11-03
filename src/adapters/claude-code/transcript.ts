@@ -135,7 +135,15 @@ const INJECTED =
  *     subagent's hand-back (the `<agent-message …>` wrapper follows it);
  *   - `[Subagent hand-back]` — the same hand-back's own opening line;
  *   - `[Request interrupted by user…]` — the host's marker for an interrupt
- *     (but not the one after a declined permission prompt: `PLUMBING_FRAMES`).
+ *     (but not the one after a declined permission prompt: `PLUMBING_FRAMES`);
+ *   - `<Event> hook success:` / `… hook additional context:` / `… hook system
+ *     message:` written BARE — how the host renders hook output, should a build
+ *     write it as user text. Kept as `injected`, not `plumbing`: one bare line
+ *     cannot be told from a person on an older build (no metadata) asking about
+ *     their hook ("Stop hook success: why does this keep showing?"), and losing
+ *     their words is worse than keeping the machinery (review of #731).
+ *     `hook error` is deliberately NOT here: it is what a person types when
+ *     their own hook breaks.
  *
  * `Stop hook feedback:` is not in this list on purpose: `classifyBlock` checks
  * it earlier, as `ritual`, because what it carries is this adapter's own ask.
@@ -145,6 +153,7 @@ const HOST_FRAMES: readonly RegExp[] = [
   /^Another Claude session sent a message:/,
   /^\[Subagent hand-back\]/,
   /^\[Request interrupted by user/,
+  /^[A-Z][A-Za-z]+ hook (?:success|additional context|system message):/,
 ];
 
 /**
@@ -160,22 +169,23 @@ const HOST_FRAMES: readonly RegExp[] = [
  *     blind spot). Kept as `injected` until then, it reached the night's
  *     write-up as part of what the person said. A plain interrupt is still a
  *     host frame: the person stopping a reply is something they did;
- *   - `<Event> hook success:` / `… hook additional context:` / `… hook system
- *     message:` — how the host RENDERS hook output to the model. In the file
- *     these are `attachment` entries, which carry no role and never reach this
- *     reader; the anchor is here in case a build ever writes one as user text,
- *     bare or inside the system reminder the host hands it to the model in
- *     (`OWN_ASK`'s shapes). Some OTHER hook's output was `injected`, kept,
- *     until then. `hook error` is deliberately NOT here: it is what a person
- *     types when their own hook breaks.
+ *   - a system reminder holding ONLY a hook's output (`<Event> hook success:`
+ *     / `… additional context:` / `… system message:`), the WHOLE block, one
+ *     reminder and nothing after it — how the host hands hook output to the
+ *     model (`OWN_ASK`'s shapes). In the file these are `attachment` entries,
+ *     which carry no role and never reach this reader; the anchor is here in
+ *     case a build ever writes one as user text. Some OTHER hook's output was
+ *     `injected`, kept, until then. Anything the person wrote after the
+ *     reminder keeps the block out of here (review of #731), and the bare
+ *     form stays a `HOST_FRAMES` entry, kept.
  *
  * What the person or the counterpart SAYS about a refusal or a prompt ("why
  * do you keep asking me to allow that?") is conversation; that is the
- * write-up's prompt to weigh (`mcp/write-up.ts#PLUMBING_RULE`), not this file's.
+ * write-up's prompt to weigh (`sessions.ts#WRITE_UP_PLUMBING_RULE`), not this file's.
  */
 const PLUMBING_FRAMES: readonly RegExp[] = [
   /^\[Request interrupted by user for tool use\]\s*$/,
-  /^(?:<system-reminder>\s*)?[A-Z][A-Za-z]+ hook (?:success|additional context|system message):/,
+  /^<system-reminder>\s*[A-Z][A-Za-z]+ hook (?:success|additional context|system message):(?:(?!<\/system-reminder>)[\s\S])*<\/system-reminder>\s*$/,
 ];
 
 /**

@@ -242,6 +242,6 @@ describe("the night's write-up skips the plumbing (WP1)", () => {
     // prompt's: the child is told in its prompt and in every part's `next`.
     expect(seen.stdin).toContain(WRITE_UP_PLUMBING_RULE);
     expect(seen.next.every((n) => n.includes(WRITE_UP_PLUMBING_RULE))).toBe(true);
-    expect(WRITE_UP_PLUMBING_RULE).toContain("unless the person talked about it");
+    expect(WRITE_UP_PLUMBING_RULE).toContain("unless the person talked about them");
   });
 });
