@@ -80,7 +80,7 @@ import { RECURRING_META, feelingValence, feltDay, tokenize } from "../../core/st
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
 import { calendarOverlaps, daysBetween, isDay, isRecurrence, localDate, occurrenceOnOrAfter, readableRecurrence } from "../../core/time.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
-import { isTold } from "../../core/told.js";
+import { TOLD_SOURCE, isTold } from "../../core/told.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
 
@@ -1673,7 +1673,8 @@ function contentWords(
   );
   const out = (words: string[]): TopicWords => ({ words, names, shown: words.map((w) => asTyped.get(w) ?? w) });
   if (candidates.length === 0) return out([]);
-  const total = safe(() => c.store.countMemories({ archived: false }), 0);
+  // Lived rows (S1 review): the starter set is no sign the store is big enough to call a word common.
+  const total = safe(() => c.store.countMemories({ archived: false, notSource: TOLD_SOURCE }), 0);
   if (total < 20) return out(candidates);
   const df = safe(() => c.store.docFrequency(candidates), new Map<string, number>());
   return out(candidates.filter((w) => names.has(w) || (df.get(w) ?? 0) <= total * COMMON_SHARE));

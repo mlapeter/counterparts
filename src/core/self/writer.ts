@@ -92,7 +92,7 @@ import { PAGE_ROOM_BYTES } from "./briefing.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
 import { SELF_TUNABLES } from "./tunables.js";
-import { isTold } from "../told.js";
+import { TOLD_SOURCE, isTold } from "../told.js";
 
 /** The durable row every page-writer attempt leaves. Read by `fired`, doctor. */
 export const SELF_PAGE_WRITER_EVENT = "self.page.writer.ran";
@@ -355,10 +355,12 @@ export function pageWriterNight(store: Store, zone?: string): { today: string; a
  */
 export function hasDayBefore(store: Store, today: string): boolean {
   try {
-    const all = store.countMemories({ type: "memory" });
+    // Lived rows only (S1 review): the starter set (`core/told.ts`) is no day.
+    const all = store.countMemories({ type: "memory", notSource: TOLD_SOURCE });
     const fromToday = store.countMemories({
       type: "memory",
       learnedOnFrom: today,
+      notSource: TOLD_SOURCE,
     });
     return all > fromToday;
   } catch {

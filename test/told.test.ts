@@ -29,6 +29,7 @@ import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import { Store, paths } from "../src/core/store/index.js";
 import { Recall } from "../src/core/recall/index.js";
 import { recallTurn } from "../src/core/retrieval.js";
+import { hasDayBefore } from "../src/core/self/writer.js";
 import { TOLD_SET_KEY, TOLD_SET_VERSION, TOLD_SOURCE, TOLD_SURFACE_KEY, isTold, plantTold, toldSet } from "../src/core/told.js";
 import { stripV14 } from "./store-fixture.js";
 
@@ -183,6 +184,22 @@ describe("planting is all or nothing, and never twice", () => {
     } finally {
       s.close();
     }
+  });
+});
+
+describe("counts and asks that read lived memories leave the set out", () => {
+  test("the night's tag ask is never handed one, and the set is no day before", async () => {
+    await install();
+    withStore((s) => {
+      // A fresh store: eleven rows, none of them the night's to tag.
+      expect(s.untaggedMemories(50)).toEqual({ memories: [], total: 0 });
+      // Nor is the set a day before: day's end on a store holding only it is young.
+      expect(hasDayBefore(s, "2999-01-01")).toBe(false);
+      const lived = s.put({ type: "memory", kind: "fact", body: "The broad beans went in by the fence." });
+      expect(s.untaggedMemories(50).memories.map((m) => m.id)).toEqual([lived]);
+      expect(s.countMemories({ archived: false, notSource: TOLD_SOURCE })).toBe(1);
+      expect(hasDayBefore(s, "2999-01-01")).toBe(true);
+    });
   });
 });
 
