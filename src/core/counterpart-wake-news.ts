@@ -85,9 +85,11 @@ function strengthOf(store: Pick<Store, "feelingsFor">, row: MemoryRow): number {
   return Math.max(row.birth_salience ?? 0, row.emotional ?? 0, felt);
 }
 
+/** A word, for these reads: letters only, `WORD_MIN` or more. */
+const WORD = new RegExp(`[a-z]{${String(SHAPE.WORD_MIN)},}`, "g");
 /** A row's words as stems, three letters or more, no digits. */
 function stems(text: string): Set<string> {
-  return new Set((text.toLowerCase().match(/[a-z]{3,}/g) ?? []).filter((w) => !NOT_WORDS.has(w)).map(stemTerm));
+  return new Set((text.toLowerCase().match(WORD) ?? []).filter((w) => !NOT_WORDS.has(w)).map(stemTerm));
 }
 /** Words that say when, or nothing: never what an item is about. */
 const NOT_WORDS = new Set([

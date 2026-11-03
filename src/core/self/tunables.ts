@@ -672,6 +672,8 @@ export const WAKE_SHAPE_LIMITS = {
   NEWS_NIGHTS_READ: 7,
   /** No further back than this, however long ago the last night was: a week away is not one night's news. */
   NEWS_MAX_DAYS: 7,
+  /** The shortest word the news and happened reads count: shorter ones are "a", "of", "to". */
+  WORD_MIN: 3,
   /** A dated item has happened when a newer done memory shares at least this many of its words... */
   HAPPENED_SHARED: 2,
   /** ...and every word of its head, or with no head this share of its words. */
