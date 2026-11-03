@@ -111,7 +111,11 @@ describe("a cold first chat on claude.ai meets", () => {
     const session = String((await call(url, "wake", {})).structured["session"]);
     const script = await call(url, "meet", { session });
     expect(script.text).toContain("Now → no meet call: go on to the next step.");
-    expect(script.text).toContain('origin: "What got you started building things?"');
+    // Q1 (2026-11-03): the web shares the script, so it asks the new questions too.
+    expect(script.text).toContain('origin: "What\'s something you\'ve been into lately that has nothing to do with work — a show, a game, food, anything?"');
+    expect(script.text).toContain('work: "What are you working on right now?"');
+    expect(script.text).not.toContain("got you started building things");
+    expect(script.text).not.toContain("love most about what you do");
 
     // What claude.ai's Claude sent on 2026-10-28, after "Now (about 5 minutes)".
     const rows = (): (string | null)[] => {

@@ -22,6 +22,7 @@ import {
   ONBOARDING_MEET_KEY,
   ANSWER_STEPS,
   MEET_NO_ANSWER,
+  RETIRED_ANSWER_STEPS,
   ONBOARDING_AHA_KEY,
   ONBOARDING_DONE_KEY,
   ONBOARDING_OFFERED_KEY,
@@ -66,6 +67,8 @@ let proj: string;
 let scopesFile: string;
 const DAY1 = "2026-10-11";
 const DAY2 = "2026-10-12";
+/** The `origin` question since Q1 (2026-11-03), for everyone. */
+const INTO_LATELY = "What's something you've been into lately that has nothing to do with work — a show, a game, food, anything?";
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-onboarding-")));
@@ -298,11 +301,24 @@ describe("the meet tool", () => {
     expect(script).toContain("don't also ask it in prose");
     expect(script).toContain("removing it: run counterparts uninstall in a terminal.");
     expect(script).toContain('name: "What should I call you?"');
-    // C: the research's five, easy to slightly deeper, and the rules.
-    const order = ["highlight, or the weirdest part, of your week", "working on lately that you're actually enjoying", "love most about what you do", "really good Saturday", "got you started building things"];
+    // C, as Mike set it 2026-11-03 (Q1): week, work, into lately, Saturday, easy to slightly deeper, and the rules.
+    const order = [
+      'week: "What\'s been the highlight, or the weirdest part, of your week?"',
+      'work: "What are you working on right now?"',
+      'origin: "What\'s something you\'ve been into lately that has nothing to do with work — a show, a game, food, anything?"',
+      'saturday: "What would a really good Saturday look like for you?"',
+    ];
     const at = order.map((q) => script.indexOf(q));
     expect(at.every((i) => i > 0)).toBe(true);
     expect([...at].sort((x, y) => x - y)).toEqual(at);
+    // Q1: `love` is dropped, `work` reworded, the builder branch of `origin` gone, and the light swap is Saturday's alone.
+    expect(script).not.toContain("love most about what you do");
+    expect(script).not.toContain("   love:");
+    expect(script).not.toContain("actually enjoying");
+    expect(script).not.toContain("got you started building things");
+    expect(script).not.toContain("For someone who doesn't build things");
+    expect(script).toContain("If the answers are one word, swap saturday for a lighter one:");
+    expect(script).not.toContain("swap love");
     expect(script).not.toContain("problem you've enjoyed solving");
     expect(script).toContain("never ask for pronouns");
     expect(script).toContain(PRONOUN_RULE);
@@ -408,7 +424,7 @@ describe("the meet tool", () => {
     expect(meetState(s.counterpart.store)).toBe("offered");
     // Nothing is stored for a question with no answer.
     const before = s.counterpart.store.list({ type: "memory" }).length;
-    expect((await s.call("meet", { step: "love" })).structuredContent).toMatchObject({ stored: 0 });
+    expect((await s.call("meet", { step: "saturday" })).structuredContent).toMatchObject({ stored: 0 });
     expect(s.counterpart.store.list({ type: "memory" }).length).toBe(before);
   });
 
@@ -635,7 +651,7 @@ describe("the wake's line: no double offer", () => {
     newInstallStore();
     const s = server({ session: "s1" });
     await s.call("meet", {});
-    await s.call("meet", { step: "love", answer: "Ada loves Middlemarch for how patient it is with its people." });
+    await s.call("meet", { step: "origin", answer: "Ada has been rereading Middlemarch for how patient it is with its people." });
     const work = await s.call("meet", { step: "work", answer: "Ada is building a tide-chart app." });
     await s.call("meet", { step: "done" });
     const workId = String(work.structuredContent["id"]);
@@ -780,8 +796,8 @@ describe("the meeting holds the dream and the write-up ask, through the real hoo
       for (const [step, answer] of [
         ["name", "Ada"],
         ["week", "Ada's week's highlight was a tide table that finally matched the harbour's."],
-        ["work", "Ada is enjoying building a tide-chart app."],
-        ["love", "Ada loves the moment a model finally matches the sea."],
+        ["work", "Ada is building a tide-chart app."],
+        ["origin", "Ada has been into sea shanties lately."],
       ] as const) {
         t += 60_000;
         expect((await s.call("meet", { step, answer })).structuredContent["stored"]).toBe(1);
@@ -901,15 +917,17 @@ describe("the `origin` step (was `started`), over Claude Code's stdio door", () 
     return { structured: r["structuredContent"] as Record<string, unknown>, text: (r["content"] as { text: string }[])[0]?.text ?? "", isError: r["isError"] === true };
   };
 
-  test("the schema offers `origin`, never `started`; the script names `origin` and says Now needs no call", async () => {
+  test("the schema offers `origin`, never `started` or the retired `love`; the script names `origin` and says Now needs no call", async () => {
     newInstallStore();
     const s = server();
     const tools = (await wire(s, "tools/list"))["tools"] as { name: string; inputSchema: { properties: { step: { enum: string[] } } } }[];
     const steps = tools.find((t) => t.name === "meet")!.inputSchema.properties.step.enum;
     expect(steps).toContain("origin");
     expect(steps).not.toContain("started");
+    expect(steps).not.toContain("love");
+    expect(steps.filter((x) => (ANSWER_STEPS as readonly string[]).includes(x))).toEqual(["name", "week", "work", "origin", "saturday"]);
     const script = (await meet(s, {})).text;
-    expect(script).toContain('origin: "What got you started building things?"');
+    expect(script).toContain(`origin: "${INTO_LATELY}"`);
     expect(script).not.toContain("   started:");
     expect(script).toContain("Now → no meet call: go on to the next step.");
   });
@@ -931,7 +949,7 @@ describe("the `origin` step (was `started`), over Claude Code's stdio door", () 
     expect((await meet(s, { session: "sess-meet-1", step: "name", answer: "Ada" })).structured).toMatchObject({ recorded: "name", stored: 1 });
     const memories = s.counterpart.store.list({ type: "memory" }).length;
     const rows = onboardingRows(s);
-    for (const step of [...ANSWER_STEPS, "started"]) {
+    for (const step of [...ANSWER_STEPS, ...RETIRED_ANSWER_STEPS, "started"]) {
       for (const answer of [undefined, "", "   "]) {
         const r = await meet(s, { session: "sess-meet-1", step, ...(answer === undefined ? {} : { answer }) });
         expect(r.isError).toBe(false);
@@ -972,16 +990,15 @@ describe("the `origin` step (was `started`), over Claude Code's stdio door", () 
       ["name", "Ada"],
       ["week", "Ada's week was all tide tables."],
       ["work", "Ada is building a tide-chart app."],
-      ["love", "Ada loves the moment a model finally matches the sea."],
+      ["origin", "Ada has been into sea shanties lately."],
       ["saturday", "Ada's good Saturday is a long walk on the harbour wall."],
-      ["origin", "Ada started building things by taking apart a barometer at nine."],
     ] as const) {
       const r = await meet(s, { step, answer });
       expect(r.isError).toBe(false);
       expect(r.structured).toMatchObject({ recorded: step, stored: 1 });
     }
     const answers = JSON.parse(s.counterpart.store.getMeta(ONBOARDING_ANSWERS_KEY) ?? "{}") as Record<string, string>;
-    expect(Object.keys(answers).sort()).toEqual(["love", "name", "origin", "saturday", "week", "work"]);
+    expect(Object.keys(answers).sort()).toEqual(["name", "origin", "saturday", "week", "work"]);
     // The old name, with an answer (a meeting in flight across the update, an older script): served as `origin`.
     const old = await meet(s, { step: "started", answer: "Ada started with a soldering iron, really." });
     expect(old.structured).toMatchObject({ recorded: "origin", stored: 1 });
@@ -1002,5 +1019,112 @@ describe("the `origin` step (was `started`), over Claude Code's stdio door", () 
       st.setMeta(ONBOARDING_ANSWERS_KEY, JSON.stringify({ started: "mem-old", origin: "mem-new" }));
       expect(ahaDue(st, "s2")).toEqual({ memoryId: "mem-new", step: "origin" });
     });
+  });
+
+  // ── Q1 (2026-11-03): a meeting in flight across the question change ─────────
+  //
+  // The store keeps no "current step": a meeting in flight is the state row
+  // (`offered`, or `later` when they paused it) and `onboarding.answers`, keyed
+  // by step name. The window that started it holds the old script. Each case
+  // starts the meeting through the real `meet` tool under the old script's
+  // steps, stops it right before the step that changed, and resumes it in a
+  // new session: the script read there is the new one, and the step the old
+  // script would send next still lands.
+
+  /** The answers row, as `meet` keeps it. */
+  const answersOf = (s: McpServer): Record<string, string> => JSON.parse(s.counterpart.store.getMeta(ONBOARDING_ANSWERS_KEY) ?? "{}") as Record<string, string>;
+
+  /** A meeting started in session `s-old`, answered up to (not including) the step that changed, then paused or dropped. */
+  async function inFlight(answered: readonly (readonly [string, string])[], pause: "later" | "dropped"): Promise<{ s: McpServer; before: Record<string, string> }> {
+    newInstallStore();
+    const old = server({ session: "s-old" });
+    await meet(old, { session: "s-old" });
+    for (const [step, answer] of answered) {
+      expect((await meet(old, { session: "s-old", step, answer })).structured).toMatchObject({ recorded: step, stored: 1 });
+    }
+    if (pause === "later") await meet(old, { session: "s-old", step: "later" });
+    const before = answersOf(old);
+    for (const x of open.splice(0)) x.counterpart.close();
+    const s = server({ session: "s-new" });
+    expect(meetState(s.counterpart.store)).toBe(pause === "later" ? "later" : "offered");
+    // Resumed: the script handed back is the new one.
+    const script = (await meet(s, { session: "s-new" })).text;
+    expect(script).toContain('work: "What are you working on right now?"');
+    expect(script).toContain(`origin: "${INTO_LATELY}"`);
+    expect(script).not.toContain("   love:");
+    return { s, before };
+  }
+
+  /** The rest of the meeting, on the new script's steps, then the finish. */
+  async function finish(s: McpServer, rest: readonly (readonly [string, string])[]): Promise<void> {
+    for (const [step, answer] of rest) {
+      expect((await meet(s, { session: "s-new", step, answer })).structured).toMatchObject({ recorded: step, stored: 1 });
+    }
+    expect((await meet(s, { session: "s-new", step: "style", answer: "friendly" })).structured["recorded"]).toBe("style");
+    expect((await meet(s, { session: "s-new", step: "done" })).structured).toMatchObject({ recorded: "done", meet: "done" });
+  }
+
+  test("Q1, in flight on the dropped `love`: the old script's answer still lands, under `love`, and `work`'s stays", async () => {
+    const { s, before } = await inFlight([["name", "Ada"], ["week", "Ada's week was all tide tables."], ["work", "Ada is building a tide-chart app."]], "later");
+    const r = await meet(s, { session: "s-new", step: "love", answer: "Ada loves the moment a model finally matches the sea." });
+    expect(r.isError).toBe(false);
+    expect(r.structured).toMatchObject({ recorded: "love", stored: 1 });
+    const id = String(r.structured["id"]);
+    expect(s.counterpart.store.read(id).doc.body).toBe(`Ada loves the moment a model finally matches the sea. ${FROM_ONBOARDING}`);
+    const after = answersOf(s);
+    expect(after["love"]).toBe(id);
+    expect(after["work"]).toBe(before["work"]!);
+    expect(meetState(s.counterpart.store)).toBe("offered");
+    await finish(s, [["origin", "Ada has been into sea shanties lately."], ["saturday", "Ada's good Saturday is a long walk on the harbour wall."]]);
+    expect(Object.keys(answersOf(s)).sort()).toEqual(["love", "name", "origin", "saturday", "week", "work"]);
+    // The second session's line still picks the work answer first.
+    expect(ahaDue(s.counterpart.store, "s-third")).toEqual({ memoryId: before["work"]!, step: "work" });
+  });
+
+  test("Q1, in flight on the reworded `work`: the step is the same, and its answer lands", async () => {
+    const { s, before } = await inFlight([["name", "Ada"], ["week", "Ada's week was all tide tables."]], "dropped");
+    const r = await meet(s, { session: "s-new", step: "work", answer: "Ada is building a tide-chart app." });
+    expect(r.structured).toMatchObject({ recorded: "work", stored: 1 });
+    expect(answersOf(s)).toEqual({ ...before, work: String(r.structured["id"]) });
+    await finish(s, [["origin", "Ada has been into sea shanties lately."], ["saturday", "Ada's good Saturday is a long walk on the harbour wall."]]);
+    expect(ahaDue(s.counterpart.store, "s-third")).toEqual({ memoryId: String(r.structured["id"]), step: "work" });
+  });
+
+  test("Q1, in flight on the reworded `origin` (the old script's last question): `origin`, or the older `started`, lands as `origin`", async () => {
+    const { s, before } = await inFlight(
+      [["name", "Ada"], ["week", "Ada's week was all tide tables."], ["work", "Ada is building a tide-chart app."], ["love", "Ada loves the moment a model finally matches the sea."], ["saturday", "Ada's good Saturday is a long walk on the harbour wall."]],
+      "later",
+    );
+    const r = await meet(s, { session: "s-new", step: "started", answer: "Ada started building things by taking apart a barometer at nine." });
+    expect(r.structured).toMatchObject({ recorded: "origin", stored: 1 });
+    expect(answersOf(s)).toEqual({ ...before, origin: String(r.structured["id"]) });
+    await finish(s, []);
+    expect(Object.keys(answersOf(s)).sort()).toEqual(["love", "name", "origin", "saturday", "week", "work"]);
+  });
+
+  test("Q1: a whole meeting on the new script, start to finish, over stdio", async () => {
+    newInstallStore();
+    const s = server({ session: "s-q1" });
+    const read = await meet(s, { session: "s-q1" });
+    expect(read.structured["meet"]).toBe("offered");
+    const lines = read.text.split("\n").filter((l) => /^ {3}(name|week|work|love|origin|saturday): /u.test(l)).map((l) => l.trim().split(":")[0]);
+    expect(lines).toEqual(["name", "week", "work", "origin", "saturday"]);
+    const ids: Record<string, string> = {};
+    for (const [step, answer] of [
+      ["name", "Ada"],
+      ["week", "Ada's week was all tide tables."],
+      ["work", "Ada is building a tide-chart app."],
+      ["origin", "Ada has been into sea shanties lately."],
+      ["saturday", "Ada's good Saturday is a long walk on the harbour wall."],
+    ] as const) {
+      const r = await meet(s, { session: "s-q1", step, answer });
+      expect(r.structured).toMatchObject({ recorded: step, stored: 1 });
+      ids[step] = String(r.structured["id"]);
+    }
+    expect((await meet(s, { session: "s-q1", step: "style", answer: "think" })).structured["recorded"]).toBe("style");
+    const done = await meet(s, { session: "s-q1", step: "done" });
+    expect(done.structured).toMatchObject({ recorded: "done", meet: "done" });
+    expect(answersOf(s)).toEqual(ids);
+    expect(s.counterpart.store.read(ids["origin"]!).doc.body).toBe(`Ada has been into sea shanties lately. ${FROM_ONBOARDING}`);
   });
 });
