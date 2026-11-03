@@ -3014,3 +3014,16 @@ The eleven `told` memories a new store begins with (`core/told.ts`) are never th
 `counterpart-wake-shape.ts#sinceHere`; defensive: at their weak start no lane picks one today), never a core
 candidate (`sleep/consolidate.ts` blocks `told`), never a belief's evidence (`schemas` `NOT_LIVED_SOURCES`), and
 never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: recall, the dashboard, `ask`.
+
+## WF1, 2026-11-03: the wake knows yesterday's news (shaped wake)
+
+- **"Since the last night" (`core/counterpart-wake-news.ts`)**, first after the page: up to 3 owner/us memories, titles and
+  ages, at least 0.6 strong (salience at birth or a feeling), from any folder the fence lets through (`memoryClosedTo`; a
+  folder off, paused or observing keeps its rows home; no way to ask, this folder's only). The window starts when the last
+  night that folded news in began (a journaled dream or reflected reflection; a catch-up-only night wrote no page), or at the
+  start of today when it ran today: a night runs beside the first session of its day, so what that session says comes after it.
+  The harness drains the night after the first turn, which is where Dana's d2s1 surgery news landed three minutes before it.
+  No night yet: since yesterday. Out: dated items (Coming up's), open threads (Still open's), the night's rows, told rows,
+  chapter copies, an older fact noted again (a stated day before the window), and an echo of a stronger title. Nothing new,
+  no section. It costs ~100 B a title; Dana's two cases are one line each. In the shaped wake only: the old road's
+  `ROOM_ORDER` and its byte-identical tests were not touched.

@@ -5319,6 +5319,16 @@ export class Store {
     return memoryReads.memoriesWrittenHereSince(this, scope, since, until, limit);
   }
 
+  /** Live owner/us memories written in `(since, until]`, any folder, newest first (`reads-memories.ts#aboutUsWrittenSince`; WF1). */
+  aboutUsWrittenSince(since: number, until: number, limit: number): MemoryRow[] {
+    return memoryReads.aboutUsWrittenSince(this, since, until, limit);
+  }
+
+  /** Live memories marked done written after `since`, any folder, oldest first (`reads-memories.ts#doneWrittenSince`; WF1). */
+  doneWrittenSince(since: number, limit: number): MemoryRow[] {
+    return memoryReads.doneWrittenSince(this, since, limit);
+  }
+
   countWrittenHereSince(scope: string, since: number, until: number): number {
     return memoryReads.countWrittenHereSince(this, scope, since, until);
   }

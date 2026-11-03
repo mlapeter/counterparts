@@ -352,6 +352,47 @@ export function memoriesWrittenHereSince(store: Store, scope: string, since: num
     });
 }
 
+/**
+ * THE LIVE MEMORIES MARKED ABOUT THE OWNER OR US WRITTEN AFTER A MOMENT, in any
+ * folder, newest first (WF1, 2026-11-03; the wake's "Since the last night"): the
+ * caller ranks them, fences them by folder and drops what another line names.
+ * Not the nightly run's (`NIGHTLY_SQL`), not a starter memory. Bounded by `limit`.
+ */
+export function aboutUsWrittenSince(store: Store, since: number, until: number, limit: number): MemoryRow[] {
+  return store["ops"]
+    .all<{ id: string }>(
+      `SELECT id FROM memories
+        WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
+          AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
+          AND about IN ('owner', 'us') AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
+        ORDER BY created_at DESC, id LIMIT ?`,
+      since,
+      until,
+      Math.max(0, Math.floor(limit)),
+    )
+    .flatMap((r) => {
+      const row = store.row(r.id);
+      return row === undefined ? [] : [row];
+    });
+}
+
+/** The live memories marked done written after a moment, any folder, oldest first: what may show a dated item already happened (WF1). Not the nightly run's. */
+export function doneWrittenSince(store: Store, since: number, limit: number): MemoryRow[] {
+  return store["ops"]
+    .all<{ id: string }>(
+      `SELECT id FROM memories
+        WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND status = 'done'
+          AND created_at IS NOT NULL AND created_at > ? AND NOT ${NIGHTLY_SQL}
+        ORDER BY created_at, id LIMIT ?`,
+      since,
+      Math.max(0, Math.floor(limit)),
+    )
+    .flatMap((r) => {
+      const row = store.row(r.id);
+      return row === undefined ? [] : [row];
+    });
+}
+
 /** How many memories were ever written in one folder after a moment, kept or since archived or replaced: a "nothing since" has to be true of all of them (WK2). */
 export function countWrittenHereSince(store: Store, scope: string, since: number, until: number): number {
   return (

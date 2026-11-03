@@ -608,8 +608,8 @@ export const SELF_TUNABLES: SelfTunables = {
  * time yet, and the shape is judged whole. They stay `as const`, with one home.
  */
 export const WAKE_SHAPE_LIMITS = {
-  /** Each section's first budget, before the one pass. Draft 5's table; Last night's is above its 350, which a 300-byte line and two titles passed on every case. */
-  ROOM: { folder: 1_300, elsewhere: 500, coming: 700, open: 500, yesterday: 600, night: 450 },
+  /** Each section's first budget, before the one pass. Draft 5's table; Last night's is above its 350, which a 300-byte line and two titles passed on every case. "Since the last night" (WF1): a heading and three titles of about 90 bytes. */
+  ROOM: { news: 350, folder: 1_300, elsewhere: 500, coming: 700, open: 500, yesterday: 600, night: 450 },
   /** Coming up's room past its plain reminders: its door's line, so a plain reminder whole doesn't cost the door. */
   COMING_PAST_PLAIN: 80,
   /** Lead lines, and the bytes they may come to: five lines of about 120 characters, since a handoff is as often one paragraph as a list. */
@@ -650,6 +650,24 @@ export const WAKE_SHAPE_LIMITS = {
   UNTITLED_CHARS: 100,
   /** How far back what a row replaced is walked to find when its fact was first learned. */
   FACT_CLOCK_DEPTH: 3,
+  /** "Since the last night" (WF1): a few items, titles only. Three is what a cold reader takes in; more is a list. */
+  NEWS_SHOWN: 3,
+  /** How strong a memory has to be to be news: salience at birth or a feeling this strong. Dana's launch was 0.85 and felt 0.9, the surgery news 0.75; her everyday notes 0.4–0.5. */
+  NEWS_FLOOR: 0.6,
+  /** A title sharing this much of its words with a stronger one already listed says it again. */
+  NEWS_ECHO: 0.6,
+  /** Rows read: past a day's notes, a bound on the read. */
+  NEWS_READ: 200,
+  /** The newest dreams and reflections read to find the last night. */
+  NEWS_NIGHTS_READ: 7,
+  /** No further back than this, however long ago the last night was: a week away is not one night's news. */
+  NEWS_MAX_DAYS: 7,
+  /** A dated item has happened when a newer done memory shares at least this many of its words... */
+  HAPPENED_SHARED: 2,
+  /** ...and every word of its head, or with no head this share of its words. */
+  HAPPENED_SHARE: 0.5,
+  /** Done rows read after a dated item to find one saying it happened. */
+  HAPPENED_READ: 200,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,

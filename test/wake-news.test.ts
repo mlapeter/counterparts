@@ -1,0 +1,226 @@
+/**
+ * THE WAKE KNOWS YESTERDAY'S NEWS (WF1, 2026-11-03). Through the real
+ * session-start hook (`bin/hook.ts`, a child process) on stores built like the
+ * two cases of Dana's week (`~/counterparts-notes/2026-11-03-new-user-week-rerun.md`):
+ *
+ *   d6s1  the notes folder's wake, the day after the shop launched a day early:
+ *         the launch was saved in the shop folder, `us`, after the last night.
+ *   d2s2  the shop folder's wake on the afternoon of the surgery: the good news
+ *         was saved in the notes folder that morning, just before the night ran.
+ *
+ * Hermetic (CLAUDE.md): a fresh temp data dir per test, removed afterwards. Every
+ * word is invented placeholder prose.
+ */
+import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
+import type { ScopeMode } from "../src/adapters/scopes.js";
+import { Counterpart, plantTold } from "../src/core/counterpart.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
+import { readSentinel } from "../src/core/self/index.js";
+import { DATABASE_FILE } from "../src/core/store/index.js";
+
+const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DANA = "aaaa1111-0000-4000-8000-000000000001";
+const READER = "cccc3333-0000-4000-8000-000000000003";
+
+let root: string;
+let storeDir: string;
+let conf: string;
+let NOTES: string;
+let SHOP: string;
+const open: { close(): void }[] = [];
+
+beforeEach(() => {
+  root = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "cp-news-")));
+  storeDir = join(root, "store");
+  conf = join(root, "conf");
+  NOTES = join(root, "notes");
+  SHOP = join(root, "shop");
+  for (const d of [NOTES, SHOP, conf]) mkdirSync(d, { recursive: true });
+});
+
+afterEach(() => {
+  for (const c of open.splice(0)) {
+    try {
+      c.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+const NOW = Date.now();
+const START_OF_TODAY = Date.UTC(new Date(NOW).getUTCFullYear(), new Date(NOW).getUTCMonth(), new Date(NOW).getUTCDate());
+
+function brain(): { c: Counterpart; at(t: number): void; today: string } {
+  let clock = NOW;
+  const c = Counterpart.open({ dir: storeDir, now: () => clock, timeZone: "UTC", budgetBytes: BUDGET });
+  open.push(c);
+  c.store.setMeta(WAKE_SHAPE_KEY, "on");
+  return { c, at: (t) => void (clock = t), today: c.store.today() };
+}
+
+/** A memory as a session writes it: its folder, its mark, how strong. */
+function note(c: Counterpart, title: string, more: { scope: string; about: "owner" | "us" | "work" | "me"; strength?: number; felt?: number; status?: "done" | "planned"; eventDate?: string; session?: string }): string {
+  const s = more.strength ?? 0.4;
+  return c.store.put({
+    type: "memory",
+    kind: "fact",
+    title,
+    body: `${title}.`,
+    about: more.about,
+    ...(more.status === undefined ? {} : { status: more.status }),
+    ...(more.eventDate === undefined ? {} : { eventDate: more.eventDate }),
+    salience: { relevance: s, emotional: more.felt ?? 0, predictive: s },
+    origin: { session: more.session ?? DANA, scope: more.scope },
+  });
+}
+
+/** A night that folded news in: a journaled dream and a reflected reflection, begun at the clock's time. */
+function night(c: Counterpart, n: number): void {
+  const date = c.store.today();
+  c.store.openDream({ id: `drm_00000000a00${String(n)}`, day: c.store.livedDay(), date });
+  c.store.updateDream(`drm_00000000a00${String(n)}`, { state: "journaled", title: `A night ${String(n)}`, journal: "PRIVATE." });
+  c.store.openReflection({ id: `rfl_00000000b00${String(n)}`, day: c.store.livedDay(), date, questions: [], shown: [] });
+  c.store.updateReflection(`rfl_00000000b00${String(n)}`, { state: "reflected", entry: "PRIVATE." });
+}
+
+function scopes(modes: Readonly<Record<string, ScopeMode>>): void {
+  let reg = null;
+  for (const [dir, mode] of Object.entries(modes)) reg = setScope(reg, dir, mode, { at: "2026-09-22" });
+  if (reg !== null) writeScopes(join(conf, "scopes.json"), reg);
+}
+
+/** The real hook, a child process, a session starting in `cwd`. The wake block, and the hook's row. */
+function hook(cwd: string): { wake: string; row: Record<string, unknown> } {
+  const config = join(conf, "claude-code.json");
+  writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+  if (!existsSync(join(conf, "scopes.json"))) scopes({ [NOTES]: "on", [SHOP]: "on" });
+  const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+    encoding: "utf8",
+    input: JSON.stringify({ session_id: READER, hook_event_name: "SessionStart", source: "startup", cwd }),
+    env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
+  });
+  expect(r.status).toBe(0);
+  const full = r.stdout.startsWith("{") ? String((JSON.parse(r.stdout) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? "") : r.stdout;
+  const at = full.indexOf("<!-- counterparts:wake ");
+  const end = full.indexOf("\n", full.indexOf("<!-- counterparts:wake/end"));
+  const wake = at < 0 ? full : full.slice(at, end < 0 ? undefined : end);
+  const db = new Database(join(storeDir, DATABASE_FILE), { readonly: true });
+  const row = db.query("select payload from events where name = 'adapter.wake.injected' order by seq desc limit 1").get() as { payload: string } | null;
+  db.close();
+  return { wake, row: row === null ? {} : (JSON.parse(row.payload) as Record<string, unknown>) };
+}
+
+function section(wake: string, head: string): string {
+  return wake.split("\n\n").find((p) => p.startsWith(head)) ?? "";
+}
+
+const LAUNCH = "Dana's shop launched — 11 pieces sold in the first two hours";
+const SURGERY = "Biscuit's knee surgery went well; Dana told me first";
+
+/** Dana's d6s1: the last night two days back at 15:00, the launch since, in the shop; the reader in notes. */
+function d6s1(c: Counterpart, at: (t: number) => void): void {
+  at(NOW - 60 * HOUR);
+  note(c, "Dana nervous before the shop launch on Saturday", { scope: SHOP, about: "owner", strength: 0.9, felt: 0.7 });
+  at(NOW - 42 * HOUR);
+  night(c, 1);
+  at(NOW - 24 * HOUR);
+  note(c, LAUNCH, { scope: SHOP, about: "us", strength: 0.85, felt: 0.9, status: "done" });
+  note(c, "Oat Milk mugs sold out first at launch", { scope: SHOP, about: "work", strength: 0.9 });
+  note(c, "Dana's kiln is booked Thursdays and Sundays", { scope: NOTES, about: "owner", strength: 0.4 });
+  at(NOW);
+}
+
+describe("since the last night", () => {
+  test("d6s1: the notes wake carries the launch from the shop folder, and nothing from before the night", () => {
+    const { c, at } = brain();
+    d6s1(c, at);
+    c.close();
+    const { wake, row } = hook(NOTES);
+    expect(readSentinel(wake).intact).toBe(true);
+    const block = section(wake, "Since the last night:");
+    expect(block).toContain(`- ${LAUNCH} (24 hours)`);
+    // Before the night: the page's. Work: Elsewhere's. Weak: no news.
+    expect(block).not.toContain("nervous before");
+    expect(block).not.toContain("Oat Milk");
+    expect(block).not.toContain("kiln");
+    // Titles only, inside its room, ahead of the folder's own section.
+    expect(block).not.toMatch(/mem_[0-9a-f]{12}/);
+    expect(Buffer.byteLength(`${block}\n\n`)).toBeLessThanOrEqual(SHAPE.ROOM.news);
+    expect(wake.indexOf("Since the last night:")).toBeLessThan(wake.indexOf("Where this folder stands:"));
+    expect(row["sec_news"]).toBe(Buffer.byteLength(`${block}\n\n`));
+  });
+
+  test("d2s2: the shop wake on the surgery's afternoon carries the news from notes, written just before the night", () => {
+    const { c, at } = brain();
+    const span = Math.max(4, NOW - START_OF_TODAY);
+    at(START_OF_TODAY + Math.floor(span * 0.3));
+    note(c, SURGERY, { scope: NOTES, about: "us", strength: 0.75, status: "done" });
+    at(START_OF_TODAY + Math.floor(span * 0.6));
+    night(c, 1);
+    at(NOW);
+    c.close();
+    const { wake } = hook(SHOP);
+    expect(section(wake, "Since the last night:")).toContain(`- ${SURGERY}`);
+  });
+
+  test("a folder that is off, paused or observing keeps its news home; this folder's own is always here", () => {
+    for (const mode of ["off", "paused", "observer"] as const) {
+      const { c, at } = brain();
+      d6s1(c, at);
+      at(NOW - HOUR);
+      note(c, "Dana trusted me with the next call", { scope: NOTES, about: "us", strength: 0.7 });
+      at(NOW);
+      c.close();
+      scopes({ [NOTES]: "on", [SHOP]: mode });
+      const { wake } = hook(NOTES);
+      expect(wake).not.toContain(LAUNCH);
+      expect(section(wake, "Since the last night:")).toContain("- Dana trusted me with the next call (1 hour)");
+      rmSync(storeDir, { recursive: true, force: true });
+      rmSync(join(conf, "scopes.json"), { force: true });
+    }
+  });
+
+  test("nothing new since the night: no section, not a line saying so; starter memories never count", () => {
+    const { c, at } = brain();
+    plantTold(c.store, "local");
+    at(NOW - 30 * HOUR);
+    note(c, LAUNCH, { scope: SHOP, about: "us", strength: 0.85, felt: 0.9 });
+    at(NOW - 20 * HOUR);
+    night(c, 1);
+    at(NOW);
+    c.close();
+    const { wake, row } = hook(NOTES);
+    expect(wake).not.toContain("Since the last night");
+    expect(wake).not.toContain("Since yesterday:");
+    expect(row["sec_news"]).toBeUndefined();
+  });
+
+  test("a dated item is Coming up's, never news; an echo of a stronger title is said once", () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 20 * HOUR);
+    note(c, LAUNCH, { scope: SHOP, about: "us", strength: 0.85, felt: 0.9 });
+    note(c, "Dana's shop launched, 11 pieces sold", { scope: NOTES, about: "owner", strength: 0.7 });
+    note(c, "Dana's dog has a check-up next week", { scope: NOTES, about: "owner", strength: 0.9, eventDate: "2099-01-01" });
+    at(NOW);
+    c.close();
+    const block = section(hook(NOTES).wake, "Since the last night:");
+    expect(block).toContain(LAUNCH);
+    expect(block).not.toContain("11 pieces sold\n");
+    expect(block.split("\n").length).toBe(2);
+  });
+});

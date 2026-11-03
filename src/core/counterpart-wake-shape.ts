@@ -9,6 +9,7 @@
  *
  *   Frame                     what is this?
  *   Who I am (the page)       who am I? Whole; first claim on the room.
+ *   Since the last night      what's the news the page can't know yet? (WF1)
  *   Where this folder stands  where's the work, what changed?
  *   Elsewhere                 what are other folders doing?
  *   Coming up                 what's due?
@@ -62,6 +63,8 @@ import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
+import { sinceLastNight } from "./counterpart-wake-news.js";
+import type { NewsItem } from "./counterpart-wake-news.js";
 
 /** The meta key that sets the shape for one store (`counterparts wake-shape on|off`): `on`, `off`, or absent for `self.WAKE_SHAPE`. */
 export const WAKE_SHAPE_KEY = "self.wake_shape";
@@ -74,14 +77,15 @@ export const UNDATED_LAST = "undated";
 /** Where Elsewhere's rest goes (the spec's floor: no count without a door): these folders, as the section reads them (`readElsewhere`). */
 export const ELSEWHERE_HANDLE = "elsewhere";
 
-type SectionKey = "folder" | "elsewhere" | "coming" | "open" | "yesterday" | "night";
-const ORDER: readonly SectionKey[] = ["folder", "elsewhere", "coming", "open", "yesterday", "night"];
+type SectionKey = "news" | "folder" | "elsewhere" | "coming" | "open" | "yesterday" | "night";
+/** "Since the last night" first (WF1): the freshest thing a wake can say, and the first to claim its items. */
+const ORDER: readonly SectionKey[] = ["news", "folder", "elsewhere", "coming", "open", "yesterday", "night"];
 /** What gives way first when the wake is over: older things to read, then the rest; the folder's own last. */
-const GIVE: readonly SectionKey[] = ["elsewhere", "open", "coming", "yesterday", "night", "folder"];
+const GIVE: readonly SectionKey[] = ["elsewhere", "open", "coming", "yesterday", "night", "news", "folder"];
 /** Where spare room goes, in draft 5's order. */
 const SPARE: readonly SectionKey[] = ["folder", "open", "elsewhere", "coming"];
 /** The section names the host's row carries (`sec_…`), `counterpart-boundary.ts#wakeShape`'s. */
-const SECTION_NAME: Readonly<Record<SectionKey, string>> = { folder: "stands", elsewhere: "elsewhere", coming: "horizon", open: "threads", yesterday: "yesterday", night: "night" };
+const SECTION_NAME: Readonly<Record<SectionKey, string>> = { news: "news", folder: "stands", elsewhere: "elsewhere", coming: "horizon", open: "threads", yesterday: "yesterday", night: "night" };
 
 /** One section as composed: its text with its blank line, the ids it claims, and the items it listed. */
 interface Sec {
@@ -435,6 +439,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const liveHere = sessions.filter((s) => s.live && s.session !== reader && hereFolders.includes(norm(s.scope)));
   const night = safe(() => nightWords(cp, at, here, scope), null);
   const installed = here?.installed ?? null;
+  const news = safe(() => sinceLastNight(cp, at, here, { ours: new Set(hereFolders), skip: cueIds }), { items: [] as NewsItem[], since: 0, night: false });
 
   // ── the page: first claim on the room ──
   const self = cp.self.shapedSelf(room, {
@@ -442,12 +447,24 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     day,
     keptOut: (id) => cp["hintKeptOut"](id, here ?? {}),
     // What Elsewhere names is Elsewhere's, not a hint's: so its door can count what it counts (`readElsewhere`).
-    skip: new Set([...cueIds, ...elsewhere.list.flatMap((e) => (e.id === null ? [] : [e.id]))]),
+    skip: new Set([...cueIds, ...news.items.map((n) => n.id), ...elsewhere.list.flatMap((e) => (e.id === null ? [] : [e.id]))]),
   });
 
   // ── the sections ──
   const spareOn = new Set<SectionKey>();
   const blockOf = (lines: readonly string[]): string => (lines.length === 0 ? "" : `${lines.join("\n")}\n\n`);
+
+  // "Since the last night" (WF1): titles only, with their ages; no door, since
+  // the rest is the page's and the night's; nothing to say, no section.
+  const newsSec = (b: number, claim: ReadonlySet<string>): Sec => {
+    const list = news.items.filter((n) => !claim.has(n.id));
+    if (list.length === 0) return { text: "", ids: [], items: 0 };
+    const render = (k: number): string[] => [news.night ? "Since the last night:" : "Since yesterday:", ...aged(list.slice(0, k).map((n) => ({ text: `- ${n.title}`, age: ageOf(n.at) })))];
+    let k = list.length;
+    while (k > 0 && byteLength(blockOf(render(k))) > b) k -= 1;
+    if (k === 0) return { text: "", ids: [], items: 0 };
+    return { text: blockOf(render(k)), ids: list.slice(0, k).map((n) => n.id), items: k };
+  };
 
   const folderSec = (b: number, claim: ReadonlySet<string>): Sec => {
     if (scope.length === 0) return { text: "", ids: [], items: 0 };
@@ -636,6 +653,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   };
 
   const fn: Readonly<Record<SectionKey, (b: number, claim: ReadonlySet<string>) => Sec>> = {
+    news: newsSec,
     folder: folderSec,
     elsewhere: elsewhereSec,
     coming: comingSec,
