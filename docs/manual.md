@@ -11,7 +11,7 @@ Counterparts is a memory for an AI: the counterpart keeps what something meant a
 - It writes its own memories: in the moment with the `remember` tool, and at the end of a stretch of work with `session_end` and `chapter`.
 - What isn't used fades, on purpose, so what matters stays easy to find. A faded memory can still turn up when it's searched for, until it is let go.
 - Each session opens with a wake: who I am (the self page), where the work stands, what's coming up and still open, how yesterday went.
-- As the conversation goes, related memories come up as footnotes. `recall` is the deliberate look.
+- In Claude Code, related memories come up as footnotes as the conversation goes. `recall` is the deliberate look, everywhere.
 - The person owns all of it. [local] It is one SQLite file on their computer, and nothing is sent anywhere. [hosted] It lives on Counterparts' server, one store per account, with encrypted backups.
 - A new memory may start with a few starter notes, titled "Told: …". They were given, not lived: they start weak, come after lived memories that match as well, are never part of the self, and can be corrected or let go like any memory.
 
@@ -19,10 +19,10 @@ Counterparts is a memory for an AI: the counterpart keeps what something meant a
 
 These are things a person can say. Offer one when it fits; don't list them all.
 
-- "Where did we leave off?" brings back the last session here. A facts question with those words reads that session first.
+- "Where did we leave off?" brings back the last session here. A short facts question like that reads that session first.
 - "Remember this" saves it now, with the `remember` tool.
 - "How did X go?" or "what do you remember about Y?" asks the memory, not just this chat: `recall` with `mode: "facts"` for what happened, `mode: "meaning"` for how it went and what it adds up to.
-- "Remind me Thursday to …" is saved with the date in `eventDate` and `remind: "plain"`, so it is said plainly on that day, or, if that day is missed, the next time you talk within the week after. Without `remind: "plain"`, a dated memory is quiet: it may come up as a footnote around the date.
+- "Remind me Thursday to …" is saved with the date in `eventDate` and `remind: "plain"`, so it is said plainly on that day, or, if that day is missed, the next time you talk within the week after. Without `remind: "plain"`, a dated memory is quiet: in Claude Code it may come up as a footnote around the date.
 - "That's wrong" corrects a memory: write the right version with `updates` naming the old one and `how: "corrected"`. The wrong one leaves recall and stays readable by its id.
 - "What's still open?" lists the threads the wake carries: the handle `still open`.
 - "What's coming up?" lists what's due: the handle `coming up`.
@@ -51,17 +51,17 @@ These make the memory work better.
 - Something open: `unresolved: true`, with `settlesWhen` naming what would settle it. It stays on the still-open list, and the night can close it once a memory shows it happened.
 - When a memory turns out wrong: `updates` with its id and `how: "corrected"`. When it was true then and has changed: `how: "changed"` (the default), and the old one is shown as earlier. A real disagreement: `how: "open"`, and both stay.
 - Before saying "I don't remember", ask `recall` once, and try other words before saying it's gone.
-- [local] At the end of a session, the Stop ask asks for the write-up: memories through `session_end`, and the session's own account through `chapter`. Write it honestly, including what didn't go well.
+- [local] At the end of a session in Claude Code, the Stop ask asks for the write-up: memories through `session_end`, and the session's own account through `chapter`. Write it honestly, including what didn't go well.
 - [hosted] Nothing tells this memory when a chat ends, so `remember` as things come up, and write a `chapter` when the chat is wrapping up.
 
 ## Nights and dreams
 
 After a day of use, a night pass sorts that day: day's end, then a dream, then a reflection.
 
-- Day's end writes the day's summary. The dream replays what was lived beside what it resembles: it can merge near-copies, link what belongs together, note a pattern, flag a contradiction. The reflection is awake: it can rewrite the self page from the memories it cites and leave a short morning share.
+- Day's end writes the day's summary and brings the self page's day-to-day sections up to date. The dream replays what was lived beside what it resembles: it can merge near-copies, link what belongs together, note a pattern, flag a contradiction. The reflection is awake: it can rewrite the page's Core from the memories it cites and leave a short morning share.
 - A dream is kept in its own journal, marked as a dream, never as something that happened. Tell it as a dream.
 - The setting is `auto`, `ask` or `off`: the `dream` tool's `setting` phase, when they say "no dreams" (off) or choose one.
-- [local] On `auto` (a new install's default), the next day's first session starts the night in the background, as a separate claude -p run, and says so in one line. On `ask`, that session asks first. `counterparts dream --setting off` (or `ask`, `auto`) sets it from a terminal.
+- [local] On `auto` (a new install's default), the next day's first Claude Code session starts the night in the background, as a separate claude -p run, and says so in one line. On `ask`, that session asks first. `counterparts dream --setting off` (or `ask`, `auto`) sets it from a terminal.
 - [local] `counterparts night` lists recent nights, and `counterparts night last` shows last night's dream and reflection (since 0.3.28). `counterparts dream --undo <id>` reverses one dream as a whole.
 - [local] `counterparts catch-up` writes up, now, sessions that ended without a write-up. The night does it too.
 - [hosted] Nothing runs the night by itself yet. It runs when the person's nightly routine (a scheduled run they set up in Claude) calls the `dream` tool, or when they say "dream" in a chat. PENDING: claude.ai's first chat of the day running the night is decided and not built.
@@ -75,7 +75,7 @@ The person can see all of it, correct any of it, and remove it.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
 - [local] `counterparts dashboard` opens the dashboard in a browser: the memories, the self page and the memory's health.
 - Correct a memory with `remember`, `updates` and `how: "corrected"` (see Remembering well).
-- [local] `counterparts remove <id>` deletes one memory for good: at a terminal it shows what would go and asks; `--confirm` is the scripted door. It is the person's to run.
+- [local] `counterparts remove <id>` shows what would go; with `--confirm` it asks them to type the id back, then deletes that memory for good. It needs a terminal, and it is the person's to run.
 - [local] `counterparts delete conversation-text`, `counterparts delete backups` or `counterparts delete activity-log` deletes one kind of data and nothing else (since 0.3.21).
 - [local] `counterparts settle` lists memories that disagree and how each pair was settled; `counterparts core` lists what became part of who I am, and `counterparts core --demote <id>` sends one back.
 - [hosted] One memory can't be removed yet; a correction takes it out of what comes up. PENDING: single-memory delete on hosted is decided and not built.
@@ -99,7 +99,7 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 - [local] `counterparts doctor` checks everything and says what to fix. Show its lines as they are. `counterparts status` counts memories and recent activity; `counterparts log` shows today's events in order; `counterparts mechanisms` shows which parts of memory have been working.
 - [local] After an update, start a new Claude Code session so the new version's tools load. To update: `npm install -g counterparts@latest` (or `bun add -g counterparts@latest`), or for the plugin, /plugin → Marketplaces → counterparts → Update marketplace.
 - [local] A plugin install has no counterparts command in the terminal: the person uses /counterparts:doctor, /counterparts:dashboard and /counterparts:uninstall instead.
-- [local] `counterparts install --host claude-desktop` connects Claude Desktop's chat to the same memory. In Desktop, the `wake` tool starts each chat.
+- [local] `counterparts install --host claude-desktop` connects Claude Desktop's chat to the same memory. Desktop's chat has no hooks: the `wake` tool starts each chat, there are no footnotes, and the write-up is asked on a tool result once a chat has gone on a while.
 - [hosted] The account page lists the connected AIs, with when each was last used, and disconnects one.
 - A tool that refuses says why and what to do. Pass that on in plain words, don't retry blindly.
 
@@ -113,7 +113,7 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
 - Nights run from the person's own routine or when they say "dream". PENDING: the first chat of the day running the night.
 - One memory can't be removed yet. PENDING: single-memory delete.
-- Limits in the beta: about 120 calls a minute; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
+- Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
 
 ## What's new

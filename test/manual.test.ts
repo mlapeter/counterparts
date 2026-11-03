@@ -401,4 +401,34 @@ describe("recall opens the manual", () => {
     expect(hosted["reason"]).toBe("manual");
     expect(String(hosted["text"])).toContain("app.counterparts.ai/mcp");
   });
+
+  // Review of #730: "manual <words>" is a family of handles, and a memory's exact title is a handle too.
+  test("a memory titled \"Manual …\" still opens by its title; words nothing answers get the section list", async () => {
+    const s: McpServer = openServer({
+      dir: join(root, "store-titles"),
+      host: CLAUDE_AI_HOST,
+      env: {},
+      lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) },
+      manifestVersion: () => null,
+    });
+    closers.push(() => s.counterpart.close());
+    const http = await serveHttp({ server: s });
+    closers.push(() => http.close());
+    let id = 1;
+    const post = async (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const res = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: id++, method, params }) });
+      return ((await res.json()) as { result: Record<string, unknown> }).result;
+    };
+    const tool = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => structured(await post("tools/call", { name, arguments: args }));
+    await post("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "0.1.0" } });
+    const session = String((await tool("wake", {}))["session"]);
+    await tool("remember", { session, title: "Manual for the boiler", text: "The boiler's manual is in the hall cupboard, second shelf, under the fuse box spares." });
+    const byTitle = await tool("recall", { session, handle: "Manual for the boiler" });
+    expect(byTitle["reason"]).toBe("expanded");
+    expect(JSON.stringify(byTitle["memories"])).toContain("hall cupboard");
+    const unknown = await tool("recall", { session, handle: "manual nowhere" });
+    expect(unknown["reason"]).toBe("manual-section-unknown");
+    // A question sent as `query` (recall's alias for `question`) is not read as the manual's door.
+    expect((await tool("recall", { session, handle: "manual", query: "the boiler" }))["reason"]).not.toBe("manual");
+  });
 });

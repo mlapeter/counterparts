@@ -2424,8 +2424,14 @@ export class McpServer {
   private async recallTool(sent: Record<string, unknown>): Promise<ToolResult> {
     // THE MANUAL (H1, 2026-11-03): before the stand-down, because it reads no
     // memory, and an observer folder is where "how do I turn this back on?" is asked.
-    const manual = manualAsk(sent["handle"]);
-    if (manual !== null && sent["question"] === undefined && sent["ids"] === undefined) return this.manualTool(manual);
+    // Every other handle is one exact name; "manual <words>" is a family, so a
+    // memory titled "Manual for the boiler" would lose its exact-title door.
+    // Words that name no section go the ordinary way first, and come back as
+    // the manual's unknown section only when no memory has that title (review
+    // of #730). Under observer the manual answers, since recall stands down.
+    const manualAlone = sent["question"] === undefined && sent["query"] === undefined && sent["ids"] === undefined;
+    const manual = manualAlone ? manualAsk(sent["handle"]) : null;
+    if (manual !== null && (manual.kind === "index" || this.observer || this.manualNames(manual.asked))) return this.manualTool(manual);
     if (this.observer) return this.standDown("recall");
     // `query` IS `question` (2026-10-14, lightly held): the model sent `query`
     // about twice a day and was refused `no-argument`. Read at the root rather
@@ -2524,6 +2530,7 @@ export class McpServer {
       },
       { sessionId: this.session ?? key, closed: this.nightClosed() },
     );
+    if (manual !== null && result.reason === "handle-unknown") return this.manualTool(manual);
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
     // index offered only in part? Counted per mechanism, never the ids.
@@ -2708,6 +2715,12 @@ export class McpServer {
    * index, or one section whole (`manual.ts`). Reads the package's own file,
    * never the store, so it writes nothing and credits nothing.
    */
+  /** Do these words open a section of the installed manual? A missing manual says yes, so its refusal is what comes back. */
+  private manualNames(asked: string): boolean {
+    const manual = installedManual();
+    return manual === null || findSection(manual, asked) !== null;
+  }
+
   private manualTool(ask: NonNullable<ManualAsk>): ToolResult {
     const manual = installedManual();
     if (manual === null) {

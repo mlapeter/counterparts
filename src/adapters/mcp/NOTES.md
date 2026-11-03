@@ -1994,7 +1994,10 @@ session, and the handle costs one sentence in `recall`'s `handle` description (1
 The wake was left alone: its preface has a structural reserve the page's room derives from.
 
 It is answered before the observer stand-down, because it reads no memory and an observer
-folder is where "how do I turn this back on?" gets asked. It writes nothing and credits
+folder is where "how do I turn this back on?" gets asked. Unlike every other handle, `manual <words>` is
+a family, so words that name no section go the ordinary way first (a memory titled "Manual
+for the boiler" keeps its exact-title door) and come back as the unknown-section refusal only
+when nothing answers them (review of #730). It writes nothing and credits
 nothing. The file ships four ways (npm `files`, the plugin bundle by `packagePath`'s
 literal, the single binary's `embeddedFiles`, the hosted image); `test/manual.test.ts`
 holds all four, and checks every code span in the manual against the dispatch table, the
