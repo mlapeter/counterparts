@@ -2288,7 +2288,8 @@ their own store methods (`wave2.ts`, delegates on `Store`).
 - **`OBSERVER_READ_FLOOR` stays 11**: a v13 row read `m.*` lacks columns no instrument reads,
   the new tables are read `hasTable` first, and no read names the dropped column.
 - **Declined from the open asks** (recall INTERFACE-GAPS §1, cli §4): gate rows unbounded is
-  a sweep to call (`pruneGateSessions` exists, uncalled), and the writer's lock is a lock
+  a sweep to call (`pruneGateSessions` existed, uncalled; since 2026-11-03 the sleep
+  cycle's `versions` phase calls it), and the writer's lock is a lock
   file — neither is a store format. `recall_turns` carries `day` and an index so its own
   sweep is cheap when one is written.
 - **A process left running across the update is not refused, and breaks.** A v13 build
