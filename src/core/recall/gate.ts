@@ -272,6 +272,7 @@ export function background(
   storeSize: number,
   t: RecallTunables,
   livedSize: number = storeSize,
+  unitSize: number = livedSize,
 ): Background {
   const n = activations.length;
   const mean = n === 0 ? 0 : activations.reduce((a, b) => a + b, 0) / n;
@@ -287,8 +288,10 @@ export function background(
   // weighs about two of these units where it weighs one without it: a word
   // match clears this floor much more easily, which is why the loud tier's
   // strong floor (`gate`) stays in the whole store's unit. A seed still takes
-  // only a slot no lived memory wanted (the lived-first order below).
-  const unit = floorUnit(livedSize);
+  // only a slot no lived memory wanted (the lived-first order below), and it
+  // faces the whole store's unit (`unitSize`, ROADMAP 11-03: seeds get their
+  // own bar, the stricter one; an empty footnote beats noise).
+  const unit = floorUnit(unitSize);
 
   // Cold start ends on LIVED memories (S1 review): the starter set is no
   // evidence the store has grown.
@@ -389,6 +392,13 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
   ];
   const bg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize);
+  // A SEED'S OWN BAR (ROADMAP 11-03, review of #733): the floor and absolute
+  // bar a starter memory faces are in the whole store's unit, the stricter
+  // ones from before the lived-count fix. "Fill what's left" means room, not a
+  // lower bar: a turn no lived memory answers footnotes nothing rather than a
+  // loosely matched seed. The regime is the same (it reads lived memories).
+  const toldBg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize, input.storeSize);
+  const bgOf = (c: Candidate): Background => (c.told === true ? toldBg : bg);
   /**
    * The loud tier's strong floor stays in the WHOLE store's unit, the unit cue
    * weights come in (`informativeness(df, storeSize)`; `floorUnit` is its df=1
@@ -431,7 +441,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     return viaOwn === undefined ? viaEarlier : Math.min(viaEarlier, viaOwn);
   };
   const barsFor = (c: Candidate): { admit: number; loud: number } =>
-    bg.regime === "relative" ? { admit: either(c, t.SNR_GLOBAL), loud: either(c, t.SNR_STRONG) } : { admit: bg.bar, loud: bg.strongBar };
+    bg.regime === "relative" ? { admit: either(c, t.SNR_GLOBAL), loud: either(c, t.SNR_STRONG) } : { admit: bgOf(c).bar, loud: bgOf(c).strongBar };
 
   const verdicts: CandidateVerdict[] = [];
   const admitted: { c: Candidate; loud: boolean }[] = [];
@@ -446,7 +456,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   const record = (c: Candidate, verdict: Verdict): void => {
     const blocked = loudBlock.get(c.id);
     verdicts.push({
-      bar: faced.get(c.id) ?? bg.bar,
+      bar: faced.get(c.id) ?? bgOf(c).bar,
       id: c.id,
       kind: c.kind,
       verdict,
@@ -554,7 +564,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // Hard gate (b) — the absolute floor, BEFORE any salience adjustment.
     // On the activation WITHOUT priming (2026-10-19): the floor says how weak
     // the turn's own evidence may be, and a head start is not evidence.
-    if (c.activation - primeOf(c) < bg.floor) {
+    if (c.activation - primeOf(c) < bgOf(c).floor) {
       record(c, "below-floor");
       continue;
     }
@@ -609,7 +619,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // absolute floor (a stray common word reaches nearly everything).
     const competing = input.competing?.get(c.id);
     const rival = competing === undefined ? undefined : byId.get(competing.with);
-    if (competing !== undefined && rival !== undefined && rival.activation - primeOf(rival) >= bg.floor) {
+    if (competing !== undefined && rival !== undefined && rival.activation - primeOf(rival) >= bgOf(rival).floor) {
       c = { ...c, activation: c.activation * competing.factor };
       competedIds.set(c.id, { with: competing.with, factor: Math.round(competing.factor * 10_000) / 10_000 });
     }

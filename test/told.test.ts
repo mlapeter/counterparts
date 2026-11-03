@@ -597,6 +597,29 @@ describe.skipIf(WEIGHTS === null)("the footnote floor reads lived memories (real
   });
 });
 
+describe.skipIf(WEIGHTS === null)("a seed's own bar: the whole store's floor (real table, through the hook; ROADMAP 11-03)", () => {
+  test("a young store: a turn no lived memory answers footnotes no seed; the folder question still gets its seed", async () => {
+    await install();
+    const emb = openStaticEmbedder({ env: {} });
+    const a = openAdapter({ dataDir: storeDir, injectionBudgetBytes: 9_000, timeZone: ZONE }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: emb });
+    closers.push(a.counterpart);
+    const session = "s-lived-0006";
+    const s = new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: join(root, "registry"), embedder: emb });
+    for (const text of ["Dana keeps the seed catalogues in a blue folder in the shed.", ...LIVED_FIVE]) {
+      expect((await s.call("remember", { session, text })).isError).not.toBe(true);
+    }
+    const store = a.counterpart.store;
+    const told = new Set(store.toldIds());
+    expect(told.size).toBe(11);
+    // "Fill what's left" means room, not a lower bar: an empty footnote beats noise.
+    const pet = await prompt(a, storeDir, "s-seedbar-0001", "what pet do we have?");
+    expect({ shownSeeds: [...pet.surfaced, ...pet.footnotes].filter((id) => told.has(id)).map((id) => store.row(id)?.title) }).toEqual({ shownSeeds: [] });
+    const folder = await prompt(a, storeDir, "s-seedbar-0002", "how do I turn off this folder?");
+    const titles = folder.footnotes.filter((id) => told.has(id)).map((id) => store.row(id)?.title);
+    expect(titles).toContain("Told: turning memory on or off for a folder");
+  });
+});
+
 /** A hand-built lived candidate (the gate's own unit; `head-stands-in-bar.test.ts`'s shape). */
 function lived(id: string, activation: number): Candidate {
   return {

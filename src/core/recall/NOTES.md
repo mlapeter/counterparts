@@ -1795,5 +1795,7 @@ strong floor stays in the whole store's unit for that reason: read on the lived 
 five-lived seeded store put "is Juniper ok in storms?", "Rancilio" and "what does Dana like to drink?" in the loud
 tier where its twin without the set footnoted them (review of #733). Pinned in `test/told.test.ts`: the hook on the
 real table against a twin without the set (never missing, never louder), and the loud-tier checks on hand-built
-candidates. A side effect kept: with the lower footnote floor, a young seeded store can footnote a seed or two for a
-turn no lived memory answers ("what pet do we have?"), where before nothing cleared it.
+candidates. A seed has its own bar (ROADMAP 11-03): its floor and absolute bar stay in the whole store's unit, the
+stricter ones from before this fix, so the lower lived floor never lets a loosely matched seed into a turn no lived
+memory answers ("what pet do we have?" footnoted two seeds on a young store until then; an empty footnote beats
+noise). "Fill what's left" means room, not a lower bar. Pinned in `test/told.test.ts` through the hook.
