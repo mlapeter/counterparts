@@ -53,6 +53,7 @@ import { headOf, standingOf, unsettledCompetition } from "./standing.js";
 import type { RenderResult, Resolve, Resolved } from "./render.js";
 import { withTunables } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
+import { TOLD_SOURCE } from "../told.js";
 
 /** At most this many mood-lifted ids on a decision (`moodMatchedIds`) — the
  *  same cap the credit row puts on `shownNotUsed` (2026-10-14). */
@@ -686,8 +687,13 @@ export class Recall {
     // A count, not a list of every live id (Lane 0, scale review C4: 16% of a
     // turn at 10x). The same WHERE (`memoryWhere`).
     const storeSize = this.store.countMemories({ archived: false });
+    // COLD START ENDS ON LIVED MEMORIES ONLY (S1 review, ROADMAP 11-03): the
+    // starter set (`core/told.ts`) is no evidence the store has grown, so the
+    // regime is read on what was lived. Rarity and the floor unit keep the
+    // whole store, the population the word counts (`docFrequency`) are taken over.
+    const livedSize = this.store.countMemories({ archived: false, notSource: TOLD_SOURCE });
     const maxCandidates =
-      storeSize < this.tunables.COLD_START_MIN_STORE
+      livedSize < this.tunables.COLD_START_MIN_STORE
         ? this.tunables.COLD_START_MAX_CANDIDATES
         : this.tunables.MAX_CANDIDATES;
 
@@ -715,6 +721,7 @@ export class Recall {
         mood,
         maxCandidates,
         storeSize,
+        livedSize,
         ...(turn.feeling === undefined ? {} : { feeling: turn.feeling }),
         ...(plan === null ? {} : { prime: plan.activation }),
       },
@@ -759,6 +766,7 @@ export class Recall {
         candidates,
         state,
         storeSize: act.storeSize,
+        livedSize,
         affectStated: affect.stated,
         turn: turnNo,
         ...(turn.echo === undefined || turn.echo.size === 0 ? {} : { echo: turn.echo }),

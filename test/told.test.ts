@@ -27,6 +27,8 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import { Store, paths } from "../src/core/store/index.js";
+import { Recall } from "../src/core/recall/index.js";
+import { recallTurn } from "../src/core/retrieval.js";
 import { TOLD_SET_KEY, TOLD_SET_VERSION, TOLD_SOURCE, TOLD_SURFACE_KEY, isTold, toldSet } from "../src/core/told.js";
 import { stripV14 } from "./store-fixture.js";
 
@@ -261,6 +263,46 @@ describe("weaker than anything lived — ambient recall and its footnotes", () =
     expect(asked.footnotes).toContain(folder);
     // Its footnote line shows the whole title, the part after "Told:" with it.
     expect(asked.injection).toContain("Told: turning memory on or off for a folder");
+  });
+
+  test("cold start ends on lived memories only: five lived beside the set is still cold start, and no seed takes a lived match's place", async () => {
+    await install();
+    const seeded = adapter(storeDir);
+    // The first five lived memories, four of them about what the set covers.
+    const session = "s-lived-0005";
+    const s = new McpServer({ counterpart: seeded.counterpart, session, scope: SCOPE, registryDir: join(root, "registry") });
+    for (const text of LIVED.slice(0, 5)) expect((await s.call("remember", { session, text })).isError).not.toBe(true);
+    const store = seeded.counterpart.store;
+    expect(store.countMemories({ archived: false })).toBe(16);
+    const told = new Set(store.toldIds());
+    let gated = 0;
+    let toldShown = 0;
+    for (const [i, text] of TURNS.entries()) {
+      // The regime, through the recall the hook runs: cold start at five
+      // lived, though the store holds sixteen rows (before the S1 review it
+      // left cold start at four).
+      const d = recallTurn(new Recall({ store }), { sessionId: `s-regime-${String(i).padStart(4, "0")}`, text }, {}).decision;
+      if (d.candidates > 0) {
+        gated += 1;
+        expect({ text, regime: d.background.regime }).toEqual({ text, regime: "absolute-cold-start" });
+      }
+      // No lived candidate lost to a seed: none capped or inhibited while a
+      // seed was admitted (the cut, too, ranks lived first), and a seed never loud.
+      const toldKept = d.verdicts.filter((v) => told.has(v.id));
+      const toldAdmitted = toldKept.filter((v) => v.verdict === "footnoted" || v.verdict === "surfaced");
+      if (toldAdmitted.length > 0) expect({ text, livedLost: d.verdicts.filter((v) => !told.has(v.id) && (v.verdict === "capped" || v.verdict === "inhibited")).map((v) => v.id) }).toEqual({ text, livedLost: [] });
+      expect({ text, loud: toldKept.filter((v) => v.verdict === "surfaced").map((v) => v.id) }).toEqual({ text, loud: [] });
+      // And through the hook: a seed's footnote comes after every lived one.
+      const withSet = await prompt(seeded, storeDir, `s-cold-${String(i).padStart(4, "0")}`, text);
+      const firstTold = withSet.footnotes.findIndex((id) => told.has(id));
+      if (firstTold >= 0) {
+        toldShown += 1;
+        expect({ text, livedAfterTold: withSet.footnotes.slice(firstTold).filter((id) => !told.has(id)) }).toEqual({ text, livedAfterTold: [] });
+      }
+      expect({ text, loud: withSet.surfaced.filter((id) => told.has(id)) }).toEqual({ text, loud: [] });
+    }
+    expect(gated).toBeGreaterThan(0);
+    expect(toldShown).toBeGreaterThan(0);
   });
 
   test("the recall tool (facts) orders a lived memory of comparable match first, and still answers with the set", async () => {

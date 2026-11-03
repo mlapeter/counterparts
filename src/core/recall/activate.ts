@@ -300,8 +300,11 @@ export interface ActivationInput {
    *  Absent on every ambient turn, and then the feeling lane never runs. */
   readonly feeling?: FeelingAskInput | undefined;
   readonly maxCandidates: number;
-  /** Live memory count, for informativeness and the cold-start regime. */
+  /** Live memory count, for informativeness (and the cold-start regime when `livedSize` is absent). */
   readonly storeSize: number;
+  /** Live memories LIVED — the starter set (`core/told.ts`) left out — for the
+   *  cold-start regime (S1 review). Absent: `storeSize`. */
+  readonly livedSize?: number | undefined;
   /**
    * Keep memories BELOW REACH (physics `REACH`, 2026-10-10)? Absent or false
    * on an ambient turn — the only caller today — and then they are left out of
@@ -1157,22 +1160,29 @@ export function activate(
   // `cue + semantic > 0` (at most `maxCandidates` of them), and a sample with
   // no spread (sd 0) is thin too. Estimated here on the cued candidates an
   // activation-ranked cut would keep.
+  //
+  // LIVED FIRST IN THE CUT TOO (S1 review): a starter memory (`toldSeen`)
+  // ranks after every lived candidate, so on a cold-start store's three slots
+  // it never takes a lived match's place before the gate's own lived-first
+  // order could see it; and it is outside the sample, as in the gate.
+  const toldLast = (a: Scored, b: Scored): number => (toldSeen.has(a.id) ? 1 : 0) - (toldSeen.has(b.id) ? 1 : 0);
   const rankForCut = (list: Scored[]): void => {
     const sample = list
-      .filter((c) => c.cue - c.stamp + c.semantic > 0)
+      .filter((c) => !toldSeen.has(c.id) && c.cue - c.stamp + c.semantic > 0)
       .map((c) => c.activation - c.stamp - primeOf(c))
       .sort((x, y) => y - x)
       .slice(0, input.maxCandidates);
-    const relative = storeSize >= t.COLD_START_MIN_STORE && sample.length >= t.MIN_BACKGROUND_SAMPLE && spreadOf(sample) > 0;
+    const relative = (input.livedSize ?? storeSize) >= t.COLD_START_MIN_STORE && sample.length >= t.MIN_BACKGROUND_SAMPLE && spreadOf(sample) > 0;
     // The rank leaves the stamps out (review of #293, R1): a nomination must
     // never take a text row's place in the cut, or the gate's background —
     // sampled from what the cut kept — moves. Every row with a stamp is
     // appended after the cut instead (below).
     const key = (c: Scored): number => (c.stamp > 0 ? salienceRank(c.activation - c.stamp, c.sal, t) : c.cutKey);
     list.sort((a, b) =>
-      relative
+      toldLast(a, b) ||
+      (relative
         ? key(b) - key(a) || b.activation - b.stamp - (a.activation - a.stamp) || (a.id < b.id ? -1 : 1)
-        : b.activation - b.stamp - (a.activation - a.stamp) || (a.id < b.id ? -1 : 1),
+        : b.activation - b.stamp - (a.activation - a.stamp) || (a.id < b.id ? -1 : 1)),
     );
   };
   rankForCut(scored);

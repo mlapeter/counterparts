@@ -169,6 +169,9 @@ export interface GateInput {
   readonly candidates: readonly Candidate[];
   readonly state: GateState;
   readonly storeSize: number;
+  /** Live memories LIVED, the starter set left out (S1 review): the cold-start
+   *  regime reads this. Absent: `storeSize`. */
+  readonly livedSize?: number | undefined;
   /** The turn stated a feeling (any subject) — the affect flag's turn gate. */
   readonly affectStated: boolean;
   readonly turn: number;
@@ -268,6 +271,7 @@ export function background(
   activations: readonly number[],
   storeSize: number,
   t: RecallTunables,
+  livedSize: number = storeSize,
 ): Background {
   const n = activations.length;
   const mean = n === 0 ? 0 : activations.reduce((a, b) => a + b, 0) / n;
@@ -275,7 +279,9 @@ export function background(
   const sd = n === 0 ? 0 : Math.sqrt(varSum / n);
   const unit = floorUnit(storeSize);
 
-  if (storeSize < t.COLD_START_MIN_STORE) {
+  // Cold start ends on LIVED memories (S1 review): the starter set is no
+  // evidence the store has grown. The unit stays the whole store's (rarity).
+  if (livedSize < t.COLD_START_MIN_STORE) {
     const cold = t.COLD_START_FLOOR_UNITS * unit;
     return {
       regime: "absolute-cold-start",
@@ -371,7 +377,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     ...input.candidates.filter(inSample).map(own),
     ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
   ];
-  const bg = background(acts, input.storeSize, t);
+  const bg = background(acts, input.storeSize, t, input.livedSize ?? input.storeSize);
   /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`). */
   const loudUnit = floorUnit(input.storeSize);
   const sum = acts.reduce((a, b) => a + b, 0);
