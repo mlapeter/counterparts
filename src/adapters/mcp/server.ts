@@ -251,6 +251,8 @@ export function asksStillOpen(question: string): boolean {
 import { openCarry, openSettlesCounts, STILL_OPEN_HANDLE, WAKE_BUILD_KEY } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { canonicalToolName, toolDefinitions, toolSpec } from "./tools.js";
+import { MANUAL_HANDLE, MANUAL_PATH, findSection, installedManual, manualAsk, manualIndexText } from "./manual.js";
+import type { ManualAsk } from "./manual.js";
 import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
 import { scriptArgs } from "../runtime.js";
@@ -2420,6 +2422,10 @@ export class McpServer {
   }
 
   private async recallTool(sent: Record<string, unknown>): Promise<ToolResult> {
+    // THE MANUAL (H1, 2026-11-03): before the stand-down, because it reads no
+    // memory, and an observer folder is where "how do I turn this back on?" is asked.
+    const manual = manualAsk(sent["handle"]);
+    if (manual !== null && sent["question"] === undefined && sent["ids"] === undefined) return this.manualTool(manual);
     if (this.observer) return this.standDown("recall");
     // `query` IS `question` (2026-10-14, lightly held): the model sent `query`
     // about twice a day and was refused `no-argument`. Read at the root rather
@@ -2697,6 +2703,37 @@ export class McpServer {
    * title, for this folder as its wake reads it; other folders' only where the
    * setting lets them be named, and a closed folder's not even as a count.
    */
+  /**
+   * `recall` with the handle `manual` (H1, 2026-11-03): the installed manual's
+   * index, or one section whole (`manual.ts`). Reads the package's own file,
+   * never the store, so it writes nothing and credits nothing.
+   */
+  private manualTool(ask: NonNullable<ManualAsk>): ToolResult {
+    const manual = installedManual();
+    if (manual === null) {
+      this.emit("mcp.recall.manual", undefined, { found: false });
+      return this.refuse("recall", "manual-missing", { path: MANUAL_PATH });
+    }
+    const room = this.resultCeilingChars - 1_000;
+    if (ask.kind === "index") {
+      this.emit("mcp.recall.manual", undefined, { section: 0 });
+      return this.result(
+        { path: "handle", reason: "manual", handle: MANUAL_HANDLE, sections: manual.sections.length, text: clipWire(manualIndexText(manual), room) },
+        false,
+      );
+    }
+    const section = findSection(manual, ask.asked);
+    if (section === null) {
+      this.emit("mcp.recall.manual", undefined, { section: -1 });
+      return this.refuse("recall", "manual-section-unknown", { asked: ask.asked, sections: manual.sections.map((s) => s.handle) });
+    }
+    this.emit("mcp.recall.manual", undefined, { section: section.n });
+    return this.result(
+      { path: "handle", reason: "manual", handle: section.handle, section: section.n, of: manual.sections.length, text: clipWire(section.text, room) },
+      false,
+    );
+  }
+
   private comingUpTool(): ToolResult {
     const on = this.folderOn();
     const closed = this.nightClosed();

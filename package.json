@@ -55,6 +55,7 @@
   "files": [
     "src/",
     "docs/QUICKSTART.md",
+    "docs/manual.md",
     "docs/ELI5.md",
     "docs/module-map.md",
     "tools/install-loop/",

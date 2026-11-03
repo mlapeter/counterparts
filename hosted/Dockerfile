@@ -52,6 +52,8 @@ COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/hosted/node_modules hosted/node_modules
 COPY package.json ./
 COPY src src
+# The manual the `recall` handle "manual" opens (H1): the same file every install ships.
+COPY docs/manual.md docs/manual.md
 COPY hosted/package.json hosted/
 COPY hosted/src hosted/src
 # Not root. /data exists and is node's, so a run with a plain Docker volume

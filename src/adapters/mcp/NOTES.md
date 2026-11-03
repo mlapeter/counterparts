@@ -1981,3 +1981,21 @@ its own small PR, after a look at its live use.
 - **Not tested, not claimed:** whether claude.ai skips a permission prompt for a read-only tool at all. Nothing here can
   observe claude.ai's prompts. If Mike was asked about Memory status too on that first use, the hint wasn't what
   decided it. The real fix for the prompts (an "Always allow" line on the setup page) is the site's.
+
+## 2026-11-03 — the manual, behind a recall handle (H1)
+
+`docs/manual.md` is how Counterparts works and how to use it, for the counterpart first.
+The door is `recall`'s handle `manual` (the index: each section's first sentence and the
+exact handle that opens it) and `manual <section>` (heading in any case, or its number),
+served from `manual.ts`. A handle, not a tool: a twelfth description would be read by every
+session, and the handle costs one sentence in `recall`'s `handle` description (175 bytes of
+`tools/list` on each host) plus one clause in the Desktop and claude.ai `instructions`
+(57 bytes each). Claude Code gets no `instructions`, so the handle's sentence is its pointer.
+The wake was left alone: its preface has a structural reserve the page's room derives from.
+
+It is answered before the observer stand-down, because it reads no memory and an observer
+folder is where "how do I turn this back on?" gets asked. It writes nothing and credits
+nothing. The file ships four ways (npm `files`, the plugin bundle by `packagePath`'s
+literal, the single binary's `embeddedFiles`, the hosted image); `test/manual.test.ts`
+holds all four, and checks every code span in the manual against the dispatch table, the
+declared flags, the served tools and their fields, and the recall handles.

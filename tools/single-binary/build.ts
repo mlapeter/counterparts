@@ -80,7 +80,8 @@ export function assetName(version: string, platform: string): string {
 
 /** Every file the code reads from its own install at run time. */
 export function embeddedFiles(): string[] {
-  const out: string[] = ["package.json"];
+  // The manual the `recall` handle "manual" opens (H1, `mcp/manual.ts`).
+  const out: string[] = ["package.json", "docs/manual.md"];
   const model = "node_modules/counterparts-model-potion";
   for (const f of ["model.safetensors", "vocab.txt", "package.json", "LICENSE"]) out.push(`${model}/${f}`);
   const web = "src/adapters/dashboard/web";
