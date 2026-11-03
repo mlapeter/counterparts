@@ -40,6 +40,7 @@ import { PLUGIN_UPDATE_STEP, npmUpdateCommand } from "../src/adapters/update-wor
 import { COMING_UP_HANDLE, ELSEWHERE_HANDLE, HANDOFFS_HANDLE } from "../src/core/counterpart-wake-shape.js";
 import { HANDOFFS_HERE_HANDLE } from "../src/core/handoff/index.js";
 import { LAST_EXCHANGE_HANDLE } from "../src/core/handoff/last-exchange.js";
+import { TOLD_TITLE_PREFIX } from "../src/core/told.js";
 import { STILL_OPEN_HANDLE } from "../src/core/self/index.js";
 import { planBundle, bundlePaths } from "../tools/plugin-bundle/build.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
@@ -431,4 +432,9 @@ describe("recall opens the manual", () => {
     // A question sent as `query` (recall's alias for `question`) is not read as the manual's door.
     expect((await tool("recall", { session, handle: "manual", query: "the boiler" }))["reason"]).not.toBe("manual");
   });
+});
+
+test("the manual names starter notes by the title prefix the store gives them", () => {
+  const text = readFileSync(join(import.meta.dir, "..", "docs", "manual.md"), "utf8");
+  expect(text).toContain(`"${TOLD_TITLE_PREFIX}…"`);
 });
