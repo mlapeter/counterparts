@@ -606,9 +606,10 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const hiddenToday = todayAll.filter((c) => !ids.has(c.id)).length;
       const hereMore = [...overdue, ...laterAll].filter((c) => !ids.has(c.id)).length;
       const words = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? `${String(other.length)} in other folders` : ""].filter((x) => x.length > 0).join(", ");
+      // Nothing to list and nothing behind the door: no section (WF1), not "Nothing dated."
+      if (shown.length === 0 && words.length === 0) return [];
       const out = ["Coming up:", ...shown.map((s) => s.line)];
       if (words.length > 0) out.push(`(${words}; recall "${COMING_UP_HANDLE}")`);
-      if (cues.length === 0) out.push("Nothing dated.");
       return out;
     };
     // Whole lines in order; a line that doesn't fit goes behind the door, and a
@@ -631,7 +632,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const render = (k: number): string[] => {
       const more = carried.length - k;
       const door = more > 0 || open.parked > 0 ? `(${[more > 0 ? `${String(more)} more open` : "", open.parked > 0 ? `${String(open.parked)} parked` : ""].filter((w) => w.length > 0).join(", ")}; recall "still open")` : "";
-      return ["Still open:", ...aged(carried.slice(0, k).map(lineOf)), ...(door === "" ? [] : [door]), ...(carried.length === 0 && open.parked === 0 ? ["Nothing open."] : [])];
+      // Nothing open and nothing parked: no section (WF1), not "Nothing open."
+      if (k === 0 && door === "") return [];
+      return ["Still open:", ...aged(carried.slice(0, k).map(lineOf)), ...(door === "" ? [] : [door])];
     };
     let k = Math.min(cap, carried.length);
     while (k > 0 && byteLength(blockOf(render(k))) > b) k -= 1;
@@ -846,9 +849,9 @@ function pickOlder(hs: readonly Handoff[]): { h: Handoff; seat: string }[] {
   return out;
 }
 
-/** Who else is at work here now, with when they started; or that nobody is. Asked only of a host with a registry: one with none can't say. */
-function openHereLine(live: readonly WakeSession[], today: string, zone: string): string {
-  if (live.length === 0) return "Open here now: no other session.";
+/** Who else is at work here now, with when they started. Nobody: no line (WF1). Asked only of a host with a registry: one with none can't say. */
+function openHereLine(live: readonly WakeSession[], today: string, zone: string): string | null {
+  if (live.length === 0) return null;
   const words = [...live]
     .sort((a, b) => b.lastAt - a.lastAt)
     .slice(0, SHAPE.OPEN_HERE_SHOWN)

@@ -3033,3 +3033,8 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   <seat>, <day> (<age> old; N sessions here since): recall sch_…`. None of its words: the point is that it no longer leads.
   "Nothing here since." goes with it (sessions came, so it would contradict the line). Saves ~300–560 B a wake from day 3
   of Dana's shop on; costs ~20 B over the old head line.
+- **Empty sections collapse.** "Open here now: no other session.", "Nothing dated." and "Nothing open." are gone, and their
+  headings with them: a section with nothing in it isn't printed (a door line alone still is). Dana's WK2 week printed them
+  33 times in 11 wakes (~25–30 B each, ~60–90 B a wake). `arrivingTense` reads under the last `Coming up:`; with the lane
+  absent it would read a page's own `Coming up:` line, which no page has had, and a line there would have to start
+  `- due YYYY-MM-DD` to be touched.

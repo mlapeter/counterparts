@@ -5,3 +5,5 @@
 - **An old handoff stops leading the wake.** Half a day after a folder's last handoff, once another session has worked
   there, the handoff shows as one line with its age and how many sessions came since, after what they did, instead of
   whole and first for days.
+- **No empty sections in the wake.** "Nothing open.", "Nothing dated." and "Open here now: no other session." are gone,
+  with their headings: a section with nothing in it isn't printed.

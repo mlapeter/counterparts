@@ -163,6 +163,10 @@ describe("since the last night", () => {
     expect(Buffer.byteLength(`${block}\n\n`)).toBeLessThanOrEqual(SHAPE.ROOM.news);
     expect(wake.indexOf("Since the last night:")).toBeLessThan(wake.indexOf("Where this folder stands:"));
     expect(row["sec_news"]).toBe(Buffer.byteLength(`${block}\n\n`));
+    // Nothing open, nothing dated, nobody else here: those sections aren't there at all.
+    for (const empty of ["Still open:", "Nothing open.", "Coming up:", "Nothing dated.", "Open here now:"]) expect(wake).not.toContain(empty);
+    expect(row["sec_threads"]).toBeUndefined();
+    expect(row["sec_horizon"]).toBeUndefined();
   });
 
   test("d2s2: the shop wake on the surgery's afternoon carries the news from notes, written just before the night", () => {
@@ -235,7 +239,7 @@ describe("a stale handoff steps down", () => {
   function shop(c: Counterpart, at: (t: number) => void, sessionsSince: number): string {
     at(NOW - 5 * 24 * HOUR);
     recordSession(storeDir, { sessionId: SEAT1, scope: SHOP, phase: "start", at: NOW - 5 * 24 * HOUR });
-    const id = c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 }).id;
+    const id = c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 }).id ?? "";
     for (let i = 0; i < sessionsSince; i++) {
       const t = NOW - (4 - i) * 24 * HOUR;
       at(t);
