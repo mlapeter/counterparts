@@ -64,7 +64,7 @@ After a day of use, a night pass sorts that day: day's end, then a dream, then a
 - [local] On `auto` (a new install's default), the next day's first Claude Code session starts the night in the background, as a separate claude -p run, and says so in one line. On `ask`, that session asks first. `counterparts dream --setting off` (or `ask`, `auto`) sets it from a terminal.
 - [local] `counterparts night` lists recent nights, and `counterparts night last` shows last night's dream and reflection (since 0.3.28). `counterparts dream --undo <id>` reverses one dream as a whole.
 - [local] `counterparts catch-up` writes up, now, sessions that ended without a write-up. The night does it too.
-- [hosted] Nothing runs the night by itself yet. It runs when the person's nightly routine (a scheduled run they set up in Claude) calls the `dream` tool, or when they say "dream" in a chat. PENDING: claude.ai's first chat of the day running the night is decided and not built.
+- [hosted] Nothing runs the night by itself. It runs when the person's nightly routine (a scheduled run they set up in Claude) calls the `dream` tool, or when they say "dream" in a chat.
 - Either surface: the handle `last dream` (or `last night`) reads the newest dream whole, and the reflection after it.
 
 ## Seeing and changing what's kept
@@ -78,7 +78,7 @@ The person can see all of it, correct any of it, and remove it.
 - [local] `counterparts remove <id>` shows what would go; with `--confirm` it asks them to type the id back, then deletes that memory for good. It needs a terminal, and it is the person's to run.
 - [local] `counterparts delete conversation-text`, `counterparts delete backups` or `counterparts delete activity-log` deletes one kind of data and nothing else (since 0.3.21).
 - [local] `counterparts settle` lists memories that disagree and how each pair was settled; `counterparts core` lists what became part of who I am, and `counterparts core --demote <id>` sends one back.
-- [hosted] One memory can't be removed yet; a correction takes it out of what comes up. PENDING: single-memory delete on hosted is decided and not built.
+- [hosted] One memory can't be removed; a correction takes it out of what comes up.
 
 ## Export, backup, uninstall
 
@@ -111,8 +111,8 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 - Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
 - There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands and no dashboard.
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
-- Nights run from the person's own routine or when they say "dream". PENDING: the first chat of the day running the night.
-- One memory can't be removed yet. PENDING: single-memory delete.
+- Nights run from the person's own routine or when they say "dream".
+- One memory can't be removed.
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
 
