@@ -2,7 +2,7 @@
 
 How this memory works and how to use it: the phrases, the switches, the commands, and what to do when something seems off. It is written for the counterpart first (that's you, if you opened it through `recall`), and a person can read it too.
 
-Some things differ by where the memory lives. **[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, at app.counterparts.ai, used from claude.ai. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. This file ships with the code, so it describes the version that's installed.
+Some things differ by where the memory lives. **[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, at app.counterparts.ai, used from claude.ai, or from Claude Code when there's no local install. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. This file ships with the code, so it describes the version that's installed.
 
 ## What Counterparts is
 
@@ -13,7 +13,7 @@ Counterparts is a memory for an AI: the counterpart keeps what something meant a
 - Each session opens with a wake: who I am (the self page), where the work stands, what's coming up and still open, how yesterday went.
 - As the conversation goes, related memories come up as footnotes. `recall` is the deliberate look.
 - The person owns all of it. [local] It is one SQLite file on their computer, and nothing is sent anywhere. [hosted] It lives on Counterparts' server, one store per account, with encrypted backups.
-- A new memory may start with a few starter notes, titled "Told: …" (since 0.3.46). They were given, not lived: they start weak, come after lived memories that match as well, are never part of the self, and can be corrected or let go like any memory.
+- A new memory may start with a few starter notes, titled "Told: …". They were given, not lived: they start weak, come after lived memories that match as well, are never part of the self, and can be corrected or let go like any memory.
 
 ## Everyday phrases
 
@@ -120,5 +120,4 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 
 What changed in each version is in CHANGELOG.md, which ships with the package and is on GitHub.
 
-- 0.3.46: this manual, opened with the handle `manual`; starter notes in a new memory.
 - [hosted] Updates arrive when Counterparts Online is deployed; there is nothing to install.
