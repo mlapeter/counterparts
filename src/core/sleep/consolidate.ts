@@ -58,7 +58,6 @@ import type { Phase, PhaseCtx, PhaseOutcome, PromotionRecord, SleepStore } from 
 /** The two reads "who is this about" needs — a read-only store has both. */
 export type ReadsDocs = Pick<SleepStore, "list" | "read">;
 import { countSkip, emptyOutcome, isBeliefRow, isJournal } from "./types.js";
-import { isTold } from "../told.js";
 
 /** This phase's own name, for the cursor it keeps. Typed, so a rename in the
  *  phase vocabulary fails `tsc` here rather than reading an empty cursor. */
@@ -953,7 +952,9 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     }
     // A STARTER MEMORY DOES NOT CROSS (S1, `core/told.ts`): told at birth, not
     // lived, it is never the self. It consolidates and fades like any memory.
-    if (isTold(row)) {
+    // The source spelled here, not `isTold`: sleep imports only types,
+    // physics and store (test/sleep.test.ts, structural guarantees).
+    if (row.source === "told") {
       block("told");
       continue;
     }
