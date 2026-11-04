@@ -2758,7 +2758,7 @@ export class McpServer {
     const closed = this.nightClosed();
     const list = this.counterpart.comingUp({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
     // A folder by its name; by its path only when another the door names, or this one, has the same name (FS1).
-    const among = [...(this.scope === undefined ? [] : [this.scope]), ...[...list.today, ...list.overdue, ...list.later, ...list.otherFolders].flatMap((c) => (c.folder === null ? [] : [c.folder]))];
+    const among = [this.scope, ...[...list.today, ...list.overdue, ...list.later, ...list.otherFolders].flatMap((c) => (c.folder === null ? [] : [c.folder]))];
     const shown = (cs: readonly Cue[]): Record<string, unknown>[] =>
       cs
         .filter((c) => !closed.has(c.id))

@@ -1434,3 +1434,13 @@ never in the reflection's `see` or its main loop (so no `recent`, core ask, cand
 one), and closed to the night's own `recall` (`McpServer#nightClosed`). Day's end leaves them out of the day
 (`self/writer.ts`), and the page's and day summary's cites refuse one. Nor the night's tag ask (`untaggedMemories`,
 at review): a tag on one would count toward a topic card's bar. Pinned by one night through `runNight` in `test/told.test.ts`.
+
+## 2026-11-04 — FS1: where a dream files what it writes
+
+- The developer week (tier 2) caught a fold of sim's and paper's ablation work filed under evals, the folder of the
+  session that launched the night, so it showed as evals' own news. A merge or gist now takes the folder its sources
+  share (`slices.ts#nightFolder`, each read as `memoryFolder` reads it), or none when they span folders or one records
+  none. The privacy reads (`nightOriginFolders`, `restsOnClosed`, `memoryClosedTo`) still follow the originals, so they
+  hold for rows filed before FS1 and for the no-folder case. `dreams.scope` and the row's session are unchanged.
+- Not followed: a source that is itself a night row written before FS1 still carries the launching folder, and a merge
+  of it files by that. Rows written since are right; following originals here too is the fix if it bites.

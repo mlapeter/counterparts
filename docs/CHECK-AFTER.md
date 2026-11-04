@@ -124,11 +124,14 @@ FS1 (2026-11-04, from the developer week's three ambers; a fix, no switch): `dre
 week at tier 2, or on a week of Mike's shaped wakes after release.
 
 - **Night rows by folder.** A dream's merges and gists by `origin_scope`: one folder's work filed under that folder, a fold
-  across folders under none. Expect no "Since yesterday, here" item in a folder that is another folder's work. The cost
-  to look for: a cross-folder fold now in no folder's "here" (it is still recalled, and personal ones reach everywhere).
+  across folders under none. Expect no "Since yesterday, here" item in a folder that is another folder's work. The costs
+  to look for: a cross-folder fold is in no folder's "here" or Elsewhere (it is still recalled); and with no folder,
+  `threadPlace` reads it as personal, so if it carries a date or stays open it is "mine" in every folder's Coming up or
+  Still open. A merge of a night row written before FS1 files by that row's old (launching) folder.
 - **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
   `coming up` door lists it. A personal or plain dated item is still due in every folder.
-- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places and the about-me line name
+- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me line and "Work
+  here"'s "(from …)" name
   folders by their last part. Two of a name print their paths. A name that reads ambiguous (two repos called `app`
   under one wake, only one of them named) would say the collision set should be wider.
 
