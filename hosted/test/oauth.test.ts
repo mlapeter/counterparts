@@ -764,6 +764,7 @@ describe("the manual, on the hosted door (H1)", () => {
     assert.match(String(index["text"]), /"manual hosted": /);
     const hosted = await tool(`${r.origin}/mcp`, "recall", { session, handle: "manual hosted" }, bearer(c.access));
     assert.equal(hosted["reason"], "manual");
-    assert.match(String(hosted["text"]), /app\.counterparts\.ai\/mcp/);
+    assert.match(String(hosted["text"]), /custom connector/);
+    assert.doesNotMatch(String(hosted["text"]), /app\.counterparts\.ai/);
   });
 });
