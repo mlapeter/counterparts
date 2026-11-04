@@ -330,7 +330,9 @@ Nice to meet you, Mike.
 Connecting Claude Code…
   ok  connected — 5 hooks added to ~/.claude/settings.json (backup kept), memory tools registered
 
-Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.
+Recall by meaning: on. A small model runs on your machine and sends nothing anywhere.
+
+Updates: once a day Counterparts asks registry.npmjs.org for the newest version number; it sends nothing about you or your memory. COUNTERPARTS_UPDATE_CHECK=off turns that off.
 
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.

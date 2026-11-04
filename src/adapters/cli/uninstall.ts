@@ -91,8 +91,9 @@
  *     `--nothing-is-open` is the explicit override, the same flag and the same
  *     meaning `start-fresh` gives it.
  */
-import { existsSync, lstatSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, parse as parsePath, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { Store, assertSafeDataDir, dateOf, isWithin, storeExists } from "../../core/store/index.js";
 import { isJournal } from "../../core/sleep/index.js";
@@ -123,7 +124,7 @@ import type { Holder } from "./rollback.js";
 import { confirm, typed, ui } from "./ui.js";
 import type { Ui } from "./ui.js";
 import type { Outcome, ProcessLister, Spawner, WireInput, WireResult } from "./wire.js";
-import { look, readMcp, tilde, unwire } from "./wire.js";
+import { BACKUP_INFIX, look, readMcp, tilde, unwire, userSettingsPath } from "./wire.js";
 import { isTold } from "../../core/told.js";
 
 /** The phrase `--delete-memories` asks for, exactly. Case-sensitive, and
@@ -137,9 +138,41 @@ export const DELETE_QUESTION = "Also delete all memories and related data? This 
 /** The typed-phrase prompt, one string for both arms. */
 export const PHRASE_PROMPT = `Type ${DELETE_PHRASE} to go ahead — Esc or "cancel" to stop: `;
 
-/** The one command that removes the package. A program does not delete itself
- *  out from under the process that is running it. */
-export const REMOVE_PACKAGE = `bun remove -g ${BIN.cli}`;
+/** The commands that remove the package, one per installer. A program does
+ *  not delete itself out from under the process that is running it. */
+export const REMOVE_PACKAGE_BUN = `bun remove -g ${BIN.cli}`;
+export const REMOVE_PACKAGE_NPM = `npm uninstall -g ${BIN.cli}`;
+
+/** Which installer put this copy where it is, or `unknown` (a checkout, a link). */
+export type PackageManager = "bun" | "npm" | "unknown";
+
+/**
+ * WHERE THE PACKAGE LIVES, NOT WHAT RUNS IT (LD1, 2026-11-04). The launcher
+ * runs Bun whenever Bun is on PATH, so an `npm install -g` on a machine that
+ * also has Bun runs under Bun, and the runtime cannot say which installer to
+ * undo. The path can: `bun add -g` puts it under
+ * `<BUN_INSTALL>/install/global/node_modules/`, npm under
+ * `<prefix>/lib/node_modules/` (or `<prefix>/node_modules/` on Windows).
+ */
+export function packageManagerOf(path: string): PackageManager {
+  const p = path.replace(/\\/g, "/");
+  if (/\/install\/global\/node_modules\/counterparts\//.test(p)) return "bun";
+  if (/\/node_modules\/counterparts\//.test(p)) return "npm";
+  return "unknown";
+}
+
+/** This copy's installer, read off this file's own path. */
+export const PACKAGE_MANAGER: PackageManager = packageManagerOf(fileURLToPath(import.meta.url));
+
+/** The command that removes the package, for `pm`; both when it is not known. */
+export function removePackage(pm: PackageManager = PACKAGE_MANAGER): string {
+  if (pm === "bun") return REMOVE_PACKAGE_BUN;
+  if (pm === "npm") return REMOVE_PACKAGE_NPM;
+  return `${REMOVE_PACKAGE_NPM}, or ${REMOVE_PACKAGE_BUN} if bun installed it`;
+}
+
+/** {@link removePackage} for this copy. */
+export const REMOVE_PACKAGE = removePackage();
 
 /** The same, for a copy Claude Code's plugin manager put there. */
 export const REMOVE_PLUGIN = "in Claude Code, /plugin → Installed → counterparts → Uninstall";
@@ -220,6 +253,95 @@ function removeProgramAfterGone(input: UninstallInput): void {
   const plugin = removePluginAtTerminal(input.env, input.home);
   input.io.out(`To remove the program too: ${route === "plugin" ? plugin : `${REMOVE_PACKAGE} (npm) · ${plugin} (plugin)`}`);
   input.io.out(PLUGIN_BEFORE_REOPEN);
+}
+
+// ── after the unwire: the backups it left, and an emptied settings file ─────
+
+/**
+ * Is `name` one of the settings backups `wire.ts#copyToFreeBackup` writes
+ * beside `file` (`<file>.counterparts-backup-<UTC stamp>`, `-2`… on a
+ * collision)? The whole name, not a prefix: nothing else in `~/.claude` is
+ * ever a candidate.
+ */
+export function isSettingsBackup(name: string, file: string): boolean {
+  const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}\\.${BACKUP_INFIX}-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}Z(-\\d+)?$`).test(name);
+}
+
+/**
+ * UNINSTALL LEAVES NO BACKUPS OF ITS OWN BEHIND (LD1, 2026-11-04). Every
+ * connect and disconnect copies the settings file aside first (`wire.ts`
+ * rule 1); once uninstall has taken its hooks out, those copies are old
+ * versions of a file that no longer holds anything of ours, two of them still
+ * carrying hooks that point at a package about to be removed. Only regular
+ * files whose whole name is ours, beside the file the backups were taken of
+ * (a symlinked settings file is backed up beside its target). Called only
+ * after an unwire that succeeded. Returns what went and what could not.
+ */
+export function removeSettingsBackups(
+  home: string,
+  env: Record<string, string | undefined>,
+): { readonly removed: string[]; readonly failed: string[] } {
+  const named = userSettingsPath(home, env);
+  const spots = new Map<string, string>([[named, dirname(named)]]);
+  try {
+    const real = realpathSync(named);
+    spots.set(real, dirname(real));
+  } catch {
+    /* no settings file (or a dangling link): the named spelling is the only one */
+  }
+  const removed: string[] = [];
+  const failed: string[] = [];
+  const seen = new Set<string>();
+  for (const [file, dir] of spots) {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!isSettingsBackup(name, basename(file))) continue;
+      const path = join(dir, name);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      try {
+        if (!lstatSync(path).isFile()) continue;
+        rmSync(path);
+        removed.push(path);
+      } catch {
+        failed.push(path);
+      }
+    }
+  }
+  return { removed, failed };
+}
+
+/** Is the settings file now exactly `{}`? False when it is missing or unreadable. */
+export function settingsLeftEmpty(home: string, env: Record<string, string | undefined>): boolean {
+  try {
+    const value: unknown = JSON.parse(readFileSync(userSettingsPath(home, env), "utf8"));
+    return value !== null && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The lines for both, said once the hooks are out. */
+function tidyHost(input: UninstallInput, u: Ui): void {
+  const { home, env } = input;
+  const settings = userSettingsPath(home, env);
+  const { removed, failed } = removeSettingsBackups(home, env);
+  if (removed.length > 0) {
+    u.ok(
+      `removed ${removed.length === 1 ? "the backup" : `${String(removed.length)} backups`} of ` +
+        `${basename(settings)} that Counterparts made in ${tilde(dirname(removed[0]!), home)}`,
+    );
+  }
+  for (const path of failed) u.hint(`could not remove ${tilde(path, home)}; it is a backup Counterparts made, safe to delete.`);
+  if (settingsLeftEmpty(home, env)) {
+    u.hint(`${tilde(settings, home)} is left as {}: nothing else was in it. Delete it if you like.`);
+  }
 }
 
 /** The one line a moving arm prints while `claude mcp list` runs (TTY only). */
@@ -1026,7 +1148,10 @@ export function notTouched(
   env: Record<string, string | undefined>,
 ): NotTouched[] {
   const out: NotTouched[] = [
-    { path: hostSettingsDir(home, env), why: "Claude Code's own files: its settings, history and transcripts" },
+    {
+      path: hostSettingsDir(home, env),
+      why: "Claude Code's own files: its settings, history and transcripts (only the settings backups Counterparts made go)",
+    },
   ];
   if (plan.storeDir !== null) {
     const snaps = resolveSnapshotsDir(plan.storeDir, config.snapshots?.dir).dir;
@@ -1383,6 +1508,9 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   }
 
   if (input.record !== undefined) input.record.unwired = true;
+  // The plugin's keep arm (`onlyDead`) may leave a live npm install's hooks:
+  // its backups are that install's, and stay.
+  if (!viaPlugin && (removed.hooks === "removed" || removed.hooks === "none")) tidyHost(input, u);
 
   // ── the memory ────────────────────────────────────────────────────────────
   u.blank();
@@ -1572,6 +1700,7 @@ async function offerDelete(
       }
       return rest.outcome !== "ok" ? rest.outcome : "refused";
     }
+    if (rest.hooks === "removed" || rest.hooks === "none") tidyHost(input, u);
   }
   u.blank();
   return deletePlan(input, u, { ...again, census: plan.census });

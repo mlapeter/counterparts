@@ -84,7 +84,7 @@ Look with `recall` or `self_page`, correct with `updates`; on a local install, `
 
 The memory is theirs to take: export, uninstall, start-fresh, or "Download my memory" when hosted.
 
-- [local] `counterparts export --out <dir> --passphrase <secret>` makes an encrypted copy they can take anywhere. Export refuses without `--passphrase`, or `--plaintext` said on purpose. `--markdown` writes a readable tree instead.
+- [local] `counterparts export --out <dir> --passphrase <secret>` makes an encrypted copy they can take anywhere. Export refuses without `--passphrase`, or `--plaintext` said on purpose. `--markdown` writes a readable tree instead. No command opens an encrypted export yet; the README beside it gives the format.
 - [local] `counterparts backup --out <dir>` saves a snapshot to a folder. A daily snapshot is also kept automatically.
 - [local] `counterparts uninstall` disconnects Claude Code and keeps the memory unless they say otherwise; `--keep-memories` keeps it without asking.
 - [local] `counterparts start-fresh` sets this memory aside and starts a blank one; `counterparts start-fresh --undo` brings it back. Nothing is deleted.
@@ -98,6 +98,7 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - The `status` tool gives the census: how much is held, of what kinds, how much has left. Ask it when the person asks "what's your status?".
 - [local] `counterparts doctor` checks everything and says what to fix. Show its lines as they are. `counterparts status` counts memories and recent activity; `counterparts log` shows today's events in order; `counterparts mechanisms` shows which parts of memory have been working.
 - [local] After an update, start a new Claude Code session so the new version's tools load. To update: `npm install -g counterparts@latest` (or `bun add -g counterparts@latest`), or for the plugin, /plugin → Marketplaces → counterparts → Update marketplace.
+- [local] It runs on macOS and Linux; Windows not yet supported. Bun on macOS is the setup in daily use; Node (22.15+) and Linux pass a smoke test but have no daily user yet.
 - [local] A plugin install has no counterparts command in the terminal: the person uses /counterparts:doctor, /counterparts:dashboard and /counterparts:uninstall instead.
 - [local] `counterparts install --host claude-desktop` connects Claude Desktop's chat to the same memory. Desktop's chat has no hooks: the `wake` tool starts each chat, there are no footnotes, and the write-up is asked on a tool result once a chat has gone on a while.
 - [hosted] The account page lists the connected AIs, with when each was last used, and disconnects one.

@@ -60,7 +60,12 @@ import {
   PLUGIN_BEFORE_REOPEN,
   PLUGIN_ID_FALLBACK,
   REMOVE_PACKAGE,
+  REMOVE_PACKAGE_BUN,
+  REMOVE_PACKAGE_NPM,
   REMOVE_PLUGIN,
+  isSettingsBackup,
+  packageManagerOf,
+  removePackage,
   censusOf,
   configDirRefusal,
   dirSize,
@@ -441,6 +446,82 @@ describe("what the warning counts", () => {
     expect(humanBytes(934912)).toBe("913 KB");
     expect(humanBytes(7025459)).toBe("6.7 MB");
     expect(dirSize(join(home, "nothing-here"))).toBe(0);
+  });
+});
+
+// ── the program's remover, and what uninstall tidies in ~/.claude (LD1) ─────
+
+describe("the remover it names, and the backups it takes back", () => {
+  test("the remover follows where the package lives, not what runs it", () => {
+    expect(packageManagerOf("/Users/a/.bun/install/global/node_modules/counterparts/src/adapters/cli/uninstall.ts")).toBe("bun");
+    expect(packageManagerOf("/opt/bun/install/global/node_modules/counterparts/src/x.ts")).toBe("bun");
+    expect(packageManagerOf("/usr/local/lib/node_modules/counterparts/src/adapters/cli/uninstall.ts")).toBe("npm");
+    expect(packageManagerOf("C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\counterparts\\src\\x.ts")).toBe("npm");
+    expect(packageManagerOf("/Users/a/counterparts/src/adapters/cli/uninstall.ts")).toBe("unknown");
+    expect(removePackage("bun")).toBe("bun remove -g counterparts");
+    expect(removePackage("npm")).toBe("npm uninstall -g counterparts");
+    const both = removePackage("unknown");
+    expect(both).toContain(REMOVE_PACKAGE_NPM);
+    expect(both).toContain(REMOVE_PACKAGE_BUN);
+  });
+
+  test("only the whole backup name is ours", () => {
+    expect(isSettingsBackup("settings.json.counterparts-backup-2026-11-04T18-07-31Z", "settings.json")).toBe(true);
+    expect(isSettingsBackup("settings.json.counterparts-backup-2026-11-04T18-07-31Z-2", "settings.json")).toBe(true);
+    expect(isSettingsBackup("settings.json.counterparts-backup-notes", "settings.json")).toBe(false);
+    expect(isSettingsBackup("settings.json.counterparts-backup-2026-11-04T18-07-31Z.txt", "settings.json")).toBe(false);
+    expect(isSettingsBackup("settings.json.bak", "settings.json")).toBe(false);
+    expect(isSettingsBackup("settingsXjson.counterparts-backup-2026-11-04T18-07-31Z", "settings.json")).toBe(false);
+  });
+
+  test("a successful uninstall removes the settings backups Counterparts made, and nothing else", async () => {
+    await install();
+    const claude = join(home, ".claude");
+    mkdirSync(claude, { recursive: true });
+    writeFileSync(join(claude, "settings.json"), `${JSON.stringify({ model: "opus" }, null, 2)}\n`);
+    await wireIt();
+    const ours = (): string[] => readdirSync(claude).filter((n) => isSettingsBackup(n, "settings.json"));
+    expect(ours()).toHaveLength(1);
+    // A second, older one, as a reconnect weeks ago would have left.
+    writeFileSync(join(claude, "settings.json.counterparts-backup-2026-10-01T09-00-00Z"), "{}\n");
+    // Look-alikes that are not ours stay.
+    writeFileSync(join(claude, "settings.json.counterparts-backup-notes"), "mine\n");
+    writeFileSync(join(claude, "settings.json.bak"), "mine\n");
+
+    const c = consoleWith();
+    expect(await uninstall(input({ io: c.io }))).toBe("ok");
+    expect(ours()).toEqual([]);
+    expect(existsSync(join(claude, "settings.json.counterparts-backup-notes"))).toBe(true);
+    expect(existsSync(join(claude, "settings.json.bak"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(claude, "settings.json"), "utf8"))).toEqual({ model: "opus" });
+    const said = text(c.out);
+    expect(said).toContain("removed 3 backups of settings.json that Counterparts made in ~/.claude");
+    expect(said).not.toContain("is left as {}");
+    // The last line is the remover for this copy.
+    expect(c.out.filter((l) => l.length > 0).at(-1)).toBe(`To remove the program too: ${REMOVE_PACKAGE}`);
+  });
+
+  test("a settings file left as {} is said, and left in place", async () => {
+    await install();
+    await wireIt();
+    const c = consoleWith();
+    expect(await uninstall(input({ io: c.io }))).toBe("ok");
+    const settings = join(home, ".claude", "settings.json");
+    expect(JSON.parse(readFileSync(settings, "utf8"))).toEqual({});
+    expect(readdirSync(join(home, ".claude")).filter((n) => isSettingsBackup(n, "settings.json"))).toEqual([]);
+    expect(text(c.out)).toContain("~/.claude/settings.json is left as {}: nothing else was in it.");
+  });
+
+  test("an unwire that fails leaves every backup where it is", async () => {
+    await install();
+    await wireIt();
+    const claude = join(home, ".claude");
+    writeFileSync(join(claude, "settings.json.counterparts-backup-2026-10-01T09-00-00Z"), "{}\n");
+    writeFileSync(join(claude, "settings.json"), "{ not json");
+    const c = consoleWith();
+    expect(await uninstall(input({ io: c.io }))).not.toBe("ok");
+    expect(existsSync(join(claude, "settings.json.counterparts-backup-2026-10-01T09-00-00Z"))).toBe(true);
+    expect(text(c.out)).not.toContain("backups of settings.json");
   });
 });
 

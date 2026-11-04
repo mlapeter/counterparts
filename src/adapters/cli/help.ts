@@ -522,7 +522,9 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
   uninstall: [
     "It disconnects the host, then says where your memory still is, how many",
     "memories are in it, and the one command that removes the package:",
-    "`bun remove -g counterparts` (a program does not delete itself).",
+    "`npm uninstall -g counterparts`, or `bun remove -g counterparts` for a bun",
+    "install (a program does not delete itself). It also removes the backups of",
+    "Claude Code's settings file that connecting and disconnecting kept.",
     "",
     "At a terminal it then asks: \"Also delete all memories and related data?",
     "This can't be undone. [y/N]\" — after printing every path that would go and",
