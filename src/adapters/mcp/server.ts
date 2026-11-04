@@ -2152,15 +2152,6 @@ export class McpServer {
       if (this.nightRun()) {
         return { ok: false, reason: "night-run", detail: "A night run does not delete or restore memories: nobody is here to see it. Nothing was changed." };
       }
-      // HOSTED'S NIGHTS RUN IN THE PERSON'S CHAT (HN1), so the env marks
-      // above never see them: while this store has a dream begun and not yet
-      // journaled, or a reflection begun and not finished (either quiet past
-      // `ABANDONED_AFTER_MS` is left behind and lets go), a delete or an undo
-      // waits for the night (fix round item 1). The night's own window only:
-      // the chat before and after it deletes as usual.
-      if (this.removalOpts.erasedBy === "hosted" && this.nightUnderWay()) {
-        return { ok: false, reason: "night-under-way", detail: "A night pass is running in this memory right now, so nothing was deleted or restored. Ask again after the night has finished." };
-      }
       const store = this.counterpart.store;
       if (store.row(id) === undefined) return { ok: false, reason: "unknown-id", detail: `No memory ${id} in this store.` };
       const { shown } = this.shownToCaller();
@@ -2181,6 +2172,16 @@ export class McpServer {
         }
         this.dropHeldNotice(id);
         return { ok: true, reason: out.reason, id, title: out.title, note: `Back: "${out.title}" is a memory again, as it was.` };
+      }
+      // HOSTED'S NIGHTS RUN IN THE PERSON'S CHAT (HN1), so the env marks
+      // above never see them: while this store has a dream begun and not yet
+      // journaled, or a reflection begun and not finished (either quiet past
+      // `ABANDONED_AFTER_MS` is left behind and lets go), a DELETE waits for
+      // the night (fix round item 1). The night's own window only. An UNDO
+      // always goes through (ROADMAP 11:55): it only restores, and it is the
+      // safety net for a delete nobody asked for.
+      if (this.removalOpts.erasedBy === "hosted" && this.nightUnderWay()) {
+        return { ok: false, reason: "night-under-way", detail: "A night pass is running in this memory right now, so nothing was deleted. Ask again after the night has finished." };
       }
       // What removal itself refuses, before the shown check: none of these
       // depends on what this conversation saw, and each says what to do instead.
