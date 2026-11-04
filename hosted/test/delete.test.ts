@@ -1000,7 +1000,7 @@ describe("R9: the delete emails", () => {
     assert.equal(m.subject, "Your Counterparts account is deleted");
     assert.equal(
       m.text,
-      "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours.\n\nThank you for trying Counterparts.\n",
+      "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.\n\nThank you for trying Counterparts.\n",
     );
     assertClean(r, m, [...secrets, "quince", "orchard", "crimson"]);
 

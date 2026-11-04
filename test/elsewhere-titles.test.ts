@@ -97,8 +97,9 @@ function bytes(s: string): number {
   return Buffer.byteLength(s, "utf8");
 }
 
-function tilde(p: string): string {
-  return p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+/** A folder as the elsewhere lines name it (FS1): its last part, no other folder in the line sharing it. */
+function place(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
 }
 
 interface World {
@@ -161,7 +162,7 @@ describe("Today, elsewhere names titles", () => {
     memory(w, at(D2, 8, 30), { session: A, scope: THERE, title: "CHITCHAT the weather turned", body: "It rained.", about: "world" });
     w.set(at(D2, 9));
     expect(wakeLine(w)).toBe(
-      `Today, elsewhere: ${tilde(THERE)} open since 08:02 (live), 3 memories: "Wake check from the bakery" (${planned}), "Oven seven offset" (${work}).`,
+      `Today, elsewhere: ${place(THERE)} open since 08:02 (live), 3 memories: "Wake check from the bakery" (${planned}), "Oven seven offset" (${work}).`,
     );
   });
 
@@ -187,7 +188,7 @@ describe("Today, elsewhere names titles", () => {
     w.set(at(D2, 9));
     const line = wakeLine(w) ?? "";
     expect(line).toContain(`"The one that may cross" (${ok})`);
-    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "DATED", "OWNSESSION", tilde(FAR), tilde(REST)]) {
+    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "DATED", "OWNSESSION", place(FAR), place(REST)]) {
       expect(line).not.toContain(never);
     }
     // The count is every memory written there today; the titles left out stay home.
@@ -236,11 +237,11 @@ describe("Today, elsewhere names titles", () => {
 
   test("a folder with no titles reads exactly as before", () => {
     const base = { scope: "/home/someone/bakery", firstAt: at(D2, 8, 2), lastAt: at(D2, 9), live: true, chapter: null, memories: 3 };
-    expect(todayElsewhereLines([base], ZONE)?.line).toBe("Today, elsewhere: ~/bakery open since 08:02 (live), 3 memories.");
-    expect(todayElsewhereLines([{ ...base, titles: [] }], ZONE)?.line).toBe("Today, elsewhere: ~/bakery open since 08:02 (live), 3 memories.");
+    expect(todayElsewhereLines([base], ZONE)?.line).toBe("Today, elsewhere: bakery open since 08:02 (live), 3 memories.");
+    expect(todayElsewhereLines([{ ...base, titles: [] }], ZONE)?.line).toBe("Today, elsewhere: bakery open since 08:02 (live), 3 memories.");
     const since = { scope: "/home/someone/bakery", startedAt: null, live: true, endedAt: at(D2, 9), chapter: null, memories: 0 };
     const window = { at: at(D2, 8), started: true, now: at(D2, 10) };
-    expect(sinceElsewhereLines([since], window, ZONE)?.line).toBe("Since you started (08:00): ~/bakery open.");
+    expect(sinceElsewhereLines([since], window, ZONE)?.line).toBe("Since you started (08:00): bakery open.");
     expect(sinceElsewhereLines([{ ...since, endedAt: null }], window, ZONE)).toBeNull();
   });
 });
@@ -279,12 +280,12 @@ describe("Since you started names only what is new", () => {
     // Something new: named, and only it.
     const fresh = memory(w, at(D2, 10, 40), { session: A, scope: THERE, title: "Scored the loaves", body: "Scored.", about: "work", status: "done" });
     const first = prompt(w, at(D2, 10, 45)) ?? "";
-    expect(first).toBe(`Since you started (10:00): ${tilde(THERE)} open, 1 memory: "Scored the loaves" (${fresh}).`);
+    expect(first).toBe(`Since you started (10:00): ${place(THERE)} open, 1 memory: "Scored the loaves" (${fresh}).`);
     expect(first).not.toContain("TOLDATWAKE");
     // An hour on: only what came after that line.
     const later = memory(w, at(D2, 11, 0), { session: A, scope: THERE, title: "Second proof started", body: "Proofing.", about: "work" });
     const second = prompt(w, at(D2, 11, 50)) ?? "";
-    expect(second).toBe(`Since 10:45: ${tilde(THERE)} open, 1 memory: "Second proof started" (${later}).`);
+    expect(second).toBe(`Since 10:45: ${place(THERE)} open, 1 memory: "Second proof started" (${later}).`);
     expect(second).not.toContain("Scored the loaves");
     // And nothing new after it: nothing.
     expect(prompt(w, at(D2, 13))).toBeUndefined();
@@ -329,7 +330,7 @@ describe("Here, also open: the other sessions in this folder", () => {
     memory(w, at(D2, 8, 45), { session: A, scope: THERE, title: "Bakery work", body: "Work.", about: "work" });
     w.set(at(D2, 9, 5));
     const both = hereLine(wakeOf(w, S)) ?? "";
-    expect(both).toStartWith(`Today, elsewhere: ${tilde(THERE)} open since 08:40 (live)`);
+    expect(both).toStartWith(`Today, elsewhere: ${place(THERE)} open since 08:40 (live)`);
     expect(both).toContain(`. Here, also open: session 25e12e7d on Fable 5 since 08:10: "Roadmap: the notes module" (${theirs})`);
   });
 

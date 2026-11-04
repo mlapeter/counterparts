@@ -8,6 +8,9 @@ its memories itself, and they fade and grow the way yours do. It runs today with
 
 [counterparts.ai](https://counterparts.ai)
 
+Found a bug? [Open an issue](https://github.com/mlapeter/counterparts/issues). For anything
+else, write to mike@resonantventures.com.
+
 ## Install
 
 You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer.
@@ -50,7 +53,8 @@ to be deleted. The full walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART
 - **Things come to mind.** As you talk, related memories surface quietly, the way one
   thing reminds you of another.
 - **It's yours.** Everything lives on your machine in one SQLite file you can read,
-  export or delete. No API keys, no accounts, nothing sent anywhere. The text of your
+  export or delete. No API keys, no accounts, and nothing about you is sent anywhere; its
+  one request of its own is a daily version check (see [Status](#status)). The text of your
   conversations is kept only until it's written up: deleted 3 days after that, or at most
   about two weeks after the conversation goes quiet, whichever comes first, once Counterparts
   next runs, and never in a backup. You can delete the conversation text,
@@ -80,9 +84,13 @@ Once installed it runs on its own. A few commands are worth knowing:
 counterparts dashboard          # look at the memory in your browser
 counterparts ask "..."          # ask the memory a question
 counterparts scope . --off      # don't remember this directory
-counterparts export             # a copy of everything; --passphrase encrypts it
+counterparts export --out <dir> --passphrase <secret>   # an encrypted copy of everything
 counterparts --help             # the rest
 ```
+
+Export needs `--passphrase` or `--plaintext`; it won't pick for you. No command opens an
+encrypted export yet: the README written beside it gives the format (scrypt and
+AES-256-GCM), so it can be opened by hand.
 
 Memory is on for every directory by default. The first session in a new directory asks
 whether you want it there.
@@ -120,8 +128,13 @@ Claude Desktop has no Linux build, so on Linux it is Claude Code only. Expect ro
 edges, and please
 [open an issue](https://github.com/mlapeter/counterparts/issues) when you hit one.
 
-There are no API keys, and nothing leaves your machine except through Claude Code
-itself. Search by meaning runs on a small model on your machine, and a session that ends
+There are no API keys, and your memory leaves your machine only through Claude Code
+itself. Counterparts makes one request of its own: once a day, the background worker that
+Claude Code's hooks start asks registry.npmjs.org for the newest version number, and sends
+nothing about you or your memory. To stop it, set `"updateCheck": false` in
+`~/.counterparts/claude-code.json`, or ask Claude to stop the update reminders.
+`COUNTERPARTS_UPDATE_CHECK=off` or Claude Code's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+stops it too, set in the environment Claude Code runs in. Search by meaning runs on a small model on your machine, and a session that ends
 before it's written up is written up by the next session in that project.
 
 That small model finds close paraphrases ("my doctor" finds a note about a physician), but

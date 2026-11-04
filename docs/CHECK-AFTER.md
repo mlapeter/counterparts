@@ -37,6 +37,10 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 11-04 | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
+| Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
+| Hosted's backups let go of a chat-deleted memory "within about two days" (HD1): the 24 h hold, the timer's erase, then Litestream's 12 h snapshot retention plus its unstated enforcement lag | unreleased, 11-04 (HD1 PR); starts at the first hosted deploy with HD1 | **~48 h after the test erase** (dated reminder set at the deploy): on Mike's hosted account, hold and erase one throwaway memory with a unique word, then grep the R2 bucket's newest snapshot for that word. "About two days" goes on /privacy/ only once that passes | [below](#48-h-after-the-first-hosted-chat-delete-hd1-backups) |
+| The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to run the night, then answer (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -116,6 +120,123 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Folder attribution (FS1)
+
+FS1 (2026-11-04, from the developer week's three ambers; a fix, no switch): `dream/slices.ts#nightFolder`,
+`core/counterpart-wake-shape.ts` (Coming up), `handoff/last-here.ts#placeWords`. No date: read it on the next developer
+week at tier 2, or on a week of Mike's shaped wakes after release.
+
+- **Night rows by folder.** A dream's merges and gists by `origin_scope`: work in its majority folder (a tie, the newest
+  source's), never none; personal ones under the folder they share, else none. Expect no "Since yesterday, here" item
+  in a folder that is another folder's work. The cost to look for: a cross-folder work fold shows only in its majority
+  folder, so the minority folder's "here" doesn't see it (recall still does). Only directories vote; a night row
+  among the sources votes with its originals' folders.
+- **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
+  `coming up` door lists it. A personal or plain dated item is still due in every folder.
+- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me line and "Work
+  here"'s "(from …)" name
+  folders by their last part. Two of a name print their paths. A name that reads ambiguous (two repos called `app`
+  under one wake, only one of them named) would say the collision set should be wider.
+
+Revert: `nightFolder` returning the dream's own `scope`; `todayAll`/`other` back to `c.today` / `!c.today && !c.mine`;
+`placeWords` back to the `~`-path.
+
+## Due ~2 weeks after chat delete (HD1)
+
+(2026-11-04, Mike's yes 09:16, lightly held.) **What we're trying.** A person can ask Claude to delete one memory.
+The model's call only HOLDS it (`core/removal-hold.ts`: a `held` row in `removal_record`, which the deny-list reads),
+and the erase is the console's own `ownerRemoval`, run by an owner-side clock after 24 hours of wall-clock time:
+`sweepHeldRemovals` from the worker (`runner.ts`, step `removals`) on local and from `hosted/src/app.ts#finishDueHolds`
+(every ten minutes, stores with `stores.removal_due_at` due) on hosted. `remove.undo` appends `released`. Only an id
+the conversation was shown; refused in a local night run.
+
+**What to look at, ~2 weeks after release.** Read-only, ids and counts only, never a body. Per store (Mike's live store;
+on hosted, each tenant through the operator's read):
+
+```sql
+-- holds placed, undone, and erased, by stage and actor
+SELECT stage, actor, COUNT(*) FROM removal_record WHERE at > strftime('%s','now','-21 days') * 1000 GROUP BY stage, actor;
+-- an erase that ran late: complete more than 24 h 15 min after its newest hold
+SELECT h.memory_id, (c.at - h.at) / 60000 AS minutes FROM
+  (SELECT memory_id, MAX(at) AS at FROM removal_record WHERE stage = 'held' GROUP BY memory_id) h
+  JOIN (SELECT memory_id, MIN(at) AS at FROM removal_record WHERE stage = 'complete' GROUP BY memory_id) c USING (memory_id)
+WHERE c.at - h.at > (24 * 60 + 15) * 60000;
+-- a hold past its window and still waiting (the sweep never ran, or failed)
+SELECT memory_id FROM removal_record GROUP BY memory_id
+HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage = 'released' THEN seq END), 0)
+   AND SUM(stage IN ('dark','chased','complete')) = 0
+   AND MAX(CASE WHEN stage = 'held' THEN at END) < (strftime('%s','now') - 86400 - 3600) * 1000;
+```
+
+- Hosted's control database: `audit` rows `removal.held`, `removal.erased` (with its unchased count),
+  `removal.failed` and `removal.sweep.failed`. Any `failed` row, or an `erased` with unchased surfaces above 0 (the
+  likely one: the write-ahead log's TRUNCATE checkpoint coming back busy against Litestream's read lock), gets a look.
+- On local, the worker's `runner.holds` and `holds.threw` log lines.
+- Claims: each erase is preceded by an `erasing` row (the sweep's claim, one transaction; an undo is refused once it
+  exists). More than one `erasing` after a hold is an erase that failed and was tried again after its backoff (an hour,
+  doubling, at most a day); hosted audits `removal.failed` at the first failure only.
+- How long one erase takes on a real hosted store: `ownerRemoval` rebuilds the cache (`rebuildCache()`, vectors
+  dropped and re-embedded) and VACUUMs both databases inside the tenant's queue, so the person's calls wait on it.
+- Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text
+  the model read); none at all says little.
+
+**What would change it:** an erase that fails or runs late (the clock isn't running where we think); a delete nobody
+asked for (the first one is when a rate cap or a confirm step gets added: guards loose-first); people asking for
+a "recently deleted" list on the account page.
+
+**How to revert:** drop `remove` from `remember`'s schema (`tools.ts#REMOVE_PROPERTY`) and its dispatch in
+`server.ts#rememberTool`; release any holds left (`remove.undo`, or append `released`). The `held` stage, the sweep and
+the column can stay inert. The store's format never changed (still v15).
+
+## ~48 h after the first hosted chat delete (HD1 backups)
+
+(2026-11-04, fix round item 4.) **What we're checking.** The hosted reply says a deleted memory is "gone from our
+backups within about two days". The bound is read from the code (`server-words.ts#deletedNote`'s comment: 24 h hold +
+up to 10 min for the timer + Litestream's 12 h `snapshot.retention` + its retention-enforcement lag, which its docs
+don't state), not measured. **The check, once, after the first deploy with HD1:** on Mike's hosted account, write a
+throwaway memory carrying one unique made-up word, recall it, delete it, and let the timer erase it 24 h later (the
+audit's `removal.erased` row says when). About 48 h after the hold, restore the R2 bucket's newest snapshot to a
+scratch directory with the operator's tools (never the live service's data) and grep it for the word, and the write-ahead
+log segments after it. **Passes:** the word is in no snapshot or segment. **Fails:** it is; then the lag is longer
+than the reply assumes, and the reply's "within about two days" and the /privacy/ copy wait for a measured number.
+"About two days" goes on /privacy/ only once this passes. It covers our Litestream/R2 copies only: Railway's own
+volume snapshots ("multiple times per day, with retention ... varying by storage tier", its SOC 3) have a retention
+we don't know yet (Mike is asking Railway); the reply and /privacy/ name them without a time until we do.
+
+## The first claude.ai chat of the day runs the night (HN1)
+
+HN1 (2026-11-04, ROADMAP's go 09:41, Mike's design 11-03, lightly held), in `mcp/server.ts#claudeAiNight` and
+`server-words.ts#claudeAiNightLine`. Read ~1 week after the hosted deploy, from the hosted call log (`[hosted] mcp`
+lines: tool, session, ok, reason, the hashed store; no words) and what people say. Nobody reads a person's store.
+
+- **Where nights start.** Per store and day, the session that called `dream` successfully: one whose connection's
+  `initialize` named claude.ai's client is a chat's night; `claude-code` with a `wake` that had `night: true` before it
+  is a routine's (the call log doesn't keep arguments, so tell them apart by client name and by a launch within a few
+  calls of the wake). Expect most nights from a chat, and the routine where people set one up.
+- **Double starts.** Two sessions on one store and day that both reached `dream` `begin`: the second should be refused
+  (`dreaming-now` or `dreamed-today`). Any day with two journaled dreams, or two successful `begin`s, is a bug in the
+  latch. A routine meeting refusals after a chat's night is expected, not a double start.
+- **Nights that didn't finish.** A `launch` with no `begin` after it, or a `begin` with no `journal`, in a chat:
+  claude.ai cut the reply, or the model stopped. A later chat picking it up after 30 minutes is the designed recovery.
+- **Days that owed a night and got none.** Stores active on two days in a row with no `dream` call on the second: the
+  model ignored the line, or the gate wasn't met (fewer than three new memories). Count which, if the log can say.
+- **Light days get no in-chat night, by design.** A day with fewer than three new memories (the dream's `MIN_NEW`)
+  gets no night line, and so no day's end either: hosted has no catch-up for owed write-ups. ROADMAP 11-04: fine as
+  built. Watch only whether light-use accounts go many days without a night, or say their memory doesn't seem to sort.
+- **Night first, on real claude.ai** (Mike 11-04, lightly held: "we can see how it goes"). In the first real
+  claude.ai week, read how the wait felt (the answer comes after the night's calls, ~25–60 s) and whether the question
+  got answered every time. Answer-first stays the cheap way back if real claude.ai differs: on the M1 rig (`claude -p`,
+  Sonnet 5.5) it left the answer only in the model's thinking in 5 of 5 runs, so it was never tested on claude.ai.
+- **A model low on budget skips the night.** On the M1 rig (run F, a $0.15 cap with a cold prompt cache) the model was
+  told its budget was nearly used, answered, and offered to run the night next time; the day's claim then holds until
+  a later chat picks it up after 30 quiet minutes, at most twice a day (`RELAUNCHES_PER_DAY`). In the first week, watch for claude.ai first chats that skip the
+  night this way (a claimed day with no `launch` from that session), and whether people near their usage limits see it.
+- **Complaints.** A person surprised by the night in their first reply, a slow first answer, or usage limits hit after
+  it. One clear complaint is reason to make `ask` hosted's default for new accounts.
+
+Revert: drop the `night` line from claude.ai's wake (`server.ts#claudeAiNight` returning null); the setting words, the
+tool words, the told lines and the manual go back with it.
 
 ## The wake knows yesterday's news (WF1)
 

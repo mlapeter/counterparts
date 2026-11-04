@@ -1435,7 +1435,6 @@ one), and closed to the night's own `recall` (`McpServer#nightClosed`). Day's en
 (`self/writer.ts`), and the page's and day summary's cites refuse one. Nor the night's tag ask (`untaggedMemories`,
 at review): a tag on one would count toward a topic card's bar. Pinned by one night through `runNight` in `test/told.test.ts`.
 
-
 ## 2026-11-04 — a carried share is marked told as it is handed over (TC1)
 
 The carry line asked the session to call the reflect tool's `told` once it had told the share. That is bookkeeping,
@@ -1463,3 +1462,22 @@ What it moves, on purpose:
   that just ran `finish` reads it, and it already holds the tool. The night's hand-back is never read by a person.
 - Still open: `closeHow`, `coreHow` and `joinHow` ask the carrying session to call reflect phases on the owner's yes.
   Those follow a yes, so the prompt has context, but a stranger can still deny one.
+
+## 2026-11-04 — FS1: where a dream files what it writes
+
+- The developer week (tier 2) caught a fold of sim's and paper's ablation work filed under evals, the folder of the
+  session that launched the night, so it showed as evals' own news. `slices.ts#nightFolder` now files by what the row
+  is. Work (its mark and kind, as `isWorkMemory` reads them; the mark comes from its sources, so a fold is personal only
+  when most of its parts are): the folder most of its sources come from, on a tie the newest source's. Anything else:
+  the folder its sources share, else none. Sources with no folder don't vote.
+- First built as "shared folder, else none" for everything. counterparts-a0 ruled against it the same afternoon: a
+  work fold with no folder reads as personal (`threadPlace`), so a dated one is due in every folder's Coming up, the
+  leak FS1 exists to stop. Work therefore always lands in one of its folders.
+- The privacy reads (`nightOriginFolders`, `restsOnClosed`, `memoryClosedTo`) still follow the originals, so they hold
+  for rows filed before FS1 and for whichever folder a work fold lands in. `dreams.scope` and the row's session are
+  unchanged.
+- Review of #750: only a directory votes (a `claude-desktop:` scope voting could land a work fold under a host name,
+  which reads as personal everywhere); with no directory among the sources, shared-or-none. A night row among the
+  sources (filed before FS1 under its night's folder) votes with its originals' folders, followed `MERGE_DEPTH` deep;
+  one whose originals are gone votes for nothing. Still open: "Still open" and "Work here" don't fence a night row by
+  its originals when a minority source's folder closes later (INTERFACE-GAPS 11).

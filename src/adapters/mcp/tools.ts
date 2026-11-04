@@ -68,6 +68,7 @@ import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE, FACTS_TAIL_SIZE } from "./facts.js"
 import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { MANUAL_HANDLE } from "./manual.js";
+import { DELETED_HANDLE } from "../../core/removal-hold.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
@@ -282,6 +283,27 @@ const CORE_DECISION_PROPERTY = {
   additionalProperties: false,
   description:
     'Optional: decide on a core memory — {id, decision: "keep" | "retire", why}. The answer to one the wake lists as being reconsidered for the core; retire sends it back to ordinary fading. Recorded as yours, with the why. Alone, or beside text.',
+};
+
+/**
+ * `remove` on `remember` (HD1, 2026-11-04; Mike's yes, lightly held): delete
+ * one memory the person asked to delete. A FIELD, not a tool — a tool would
+ * cost a new approval on claude.ai and Desktop and at least 1.2 KB on every
+ * session's list. It holds, never erases: the memory is hidden at once and the
+ * owner-side sweep erases it after 24 hours (`core/removal-hold.ts`,
+ * `sweepHeldRemovals` in `adapters/cli/`). `destructiveHint` stays false for
+ * `remember`, honestly: the call destroys nothing for a day.
+ */
+const REMOVE_PROPERTY = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    undo: { type: "boolean" },
+  },
+  required: ["id"],
+  additionalProperties: false,
+  description:
+    'Optional: delete one memory the person asks you to delete — {id}, one this conversation was shown, after saying which it is (more than one could be meant: ask first). It is hidden at once and erased after 24 hours; tell them what the result says. {id, undo: true} brings it back before then; recall "deleted" lists what waits. Alone, or beside text.',
 };
 
 /**
@@ -754,7 +776,7 @@ const REMEMBER: ToolSpec = {
       text: {
         type: "string",
         description:
-          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark` or `core` is sent. " + OWN_PLUMBING_RULE,
+          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent. " + OWN_PLUMBING_RULE,
       },
       updates: {
         type: "string",
@@ -808,6 +830,7 @@ const REMEMBER: ToolSpec = {
       feelingsNow: FEELINGS_NOW_PROPERTY,
       remark: REMARK_PROPERTY,
       core: CORE_DECISION_PROPERTY,
+      remove: REMOVE_PROPERTY,
     },
     // `text` is not required in the published schema (2026-09-29): a `settle`
     // or (2026-10-02) `feelingsNow` alone writes no memory. The server refuses
@@ -943,7 +966,7 @@ const RECALL: ToolSpec = {
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
       },
       ids: {
         type: "array",
@@ -2227,8 +2250,8 @@ export const CLAUDE_AI_WAKE: ToolSpec = {
     },
     {
       claim:
-        "It starts the background worker that sleeps and fades memories, as a session start does. It offers no dream line here: on claude.ai the night is the person's own routine, through the dream tool, and never the headless nightly run.",
-      mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#wakeTool",
+        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it, then answer (or to ask first, on ask): the day's one claim decides, so one conversation at a time is told — a later one only if the first never ran it (at most twice more a day) — and none while a night is under way or after one ran. It never starts the headless nightly run.",
+      mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#claudeAiNight -> src/core/dream/index.ts#claimOffer",
     },
     {
       claim: "Under observer stance it stands down over the wire and says so.",
@@ -2285,7 +2308,9 @@ function withClaudeAiSession(spec: ToolSpec): ToolSpec {
  * dream line and has no background agent: its nights are a scheduled run the
  * person set up, which wakes with `night: true`, launches, and follows the
  * run's prompt itself, in that same run. So `dream` and `reflect` name that
- * routine, and in an ordinary conversation run only when the person asks.
+ * routine, and in an ordinary conversation run only when the person asks —
+ * or, since HN1 (2026-11-04), when the day's first conversation's wake says
+ * it runs the night.
  * The every-host words — "the day's dream line", "a background agent", "Do
  * NOT run the dream yourself in this conversation" — would fight the
  * routine's own prompt. A replaced negative still says "Do NOT", and the
@@ -2322,20 +2347,20 @@ export const CLAUDE_AI_WORDS: Readonly<
   },
   dream: {
     summary:
-      "Dreaming, in the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+      "Dreaming, once a day — run by the day's first conversation before it answers, or the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
     admission:
-      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In an ordinary conversation, call `launch` only when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
+      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In a conversation, call `launch` when the wake says this conversation runs the night (then answer), or when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
     negativeExamples: [
-      "Do NOT start a dream nobody asked for: it runs in the routine the person set up, on its prompt, or in a conversation on the person's word — never on your own.",
+      "Do NOT start a dream nobody asked for: it runs when the wake says this conversation runs the night, in the routine the person set up, on its prompt, or on the person's word — never on your own.",
       "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",
       "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
     ],
   },
   reflect: {
     summary:
-      "Reflection: a few quiet, awake minutes — usually at the end of the person's night routine, after the dream — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+      "Reflection: a few quiet, awake minutes — usually at the end of the night, after the dream (in the day's first conversation or the person's night routine) — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
     admission:
-      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In an ordinary conversation, call `launch` only when the person asks you to reflect, and follow its prompt there yourself. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the person's word about a share's open threads.",
+      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In a conversation, call `launch` when the person asks you to reflect, or when the wake says to finish a reflection that was cut off, and follow its prompt there yourself. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the person's word about a share's open threads.",
   },
 };
 
@@ -2407,6 +2432,23 @@ export const CLAUDE_AI_SCOPE: ToolSpec = {
   },
 };
 
+/**
+ * THE `dream` SETTING'S VALUE, IN THE CHAT'S WORDS (HN1, review of #740):
+ * every host's says the host starts the run itself, in a separate session —
+ * Claude Code's background run, which claude.ai has none of. Here the day's
+ * first conversation runs it.
+ */
+export const CLAUDE_AI_DREAM_VALUE =
+  "`setting`: auto (the day's first conversation runs the night itself, then answers, and says so in one line), ask (that conversation asks the person first), or off (no dreams).";
+
+function withClaudeAiDreamValue(spec: ToolSpec): ToolSpec {
+  if (spec.name !== "dream") return spec;
+  const schema = spec.inputSchema as { properties?: Record<string, Record<string, unknown>> };
+  const value = schema.properties?.["value"];
+  if (value === undefined) return spec;
+  return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...schema.properties, value: { ...value, description: CLAUDE_AI_DREAM_VALUE } } } };
+}
+
 function withClaudeAiWords(spec: ToolSpec): ToolSpec {
   const words = CLAUDE_AI_WORDS[spec.name as ToolName];
   return words === undefined ? spec : { ...spec, ...words };
@@ -2416,7 +2458,7 @@ function withClaudeAiWords(spec: ToolSpec): ToolSpec {
  *  able to name its session, in the chat's words where those differ. */
 export const CLAUDE_AI_TOOLS: readonly ToolSpec[] = [
   CLAUDE_AI_WAKE,
-  ...TOOLS.map((t) => withClaudeAiSession(t.name === "scope" ? CLAUDE_AI_SCOPE : withClaudeAiWords(t))),
+  ...TOOLS.map((t) => withClaudeAiSession(t.name === "scope" ? CLAUDE_AI_SCOPE : withClaudeAiDreamValue(withClaudeAiWords(t)))),
 ];
 
 /**

@@ -77,3 +77,10 @@ What this module still owes, or asks of others (2026-09-26).
     `note` settle is attributed to the launching session on the trail. The dream bundle
     shows unsettled pairs on "my mind" by their two memories, not by pair id (the settle
     action takes `holds` / `over`, so it does not need it).
+11. **A night row's folder fence in "Still open" and "Work here" (2026-11-04, FS1 review).** A dream's
+    work merge or fold is filed under its sources' majority folder (`slices.ts#nightFolder`). "Still open"
+    (`Counterpart#threadReader` → `threadPlace`) and "Work here" read that row by its own `origin_scope`
+    only, so when a minority source's folder is set off or paused later, the row still shows in the
+    majority folder's wake with that folder's words in it. The wake's Coming up (`memoryClosedTo`) and
+    day's end (`nightOriginFolders`) already fence a night row by its originals. This predates FS1 (a
+    row filed under the launching folder had the same hole); not fixed there.
