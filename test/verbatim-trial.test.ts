@@ -52,7 +52,7 @@ describe("the writing tools ask for lists, tables and pasted texts word for word
       expect(text).toContain("A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized");
       expect(text).toContain("the words someone would search for (what it is, whose, when) in the title and the first line");
     }
-    expect(String(field("remember")["description"])).toMatch(/Required unless `settle`, `feelingsNow`, `remark` or `core` is sent\.$/);
+    expect(String(field("remember")["description"])).toMatch(/Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent\.$/);
   });
 });
 
