@@ -51,7 +51,12 @@ ended up with canonical state spread across a prose store plus half a dozen side
   (HD1) the deny-list also holds a memory a chat deleted and the 24-hour hold still keeps
   (`held` with no later `released`): hidden from every reader at once, read through the hold
   only by `heldProse` (the erase, the `deleted` handle, an undo), and back whole on
-  `released`. The stages are text in the record, so no format change.*
+  `released`. The stages are text in the record, so no format change. The sweep's erase is
+  preceded by `erasing`, its CLAIM: appended in one write transaction only while the hold is
+  still unreleased and unclaimed (`appendRemovalRecord`'s `unless`), as an undo's `released`
+  is only while it is unclaimed, so of an undo and an erase exactly one lands, and of two
+  erasers one erases. A claimed hold stays denied; `isHeld`/`pendingHolds` leave it out
+  (it can't be undone), `holds`/`holdState` and `heldProse` still see it (HD1 fix round).*
 - **Per-item persistence isolation** — one item that fails to serialize is logged and
   skipped; the rest persist. [v1] §16 G6.
 - **Three dates, deliberately distinct**: when it happened (at stated precision, never
