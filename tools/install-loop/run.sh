@@ -376,7 +376,9 @@ if [ -z "$HOOK_CMD" ]; then
 else
   OUT=$(payload SessionStart "bunless-$$" | env -i HOME="$HOME" PATH="/usr/bin:/bin" sh -c "$HOOK_CMD" 2>"$WORK/bunless.err")
   CODE=$?
-  if [ "$CODE" = "0" ] && grep -q "has not lived a boundary" <<<"$OUT"; then
+  # Either wake proves the hook ran: the bootstrap line (the wake's shape off) or
+  # the shaped first wake (on for a new store since 0.3.46, WF1).
+  if [ "$CODE" = "0" ] && { grep -q "has not lived a boundary" <<<"$OUT" || grep -q "This memory is for Your Name" <<<"$OUT"; }; then
     ok
   else
     no "the printed hook command failed without bun on PATH (exit $CODE): $HOOK_CMD" "$OUT
@@ -585,13 +587,17 @@ fi
 
 # ── 4. the SessionStart hook ────────────────────────────────────────────────
 
-step "SessionStart returns the honest bootstrap line on a store that never woke"
+step "SessionStart returns an honest first wake on a store that never woke"
+# With the wake's shape off: the bootstrap line. With it on (a new store's
+# default since 0.3.46, WF1): a composed wake that says day 0, counts the
+# starter notes apart and says we've only just met.
 OUT=$(payload SessionStart | counterparts-hook 2>"$WORK/hook.err")
 HOOK_CODE=$?
-if [ "$HOOK_CODE" = "0" ] && grep -q "has not lived a boundary" <<<"$OUT"; then
+if [ "$HOOK_CODE" = "0" ] && { grep -q "has not lived a boundary" <<<"$OUT" ||
+   { grep -q "day 0 · .* · 11 starter notes" <<<"$OUT" && grep -q "We've only just met" <<<"$OUT"; }; }; then
   ok
 else
-  no "expected the bootstrap line and exit 0 (got exit $HOOK_CODE)" "$OUT
+  no "expected the bootstrap line or a day-0 shaped wake, and exit 0 (got exit $HOOK_CODE)" "$OUT
 $(cat "$WORK/hook.err")"
 fi
 
@@ -700,7 +706,9 @@ if grep -q "has not lived a boundary" <<<"$OUT"; then
   no "still the bootstrap line after a rebrief" "$OUT"
 elif grep -q "Who I am:" <<<"$OUT" &&
      grep -q "This memory is for Your Name" <<<"$OUT" &&
-     grep -q "identity=0" <<<"$OUT"; then
+     { grep -q "identity=0" <<<"$OUT" || grep -q "We've only just met" <<<"$OUT"; }; then
+  # identity=0 is the unshaped wake's tag; the shaped one (a new store's default
+  # since 0.3.46) carries no lane counts and says the empty lane in words.
   ok
 else
   no "the wake did not name the core the install seeded" "$OUT
@@ -923,8 +931,14 @@ OUT=$(payload SessionStart "$NEXT_SESSION" | counterparts-hook 2>"$WORK/hook-nex
 if grep -q '"isError":true' <<<"$HANDED$PLANNED"; then
   no "the handoff or the note was refused" "$HANDED
 $PLANNED"
-elif grep -q "Where this folder stands: a handoff" <<<"$OUT" &&
-     grep -q "Since this handoff: Publish only after the docs pass (planned, mem_[0-9a-f]\{12\})" <<<"$OUT"; then
+elif { grep -q "Where this folder stands: a handoff" <<<"$OUT" &&
+       grep -q "Since this handoff: Publish only after the docs pass (planned, mem_[0-9a-f]\{12\})" <<<"$OUT"; } ||
+     { grep -q "^Where this folder stands:$" <<<"$OUT" &&
+       grep -q "^Handoff, session " <<<"$OUT" &&
+       grep -q "^Since, here:$" <<<"$OUT" &&
+       grep -q "^- \[planned\] Publish only after the docs pass" <<<"$OUT"; }; then
+  # The first pair is the unshaped wake's words; the second the shaped wake's
+  # (a new store's default since 0.3.46, WF1), the plan under the handoff.
   ok
 else
   no "the next wake did not name the plan under the handoff" "$(cat "$WORK/hook-next.err")
