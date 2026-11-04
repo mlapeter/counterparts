@@ -593,3 +593,56 @@ describe("HD1 fix round: one claim per erase, the undo it can't outrun, and the 
     await mcp.close();
   }, 60_000);
 });
+
+describe("HD1, ROADMAP 11:55: a deletion that never gets erased is seen", () => {
+  test("`counterparts doctor` names a hold more than 48 h past its erase (amber, with the console's way out), and says nothing of one still inside", async () => {
+    const { holdForRemoval } = await import("../src/core/removal-hold.js");
+    const s = Store.open({ dir: store });
+    let late: string;
+    let fresh: string;
+    try {
+      late = s.put({ type: "memory", kind: "fact", body: VICTIM });
+      fresh = s.put({ type: "memory", kind: "fact", body: OTHER });
+      expect(holdForRemoval(s, fresh).ok).toBe(true);
+    } finally {
+      s.close();
+    }
+    const doctor = async (): Promise<{ key: string; severity: string; detail: string; fix: string }[]> => {
+      const out: string[] = [];
+      await run(["doctor", `--config=${configPath}`, "--json"], { io: { out: (l) => out.push(l), err: () => {} }, env: {}, home });
+      return (JSON.parse(out.join("\n")) as { findings: { key: string; severity: string; detail: string; fix: string }[] }).findings;
+    };
+    // Only a hold inside its window: no line.
+    expect((await doctor()).find((f) => f.key === "deletions-overdue")).toBeUndefined();
+    // A hold placed 73 hours ago that no worker has erased (24 h + 49 h).
+    const w = Store.open({ dir: store });
+    try {
+      w.appendRemovalRecord({ memoryId: late, stage: "held", actor: "self", reason: "asked in chat" }, { at: Date.now() - 73 * 3_600_000 });
+    } finally {
+      w.close();
+    }
+    const line = (await doctor()).find((f) => f.key === "deletions-overdue");
+    expect(line?.severity).toBe("amber");
+    expect(line?.detail).toStartWith("1 deletion overdue: a memory deleted in chat is still not erased, more than 48 hours after the erase was due");
+    expect(line?.fix).toContain(`counterparts remove ${late} --confirm`);
+    expect(line?.fix).not.toContain(fresh);
+    expect(JSON.stringify(line)).not.toContain("garage calendar");
+    // R1-a: a hold the sweep CLAIMED and didn't finish (its erase failed) has left the
+    // wake's count and the `deleted` list, so doctor names it once the claim's lease has passed.
+    const { claimHold, CLAIM_LEASE_MS } = await import("../src/core/removal-hold.js");
+    const c = Store.open({ dir: store });
+    try {
+      const at = c.holdState(fresh)!.at;
+      expect(claimHold(c, fresh, at + REMOVAL_HOLD_MS)).toBe(true);
+      expect(c.pendingHolds().map((h) => h.id)).not.toContain(fresh);
+      const { overdueDeletionFindings } = await import("../src/adapters/claude-code/doctor.js");
+      expect(overdueDeletionFindings(c, at + REMOVAL_HOLD_MS + CLAIM_LEASE_MS - 1)[0]?.data["overdue"]).toBe(1);
+      const claimed = overdueDeletionFindings(c, at + REMOVAL_HOLD_MS + CLAIM_LEASE_MS)[0];
+      expect(claimed?.data["overdue"]).toBe(2);
+      expect(claimed?.data["tried"]).toBe(1);
+      expect(claimed?.fix).toContain(`counterparts remove ${fresh} --confirm`);
+    } finally {
+      c.close();
+    }
+  }, 60_000);
+});

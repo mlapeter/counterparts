@@ -20,6 +20,7 @@ import { exportStore as exportCoreStore } from "../../src/adapters/cli/export.js
 // run by this file's timer — never by anything a model talks to. This is the
 // one file under hosted/src that may import it (`test/cli.test.ts` pins it).
 import { sweepHeldRemovals } from "../../src/adapters/cli/removal.js";
+import { overdueHolds } from "../../src/core/removal-hold.js";
 
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
@@ -84,7 +85,7 @@ export interface AppOptions {
    * `storeTag` too (R5); and a delete's email that didn't send
    * (`delete.mail.failed`, by `storeTag`; R9).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -421,6 +422,12 @@ export function createApp(opts: AppOptions): App {
    * holds included, and a keep brings the deadline back to this timer.
    * Audited by counts, never an id of a memory. Returns how many were erased.
    */
+  /**
+   * Holds already said to be overdue, by store and memory, so the log line
+   * comes once per hold, not every tick (ROADMAP 11:55). In memory: a restart
+   * says each still-overdue one once more. Never logged itself.
+   */
+  const overdueSaid = new Set<string>();
   const finishDueHolds = async (): Promise<number> => {
     let erased = 0;
     for (const storeId of accounts.removalsDue()) {
@@ -430,7 +437,18 @@ export function createApp(opts: AppOptions): App {
       try {
         const report = await tenants.withTenant(storeId, {}, (t, server) =>
           t.serial(async () => {
-            const swept = sweepHeldRemovals(server.counterpart.store, { now: (opts.now ?? Date.now)() });
+            const now = (opts.now ?? Date.now)();
+            const swept = sweepHeldRemovals(server.counterpart.store, { now });
+            // A HOLD WHOSE ERASE KEEPS FAILING IS SEEN (ROADMAP 11:55): once
+            // it is 48 h past its erase time, or claimed by an erase that
+            // didn't finish (`overdueHolds`, R1-a), one codes-only log line
+            // per hold — the store's tag and the event, never the memory.
+            for (const h of overdueHolds(server.counterpart.store, now)) {
+              const key = `${storeId}\u0000${h.id}`;
+              if (overdueSaid.has(key)) continue;
+              overdueSaid.add(key);
+              opts.onEvent?.("removal.overdue", storeTag(storeId));
+            }
             // INSIDE the store's queue, beside the sweep: a hold written by a
             // call queued behind it sets its own due time after this, never
             // before it — so this can't wipe a new hold's time and leave it

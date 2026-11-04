@@ -20,6 +20,7 @@ import * as oauth from "oauth4webapi";
 
 import { Accounts } from "../src/accounts.js";
 import { createApp } from "../src/app.js";
+import { eventLine } from "../src/main.js";
 import type { App } from "../src/app.js";
 import { memoryMailer } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
@@ -80,6 +81,8 @@ interface Rig {
   origin: string;
   mail: ReturnType<typeof memoryMailer>;
   clock: { at: number };
+  /** The app's events (`serve` turns each into a `[hosted]` log line). */
+  events: { name: string; store: string }[];
 }
 
 async function rig(): Promise<Rig> {
@@ -87,7 +90,9 @@ async function rig(): Promise<Rig> {
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
   const clock = { at: Date.now() };
+  const events: { name: string; store: string }[] = [];
   const app = createApp({
+    onEvent: (name, store) => events.push({ name, store }),
     dataRoot: join(tmp.root, "data"),
     publicOrigin: origin,
     mailer: mail,
@@ -106,7 +111,7 @@ async function rig(): Promise<Rig> {
         app.server.closeAllConnections?.();
       }),
   );
-  return { app, origin, mail, clock };
+  return { app, origin, mail, clock, events };
 }
 
 /** Sign up through Allow and the token exchange: what claude.ai does. */
@@ -296,7 +301,7 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     }
   });
 
-  test("a night under way in the store (claude.ai's in-chat night): remove waits until it has journaled (fix round item 1)", async () => {
+  test("a night under way in the store (claude.ai's in-chat night): a delete waits until it has finished; an undo always goes through (fix round item 1, ROADMAP 11:55)", async () => {
     const r = await rig();
     const who = await connect(r, "night@example.com");
     const url = `${r.origin}/mcp`;
@@ -311,6 +316,10 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     const victim = String((await call("remember", { session: day, text: VICTIM, title: "Where the spare key is", about: "owner" }))["id"]);
     await call("recall", { session: day, ids: [victim] });
 
+    // A delete placed BEFORE the night: allowed, as any day's.
+    const before = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
+    assert.equal(before["reason"], "held", JSON.stringify(before));
+
     // The night, in another chat, as the routine runs it: launch, writer, begin.
     const night = String((await call("wake", { night: true }))["session"]);
     await call("dream", { phase: "launch", session: night });
@@ -319,7 +328,12 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     const dreamId = String(begun["dream"]);
     assert.ok(dreamId.length > 0, JSON.stringify(begun));
 
-    // A dream begun and not journaled: the day chat's delete waits.
+    // An UNDO during the night always goes through (ROADMAP 11:55): it only restores.
+    const undoDuring = (await call("remember", { session: day, remove: { id: victim, undo: true } }))["remove"] as Record<string, unknown>;
+    assert.equal(undoDuring["reason"], "released", JSON.stringify(undoDuring));
+    assert.equal(await inStore((s) => s.readProse(victim).body), VICTIM);
+
+    // A DELETE during a dream begun and not journaled waits.
     const during = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
     assert.equal(during["ok"], false);
     assert.equal(during["reason"], "night-under-way");
@@ -339,9 +353,54 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     const after = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
     assert.equal(after["ok"], true, JSON.stringify(after));
     assert.equal(after["reason"], "held");
-    // And so does its undo: the night refused nothing outside its window.
-    const undo = (await call("remember", { session: day, remove: { id: victim, undo: true } }))["remove"] as Record<string, unknown>;
-    assert.equal(undo["reason"], "released");
+  });
+
+  test("a hold whose erase keeps failing is said once in the log, codes only, once 48 h past due; retried on a backoff, audited once", async () => {
+    const r = await rig();
+    const who = await connect(r, "overdue@example.com");
+    const url = `${r.origin}/mcp`;
+    await tool(url, "wake", {}, bearer(who.access));
+    const inStore = <T>(fn: (store: NonNullable<Parameters<Parameters<App["tenants"]["withTenant"]>[2]>[1]>["counterpart"]["store"]) => T): Promise<T> =>
+      r.app.tenants.withTenant(who.storeId, {}, (t, server) => t.serial(async () => fn(server.counterpart.store)));
+    // A hold the erase can never finish: its id names no row (the plan refuses
+    // `unknown-id` every time), standing in for an erase that keeps failing.
+    const ghost = "mem_0000000000000000ghost";
+    const heldAt = await inStore((s) => {
+      s.appendRemovalRecord({ memoryId: ghost, stage: "held", actor: "self", reason: "asked in chat" });
+      return s.holds(ghost)[0]!.at;
+    });
+    r.app.accounts.noteRemovalDue(who.storeId, heldAt + REMOVAL_HOLD_MS);
+    const failedAudits = (): number => {
+      const control = openDb(join(tmp.root, "data", "control", "accounts.sqlite"));
+      try {
+        return control.all<{ n: number }>("SELECT action FROM audit WHERE store_id = ? AND action = 'removal.failed'", who.storeId).length;
+      } finally {
+        control.close();
+      }
+    };
+    const overdue = (): { name: string; store: string }[] => r.events.filter((e) => e.name === "removal.overdue");
+    // Due, tried, failed: audited once, and not yet overdue (inside 48 h past due).
+    r.clock.at = heldAt + REMOVAL_HOLD_MS + 60_000;
+    await until(async () => (await inStore((s) => s.holds(ghost)[0]?.claims ?? 0)) >= 1, "the first try");
+    await new Promise((res) => setTimeout(res, TICK_MS * 6));
+    assert.equal(failedAudits(), 1);
+    assert.equal(overdue().length, 0);
+    // 48 h past due: the next try fails again (its backoff has passed), and the log says it ONCE.
+    r.clock.at = heldAt + REMOVAL_HOLD_MS + 48 * 3_600_000 + 60_000;
+    await until(() => overdue().length >= 1, "the overdue line");
+    await new Promise((res) => setTimeout(res, TICK_MS * 6));
+    r.clock.at += 25 * 3_600_000;
+    await until(async () => (await inStore((s) => s.holds(ghost)[0]?.claims ?? 0)) >= 3, "a later try");
+    await new Promise((res) => setTimeout(res, TICK_MS * 6));
+    assert.equal(overdue().length, 1, JSON.stringify(r.events));
+    assert.equal(failedAudits(), 1, "audited at the first failure only");
+    // Codes only: the store's tag, never the memory's id.
+    assert.ok(!JSON.stringify(r.events).includes(ghost));
+    assert.ok(!JSON.stringify(r.events).includes(who.storeId));
+    const line = eventLine("removal.overdue", overdue()[0]!.store);
+    assert.match(line, /^\[hosted\] removal\.overdue storeTag=\S+: a memory deleted in chat is overdue: more than 48 h past its erase/);
+    // Still hidden, and the console's door is the way out.
+    assert.equal(await inStore((s) => s.holds(ghost).length), 1);
   });
 
   test("the control database's new column: added by a migration that is safe to run twice", () => {

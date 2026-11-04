@@ -256,6 +256,7 @@ export function callLine(r: HostedCallRecord): string {
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;
+  if (name === "removal.overdue") return `[hosted] ${name} storeTag=${store}: a memory deleted in chat is overdue: more than 48 h past its erase, or claimed by an erase that didn't finish (it keeps failing, or the timer never reached it). It stays hidden; the audit has removal.failed. Said once per hold\n`;
   if (name === "delete.mail.failed") return `[hosted] ${name} storeTag=${store}: a delete's email (R9) didn't send. The delete stands; the person saw its page. The audit has it\n`;
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
   if (name.startsWith("backup.keyless.")) {

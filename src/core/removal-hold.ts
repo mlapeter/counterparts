@@ -205,6 +205,33 @@ export function dueHolds(store: Store, now: number): { id: string; at: number; c
     .map((h) => ({ id: h.id, at: h.at, claims: h.claims }));
 }
 
+/**
+ * HOW LATE AN ERASE MAY RUN BEFORE IT IS SAID OUT LOUD (ROADMAP 11:55): a hold
+ * still active this long after its 24 hours is overdue — the sweep never ran
+ * (local: no session since), or its erase keeps failing. Doctor names it on
+ * local; hosted logs a codes-only line once per hold.
+ */
+export const REMOVAL_OVERDUE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * Active holds that are OVERDUE at `now`, oldest first: more than
+ * `REMOVAL_OVERDUE_MS` past their erase time, or CLAIMED and not finished
+ * past the claim's lease (an erase that failed, or whose process died) —
+ * a claimed hold has left the `deleted` list and the wake's count, so this is
+ * where it is still seen (review of 474db3cf, R1-a). A claim younger than the
+ * lease is an erase running now, and is not.
+ */
+export function overdueHolds(store: Store, now: number): { id: string; at: number; claims: number }[] {
+  return store
+    .holds()
+    .filter(
+      (h) =>
+        h.at + REMOVAL_HOLD_MS + REMOVAL_OVERDUE_MS <= now ||
+        (h.claims > 0 && h.claimedAt !== null && now - h.claimedAt >= CLAIM_LEASE_MS),
+    )
+    .map((h) => ({ id: h.id, at: h.at, claims: h.claims }));
+}
+
 /** Recall's handle for the holds waiting (HD1): each by title, with when it goes, to undo one. */
 export const DELETED_HANDLE = "deleted";
 
