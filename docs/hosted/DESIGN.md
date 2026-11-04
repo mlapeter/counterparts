@@ -383,9 +383,11 @@ library, plus the test-only clients `oauth4webapi` and the MCP SDK client as dev
     **In `dir` mode one key covers every database** (**V**, config reference).
   - It opens databases through its own SQLite driver and checks each file's header (**V**). An encrypted file would
     almost certainly not replicate (**I**).
-- **Railway's volume encryption is unverified.** Forum and bot answers from 2026 say AES-256 covers volumes and backups
-  automatically. Two-year-old answers say volumes weren't encrypted (**F**). There is nothing in Railway's docs. **Before
-  any non-family user, Mike gets this in writing (trust.railway.com, SOC 2 report or support).**
+- **Railway's volume encryption: confirmed in writing, 2026-11-04.** Railway's SOC 3 report (period ending 2026-04-22,
+  unqualified opinion) says AES-256 at rest, volume-level on Railway's own metal and Cloud KMS on GCP, backups encrypted
+  too (notes: `2026-11-04-railway-soc3.md`). The catch from the same report: Railway snapshots customer volumes multiple
+  times a day, with retention by storage tier that we don't know. Mike is asking Railway. Until it answers, "gone from
+  our backups within about two days" covers only our Litestream/R2 copies. Before that, forum answers disagreed (**F**).
 - **R2 supports SSE-C** and can't recover objects whose key is lost (**V**, Cloudflare docs).
 
 ### 5.2 Recommendation (Q2): volume at rest plus per-user-key backups, not file encryption, for the beta
@@ -539,7 +541,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   - The account page, the done pages and the 202 "didn't finish" page all say "purged within 24 hours" (of the erase).
 
 **Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
-1. Railway's disk encryption confirmed in writing.
+1. Railway's disk encryption confirmed in writing. **Met 2026-11-04** (SOC 3, see §5.1); snapshot retention still open.
 2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
    means every backup. Before building it, verify the reported breach: if it's wrong, the service is still better than
@@ -638,7 +640,7 @@ R2 bucket. A move is: restore from R2 into a Fly volume, change DNS. A runbook g
 3. Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP (§5.4).
 4. Resend: verify the sending domain for the login emails.
 5. DNS: `app.counterparts.ai` to Railway, and the TLS certificate there.
-6. Written confirmation of Railway's volume encryption (before any non-family user).
+6. ~~Written confirmation of Railway's volume encryption~~ Met 2026-11-04 (SOC 3, §5.1).
 7. Optional: an outside uptime monitor.
 8. Before adding the connector to his claude.ai: extend `deniedMcpServers` in his `~/.claude/settings.json` to the hosted
    URL and name. The coordinator reminds him; it is his config.
