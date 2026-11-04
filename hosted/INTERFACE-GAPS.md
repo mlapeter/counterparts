@@ -3,7 +3,9 @@
 ## Before any non-family user
 
 1. **Gates** (DESIGN §5.4; item 2 is one more):
-   - Railway's disk encryption confirmed in writing;
+   - Railway's disk encryption confirmed in writing. Met 2026-11-04: SOC 3 (period ending 2026-04-22, unqualified) says
+     AES-256 at rest, volume-level, backups too. Open from the same report: Railway snapshots volumes several times a
+     day, retention unknown; Mike is asking Railway (DESIGN §5.1);
    - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
      both the KEK and the R2 credentials. First verify the reported Railway environment breach (unverified); it
      changes the urgency, not the direction. Its key is exported to the two offline places. With it down, a restart

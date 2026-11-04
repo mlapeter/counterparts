@@ -27,7 +27,7 @@ Offer a phrase when it fits: "Remember this", "That's wrong", "Remind me Thursda
 - "What's still open?" lists the threads the wake carries: the handle `still open`.
 - "What's coming up?" lists what's due: the handle `coming up`.
 - "Not here", "just read" or "pause this" sets the scope (see Folders).
-- "No dreams", or "dream", sets or starts the night (see Nights and dreams).
+- "No dreams", "ask first", or "dream", sets or starts the night (see Nights and dreams).
 - "Let's meet" starts the first meeting, if it hasn't happened: the `meet` tool.
 
 ## Folders
@@ -64,7 +64,7 @@ A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `
 - [local] On `auto` (a new install's default), the next day's first Claude Code session starts the night in the background, as a separate claude -p run, and says so in one line. On `ask`, that session asks first. `counterparts dream --setting off` (or `ask`, `auto`) sets it from a terminal.
 - [local] `counterparts night` lists recent nights, and `counterparts night last` shows last night's dream and reflection (since 0.3.28). `counterparts dream --undo <id>` reverses one dream as a whole.
 - [local] `counterparts catch-up` writes up, now, sessions that ended without a write-up. The night does it too.
-- [hosted] Nothing runs the night by itself. It runs when the person's nightly routine (a scheduled run they set up in Claude) calls the `dream` tool, or when they say "dream" in a chat.
+- [hosted] On `auto` (a new account's default), the day's first claude.ai chat runs the night, then answers in the same reply and says so in one line; on `ask` it asks first. One chat at a time is told (a later one only if the first never ran it), and none once a night has run. It also runs when the person's nightly routine (a scheduled run they set up in Claude) calls the `dream` tool, or when they say "dream" in a chat. To use a scheduled routine, set Counterparts' tools to Always allow first: the routine's form lists only those.
 - Either surface: the handle `last dream` (or `last night`) reads the newest dream whole, and the reflection after it.
 
 ## Seeing and changing what's kept
@@ -112,7 +112,7 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
 - There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands and no dashboard.
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
-- Nights run from the person's own routine or when they say "dream".
+- Nights run in the day's first chat, after the `wake` and before the answer (see Nights and dreams), or from the person's own routine.
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
 

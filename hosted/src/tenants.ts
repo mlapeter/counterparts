@@ -81,6 +81,8 @@ export interface TenantsOptions {
   /** What starts the worker child; this runtime and `runner.ts` by default. */
   readonly worker?: { readonly command: string; readonly args: readonly string[] };
   readonly now?: () => number;
+  /** Each store's clock, and its server's (tests that move time, e.g. a claim left quiet); the system clock when absent. */
+  readonly storeClock?: () => number;
   /** Told when a handle opens or closes. Ids only. A throw is swallowed. */
   readonly onEvent?: (name: "tenant.open" | "tenant.close", storeId: string) => void;
   /**
@@ -377,6 +379,7 @@ export class Tenants {
         erasedBy: "hosted",
         onHeld: (at: number) => this.opts.onRemovalHeld?.(storeId, at),
       },
+      ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
       lifecycle: {
         config,
         configPath,
@@ -452,11 +455,12 @@ export class Tenants {
  * server creates would otherwise never offer the first meeting. Dreaming starts
  * `auto`, as every new install does (Mike, 2026-10-11; the roadmap's ruling of
  * 2026-10-26): the setting is the PERSON'S wish, and the HOST decides who starts
- * the night. On this host nothing starts on its own — the wake makes no dream
- * offer on claude.ai (`mcp/server.ts`), and no path from the server or its
- * worker spawns a night run (that is Claude Code's hooks alone) — so the
- * person's own routine runs the night through the `dream` tool. The tests pin
- * both halves (`hosted/test/tenants.test.ts`).
+ * the night. On this host no night run is spawned — no path from the server or
+ * its worker starts one (that is Claude Code's hooks alone): the day's first
+ * claude.ai chat is told to run the night itself, then answer (HN1,
+ * `mcp/server.ts#claudeAiNight`), and the person's own routine can run it
+ * through the `dream` tool. The tests pin both halves
+ * (`hosted/test/tenants.test.ts`, `hosted/test/first-chat-night.test.ts`).
  */
 export function startNewStore(server: McpServer): void {
   const store = server.counterpart.store;

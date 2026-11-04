@@ -447,6 +447,13 @@ export interface WakeHere {
    * (`exportsFrom`). Absent: the line names no session.
    */
   readonly sessions?: () => readonly WakeSession[];
+  /**
+   * Why the host started this session, as it says it (Claude Code's
+   * SessionStart `source`: `startup`, `resume`, `clear`, `compact`). The shaped
+   * wake folds nothing on a `compact`: the same session's model just lost what
+   * it was shown (RF1). Absent: a start.
+   */
+  readonly source?: string;
 }
 
 /** One session in the host's registry, as `WakeHere.sessions` hands it. */
