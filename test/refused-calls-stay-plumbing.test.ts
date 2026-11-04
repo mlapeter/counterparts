@@ -309,7 +309,8 @@ describe("the gate reads the subject, and only this system's own vocabulary (own
     ["reflect wasn't allowed", "tool-refused"],
     ["Permission denied for reflect", "tool-refused"],
     ["Tried to close the stale threads, but the reflect close call was denied", "tool-refused"],
-    ["Theo said yes to joining the folders, but the join call was blocked", "tool-refused"],
+    // With reflect named (merge review of #751): a bare "the join call" is English.
+    ["Theo said yes to joining the folders, but reflect's join call was blocked", "tool-refused"],
     ["Couldn't record Theo's yes: reflect join needs approval", "tool-refused"],
     ["Couldn't run pytest: the Bash tool call was denied", "host-tool-refused"],
     ["/loop is a slash command, so I couldn't set it up", "slash-command"],
@@ -342,6 +343,11 @@ describe("the gate reads the subject, and only this system's own vocabulary (own
     "The packers marked the boxes as delivered but the refund was declined",
     "The status call with ops was declined",
     "Couldn't open /usr/local/bin/tool: permission denied",
+    // The merge review's: "counterparts" and a phase's call as ordinary English.
+    "Our counterparts at Acme declined the merger — board call Thursday",
+    "Counterparts in the negotiation refused our offer; call back Friday",
+    "The join call with Acme was declined; reschedule Friday",
+    "The settle call with the landlord was refused",
   ])("not plumbing: %s", (title) => {
     expect(ownPlumbingCue({ title, content: "body" })).toBe(null);
   });

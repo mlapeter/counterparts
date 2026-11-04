@@ -23,9 +23,10 @@
  * ordinary English ("Visa permission denied; consulate call on the 12th",
  * "mcp__github was blocked by SSO", "the CI tool wasn't granted access"). A
  * subject is read as plumbing when a refusal sits with one of: a counterparts
- * tool named as a tool (`reflect`, `session_end`, `mcp__counterparts…`, or
- * `remember`/`recall`/`dream`/… followed by "call", "tool" or a phase), a
- * reflect phase's call ("the join call"), marking a share told or delivered,
+ * tool named as a tool (`reflect`, `session_end`, `mcp__counterparts…`,
+ * "counterparts" followed by a tool, "tool" or "call", or `remember`/`recall`/
+ * `dream`/… followed by "call", "tool" or a phase), a reflect phase's call
+ * with reflect named ("reflect's join call"), marking a share told or delivered,
  * or the host's own tool for this session ("the Bash tool call"). Apart from a
  * refusal: a slash command the session couldn't run, and a session with no
  * file or shell tools.
@@ -52,14 +53,17 @@ const Q = "['\"`]?";
 
 /** Where a subject names this memory's own tool as a tool (not the English word). */
 const OURS: readonly RegExp[] = [
-  // Unambiguous: the server's name, or a tool name no sentence uses as a word.
-  /\bmcp__counterparts\w*|\bcounterparts\b|\bsession_end\b|\bself_page\b/i,
+  // Unambiguous: the server's name, or a tool name no sentence uses as a word. "Counterparts" only
+  // as the tools' name ("the counterparts reflect call"): "our counterparts at Acme declined" is English.
+  /\bmcp__counterparts\w*|\bsession_end\b|\bself_page\b/i,
+  new RegExp(`\\bcounterparts\\s+(?:${TOOL}|tools?|calls?)\\b`, "i"),
   // Quoted as a name: `reflect`, 'remember'.
   new RegExp(`['"\`]${TOOL}['"\`]`, "i"),
   // A tool with "tool", "call" or a phase after it: "the reflect tool", "reflect 'told' call", "reflect join".
   new RegExp(`\\b${TOOL}\\s+${Q}(?:tool|call|phase|${PHASE})\\b`, "i"),
-  // A phase's call: "the join call", "'told' call" (not "a close call").
-  new RegExp(`\\bthe\\s+${Q}${PHASE}${Q}\\s+call\\b|['"\`]${PHASE}['"\`]\\s+call\\b`, "i"),
+  // A phase's call, quoted as a name ("'told' call") or with reflect before it ("reflect's join call");
+  // not a bare "the join call with Acme" or "a close call".
+  new RegExp(`['"\`]${PHASE}['"\`]\\s+call\\b|\\breflect\\b[^.;\\n]{0,30}?\\b${PHASE}\\s+call\\b`, "i"),
   // Reflect straight before or after the refusal: "reflect wasn't allowed", "permission denied for reflect".
   /\breflect\s+(?:(?:isn't|is not|wasn't|was not|was|got)\s+)?(?:allowed|permitted|approved|granted|denied|blocked|refused)\b/i,
   /\b(?:denied|blocked|refused|declined)\s+for\s+(?:the\s+)?(?:reflect|session_end|self_page)\b/i,
