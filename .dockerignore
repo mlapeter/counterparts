@@ -1,0 +1,9 @@
+# The root Dockerfile (directory checks) copies only these. hosted/Dockerfile
+# has its own list (hosted/Dockerfile.dockerignore).
+*
+!package.json
+!bun.lock
+!src/
+!docs/manual.md
+**/node_modules
+**/*.test.ts

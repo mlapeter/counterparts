@@ -198,6 +198,27 @@ describe("the wire", () => {
     expect(SERVER_VERSION).toBe(pkg.version);
   });
 
+  test("the MCP Registry listing (server.json) names this package, at its version", () => {
+    // The registry verifies ownership by reading `mcpName` from the published
+    // package.json, and lists the version server.json names (docs/RELEASING.md).
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      name: string;
+      version: string;
+      mcpName: string;
+    };
+    const listing = JSON.parse(readFileSync(new URL("../server.json", import.meta.url), "utf8")) as {
+      name: string;
+      version: string;
+      packages: { registryType: string; identifier: string; version: string; packageArguments: { value: string }[] }[];
+    };
+    expect(listing.name).toBe(pkg.mcpName);
+    expect(listing.version).toBe(pkg.version);
+    expect(listing.packages).toHaveLength(1);
+    const npm = listing.packages[0]!;
+    expect([npm.registryType, npm.identifier, npm.version]).toEqual(["npm", pkg.name, pkg.version]);
+    expect(npm.packageArguments.map((a) => a.value)).toEqual(["counterparts-mcp"]);
+  });
+
   test("an unknown protocol version is answered with ours, never with a hard failure", async () => {
     const s = server();
     const [response] = await pump(s, [rpc(1, "initialize", { protocolVersion: "2099-01-01" })]);
