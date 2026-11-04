@@ -69,7 +69,7 @@ A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `
 
 ## Seeing and changing what's kept
 
-Look with `recall` or `self_page`, correct with `updates`; on a local install, `counterparts remove` deletes one.
+Look with `recall` or `self_page`, correct with `updates`; `remember`'s `remove` deletes one, with a day to undo.
 
 - Ask the memory: `recall` with a question and a mode, or a memory's id or exact title as `handle` to read it whole. [local] From a terminal: `counterparts ask "…"`.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
