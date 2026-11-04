@@ -16,6 +16,10 @@ repeating them.*
 
 ## Follow-ups found today (not started)
 
+- **A "wake showed it" record, for the next batched store-format change** (RF1, #742; ROADMAP 11-04 11:12). The wake folds a
+  plain reminder told earlier today (the told latch); a dated item that isn't plain has no per-day record of being shown, so it
+  stays whole in every wake for now. Same record would let a reminder told in last night's session after midnight fold after
+  the morning's first wake.
 - **Refresh the harness corpus copy after each release** (Mike, 10-22). The replay corpus is a copy from 10-20,
   older than beliefs and tags, so the 10-22 replays saw none of either. After each release, copy the corpus from
   that night's snapshot, so replays read a store the release has actually run on.
@@ -98,6 +102,14 @@ repeating them.*
 More hosts (claude.ai needs a tunnel or a hosted piece); the dashboard walk (Health, Flow, mobile); Windows (WSL
 first); the nightly run's timing (a real night run needs a scheduler); dates written into memories' words; the site
 as a public roadmap. Ideas and Parked: see the [roadmap](ROADMAP.md).
+
+- **Windows port** (found 11-04 in #746; not now: no Windows release, and README and QUICKSTART say macOS and
+  Linux). #746 made the windows-x64 unit tests pass; what is still wrong there is real, and blocks the job going green:
+  (a) `runtime.ts#shellTokens` reads a backslash inside double quotes as an escape (POSIX), so a hand-typed
+  Windows-native hook line (`"C:\…\counterparts.exe" hook`) is not recognised by doctor or connect. Everything
+  Counterparts writes goes through `shellQuote` and reads back fine. (b) The Windows binary's `--version` prints
+  "version unknown — package.json is not beside the running code". (c) The Windows smoke step hangs after doctor
+  until the job's 8-minute timeout.
 
 ## Done
 

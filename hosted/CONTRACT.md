@@ -131,10 +131,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
   `not_started`, so the first wake offers the first meeting.
 - **Dreaming starts `auto`, as for every new install** (the roadmap's ruling of 2026-10-26, following Mike's 10-11
   "dreaming on by default"). The setting is the person's wish; the host decides who starts the night.
-  - On this host nothing starts the night on its own. The wake makes no dream offer on claude.ai, and no path from the
-    server or its worker spawns a night run (that is Claude Code's hooks alone).
-  - So the person's own routine runs the night, through the `dream` tool. A test checks that a wake under `auto` plans
-    only the worker (`runner.ts`) and no night run, and that `dream` launch works.
+  - On this host no path from the server or its worker spawns a night run (that is Claude Code's hooks alone).
+  - The day's first claude.ai chat runs the night with its own tool calls, then answers (HN1, 2026-11-04): its
+    wake claims the day (`dream_asks`, one row per calendar day, so of two chats one is told) and says so; on `ask` it
+    asks first. The person's own routine can run it too, through the `dream` tool. Tests check that a wake under
+    `auto` plans only the worker (`runner.ts`) and no night run, that `dream` launch works, and the first-chat night
+    through the real socket (`first-chat-night.test.ts`).
   - The src lane OL1d makes "auto on a hookless host spawns no night run" true in `src/` too, and makes launch refuse
     while dreaming is `off`.
 - **A store that already exists is never re-initialized.**

@@ -191,7 +191,7 @@ describe("two people, two stores, one door", () => {
 });
 
 describe("a new person's store", () => {
-  test("starts like a new install: the first meeting offered, dreaming auto — no night starts on its own, and the person's own routine runs it", async () => {
+  test("starts like a new install: the first meeting offered, dreaming auto — no night run starts on its own (a day's first chat or the person's routine runs it)", async () => {
     const r = await rig();
     const wake = await rpc(r.url, "tools/call", { name: "wake", arguments: {} }, auth(r.tokens.a));
     const session = String(((wake.body["result"] as Record<string, unknown>)["structuredContent"] as Record<string, unknown>)["session"]);
@@ -201,8 +201,9 @@ describe("a new person's store", () => {
     });
     // The wake offers the meeting (its offer line mentions it).
     assert.match(JSON.stringify(wake.body), /counterparts-meet/);
-    // Under auto, nothing starts a night on this host: the wake carries no dream
-    // offer, and every child planned is the worker (runner.ts), none a night run.
+    // Under auto, no night run starts on this host: a first day owes no night,
+    // so the wake carries no night line (`first-chat-night.test.ts` has the day
+    // that does), and every child planned is the worker (runner.ts), none a night run.
     assert.doesNotMatch(JSON.stringify(wake.body), /nightly run|no dreams/i);
     assert.ok(r.plans.length >= 1);
     for (const p of r.plans) {
