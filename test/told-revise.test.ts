@@ -37,6 +37,7 @@ import { plantTold as plantV1, toldSet as toldSetV1 } from "./fixtures/told-v1.j
 const SERVE = resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts");
 const TIPS = "Told: tips to offer once";
 const NINE = "Told: seeing and changing what I keep";
+const HOW = "Told: how my memory works";
 
 let root: string;
 let store: string;
@@ -172,17 +173,19 @@ const v2Body = (surface: ToldSurface, title: string): string => toldSet(surface)
 const v1Body = (surface: ToldSurface, title: string): string => toldSetV1(surface).find((m) => m.title === title)!.body;
 
 describe("the frozen v1 words are the words 0.3.46 planted", () => {
-  test("for both surfaces, #1 and #9 as told.ts compares them match the shipped set byte for byte, and v2 changed exactly those two", () => {
+  test("for both surfaces, #1 and #9 (and on hosted #2) as told.ts compares them match the shipped set byte for byte, and v2 changed exactly those", () => {
     for (const surface of ["local", "hosted"] as const) {
       const words = toldV1Words(surface);
-      expect(words.map((w) => w.title)).toEqual([TIPS, NINE]);
+      // Hosted's #2 changed too: HN1 rewrote its nights sentence (HOSTED_NIGHTS_HOW). Local's #2 did not.
+      const expected = surface === "local" ? [TIPS, NINE] : [TIPS, HOW, NINE];
+      expect(words.map((w) => w.title)).toEqual(expected);
       for (const w of words) expect(w.bodies).toContain(v1Body(surface, w.title));
       // Every other starter is the same in both sets: nothing else needs a revision.
       const v1 = toldSetV1(surface);
       const v2 = toldSet(surface);
       expect(v2.map((m) => m.title)).toEqual(v1.map((m) => m.title));
       const changed = v2.filter((m, i) => m.body !== v1[i]!.body).map((m) => m.title);
-      expect(changed).toEqual([TIPS, NINE]);
+      expect(changed).toEqual(expected);
     }
   });
 });

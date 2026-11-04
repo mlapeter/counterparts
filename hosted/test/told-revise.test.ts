@@ -5,7 +5,7 @@
  * A person signed up before HD1 has starter #9 saying "one memory can't be
  * removed yet", which recall can hand the model: the opposite of the chat
  * delete. Each person's store here is put back to what 0.3.46's signup
- * planted (#1 and #9 in v1's words, the meta `v1`), its handle closed, and
+ * planted (#1 and #9, and #2 in the second case, in v1's words, the meta `v1`), its handle closed, and
  * the next call over the real `/mcp` socket opens it again, as the first chat
  * after the deploy does. An unchanged #9 gets the new words; one the person
  * edited stays theirs.
@@ -226,6 +226,60 @@ describe("hosted: a person's existing store gets the new #1 and #9 once, at its 
       assert.equal(s.getMeta(TOLD_SET_KEY), "v2");
       assert.equal(toldRow(s, NINE).body, MINE);
       // Its #1 was still v1's words, so that one moved.
+      assert.equal(toldRow(s, TIPS).body, v2(TIPS));
+    });
+  });
+});
+
+/* 0.3.46's hosted #2, copied from `git show v0.3.46:src/core/told.ts` (never built from told.ts). */
+const HOW = "Told: how my memory works";
+const V1_HOW = [
+  "Told, not lived: I keep what something meant and how it went, in my own words, not a transcript. What isn't used fades, on purpose, so the important things stay easy to find. If I can't find something, I try other words before saying it's gone.",
+  'When their nightly routine runs, or they say "dream", a night pass sorts the day the same way.',
+  "The person owns all of it.",
+  "It lives on Counterparts' server, with encrypted backups.",
+].join(" ");
+
+describe("hosted: an existing store's #2 gets HN1's nights words once, where still the words it was given", () => {
+  test("an unchanged #2 says the day's first chat runs the night; an edited one stays", async () => {
+    const r = await rig();
+    const url = `${r.origin}/mcp`;
+    const plain = await connect(r, "plain2@example.com");
+    const edited = await connect(r, "edited2@example.com");
+    await tool(url, "wake", {}, bearer(plain.access));
+    await tool(url, "wake", {}, bearer(edited.access));
+
+    const MINE = "Told, not lived: My nights run when they ask for one, and only then.";
+    await inStore(r, plain.storeId, (s) => {
+      asBeforeHd1(s);
+      s.revise(toldRow(s, HOW).id, { body: V1_HOW, meta: { told: "v1" } });
+    });
+    await inStore(r, edited.storeId, (s) => {
+      asBeforeHd1(s);
+      s.revise(toldRow(s, HOW).id, { body: MINE, meta: { told: "v1" } });
+    });
+    await r.app.tenants.close(plain.storeId);
+    await r.app.tenants.close(edited.storeId);
+
+    await tool(url, "wake", {}, bearer(plain.access));
+    await tool(url, "wake", {}, bearer(edited.access));
+
+    await inStore(r, plain.storeId, (s) => {
+      assert.equal(s.getMeta(TOLD_SET_KEY), "v2");
+      const how = toldRow(s, HOW);
+      assert.equal(how.body, v2(HOW));
+      assert.match(how.body, /the next day's first chat runs a night pass before I answer/);
+      assert.doesNotMatch(how.body, /When their nightly routine runs, or they say "dream"/);
+      assert.equal(how.source, "told");
+      assert.equal(JSON.parse(how.meta ?? "{}").told, "v2");
+      assert.equal(s.versions(how.id).at(-1)?.reason, TOLD_REVISE_REASON);
+      assert.equal(s.versions(how.id).at(-1)?.body, V1_HOW);
+    });
+    await inStore(r, edited.storeId, (s) => {
+      assert.equal(s.getMeta(TOLD_SET_KEY), "v2");
+      assert.equal(toldRow(s, HOW).body, MINE);
+      // Its #1 and #9 were still v1's words, so those moved.
+      assert.equal(toldRow(s, NINE).body, v2(NINE));
       assert.equal(toldRow(s, TIPS).body, v2(TIPS));
     });
   });

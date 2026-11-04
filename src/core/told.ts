@@ -25,7 +25,8 @@
  *
  * ONE REVISION OF AN OLD SET (v1 → v2, HD1, 2026-11-04; Mike yes via ROADMAP
  * 10:50): `reviseTold` rewrites, once per store, the starter memories whose
- * words the new set changed (#1's "Delete that" tip, #9's chat delete), and
+ * words the new set changed (#1's "Delete that" tip, #9's chat delete, and on
+ * hosted #2, whose nights line HN1 rewrote: coordinator 11-04 18:02), and
  * ONLY where the row is still the words it was planted with — still told,
  * live, title and body exactly v1's. One the person corrected, let go, or a
  * night rewrote is theirs and stays. Run from every writable open
@@ -59,7 +60,8 @@ import type { Store } from "./store/index.js";
 export const TOLD_SOURCE = "told" as const;
 /**
  * This build's set. `v1` was S1's (0.3.46); `v2` (HD1) changed #1 and #9, and
- * `reviseTold` brings a v1 store's unchanged copies of those two to it.
+ * on hosted #2 (HN1's nights line), and `reviseTold` brings a v1 store's
+ * unchanged copies of those to it.
  */
 export const TOLD_SET_VERSION = "v2";
 /** Store meta: which set a store was planted with (absent: none, every store from before S1). */
@@ -286,6 +288,13 @@ const V1_TIPS_REMIND = '- "Remind me Thursday to ...": I save it with the date a
 const V1_TIPS_REMIND_EARLY = '- "Remind me Thursday to ..." comes up that day, or the next time we talk.';
 const V1_TIPS_WRONG = '- "That\'s wrong" corrects a memory, and the wrong one stops coming up.';
 const V1_TIPS_NIGHTS_HOSTED = '- Nights run when they set up a nightly routine, or say "dream".';
+/* #2 on hosted, as 0.3.46 planted it (its nights sentence is v1's HOSTED_NIGHTS_HOW); local's #2 is unchanged in v2. */
+const V1_HOW_HOSTED = [
+  "Told, not lived: I keep what something meant and how it went, in my own words, not a transcript. What isn't used fades, on purpose, so the important things stay easy to find. If I can't find something, I try other words before saying it's gone.",
+  'When their nightly routine runs, or they say "dream", a night pass sorts the day the same way.',
+  "The person owns all of it.",
+  "It lives on Counterparts' server, with encrypted backups.",
+].join(" ");
 
 function v1Tips(surface: ToldSurface, remind: string): string {
   const local = surface === "local";
@@ -299,13 +308,14 @@ function v1Tips(surface: ToldSurface, remind: string): string {
   ].join("\n");
 }
 
-/** The starter memories v2 changed, each by its title (the same on both surfaces), with every body that counts as its v1 words. */
+/** The starter memories v2 changed on this surface, each by its title, with every body that counts as its v1 words. */
 export function toldV1Words(surface: ToldSurface): readonly { readonly title: string; readonly bodies: readonly string[] }[] {
   return [
     {
       title: "Told: tips to offer once",
       bodies: [v1Tips(surface, V1_TIPS_REMIND), v1Tips(surface, V1_TIPS_REMIND_EARLY)],
     },
+    ...(surface === "local" ? [] : [{ title: "Told: how my memory works", bodies: [V1_HOW_HOSTED] }]),
     {
       title: "Told: seeing and changing what I keep",
       bodies: [
