@@ -89,6 +89,7 @@ The memory is theirs to take: export, uninstall, start-fresh, or "Download my me
 - [local] `counterparts uninstall` disconnects Claude Code and keeps the memory unless they say otherwise; `--keep-memories` keeps it without asking.
 - [local] `counterparts start-fresh` sets this memory aside and starts a blank one; `counterparts start-fresh --undo` brings it back. Nothing is deleted.
 - [local] `counterparts rollback` puts the memory back as it was before an upgrade (since 0.3.17).
+- A memory held for deletion is left out of the markdown export; a full copy still has it until it's erased.
 - [hosted] The account page's "Download my memory" gives the whole memory as one SQLite file, readable by any SQLite tool. "Delete my account" locks it at once and erases the memory, its backups and its key after 24 hours, unless they sign in and keep it; "Delete everything now" erases at once.
 
 ## Checking that it works

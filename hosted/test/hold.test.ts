@@ -223,11 +223,18 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     // HIDDEN: recall by facts and by meaning, by id, and the next chat's wake.
     // (The answers echo the question's words, so what is checked is the
     // memory's own: its id, and words of its body the question never says.)
-    const shows = (x: unknown): boolean => JSON.stringify(x).includes(victim) || JSON.stringify(x).includes("back door");
+    // What recall SHOWS, without the line that names the hold on purpose (R5, `heldForRemoval`).
+    const shows = (x: Record<string, unknown>): boolean => {
+      const said = JSON.stringify({ ...x, heldForRemoval: undefined });
+      return said.includes(victim) || said.includes("back door");
+    };
     const facts = await call("recall", { session: s1, question: "where is the spare house key, the blue flowerpot?", mode: "facts" });
     assert.ok(!shows(facts), JSON.stringify(facts));
+    // R5 (ROADMAP 10:33): the next recall after a hold names it plainly, once — visibility is the mitigation.
+    assert.deepEqual(facts["heldForRemoval"], [`held for removal: "Where the spare key is" · undo within 24h: remember with remove: {id: "${victim}", undo: true}`]);
     const meaning = await call("recall", { session: s1, question: "the spare house key under the flowerpot", mode: "meaning" });
     assert.ok(!shows(meaning), JSON.stringify(meaning));
+    assert.equal(meaning["heldForRemoval"], undefined, "said once");
     const byId = await call("recall", { session: s1, ids: [victim] });
     assert.ok(!JSON.stringify(byId).includes("back door"), JSON.stringify(byId));
     const woke2 = await call("wake", {});
@@ -264,7 +271,7 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     r.clock.at += 2 * 60_000;
     await until(async () => (await inStore((s) => s.removalRecord(victim).some((x) => x.stage === "complete"))), "the timer's erase");
     const stages = await inStore((s) => s.removalRecord(victim).map((x) => `${x.stage}:${x.actor}`));
-    assert.deepEqual(stages, ["held:self", "released:self", "held:self", "requested:self", "dark:self", "chased:self", "complete:self"]);
+    assert.deepEqual(stages, ["held:self", "released:self", "held:self", "erasing:self", "requested:self", "dark:self", "chased:self", "complete:self"]);
     const row = await inStore((s) => s.row(victim));
     assert.equal(row?.body, "");
     assert.equal(row?.title ?? "", "");
@@ -287,6 +294,54 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     } finally {
       control.close();
     }
+  });
+
+  test("a night under way in the store (claude.ai's in-chat night): remove waits until it has journaled (fix round item 1)", async () => {
+    const r = await rig();
+    const who = await connect(r, "night@example.com");
+    const url = `${r.origin}/mcp`;
+    const auth = bearer(who.access);
+    const call = (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => tool(url, name, args, auth);
+    const inStore = <T>(fn: (store: NonNullable<Parameters<Parameters<App["tenants"]["withTenant"]>[2]>[1]>["counterpart"]["store"]) => T): Promise<T> =>
+      r.app.tenants.withTenant(who.storeId, {}, (t, server) => t.serial(async () => fn(server.counterpart.store)));
+
+    // The day's chat: a memory written and shown.
+    const day = String((await call("wake", {}))["session"]);
+    for (const text of ["The rain barrel overflows toward the shed.", "Wren talks plans through out loud first."]) await call("remember", { session: day, text });
+    const victim = String((await call("remember", { session: day, text: VICTIM, title: "Where the spare key is", about: "owner" }))["id"]);
+    await call("recall", { session: day, ids: [victim] });
+
+    // The night, in another chat, as the routine runs it: launch, writer, begin.
+    const night = String((await call("wake", { night: true }))["session"]);
+    await call("dream", { phase: "launch", session: night });
+    await call("dream", { phase: "writer", session: night });
+    const begun = await call("dream", { phase: "begin", session: night });
+    const dreamId = String(begun["dream"]);
+    assert.ok(dreamId.length > 0, JSON.stringify(begun));
+
+    // A dream begun and not journaled: the day chat's delete waits.
+    const during = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
+    assert.equal(during["ok"], false);
+    assert.equal(during["reason"], "night-under-way");
+    assert.match(String(during["detail"]), /Ask again after the night/);
+    assert.equal(await inStore((s) => s.isHeld(victim)), false);
+
+    // Journaled, then a reflection begun: still the night's window.
+    await call("dream", { phase: "journal", session: night, dream: dreamId, title: "The rain barrel", text: "I dreamed the rain barrel ran over the shed path." });
+    const reflected = await call("reflect", { phase: "begin", session: night, dream: dreamId });
+    const rid = String(reflected["reflection"]);
+    assert.ok(rid.length > 0, JSON.stringify(reflected));
+    const reflecting = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
+    assert.equal(reflecting["reason"], "night-under-way");
+    await call("reflect", { phase: "finish", session: night, reflection: rid, entry: "The barrel is a small worry, and a fixable one." });
+
+    // After the night: the same delete goes through.
+    const after = (await call("remember", { session: day, remove: { id: victim } }))["remove"] as Record<string, unknown>;
+    assert.equal(after["ok"], true, JSON.stringify(after));
+    assert.equal(after["reason"], "held");
+    // And so does its undo: the night refused nothing outside its window.
+    const undo = (await call("remember", { session: day, remove: { id: victim, undo: true } }))["remove"] as Record<string, unknown>;
+    assert.equal(undo["reason"], "released");
   });
 
   test("the control database's new column: added by a migration that is safe to run twice", () => {

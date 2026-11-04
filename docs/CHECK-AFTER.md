@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
+| Hosted's backups let go of a chat-deleted memory "within about two days" (HD1): the 24 h hold, the timer's erase, then Litestream's 12 h snapshot retention plus its unstated enforcement lag | unreleased, 11-04 (HD1 PR); starts at the first hosted deploy with HD1 | **~48 h after the test erase** (dated reminder set at the deploy): on Mike's hosted account, hold and erase one throwaway memory with a unique word, then grep the R2 bucket's newest snapshot for that word. "About two days" goes on /privacy/ only once that passes | [below](#48-h-after-the-first-hosted-chat-delete-hd1-backups) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -148,6 +149,9 @@ HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage
   `removal.failed` and `removal.sweep.failed`. Any `failed` row, or an `erased` with unchased surfaces above 0 (the
   likely one: the write-ahead log's TRUNCATE checkpoint coming back busy against Litestream's read lock), gets a look.
 - On local, the worker's `runner.holds` and `holds.threw` log lines.
+- Claims: each erase is preceded by an `erasing` row (the sweep's claim, one transaction; an undo is refused once it
+  exists). More than one `erasing` after a hold is an erase that failed and was tried again after its backoff (an hour,
+  doubling, at most a day); hosted audits `removal.failed` at the first failure only.
 - How long one erase takes on a real hosted store: `ownerRemoval` rebuilds the cache (`rebuildCache()`, vectors
   dropped and re-embedded) and VACUUMs both databases inside the tenant's queue, so the person's calls wait on it.
 - Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text
@@ -160,6 +164,19 @@ a "recently deleted" list on the account page.
 **How to revert:** drop `remove` from `remember`'s schema (`tools.ts#REMOVE_PROPERTY`) and its dispatch in
 `server.ts#rememberTool`; release any holds left (`remove.undo`, or append `released`). The `held` stage, the sweep and
 the column can stay inert. The store's format never changed (still v15).
+
+## ~48 h after the first hosted chat delete (HD1 backups)
+
+(2026-11-04, fix round item 4.) **What we're checking.** The hosted reply says a deleted memory is "gone from our
+backups within about two days". The bound is read from the code (`server-words.ts#deletedNote`'s comment: 24 h hold +
+up to 10 min for the timer + Litestream's 12 h `snapshot.retention` + its retention-enforcement lag, which its docs
+don't state), not measured. **The check, once, after the first deploy with HD1:** on Mike's hosted account, write a
+throwaway memory carrying one unique made-up word, recall it, delete it, and let the timer erase it 24 h later (the
+audit's `removal.erased` row says when). About 48 h after the hold, restore the R2 bucket's newest snapshot to a
+scratch directory with the operator's tools (never the live service's data) and grep it for the word, and the write-ahead
+log segments after it. **Passes:** the word is in no snapshot or segment. **Fails:** it is; then the lag is longer
+than the reply assumes, and the reply's "within about two days" and the /privacy/ copy wait for a measured number.
+"About two days" goes on /privacy/ only once this passes.
 
 ## The wake knows yesterday's news (WF1)
 

@@ -1025,7 +1025,7 @@ export class McpServer {
       case "remember":
         return this.rememberTool(args);
       case "recall":
-        return await this.recallTool(args);
+        return this.withHeldNotice(await this.recallTool(args));
       case "status":
         return this.statusTool();
       case "session_end":
@@ -1802,12 +1802,11 @@ export class McpServer {
       }
       const rest = { ...args };
       delete rest["remove"];
-      const hasRest =
-        (typeof rest["text"] === "string" && rest["text"].trim().length > 0) ||
-        rest["settle"] !== undefined ||
-        rest["feelingsNow"] !== undefined ||
-        rest["remark"] !== undefined ||
-        rest["core"] !== undefined;
+      // ANY OTHER FIELD goes on to `remember` as it would alone (fix round R9):
+      // `{remove, updates}` without text refuses `text-required` there rather
+      // than dropping `updates` in silence. `session` is the chat copy's
+      // envelope, not a field of the call.
+      const hasRest = Object.entries(rest).some(([k, v]) => k !== "session" && v !== undefined && v !== null);
       const out = this.removeOutcome(removeArg as Record<string, unknown>);
       if (!hasRest) return this.result({ stored: false, reason: "remove-only", remove: out }, out["ok"] !== true);
       const done = await this.rememberTool(rest);
@@ -2052,7 +2051,10 @@ export class McpServer {
    */
   private feelingsNowOutcome(list: readonly unknown[]): Record<string, unknown> {
     try {
-      const { session, shown } = this.shownToCaller();
+      const { session, shown: seen } = this.shownToCaller();
+      // A memory deleted in chat (held) or removed is not one to feel again (fix round R7).
+      const deniedNow = new Set(this.counterpart.store.deniedIds());
+      const shown = new Set([...seen].filter((x) => !deniedNow.has(x)));
       const model = this.sessionModel(session);
       const items = list.map((x) => (x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}));
       const done = this.counterpart.reflections.feelAgain({
@@ -2104,7 +2106,8 @@ export class McpServer {
     try {
       if (id.length === 0) return { ok: false, reason: "remark-malformed", detail: "remark needs the memory's id: {id, about, why}." };
       const { shown } = this.shownToCaller();
-      if (!shown.has(id)) {
+      // A memory deleted in chat (held) or removed is gone to remark (fix round R7).
+      if (!shown.has(id) || this.denied(id)) {
         return { ok: false, reason: "not-shown-or-gone", detail: `${id} was not shown in this session: recall it by id first, then re-mark it.` };
       }
       const out = this.counterpart.markAbout({
@@ -2149,6 +2152,15 @@ export class McpServer {
       if (this.nightRun()) {
         return { ok: false, reason: "night-run", detail: "A night run does not delete or restore memories: nobody is here to see it. Nothing was changed." };
       }
+      // HOSTED'S NIGHTS RUN IN THE PERSON'S CHAT (HN1), so the env marks
+      // above never see them: while this store has a dream begun and not yet
+      // journaled, or a reflection begun and not finished (either quiet past
+      // `ABANDONED_AFTER_MS` is left behind and lets go), a delete or an undo
+      // waits for the night (fix round item 1). The night's own window only:
+      // the chat before and after it deletes as usual.
+      if (this.removalOpts.erasedBy === "hosted" && this.nightUnderWay()) {
+        return { ok: false, reason: "night-under-way", detail: "A night pass is running in this memory right now, so nothing was deleted or restored. Ask again after the night has finished." };
+      }
       const store = this.counterpart.store;
       if (store.row(id) === undefined) return { ok: false, reason: "unknown-id", detail: `No memory ${id} in this store.` };
       const { shown } = this.shownToCaller();
@@ -2162,10 +2174,12 @@ export class McpServer {
           const detail: Record<string, string> = {
             "not-held": `${id} is not deleted: there is nothing to undo.`,
             "already-removed": `${id} was already erased; nothing can bring it back.`,
+            "already-erasing": `${id} is being erased now: its 24 hours have passed, and it can't be brought back.`,
             "unknown-id": `No memory ${id} in this store.`,
           };
           return { ok: false, reason: out.reason, detail: detail[out.reason] ?? out.reason };
         }
+        this.dropHeldNotice(id);
         return { ok: true, reason: out.reason, id, title: out.title, note: `Back: "${out.title}" is a memory again, as it was.` };
       }
       // What removal itself refuses, before the shown check: none of these
@@ -2202,6 +2216,7 @@ export class McpServer {
           // The timer's index only: the local worker's sweep reads the store itself.
         }
       }
+      if (out.reason === "held") this.noteHeld(id, out.title);
       const zone = store.zone();
       return {
         ok: true,
@@ -2232,6 +2247,8 @@ export class McpServer {
       if (decision !== "keep" && decision !== "retire") return { ok: false, reason: "core-malformed", detail: 'decision is "keep" or "retire".' };
       const row = this.counterpart.store.row(id);
       if (row === undefined) return { ok: false, reason: "unknown-id", detail: `No memory ${id} in this store.` };
+      // Deleted in chat (held) or removed: gone, not "not in the core" (fix round R7).
+      if (this.denied(id)) return { ok: false, reason: "not-shown-or-gone", detail: `${id} was deleted; there is no core decision to make about it.` };
       const out = decision === "keep" ? this.counterpart.keepCore(id, { why, actor: "self" }) : this.counterpart.demoteCore(id, { reason: why, actor: "self" });
       const detail: Record<string, string> = {
         "reason-required": "Say why: the decision is kept with its reason.",
@@ -3870,6 +3887,76 @@ export class McpServer {
       ? `${reading.line} Until then this server runs the version it started with, and it ignores anything newer, such as a field added to a tool since.`
       : `${reading.line} It ignores anything newer, such as a field added to a tool since; updating this install is what brings it level.`;
     return this.result({ ...result.structuredContent, updated: said }, result.isError === true);
+  }
+
+  /** Is this id on the deny-list now: deleted in chat (held) or removed? Never throws (false). */
+  private denied(id: string): boolean {
+    try {
+      return this.counterpart.store.deniedIds().includes(id);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * IS A NIGHT RUNNING IN THIS STORE, in any chat (fix round item 1): a
+   * dream begun and not journaled, or a reflection begun and not finished,
+   * neither left behind. Never throws (false).
+   */
+  private nightUnderWay(): boolean {
+    try {
+      return this.counterpart.dreams.busyAnywhere() || this.counterpart.reflections.busyAnywhere();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * THE NEXT RECALL AFTER A HOLD NAMES IT (R5, ROADMAP 10:33): a chat's
+   * delete is answered in the remove result, which the model may or may not
+   * relay; the next recall block in the same conversation says it again,
+   * plainly, once — so a delete the person didn't ask for is in front of
+   * them while the day to undo it runs. Visibility is the mitigation; there
+   * is no refusal and no cap. Keyed like `shown` (`seenKey`).
+   */
+  private readonly heldNotices = new Map<string, { id: string; title: string }[]>();
+
+  private noteHeld(id: string, title: string): void {
+    const key = this.seenKey();
+    const list = (this.heldNotices.get(key) ?? []).filter((n) => n.id !== id);
+    list.push({ id, title });
+    this.heldNotices.set(key, list);
+  }
+
+  private dropHeldNotice(id: string): void {
+    for (const [key, list] of this.heldNotices) {
+      const kept = list.filter((n) => n.id !== id);
+      if (kept.length === 0) this.heldNotices.delete(key);
+      else this.heldNotices.set(key, kept);
+    }
+  }
+
+  /** `heldForRemoval` on a recall result, once per hold, while it is still undoable. Never throws. */
+  private withHeldNotice(res: ToolResult): ToolResult {
+    try {
+      const key = this.seenKey();
+      const list = this.heldNotices.get(key);
+      if (list === undefined || list.length === 0) return res;
+      const body = (res as { structuredContent?: Record<string, unknown> }).structuredContent;
+      if (body === undefined) return res;
+      this.heldNotices.delete(key);
+      const store = this.counterpart.store;
+      const lines = list
+        .filter((n) => store.isHeld(n.id))
+        .map((n) => `held for removal: "${n.title}" · undo within 24h: remember with remove: {id: "${n.id}", undo: true}`);
+      if (lines.length === 0) return res;
+      // Beside what the recall said, in both copies: a host that reads the
+      // structured result and one that reads only the text each see it.
+      const content = (res as { content?: unknown[] }).content ?? [];
+      return { ...res, content: [...content, { type: "text", text: lines.join("\n") }], structuredContent: { ...body, heldForRemoval: lines } } as ToolResult;
+    } catch {
+      return res;
+    }
   }
 
   /** The count of a chat's deletes still on their hold (HD1), or null. Never throws. */

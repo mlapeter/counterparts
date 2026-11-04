@@ -804,8 +804,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // A CHAT'S DELETES STILL HELD (HD1, 2026-11-04): one count line, never
       // titles, while any memory deleted in chat waits for its erase — the
       // window turns a forged delete the person sees into one they can undo.
-      // Under the same rule as the lines above: only where a person reads it.
-      const held = resumed || !watched ? null : this.heldLine();
+      // Only where a person reads it — and on a RESUMED session too (R5,
+      // ROADMAP 10:33): a delete the person didn't ask for must be in front
+      // of them while its day runs, and a long chat resumed is where it hides.
+      const held = !watched ? null : this.heldLine();
       const leadLines = [codeTab, stale, urgent, meaning, update, held].filter((l): l is string => l !== null);
       // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
       // the state word only, for the mod, which cannot reach the dashboard

@@ -511,7 +511,7 @@ export function reflectLaunchHowFor(host: string): string {
  */
 export function deletedNote(title: string, erasedBy: "hosted" | "local"): string {
   return erasedBy === "hosted"
-    ? `Deleted: "${title}". It's hidden now and erased in 24 hours; say "undo that" before then to bring it back. Our backups let go of it within about a day of the erase, so it's gone everywhere within about two days.`
+    ? `Deleted: "${title}". It's hidden now and erased in 24 hours; say "undo that" before then to bring it back. Our backups let go of it within about a day of the erase, so it's gone from our backups within about two days.`
     : `Deleted: "${title}". It's hidden now and erased at the first session after 24 hours; say "undo that" before then to bring it back. Snapshots on this computer keep a copy until they rotate out, about two weeks (\`counterparts delete backups\` clears them).`;
 }
 

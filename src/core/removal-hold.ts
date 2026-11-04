@@ -48,7 +48,8 @@ export function removalRefusal(store: Store, targetId: string): RemovalRefusal |
   const row = store.row(targetId);
   if (row === undefined) return "unknown-id";
   if (!MEMORY_BEARING.has(row.type)) return "not-memory-bearing";
-  if (store.deniedIds().includes(targetId) && !store.isHeld(targetId)) return "already-removed";
+  // Held, or claimed by the sweep that is erasing it: still the removal's to finish.
+  if (store.deniedIds().includes(targetId) && store.holdState(targetId) === null) return "already-removed";
   // THE SELF PAGE IS NOT REMOVED, IT IS CLEARED (2026-09-18, S1). Removal
   // tombstones a row and `schemas/` reads every schema row at open; the page
   // has its own door (`self-page --clear`), which keeps it as a version. See
@@ -88,19 +89,21 @@ export type HoldOutcome =
  * is the one failure where doing nothing is correct (§16 G10).
  */
 export function holdForRemoval(store: Store, id: string, opts: { actor?: string } = {}): HoldOutcome {
-  const already = store.pendingHolds().find((h) => h.id === id);
-  const refusal = already === undefined ? removalRefusal(store, id) : null;
+  // Any active hold — claimed by the sweep too: a second `held` after a claim
+  // would void the claim and open an undo on a memory being erased (R1).
+  const already = store.holdState(id);
+  const refusal = already === null ? removalRefusal(store, id) : null;
   if (refusal !== null) return { ok: false, reason: refusal, id };
-  if (already === undefined) {
+  if (already === null) {
     store.appendRemovalRecord({ memoryId: id, stage: "held", actor: opts.actor ?? "self", reason: HOLD_WHY });
   }
-  const hold = store.pendingHolds().find((h) => h.id === id);
+  const hold = store.holdState(id);
   const doc = store.heldProse(id);
   const row = store.row(id);
   const heldAt = hold?.at ?? store.now();
   return {
     ok: true,
-    reason: already === undefined ? "held" : "already-held",
+    reason: already === null ? "held" : "already-held",
     id,
     title: doc === null ? id : heldTitle(doc),
     createdAt: row?.created_at ?? heldAt,
@@ -111,21 +114,74 @@ export function holdForRemoval(store: Store, id: string, opts: { actor?: string 
 
 export type ReleaseOutcome =
   | { readonly ok: true; readonly reason: "released"; readonly id: string; readonly title: string }
-  | { readonly ok: false; readonly reason: "unknown-id" | "not-held" | "already-removed"; readonly id: string };
+  | { readonly ok: false; readonly reason: "unknown-id" | "not-held" | "already-removed" | "already-erasing"; readonly id: string };
 
 /**
  * UNDO A HOLD before the erase: `released`, and the memory is back as it was —
  * nothing about it was touched while it was held, and the store re-indexes its
  * words. After the erase it is `already-removed`, and nothing brings it back.
+ *
+ * ATOMIC AGAINST THE SWEEP (fix round R1, 2026-11-04): the "still held, not
+ * claimed" check runs inside the same write transaction as the `released` row
+ * (`appendRemovalRecord`'s `unless`), and the sweep's claim does the same, so
+ * of an undo and an erase that meet, exactly one lands. Once the sweep has
+ * claimed it the undo is refused (`already-erasing`): an undo that answers
+ * "released" is never erased afterwards.
  */
 export function releaseHold(store: Store, id: string, opts: { actor?: string } = {}): ReleaseOutcome {
   if (store.row(id) === undefined && store.removalRecord(id).length === 0) return { ok: false, reason: "unknown-id", id };
-  if (!store.isHeld(id)) {
+  const doc = store.heldProse(id);
+  const seq = store.appendRemovalRecord(
+    { memoryId: id, stage: "released", actor: opts.actor ?? "self", reason: HOLD_WHY },
+    { unless: () => !store.isHeld(id) },
+  );
+  if (seq === 0) {
+    if (store.holdState(id) !== null) return { ok: false, reason: "already-erasing", id };
     return { ok: false, reason: store.deniedIds().includes(id) ? "already-removed" : "not-held", id };
   }
-  const doc = store.heldProse(id);
-  store.appendRemovalRecord({ memoryId: id, stage: "released", actor: opts.actor ?? "self", reason: HOLD_WHY });
   return { ok: true, reason: "released", id, title: doc === null ? id : heldTitle(doc) };
+}
+
+/**
+ * HOW LONG A CLAIM STANDS before another sweep may take the hold again (R1,
+ * R8): an erase that threw keeps its claim, and the memory stays hidden, so a
+ * failure is tried again only after a backoff — an hour after the first
+ * claim, doubling per try, at most a day — never every tick. A claim whose
+ * process died mid-erase is taken again the same way. An erase runs seconds;
+ * an hour is never a live eraser's.
+ */
+export const CLAIM_LEASE_MS = 60 * 60 * 1000;
+export function claimRetryAfter(claims: number): number {
+  return Math.min(CLAIM_LEASE_MS * 2 ** Math.max(0, claims - 1), REMOVAL_HOLD_MS);
+}
+
+/** When the sweep may next act on one active hold: its window's end, or a failed claim's backoff. */
+export function holdNextAt(h: { at: number; claims: number; claimedAt: number | null }): number {
+  return h.claims === 0 || h.claimedAt === null ? h.at + REMOVAL_HOLD_MS : h.claimedAt + claimRetryAfter(h.claims);
+}
+
+/**
+ * THE SWEEP'S CLAIM ON ONE HOLD (R1, fix round 2026-11-04): in ONE write
+ * transaction, re-check that the id is still on its hold (not released, not
+ * taken dark), that its time has come (`holdNextAt <= now`: the window passed,
+ * or a failed claim's backoff), and append `erasing`. True: this caller, and
+ * only this caller, erases it now. False: another eraser has it, it was
+ * undone, or it is gone — the caller does nothing.
+ *
+ * `console`: the owner's `--confirm` finishing a hold at once — no window,
+ * and only a claim older than `CLAIM_LEASE_MS` stands aside for it.
+ */
+export function claimHold(store: Store, id: string, now: number, opts: { actor?: string; console?: boolean } = {}): boolean {
+  const claimable = (): boolean => {
+    const h = store.holdState(id);
+    if (h === null) return false;
+    if (opts.console === true) return h.claims === 0 || h.claimedAt === null || now - h.claimedAt >= CLAIM_LEASE_MS;
+    return holdNextAt(h) <= now;
+  };
+  return store.appendRemovalRecord(
+    { memoryId: id, stage: "erasing", actor: opts.actor ?? "self", reason: HOLD_WHY },
+    { unless: () => !claimable(), at: now },
+  ) > 0;
 }
 
 /** The holds waiting, with their titles and when each may be erased: the `deleted` handle's list. */
@@ -136,9 +192,17 @@ export function heldList(store: Store): { id: string; title: string; heldAt: num
   });
 }
 
-/** The holds whose window has passed at `now`: the sweep's work list, oldest first. */
-export function dueHolds(store: Store, now: number): { id: string; at: number }[] {
-  return store.pendingHolds().filter((h) => h.at + REMOVAL_HOLD_MS <= now);
+/**
+ * The holds the sweep may try at `now`, oldest first: the window passed, or a
+ * failed claim's backoff did. Only a LIST — each id is claimed again, in its
+ * own transaction, right before its erase (`claimHold`); between this read and
+ * that claim an undo may land, and then the claim finds nothing.
+ */
+export function dueHolds(store: Store, now: number): { id: string; at: number; claims: number }[] {
+  return store
+    .holds()
+    .filter((h) => holdNextAt(h) <= now)
+    .map((h) => ({ id: h.id, at: h.at, claims: h.claims }));
 }
 
 /** Recall's handle for the holds waiting (HD1): each by title, with when it goes, to undo one. */

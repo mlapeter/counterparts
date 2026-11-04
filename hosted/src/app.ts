@@ -444,7 +444,11 @@ export function createApp(opts: AppOptions): App {
           const unchased = report.erased.reduce((n, e) => n + e.unchased, 0);
           accounts.audit(personId, storeId, "removal.erased", `${String(report.erased.length)} erased, ${String(unchased)} surfaces unchased`);
         }
-        if (report.failed.length > 0) accounts.audit(personId, storeId, "removal.failed", `${String(report.failed.length)} failed: ${report.failed.map((f) => f.why).join(", ")}`);
+        // A failed erase keeps its claim and is tried again after a backoff
+        // (an hour, doubling, at most a day: `claimRetryAfter`), so this store
+        // isn't reopened every tick; audited at its FIRST failure only (R8).
+        const firsts = report.failed.filter((f) => f.attempt === 1);
+        if (firsts.length > 0) accounts.audit(personId, storeId, "removal.failed", `${String(firsts.length)} failed: ${firsts.map((f) => f.why).join(", ")}`);
       } catch {
         // Locked meanwhile, waiting for a restore, or a store that would not
         // open: left due, so the next tick tries again.

@@ -68,8 +68,7 @@ import { strikeSpans } from "../../core/remember/owner-strike-seam.js";
 import { journalFilesFor, syncJournalCopy } from "../../core/self/journal-file.js";
 import { indexTerms, paths, rowTombstoned } from "../../core/store/index.js";
 import { isLocked, openDb } from "../../core/store/db.js";
-import { dueHolds, removalRefusal } from "../../core/removal-hold.js";
-import { REMOVAL_HOLD_MS } from "../../core/store/index.js";
+import { claimHold, dueHolds, holdNextAt, removalRefusal } from "../../core/removal-hold.js";
 import type {
   ProseDoc,
   OwnerRemovalOutcome,
@@ -195,6 +194,8 @@ export interface RemovalOptions extends PlanOptions {
    *  thoughts (§16's note on the released ceremony). */
   now?: () => number;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
+  /** HD1: the caller (the hold sweep) has already claimed this held memory (`claimHold`). */
+  claimed?: boolean;
 }
 
 /** Everything `planRemoval` can say instead of `ok`. */
@@ -875,6 +876,19 @@ export function ownerRemoval(
     throw new Error(`removal refused: ${plan.reason}`);
   }
 
+  // A MEMORY ON A CHAT'S HOLD IS CLAIMED BEFORE IT IS ERASED (HD1 fix round,
+  // R1): one transaction re-checks the hold and appends `erasing`, so an undo
+  // and two erasers (the worker, hosted's timer, this console) can't both land.
+  // The sweep claims before it calls this (`claimed`); the console claims here.
+  if (opts.claimed !== true && store.holdState(request.targetId) !== null) {
+    if (!claimHold(store, request.targetId, store.now(), { actor: request.actor, console: true })) {
+      if (store.holdState(request.targetId) !== null) throw new Error("removal refused: being-erased");
+      // Undone or erased in between: an erased one refuses as removal does; an
+      // undone one is an ordinary memory again, and the owner asked for it gone.
+      if (store.deniedIds().includes(request.targetId)) throw new Error("removal refused: already-removed");
+    }
+  }
+
   // 3. REQUESTED — if this throws, nothing has moved and nothing will (§16 G10).
   append("requested");
 
@@ -1220,13 +1234,19 @@ export function verifyRemoval(store: Store, targetId: string): {
 
 /** What one pass of the hold sweep did. Ids and counts only — never a word of a memory. */
 export interface HoldSweepReport {
-  /** Holds whose window had passed. */
+  /** Holds whose window (or a failed erase's backoff) had passed when the pass listed them. */
   readonly due: number;
   /** Erased now, each with how many surfaces went unchased (0 is the whole chase). */
   readonly erased: readonly { readonly id: string; readonly unchased: number }[];
-  /** Due and not erased: the record could not be written, or the id would not plan. Tried again next pass. */
-  readonly failed: readonly { readonly id: string; readonly why: string }[];
-  /** When the next hold still waiting may be erased (epoch ms), or null when none waits. */
+  /**
+   * Claimed and not erased: the record could not be written, or the id would
+   * not plan. Still hidden; tried again after a backoff (`claimRetryAfter`).
+   * `attempt` is which try this was (1: the first failure).
+   */
+  readonly failed: readonly { readonly id: string; readonly why: string; readonly attempt: number }[];
+  /** Listed but not claimed: undone, erased or claimed by another eraser in between. Nothing done. */
+  readonly skipped: number;
+  /** When the sweep may next act on a hold still active (epoch ms), or null when none is. */
   readonly nextAt: number | null;
 }
 
@@ -1242,6 +1262,13 @@ export interface HoldSweepReport {
  * to imports this file, so the model's call can only hide a memory; an
  * owner-side clock or the owner destroys it (CLI CONTRACT §1).
  *
+ * ONE CLAIM PER ID, RIGHT BEFORE ITS ERASE (fix round R1): the list below is
+ * only a list. Each id is claimed in its own transaction (`claimHold`: still
+ * held, not undone, not claimed, its time come), so an undo that lands after
+ * the list and before the erase keeps the memory, and of two sweeps (the
+ * worker and the timer, or two workers) exactly one erases it. A failed
+ * erase keeps its claim and is tried again after a backoff.
+ *
  * Wall-clock time (`now`), never lived days. Never throws: one memory's
  * failure is counted and the next is tried.
  */
@@ -1251,26 +1278,40 @@ export function sweepHeldRemovals(
 ): HoldSweepReport {
   const now = opts.now ?? store.now();
   const due = dueHolds(store, now);
+  opts.onEvent?.("cli.removal.sweep.listed", { due: due.length });
   const erased: { id: string; unchased: number }[] = [];
-  const failed: { id: string; why: string }[] = [];
+  const failed: { id: string; why: string; attempt: number }[] = [];
+  let skipped = 0;
   for (const hold of due) {
+    let claimed: boolean;
+    try {
+      claimed = claimHold(store, hold.id, now);
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      failed.push({ id: hold.id, why: typeof code === "string" ? code : "claim-failed", attempt: hold.claims + 1 });
+      continue;
+    }
+    if (!claimed) {
+      skipped += 1;
+      continue;
+    }
     try {
       const outcome = ownerRemoval(
         store,
         { targetId: hold.id, actor: "self", reason: HELD_ERASE_WHY, requestedAt: now },
-        opts.onEvent === undefined ? {} : { onEvent: opts.onEvent },
+        { ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }), claimed: true },
       );
       erased.push({ id: hold.id, unchased: outcome.unchased.length });
     } catch (err) {
       // A StoreError's code, or the refusal's reason: never memory text (§5 G10).
       const code = (err as { code?: unknown }).code;
-      failed.push({ id: hold.id, why: typeof code === "string" ? code : String((err as Error).message ?? err) });
+      failed.push({ id: hold.id, why: typeof code === "string" ? code : String((err as Error).message ?? err), attempt: hold.claims + 1 });
     }
   }
-  const waiting = store.pendingHolds();
-  const nextAt = waiting.length === 0 ? null : Math.min(...waiting.map((h) => h.at)) + REMOVAL_HOLD_MS;
-  opts.onEvent?.("cli.removal.sweep", { due: due.length, erased: erased.length, failed: failed.length, waiting: waiting.length });
-  return { due: due.length, erased, failed, nextAt };
+  const active = store.holds();
+  const nextAt = active.length === 0 ? null : Math.min(...active.map(holdNextAt));
+  opts.onEvent?.("cli.removal.sweep", { due: due.length, erased: erased.length, failed: failed.length, skipped, waiting: active.length });
+  return { due: due.length, erased, failed, skipped, nextAt };
 }
 
 /** The reason the sweep's erase records: fixed words, none of the memory's (§16 G9). */
