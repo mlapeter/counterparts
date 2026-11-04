@@ -4657,6 +4657,93 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
 - Undo of the whole change: `counterpart-deposit.ts#deposit` back to `submitProposal` before the
   mint. It restores the loss.
 
+### Decided by Mike, 2026-11-01, lightly held (habituation's window, 7 to 14 lived days)
+
+- Decided by Mike, 2026-11-01, lightly held: `recall.HABITUATION_WINDOW_DAYS` is 14 (it was 7). Min sessions, the bar lift
+  and the clear score stay, and the store doesn't change. Why: replaying 2,037 real turns (10-26..31) at 14 removed 261
+  showings for 5 useful ones lost, and moved rated noise from 40.3% to 37.7%. The cost is about twice as many memories
+  held down at once. These are estimates: the replay's control reproduced 66.5% of live footnotes. Undo: the same line
+  back to 7. `docs/CHECK-AFTER.md` says how to read it again and what would change it.
+- Decided by the H14 builder, 2026-11-01, lightly held, past the brief's "nothing else": `habituationRows` reads the
+  window newest first with its own bound (`HABITUATION_ROWS_MAX`, 5,000). Why: it took `eventLog`'s default of 500 rows,
+  oldest first, and the owner's store has 546 in 14 lived days. Left that way, the newest rows were dropped (a later 2
+  didn't clear), and the note's `through` never matched the newest row, so every prompt read the rows. A store past the
+  bound now loses the window's oldest rows instead of its newest.
+- Decided by the H14 builder, 2026-11-01, lightly held: the note a 7-day build left is left to heal. It reads as current
+  until the next rating row, so for that stretch a 14-day read sees only 7 days of rows, and memories rated 0 in the
+  older 7 aren't held yet. The next rating row rebuilds it. Tested through `session_end`.
+
+### Decided by the prune-gate builder, 2026-11-03, lightly held (recall's gate rows get a live sweep)
+
+- Decided by the prune-gate builder, 2026-11-03, lightly held: `Store#pruneGateSessions`
+  runs inside the sleep cycle's `versions` phase, right after the version prune, on its
+  marker and its window, not as a phase of its own. Why: the store's own doc said "beside
+  the version prune", and a new phase would move the phase list every report and test
+  enumerates. Its count rides its own event (`sleep.gate.pruned`), so the phase's numbers
+  stay the versions'; a throw is caught and named (`sleep.gate.failed`) so it cannot fail
+  the version prune that already committed.
+- Decided by the prune-gate builder, 2026-11-03, lightly held: the window stays the
+  store's `retentionDays` (90 lived days by default), with no second constant. Why: a
+  session used inside it keeps every row the gate reads, and a shorter one would only
+  reset older resumed sessions sooner; the typed words already leave on the 14-day clock.
+  A store younger than 90 lived days (the owner's, started 2026-09-21) deletes nothing
+  yet. A shorter window is the owner's call.
+- Decided by the prune-gate builder, 2026-11-03, lightly held: the sweep stays per row
+  (`last_day` past the cutoff), not per session. Why: the rows the gate reads are
+  re-stamped at every save, so per row never takes a live session's dedup, and it also
+  sweeps the rows a long session evicted past `MAX_SESSION_RECORDS`, which per session
+  would keep while the session lives. The edges are in `recall/NOTES.md` §6.
+
+### Decided by the S1 builder, 2026-11-03, lightly held (starter memories)
+
+- The mark is the row's `source`, `told`, a new member of `MEMORY_SOURCES`: no schema change (`source` is free
+  text on every store), and the readers that already branch on `dreamed`/`reflection`/`episode` take one more
+  word. The row's meta repeats the set's version (`told: "v1"`); the store's meta holds `told.set` and
+  `told.surface`.
+- Seeds are planted beside `beginNewInstall`, not inside it: `install` on a store it created (so `start-fresh`,
+  which re-uses install, seeds — a fresh store is a new counterpart), and hosted's `startNewStore`. `init` and a
+  store a hook opens don't, as they never start the meeting either.
+- Ambient recall: a told candidate is outside the turn's background, never loud (`told-quiet`), and ranked after
+  every lived one before inhibition and the footnote cap, so it only takes a quiet slot no lived memory wanted.
+  Not a salience knob (§9 G8). Deliberate recall: facts orders a told match at half its score; meaning mode leaves
+  them out (they are no moment of anyone's arc).
+- Counts that drive behaviour count lived rows (ROADMAP, 11-03, at review): recall's cold start (the candidate cap,
+  the gate's regime), day's end's "a day before", meaning mode's common-word gate. Word rarity and the floor unit
+  keep the whole store, the population the word counts are taken over (kept on purpose at review; ROADMAP agreed).
+- Display counts (ROADMAP, 11-03): `status`, the dashboard (home headline, Today, the memories header) and doctor's
+  memory line and not-searchable count say the lived memories as the number and the starter notes apart ("0
+  memories · 11 starter notes"); a starter memory is never "new today". `uninstall` counts both and says so ("11
+  memories (11 of them starter notes)"). The wake's preface line still counts every memory row; left for now.
+- `init` stays bare (ROADMAP, 11-03): "init makes a bare store, with no starter notes; install sets up yours."
+- The harness `week` plants the set as install does, by default; `--no-told` (`told: false`) leaves it out, so a
+  Dana run measures the first week a new user has. Its day-end counts include the 11.
+
+### Decided by the WP1 builder, 2026-11-03, lightly held (write-ups skip plumbing)
+
+- Decided by the WP1 builder, 2026-11-03, lightly held: both a filter and a sentence, and the
+  sentence carries the case that was seen. Why: in the Dana re-run the refused `reflect` call's
+  `tool_result` never reached capture (tool output is the declared blind spot); what the
+  write-up wrote from was the counterpart's own replies ("I tried to mark that note as
+  delivered … the permission request was declined"), which are its real words and stay in the
+  part. So `sessions.ts#WRITE_UP_PLUMBING_RULE` goes to every writer of an ended session's
+  words: the catch-up's prompt and the door's `next`, which the pointer's writer reads too.
+- Decided by the WP1 builder, 2026-11-03, lightly held: the deterministic half is a new
+  refused source, `plumbing`, for two anchored whole-block host frames: Claude Code's
+  `[Request interrupted by user for tool use]` (its own user-role line after a declined
+  permission prompt, measured on the owner's transcripts, `injected` and kept until now) and a
+  hook's output written as user text, as a whole system reminder with nothing after it (the
+  bare form stays in `HOST_FRAMES`, kept: one bare line cannot be told from a person on an
+  older build asking about their hook; review of #731). Why a new source and not `tool`: `enters()` refuses it by name and the
+  boundary's `excluded` count still counts it; a plain `[Request interrupted by user]` stays
+  `injected`, because stopping a reply is something the person did. On an `isMeta` line it
+  enters no turn, as `injected` didn't, so a live session's cursor doesn't move across the
+  upgrade.
+- Decided by the WP1 builder, 2026-11-03, lightly held: no word filter on replies. Why: a
+  sentence about a permission prompt in a reply is the counterpart speaking, and a regex over
+  its prose would also take "why do you keep asking me to allow that?" exchanges the rule
+  keeps. Left open: the person's typed reason when declining a prompt lives inside the rejected
+  `tool_result` and has never reached capture; it is the person's words about the prompt.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
