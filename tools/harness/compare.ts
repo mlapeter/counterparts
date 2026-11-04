@@ -77,7 +77,7 @@ export function absolutePaths(passthrough: readonly string[], cwd: string): stri
 }
 
 /** Flags the compare owns: passing one through would split a side from its record. */
-const OWNED = ["--json", "--set", "--preset", "--page-out", "--keep", "--out"];
+const OWNED = ["--json", "--set", "--preset", "--page-out", "--keep", "--out", "--trace"];
 
 /** The two sides, refusing a compare where nothing differs. Pure. */
 export function planSides(o: Pick<CompareOptions, "base" | "branch" | "set" | "baseSet" | "preset" | "basePreset" | "runs" | "passthrough" | "mode">): readonly [SidePlan, SidePlan] {

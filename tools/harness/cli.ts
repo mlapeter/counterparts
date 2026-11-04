@@ -15,6 +15,8 @@ import { runWeek } from "./week.js";
 import type { WeekRecord } from "./week.js";
 import { OWNER_WEEK_MEANINGFUL } from "./owner-week.js";
 import { CHECKINS_OWNER, OWNER_WEEK_CHECKINS } from "./checkins-week.js";
+import { DEVELOPER_EXPECTATIONS, DEVELOPER_OWNER, DEVELOPER_WEEK } from "./developer-week.js";
+import { renderExpectations } from "./expectations.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
 import { runCompare } from "./compare.js";
@@ -140,7 +142,8 @@ export function renderWeek(r: WeekRecord): string {
     const c = x.coverage;
     const ledger = c === null ? "ledger: nothing captured" : `captured ${String(c.pieces)}, written ${String(c.written)}, unwritten ${String(c.unwritten)}${c.spanMin === null ? "" : ` over ${String(c.spanMin)} min`} · ${c.owed ? "OWED" : `not owed (${c.whyNot ?? "?"})`}`;
     const tools = x.remembers === null ? "" : ` · remember ${String(x.remembers)}${x.remembersRefused === 0 ? "" : ` (${String(x.remembersRefused)} refused)`}${x.chapters === null || (x.chapters === 0 && x.chaptersRefused === 0) ? "" : ` · chapter ${String(x.chapters)}${x.chaptersRefused === 0 ? "" : ` (${String(x.chaptersRefused)} refused)`}`} · asks answered ${String(x.asksAnswered)}, ignored ${String(x.asksIgnored)}`;
-    out.push(`  ${x.label} ${x.scope}: ${String(x.turns)} turns · stops ${String(x.stops)}: asked ${String(x.asks)}, paced ${String(x.paced)}${Object.keys(x.stopReasons).length === 0 ? "" : ` (${Object.entries(x.stopReasons).map(([k, n]) => `${k} ${String(n)}`).join(", ")})`}${tools} · ${ledger} · footnotes ${String(x.footnotes)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
+    const host = (x.compactions ?? 0) + (x.hostLines ?? 0) + (x.declined ?? 0) === 0 ? "" : ` · compactions ${String(x.compactions)}, host lines ${String(x.hostLines)}, declined ${String(x.declined)}`;
+    out.push(`  ${x.label} ${x.scope}: ${String(x.turns)} turns${host} · stops ${String(x.stops)}: asked ${String(x.asks)}, paced ${String(x.paced)}${Object.keys(x.stopReasons).length === 0 ? "" : ` (${Object.entries(x.stopReasons).map(([k, n]) => `${k} ${String(n)}`).join(", ")})`}${tools} · ${ledger} · footnotes ${String(x.footnotes)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
   }
   for (const n of r.nights) {
     const cu = n.catchUp;
@@ -150,13 +153,19 @@ export function renderWeek(r: WeekRecord): string {
     out.push(`  night launched day ${String(n.day)} in ${n.launchedIn} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"}) · asked ${n.asked.map((a) => a.act).join(", ") || "nothing"}${plan}${tokens}`);
   }
   for (const k of r.wakes) {
+    if (k.compact === true) out.push(`  compaction wake ${k.label}: last here ${k.lastHere === null ? "none" : k.lastHere.session} · lines ${k.lines.join(", ") || "none"} · ${String(k.bytes)} bytes`);
     if (!k.morning) continue;
     out.push(`  wake ${k.label}: last here ${k.lastHere === null ? "none" : `${k.lastHere.session} (${k.lastHere.episode ?? "no chapter"})`}${k.lastSaid === null ? "" : ` · last said ${k.lastSaid}`} · lines ${k.lines.join(", ") || "none"} · ${String(k.bytes)} bytes · dream gate ${k.gate.reason} (${String(k.gate.newSince)} new)`);
     if (k.doctor !== null && k.doctor !== undefined) out.push(`    doctor Catch-up before ${k.label}'s first prompt: ${k.doctor.severity} — ${k.doctor.detail}`);
   }
   out.push(`  worker boundaries the product asked for: ${String(r.boundaries)}`);
   out.push(`  owed at the week's end: ${r.owedAtEnd.length === 0 ? "none" : r.owedAtEnd.join(", ")}`);
-  for (const d of r.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}`);
+  for (const d of r.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}${d.spent === undefined ? "" : ` · spent ${String(d.spent.calls)} calls, ${(d.spent.tokens / 1000).toFixed(0)}k tokens, $${d.spent.costUsd.toFixed(2)}`}`);
+  if (r.recallProjects !== undefined) out.push(`  recall across projects${r.roots === undefined ? "" : ` (folders registered: ${r.roots === "each" ? "each on its own" : "one root"})`}: ${String(r.recallProjects.decisions)} decisions · crossProjectLifted ${String(r.recallProjects.crossProjectLifted)} (on ${String(r.recallProjects.turnsLifted)} turns) · projectSkipped ${String(r.recallProjects.projectSkipped)}`);
+  if (r.expectations !== undefined) {
+    out.push("  expectations (what the memory handed the model: wakes and prompts; and the store's live memories at the end):");
+    out.push(...renderExpectations(r.expectations));
+  }
   if (r.out !== null) out.push(`store: ${r.out} (replay it: bun tools/harness/cli.ts replay --source ${r.out})`);
   if (r.keptAt !== null) out.push(`kept: ${r.keptAt}`);
   return out.join("\n");
@@ -219,7 +228,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const days = flag(args, "--days");
     const scriptName = flag(args, "--script");
     // A bare --script is refused too: a paid run of the wrong week costs more than an error.
-    if (args.includes("--script") && scriptName !== "plain" && scriptName !== "meaningful" && scriptName !== "checkins") throw new Error(`UNKNOWN_SCRIPT: ${scriptName ?? "(none)"} (plain, meaningful or checkins)`);
+    if (args.includes("--script") && scriptName !== "plain" && scriptName !== "meaningful" && scriptName !== "checkins" && scriptName !== "developer") throw new Error(`UNKNOWN_SCRIPT: ${scriptName ?? "(none)"} (plain, meaningful, checkins or developer)`);
     const seatName = flag(args, "--seat");
     if (args.includes("--seat") && seatName !== "model" && seatName !== "scripted") throw new Error(`UNKNOWN_SEAT: ${seatName ?? "(none)"} (model or scripted)`);
     // No model sits in a scripted seat, so naming one is a mistake, not a choice.
@@ -227,12 +236,15 @@ async function main(argv: readonly string[]): Promise<number> {
     const record = await runWeek({
       ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL, scriptName } : {}),
       ...(scriptName === "checkins" ? { script: OWNER_WEEK_CHECKINS, scriptName, owner: CHECKINS_OWNER } : {}),
+      ...(scriptName === "developer" ? { script: DEVELOPER_WEEK, scriptName, owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, roots: "each" as const, modelAfter: true } : {}),
+      ...(flag(args, "--roots") === "one" || flag(args, "--roots") === "each" ? { roots: flag(args, "--roots") as "one" | "each" } : {}),
       ...(seatName === "scripted" ? { seat: "scripted" as const } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
       ...(args.includes("--no-told") ? { told: false } : {}),
       ...(flag(args, "--wake-shape") === "off" || flag(args, "--wake-shape") === "on" ? { wakeShape: flag(args, "--wake-shape") as "on" | "off" } : {}),
       ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),
+      ...(flag(args, "--trace") === undefined ? {} : { trace: flag(args, "--trace")! }),
       ...((): { model?: string } => {
         const v = flag(args, "--model");
         return v === undefined || v.startsWith("--") ? {} : { model: v };
@@ -281,7 +293,7 @@ async function main(argv: readonly string[]): Promise<number> {
         "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--preset <name>] [--base-preset <name>] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
         "       (replay, night and week also take --set module.KEY=V and --preset <name>, and night and week --page-out <file>)\n" +
         "       bun tools/harness/cli.ts corpus [--from <snapshot folder>] [--snapshots <dir>] [--out <dir>] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--wake-shape on|off] [--model <name>] [--out <week.sqlite>] [--keep] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins|developer] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--wake-shape on|off] [--model <name>] [--out <week.sqlite>] [--trace <file.jsonl>] [--roots one|each] [--keep] [--json <out>]\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;

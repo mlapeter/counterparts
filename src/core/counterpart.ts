@@ -411,6 +411,8 @@ export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measu
 // store its caller has just created, here so a host that makes its own stores
 // (hosted's signup, the harness's week) reaches it through the package entry.
 export { plantTold } from "./told.js";
+/** What counts as a folder's WORK (`self/work.ts`), for a host or the harness measuring folder separation by the product's own rule. */
+export { craftBornDay, craftSince, isWorkMemory } from "./self/work.js";
 export type { ToldSurface } from "./told.js";
 
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
