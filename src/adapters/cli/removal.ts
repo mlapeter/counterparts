@@ -1257,7 +1257,7 @@ export function sweepHeldRemovals(
     try {
       const outcome = ownerRemoval(
         store,
-        { targetId: hold.id, actor: "self", reason: HELD_ERASE_REASON, requestedAt: now },
+        { targetId: hold.id, actor: "self", reason: HELD_ERASE_WHY, requestedAt: now },
         opts.onEvent === undefined ? {} : { onEvent: opts.onEvent },
       );
       erased.push({ id: hold.id, unchased: outcome.unchased.length });
@@ -1274,4 +1274,4 @@ export function sweepHeldRemovals(
 }
 
 /** The reason the sweep's erase records: fixed words, none of the memory's (§16 G9). */
-export const HELD_ERASE_REASON = "asked in chat; erased when its 24-hour hold ran out";
+export const HELD_ERASE_WHY = "asked in chat; erased when its 24-hour hold ran out";

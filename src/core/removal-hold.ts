@@ -33,7 +33,7 @@ export type RemovalRefusal = "unknown-id" | "not-memory-bearing" | "already-remo
 const MEMORY_BEARING = new Set(["memory", "episode", "schema"]);
 
 /** The fixed reason a hold records (§16 G9: the record holds no words of the memory, and no model-written why). */
-export const HOLD_REASON = "asked in chat";
+export const HOLD_WHY = "asked in chat";
 
 /**
  * IS THIS ID REMOVABLE AT ALL — step 1 of a removal on its own, and nothing
@@ -92,7 +92,7 @@ export function holdForRemoval(store: Store, id: string, opts: { actor?: string 
   const refusal = already === undefined ? removalRefusal(store, id) : null;
   if (refusal !== null) return { ok: false, reason: refusal, id };
   if (already === undefined) {
-    store.appendRemovalRecord({ memoryId: id, stage: "held", actor: opts.actor ?? "self", reason: HOLD_REASON });
+    store.appendRemovalRecord({ memoryId: id, stage: "held", actor: opts.actor ?? "self", reason: HOLD_WHY });
   }
   const hold = store.pendingHolds().find((h) => h.id === id);
   const doc = store.heldProse(id);
@@ -124,7 +124,7 @@ export function releaseHold(store: Store, id: string, opts: { actor?: string } =
     return { ok: false, reason: store.deniedIds().includes(id) ? "already-removed" : "not-held", id };
   }
   const doc = store.heldProse(id);
-  store.appendRemovalRecord({ memoryId: id, stage: "released", actor: opts.actor ?? "self", reason: HOLD_REASON });
+  store.appendRemovalRecord({ memoryId: id, stage: "released", actor: opts.actor ?? "self", reason: HOLD_WHY });
   return { ok: true, reason: "released", id, title: doc === null ? id : heldTitle(doc) };
 }
 
