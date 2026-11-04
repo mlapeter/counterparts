@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.3.46 — 2026-11-03
+
+**New stores get starter memories and the new wake layout; existing stores barely change.** A store `counterparts install` (or `start-fresh`, or hosted signup) creates begins with eleven starter notes, "told, not lived", counted apart from your own memories, and its sessions start in the wake's shape, which now opens with what happened since the last night, steps an old handoff down to one line, drops empty sections and settles dated things that already happened. A store that already exists gets no starter notes and keeps its wake-shape setting; where the shape is on (`counterparts wake-shape on`), its wake gains those same changes, and on any store a reminder that a newer done memory says already happened is no longer told as due. Also: write-ups leave out permission prompts and refused tool calls, the first meeting asks easier questions, a manual ships with every install (`recall` the handle `manual`), a memory called noise twice stays quieter for 14 lived days rather than 7, and the plugin downloads its program once. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.45 needs no store restore: `counterparts disconnect`, 0.3.45's install, then `counterparts connect`.
+
+- **A memory two sessions called noise now stays quieter for two weeks, not one.** Rated 0 in two sessions within 14 lived
+  days (it was 7), it faces the same raised bar until those ratings age out or a later 2 or 3 clears it. A turn that
+  reaches it strongly still shows it. Right after installing, the longer window starts counting at the next rating.
+  `recall.HABITUATION_WINDOW_DAYS` back to 7 undoes it.
+- **The plugin downloads its program once on Ubuntu 26.04.** On a computer with no Bun or Node,
+  the hook and the memory server starting together could both download the program (about
+  56 MB), because that Ubuntu's `mkdir` can tell two processes they each made the same
+  directory. The launcher now takes its lock with the shell itself. The same double download
+  could follow a download that died, on any system, and now doesn't. Nothing unchecked ever
+  ran: each download was checked and moved into place in one step. And on a Mac whose `sh`
+  is zsh, a first start now downloads the program at all: it used to say "getting ready"
+  and never start.
+- **Hosted: Litestream's own log lines reach the server's log.** A backup that fails to sync (a refused upload, an
+  R2 permission error, a rejected encryption key) now says so in the log, and a redeploy's log shows Litestream's
+  final sync finishing. Before, those lines were dropped and only the process being up was visible.
+- **Hosted: the restore drill is in the repository, and the KEK check is by fingerprint.** `hosted/drill/drill.sh`
+  restores production's deployed image from a drill bucket on R2 with a throwaway key, and writes its results outside
+  the repository. The offline copies of the key are now checked by a short fingerprint against Railway's, so the real
+  key no longer goes into a drill. The runbook says what to do when a restore refuses a mistyped key.
+- **Recall's per-conversation bookkeeping no longer piles up.** The record of what each
+  conversation was already shown (so nothing repeats) is now cleared once a conversation
+  has gone unused for the retention window, 90 days of use by default, in the nightly run
+  beside the old-version cleanup. A conversation used inside the window keeps all of it.
+- **A new store starts with eleven starter memories, "told, not lived".** `counterparts install` (and
+  `start-fresh`) and hosted signup plant a short set about how this memory works and how to use it well, in each
+  surface's own words, marked with the source `told` and the set's version in the store's meta. They start weak,
+  fade unless used, and can be corrected or removed like any memory. Recall fills its footnotes with every lived
+  memory first and never shows a starter one loud; the deliberate `recall` ranks one below a lived match of
+  comparable score. The night, the wake, the core, beliefs and cards never read them. An upgraded store never gets
+  them. No store-format change.
+  `status`, doctor and the dashboard count them apart ("0 memories · 11 starter notes"), and `uninstall` says how
+  many of the memories it counts are starter notes. `init` still makes a bare store; the harness `week` starts with
+  the set unless given `--no-told`.
+- **Nightly write-ups leave out permission prompts and refused tool calls.** When you decline a
+  permission prompt, the host's "interrupted for tool use" line no longer reaches the write-up
+  of that conversation, and whoever writes a session up (the nightly catch-up, or the next
+  session pointed at it) is told that permission prompts, refused tool calls and the
+  memory system's own notices aren't things that happened between you, unless you talked
+  about them. A night had saved "declined permission to mark a note delivered" as a memory.
+- **The first meeting asks four questions now, and easier ones.** After your week, it asks "What are you working
+  on right now?", then what you've been into lately that has nothing to do with work, then a good Saturday. "What do
+  you love most about what you do?" is gone, and so is "What got you started building things?". A meeting already
+  under way when you update finishes as it started: the answers it gives under the old questions are still kept.
+- **Starter memories no longer push out a lived memory.** On a new store, a seed that shared a word with the question
+  set the deliberate `recall`'s "weak match" bar, and a lived memory found by meaning alone fell under it ("which
+  coffee maker do we own?" lost the note about the espresso machine). Facts mode now lists every lived match before
+  any starter one, and judges a lived match only against lived ones. The turn's footnotes read their floors from the
+  lived memories too, so eleven starter notes no longer double the bar a young store's memories must clear (a
+  starter memory still faces the stricter whole-store bar, so a loosely matched seed is not footnoted on a turn nothing lived answers). The
+  single-binary check now runs on every pull request that touches `src/`.
+- **The counterpart has a manual.** `docs/manual.md` says how Counterparts works and how to
+  use it: the everyday phrases, folders, nights and dreams, seeing and changing what's kept,
+  export, backup and uninstall, checking health, and how hosted differs. It ships with every
+  install, so it matches the version you run and works offline. Your counterpart opens it
+  with `recall`'s handle `manual` (a list of sections), and `manual <section>` opens one.
+- **The wake knows yesterday's news.** In the wake's shape (on for new installs, below), a session start opens, after
+  the page, with "Since the last night:": up to three of the strongest things about you, or about the two of you, saved since the last
+  night ran, from any folder that's on. Something said in another folder this morning (a launch, good news from the vet)
+  no longer waits a night to reach the next session. Nothing new, no section.
+- **An old handoff stops leading the wake** (the wake's shape, as the next one). Half a day after a folder's last handoff, once another session has worked
+  there and left something, the handoff shows as one line with its age and how many sessions came since, after what they
+  did, instead of whole and first for days. A quick check-in that saved nothing, or a session still open beside yours,
+  leaves it whole.
+- **No empty sections in the wake.** "Nothing open.", "Nothing dated." and "Open here now: no other session." are gone,
+  with their headings: a section with nothing in it isn't printed.
+- **Something that already happened stops being "due today".** When a newer memory marked done says a dated thing
+  happened (the shop launched a day early), its reminder isn't told and it leaves Coming up. Only on or after its day,
+  and only by a memory from the day before it or later, so last week's vet visit never settles this week's.
+- **A new install starts with the wake's shape on.** The top-down wake (where this folder stands, elsewhere, coming up,
+  still open, yesterday, last night, each said once) is now how a new store's sessions start. A store that already existed
+  keeps its setting (`counterparts wake-shape on|off|default`).
+- **Help no longer says export is encrypted by default.** It never was: export refuses until you pass
+  `--passphrase` (encrypted) or `--plaintext` (said on purpose). `counterparts --help`, `counterparts export --help`,
+  the README and the quickstart now say so.
+- **On claude.ai, the `scope` tool speaks of one memory, not folders.** Its description, its read and the refusal
+  while memory is off or paused say one account is one memory, to pause, turn off and turn back on; they no longer
+  show the server's file path or a `counterparts scope` command nobody on claude.ai can run. Claude Code's and
+  Claude Desktop's words are unchanged.
+- **A new store's starter note on using memory well points to the manual** (`recall` the handle "manual"). Stores
+  that already exist keep their notes as they are.
+
 ## 0.3.45 — 2026-11-01
 
 Nearly nothing you'd notice changes. **One thing happens at once: the first pass after upgrading deletes the raw copies of notes saved with no session or with `counterparts note` that are already past their age (3 days once the memory has landed, 14 whatever). Memories aren't touched, and raw text deleted this way doesn't come back, even if you go back to 0.3.44.** Learned cue words skip path fragments and acknowledgements. A memory that couldn't be saved can be sent again. A laptop's sleep no longer stops the night's work, and a headless session leaves the night to the next one a person starts. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.44 needs no store restore: `counterparts disconnect`, 0.3.44's install, then `counterparts connect`.

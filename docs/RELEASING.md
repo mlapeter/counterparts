@@ -124,7 +124,9 @@ INSTALL_LOOP_TARBALL=<the pack> tools/install-loop/run.sh
 A stop costs a minute this way. In 0.3.42 two stops from one merged PR (session ids in a
 comment, a heading the install loop still read by its old words) cost a full run each. Settle
 the changelog's words here too: `CHANGELOG.md` and `tools/install-loop/run.sh` ship, so a change
-to either is a new tarball and a new run.
+to either is a new tarball and a new run. In 0.3.46 a merged change to what a new store's install
+gives (the wake's shape on) left four install-loop steps reading the unshaped wake's words: caught
+here, fixed on the release branch, and the loop now reads both.
 
 **On the laptop, on the commit CI passed.** `uptime` first; these run one at a time.
 
@@ -335,9 +337,12 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
 
 ## Upgrade and rollback, tested before publish
 
-In a throwaway HOME and bun prefix, with `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, no real
-`claude` on PATH (a stand-in that writes only inside the throwaway home), and the hooks and
-servers driven over stdio:
+In a throwaway HOME and bun prefix, no real `claude` on PATH (a stand-in that writes only
+inside the throwaway home), and the hooks and servers driven over stdio. Name the store for
+`install` and the commands you run yourself, but leave `COUNTERPARTS_REQUIRE_EXPLICIT_DIR`
+unset inside that HOME: the hook commands `connect` writes and the memory server name no
+store, as on a real install, so with it set they stand down and refuse and the loop tests
+nothing (0.3.46). The throwaway HOME is what keeps the default store away from the owner's:
 
 1. Install the previous release from its tarball, make a store, connect it, and use it: a
    session, a note, recall both ways, doctor.
