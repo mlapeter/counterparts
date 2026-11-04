@@ -8,3 +8,8 @@
   finishes a memory deleted in chat.
 - **Recalling a removed memory by its id no longer fails with an internal error;** it reads as
   not found.
+- **The starter notes say so too.** Two of them changed with this: the one about seeing and
+  changing what Claude keeps now says one memory can be deleted in chat and undone within a day
+  (on hosted it used to say a memory couldn't be removed yet), and the tips list gains "Delete
+  that". An existing install gets the new words once, at its next session, but only where those
+  two notes are still exactly as they started; one you corrected or let go stays as it is.
