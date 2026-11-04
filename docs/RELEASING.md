@@ -334,6 +334,31 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    `claude plugin list` shows the sidebar at the new version and counterparts at
    `<version>-<sha>`. A missing `counterparts--v<version>` tag shows here as "has no git tag
    satisfying" (split.sh scenario 5).
+6. Move hosted onto the release. Since 2026-11-04 (Mike, via ROADMAP) Railway deploys
+   `app.counterparts.ai` from the `release` branch, not master, so merging the release PR
+   doesn't redeploy it and this push does. `release` goes to the release PR's merge commit
+   on master (the tag stays on the packed commit, step 2), once master's CI on it is green:
+
+   ```sh
+   git fetch origin
+   SHA=<the release PR's merge commit, full sha>
+   git merge-base --is-ancestor "$SHA" origin/master && gh run list --commit "$SHA" --json name,conclusion
+   git push origin "$SHA":refs/heads/release
+   ```
+
+   Every run listed must say `success`. The push has no `--force` and no `+`, so git refuses
+   anything but a fast-forward ("rejected … (non-fast-forward)"). If it refuses, stop and find
+   out how `release` got ahead of master; never force it. Then watch the deploy (Railway →
+   fabulous-recreation → Deployments, or the `fabulous-recreation / production` deployment on
+   GitHub turning `success`) and check it the way [the RUNBOOK's first boot
+   checks](hosted/RUNBOOK.md#5-first-boot-checks) do: the log's `[hosted] serving …` line,
+   `curl -s https://app.counterparts.ai/healthz` prints `ok`, and
+   `curl -s https://app.counterparts.ai/readyz` prints every check `ok`.
+
+   **An urgent hosted fix between releases** is the same push, on purpose, to the master
+   commit that carries it (master is ahead of `release`, so it's still a fast-forward). It
+   ships everything on master up to that commit, so read `git log release..<sha>` first. Write
+   in the coordinator's handoff that `release` moved off-cycle, to which sha, and why.
 
 ## Upgrade and rollback, tested before publish
 
