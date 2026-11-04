@@ -102,6 +102,19 @@ export interface LedgerEntry {
    * only past the floor.
    */
   readonly recorded: boolean;
+  /**
+   * Its newest compaction (CT1, 2026-11-04): the latest `pre-compaction`
+   * boundary it recorded, in any scope; null when it never compacted.
+   */
+  readonly compactedAt: number | null;
+  /**
+   * Unwritten pieces after that compaction that NO RECORD OF ITS OWN follows
+   * (CT1): what the session said after its context was cut, when the only
+   * record it relies on was written before the cut. Counted as an unrecorded
+   * session's stretch is (`isDebt(…, false)`). 0 when it never compacted, or
+   * when a record of its own covers a piece after the cut.
+   */
+  readonly compactionTail: number;
   readonly owed: boolean;
   readonly lapsed: boolean;
   /** Owed, and under `SMALL_STRETCH_PIECES`: one line is enough. */
@@ -282,6 +295,13 @@ interface Tally {
   writtenUpAt: number | null;
   /** A claim of its own record stands on one of its pieces (`recordClaims`). */
   recorded: boolean;
+  /** Its newest `pre-compaction` boundary, any scope (CT1). */
+  compactedAt: number | null;
+  /** The times of the pieces a record claim of its own covers (CT1): whether
+   *  a record follows the compaction is read off what it wrote up, not when
+   *  the claim landed (a claim made from the PreCompact capture lands after
+   *  the cut, but covers what came before it). */
+  recordPieceAts: number[];
 }
 
 /**
@@ -297,7 +317,7 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     if (typeof session !== "string" || session.length === 0) return null;
     let t = tallies.get(session);
     if (t === undefined) {
-      t = { scopes: new Set(), all: [], unwritten: [], pieces: 0, lastCaptureAt: 0, endAt: null, writtenUpAt: null, recorded: false };
+      t = { scopes: new Set(), all: [], unwritten: [], pieces: 0, lastCaptureAt: 0, endAt: null, writtenUpAt: null, recorded: false, compactedAt: null, recordPieceAts: [] };
       tallies.set(session, t);
     }
     return t;
@@ -307,12 +327,18 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     const marks = buffer.coverage(scope);
     const covered = new Set(marks.map((m) => m.spanHash));
     const records = recordClaims(marks);
+    const pieces = piecesIn(buffer, scope);
+    const pieceAt = new Map<string, number>();
+    for (const s of pieces) pieceAt.set(s.hash, atOf(s));
     for (const m of marks) {
       if (!records.has(m.proposalId)) continue;
       const t = tally(m.session);
-      if (t !== null) t.recorded = true;
+      if (t === null) continue;
+      t.recorded = true;
+      const at = pieceAt.get(m.spanHash);
+      if (at !== undefined) t.recordPieceAts.push(at);
     }
-    for (const s of piecesIn(buffer, scope)) {
+    for (const s of pieces) {
       const t = tally(s.session);
       if (t === null) continue;
       const at = atOf(s);
@@ -330,9 +356,11 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
       if (t !== null) t.lastCaptureAt = Math.max(t.lastCaptureAt, atOf(s));
     }
     for (const b of buffer.boundaries(scope)) {
-      if (b.kind !== "session-end" || typeof b.at !== "number") continue;
+      if ((b.kind !== "session-end" && b.kind !== "pre-compaction") || typeof b.at !== "number") continue;
       const t = tally(b.session);
-      if (t !== null) t.endAt = Math.max(t.endAt ?? 0, b.at);
+      if (t === null) continue;
+      if (b.kind === "session-end") t.endAt = Math.max(t.endAt ?? 0, b.at);
+      else t.compactedAt = Math.max(t.compactedAt ?? 0, b.at);
     }
     for (const w of buffer.writeUps(scope)) {
       const t = tally(w.session);
@@ -360,7 +388,12 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     // ITS OWN RECORD (S2, 2026-10-26): a claim that is not a note's, or a
     // write-up mark. Without one, what it said is owed whatever its size.
     const recorded = t.recorded || t.writtenUpAt !== null;
-    const debt = isDebt(stretch, recorded);
+    // AFTER ITS NEWEST COMPACTION (CT1, 2026-11-04): what follows the cut is
+    // unrecorded unless a record of its own reaches past it — a record claim
+    // covering a piece said after the cut, or a write-up mark after it. A
+    // record written before the compaction does not hold the tail to the floor.
+    const tail = compactionTail(unwritten, t.compactedAt, t.recordPieceAts, t.writtenUpAt);
+    const debt = isDebt(stretch, recorded) || isDebt(stretchOf(tail), false);
     const since = stretch === null ? 0 : usesAfter(uses, localDate(stretch.lastAt, opts.zone));
     const lapsed = debt && since >= COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE;
     const owed = debt && state !== "active" && !lapsed;
@@ -383,6 +416,8 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
       stretch,
       overFloor: floor,
       recorded,
+      compactedAt: t.compactedAt,
+      compactionTail: tail.length,
       owed,
       lapsed,
       small: owed && (stretch?.pieces ?? 0) < COVERAGE_TUNABLES.SMALL_STRETCH_PIECES,
@@ -391,6 +426,25 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     });
   }
   return out;
+}
+
+/**
+ * THE TAIL AFTER A COMPACTION THAT NO RECORD FOLLOWS (CT1, 2026-11-04): the
+ * unwritten pieces said after the session's newest compaction, when no record
+ * of its own reaches past it. Strictly after: what the PreCompact capture took
+ * shares the boundary's tick and belongs before the cut. Empty when it never
+ * compacted. Pure.
+ */
+export function compactionTail<P extends { readonly at: number }>(
+  unwritten: readonly P[],
+  compactedAt: number | null,
+  recordPieceAts: readonly number[],
+  writtenUpAt: number | null,
+): P[] {
+  if (compactedAt === null) return [];
+  if (writtenUpAt !== null && writtenUpAt > compactedAt) return [];
+  if (recordPieceAts.some((at) => at > compactedAt)) return [];
+  return unwritten.filter((p) => p.at > compactedAt);
 }
 
 function maxOf(a: number | null, b: number | null): number | null {
