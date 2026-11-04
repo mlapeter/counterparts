@@ -387,11 +387,12 @@ describe("recall opens the manual", () => {
       expect(text).toContain(`"${s.handle}": ${s.line}`);
       const things = concrete(s.line);
       expect(things.length).toBeGreaterThan(0);
+      expect(s.text).toContain(s.line);
       const body = norm(s.text);
       // Every thing the line names is in its own section (a file name counts when the section only points to it).
       const rest = norm(s.text.replace(s.line, ""));
       expect(things.some((t) => (/\.md$/.test(t) ? false : rest.includes(norm(t))) || (/\.md$/.test(t) && body.includes(norm(t))))).toBe(true);
-      for (const t of things) expect(body).toContain(norm(t));
+      for (const t of things) expect(/\.md$/.test(t) ? body : rest).toContain(norm(t));
     }
   }, 30_000);
 

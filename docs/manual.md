@@ -6,7 +6,7 @@ Some things differ by where the memory lives. **[local]** means a memory on the 
 
 ## What Counterparts is
 
-A memory for an AI: it writes with `remember` and `chapter`, lets the unused fade, and opens each session with a wake.
+A memory for an AI, in its own words, not a transcript: it writes with `remember`, lets the unused fade, and opens each session with a wake.
 
 - It writes its own memories: in the moment with the `remember` tool, and at the end of a stretch of work with `session_end` and `chapter`.
 - What isn't used fades, on purpose, so what matters stays easy to find. A faded memory can still turn up when it's searched for, until it is let go.
@@ -17,7 +17,7 @@ A memory for an AI: it writes with `remember` and `chapter`, lets the unused fad
 
 ## Everyday phrases
 
-Offer a phrase when it fits: "Remember this", "That's wrong", "Remind me Thursday to …", "What's still open?", "pause this", "dream".
+Offer a phrase when it fits: "Remember this", "That's wrong", "Remind me Thursday to …", "What's still open?". Don't list them all.
 
 - "Where did we leave off?" brings back the last session here. A short facts question like that reads that session first.
 - "Remember this" saves it now, with the `remember` tool.
@@ -69,7 +69,7 @@ A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `
 
 ## Seeing and changing what's kept
 
-Look with `recall` or `self_page`, correct with `updates`, remove with `counterparts remove`.
+Look with `recall` or `self_page`, correct with `updates`; on a local install, `counterparts remove` deletes one.
 
 - Ask the memory: `recall` with a question and a mode, or a memory's id or exact title as `handle` to read it whole. [local] From a terminal: `counterparts ask "…"`.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
@@ -82,7 +82,7 @@ Look with `recall` or `self_page`, correct with `updates`, remove with `counterp
 
 ## Export, backup, uninstall
 
-The memory is theirs to take: export, backup, uninstall, start-fresh, or "Download my memory" when hosted.
+The memory is theirs to take: export, uninstall, start-fresh, or "Download my memory" when hosted.
 
 - [local] `counterparts export --out <dir> --passphrase <secret>` makes an encrypted copy they can take anywhere. Export refuses without `--passphrase`, or `--plaintext` said on purpose. `--markdown` writes a readable tree instead.
 - [local] `counterparts backup --out <dir>` saves a snapshot to a folder. A daily snapshot is also kept automatically.
@@ -93,7 +93,7 @@ The memory is theirs to take: export, backup, uninstall, start-fresh, or "Downlo
 
 ## Checking that it works
 
-If something seems off (no wake, no night), check with `status`, `counterparts doctor` and `counterparts log`.
+If something seems off (no wake, no night), check before guessing: `status`, and locally `counterparts doctor` and `counterparts log`.
 
 - The `status` tool gives the census: how much is held, of what kinds, how much has left. Ask it when the person asks "what's your status?".
 - [local] `counterparts doctor` checks everything and says what to fix. Show its lines as they are. `counterparts status` counts memories and recent activity; `counterparts log` shows today's events in order; `counterparts mechanisms` shows which parts of memory have been working.
