@@ -441,7 +441,7 @@ export class Backups {
         continue;
       }
       // A file in place (`--force`) is moved aside, never deleted: the replica
-      // may be behind it (`/readyz` doesn't see lag yet). Litestream's own
+      // may be behind it (`/readyz` sees control's uploads, never one store's). Litestream's own
       // position for the old file (`.<name>-litestream`) goes: it describes a
       // database that is no longer there.
       if (id !== CONTROL_KEY_ID) {
