@@ -135,6 +135,15 @@ the domain on Cloudflare.
    Expect `{"ready":true,"checks":{"started":"ok","control":"ok","keys":"ok","backups":"ok"}}`. VERIFIED 2026-10-29:
    exactly that body.
    - `backups: "down"` means the Litestream child isn't running. Look in the log for its own lines.
+   - `backups: "stale"` means the child runs, but nothing it sent has been seen landing in R2 for 30 minutes (G3:
+     every 10 minutes the server LISTs `control/accounts.sqlite/` for a TXID above the last look's, then writes a
+     heartbeat row for the next look to find). The log has `[hosted] backup.uploads.stale minutes=<n>
+     reason=<code>` at each look while it lasts: `no-rise` (the LIST answers, nothing new: R2 refusing PUTs, a
+     wrong token, a refused SSE-C key), `list-failed` (R2 didn't answer the LIST either), `heartbeat-failed` (the
+     accounts database refused the write). Litestream's own `level=ERROR` lines say why. A restart doesn't fix it;
+     the token or R2 does. `[hosted] backup.uploads.ok after=<n>` says it landed again.
+   - A fresh boot can't read `stale` before 30 minutes (the clock starts with the sidecar), so a deploy passes the
+     healthcheck. Railway calls `/readyz` at deploy time only, so a later `503` restarts nothing.
    - The body never holds an id or a key. If it ever does, that's a bug.
 3. **The proxy's hops** (INTERFACE-GAPS §4). Find your own IP (`curl -s https://ifconfig.me`), then run the
    `/readyz` curl again. The log shows `[hosted] /readyz X-Forwarded-For: …`. `TRUST_PROXY` is the number of
@@ -153,6 +162,10 @@ the domain on Cloudflare.
    `sidecar.backoff`. A sync that fails says so in its own `level=ERROR` or `level=WARN` lines (an R2 `403`, a refused
    SSE-C key). These lines reach the log since the build with `logging.stderr`: before it, Litestream wrote them to
    stdout, which the sidecar drops, so `/readyz` showed only that the process ran.
+
+6. **Uploads land** (G3): 35 minutes or more after the deploy, the `/readyz` curl still says `backups: "ok"`, and the
+   log has no `backup.uploads.stale` line. That is the real binary's TXID seen rising after a heartbeat; until this
+   check passes once, the signal is proven only against the test stand-in (INTERFACE-GAPS §7).
 
 ## 6. Your invite, and you
 
@@ -527,6 +540,40 @@ and keep it; "delete everything now" erases at once. Nothing here needs you:
 Stop the service: Railway → service → remove the active deployment, or scale it to zero. claude.ai's connector then
 fails to reach it. **Nothing on your Mac is touched**: your local Counterparts, its store and its hooks don't know
 the hosted server exists. The volume and the bucket stay as they are, so starting the service again resumes.
+
+## Railway's notifications (built in; nothing of ours sends anything)
+
+Checked against Railway's docs 2026-11-04. Each line says whether the docs confirm it. Turn these on once:
+
+1. **Crash and failed deploy, by email.** Railway restarts a crashed deployment up to 10 times, then marks it
+   `Crashed` and emails the project's members (CONFIRMED, docs.railway.com/deployments/deployment-actions). Where to
+   set it: your Account Settings, notifications: "Enable email and in-app notifications in your Account Settings"
+   (CONFIRMED, docs.railway.com/overview/production-readiness-checklist). The exact page name inside Account Settings
+   is NOT CONFIRMED by the docs. Railway's changelog (2025-11-21, not a docs page) says build failures, deploy
+   crashes and usage alerts are on by default, each settable to Email & In-App, Email Only, In-App Only or None,
+   with per-project overrides. Check that "build/deploy failures" (failed builds, crashed deployments, OOM kills) and
+   "usage" are set to Email & In-App. Whether a deploy that fails its healthcheck counts as a failed deploy for this
+   email is NOT CONFIRMED.
+2. **Usage: a soft email alert, and a hard limit.** The workspace's Usage page → Set Usage Limits (CONFIRMED,
+   docs.railway.com/pricing/cost-control). "Custom email alert" is a soft threshold: an email, nothing stops. "Hard
+   limit" takes workloads offline when reached, so set it well above the alert, or leave it off. Both are per
+   "Compute Usage". Only workspace admins can set them; every plan has them.
+3. **Monitors (Pro plan only): CPU, RAM, disk.** The project's Observability dashboard → a widget's three-dot menu
+   → Add monitor (CONFIRMED, docs.railway.com/guides/monitoring). Above or below a threshold, by email and in-app,
+   per environment. Worth one on disk usage (say 80%). Whether that disk widget is the volume is NOT CONFIRMED; the
+   volume has its own "volume usage" alerts (a webhook event, and a notification type in the changelog), whose
+   threshold setting the docs don't show.
+4. **Optional: the same into Discord or Slack.** Project → Settings (top right) → Webhooks → paste a Discord channel
+   webhook URL or a Slack incoming-webhook URL → Save Webhook (CONFIRMED, docs.railway.com/observability/webhooks).
+   Railway reformats for Discord and Slack itself, so nothing of ours receives it. Events: deployment status
+   (`Failed`, `Crashed`), volume usage alerts, monitor alerts. "Test Webhook" is sent from the browser and can show
+   a CORS error that means nothing; the next deploy is the real test. Delivery pauses for 24 h after 100 failures in
+   6 h. Plan requirement NOT CONFIRMED.
+
+What none of this sees: a container that runs and answers wrongly. Railway's healthcheck runs at deploy time only
+("Railway does not monitor the healthcheck endpoint after the deployment has gone live",
+docs.railway.com/reference/healthchecks), so `backups: "stale"` and its log line reach no one until someone curls
+`/readyz` or reads the log. An outside uptime checker would close that; it is not set up, on purpose.
 
 ## Watch for in the first week
 

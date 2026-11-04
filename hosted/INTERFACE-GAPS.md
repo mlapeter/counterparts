@@ -46,10 +46,24 @@
 
 ## Operations still owed
 
-7. **`/readyz` with replication lag.** Litestream's `addr:` metrics endpoint would give it; not configured. Today
-   `/readyz` sees the sidecar process, not whether its uploads succeed: a sidecar that runs but can't reach R2 reads
-   `ok`.
-8. **Alerts** (DESIGN §7.1: lag, volume full, 5xx rate, sidecar restarts), and the Fly fallback.
+7. **`/readyz` with replication lag: control's uploads, built 2026-11-04 (G3); per store, still owed.** Every 10
+   minutes the server LISTs `control/accounts.sqlite/` for its highest LTX TXID (the names the drill read on the real
+   binary), then writes one `heartbeat` row to `accounts.sqlite` so the next look has something Litestream must have
+   shipped, even on a quiet day. No rise for 30 minutes reads `backups: stale` (a `503`), and logs
+   `[hosted] backup.uploads.stale minutes=<n> reason=<no-rise|list-failed|heartbeat-failed>` at each look while it
+   lasts; `[hosted] backup.uploads.ok after=<n>` once it lands again. The clock starts with the sidecar, so a fresh
+   boot is never `stale` before 30 minutes (Railway's healthcheck runs at deploy time only, so a `503` later doesn't
+   restart anything: docs.railway.com/reference/healthchecks). Cost: one LIST and one tiny write each 10 minutes,
+   none per `/readyz` hit. What it doesn't see:
+   - **one store's replica failing while control's land** (its own SSE-C key file, a path problem). Same process,
+     credentials, bucket and endpoint as control, so the common failures show; this one shows only in Litestream's
+     own `level=ERROR` lines. Per-store would need a write to every store or Litestream's `addr:` metrics (not
+     configured; their 0.5 names unverified without the binary);
+   - **whether the real binary's TXID rises within one look** after a heartbeat: the drill saw rises within 60 s, so
+     ten minutes is wide, but the first deploy should show `backups: ok` past the 30-minute mark (RUNBOOK §5.6).
+8. **Alerts** (DESIGN §7.1: lag, volume full, 5xx rate, sidecar restarts), and the Fly fallback. Railway's built-in
+   notifications (crash, failed deploy, usage, monitors) are the first layer (RUNBOOK, "Railway's notifications"); no
+   sender of our own. The `backup.uploads.stale` line is there for a log alert when one exists; nothing reads it yet.
 9. **An R2 outage blocks a start.** `prepareVolume` and `ensureAll` read `keys/` from the bucket, so a deploy during
    an outage refuses to start (it names `R2_ENDPOINT`). A running server keeps serving. Booting with backups
    "down" would need the empty-volume check to fail closed some other way.

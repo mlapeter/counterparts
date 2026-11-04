@@ -92,6 +92,13 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
 );
+-- G3 (2026-11-04): one row, the time of the last write the upload watch made
+-- (backup.ts#UploadWatch). A write Litestream must ship, so a rise in the
+-- bucket's TXID proves uploads work even on a quiet day. No person in it.
+CREATE TABLE IF NOT EXISTS heartbeat (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
   person_id TEXT,
@@ -202,6 +209,11 @@ export class Accounts {
   /** Readiness: the database answers. Throws when it doesn't. */
   ping(): void {
     this.db.get("SELECT 1 AS one");
+  }
+
+  /** The upload watch's write (`backup.ts#UploadWatch`): one row, its time replaced (always a new value, so the page always changes), so Litestream has a transaction to ship. */
+  heartbeat(): void {
+    this.db.run("INSERT INTO heartbeat (id, at) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET at = max(excluded.at, heartbeat.at + 1)", this.now());
   }
 
   // ── stores (OL2b) ──────────────────────────────────────────────────────────

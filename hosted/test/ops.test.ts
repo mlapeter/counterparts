@@ -34,10 +34,11 @@ import { createApp, restoreControl } from "../src/app.js";
 import { openDb } from "../../src/core/store/db.js";
 import type { App, AppBackupOptions } from "../src/app.js";
 import { Accounts } from "../src/accounts.js";
-import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
+import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, WATCHED_REPLICA, keyObject, litestreamRunner, maxTxid, replicaPrefix, tombstoneObject } from "../src/backup.js";
+import type { UploadsEvent } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore, litestreamKey } from "../src/keys.js";
-import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
+import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag, uploadsLine } from "../src/main.js";
 import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { MAIN, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
@@ -186,7 +187,7 @@ async function replicatedText(objects: Map<string, Stored>, prefix: string, text
   }
 }
 
-async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; now?: () => number; start?: boolean } = {}): Promise<Rig & { port: number }> {
+async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; now?: () => number; start?: boolean; onUploads?: (e: UploadsEvent) => void } = {}): Promise<Rig & { port: number }> {
   const port = o.port ?? (await freePort());
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
@@ -201,6 +202,7 @@ async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOpti
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
     ...(o.logForwardedFor === undefined ? {} : { logForwardedFor: o.logForwardedFor }),
     ...(o.now === undefined ? {} : { now: o.now }),
+    ...(o.onUploads === undefined ? {} : { onUploads: o.onUploads }),
   });
   let closed = false;
   const close = async (): Promise<void> => {
@@ -449,6 +451,93 @@ describe("/readyz", () => {
     assert.deepEqual(await res.json(), { ready: true, checks: { started: "ok", control: "ok", keys: "off", backups: "off" } });
     await fetch(`${r.origin}/readyz`);
     assert.deepEqual(seen, ["203.0.113.7, 10.0.0.2", "(none)"]);
+  });
+
+  // G3 (INTERFACE-GAPS §7): uploads LANDING, not only the sidecar running. The clock is the app's; each look is
+  // driven by hand (`lookAtUploads`), the stand-in's uploads are real PUTs to the S3 stand-in, LTX-named.
+  const MIN = 60 * 1000;
+  /** Until the stand-in's uploads under the watched replica hold still (every write so far shipped, or refused). */
+  async function settled(s3: S3StandIn): Promise<bigint> {
+    const read = (): bigint => maxTxid([...s3.objects.keys()], WATCHED_REPLICA);
+    let last = read();
+    for (let still = 0; still < 6; ) {
+      await new Promise((r) => setTimeout(r, 100));
+      const now = read();
+      still = now === last ? still + 1 : 0;
+      last = now;
+    }
+    return last;
+  }
+  const backupsWord = async (origin: string): Promise<{ status: number; word: string | undefined }> => {
+    const res = await fetch(`${origin}/readyz`);
+    return { status: res.status, word: ((await res.json()) as { checks: Record<string, string> }).checks["backups"] };
+  };
+
+  test("uploads: a sidecar that runs while R2 refuses its PUTs reads stale (503) once no upload landed for 30 min, and ok again once they land; one log line shape", async () => {
+    const s3 = await s3StandIn();
+    let t = Date.now();
+    const events: UploadsEvent[] = [];
+    const dataRoot = join(tmp.root, "volume");
+    const sidecar = sidecarFor(dataRoot, standinBinary());
+    const r = await rig({ dataRoot, backup: backupOptions(s3, new Map([["v1", randomBytes(32)]]), sidecar), now: () => t, onUploads: (e) => events.push(e) });
+    await settled(s3);
+    t += 10 * MIN;
+    await r.app.lookAtUploads(); // the start's heartbeat landed: a rise
+    assert.deepEqual(await backupsWord(r.origin), { status: 200, word: "ok" });
+    await settled(s3); // this look's heartbeat lands too
+    // R2 refuses every PUT under control/ from here (a revoked token, a refused SSE-C key would read the same).
+    s3.fault = ({ method, key }) => (method === "PUT" && key.startsWith("control/") ? 403 : null);
+    t += 10 * MIN;
+    await r.app.lookAtUploads(); // sees the last heartbeat that landed: the clock moves to here
+    await settled(s3);
+    t += 29 * MIN;
+    await r.app.lookAtUploads();
+    assert.deepEqual(events, [], "29 minutes without a rise is not stale yet");
+    assert.deepEqual(await backupsWord(r.origin), { status: 200, word: "ok" });
+    t += 2 * MIN;
+    assert.deepEqual(await backupsWord(r.origin), { status: 503, word: "stale" }, "readyz reads the cached time, before any look");
+    await r.app.lookAtUploads();
+    assert.deepEqual(events, [{ state: "stale", minutes: 31, reason: "no-rise" }]);
+    // The LIST failing too: still stale, said by its reason.
+    s3.fault = ({ method, key, prefix }) => ((method === "PUT" && key.startsWith("control/")) || prefix === WATCHED_REPLICA ? 500 : null);
+    t += 10 * MIN;
+    await r.app.lookAtUploads();
+    assert.deepEqual(events.at(-1), { state: "stale", minutes: 41, reason: "list-failed" });
+    // R2 back: the stand-in ships what waited, the next look sees the rise, once.
+    s3.fault = null;
+    await settled(s3);
+    t += 1 * MIN;
+    await r.app.lookAtUploads();
+    assert.deepEqual(events.at(-1), { state: "ok", minutes: 42 });
+    assert.deepEqual(await backupsWord(r.origin), { status: 200, word: "ok" });
+    await settled(s3);
+    t += 10 * MIN;
+    await r.app.lookAtUploads();
+    assert.equal(events.length, 3, "no line while uploads land");
+    // The log lines: codes and minutes, nothing else.
+    assert.equal(uploadsLine(events[0]!), "[hosted] backup.uploads.stale minutes=31 reason=no-rise\n");
+    assert.equal(uploadsLine(events[2]!), "[hosted] backup.uploads.ok after=42\n");
+  });
+
+  test("uploads: a fresh boot is never red before the first upload is due, even when nothing ever lands", async () => {
+    const s3 = await s3StandIn();
+    // From before the start: nothing under control/ ever lands (the key objects still do, so the start succeeds).
+    s3.fault = ({ method, key }) => (method === "PUT" && key.startsWith("control/") ? 403 : null);
+    let t = Date.now();
+    const events: UploadsEvent[] = [];
+    const dataRoot = join(tmp.root, "volume");
+    const r = await rig({ dataRoot, backup: backupOptions(s3, new Map([["v1", randomBytes(32)]]), sidecarFor(dataRoot, standinBinary())), now: () => t, onUploads: (e) => events.push(e) });
+    assert.deepEqual(await backupsWord(r.origin), { status: 200, word: "ok" });
+    for (const step of [10, 10, 10]) {
+      t += step * MIN;
+      await r.app.lookAtUploads();
+      assert.deepEqual(await backupsWord(r.origin), { status: 200, word: "ok" }, "inside the first 30 minutes");
+    }
+    assert.deepEqual(events, []);
+    t += 1 * MIN;
+    await r.app.lookAtUploads();
+    assert.deepEqual(await backupsWord(r.origin), { status: 503, word: "stale" });
+    assert.deepEqual(events, [{ state: "stale", minutes: 31, reason: "no-rise" }]);
   });
 });
 

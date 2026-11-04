@@ -345,9 +345,16 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     it or its tombstone, or while its account is set to be deleted (R6). It's safe against the running server: the store's first open after it gets its key and a
     place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
-    key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check
-    names and their words (`ok`, `off`, `down`, `starting`): no id, no key, no message. `/healthz` stays liveness
-    only.
+    key, and (with backups on) the sidecar is up or reloading AND uploads are landing. Otherwise it answers `503`.
+    The body is the check names and their words (`ok`, `off`, `down`, `starting`, `stale`): no id, no key, no
+    message. `/healthz` stays liveness only.
+    - `backups: stale` (G3, 2026-11-04; `backup.ts#UploadWatch`): every 10 minutes the server LISTs
+      `control/accounts.sqlite/` for its highest LTX TXID, then writes one row of `accounts.sqlite` (`heartbeat`,
+      no person in it) for the next look to find. No rise for 30 minutes is `stale`. A start's grace: the clock
+      starts when the sidecar does, so a fresh boot can't read `stale` before 30 minutes. `/readyz` reads the
+      cached time; it never calls R2. Each look while stale logs `[hosted] backup.uploads.stale minutes=<n>
+      reason=<no-rise|list-failed|heartbeat-failed>`, and the first look that sees a rise again logs
+      `[hosted] backup.uploads.ok after=<n>`.
 34. **`/mcp` limits, per account, loose to start** (`limits.ts`):
     - `tools/call`: 120 a minute and 1,500 an hour;
     - 8 POSTs in flight at once;
@@ -371,5 +378,6 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 
 ## What it drops, for now
 
-- Replication lag in `/readyz`, alerts, and the Fly fallback (`INTERFACE-GAPS.md`).
+- Per-store replication lag in `/readyz` (it sees control's uploads only), alerts beyond Railway's own, and the Fly
+  fallback (`INTERFACE-GAPS.md`).
 - The 2026-07-28 stateless revision: later, behind a version switch (DESIGN §3).

@@ -18,8 +18,8 @@ import { fileURLToPath } from "node:url";
 
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
-import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, replicaPrefix } from "../src/backup.js";
-import type { Sidecar } from "../src/backup.js";
+import { Backups, CONTROL_KEY_ID, LitestreamSidecar, UploadWatch, WATCHED_REPLICA, keyObject, maxTxid, replicaPrefix } from "../src/backup.js";
+import type { Sidecar, UploadsEvent } from "../src/backup.js";
 import { memoryMailer, memoryObjectStore, r2ObjectStore } from "../src/egress.js";
 import type { ObjectStore } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
@@ -571,5 +571,56 @@ describe("delete, when things go wrong", () => {
     assert.equal(await backups.syncKeyObjects(), ids.length + 1); // but its sync puts every stale object
     for (const id of [...ids, CONTROL_KEY_ID]) assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
     assert.equal(await backups.syncKeyObjects(), 0);
+  });
+});
+
+// ── the upload watch (G3), alone ─────────────────────────────────────────────
+
+describe("UploadWatch", () => {
+  const ltx = (n: number, level = "0000"): string => `${WATCHED_REPLICA}${level}/${"1".padStart(16, "0")}-${n.toString(16).padStart(16, "0")}.ltx`;
+
+  test("maxTxid reads every level's LTX names under the prefix, and nothing else", () => {
+    assert.equal(maxTxid([ltx(5), ltx(0x2a, "0001"), `${WATCHED_REPLICA}standin/db`, "control/oauth.sqlite/0000/0000000000000001-00000000000000ff.ltx"], WATCHED_REPLICA), 0x2an);
+    assert.equal(maxTxid([], WATCHED_REPLICA), 0n);
+  });
+
+  test("before begin nothing is looked at; a lower TXID is a new baseline, not a rise; a failed heartbeat is its own reason", async () => {
+    const objects = memoryObjectStore();
+    let t = 1_000_000;
+    let beats = 0;
+    let beatFails = false;
+    const events: UploadsEvent[] = [];
+    const w = new UploadWatch({
+      objects,
+      heartbeat: () => {
+        if (beatFails) throw new Error("SQLITE_BUSY");
+        beats += 1;
+      },
+      now: () => t,
+      staleAfterMs: 30,
+      onEvent: (e) => events.push(e),
+    });
+    await w.look();
+    assert.equal(beats, 0, "no look before the sidecar runs");
+    assert.equal(w.state(), "ok");
+    await objects.put(ltx(10), "");
+    w.begin();
+    await w.look(); // baseline 10
+    assert.equal(beats, 1);
+    for (const k of await objects.list(WATCHED_REPLICA)) await objects.delete(k);
+    await objects.put(ltx(3), ""); // a restore, a new bucket: lower
+    t += 20;
+    await w.look(); // baseline 3, no rise
+    t += 20;
+    beatFails = true;
+    await w.look();
+    assert.equal(w.state(), "stale");
+    assert.deepEqual(events, [{ state: "stale", minutes: 0, reason: "heartbeat-failed" }]);
+    beatFails = false;
+    await objects.put(ltx(4), "");
+    t += 1;
+    await w.look();
+    assert.equal(w.state(), "ok");
+    assert.deepEqual(events.at(-1), { state: "ok", minutes: 0 });
   });
 });
