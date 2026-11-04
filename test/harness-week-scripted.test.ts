@@ -50,7 +50,7 @@ const env = (): NodeJS.ProcessEnv => ({ HOME: join(root, "home"), PATH: process.
 
 test("the check-ins week runs through the real hooks with no model: remembers land, every check-in is owed and written up by the next night, Last here follows", async () => {
   const out = join(root, "week.sqlite");
-  const r = await runWeek({ script: OWNER_WEEK_CHECKINS, scriptName: "checkins", owner: "Robin", seat: "scripted", start: noModel, workRoot: join(root, "work"), out, env: env() });
+  const r = await runWeek({ script: OWNER_WEEK_CHECKINS, scriptName: "checkins", owner: "Robin", seat: "scripted", start: noModel, workRoot: join(root, "work"), out, env: env(), wakeShape: "off" });
   expect(started).toBe(0);
   expect(r.modelCalls).toBe(0);
   expect(r.seat).toBe("scripted");
@@ -168,7 +168,7 @@ const NIGHT: readonly ScriptedDay[] = [
 ];
 
 test("a night the gate launches runs its catch-up through the real door and a scripted dream, and refuses every other child; asks answered and ignored; a tail after a handback is not owed; Last here names the chapter, then the newer session", async () => {
-  const r = await runWeek({ script: NIGHT, scriptName: "night-fixture", seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env() });
+  const r = await runWeek({ script: NIGHT, scriptName: "night-fixture", seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env(), wakeShape: "off" });
   expect(started).toBe(0);
   expect(r.modelCalls).toBe(0);
   const [long, chose] = r.sessions;
@@ -233,7 +233,7 @@ test("a night the gate launches runs its catch-up through the real door and a sc
 test("compare runs tier 0 on both sides for free: S2 switched off on the base (the floor alone), on in the variant — the check-ins are owed and the nights plan them", () => {
   const cli = join(import.meta.dir, "..", "tools", "harness", "cli.ts");
   const p = Bun.spawnSync(
-    [process.execPath, cli, "compare", "--mode", "week", "--base-set", "coverage.UNRECORDED_OWED_PIECES=1000000000", "--base-set", "dream.OWED_COUNTS_AS_NEW=false", "--", "--seat", "scripted", "--script", "checkins"],
+    [process.execPath, cli, "compare", "--mode", "week", "--base-set", "coverage.UNRECORDED_OWED_PIECES=1000000000", "--base-set", "dream.OWED_COUNTS_AS_NEW=false", "--", "--seat", "scripted", "--script", "checkins", "--wake-shape", "off"],
     { env: { ...env(), TMPDIR: root }, stdout: "pipe", stderr: "pipe", cwd: join(import.meta.dir, "..") },
   );
   expect(p.exitCode).toBe(0);

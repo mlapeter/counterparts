@@ -79,11 +79,12 @@ type DreamTold = NonNullable<ReturnType<ClaudeCodeAdapter["sessionStart"]>["drea
 /**
  * WHAT A NEW INSTALL WRITES before the first session (`core/onboarding.ts#
  * beginNewInstall`, run by `counterparts install`): the meeting not yet
- * started, dreaming on. Not in the package's public seams, so mirrored here;
+ * started, the wake's shape on (WF1), dreaming on. Not in the package's public seams, so mirrored here;
  * `test/harness-week.test.ts` holds the two to the same keys and values.
  */
 export const NEW_INSTALL_META: readonly (readonly [string, string])[] = [
   ["onboarding.meet", "not_started"],
+  ["self.wake_shape", "on"],
   ["dream.setting", "auto"],
   ["dream.setting.headless-reset", "chosen"],
 ];
@@ -120,6 +121,13 @@ export interface WeekOptions {
    * `false`: a bare store.
    */
   readonly install?: boolean | "without-meeting";
+  /**
+   * The wake's shape for this week's store (WF1): a new install writes `on`
+   * (`NEW_INSTALL_META`); `"off"` (`--wake-shape off`) writes the store's own
+   * `off` after it, so a week can read the old road's furniture ("Last here",
+   * what tier 0 checks), as every store from before WF1 still has it.
+   */
+  readonly wakeShape?: "on" | "off";
   /**
    * Plant the starter memories as `counterparts install` does on a store it
    * creates (S1, `core/told.ts`; default true, with any `install` but
@@ -648,6 +656,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // A SCRIPTED SEAT BEGINS WITHOUT THE MEETING by default: the night's gate waits while one is pending, and no model is there to hold it.
   const install = opts.install ?? (scripted ? "without-meeting" : true);
   if (install !== false) counterpart.store.setMetaMany(install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
+  if (opts.wakeShape !== undefined) counterpart.store.setMeta("self.wake_shape", opts.wakeShape);
   // AND THE STARTER MEMORIES, as install plants them in a store it creates (S1).
   if (install !== false && opts.told !== false) plantTold(counterpart.store, "local");
 

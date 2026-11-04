@@ -45,6 +45,7 @@ import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { dreamingSettingWords, nightRunLine } from "../src/adapters/cli/dream-core.js";
 import { beginNewInstall } from "../src/core/onboarding.js";
+import { WAKE_SHAPE_KEY } from "../src/core/self/tunables.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
 import { nightRunLost, nightRunWords } from "../src/core/dream/index.js";
 import { McpServer, openServer } from "../src/adapters/mcp/index.js";
@@ -1303,7 +1304,11 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     closers.push(counterpart);
     const setting = opts.setting ?? "new-install";
     if (opts.observer !== true) {
-      if (setting === "new-install") beginNewInstall(counterpart.store);
+      // The old road's "Last here" is what these read (S2, L2); a new install's shaped wake is wake-shape.test.ts's (WF1).
+      if (setting === "new-install") {
+        beginNewInstall(counterpart.store);
+        counterpart.store.setMeta(WAKE_SHAPE_KEY, "off");
+      }
       else counterpart.dreams.setSetting(setting, { by: "owner" });
     }
     return new ClaudeCodeAdapter({

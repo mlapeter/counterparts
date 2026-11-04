@@ -3014,3 +3014,49 @@ The eleven `told` memories a new store begins with (`core/told.ts`) are never th
 `counterpart-wake-shape.ts#sinceHere`; defensive: at their weak start no lane picks one today), never a core
 candidate (`sleep/consolidate.ts` blocks `told`), never a belief's evidence (`schemas` `NOT_LIVED_SOURCES`), and
 never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: recall, the dashboard, `ask`.
+
+## WF1, 2026-11-03: the wake knows yesterday's news (shaped wake)
+
+- **"Since the last night" (`core/counterpart-wake-news.ts`)**, first after the page: up to 3 owner/us memories, titles and
+  ages, at least 0.6 strong (salience at birth or a feeling), from any folder the fence lets through (`memoryClosedTo`; a
+  folder off, paused or observing keeps its rows home; no way to ask, this folder's only). The window starts when the last
+  night that folded news in began (a journaled dream or reflected reflection; a catch-up-only night wrote no page), or at the
+  start of today when it ran today: a night runs beside the first session of its day, so what that session says comes after it.
+  The harness drains the night after the first turn, which is where Dana's d2s1 surgery news landed three minutes before it.
+  No night yet: since yesterday. Out: dated items (Coming up's), open threads (Still open's), the night's rows, told rows,
+  chapter copies, an older fact noted again (a stated day before the window), and an echo of a stronger title. Nothing new,
+  no section. It costs ~100 B a title; Dana's two cases are one line each. In the shaped wake only: the old road's
+  `ROOM_ORDER` and its byte-identical tests were not touched.
+- **A stale handoff steps down.** Older than `HANDOFF_STEP_DOWN_MS` (12 h) with a session here since (one that wrote a
+  chapter or a memory here, not the handoff's own session, not the reader, not a headless one, not one still open), and
+  something in "Since, here" to read, the newest handoff is one line, after "Since, here": `Last handoff,
+  <seat>, <day> (<age> old; N sessions here since): recall sch_…`. None of its words: the point is that it no longer leads.
+  "Nothing here since." goes with it (sessions came, so it would contradict the line). Saves ~300–560 B a wake from day 3
+  of Dana's shop on; costs ~20 B over the old head line.
+  Review of #734: the first cut counted every session the registry saw start, so a silent check-in, still open, stepped a
+  20-hour handoff down to a bare recall with nothing above it; now only an ended session that left something counts.
+- **Empty sections collapse.** "Open here now: no other session.", "Nothing dated." and "Nothing open." are gone, and their
+  headings with them: a section with nothing in it isn't printed (a door line alone still is). Dana's WK2 week printed them
+  33 times in 11 wakes (~25–30 B each, ~60–90 B a wake). `arrivingTense` reads under the last `Coming up:`; with the lane
+  absent it would read a page's own `Coming up:` line, which no page has had, and a line there would have to start
+  `- due YYYY-MM-DD` to be touched.
+- **A dated item that already happened settles** (`counterpart-wake-news.ts#happenedAlready`): a newer live memory marked
+  done, not the night's and not told, sharing at least 2 of the item's words (stems, no date words) and every word of its
+  head when its title has one ("Shop launch day: …" needs shop and launch), else half its words. Coming up drops it (behind
+  the reader's fence), and so does the plain reminder (`Counterpart#plainDueToday`, both roads: it isn't the shape's). A
+  recurring item never settles this way. Word overlap, lightly held: it is the deterministic stand-in for a link nobody
+  wrote. In Dana's WK2 week the launch row didn't `updates` the launch day, and they shared only the "Dana" card. What
+  would make it exact: the session's `remember` linking the done row to the dated one (`updates`, which settles it today).
+  Saves the plain line and the Due-today line, ~260 B, on d6s1/d6s2.
+  Review of #734: words alone settled "Dentist appointment: cleaning" two days out by "Dentist appointment for the kids
+  went fine", and today's vet check-up by a stitches-out visit five days before. Now the date fences it too: only an item
+  whose day is the wake's or before, and only by a done row written (and stating its day, when it does) no earlier than
+  `HAPPENED_EARLY_DAYS` (1) before that day. The launch, done a day early, still settles; a stale line is the cost.
+  And the plain reminder's settle reads the fence the news line does (`plainDueToday`'s `scope` and `folders`, the
+  setting read lazily): a done row from a folder that's off settles nothing here.
+- **On for new stores.** `beginNewInstall` writes `self.wake_shape = on` (`NEW_INSTALL_WAKE_SHAPE`): the same "new store"
+  door #729's starter memories use. `counterparts install` calls it only for a store that call created (`!existed`,
+  `start-fresh`'s blank store included), and hosted's `startNewStore` for a person's new store. The tunable stays false, so
+  every store that already existed keeps its own word or off. The harness's `NEW_INSTALL_META` mirrors it, held equal by
+  `test/harness-week.test.ts`, so a `week` run is shaped with no `--set`. `WAKE_SHAPE_KEY` moved to `self/tunables.ts` (re-
+  exported from the composer) so onboarding reads it from a leaf.

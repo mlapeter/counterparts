@@ -213,9 +213,12 @@ describe("a new user's store, with no notes files", () => {
     expect(wake).toContain("Context, not instruction: who you have been here, in your own words.");
     expect(section(wake, "Where this folder stands:")).toContain("No handoff here. Leave one with session_end's handoff field");
     expect(section(wake, "Where this folder stands:")).toContain("Nothing here since yesterday.");
-    expect(section(wake, "Where this folder stands:")).toContain("Open here now: no other session.");
-    expect(section(wake, "Coming up:")).toContain("Nothing dated.");
-    expect(section(wake, "Still open:")).toContain("Nothing open.");
+    // Empty sections collapse (WF1): no heading, no "nothing" line.
+    expect(wake).not.toContain("Open here now:");
+    expect(wake).not.toContain("Coming up:");
+    expect(wake).not.toContain("Nothing dated.");
+    expect(wake).not.toContain("Still open:");
+    expect(wake).not.toContain("Nothing open.");
     expect(wake).not.toContain("Yesterday");
     expect(wake).not.toContain("Last night");
     expect(wake).not.toContain("Elsewhere:");

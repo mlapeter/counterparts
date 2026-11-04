@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | in review 11-03 (WF1 PR) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | in review 11-03 (S1 PR) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | in review 11-01, its own release after R3S | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
@@ -113,6 +114,25 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The wake knows yesterday's news (WF1)
+
+WF1 (2026-11-03, Mike's go 14:41, ROADMAP's brief, lightly held), in the shaped wake (`core/counterpart-wake-news.ts`,
+`core/counterpart-wake-shape.ts`). No date: read it on a few days of real shaped wakes after release (Mike's store, on
+since 11-01), or on the next new-user week, whichever comes first.
+
+- **News that reached the next wake.** `sec_news` on `adapter.wake.injected` rows: how often it shows, its bytes (expect
+  0–300), and whether its items were ones a turn then needed (the turn asked or acted on it) or noise (the page already
+  said it, an everyday note at 0.6). A strong `us` memory written after the night and missing from the next wake in a
+  folder that's on is a bug.
+- **The handoff stepping down.** Wakes whose newest handoff printed as `Last handoff, … N sessions here since`: did a turn
+  then lose something only the handoff said (it opened `recall sch_…` or asked)? That would say 12 h is too soon.
+- **Settled dates.** `happenedAlready` hiding a dated item that hadn't happened (a done "launch checklist" settling a launch
+  day) is the failure to look for: one is enough to tighten the word rule or drop it for links only.
+- **New stores shaped.** A store created after release reads `self.wake_shape = on`; one from before reads what it read.
+
+Revert: `NEWS_SHOWN` 0, `HANDOFF_STEP_DOWN_MS` very large, `HAPPENED_SHARED` very large (`self/tunables.ts#WAKE_SHAPE_LIMITS`);
+take `WAKE_SHAPE_KEY` out of `beginNewInstall` (stores born since keep `on` until `counterparts wake-shape default`).
 
 ## When Mike runs his fresh-user test: starter memories (S1)
 
