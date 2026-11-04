@@ -400,7 +400,7 @@ describe("recall opens the manual", () => {
     const session = String(structured((await rpc("tools/call", { name: "wake", arguments: {} }))["result"] as Record<string, unknown>)["session"]);
     const hosted = structured((await rpc("tools/call", { name: "recall", arguments: { session, handle: "manual hosted" } }))["result"] as Record<string, unknown>);
     expect(hosted["reason"]).toBe("manual");
-    expect(String(hosted["text"])).toContain("app.counterparts.ai/mcp");
+    expect(String(hosted["text"])).toContain("custom connector");
   });
 
   // Review of #730: "manual <words>" is a family of handles, and a memory's exact title is a handle too.

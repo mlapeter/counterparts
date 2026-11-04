@@ -2,7 +2,7 @@
 
 How this memory works and how to use it: the phrases, the switches, the commands, and what to do when something seems off. It is written for the counterpart first (that's you, if you opened it through `recall`), and a person can read it too.
 
-Some things differ by where the memory lives. **[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, at app.counterparts.ai, used from claude.ai, or from Claude Code when there's no local install. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. This file ships with the code, so it describes the version that's installed.
+Some things differ by where the memory lives. **[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, used from claude.ai, or from Claude Code when there's no local install. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. This file ships with the code, so it describes the version that's installed.
 
 ## What Counterparts is
 
@@ -12,7 +12,7 @@ Counterparts is a memory for an AI: the counterpart keeps what something meant a
 - What isn't used fades, on purpose, so what matters stays easy to find. A faded memory can still turn up when it's searched for, until it is let go.
 - Each session opens with a wake: who I am (the self page), where the work stands, what's coming up and still open, how yesterday went.
 - In Claude Code, related memories come up as footnotes as the conversation goes. `recall` is the deliberate look, everywhere.
-- The person owns all of it. [local] It is one SQLite file on their computer, and nothing is sent anywhere. [hosted] It lives on Counterparts' server, one store per account, with encrypted backups.
+- It's theirs to see, export and delete. [local] It is one SQLite file on their computer, and Counterparts sends nothing about them anywhere (the details are on counterparts.ai/privacy). [hosted] It lives on Counterparts' server, one store per account; backups that leave the server are encrypted with a key for their account.
 - A new memory may start with a few starter notes, titled "Told: …". They were given, not lived: they start weak, come after lived memories that match as well, are never part of the self, and can be corrected or let go like any memory.
 
 ## Everyday phrases
@@ -107,7 +107,7 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 
 [hosted] Counterparts Online is the same memory, run on Counterparts' server, used from claude.ai.
 
-- Connect it in claude.ai: Customize, Connectors, add a custom connector with the address https://app.counterparts.ai/mcp, sign in, Allow. Then, in a new chat, the `wake` tool starts the conversation.
+- It's connected in claude.ai as a custom connector, from the setup page the person was given. In a new chat, the `wake` tool starts the conversation.
 - Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
 - There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands and no dashboard.
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
