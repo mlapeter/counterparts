@@ -73,7 +73,7 @@ import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
-import { NOTHING_CLOSED, namesClosed } from "./slices.js";
+import { NOTHING_CLOSED, namesClosed, nightFolder } from "./slices.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { pairsAmong, readDay, strongerMark } from "./day.js";
 import type { DayMark, DayRead } from "./day.js";
@@ -2256,6 +2256,8 @@ export class Dreams {
         const status = statusOf(best.r.status);
         const occurredOn = occurredOnOf(best.r.occurred_on);
         const names = this.namesToKeep(rs, words.text, change.title, day);
+        // FILED BY ITS ORIGINALS' FOLDERS (FS1, 2026-11-04), not the launching session's (`nightFolder`).
+        const folder = nightFolder(this.store, rs, { about: about?.about ?? null, kind: best.r.kind as Kind });
         const newId = this.store.put({
           type: "memory",
           kind: best.r.kind,
@@ -2272,7 +2274,7 @@ export class Dreams {
           },
           ...(best.r.source !== null ? { source: best.r.source as never } : {}),
           meta: { dream: dream.id, mergedFrom: ids, ...era },
-          origin: { ...(dream.session === null ? {} : { session: dream.session }), ...(dream.scope === null ? {} : { scope: dream.scope }), ref: `dream:${dream.id}` },
+          origin: { ...(dream.session === null ? {} : { session: dream.session }), ...(folder === null ? {} : { scope: folder }), ref: `dream:${dream.id}` },
           ...(dream.model === null ? {} : { model: dream.model }),
           ...(about === null ? {} : { about: about.about, ...(about.aboutBy === null ? {} : { aboutBy: about.aboutBy }) }),
           ...(saidBy === null ? {} : { saidBy }),
@@ -2434,6 +2436,8 @@ export class Dreams {
         // A plain gist's sources stay as they were, each still naming what it
         // names; a fold's fade and stand behind it, so it keeps their names.
         const names = isFold ? this.namesToKeep(sourceRows as MemoryRow[], words.text, change.title, day) : NO_NAMES;
+        // FILED BY ITS SOURCES' FOLDERS (FS1, 2026-11-04), not the launching session's (`nightFolder`).
+        const folder = nightFolder(this.store, sourceRows as MemoryRow[], { about: about?.about ?? null, kind });
         const id = this.store.put({
           type: "memory",
           kind,
@@ -2453,7 +2457,7 @@ export class Dreams {
           physics: { birthDay: day, lastUsedDay: day },
           source: "dreamed",
           meta: { dream: dream.id, dreamed: true, ...(isFold ? { fold: true } : {}), sources },
-          origin: { ...(dream.session === null ? {} : { session: dream.session }), ...(dream.scope === null ? {} : { scope: dream.scope }), ref: `dream:${dream.id}` },
+          origin: { ...(dream.session === null ? {} : { session: dream.session }), ...(folder === null ? {} : { scope: folder }), ref: `dream:${dream.id}` },
           ...(dream.model === null ? {} : { model: dream.model }),
           ...(about === null ? {} : { about: about.about, ...(about.aboutBy === null ? {} : { aboutBy: about.aboutBy }) }),
           ...facts.put,

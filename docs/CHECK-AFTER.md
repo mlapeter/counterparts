@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 11-04 | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
 | Hosted's backups let go of a chat-deleted memory "within about two days" (HD1): the 24 h hold, the timer's erase, then Litestream's 12 h snapshot retention plus its unstated enforcement lag | unreleased, 11-04 (HD1 PR); starts at the first hosted deploy with HD1 | **~48 h after the test erase** (dated reminder set at the deploy): on Mike's hosted account, hold and erase one throwaway memory with a unique word, then grep the R2 bucket's newest snapshot for that word. "About two days" goes on /privacy/ only once that passes | [below](#48-h-after-the-first-hosted-chat-delete-hd1-backups) |
 | The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to run the night, then answer (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
@@ -118,6 +119,27 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Folder attribution (FS1)
+
+FS1 (2026-11-04, from the developer week's three ambers; a fix, no switch): `dream/slices.ts#nightFolder`,
+`core/counterpart-wake-shape.ts` (Coming up), `handoff/last-here.ts#placeWords`. No date: read it on the next developer
+week at tier 2, or on a week of Mike's shaped wakes after release.
+
+- **Night rows by folder.** A dream's merges and gists by `origin_scope`: work in its majority folder (a tie, the newest
+  source's), never none; personal ones under the folder they share, else none. Expect no "Since yesterday, here" item
+  in a folder that is another folder's work. The cost to look for: a cross-folder work fold shows only in its majority
+  folder, so the minority folder's "here" doesn't see it (recall still does). Only directories vote; a night row
+  among the sources votes with its originals' folders.
+- **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
+  `coming up` door lists it. A personal or plain dated item is still due in every folder.
+- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me line and "Work
+  here"'s "(from …)" name
+  folders by their last part. Two of a name print their paths. A name that reads ambiguous (two repos called `app`
+  under one wake, only one of them named) would say the collision set should be wider.
+
+Revert: `nightFolder` returning the dream's own `scope`; `todayAll`/`other` back to `c.today` / `!c.today && !c.mine`;
+`placeWords` back to the `~`-path.
 
 ## Due ~2 weeks after chat delete (HD1)
 

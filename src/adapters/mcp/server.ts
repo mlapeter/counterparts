@@ -2901,6 +2901,8 @@ export class McpServer {
     const on = this.folderOn();
     const closed = this.nightClosed();
     const list = this.counterpart.comingUp({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
+    // A folder by its name; by its path only when another the door names, or this one, has the same name (FS1).
+    const among = [this.scope, ...[...list.today, ...list.overdue, ...list.later, ...list.otherFolders].flatMap((c) => (c.folder === null ? [] : [c.folder]))];
     const shown = (cs: readonly Cue[]): Record<string, unknown>[] =>
       cs
         .filter((c) => !closed.has(c.id))
@@ -2911,7 +2913,7 @@ export class McpServer {
           ...(c.due === null ? {} : { due: c.due }),
           ...(c.every === null ? {} : { every: c.every }),
           ...(c.settles === null ? {} : { settlesWhen: c.settles }),
-          ...(c.folder === null ? {} : { folder: placeWords(c.folder) }),
+          ...(c.folder === null ? {} : { folder: placeWords(c.folder, among) }),
         }));
     const today = shown(list.today);
     const overdue = shown(list.overdue);

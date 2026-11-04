@@ -603,14 +603,15 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
 
   const comingSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const live = cues.filter((c) => !claim.has(c.id) || c.plain);
-    const todayAll = live.filter((c) => c.today);
+    // Another folder's dated work isn't due here (FS1): it's counted "in other folders", as the `coming up` door lists it. A plain reminder keeps its own rule.
+    const todayAll = live.filter((c) => c.today && (c.mine || c.plain));
     const ranked = [...todayAll].sort(dueOrder);
     const plain = ranked.filter((c) => c.plain && !shownEarlier.has(c.id));
     const folded = live.filter((c) => shownEarlier.has(c.id)).length;
     const rest = ranked.filter((c) => !c.plain);
     const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
-    const other = live.filter((c) => !c.today && !c.mine);
+    const other = live.filter((c) => !c.mine && !(c.today && c.plain));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
     const dueLine = (c: Cue): string => `- Due today · ${c.plain ? c.body : c.title}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]`;
     const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
@@ -963,15 +964,18 @@ function elsewhereFacts(
   }
   const live = new Set<string>();
   for (const s of sessions) if (s.live && s.session !== reader && gate.named(s.scope)) live.add(gate.norm(s.scope));
-  const list: ElsewhereRow[] = [...best.entries()].map(([key, m]) => ({ place: placeWords(key), id: m.id, title: m.title, fact: m.fact, at: m.at, live: live.has(key) }));
-  for (const key of live) if (!best.has(key)) list.push({ place: placeWords(key), id: null, title: null, fact: now, at: 0, live: true });
-  list.sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at || (a.place < b.place ? -1 : 1));
   // Folders worked in with no title to say: counted past the list, and named at its door.
+  const counted = store.memoryCountsByScopeSince(sinceY).flatMap(({ scope }) => (gate.named(scope) ? [gate.norm(scope)] : []));
+  // A folder by its name; by its path only when another here or in the section has the same name (FS1).
+  const among = [...best.keys(), ...live, ...counted, ...gate.ours];
+  const list: ElsewhereRow[] = [...best.entries()].map(([key, m]) => ({ place: placeWords(key, among), id: m.id, title: m.title, fact: m.fact, at: m.at, live: live.has(key) }));
+  for (const key of live) if (!best.has(key)) list.push({ place: placeWords(key, among), id: null, title: null, fact: now, at: 0, live: true });
+  list.sort((a, b) => Number(b.live) - Number(a.live) || b.at - a.at || (a.place < b.place ? -1 : 1));
   const named = new Set(list.map((l) => l.place));
   const quiet = new Set<string>();
-  for (const { scope } of store.memoryCountsByScopeSince(sinceY)) {
-    const place = placeWords(gate.norm(scope));
-    if (gate.named(scope) && !named.has(place)) quiet.add(place);
+  for (const key of counted) {
+    const place = placeWords(key, among);
+    if (!named.has(place)) quiet.add(place);
   }
   return { list, quiet: [...quiet].sort() };
 }
