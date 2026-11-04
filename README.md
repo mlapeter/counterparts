@@ -80,7 +80,7 @@ Once installed it runs on its own. A few commands are worth knowing:
 counterparts dashboard          # look at the memory in your browser
 counterparts ask "..."          # ask the memory a question
 counterparts scope . --off      # don't remember this directory
-counterparts export             # a copy of everything, encrypted by default
+counterparts export             # a copy of everything; --passphrase encrypts it
 counterparts --help             # the rest
 ```
 

@@ -650,7 +650,8 @@ export const COMMAND_BLURB: Record<Command, string> = {
   note: "Remember this, deliberately — the same two doors the MCP tool uses.",
   ask: "Ask memory a question. Read-only.",
   recall: "Ask memory a question — the same command as `ask`, under its older name. Read-only.",
-  export: "A portable copy of the store, encrypted unless you say otherwise.",
+  export:
+    "A portable copy of the store. --passphrase encrypts it; --plaintext says on purpose that it is not encrypted. With neither, it refuses.",
   backup: "Snapshot: the canonical DB via VACUUM INTO. The cache is excluded, and so is conversation text: backups never hold it.",
   remove:
     "The loud removal. With nothing after it, at a terminal, it asks for a memory id or for words to search for, numbers what it finds, lets you pick one or several (or name several ids outright), shows the plan for each, and asks once before it deletes them. --confirm is the scripted door: that exact id, confirmed by typing it back. Anywhere a person cannot be asked — a pipe, a redirect, a CI job — and without --confirm, it prints the plan and changes nothing.",

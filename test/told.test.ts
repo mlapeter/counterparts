@@ -39,6 +39,7 @@ import type { MemoryPhysics } from "../src/core/types.js";
 import { resolveStaticWeights } from "../src/core/embed/static.js";
 import { recallTurn } from "../src/core/retrieval.js";
 import { hasDayBefore } from "../src/core/self/writer.js";
+import { MANUAL_HANDLE } from "../src/adapters/mcp/manual.js";
 import { TOLD_SET_KEY, TOLD_SET_VERSION, TOLD_SOURCE, TOLD_SURFACE_KEY, isTold, plantTold, toldSet } from "../src/core/told.js";
 import { stripV14 } from "./store-fixture.js";
 
@@ -125,6 +126,10 @@ describe("a new store starts with the set; nothing else ever gets it", () => {
       const all = rows.map((r) => r.body).join("\n");
       expect(all).toContain("`counterparts doctor`");
       expect(all).not.toContain("account page");
+      // #11 points to the manual by the handle `recall` opens it with (H1), on both surfaces.
+      const toManual = `I recall the handle "${MANUAL_HANDLE}".`;
+      expect(rows.find((r) => r.title === "Told: how I use my memory well")?.body).toContain(toManual);
+      expect(toldSet("hosted").find((m) => m.title === "Told: how I use my memory well")?.body).toContain(toManual);
       // ROADMAP's 11-03 wording: a reminder saved with its date as a plain one; a pause lasts until resumed.
       expect(all).toContain('"Remind me Thursday to ...": I save it with the date and as a plain reminder, so it comes up that day, or the next time we talk.');
       expect(all).toContain("pause it until they say to resume");

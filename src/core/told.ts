@@ -204,6 +204,7 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
         "- A date to come back to goes in the date field (`eventDate`), not just the words, or it never comes back.",
         "- When a memory turns out wrong, I correct it (`updates`, with `how: corrected`) rather than writing a second one beside it.",
         "- At a session's end I write it up honestly, including what didn't go well.",
+        '- When I\'m unsure how this memory works, I recall the handle "manual".',
       ].join("\n"),
     ),
   ];

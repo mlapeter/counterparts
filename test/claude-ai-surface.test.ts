@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_SCOPE, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
 import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
@@ -271,8 +271,14 @@ describe("4. the tool words for chat", () => {
     expect(by["status"]?.startsWith("Memory status:")).toBe(true);
   });
 
-  test("summary and admission change (and dream's negatives); privileges are every host's; Claude Code's and Desktop's words are untouched", () => {
+  test("summary and admission change (and dream's negatives); privileges are every host's (scope's are its own); Claude Code's and Desktop's words are untouched", () => {
     for (const spec of CLAUDE_AI_TOOLS.slice(1)) {
+      // claude.ai's `scope` is its own spec (`tools.ts#CLAUDE_AI_SCOPE`): one setting, no directories, no terminal.
+      if (spec.name === "scope") {
+        const { inputSchema: _schema, ...own } = CLAUDE_AI_SCOPE;
+        expect(spec).toMatchObject(own);
+        continue;
+      }
       const base = TOOLS.find((t) => t.name === spec.name);
       expect(base).toBeDefined();
       const own = CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS]?.negativeExamples;
@@ -302,6 +308,76 @@ describe("4. the tool words for chat", () => {
     expect(readOnlyOn(DESKTOP_HOST)).toEqual([]);
     // recall (its use credit), wake, and self_page (it has a write mode) are never read-only anywhere.
     expect(readOnlyOn(false)).toEqual(["Memory status"]);
+  });
+});
+
+describe("claude.ai's scope: one account is one memory, through the door (11-03 reviews)", () => {
+  const ROADMAP = "One account is one memory: they can pause it or turn it off, and back on.";
+
+  /** claude.ai's door with a scope registry, as hosted (`hosted/src/tenants.ts`) and the trial launch one. */
+  async function scopedDoor(): Promise<{ url: string; registry: string }> {
+    const registry = join(root, "config", "scopes.json");
+    const s = openServer({
+      dir: join(root, "store-scoped"),
+      host: CLAUDE_AI_HOST,
+      env: {},
+      scopesFile: registry,
+      lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) },
+      manifestVersion: () => null,
+    });
+    closers.push(() => s.counterpart.close());
+    const http = await serveHttp({ server: s });
+    closers.push(() => http.close());
+    await rpc(http.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "0.1.0" } });
+    return { url: http.url, registry };
+  }
+
+  test("tools/list: scope's description and fields say one memory, with no directory, file or console", async () => {
+    const { url } = await scopedDoor();
+    const list = ((await rpc(url, "tools/list"))["result"] as { tools: Record<string, unknown>[] }).tools;
+    const scope = list.find((t) => t["name"] === "scope");
+    const served = JSON.stringify(scope);
+    expect(String(scope?.["description"])).toContain(ROADMAP);
+    expect(served).not.toMatch(/director/i);
+    expect(served).not.toContain("claude-code.json");
+    expect(served).not.toMatch(/console|--note|counterparts scope/);
+    expect(Object.keys((scope?.["inputSchema"] as { properties: Record<string, unknown> }).properties).sort()).toEqual(["mode", "note", "session"]);
+    expect((scope?.["annotations"] as { title: string }).title).toBe("Memory on or off");
+  });
+
+  test("the read and the set say one memory and never the server's path; a refusal while off or paused names no terminal command", async () => {
+    const { url, registry } = await scopedDoor();
+    const session = String((await tool(url, "wake", {})).structured["session"]);
+    const read = await tool(url, "scope", { session });
+    expect(read.structured["mode"]).toBe("unset");
+    expect(String(read.structured["detail"])).toContain(ROADMAP);
+    expect(read.structured).not.toHaveProperty("registry");
+    for (const said of [read.text, JSON.stringify(read.structured)]) {
+      expect(said).not.toContain(registry);
+      expect(said).not.toContain(root);
+      expect(said).not.toMatch(/director/i);
+    }
+
+    const off = await tool(url, "scope", { session, mode: "off" });
+    expect(off.structured["set"]).toBe(true);
+    expect(off.structured).not.toHaveProperty("registry");
+    expect(off.text).not.toContain(root);
+    const readOff = await tool(url, "scope", { session });
+    expect(readOff.structured["mode"]).toBe("off");
+    expect(String(readOff.structured["detail"])).toContain(ROADMAP);
+
+    const refusedOff = await tool(url, "remember", { session, kind: "fact", text: "Wren waters the beans at dusk." });
+    expect(refusedOff.structured["reason"]).toBe("scope-off");
+    expect(String(refusedOff.structured["detail"])).toContain("call `scope` with mode `on`");
+    expect(refusedOff.text).not.toContain("counterparts scope");
+
+    await tool(url, "scope", { session, mode: "pause" });
+    const refusedPaused = await tool(url, "remember", { session, kind: "fact", text: "Wren waters the beans at dusk." });
+    expect(String(refusedPaused.structured["detail"])).toContain("call `scope` with mode `resume`");
+    expect(refusedPaused.text).not.toContain("counterparts scope");
+
+    const back = await tool(url, "scope", { session, mode: "resume" });
+    expect(back.structured["mode"]).toBe("on");
   });
 });
 

@@ -828,6 +828,29 @@ describe("export", () => {
     expect(existsSync(join(outside, "e", BLOB_NAME))).toBe(false);
   });
 
+  // TRUTH (11-03 reviews): help said "encrypted by default" while export has no
+  // default and refuses without --passphrase or --plaintext. Through the real bin.
+  test("help says what export does: --passphrase encrypts, and it never claims a default", () => {
+    const bin = join(import.meta.dir, "..", "src", "adapters", "cli", "bin", "counterparts.ts");
+    const said = (args: string[]): string => {
+      const r = Bun.spawnSync([process.execPath, "run", bin, ...args], {
+        env: { PATH: "/usr/bin:/bin", HOME: outside, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(r.exitCode).toBe(0);
+      return r.stdout.toString();
+    };
+    const row = said(["--help"]).split("\n").find((l) => /^\s+export\s/.test(l)) ?? "";
+    const page = said(["export", "--help"]);
+    const head = page.split("\n")[0] ?? "";
+    for (const line of [row, head]) {
+      expect(line).toContain("--passphrase");
+      expect(line).not.toMatch(/encrypted (by default|unless)/);
+    }
+    expect(head).toContain("With neither, it refuses.");
+  });
+
   test("--plaintext is portable: one file, and the words are in it", async () => {
     const s = store();
     const id = s.put({ type: "memory", kind: "fact", title: "Portable", body: "Readable in any editor." });
