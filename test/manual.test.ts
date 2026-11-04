@@ -377,7 +377,10 @@ describe("recall opens the manual", () => {
     const m = parseManual(manualText());
     const answers = stdio([INIT, call(2, { handle: "manual" })]);
     const text = String(structured(answers.get(2))["text"]);
-    expect(Buffer.byteLength(text)).toBeLessThan(2200);
+    // The cap follows the content, not the other way (11-04, ROADMAP): it was set from
+    // #738's size, so a new section raises it rather than trimming reviewed lines.
+    // About 2,306 B with "Taking your hosted memory home" (EX1); a little room above that.
+    expect(Buffer.byteLength(text)).toBeLessThan(2400);
     const norm = (x: string): string => x.toLowerCase().replace(/[’]/g, "'");
     // A concrete thing: a code span, a quoted phrase, or a file name.
     const concrete = (line: string): string[] =>
