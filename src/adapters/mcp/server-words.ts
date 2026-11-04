@@ -389,7 +389,7 @@ export function claudeAiNightLine(p: { readonly session: string; readonly settin
   const what = p.reflects === null ? "Last night's sorting is due" : "Last night's reflection was cut off";
   const later = `If ${p.who} says "ask first", call the dream tool with phase "setting", session: ${p.session}, value: "ask"; if "no dreams", value: "off".`;
   if (p.setting === "auto") {
-    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). First answer ${p.who} fully. Then, in the same reply, say this line once — "${CLAUDE_AI_NIGHT_SAID}" — and ${start}. ${later}`;
+    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). Before any of the night's calls, write your reply to ${p.who} as text in this message, not only in your thinking (they see nothing you don't write): answer what they said, and end with this line, once — "${CLAUDE_AI_NIGHT_SAID}" Then, in the same reply, ${start}, without narrating the steps. ${later}`;
   }
   return (
     `Counterparts: ${what}, and dreaming asks first. After you answer ${p.who}, ask once, in one plain sentence of your own, whether to sort yesterday's memories now (about a minute: day's end, a dream, a reflection); then wait for their word and don't ask again today. ` +

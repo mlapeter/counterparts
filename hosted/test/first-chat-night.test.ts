@@ -124,7 +124,8 @@ describe("the first chat of the day runs the night (HN1)", () => {
     const line = claudeAiNightLine({ session, setting: "auto", reflects: null, who: "the person" });
     assert.ok(first.text.includes(line), first.text);
     // Answer first, then the one line, then the launch, naming this session.
-    assert.ok(line.indexOf("First answer") < line.indexOf(CLAUDE_AI_NIGHT_SAID));
+    assert.ok(line.indexOf("answer what they said") < line.indexOf(CLAUDE_AI_NIGHT_SAID));
+    assert.ok(line.indexOf(CLAUDE_AI_NIGHT_SAID) < line.indexOf('phase "launch"'));
     assert.ok(line.includes(`phase "launch", session: ${session}`));
     // The person's things come first: the line rides after the wake itself.
     assert.ok(first.text.indexOf("<!-- counterparts:wake/end") < first.text.indexOf(line));
