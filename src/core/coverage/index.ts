@@ -299,8 +299,8 @@ interface Tally {
   compactedAt: number | null;
   /** The times of the pieces a record claim of its own covers (CT1): whether
    *  a record follows the compaction is read off what it wrote up, not when
-   *  the claim landed (a claim made from the PreCompact capture lands after
-   *  the cut, but covers what came before it). */
+   *  the claim landed (a claim can land after the cut and cover only what
+   *  came before it). */
   recordPieceAts: number[];
 }
 

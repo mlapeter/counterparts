@@ -52,7 +52,7 @@ counted, so it is.
 **Inputs** — a `SpanBuffer` (read-only for everything but the two claims), the store's
 zone, a clock, and optional host evidence (`endedAt` per session).
 **Outputs** — the ledger (per session: state, pieces, what is written up, the unwritten
-stretch, recorded, owed, lapsed, small, per-date counts); `isDebt`; `askFromStretch`; `claimUnwritten`;
+stretch, recorded, the newest compaction and the tail after it, owed, lapsed, small, per-date counts); `isDebt`; `askFromStretch`; `claimUnwritten`;
 `workSince` (with how far that work is written up, 2026-09-30); `sessionsHere`; `chapterClaims`; three
 durable row names written by `recordCoverage`.
 
@@ -67,7 +67,11 @@ durable row names written by `recordCoverage`.
    write-up's memories or the door's own claim: any claim none of whose marks is `own`),
    or a write-up mark. So the floor keeps its job for a closing tail AFTER a record, and a
    short check-in that only ever noted things in the moment still owes what it did not
-   note. `remember/owes.ts#planRetention` reads it; nothing else decides it.
+   note. **After a compaction** (CT1, 2026-11-04): what a session said after its newest
+   `pre-compaction` boundary is read as unrecorded unless a record of its own reaches past
+   it (a record claim covering a piece said after the cut, or a write-up mark after it), so
+   that tail is owed as an unrecorded session's stretch is, whatever its span; the tail
+   after a record written before the cut is not held to the floor. `remember/owes.ts#planRetention` reads it; nothing else decides it.
 2. **[M] The pacer's third arm is pieces AND time**: `ASK_PIECES` unwritten pieces
    captured since the last ask (all of them, before a first ask) and `ASK_AFTER_MS` since
    the later of the stretch's first piece and the last ask. One piece, however large, is

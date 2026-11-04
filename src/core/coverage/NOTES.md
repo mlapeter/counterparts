@@ -166,3 +166,35 @@ catch-up still costs, bounded: each night re-plans everything owed, store-wide, 
 first, and runs ONE batch (`NIGHT_WRITE_UP_BATCH_PARTS` 16 parts, 192 KB) — a batch that
 brought nothing back starts no other — until the debts lapse at 14 days of use.
 
+## 11. The tail after a compaction is unrecorded (CT1, 2026-11-04)
+
+The developer week (`~/counterparts-notes/2026-11-04-developer-week.md`): Theo's d2s1 wrote its
+own handoff and chapter at the 10:04 Stop ask, compacted, then said three things in six minutes
+(the last a personal aside) and ended. Each Stop was paced; the night saw a session with a record
+of its own, so S2's one-piece rule did not apply, and the floor's span (6 < 15 minutes) held the
+tail back: `under-floor:span`, never written up. The record it relied on was written before the
+compaction; nothing about what came after the cut is in it.
+
+The rule (decided by counterparts-a0): what follows a session's NEWEST compaction counts as
+unrecorded — owed as an unrecorded session's stretch is (`isDebt(tail, false)`), whatever its
+span. Not the broader "a recorded session owes 3+ pieces whatever their span": a tail after a
+record with no compaction between them keeps the floor.
+
+How the cut is found: the store's own `pre-compaction` boundary (`boundaries.jsonl`, written by
+the PreCompact hook through `captureBoundary` whether or not anything new was captured), the
+newest per session across scopes. No store-format change; the transcript's `compactedAt` (the
+host's `compact_boundary`) never reaches the store and is not read. Strictly after: the pieces the
+PreCompact capture took share the boundary's tick and belong before the cut.
+
+A record "reaches past the cut" by what it covers, not when its claim landed: a record claim
+covering a piece said after the cut, or a write-up mark after it. A claim that lands after the
+boundary but covers only what came before it (a handback or a chapter finishing after the cut) would,
+read by its claim time, mark the tail as recorded and bring the bug back. Once a record
+of its own follows the cut, the floor holds the tail after it again (`whyNotOwed`'s
+`:recorded-after-compaction`). The whole stretch is what gets written up, as for any debt.
+
+Cost, tier 0 (2026-11-04, before → after): Dana (`--script meaningful`) unchanged, 7 catch-up runs,
+10 write-ups (no compactions in it); Theo (`--script developer`, #747) 7 catch-up runs either way,
+write-ups 14 → 15 (d2s1 joins night 3's batch, 2 → 3 sessions; one part). The other compacted
+session, d4s3, answered an ask after its compaction and keeps the floor. Revert: drop the
+`|| isDebt(stretchOf(tail), false)` arm in `ledger`.
