@@ -123,7 +123,8 @@ describe("the file set", () => {
   });
 
   test("no tests, no module docs, no dev tooling, no system files, no package-manager config", () => {
-    const bad = paths.filter((p) =>
+    // The one doc the code reads from its install: the manual (H1, `mcp/manual.ts`).
+    const bad = paths.filter((p) => p !== "docs/manual.md").filter((p) =>
       /(^|\/)(NOTES|CONTRACT|INTERFACE-GAPS|CLAUDE)\.md$|\.test\.[cm]?[jt]sx?$|(^|\/)tests?\/|^(test|tools|docs|changelog\.d|\.github)\/|\.DS_Store$|(^|\/)(bunfig\.toml|\.npmrc|tsconfig\.json)$|^bin\//.test(p),
     );
     expect(bad).toEqual([]);

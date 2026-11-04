@@ -3,6 +3,7 @@
 !package.json
 !bun.lock
 !src/
+!docs/manual.md
 !hosted/package.json
 !hosted/bun.lock
 !hosted/src/

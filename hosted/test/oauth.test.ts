@@ -752,3 +752,18 @@ describe("review of #646: the attacker's cases", () => {
     }
   });
 });
+
+describe("the manual, on the hosted door (H1)", () => {
+  test("a person signed up as claude.ai does opens the manual through recall: the index, then the hosted section", async () => {
+    const r = await rig();
+    const { code } = r.app.accounts.createInvite();
+    const c = await connect(r, "wren@example.com", { invite: code });
+    const session = String((await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access)))["session"]);
+    const index = await tool(`${r.origin}/mcp`, "recall", { session, handle: "manual" }, bearer(c.access));
+    assert.equal(index["reason"], "manual");
+    assert.match(String(index["text"]), /"manual hosted": /);
+    const hosted = await tool(`${r.origin}/mcp`, "recall", { session, handle: "manual hosted" }, bearer(c.access));
+    assert.equal(hosted["reason"], "manual");
+    assert.match(String(hosted["text"]), /app\.counterparts\.ai\/mcp/);
+  });
+});

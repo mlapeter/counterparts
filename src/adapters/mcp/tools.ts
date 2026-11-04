@@ -67,6 +67,7 @@ import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE, FACTS_TAIL_SIZE } from "./facts.js";
 import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
+import { MANUAL_HANDLE } from "./manual.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
@@ -925,7 +926,7 @@ const RECALL: ToolSpec = {
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. A memory titled exactly like one of these names opens by its id.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
       },
       ids: {
         type: "array",
