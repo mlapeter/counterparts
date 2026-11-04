@@ -134,6 +134,14 @@ lines: tool, session, ok, reason, the hashed store; no words) and what people sa
   claude.ai cut the reply, or the model stopped. A later chat picking it up after 30 minutes is the designed recovery.
 - **Days that owed a night and got none.** Stores active on two days in a row with no `dream` call on the second: the
   model ignored the line, or the gate wasn't met (fewer than three new memories). Count which, if the log can say.
+- **Light days get no in-chat night, by design.** A day with fewer than three new memories (the dream's `MIN_NEW`)
+  gets no night line, and so no day's end either: hosted has no catch-up for owed write-ups. ROADMAP 11-04: fine as
+  built. Watch only whether light-use accounts go many days without a night, or say their memory doesn't seem to sort.
+- **Answer first, on real claude.ai.** On the M1 rig (`claude -p`, Sonnet 5.5) the model wrote its answer and the
+  line only in its thinking, then launched, in five of five answer-first runs across five wordings (once it later
+  said "I need to correct my first answer", as if the draft had been sent). Read a few real first-chat replies, from
+  what people report or the owner's own account: is the answer visible before the night's tool calls? If not, the
+  night-first wording (answer and a past-tense line after the night, 2/2 on the rig) is the alternative, Mike's call.
 - **Complaints.** A person surprised by the night in their first reply, a slow first answer, or usage limits hit after
   it. One clear complaint is reason to make `ask` hosted's default for new accounts.
 
