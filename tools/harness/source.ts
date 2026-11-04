@@ -45,6 +45,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 // bun:sqlite only: the harness is a dev tool run with bun (`tools/harness/README.md`).
 import { Database } from "bun:sqlite";
+import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from "../../src/core/store/index.js";
 
 export type UseTier = "referenced" | "engaged" | "useful" | "ontopic" | "shown";
 
@@ -183,8 +184,13 @@ export function liveRoot(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env["HOME"] ?? homedir(), ".counterparts");
 }
 
-/** The roots CLAUDE.md fences off from every session: Counterparts' live store, v1's, engram's, and the host's own folder. */
-export const FENCED_ROOTS = [".counterparts", ".bansai", ".claude", ".claude-engram"] as const;
+/**
+ * The roots CLAUDE.md fences off from every session: Counterparts' live store,
+ * the live stores the core itself refuses (`store/paths.ts#FORBIDDEN_ROOT_NAMES`,
+ * IMPORTED rather than retyped, as `tools/demo/seed.ts` does, so the two cannot
+ * drift and G9's tripwire stays whole), and the host's own folder.
+ */
+export const FENCED_ROOTS: readonly string[] = [DEFAULT_DATA_DIR_NAME, ...FORBIDDEN_ROOT_NAMES, ".claude"];
 
 /** Under any fenced root (`FENCED_ROOTS`, under HOME): where no harness output may be written. */
 export function underFencedRoot(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
