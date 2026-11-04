@@ -145,6 +145,13 @@ export interface WeekOptions {
    */
   readonly expect?: readonly Expectation[];
   /**
+   * HOW THE FOLDERS ARE REGISTERED (2026-11-04): `"one"` (default), the work
+   * root answered `on` and every session folder under it; `"each"`, every
+   * session's folder answered `on` on its own and the root not at all, as a
+   * real user's repos are, each asked at its first launch.
+   */
+  readonly roots?: "one" | "each";
+  /**
    * A TRACE FILE (2026-11-04; what the 11-03 runs did with a scratch patch):
    * one JSON line per wake, turn, Stop ask, compaction and night, WITH their
    * text, plus each day's store (`<trace>.store-dayN.sqlite`) and page
@@ -306,6 +313,15 @@ export interface WeekRecord {
    * counted whether or not `self.CORE_FROM_BELIEFS` is on, of `beliefs` on the self subject.
    */
   readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number; readonly beliefCore: number; readonly beliefs: number; readonly spent?: { readonly calls: number; readonly tokens: number; readonly costUsd: number } }[];
+  /** How the folders were registered (`WeekOptions.roots`). */
+  readonly roots?: "one" | "each";
+  /**
+   * Ambient recall across projects, summed over the week's `recall.decision`
+   * rows: turns decided, another project's work only the 1.25x bar kept back
+   * (`crossProjectLifted`), what `RECALL_BY_PROJECT` would have skipped
+   * (`projectSkipped`, 0 while it is off), and the turns where the lift bound.
+   */
+  readonly recallProjects?: { readonly decisions: number; readonly crossProjectLifted: number; readonly projectSkipped: number; readonly turnsLifted: number };
   /** The script's expectations, read off the run (`expectations.ts`); absent when it named none. */
   readonly expectations?: readonly ExpectationReading[];
   /** The week's store as one file, when `out` asked. */
@@ -655,7 +671,14 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // registry beside the config (`scopes.ts#scopesPath`), so no first-launch
   // question rides every wake and the meeting has its answer.
   const scopesFile = scopesPath(configPath);
-  const registry = setScope(null, work, "on", { at: startDate });
+  // One root, or each session folder on its own (`roots`), as a person answered each first launch.
+  const registry =
+    opts.roots === "each"
+      ? [...new Set(w.script.flatMap((day) => day.sessions.map((x) => x.scope)))].reduce<ReturnType<typeof setScope> | null>((r, f) => {
+          mkdirSync(join(work, f), { recursive: true });
+          return setScope(r, join(work, f), "on", { at: startDate });
+        }, null)!
+      : setScope(null, work, "on", { at: startDate });
   writeScopes(scopesFile, registry);
   // EVERY MODEL CHILD GOES THROUGH HERE, turns and nights alike, and is
   // counted: a scripted seat's record says 0 because nothing called it.
@@ -800,8 +823,23 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // THE SCRIPT'S EXPECTATIONS (2026-11-04): hits by session, in the order the sessions ran.
   const hits: ExpectationHit[] = [];
   const order: { label: string; folder: string }[] = [];
-  const probe = (text: string, label: string, folder: string, where: ExpectationHit["where"]): void => {
-    if (opts.expect !== undefined) hits.push(...probeHits(opts.expect, text, { label, folder, where }));
+  const probe = (text: string, label: string, folder: string, where: ExpectationHit["where"], shown?: { loud: readonly string[]; footnotes: readonly string[]; relevant: readonly string[] }): void => {
+    if (opts.expect === undefined) return;
+    if (shown === undefined) {
+      hits.push(...probeHits(opts.expect, text, { label, folder, where }));
+      return;
+    }
+    // AT A PROMPT, WHICH LANE (a0's rule): a memory recall showed loud, or as a footnote, whose own words carry the
+    // fact; else a line of the prompt's (the "Since you started" line).
+    const textOf = (id: string): string => memoryText(dir, id);
+    const local = new Map<string, ExpectationHit>();
+    for (const h of probeHits(opts.expect, text, { label, folder, where })) local.set(h.id, { ...h, lane: "line", relevant: shown.relevant.includes(h.id) });
+    for (const e of opts.expect) {
+      const re = new RegExp(e.probe.source, e.probe.flags.replace("g", ""));
+      const lane = shown.loud.some((id) => re.test(textOf(id))) ? "loud" : shown.footnotes.some((id) => re.test(textOf(id))) ? "footnote" : null;
+      if (lane !== null) local.set(e.id, { id: e.id, label, folder, where, section: null, lane, relevant: shown.relevant.includes(e.id) });
+    }
+    hits.push(...local.values());
   };
   const trace = (o: Record<string, unknown>): void => {
     if (opts.trace !== undefined) appendFileSync(opts.trace, JSON.stringify(o) + "\n");
@@ -960,7 +998,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           const said = adapter.userPromptSubmit({ ...base(), prompt: text });
           claim(adapter, base(), said);
           footnotes += said.footnotes.length;
-          probe(said.injection, label, s.scope, "prompt");
+          probe(said.injection, label, s.scope, "prompt", { loud: said.surfaced, footnotes: said.footnotes, relevant: line.relevant ?? [] });
           const context = [pending, said.injection, said.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
           pending = "";
           if (line.host === undefined) log.push({ role: "user", text });
@@ -1103,6 +1141,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     daily,
     out,
     settled: settledOf(dir),
+    ...(opts.roots === undefined ? {} : { roots: opts.roots }),
+    recallProjects: recallProjectsOf(dir),
     ...(expectations === undefined ? {} : { expectations }),
     keptAt: opts.keep === true ? work : null,
   };
@@ -1116,6 +1156,31 @@ type HostTurnSource = NonNullable<NonNullable<HookInput["turns"]>[number]["sourc
 /** One transcript entry the host wrote, as Claude Code's transcript reader reads it: its turns and their sources. */
 export function hostTurns(entry: Record<string, unknown>): { role: "user" | "assistant"; text: string; source?: HostTurnSource }[] {
   return parseTranscript(JSON.stringify(entry)).turns.map((t) => ({ role: t.role, text: t.text, ...(t.source === undefined ? {} : { source: t.source }) }));
+}
+
+/** One memory's words (title and body), or "" when there is none by that id. */
+function memoryText(dir: string, id: string): string {
+  const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+  try {
+    return (db.query("SELECT COALESCE(title, '') || ' ' || body AS t FROM memories WHERE id = ?").get(id) as { t: string } | null)?.t ?? "";
+  } finally {
+    db.close();
+  }
+}
+
+/** The week's `recall.decision` rows, summed for their cross-project counts. */
+function recallProjectsOf(dir: string): NonNullable<WeekRecord["recallProjects"]> {
+  const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+  try {
+    const r = db
+      .query(
+        "SELECT COUNT(*) AS decisions, COALESCE(SUM(json_extract(payload, '$.crossProjectLifted')), 0) AS lifted, COALESCE(SUM(json_extract(payload, '$.projectSkipped')), 0) AS skipped, COALESCE(SUM(CASE WHEN json_extract(payload, '$.crossProjectLifted') > 0 THEN 1 ELSE 0 END), 0) AS turns FROM events WHERE name = 'recall.decision'",
+      )
+      .get() as { decisions: number; lifted: number; skipped: number; turns: number };
+    return { decisions: r.decisions, crossProjectLifted: r.lifted, projectSkipped: r.skipped, turnsLifted: r.turns };
+  } finally {
+    db.close();
+  }
 }
 
 /** The live memories at the end, with the folder each was written in (relative to the work dir, "?" when none) and its `about` mark. */

@@ -58,6 +58,15 @@ export interface ScriptedTurn {
    * fresh conversation opened by this summary, so its context really is gone.
    */
   readonly compact?: string;
+  /**
+   * THE RELEVANCE JUDGE for a scorecard (2026-11-04, a0's rule): the ids of the
+   * script's expectations that recall would be RIGHT to bring to this line,
+   * even from another folder (the paper's table and the sim's seeds). Written
+   * with the script, before any run, and fixed, so runs compare. A fact not
+   * named here that comes back at this prompt from another folder is
+   * irrelevant to it.
+   */
+  readonly relevant?: readonly string[];
 }
 
 export interface ScriptedSession {

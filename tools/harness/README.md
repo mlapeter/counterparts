@@ -399,6 +399,21 @@ set them and run as before):
   was and the wake heading above it (an `Elsewhere` line is listed and left for the reader to
   judge). It holds ids, labels and headings, never text. A hit is what the memory delivered,
   not what the model did with it.
+- **`roots`** (`--roots one|each`; `each` is the developer week's default): each session
+  folder is answered `on` by itself and the work root isn't registered, as a person's repos
+  are. `one` is what Dana's and Robin's weeks have. The record's `recallProjects` sums the
+  week's recall decisions: `crossProjectLifted` (what only the 1.25x cross-project bar kept
+  back), the turns where it bound, and `projectSkipped`. On tier 0 (2026-11-04) the two
+  registrations gave the same crossings: a folder is its own project by its path either way,
+  and the lift bound on 2 turns with one root, 1 with each.
+- **The grade** (a0's rule, 2026-11-04, lightly held): a work fact recalled in another repo
+  is ok when the line's `relevant` labels name it (the judge: written with the script, fixed),
+  amber when not, and red when it's irrelevant and loud or irrelevant in 3+ sessions. Lines
+  that name other folders by design ("Elsewhere", "Today, elsewhere", "Since you started")
+  are by design. A work fact's content under another heading of another folder's wake is
+  amber. A personal or "us" fact missing from a folder is red, and a work fact missing from
+  its own folder is amber. The cross-folder numbers print as their own table. At tier 0 the
+  personal reds mean little: no page writer runs, so "us" facts can only travel by recall.
 - **`daily[].spent`** (model seat): each day's calls, tokens and dollars, the night its first
   session launched included.
 - **`--trace <file>`**: one JSON line per wake, turn, Stop ask, compaction and night, with

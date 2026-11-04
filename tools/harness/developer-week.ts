@@ -22,6 +22,12 @@
  *     (`planTurn` denies the built-ins), so a question that pointed at a file
  *     would measure the model's flailing, not the memory.
  *
+ * THE RELEVANCE LABELS (`relevant`, a0's rule, 2026-11-04): the four lines
+ * where another repo's work fact would be right to come back: the paper's
+ * ablation table and its caption's seeds (the sim's seed convention), and the
+ * evals sweep and its plot (the paper they feed). Written before any run and
+ * kept fixed; every other crossing is irrelevant to its prompt.
+ *
  * `DEVELOPER_EXPECTATIONS` says, fact by fact, where each should come back and
  * where it must not: the personal and "us" facts in every folder, each work
  * fact in its own repo only. The week reads them off the run
@@ -135,7 +141,7 @@ export const DEVELOPER_WEEK: readonly ScriptedDay[] = [
         scope: "evals",
         hour: 14,
         turns: [
-          { say: "evals: I want the new probe eval across all 12 checkpoints. sending an agent to sweep them in the background", reply: "Sweep started." },
+          { say: "evals: I want the new probe eval across all 12 checkpoints. sending an agent to sweep them in the background", relevant: ["W5-paper"], reply: "Sweep started." },
           {
             say: `${HANDBACK}<agent-message from="checkpoint-sweep">Swept 12 checkpoints. probe_acc rises 0.61 -> 0.74 through step 40k, then flat. ckpt-36k OOMed on gpu-07 twice; reran on gpu-03, fine.</agent-message>`,
             host: "peer",
@@ -152,7 +158,7 @@ export const DEVELOPER_WEEK: readonly ScriptedDay[] = [
         scope: "paper",
         hour: 20,
         turns: [
-          { say: "adding the ablation table: 10 seeds, 0.42 vs 0.37 success. latex, mean ± std", reply: "```latex\n\\begin{tabular}{lc}...\n```" },
+          { say: "adding the ablation table: 10 seeds, 0.42 vs 0.37 success. latex, mean ± std", relevant: ["W1-seed"], reply: "```latex\n\\begin{tabular}{lc}...\n```" },
           { say: "thanks", reply: "Sure." },
         ],
       },
@@ -206,7 +212,7 @@ export const DEVELOPER_WEEK: readonly ScriptedDay[] = [
         scope: "paper",
         hour: 9,
         turns: [
-          { say: "two days left. figure 2 caption is clunky: 'Probe accuracy as a function of training step for checkpoints evaluated on the shifted split with error bars over seeds.' shorter", reply: "'Probe accuracy on the shifted split by training step (±1 std over seeds).'" },
+          { say: "two days left. figure 2 caption is clunky: 'Probe accuracy as a function of training step for checkpoints evaluated on the shifted split with error bars over seeds.' shorter", relevant: ["W1-seed"], reply: "'Probe accuracy on the shifted split by training step (±1 std over seeds).'" },
           { say: "yes. next", reply: "Next." },
         ],
       },
@@ -214,7 +220,7 @@ export const DEVELOPER_WEEK: readonly ScriptedDay[] = [
         scope: "evals",
         hour: 11,
         turns: [
-          { say: "the plot for the 12-checkpoint sweep: matplotlib, x=step, y=probe_acc, shaded ±1 std. csv columns step,acc,std", reply: "```python\nplt.fill_between(df.step, df.acc - df.std, df.acc + df.std, alpha=.2)\n```" },
+          { say: "the plot for the 12-checkpoint sweep: matplotlib, x=step, y=probe_acc, shaded ±1 std. csv columns step,acc,std", relevant: ["W5-paper"], reply: "```python\nplt.fill_between(df.step, df.acc - df.std, df.acc + df.std, alpha=.2)\n```" },
           {
             say: "aside, Mochi (the dog) learned to open the treat drawer. Ines is not amused. plot looks right, done",
             remember: ["Theo and Ines have a dog, Mochi, who just learned to open the treat drawer."],

@@ -65,8 +65,12 @@ test("the script is a developer's week: four folders, several sessions a day, tw
 
 test("tier 0: the developer week runs through the real hooks with no model; compactions, host lines and the scorecard land in the record", async () => {
   const trace = join(root, "trace.jsonl");
-  const r = await runWeek({ script: DEVELOPER_WEEK, scriptName: "developer", owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env(), trace });
+  const r = await runWeek({ script: DEVELOPER_WEEK, scriptName: "developer", owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, roots: "each", seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env(), trace });
   expect(r.modelCalls).toBe(0);
+  // Each folder answered on by itself, as a person's repos are; the recall decisions say what the cross-project bar did.
+  expect(r.roots).toBe("each");
+  expect(r.recallProjects!.decisions).toBeGreaterThan(0);
+  expect(r.recallProjects!.projectSkipped).toBe(0);
   expect(r.sessions.map((s) => s.label)).toEqual(["d1s1", "d1s2", "d1s3", "d2s1", "d2s2", "d2s3", "d3s1", "d3s2", "d3s3", "d4s1", "d4s2", "d4s3", "d5s1", "d5s2", "d6s1", "d7s1", "d7s2"]);
   const by = new Map(r.sessions.map((s) => [s.label, s]));
   expect([by.get("d2s1")!.compactions, by.get("d4s3")!.compactions]).toEqual([1, 1]);
@@ -81,6 +85,9 @@ test("tier 0: the developer week runs through the real hooks with no model; comp
     if (x.kind === "work") expect(x.reach.map((y) => y.folder)).toEqual([x.folder]);
     else expect(x.reach.map((y) => y.folder).sort()).toEqual([...DEVELOPER_FOLDERS].sort());
     for (const l of x.leaks) expect(l.folder).not.toBe(x.folder);
+    // Every crossing at a prompt says its lane and whether the script judged it relevant.
+    for (const l of x.leaks.filter((y) => y.where === "prompt")) expect(l.lane !== undefined && l.relevant !== undefined).toBe(true);
+    expect(["ok", "amber", "red"]).toContain(x.grade);
   }
   // The scripted `remember`s are written in the folder they were said in: the store side of separation.
   for (const id of ["W1-seed", "W2-shaping", "W3-nfc", "W4-gpu07", "W5-paper"]) {
@@ -178,7 +185,10 @@ test("expectations: a hit counts after the telling session, leaks are named with
   ];
   const [w, p] = readExpectations(e, hits, sessions, [{ folder: "evals", about: null, text: "gpu-07 failed" }]);
   expect(w!.reach).toEqual([{ folder: "evals", verdict: "missed", first: null, sessions: 1 }]);
-  expect(w!.leaks).toEqual([{ label: "s2", folder: "sim", where: "wake", section: "Elsewhere" }]);
+  expect(w!.leaks).toEqual([{ label: "s2", folder: "sim", where: "wake", section: "Elsewhere", judged: "by-design" }]);
+  // Missing in its own folder is amber for a work fact; a personal fact missing anywhere is red.
+  expect(w!.grade).toBe("amber");
+  expect(p!.grade).toBe("red");
   expect(w!.store).toEqual({ evals: 1 });
   expect(p!.reach).toEqual([
     { folder: "evals", verdict: "seen", first: "s3", sessions: 1 },

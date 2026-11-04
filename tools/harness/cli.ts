@@ -161,6 +161,7 @@ export function renderWeek(r: WeekRecord): string {
   out.push(`  worker boundaries the product asked for: ${String(r.boundaries)}`);
   out.push(`  owed at the week's end: ${r.owedAtEnd.length === 0 ? "none" : r.owedAtEnd.join(", ")}`);
   for (const d of r.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}${d.spent === undefined ? "" : ` · spent ${String(d.spent.calls)} calls, ${(d.spent.tokens / 1000).toFixed(0)}k tokens, $${d.spent.costUsd.toFixed(2)}`}`);
+  if (r.recallProjects !== undefined) out.push(`  recall across projects${r.roots === undefined ? "" : ` (folders registered: ${r.roots === "each" ? "each on its own" : "one root"})`}: ${String(r.recallProjects.decisions)} decisions · crossProjectLifted ${String(r.recallProjects.crossProjectLifted)} (on ${String(r.recallProjects.turnsLifted)} turns) · projectSkipped ${String(r.recallProjects.projectSkipped)}`);
   if (r.expectations !== undefined) {
     out.push("  expectations (what the memory handed the model: wakes and prompts; and the store's live memories at the end):");
     out.push(...renderExpectations(r.expectations));
@@ -235,7 +236,8 @@ async function main(argv: readonly string[]): Promise<number> {
     const record = await runWeek({
       ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL, scriptName } : {}),
       ...(scriptName === "checkins" ? { script: OWNER_WEEK_CHECKINS, scriptName, owner: CHECKINS_OWNER } : {}),
-      ...(scriptName === "developer" ? { script: DEVELOPER_WEEK, scriptName, owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS } : {}),
+      ...(scriptName === "developer" ? { script: DEVELOPER_WEEK, scriptName, owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, roots: "each" as const } : {}),
+      ...(flag(args, "--roots") === "one" || flag(args, "--roots") === "each" ? { roots: flag(args, "--roots") as "one" | "each" } : {}),
       ...(seatName === "scripted" ? { seat: "scripted" as const } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
@@ -291,7 +293,7 @@ async function main(argv: readonly string[]): Promise<number> {
         "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--preset <name>] [--base-preset <name>] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
         "       (replay, night and week also take --set module.KEY=V and --preset <name>, and night and week --page-out <file>)\n" +
         "       bun tools/harness/cli.ts corpus [--from <snapshot folder>] [--snapshots <dir>] [--out <dir>] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins|developer] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--wake-shape on|off] [--model <name>] [--out <week.sqlite>] [--trace <file.jsonl>] [--keep] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins|developer] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--wake-shape on|off] [--model <name>] [--out <week.sqlite>] [--trace <file.jsonl>] [--roots one|each] [--keep] [--json <out>]\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;

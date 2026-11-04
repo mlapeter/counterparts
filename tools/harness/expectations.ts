@@ -19,6 +19,19 @@
  *
  * What a hit is NOT: proof the model used the fact, or that a reply said it.
  * It is what the memory delivered. Replies are the model's.
+ *
+ * THE GRADE (2026-11-04, a0's rule for the developer week; lightly held):
+ *   - a work fact recalled at a prompt in another repo: ok when the script
+ *     labels it relevant to that line (`ScriptedTurn.relevant`, the judge);
+ *     AMBER when irrelevant; RED when irrelevant and in the loud lane, or
+ *     irrelevant in 3+ sessions;
+ *   - the lines that name other folders by design ("Elsewhere", "Today,
+ *     elsewhere", "Since you started"): by design, every folder here being on
+ *     (`chapterExports` allows their titles); a work fact's content under any
+ *     other heading of another folder's wake: AMBER (no scope here is off, so
+ *     nothing in this week can be against a scope setting, the RED case);
+ *   - a personal or "us" fact missing from a folder it should reach: RED;
+ *   - a work fact missing from its own folder: AMBER (not in a0's rule; ours).
  */
 
 export interface Expectation {
@@ -47,6 +60,20 @@ export interface ExpectationHit {
   readonly where: HitWhere;
   /** The heading above the match in a wake ("Elsewhere", "Who I am", ...), or null. */
   readonly section: string | null;
+  /** At a prompt: a memory recall showed loud, one it showed as a footnote, or a line of the prompt's own ("Since you started"). */
+  readonly lane?: "loud" | "footnote" | "line";
+  /** At a prompt: the script labels this fact relevant to the line (`ScriptedTurn.relevant`). */
+  readonly relevant?: boolean;
+}
+
+export type Grade = "ok" | "amber" | "red";
+
+/** The headings whose lines name other folders by design. */
+export const BY_DESIGN_HEADINGS: readonly RegExp[] = [/^Elsewhere$/, /^Today, elsewhere\b/, /^Since you started\b/, /^About me, from another directory\b/];
+
+/** One crossing, judged: what the memory carried into another folder, and the rule's word on it. */
+export interface Crossing extends Omit<ExpectationHit, "id"> {
+  readonly judged: "by-design" | "relevant" | "amber" | "red";
 }
 
 export interface ExpectationReading {
@@ -61,8 +88,11 @@ export interface ExpectationReading {
    * `no-session` (the week had no session there after it was told).
    */
   readonly reach: readonly { readonly folder: string; readonly verdict: "seen" | "missed" | "no-session"; readonly first: string | null; readonly sessions: number }[];
-  /** Hits in a folder it must not reach, after it was told. */
-  readonly leaks: readonly Omit<ExpectationHit, "id">[];
+  /** Hits in a folder it must not reach, after it was told, each judged by the rule above. */
+  readonly leaks: readonly Crossing[];
+  /** The fact's grade by that rule, and why. */
+  readonly grade: Grade;
+  readonly why: readonly string[];
   /** Live memories at the week's end that match, by the folder they were written in ("?" when none). */
   readonly store: Readonly<Record<string, number>>;
   /** The same memories by their `about` mark ("none" when unmarked). */
@@ -72,6 +102,8 @@ export interface ExpectationReading {
 /** A wake's line that heads a section: not indented, not a list item, and either a markdown head or words then a colon. */
 function headingOf(line: string): string | null {
   if (line.length === 0 || line.startsWith(" ") || line.startsWith("-")) return null;
+  // The prompt's line about other folders: "Since you started (10:03):" or "Since 10:03:" (`handoff/last-here.ts`).
+  if (/^Since (?:you started\b|\d)/.test(line)) return "Since you started";
   const md = /^#{1,4}\s+(.{1,40})/.exec(line);
   if (md !== null) return md[1]!.trim();
   const colon = /^([A-Z][A-Za-z ,'()]{1,40}):/.exec(line);
@@ -99,7 +131,7 @@ export function probeHits(expectations: readonly Expectation[], text: string, at
     const re = new RegExp(e.probe.source, e.probe.flags.replace("g", ""));
     const m = re.exec(text);
     if (m === null) continue;
-    out.push({ id: e.id, label: at.label, folder: at.folder, where: at.where, section: at.where === "prompt" ? null : sectionAt(text, m.index) });
+    out.push({ id: e.id, label: at.label, folder: at.folder, where: at.where, section: sectionAt(text, m.index) });
   }
   return out;
 }
@@ -132,7 +164,16 @@ export function readExpectations(
       return { folder, verdict: first !== null ? ("seen" as const) : there.length === 0 ? ("no-session" as const) : ("missed" as const), first, sessions: there.length };
     });
     const never = e.never === "others" ? folders.filter((f) => f !== e.folder) : e.never;
-    const leaks = mine.filter((h) => never.includes(h.folder)).map(({ id: _id, ...rest }) => rest);
+    const crossing = mine.filter((h) => never.includes(h.folder));
+    const irrelevantSessions = new Set(crossing.filter((h) => h.where === "prompt" && h.lane !== "line" && h.relevant !== true).map((h) => h.label));
+    const leaks: Crossing[] = crossing.map(({ id: _id, ...rest }) => ({ ...rest, judged: judge(rest, irrelevantSessions.size) }));
+    const why: string[] = [];
+    for (const r of reach) if (r.verdict === "missed") why.push(`${e.kind === "work" ? "amber" : "red"}: missed in ${r.folder}`);
+    const reds = leaks.filter((l) => l.judged === "red").length;
+    const ambers = leaks.filter((l) => l.judged === "amber").length;
+    if (reds > 0) why.push(`red: ${String(reds)} crossing${reds === 1 ? "" : "s"} (irrelevant, ${irrelevantSessions.size >= 3 ? `in ${String(irrelevantSessions.size)} sessions` : "loud"})`);
+    if (ambers > 0) why.push(`amber: ${String(ambers)} crossing${ambers === 1 ? "" : "s"}`);
+    const grade: Grade = why.some((w) => w.startsWith("red")) ? "red" : why.length > 0 ? "amber" : "ok";
     const re = new RegExp(e.probe.source, e.probe.flags.replace("g", ""));
     const store: Record<string, number> = {};
     const about: Record<string, number> = {};
@@ -142,8 +183,32 @@ export function readExpectations(
       const a = m.about ?? "none";
       about[a] = (about[a] ?? 0) + 1;
     }
-    return { id: e.id, kind: e.kind, fact: e.fact, told: e.told, folder: e.folder, reach, leaks, store, about };
+    return { id: e.id, kind: e.kind, fact: e.fact, told: e.told, folder: e.folder, reach, leaks, grade, why, store, about };
   });
+}
+
+/** One crossing by a0's rule. `irrelevantSessions`: the sessions where recall carried this fact, irrelevant, into another repo. */
+function judge(h: Omit<ExpectationHit, "id">, irrelevantSessions: number): Crossing["judged"] {
+  const designed = h.section !== null && BY_DESIGN_HEADINGS.some((re) => re.test(h.section!));
+  if (h.where !== "prompt" || h.lane === "line") return designed ? "by-design" : "amber";
+  if (h.relevant === true) return "relevant";
+  return h.lane === "loud" || irrelevantSessions >= 3 ? "red" : "amber";
+}
+
+/** The cross-folder table: per work fact and foreign folder, crossings by lane and by judgement. */
+export function crossingTable(rows: readonly ExpectationReading[]): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    const by = new Map<string, Crossing[]>();
+    for (const l of r.leaks) by.set(l.folder, [...(by.get(l.folder) ?? []), l]);
+    for (const [folder, ls] of by) {
+      const n = (f: (c: Crossing) => boolean): string => String(ls.filter(f).length);
+      out.push(
+        `  ${r.id} -> ${folder}: loud ${n((c) => c.lane === "loud")}, footnote ${n((c) => c.lane === "footnote")}, prompt line ${n((c) => c.lane === "line")}, wake ${n((c) => c.where !== "prompt")} · by design ${n((c) => c.judged === "by-design")}, relevant ${n((c) => c.judged === "relevant")}, amber ${n((c) => c.judged === "amber")}, red ${n((c) => c.judged === "red")} · sessions ${String(new Set(ls.map((c) => c.label)).size)}`,
+      );
+    }
+  }
+  return out;
 }
 
 /** The scorecard as lines: one per expectation, then its leaks. */
@@ -153,8 +218,9 @@ export function renderExpectations(rows: readonly ExpectationReading[]): string[
     const reach = r.reach.map((x) => `${x.folder} ${x.verdict === "seen" ? `seen ${x.first ?? ""}` : x.verdict === "missed" ? `MISSED (${String(x.sessions)})` : "no session"}`).join(" · ");
     const store = Object.entries(r.store).map(([f, n]) => `${f} ${String(n)}`).join(", ") || "none";
     const about = Object.entries(r.about).map(([a, n]) => `${a} ${String(n)}`).join(", ") || "none";
-    out.push(`  ${r.id} (${r.kind}, told ${r.told} in ${r.folder}): ${reach} · leaks ${String(r.leaks.length)} · in the store: ${store} (about: ${about})`);
-    for (const l of r.leaks) out.push(`    LEAK ${l.label} ${l.folder} ${l.where}${l.section === null ? "" : ` under "${l.section}"`}`);
+    out.push(`  ${r.grade.toUpperCase()} ${r.id} (${r.kind}, told ${r.told} in ${r.folder}): ${reach} · crossings ${String(r.leaks.length)} · in the store: ${store} (about: ${about})${r.why.length === 0 ? "" : ` · ${r.why.join("; ")}`}`);
   }
+  const table = crossingTable(rows);
+  if (table.length > 0) out.push("  cross-folder (a work fact in another repo, by lane and by a0's rule):", ...table);
   return out;
 }
