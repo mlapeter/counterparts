@@ -24,7 +24,7 @@ import { join } from "node:path";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { CLAUDE_AI_SCOPE, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_SCOPE, CLAUDE_AI_TRIM, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
 import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
@@ -253,9 +253,9 @@ describe("4. the tool words for chat", () => {
       expect(d).not.toContain("in every conversation");
     }
     // The chat's own words name no ask claude.ai never makes (the negative
-    // examples are every host's, and stay so).
+    // examples too, since TT1: session_end's second is the chat's own).
     for (const spec of CLAUDE_AI_TOOLS) {
-      for (const words of [spec.summary, spec.admission]) {
+      for (const words of [spec.summary, spec.admission, ...(spec.name === "session_end" ? spec.negativeExamples : [])]) {
         if (["remember", "session_end", "chapter", "wake"].includes(spec.name)) {
           expect(words).not.toContain("end-of-session ask");
           expect(words).not.toContain("boundary ask");
@@ -271,7 +271,14 @@ describe("4. the tool words for chat", () => {
     expect(by["status"]?.startsWith("Memory status:")).toBe(true);
   });
 
-  test("summary and admission change (and dream's negatives); privileges are every host's (scope's are its own); Claude Code's and Desktop's words are untouched", () => {
+  // REWORKED ON PURPOSE (TT1, 2026-11-04). This pinned "claude.ai's privileges EQUAL Claude Code's".
+  // claude.ai now renders fewer claims (`tools.ts#CLAUDE_AI_TRIM`), so it pins what keeps that safe:
+  // every claim it renders is one of the base's own rows, in the base's order, and every base row it
+  // does not render is an engine row there, so nothing is invented on claude.ai and nothing leaves the
+  // audit (`mcp.test.ts` holds the base rows' mechanized paths). A tool with no trim still serves the
+  // base's claims exactly. Claude Code's and Desktop's words are pinned byte for byte below and in
+  // `description-cut.test.ts`.
+  test("summary and admission change (and some negatives); claims served are the base's own rows, the rest its engine's (scope's are its own); Claude Code's and Desktop's words are untouched", () => {
     for (const spec of CLAUDE_AI_TOOLS.slice(1)) {
       // claude.ai's `scope` is its own spec (`tools.ts#CLAUDE_AI_SCOPE`): one setting, no directories, no terminal.
       if (spec.name === "scope") {
@@ -285,16 +292,83 @@ describe("4. the tool words for chat", () => {
       expect(spec.negativeExamples).toEqual(own ?? base?.negativeExamples ?? []);
       expect(spec.negativeExamples.length).toBeGreaterThanOrEqual(1);
       for (const negative of spec.negativeExamples) expect(negative.toLowerCase()).toContain("do not");
-      expect(spec.privileges).toEqual(base?.privileges ?? []);
+      const baseRows = [...(base?.privileges ?? []), ...(base?.engine ?? [])];
+      if (CLAUDE_AI_TRIM[spec.name as keyof typeof CLAUDE_AI_TRIM]?.served === undefined) {
+        expect(spec.privileges).toEqual(base?.privileges ?? []);
+      } else {
+        expect(spec.privileges.length).toBeGreaterThanOrEqual(1);
+        // The same objects, in the base's order: served is a subset, never a rewording.
+        expect(spec.privileges).toEqual((base?.privileges ?? []).filter((p) => spec.privileges.includes(p)));
+        for (const p of spec.privileges) expect(base?.privileges.includes(p)).toBe(true);
+      }
+      // Served and engine together are exactly the base's rows: none lost, none added.
+      const rows = [...spec.privileges, ...(spec.engine ?? [])];
+      expect(rows.length).toBe(baseRows.length);
+      for (const p of rows) expect(baseRows.includes(p)).toBe(true);
       // The same annotations, but a chat copy is never read-only: it takes `session` (H1, `tools.ts#chatAnnotations`).
       const b = base?.annotations;
       expect(spec.annotations).toEqual((b?.readOnlyHint === true ? { ...b, readOnlyHint: false, idempotentHint: false } : b) as never);
-      if (CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS] === undefined) {
+      if (CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS] === undefined && CLAUDE_AI_TRIM[spec.name as keyof typeof CLAUDE_AI_TRIM] === undefined) {
         expect(renderDescription(spec)).toBe(renderDescription(base as never));
       }
     }
     for (const spec of TOOLS) expect(renderDescription(spec)).not.toContain("Save to long-term memory, in the moment");
     expect(toolDefinitions(false).map((t) => t["description"])).toEqual(TOOLS.map((t) => renderDescription(t)));
+  });
+
+  // TT1 (2026-11-04): what the trim must keep true, read off the list a claude.ai client is sent.
+  test("claude.ai's trimmed list: no host-false words, the how-to-call words kept, Claude Code's list as it was", () => {
+    const defs = toolDefinitions(CLAUDE_AI_HOST) as { name: string; description: string; inputSchema: Record<string, unknown> }[];
+    const texts: [string, string][] = [];
+    const walk = (node: unknown, path: string): void => {
+      const n = node as { description?: unknown; properties?: Record<string, unknown>; items?: unknown } | undefined;
+      if (n === undefined || typeof n !== "object") return;
+      if (typeof n.description === "string") texts.push([path, n.description]);
+      for (const [k, v] of Object.entries(n.properties ?? {})) walk(v, `${path}.${k}`);
+      if (n.items !== undefined) walk(n.items, `${path}[]`);
+    };
+    for (const t of defs) {
+      texts.push([t.name, t.description]);
+      walk(t.inputSchema, t.name);
+    }
+    // Words false on claude.ai: no terminal, no folders, no hooks' registry, no dashboard, no
+    // end-of-session or boundary ask. `reflect.phase` keeps "join" (a share's question about two
+    // folders being one project), which a claude.ai store never asks and a shared local store may.
+    const FALSE_HERE = /terminal|\bfolders?\b|director(y|ies)|hooks' |dashboard|end-of-session ask|boundary ask|this machine/i;
+    const found = texts.filter(([path, text]) => path !== "reflect.phase" && FALSE_HERE.test(text)).map(([path, text]) => `${path}: ${String(text.match(FALSE_HERE)?.[0])}`);
+    expect(found).toEqual([]);
+
+    const by = Object.fromEntries(defs.map((t) => [t.name, t]));
+    const field = (tool: string, path: string): string =>
+      texts.find(([p]) => p === `${tool}.${path}`)?.[1] ?? `(no ${tool}.${path})`;
+    // How to call: closing, revising, dating, the open flag, the one-word feeling.
+    for (const tool of ["remember", "session_end"]) {
+      const at = tool === "remember" ? "" : "memories[].";
+      expect(field(tool, `${at}updates`)).toContain("`eventDate: null` or `unresolved: false`");
+      expect(field(tool, `${at}eventDate`)).toContain('a range "2026-10-20..2026-10-31"');
+      expect(field(tool, `${at}eventDate`)).toContain("an unreadable one is refused");
+      expect(field(tool, `${at}unresolved`)).toContain("true only when someone owes an answer");
+      expect(field(tool, `${at}feelings[].emotion`)).toContain("ONE word");
+      expect(field(tool, `${at}about`)).toContain("Mark anything personal owner or us");
+    }
+    expect(field("remember", "feelingsNow")).toContain("Not for a new moment");
+    expect(field("recall", "question")).toContain('"I" and "me" mean you, the counterpart');
+    // Claude Code's catch-up fields are kept, short: claude.ai's wake can carry the write-up pointer.
+    expect(field("session_end", "writeUp")).toContain("ended session");
+    // Not offered here: the legacy other_word, and traits on a write-up entry (remember keeps them).
+    const entry = (by["session_end"]?.inputSchema as { properties: { memories: { items: { properties: Record<string, unknown> } } } }).properties.memories.items.properties;
+    expect(entry["traits"]).toBeUndefined();
+    expect(Object.keys((entry["feelings"] as { items: { properties: object } }).items.properties)).not.toContain("other_word");
+    expect(texts.some(([p]) => p === "remember.traits")).toBe(true);
+
+    // The size, loosely: 90,813 B before TT1. A ceiling, so the words do not quietly grow back.
+    expect(Buffer.byteLength(JSON.stringify({ tools: defs }), "utf8")).toBeLessThan(70_000);
+    // Every other host's list is the registry's own, untrimmed.
+    for (const host of [false, DESKTOP_HOST] as const) {
+      const json = JSON.stringify(toolDefinitions(host));
+      expect(json).toContain("in their terminal");
+      expect(json).toContain("other_word");
+    }
   });
 
   // H1 (2026-10-29): the honesty question, closed by the door test below. Whether claude.ai skips its
