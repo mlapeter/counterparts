@@ -688,14 +688,24 @@ repeat. Any weekly reminder hits this.
 ## 2026-11-04 — RF1: a plain reminder shown earlier today folds in later wakes
 
 - **Asked:** several sessions in a morning each showed the same "Coming up → Due today" lines whole (Mike, 11-04). First wake
-  of the day whole; later wakes one line, "N due today, shown earlier", in Coming up's door (`(…; recall "coming up")`).
+  of the day whole; later wakes one line, "N due today, shown earlier", its own clause in Coming up's door
+  (`(2 due today, shown earlier; 1 more due today; recall "coming up")`).
 - **What "shown" reads:** the told latch, `prospective.plain` rows (one per memory, window and beat, `payload.date` the calendar
-  day it was told), via `plainToldOn`, now public. Not `wake_display`: that table is per memory id, the hints lane only, in lived
-  days, written by the turn-end publish (`Store#recordHintDisplay`); it never sees Coming up. No new field, no format change.
-- **Timing:** the latch is written by the delivery after the wake is composed (`deliverTurn` → `claimPlain`), so the wake that
-  first reaches a reminder shows it whole, and a reminder written after that wake is whole in the next. Claude.ai and the other
-  MCP hosts claim the same latch (`mcp/server.ts`), so the fold reads the same everywhere, in every folder.
+  day it was told, `payload.session` the session told), via `plainToldOn`, now public, with a filter on the session. Not
+  `wake_display`: that table is per memory id, the hints lane only, in lived days, written by the turn-end publish
+  (`Store#recordHintDisplay`); it never sees Coming up. No new field, no format change.
+- **Whose telling counts (review of RF1):** a latch dated today whose session the host's registry (`WakeHere.sessions`) says
+  started today (local date, the store's zone) and isn't headless. A prompt in last night's session after midnight (the 00:12
+  hand-back nobody read, `toldForGood`'s note) doesn't count, and since that beat is spent no wake of the day writes another,
+  so the reminder stays whole all day: what it did before RF1. A latch with no session, or one the registry has pruned, doesn't
+  count. A compaction's wake (`WakeHere.source === "compact"`) folds nothing: that session's model just lost what it was
+  shown. `/clear` folds.
+- **Timing:** the latch is written by the delivery after the wake is composed (`deliverTurn` → `claimPlain`; the MCP `wake`
+  tool composes, then claims), so the wake that first reaches a reminder shows it whole, and one written after that wake is
+  whole in the next. The hosted/claude.ai `wake` tool records its session (`noteSession("start")`) before it composes, in the
+  store's own directory the registry read uses, so its wakes fold too (pinned in `test/wake-shape.test.ts`). An Agent-tool
+  subagent: the only SessionStart on record from one is a `compact` (10-10, `cli`), which claims nothing (`watchedAtStart`)
+  and now folds nothing; a subagent `startup` has never been seen.
 - **Left as it was:** a dated item that isn't plain has no per-day record of being shown (`fit.index.wake` is one row,
-  overwritten at each start, and is lookup evidence), so it shows as before. The shape-off road is unchanged. A plain reminder
-  told on a prompt before the day's first wake (an overnight session's first turn after midnight) folds in that first wake too:
-  it was told, to whoever read that turn, and recall "coming up" still lists it whole.
+  overwritten at each start, and is lookup evidence), so it shows whole as before; a "wake showed it" record joins the next
+  batched store-format change (WORKLIST). The shape-off road is unchanged.

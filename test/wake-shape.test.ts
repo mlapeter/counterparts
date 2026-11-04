@@ -31,7 +31,7 @@ import { firstRealSentence, leadOf, seatOf, titleInLead, withoutLabel } from "..
 import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { DATABASE_FILE } from "../src/core/store/index.js";
-import { addDays } from "../src/core/time.js";
+import { addDays, localDate } from "../src/core/time.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
 const MIN = 60_000;
@@ -1183,33 +1183,35 @@ describe("the small words", () => {
 
 describe("reminder folding (RF1): a plain reminder shown earlier today is one line", () => {
   /** The real session-start hook, a child process: the wake block, what's above it, and what the person is shown. */
-  function start(session: string, cwd = HERE): { wake: string; above: string; person: string } {
+  function start(session: string, cwd = HERE, o: { zone?: string; event?: "SessionStart" | "UserPromptSubmit"; source?: string } = {}): { wake: string; above: string; person: string } {
     const config = join(conf, "claude-code.json");
-    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: o.zone ?? "UTC" }));
     if (!existsSync(join(conf, "scopes.json"))) scopes({ [HERE]: "on", [THERE]: "on" });
     const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
       encoding: "utf8",
-      input: JSON.stringify({ session_id: session, hook_event_name: "SessionStart", source: "startup", cwd }),
+      input: JSON.stringify({ session_id: session, hook_event_name: o.event ?? "SessionStart", cwd, ...(o.event === "UserPromptSubmit" ? { prompt: "Tell me a little about the weather on the hill." } : { source: o.source ?? "startup" }) }),
       env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
     });
     expect(r.status).toBe(0);
-    const o = JSON.parse(r.stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
-    const model = o.hookSpecificOutput?.additionalContext ?? "";
+    const out = JSON.parse(r.stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
+    const model = out.hookSpecificOutput?.additionalContext ?? "";
     const at = model.indexOf("<!-- counterparts:wake ");
     const end = model.indexOf("\n", model.indexOf("<!-- counterparts:wake/end"));
-    return { wake: at < 0 ? model : model.slice(at, end < 0 ? undefined : end), above: at < 0 ? "" : model.slice(0, at), person: o.systemMessage ?? "" };
+    return { wake: at < 0 ? model : model.slice(at, end < 0 ? undefined : end), above: at < 0 ? "" : model.slice(0, at), person: out.systemMessage ?? "" };
   }
   const plainHere = (c: Counterpart, title: string, today: string, scope = HERE): string => memory(c, `${title}: bring the long ladder round to the east wall.`, { title, eventDate: today, scope, meta: { remind: "plain" } });
 
-  test("wake 1 whole; wake 2 folds what was shown and shows a new one whole; wake 3 folds all three", () => {
-    const { c, today } = brain();
+  for (const zone of ["UTC", "Pacific/Kiritimati"]) {
+  test(`${zone}: wake 1 whole; wake 2 folds what was shown and shows a new one whole; wake 3 folds all three`, () => {
+    const { c } = brain();
+    const today = localDate(Date.now(), zone);
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
     // One of this folder's own and one of another folder's: "one line everywhere".
     const a = plainHere(c, "Rfold ladder", today);
     const b = plainHere(c, "Rfold bakery oven", today, THERE);
     c.close();
 
-    const w1 = start(OWN);
+    const w1 = start(OWN, HERE, { zone });
     const coming1 = section(w1.wake, "Coming up:");
     expect(coming1).toContain(`- Due today · Rfold ladder: bring the long ladder round to the east wall. [${a}]`);
     expect(coming1).toContain(`[${b}]`);
@@ -1218,10 +1220,10 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
 
     // A new one due today, written after wake 1.
     const again = brain();
-    const n = plainHere(again.c, "Rfold gate hinge", again.today);
+    const n = plainHere(again.c, "Rfold gate hinge", today);
     again.c.close();
 
-    const w2 = start(READER);
+    const w2 = start(READER, HERE, { zone });
     const coming2 = section(w2.wake, "Coming up:");
     expect(coming2.split("\n")).toContain(`(2 due today, shown earlier; recall "coming up")`);
     expect(coming2).toContain(`- Due today · Rfold gate hinge: bring the long ladder round to the east wall. [${n}]`);
@@ -1233,7 +1235,7 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     expect(w2.person).not.toContain("Rfold ladder");
 
     // In the reminder's own folder too, and in another folder: one line.
-    const w3 = start("dddd4444-0000-4000-8000-000000000004", THERE);
+    const w3 = start("dddd4444-0000-4000-8000-000000000004", THERE, { zone });
     expect(section(w3.wake, "Coming up:")).toBe(`Coming up:\n(3 due today, shown earlier; recall "coming up")`);
     expect(w3.person).not.toContain("Rfold");
 
@@ -1245,6 +1247,7 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
       for (const id of [a, b, n]) expect(listed).toContain(id);
     });
   });
+  }
 
   test("told on another day is not shown earlier: a weekly reminder told last week shows whole today", () => {
     const { c, today } = brain();
@@ -1264,5 +1267,73 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     expect(coming).toContain("- Due today · ");
     expect(coming).not.toContain("shown earlier");
     expect(w.person).toContain("Rfold weekly");
+  });
+  test("told on a prompt before the day's first wake, in a session started yesterday: the first wake shows it whole", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const id = plainHere(c, "Rfold midnight", today);
+    c.close();
+    // Last night's session, still open after midnight; its prompt (an agent's hand-back, nobody reading) is told it.
+    recordSession(storeDir, { sessionId: OWN, scope: HERE, phase: "start", at: NOW - 26 * HOUR });
+    const prompt = start(OWN, HERE, { event: "UserPromptSubmit" });
+    expect(prompt.person).toContain("Rfold midnight");
+    const db = new Database(join(storeDir, DATABASE_FILE), { readonly: true });
+    expect((db.query("select count(*) as n from events where name = 'prospective.plain' and ref = ?").get(id) as { n: number }).n).toBe(1);
+    db.close();
+    // The morning's first wake: whole, though the latch says told today.
+    const w = start(READER);
+    const coming = section(w.wake, "Coming up:");
+    expect(coming).toContain(`- Due today · Rfold midnight: bring the long ladder round to the east wall. [${id}]`);
+    expect(coming).not.toContain("shown earlier");
+    // The beat is spent, so no wake today writes a latch of its own, and with no
+    // record of a wake showing it, the later wakes show it whole too: as before RF1.
+    const w2 = start("dddd4444-0000-4000-8000-000000000004");
+    expect(section(w2.wake, "Coming up:")).toContain(`[${id}]`);
+    expect(w2.wake).not.toContain("shown earlier");
+  });
+
+  test("claude.ai's wake tool: the session registry it reads holds its own wakes, so a second wake folds", async () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    // The owner's, so a chat with no folder may read it.
+    const id = memory(c, "Rfold web: bring the long ladder round to the east wall.", { title: "Rfold web", eventDate: today, about: "owner", meta: { remind: "plain" } });
+    const config = { injectionBudgetBytes: BUDGET };
+    const web = (): McpServer => new McpServer({ counterpart: c, host: CLAUDE_AI_HOST, env: {}, lifecycle: { spawner: () => ({ pid: 1 }), config }, manifestVersion: () => null } as never);
+    const text = async (): Promise<string> => (await web().call("wake", {})).content.map((x) => ("text" in x ? String(x.text) : "")).join("\n");
+    const first = await text();
+    expect(first).toContain(`- Due today · Rfold web: bring the long ladder round to the east wall. [${id}]`);
+    const second = await text();
+    expect(second).toContain(`(1 due today, shown earlier; recall "coming up")`);
+    expect(second).not.toContain(`[${id}]`);
+  });
+
+  test("a compaction folds nothing: the same session's model lost what it was shown", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const id = plainHere(c, "Rfold compact", today);
+    c.close();
+    expect(section(start(READER).wake, "Coming up:")).toContain(`[${id}]`);
+    const compacted = start(READER, HERE, { source: "compact" });
+    expect(section(compacted.wake, "Coming up:")).toContain(`- Due today · Rfold compact: bring the long ladder round to the east wall. [${id}]`);
+    expect(compacted.wake).not.toContain("shown earlier");
+    // A /clear is a fresh start in the same session: folded.
+    expect(section(start(READER, HERE, { source: "clear" }).wake, "Coming up:")).toBe(`Coming up:\n(1 due today, shown earlier; recall "coming up")`);
+  });
+
+  test("the fold is its own clause beside the door's other words", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    plainHere(c, "Rfold first", today);
+    c.close();
+    start(OWN);
+    const again = brain();
+    memory(again.c, "Rfold later: the kiln's shelf brackets arrive from the smith.", { title: "Rfold later", eventDate: addDays(today, 3) });
+    again.c.close();
+    const coming = section(start(READER).wake, "Coming up:");
+    const door = coming.split("\n").find((l) => l.startsWith("(")) ?? "";
+    // Shown or counted, the later one; the fold stays its own clause either way.
+    expect(door.startsWith("(1 due today, shown earlier")).toBe(true);
+    expect(door.endsWith(`; recall "coming up")`)).toBe(true);
+    expect(door).not.toContain("shown earlier, ");
   });
 });

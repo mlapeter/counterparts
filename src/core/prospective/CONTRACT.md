@@ -45,8 +45,11 @@ clothes. **Hold debts, lose deadlines.**
   (2026-09-29): it was said, and "Arriving:" would say it again as still to come. A day
   item stays listed through its own day (2026-10-12, lightly held): the turn that was told
   may be one nobody read. With the wake's shape on, a later wake that day lists it as a
-  count, "N due today, shown earlier", behind `recall "coming up"` (RF1, 2026-11-04, read
-  off `plainToldOn`, the latch's date): the first delivery to reach it still shows it whole. The lane applies none of the cue's fire brakes — the cap, once a
+  count, "N due today, shown earlier", behind `recall "coming up"` (RF1, 2026-11-04,
+  `plainToldOn`): only when its latch is dated today AND names a session the host's
+  registry says started today with a person's entrypoint, and never in a compaction's
+  wake. So the delivery that told it is a wake or a turn of today's, and a beat told in
+  last night's session after midnight leaves it whole in every wake that day. The lane applies none of the cue's fire brakes — the cap, once a
   day, once a session, told today (2026-10-12): those ration footnotes, not dates. Past
   its day a QUIET item keeps them (2026-10-12, lightly held), so one cued out in its lead
   days leaves after its day rather than riding the grace week as "was due". A plain

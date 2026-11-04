@@ -16,6 +16,10 @@ repeating them.*
 
 ## Follow-ups found today (not started)
 
+- **A "wake showed it" record, for the next batched store-format change** (RF1, #742; ROADMAP 11-04 11:12). The wake folds a
+  plain reminder told earlier today (the told latch); a dated item that isn't plain has no per-day record of being shown, so it
+  stays whole in every wake for now. Same record would let a reminder told in last night's session after midnight fold after
+  the morning's first wake.
 - **Refresh the harness corpus copy after each release** (Mike, 10-22). The replay corpus is a copy from 10-20,
   older than beliefs and tags, so the 10-22 replays saw none of either. After each release, copy the corpus from
   that night's snapshot, so replays read a store the release has actually run on.

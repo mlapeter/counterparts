@@ -427,9 +427,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // (the told latch, `Prospective.plainToldOn`) folds into Coming up's one line
   // in every later wake, this folder's own included. The first delivery that
   // reaches it shows it whole and is what writes the latch (`claimPlain`, after
-  // this compose), so a reminder nobody has been told yet is never folded. A
+  // this compose), so a reminder nobody has been told yet is never folded. Only
+  // a telling in a session that started today, with a person's entrypoint,
+  // counts (review of RF1): a prompt in last night's session after midnight, an
+  // agent's hand-back with nobody reading, isn't a wake anyone saw. A latch that
+  // names no session, or one the registry doesn't hold, doesn't count either.
+  // Never on a compaction: that session's model just lost what it was shown. A
   // dated item that isn't plain has no such record and shows as before.
-  const shownEarlier = new Set(cues.filter((c) => c.plain && safe(() => cp.prospective.plainToldOn(c.id, at), false)).map((c) => c.id));
+  const seenToday = new Set(sessions.filter((s) => s.headless !== true && localDate(s.startedAt, zone) === at).map((s) => s.session));
+  const byToday = (session: string | null): boolean => session !== null && seenToday.has(session);
+  const shownEarlier = new Set(here?.source === "compact" ? [] : cues.filter((c) => c.plain && safe(() => cp.prospective.plainToldOn(c.id, at, byToday), false)).map((c) => c.id));
   const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom)), { items: [], parked: 0 });
@@ -618,7 +625,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const ids = new Set(shown.map((s) => s.c.id));
       const hiddenToday = todayAll.filter((c) => !ids.has(c.id) && !shownEarlier.has(c.id)).length;
       const hereMore = [...overdue, ...laterAll].filter((c) => !ids.has(c.id)).length;
-      const words = [folded > 0 ? `${String(folded)} due today, shown earlier` : "", hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? `${String(other.length)} in other folders` : ""].filter((x) => x.length > 0).join(", ");
+      const more = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? `${String(other.length)} in other folders` : ""].filter((x) => x.length > 0).join(", ");
+      // The fold is its own clause: "2 due today, shown earlier; 1 more due today; recall …".
+      const words = [folded > 0 ? `${String(folded)} due today, shown earlier` : "", more].filter((x) => x.length > 0).join("; ");
       // Nothing to list and nothing behind the door: no section (WF1), not "Nothing dated."
       if (shown.length === 0 && words.length === 0) return [];
       const out = ["Coming up:", ...shown.map((s) => s.line)];
