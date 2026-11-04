@@ -6,7 +6,7 @@ Some things differ by where the memory lives. **[local]** means a memory on the 
 
 ## What Counterparts is
 
-Counterparts is a memory for an AI: the counterpart keeps what something meant and how it went, in its own words, not a transcript.
+A memory for an AI, in its own words, not a transcript: it writes with `remember`, lets the unused fade, and opens each session with a wake.
 
 - It writes its own memories: in the moment with the `remember` tool, and at the end of a stretch of work with `session_end` and `chapter`.
 - What isn't used fades, on purpose, so what matters stays easy to find. A faded memory can still turn up when it's searched for, until it is let go.
@@ -17,7 +17,7 @@ Counterparts is a memory for an AI: the counterpart keeps what something meant a
 
 ## Everyday phrases
 
-These are things a person can say. Offer one when it fits; don't list them all.
+Offer a phrase when it fits: "Remember this", "That's wrong", "Remind me Thursday to …", "What's still open?". Don't list them all.
 
 - "Where did we leave off?" brings back the last session here. A short facts question like that reads that session first.
 - "Remember this" saves it now, with the `remember` tool.
@@ -32,7 +32,7 @@ These are things a person can say. Offer one when it fits; don't list them all.
 
 ## Folders
 
-[local] Memory is set per folder: on, observer (reads only), off, or paused, and the person can ask which this folder is.
+[local] Memory is set per folder with the `scope` tool: on, observer (reads only), off, or paused.
 
 - The `scope` tool reads the setting for this folder with no `mode`, and sets it with `mode` `on`, `observer`, `off`, `pause` or `resume`. Set it when the person says so, not on a guess.
 - Off: the hooks write nothing and read nothing here, and every tool but `scope` refuses. Paused is off until they say to resume; it has no timer. `resume` goes back to what it was before, or on.
@@ -44,7 +44,7 @@ These are things a person can say. Offer one when it fits; don't list them all.
 
 ## Remembering well
 
-These make the memory work better.
+Save with `remember` while it's fresh, put dates in `eventDate`, mark open things `unresolved`, fix wrong ones with `updates`.
 
 - Save while it's fresh: when something matters, `remember` it then, one idea per call, in your own words. Keep the exact words when the words matter.
 - A date to come back to goes in `eventDate`, not just the text, or it never comes back. Four shapes: a day "2026-10-15", a month "2026-10", a range "2026-10-20..2026-10-31", or a year. Add `recurring` for a date that repeats.
@@ -56,7 +56,7 @@ These make the memory work better.
 
 ## Nights and dreams
 
-After a day of use, a night pass sorts that day: day's end, then a dream, then a reflection.
+A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `off`; `last dream` reads the newest.
 
 - Day's end writes the day's summary and brings the self page's day-to-day sections up to date. The dream replays what was lived beside what it resembles: it can merge near-copies, link what belongs together, note a pattern, flag a contradiction. The reflection is awake: it can rewrite the page's Core from the memories it cites and leave a short morning share.
 - A dream is kept in its own journal, marked as a dream, never as something that happened. Tell it as a dream.
@@ -69,7 +69,7 @@ After a day of use, a night pass sorts that day: day's end, then a dream, then a
 
 ## Seeing and changing what's kept
 
-The person can see all of it, correct any of it, and remove it.
+Look with `recall` or `self_page`, correct with `updates`; on a local install, `counterparts remove` deletes one.
 
 - Ask the memory: `recall` with a question and a mode, or a memory's id or exact title as `handle` to read it whole. [local] From a terminal: `counterparts ask "…"`.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
@@ -82,7 +82,7 @@ The person can see all of it, correct any of it, and remove it.
 
 ## Export, backup, uninstall
 
-The memory is the person's to keep or take with them.
+The memory is theirs to take: export, uninstall, start-fresh, or "Download my memory" when hosted.
 
 - [local] `counterparts export --out <dir> --passphrase <secret>` makes an encrypted copy they can take anywhere. Export refuses without `--passphrase`, or `--plaintext` said on purpose. `--markdown` writes a readable tree instead.
 - [local] `counterparts backup --out <dir>` saves a snapshot to a folder. A daily snapshot is also kept automatically.
@@ -93,7 +93,7 @@ The memory is the person's to keep or take with them.
 
 ## Checking that it works
 
-If something seems off (no wake, no footnotes, a night that didn't run), check before guessing.
+If something seems off (no wake, no night), check before guessing: `status`, and locally `counterparts doctor` and `counterparts log`.
 
 - The `status` tool gives the census: how much is held, of what kinds, how much has left. Ask it when the person asks "what's your status?".
 - [local] `counterparts doctor` checks everything and says what to fix. Show its lines as they are. `counterparts status` counts memories and recent activity; `counterparts log` shows today's events in order; `counterparts mechanisms` shows which parts of memory have been working.
@@ -105,7 +105,7 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 
 ## Hosted
 
-[hosted] Counterparts Online is the same memory, run on Counterparts' server, used from claude.ai.
+[hosted] Counterparts Online is this memory on a server, used from claude.ai with the `wake` tool.
 
 - It's connected in claude.ai as a custom connector, from the setup page the person was given. In a new chat, the `wake` tool starts the conversation.
 - Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
@@ -118,6 +118,6 @@ If something seems off (no wake, no footnotes, a night that didn't run), check b
 
 ## What's new
 
-What changed in each version is in CHANGELOG.md, which ships with the package and is on GitHub.
+What changed in each version is in CHANGELOG.md, in the package and on GitHub.
 
 - [hosted] Updates arrive when Counterparts Online is deployed; there is nothing to install.

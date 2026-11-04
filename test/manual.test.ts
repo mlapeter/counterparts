@@ -371,6 +371,31 @@ describe("recall opens the manual", () => {
     expect(structured(answers.get(6))["reason"]).toBe("nothing-came");
   }, 30_000);
 
+  test("the index names what is inside: every line carries a concrete thing from its own section, and the index stays small", () => {
+    const m = parseManual(manualText());
+    const answers = stdio([INIT, call(2, { handle: "manual" })]);
+    const text = String(structured(answers.get(2))["text"]);
+    expect(Buffer.byteLength(text)).toBeLessThan(2200);
+    const norm = (x: string): string => x.toLowerCase().replace(/[’]/g, "'");
+    // A concrete thing: a code span, a quoted phrase, or a file name.
+    const concrete = (line: string): string[] =>
+      [...line.matchAll(/`([^`]+)`|"([^"]+)"|\b([A-Z]+\.md)\b/g)].map((x) => (x[1] ?? x[2] ?? x[3])!);
+    // The control: the old generic lines name nothing.
+    expect(concrete("These are things a person can say.")).toEqual([]);
+    expect(concrete("These make the memory work better.")).toEqual([]);
+    for (const s of m.sections) {
+      expect(text).toContain(`"${s.handle}": ${s.line}`);
+      const things = concrete(s.line);
+      expect(things.length).toBeGreaterThan(0);
+      expect(s.text).toContain(s.line);
+      const body = norm(s.text);
+      // Every thing the line names is in its own section (a file name counts when the section only points to it).
+      const rest = norm(s.text.replace(s.line, ""));
+      expect(things.some((t) => (/\.md$/.test(t) ? false : rest.includes(norm(t))) || (/\.md$/.test(t) && body.includes(norm(t))))).toBe(true);
+      for (const t of things) expect(/\.md$/.test(t) ? body : rest).toContain(norm(t));
+    }
+  }, 30_000);
+
   test("under observer it still opens: it reads no memory", () => {
     const answers = stdio([INIT, call(2, { handle: "manual" }), call(3, { question: "anything", mode: "facts" })], { COUNTERPARTS_OBSERVER: "1" });
     expect(structured(answers.get(2))["reason"]).toBe("manual");
