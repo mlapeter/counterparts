@@ -5,7 +5,7 @@
  * then compacted, then said three things in six minutes and ended. Its record
  * came before the cut, so the floor's span held the tail back
  * (`under-floor:span`) and it was never written up. Now what follows a
- * session's newest compaction counts as unrecorded unless a record of its own
+ * session's first compaction after its record counts as unrecorded unless a record of its own
  * reaches past it. Through the real night: `runNight`, its catch-up child
  * driving the real MCP server as the runner.
  *
@@ -30,7 +30,7 @@ import { coverageReading } from "../src/adapters/cli/coverage.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { SCOPE_ENV, SESSION_ENV } from "../src/adapters/spawn.js";
-import { CLAIM_CHAPTER, claimUnwritten } from "../src/core/coverage/index.js";
+import { CLAIM_CHAPTER, COVERAGE_TUNABLES, claimUnwritten } from "../src/core/coverage/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { localDate } from "../src/core/time.js";
 import { whyNotOwed } from "../tools/harness/week.js";
@@ -63,7 +63,7 @@ function yesterday10(): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - 14 * HOUR;
 }
 
-type Shape = "tail-after-compaction" | "short-tail-after-compaction" | "tail-before-compaction" | "no-compaction" | "record-after-compaction";
+type Shape = "two-compactions" | "tail-after-compaction" | "short-tail-after-compaction" | "tail-before-compaction" | "no-compaction" | "record-after-compaction";
 
 /**
  * d2s1's day, as the hooks leave it in the store: six turns over 48 minutes,
@@ -84,8 +84,8 @@ function lived(id: string, shape: Shape): void {
       c.boundary({ session: id, scope: proj, kind: "stop" });
       recordSession(dir, { sessionId: id, scope: proj, phase: "boundary", at });
     };
-    const compact = (): void => {
-      at += 10 * MIN;
+    const compact = (gap = 10 * MIN): void => {
+      at += gap;
       c.captureSpans({ session: id, scope: proj, turns: [...turns] });
       c.boundary({ session: id, scope: proj, kind: "pre-compaction" });
     };
@@ -96,7 +96,7 @@ function lived(id: string, shape: Shape): void {
     // ITS OWN RECORD, at the Stop ask: a chapter claims everything unclaimed.
     at += MIN;
     expect(claimUnwritten(c.spans, { session: id, scope: proj, by: CLAIM_CHAPTER, ref: `ep-${id}` }).pieces).toBe(6);
-    if (shape === "tail-after-compaction" || shape === "short-tail-after-compaction" || shape === "record-after-compaction") compact();
+    if (shape === "tail-after-compaction" || shape === "short-tail-after-compaction" || shape === "record-after-compaction" || shape === "two-compactions") compact();
     if (shape === "record-after-compaction") {
       at += MIN;
       say(`${id}: after the summary, the backfill batch size is 500.`);
@@ -111,6 +111,15 @@ function lived(id: string, shape: Shape): void {
     if (shape !== "short-tail-after-compaction") at += 3 * MIN;
     if (shape !== "short-tail-after-compaction") say(`${id}: Ines starts her first shift at the bakery tomorrow, she is nervous.`);
     if (shape === "tail-before-compaction") compact();
+    if (shape === "two-compactions") {
+      // The context fills again: two more lines with no Stop between them, taken by the SECOND PreCompact's capture
+      // (they share its tick), and nothing said after it.
+      for (const text of [`${id}: the replica lag alarm is at 30 s.`, `${id}: page me if it fires overnight.`]) {
+        turns.push({ role: "user", text });
+        turns.push({ role: "assistant", text: `(${id}) Noted: ${text}` });
+      }
+      compact(MIN);
+    }
     at += MIN;
     c.boundary({ session: id, scope: proj, kind: "session-end" });
     recordSession(dir, { sessionId: id, scope: proj, phase: "end", at });
@@ -177,7 +186,7 @@ function writtenFrom(): string[] {
   }
 }
 
-describe("CT1: what follows a session's newest compaction counts as unrecorded", () => {
+describe("CT1: what follows a compaction the session's record came before counts as unrecorded", () => {
   test("a recorded session's three-prompt tail after a compaction is owed, and the night writes it up", async () => {
     lived("s-tail", "tail-after-compaction");
     const before = rowOf("s-tail")!;
@@ -201,10 +210,36 @@ describe("CT1: what follows a session's newest compaction counts as unrecorded",
     const row = rowOf("s-short")!;
     expect(row).toMatchObject({ owed: true, person: true, recorded: true, overFloor: false, compactionTail: 2 });
     expect(whyNotOwed(row)).toBeNull();
+    // With the one-piece floor raised (`--set coverage.UNRECORDED_OWED_PIECES=…`), the harness names the held tail.
+    const was = COVERAGE_TUNABLES.UNRECORDED_OWED_PIECES;
+    (COVERAGE_TUNABLES as { UNRECORDED_OWED_PIECES: number }).UNRECORDED_OWED_PIECES = 3;
+    try {
+      const held = rowOf("s-short")!;
+      expect(held).toMatchObject({ owed: false, compactionTail: 2 });
+      expect(whyNotOwed(held)).toBe("under-floor:pieces:after-compaction");
+    } finally {
+      (COVERAGE_TUNABLES as { UNRECORDED_OWED_PIECES: number }).UNRECORDED_OWED_PIECES = was;
+    }
     const seen: ChildPlan[] = [];
     await night("nrn_short", seen);
     expect(seen.length).toBe(1);
     expect(writtenFrom()).toEqual(["s-short"]);
+  });
+
+  test("two compactions after the record: the tail runs from the FIRST, so lines the second PreCompact took are still owed", async () => {
+    lived("s-twice", "two-compactions");
+    const row = rowOf("s-twice")!;
+    // The three Stop-captured lines after the first cut, and the piece the second PreCompact captured; seven
+    // minutes, under the floor, and nothing after the second cut.
+    expect(row).toMatchObject({ owed: true, person: true, recorded: true, overFloor: false, compactionTail: 4 });
+    expect(row.tailFrom).not.toBeNull();
+    expect(row.tailFrom!).toBeLessThan(row.compactedAt!);
+    expect(whyNotOwed(row)).toBeNull();
+    const seen: ChildPlan[] = [];
+    await night("nrn_twice", seen);
+    expect(seen.length).toBe(1);
+    expect(writtenFrom()).toEqual(["s-twice"]);
+    expect(rowOf("s-twice")).toMatchObject({ owed: false, stretch: null });
   });
 
   test("the same tail said BEFORE a compaction (nothing after the cut) stays held to the floor: not owed", async () => {

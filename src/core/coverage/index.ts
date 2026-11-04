@@ -108,11 +108,18 @@ export interface LedgerEntry {
    */
   readonly compactedAt: number | null;
   /**
-   * Unwritten pieces after that compaction that NO RECORD OF ITS OWN follows
-   * (CT1): what the session said after its context was cut, when the only
-   * record it relies on was written before the cut. Owed as an unrecorded
-   * session's stretch is (`isDebt(…, false)`: from one piece). 0 when it never
-   * compacted, or when a record of its own covers a piece after the cut.
+   * THE CUT (CT1): its EARLIEST compaction later than its last record point —
+   * the newest write-up mark, or the newest piece a record claim of its own
+   * covers. Null when no compaction follows its record (or it never
+   * compacted). The earliest, not the newest: a second compaction must not
+   * hide what was said between the first one and it (review of #752).
+   */
+  readonly tailFrom: number | null;
+  /**
+   * Unwritten pieces after the cut (CT1): what the session said after its
+   * context was cut, when the only record it relies on was written before.
+   * Owed as an unrecorded session's stretch is (`isDebt(…, false)`: from one
+   * piece). 0 when there is no cut.
    */
   readonly compactionTail: number;
   readonly owed: boolean;
@@ -295,8 +302,8 @@ interface Tally {
   writtenUpAt: number | null;
   /** A claim of its own record stands on one of its pieces (`recordClaims`). */
   recorded: boolean;
-  /** Its newest `pre-compaction` boundary, any scope (CT1). */
-  compactedAt: number | null;
+  /** Every `pre-compaction` boundary it recorded, any scope (CT1). */
+  compactions: number[];
   /** The times of the pieces a record claim of its own covers (CT1): whether
    *  a record follows the compaction is read off what it wrote up, not when
    *  the claim landed (a claim can land after the cut and cover only what
@@ -317,7 +324,7 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     if (typeof session !== "string" || session.length === 0) return null;
     let t = tallies.get(session);
     if (t === undefined) {
-      t = { scopes: new Set(), all: [], unwritten: [], pieces: 0, lastCaptureAt: 0, endAt: null, writtenUpAt: null, recorded: false, compactedAt: null, recordPieceAts: [] };
+      t = { scopes: new Set(), all: [], unwritten: [], pieces: 0, lastCaptureAt: 0, endAt: null, writtenUpAt: null, recorded: false, compactions: [], recordPieceAts: [] };
       tallies.set(session, t);
     }
     return t;
@@ -360,7 +367,7 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
       const t = tally(b.session);
       if (t === null) continue;
       if (b.kind === "session-end") t.endAt = Math.max(t.endAt ?? 0, b.at);
-      else t.compactedAt = Math.max(t.compactedAt ?? 0, b.at);
+      else t.compactions.push(b.at);
     }
     for (const w of buffer.writeUps(scope)) {
       const t = tally(w.session);
@@ -388,13 +395,13 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     // ITS OWN RECORD (S2, 2026-10-26): a claim that is not a note's, or a
     // write-up mark. Without one, what it said is owed whatever its size.
     const recorded = t.recorded || t.writtenUpAt !== null;
-    // AFTER ITS NEWEST COMPACTION (CT1, 2026-11-04): what follows the cut is
-    // unrecorded unless a record of its own reaches past it — a record claim
-    // covering a piece said after the cut, or a write-up mark after it. A
-    // record written before the compaction does not hold the tail to the floor:
-    // it is owed as an unrecorded session's is (a0, 2026-11-04). A tail after a
-    // record with no compaction between them keeps the whole floor.
-    const tail = compactionTail(unwritten, t.compactedAt, t.recordPieceAts, t.writtenUpAt);
+    // AFTER A COMPACTION (CT1, 2026-11-04): what follows the first compaction
+    // after its last record point is unrecorded — a record written before the
+    // cut does not hold the tail to the floor: it is owed as an unrecorded
+    // session's is (a0, 2026-11-04). A tail after a record with no compaction
+    // between them keeps the whole floor.
+    const cut = tailCut(t.compactions, t.recordPieceAts, t.writtenUpAt);
+    const tail = cut === null ? [] : unwritten.filter((p) => p.at > cut);
     // Owed as an unrecorded session's stretch is: from `UNRECORDED_OWED_PIECES`.
     const debt = isDebt(stretch, recorded) || isDebt(stretchOf(tail), false);
     const since = stretch === null ? 0 : usesAfter(uses, localDate(stretch.lastAt, opts.zone));
@@ -419,7 +426,8 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
       stretch,
       overFloor: floor,
       recorded,
-      compactedAt: t.compactedAt,
+      compactedAt: t.compactions.length === 0 ? null : Math.max(...t.compactions),
+      tailFrom: cut,
       compactionTail: tail.length,
       owed,
       lapsed,
@@ -432,22 +440,22 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
 }
 
 /**
- * THE TAIL AFTER A COMPACTION THAT NO RECORD FOLLOWS (CT1, 2026-11-04): the
- * unwritten pieces said after the session's newest compaction, when no record
- * of its own reaches past it. Strictly after: what the PreCompact capture took
- * shares the boundary's tick and belongs before the cut. Empty when it never
- * compacted. Pure.
+ * WHERE THE UNRECORDED TAIL STARTS (CT1, 2026-11-04): the EARLIEST compaction
+ * strictly later than the session's last record point — its newest write-up
+ * mark, or the newest piece a record claim of its own covers (what a record
+ * covers, not when its claim landed: a claim can land after a cut and cover
+ * only what came before it). The earliest, so a second compaction never hides
+ * what was said between the first one and it (its PreCompact capture takes
+ * those lines). Pieces count from strictly after it: what a PreCompact
+ * capture took shares the boundary's tick. Null when no compaction follows
+ * the record. Pure.
  */
-export function compactionTail<P extends { readonly at: number }>(
-  unwritten: readonly P[],
-  compactedAt: number | null,
-  recordPieceAts: readonly number[],
-  writtenUpAt: number | null,
-): P[] {
-  if (compactedAt === null) return [];
-  if (writtenUpAt !== null && writtenUpAt > compactedAt) return [];
-  if (recordPieceAts.some((at) => at > compactedAt)) return [];
-  return unwritten.filter((p) => p.at > compactedAt);
+export function tailCut(compactions: readonly number[], recordPieceAts: readonly number[], writtenUpAt: number | null): number | null {
+  let recordAt = writtenUpAt ?? -Infinity;
+  for (const at of recordPieceAts) if (at > recordAt) recordAt = at;
+  let cut: number | null = null;
+  for (const c of compactions) if (c > recordAt && (cut === null || c < cut)) cut = c;
+  return cut;
 }
 
 function maxOf(a: number | null, b: number | null): number | null {

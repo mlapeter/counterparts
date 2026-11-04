@@ -18,7 +18,7 @@ export const COVERAGE_TUNABLES = {
    *  turn's tail owes nothing — the tail AFTER a session's own record (a
    *  handback, a "nothing new", a chapter, a write-up) — unless a compaction
    *  came between the record and the tail (CT1, 2026-11-04): what follows a
-   *  session's newest compaction is read as unrecorded, so this span does not
+   *  session's first compaction after its record is read as unrecorded, so this span does not
    *  hold it back (`UNRECORDED_OWED_PIECES` decides it). */
   OWED_SPAN_MS: 15 * 60_000,
   /**
