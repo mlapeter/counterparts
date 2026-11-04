@@ -15,7 +15,7 @@ import type { AliasMap, Fidelity, FitCandidate, FitReport, Placed } from "../fit
 import { readChapterLead } from "../self/episodes.js";
 import { automaticSummaryText, chapterSummaries } from "../self/summaries.js";
 import { liveHandoffRows } from "../handoff/index.js";
-import { isWorkMemory, projectFolder } from "../self/work.js";
+import { isDirectoryScope, isWorkMemory, projectFolder } from "../self/work.js";
 import type { WorkFacts } from "../self/work.js";
 import { MERGE_DEPTH } from "../self/writer.js";
 import type { ReadOnlyStore, Store } from "../store/index.js";
@@ -570,30 +570,67 @@ export function memoryFolder(store: Pick<Store, "row">, row: FolderRow): string 
  *   - Anything else (me, us, owner, world): the folder its sources share, else
  *     none — the unscoped default, which reaches every folder as personal does.
  *
- * Each source's folder is `memoryFolder`'s, `projectFolder`-normalized; a source
- * with none doesn't vote (for work) and makes "shared" fail (for the rest).
- * Null when no source has a folder. Never throws.
+ * Each source's folder is `memoryFolder`'s, `projectFolder`-normalized; a night
+ * row among them (filed before FS1 under its night's folder) by its originals'
+ * (`folderLeaves`). Only a directory votes; a source with none, or a host's name
+ * scope, doesn't, and makes "shared" fail unless it's the only folder there is.
+ * With no directory to vote, or not work: shared-or-null. Never throws.
  */
 export function nightFolder(
   store: Pick<Store, "row">,
-  sources: readonly (FolderRow & { created_at?: number | null })[],
+  sources: readonly NightSource[],
   written: { about: string | null; kind: WorkFacts["kind"] },
 ): string | null {
-  const folders = sources.map((r) => {
-    const f = memoryFolder(store, r);
-    return f === null ? "" : projectFolder(f);
-  });
+  const leaves = sources.flatMap((r) => folderLeaves(store, r, 0));
+  // Every leaf in one folder: that one; else none (the shared-or-null branch).
+  const all = new Set(leaves.map((l) => l.folder));
+  const shared = all.size === 1 ? ([...all][0] as string) : "";
+  const sharedOrNull = shared.length > 0 ? shared : null;
+  // Only a directory votes: a host's name scope (`claude-desktop:`) is no folder a work row could be another's in.
   const votes = new Map<string, { n: number; newest: number }>();
-  folders.forEach((f, i) => {
-    if (f.length === 0) return;
-    const at = sources[i]?.created_at ?? 0;
-    const had = votes.get(f);
-    votes.set(f, { n: (had?.n ?? 0) + 1, newest: Math.max(had?.newest ?? -Infinity, at) });
-  });
-  if (votes.size === 0) return null;
+  for (const l of leaves) {
+    if (!isDirectoryScope(l.folder)) continue;
+    const had = votes.get(l.folder);
+    votes.set(l.folder, { n: (had?.n ?? 0) + 1, newest: Math.max(had?.newest ?? -Infinity, l.at) });
+  }
   const top = [...votes.entries()].sort((a, b) => b[1].n - a[1].n || b[1].newest - a[1].newest)[0]?.[0] ?? null;
   if (top !== null && isWorkMemory({ about: written.about, kind: written.kind, originScope: top, journal: false })) return top;
-  return new Set(folders).size === 1 && votes.size === 1 ? top : null;
+  return sharedOrNull;
+}
+
+/** A source as `nightFolder` reads it. */
+type NightSource = FolderRow & { created_at?: number | null; source?: string | null; meta?: string };
+
+/**
+ * A SOURCE'S FOLDERS, for `nightFolder`: its own (`memoryFolder`), or — for a
+ * night row, filed before FS1 under the folder its night ran in — its
+ * originals', followed `MERGE_DEPTH` deep. A night row whose originals are gone,
+ * unreadable or past the depth is one leaf with no folder: it votes for nothing
+ * and fails "shared". Never throws.
+ */
+function folderLeaves(store: Pick<Store, "row">, r: NightSource, depth: number): { folder: string; at: number }[] {
+  const at = r.created_at ?? 0;
+  if (r.type === "memory" && isNightRow({ source: r.source ?? null, origin_ref: r.origin_ref })) {
+    if (depth >= MERGE_DEPTH) return [{ folder: "", at }];
+    try {
+      const meta = JSON.parse(r.meta ?? "{}") as Record<string, unknown>;
+      const out: { folder: string; at: number }[] = [];
+      for (const key of ["mergedFrom", "sources", "cites"]) {
+        const ids = meta[key];
+        if (!Array.isArray(ids)) continue;
+        for (const id of ids) {
+          if (typeof id !== "string" || id.length === 0) continue;
+          const orig = store.row(id);
+          if (orig !== undefined) out.push(...folderLeaves(store, orig, depth + 1));
+        }
+      }
+      return out.length > 0 ? out : [{ folder: "", at }];
+    } catch {
+      return [{ folder: "", at }];
+    }
+  }
+  const f = memoryFolder(store, r);
+  return [{ folder: f === null ? "" : projectFolder(f), at }];
 }
 
 /** Does this night row rest on a closed row, following night rows among its originals? An original that is gone says nothing. */

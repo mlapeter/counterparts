@@ -1448,4 +1448,8 @@ at review): a tag on one would count toward a topic card's bar. Pinned by one ni
 - The privacy reads (`nightOriginFolders`, `restsOnClosed`, `memoryClosedTo`) still follow the originals, so they hold
   for rows filed before FS1 and for whichever folder a work fold lands in. `dreams.scope` and the row's session are
   unchanged.
-- Not followed: a source that is itself a night row written before FS1 votes with the launching folder it carries.
+- Review of #750: only a directory votes (a `claude-desktop:` scope voting could land a work fold under a host name,
+  which reads as personal everywhere); with no directory among the sources, shared-or-none. A night row among the
+  sources (filed before FS1 under its night's folder) votes with its originals' folders, followed `MERGE_DEPTH` deep;
+  one whose originals are gone votes for nothing. Still open: "Still open" and "Work here" don't fence a night row by
+  its originals when a minority source's folder closes later (INTERFACE-GAPS 11).

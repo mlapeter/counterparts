@@ -27,6 +27,7 @@ import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { sinceElsewhereLines, todayElsewhereLines, yesterdayLine } from "../src/core/handoff/last-here.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
 const HOUR = 3_600_000;
@@ -175,6 +176,27 @@ describe("Elsewhere names a folder by its name (FS1 item 3)", () => {
   });
 });
 
+describe("another folder with this folder's name prints its path (FS1 item 3, review)", () => {
+  test("the shaped Elsewhere, Today elsewhere, Since you started and Yesterday's places weigh the reader's own folder", () => {
+    const OTHER_EVALS = join(root, "old", "evals");
+    mkdirSync(OTHER_EVALS, { recursive: true });
+    const { c } = brain();
+    memory(c, OTHER_EVALS, "The old harness's probe numbers are archived.", { title: "old probe numbers archived" });
+    c.close();
+    scopes({ [EVALS]: "on", [OTHER_EVALS]: "on" });
+    const block = section(hook(EVALS), "Elsewhere:");
+    expect(block).toContain(`- ${OTHER_EVALS}: old probe numbers archived`);
+    // The pure lines, given the reader's folder as `own`.
+    const today = todayElsewhereLines([{ scope: OTHER_EVALS, firstAt: NOW - HOUR, lastAt: NOW, live: false, chapter: null, memories: 1 }], "UTC", [], NOW, undefined, [EVALS]);
+    expect(today?.line).toContain(`elsewhere: ${OTHER_EVALS} `);
+    expect(todayElsewhereLines([{ scope: OTHER_EVALS, firstAt: NOW - HOUR, lastAt: NOW, live: false, chapter: null, memories: 1 }], "UTC", [], NOW)?.line).toContain("elsewhere: evals ");
+    const since = sinceElsewhereLines([{ scope: OTHER_EVALS, startedAt: null, live: false, endedAt: NOW, chapter: null, memories: 1 }], { at: NOW - HOUR, started: true, now: NOW }, "UTC", [], [EVALS]);
+    expect(since?.line).toContain(`: ${OTHER_EVALS} ended`);
+    expect(yesterdayLine([], "2026-10-07", undefined, [{ scope: OTHER_EVALS, sessions: 2 }, { scope: EVALS, sessions: 0 }], false)).toBe(`Yesterday: 2 sessions in ${OTHER_EVALS}.`);
+    expect(yesterdayLine([], "2026-10-07", undefined, [{ scope: OTHER_EVALS, sessions: 2 }], false)).toBe("Yesterday: 2 sessions in evals.");
+  });
+});
+
 describe("a dream files what it writes by its sources' folders (FS1 item 1)", () => {
   const D1 = "2026-10-23";
   const D2 = "2026-10-24";
@@ -245,6 +267,35 @@ describe("a dream files what it writes by its sources' folders (FS1 item 1)", ()
     expect(n.c.store.row(String(made[4]))?.about).toBe("owner");
     // Its session is still the launching one: the night wrote it.
     expect(n.c.store.row(String(made[0]))?.origin_session).toBe(NIGHT);
+  });
+
+  test("only a directory votes: a host's name scope doesn't, and with none a work fold takes the shared-or-null branch", async () => {
+    const n = nightBrain();
+    const d1 = worked(n, 8, "claude-desktop:", "Desktop chat: the ablation rerun needs ten seeds.");
+    const d2 = worked(n, 9, "claude-desktop:", "Desktop chat: the rerun goes on gpu-03.");
+    const s1 = worked(n, 10, SIM, "Theo launched a ten-seed rerun of ablation-7.");
+    const d3 = worked(n, 11, "claude-desktop:", "Desktop chat: the rerun's results go in the paper.");
+    const d4 = worked(n, 12, "claude-desktop:", "Desktop chat: stds come after the rerun.");
+    const made = await dreamFromEvals(n, [
+      { action: "gist", fold: true, sources: [d1, d2, s1], text: "The ablation rerun: ten seeds on gpu-03, launched in sim.", why: "one thread" },
+      { action: "gist", fold: true, sources: [d3, d4], text: "The rerun's results and stds go in the paper.", why: "one thread" },
+    ]);
+    expect(made.length).toBe(2);
+    expect(scopeOf(n.c, made[0])).toBe(SIM); // two desktop sources, one directory: the directory
+    expect(scopeOf(n.c, made[1])).toBe("claude-desktop:"); // no directory: what they share
+  });
+
+  test("a night row among the sources votes with its originals' folders, not the folder its night ran in", async () => {
+    const n = nightBrain();
+    const sim1 = worked(n, 8, SIM, "Ablation-7 against baseline: five seeds, 0.41 against 0.38.");
+    const sim2 = worked(n, 9, SIM, "Ablation-7 against baseline: five seeds, 0.41 to 0.38.");
+    const paper1 = worked(n, 12, PAPER, "The paper's ablation table waits on the rerun's stds.");
+    // A merge written before FS1: sim's two, filed under evals, where its night ran.
+    n.set(at(D1, 13));
+    const old = n.c.store.put({ type: "memory", kind: "fact", body: "Ablation-7 against baseline: five seeds, 0.41 against 0.38.", about: "work", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, meta: { dream: "drm_0123456789ab", mergedFrom: [sim1, sim2] }, origin: { session: NIGHT, scope: EVALS, ref: "dream:drm_0123456789ab" } });
+    const made = await dreamFromEvals(n, [{ action: "gist", fold: true, sources: [old, paper1], text: "Ablation-7: five seeds in sim, the paper's table waiting.", why: "one thread" }]);
+    // Leaves sim, sim, paper: sim. Read by its own folder it would have been a tie, the newer (evals) winning.
+    expect(scopeOf(n.c, made[0])).toBe(SIM);
   });
 
   /** The fold, dated today (a reschedule, as a session would), then the real SessionStart hook in each folder. */

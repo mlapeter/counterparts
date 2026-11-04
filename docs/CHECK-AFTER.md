@@ -126,8 +126,8 @@ week at tier 2, or on a week of Mike's shaped wakes after release.
 - **Night rows by folder.** A dream's merges and gists by `origin_scope`: work in its majority folder (a tie, the newest
   source's), never none; personal ones under the folder they share, else none. Expect no "Since yesterday, here" item
   in a folder that is another folder's work. The cost to look for: a cross-folder work fold shows only in its majority
-  folder, so the minority folder's "here" doesn't see it (recall still does). A merge of a night row written before
-  FS1 votes with that row's old (launching) folder.
+  folder, so the minority folder's "here" doesn't see it (recall still does). Only directories vote; a night row
+  among the sources votes with its originals' folders.
 - **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
   `coming up` door lists it. A personal or plain dated item is still due in every folder.
 - **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me line and "Work

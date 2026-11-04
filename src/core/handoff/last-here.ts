@@ -443,6 +443,7 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
  */
 export interface YesterdayPlace {
   readonly scope: string;
+  /** 0: never named, only weighed for a name it shares (FS1: the reader's own folder). */
   readonly sessions: number;
 }
 
@@ -456,7 +457,7 @@ function placesWords(places: readonly YesterdayPlace[]): string | null {
   if (real.length === 0) return null;
   const sorted = [...real].sort((a, b) => b.sessions - a.sessions || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
   const total = sorted.reduce((n, p) => n + p.sessions, 0);
-  const shown = sorted.slice(0, YESTERDAY_PLACES_SHOWN).map((p) => `${placeWords(p.scope, real.map((r) => r.scope))}${p.sessions > 1 && sorted.length > 1 ? ` (${String(p.sessions)})` : ""}`);
+  const shown = sorted.slice(0, YESTERDAY_PLACES_SHOWN).map((p) => `${placeWords(p.scope, places.map((r) => r.scope))}${p.sessions > 1 && sorted.length > 1 ? ` (${String(p.sessions)})` : ""}`);
   const more = sorted.length - shown.length;
   return `${total === 1 ? "a session" : `${String(total)} sessions`} in ${shown.join(", ")}${more > 0 ? `, +${String(more)} more` : ""}`;
 }
@@ -863,6 +864,7 @@ export function todayElsewhereLines(
   here: readonly HereSession[] = [],
   now?: number,
   quietMs: number = ELSEWHERE_QUIET_MS,
+  own: readonly string[] = [],
 ): { line: string; shorter: string[] } | null {
   const named = dirs
     .filter((d) => d.firstAt !== null || d.memories > 0 || d.chapter !== null)
@@ -890,8 +892,8 @@ export function todayElsewhereLines(
     const at = localDate(lastAt, zone) === localDate(now, zone) ? clock(lastAt) : localStamp(lastAt, zone);
     return from !== null && clock(from) === clock(lastAt) && localDate(from, zone) === localDate(lastAt, zone) ? ", quiet since then" : `, quiet since ${at}`;
   };
-  // Every folder the line may name, so two of the same name each say their path (FS1).
-  const places = [...dirs.map((d) => d.scope), ...here.flatMap((h) => (h.scope === undefined ? [] : [h.scope]))];
+  // Every folder the line may name, and the reader's own (`own`), so two of the same name each say their path (FS1).
+  const places = [...own, ...dirs.map((d) => d.scope), ...here.flatMap((h) => (h.scope === undefined ? [] : [h.scope]))];
   const one = (d: TodayElsewhere, chapters: boolean, titles: number): string => {
     const hush = d.live ? quiet(d.lastAt, d.firstAt) : "";
     const when =
@@ -1087,6 +1089,7 @@ export function sinceElsewhereLines(
   since: { readonly at: number; readonly started: boolean; readonly now: number },
   zone?: string,
   here: readonly HereSession[] = [],
+  own: readonly string[] = [],
 ): { line: string; shorter: string[] } | null {
   const named = dirs
     .filter((d) => d.startedAt !== null || d.endedAt !== null || d.memories > 0 || d.chapter !== null)
@@ -1101,8 +1104,8 @@ export function sinceElsewhereLines(
   // A clock time alone while it is the same day; the day as well when not.
   const when = (at: number): string =>
     localDate(at, zone) === localDate(since.now, zone) ? clock(at) : localStamp(at, zone);
-  // Every folder the line may name, so two of the same name each say their path (FS1).
-  const places = [...dirs.map((d) => d.scope), ...here.flatMap((h) => (h.scope === undefined ? [] : [h.scope]))];
+  // Every folder the line may name, and the reader's own (`own`), so two of the same name each say their path (FS1).
+  const places = [...own, ...dirs.map((d) => d.scope), ...here.flatMap((h) => (h.scope === undefined ? [] : [h.scope]))];
   const one = (d: SinceElsewhere, chapters: boolean, titles: number): string => {
     const state =
       d.startedAt !== null

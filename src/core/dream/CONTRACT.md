@@ -353,7 +353,11 @@ dreamer is the model (a background agent the session launches), outside this pro
   reads them (the mark from its sources, as above: `inheritFrom`, `foldMarkFrom` for a fold).
   Work stays work in one folder: the one most of its sources come from, on a tie the newest
   source's; never none, since a work row with no folder reads as personal everywhere. Anything
-  else goes under the folder its sources share, else none. A source with no folder doesn't vote.
+  else goes under the folder its sources share, else none. Only a directory votes (a host's name
+  scope, `claude-desktop:`, doesn't; with no directory, shared-or-none); a source with no folder
+  doesn't vote; a night row among the sources votes with its originals' folders, `MERGE_DEPTH` deep.
+  So a merge with any me, us, owner or world source, which inherits that mark (`inheritFrom`: a
+  personal mark wins, any mark over none), is filed by the shared-or-none branch.
   Until then the launching session's, so a fold of one repo's work landed in another's. Its session
   is still the launching one, and `dreams.scope` still says where the dream ran;
   `link` (both ways, proposed at `LINK_WEIGHT` through

@@ -1153,7 +1153,7 @@ export class Counterpart {
       }
       // This folder's other open sessions (2026-10-20), the same title gates.
       const mine = this.hereSessions(gate, here?.sessions?.() ?? [], since, until, { skip: new Set(this.store.openThreadIds()), startedSince: false });
-      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone, mine, this.nowFn());
+      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone, mine, this.nowFn(), undefined, [...gate.ours]);
       if (lines === null) return {};
       return lines.shorter.length === 0 ? { elsewhere: lines.line } : { elsewhere: lines.line, elsewhereShorter: lines.shorter };
     } catch {
@@ -1379,7 +1379,7 @@ export class Counterpart {
         if (d.chapter === null || d.chapter.writtenAt < c.writtenAt) d.chapter = c;
       }
       const mine = this.hereSessions(gate, here.sessions?.() ?? [], since, until, { startedSince: true });
-      return sinceElsewhereLines([...dirs.values()] as SinceElsewhere[], { at: since, started: window.started, now: until }, this.store.zone(), mine);
+      return sinceElsewhereLines([...dirs.values()] as SinceElsewhere[], { at: since, started: window.started, now: until }, this.store.zone(), mine, [...gate.ours]);
     } catch {
       return null;
     }
@@ -2284,8 +2284,10 @@ export class Counterpart {
       // only a folder the "Today, elsewhere" line may name (`elsewhereGate`)
       // — the rest are not said, as that line does not say them.
       const places = new Map<string, number>();
+      let ours: readonly string[] = [];
       if (reader !== undefined && day.length < all.length) {
         const gate = this.elsewhereGate(reader.here);
+        ours = gate === null ? [] : [...gate.ours];
         const kept = new Set(day.map((c) => c.id));
         for (const c of all) {
           const scope = c.scope ?? null;
@@ -2294,7 +2296,9 @@ export class Counterpart {
           places.set(key, (places.get(key) ?? 0) + 1);
         }
       }
-      const elsewhere = [...places].map(([scope, sessions]) => ({ scope, sessions }));
+      // The reader's own folders at 0 sessions: never named, only weighed for a name they share (FS1).
+      const own = places.size === 0 ? [] : ours.map((scope) => ({ scope, sessions: 0 }));
+      const elsewhere = [...[...places].map(([scope, sessions]) => ({ scope, sessions })), ...own];
       // Undated at a session start, read under its `Now:` line (2026-10-16).
       const dated = reader === undefined || !YESTERDAY_UNDATED_AT_START;
       // DAY'S END'S SUMMARY LEADS (2026-10-24, lane W1, `self.YESTERDAY_FROM_SUMMARY`,
