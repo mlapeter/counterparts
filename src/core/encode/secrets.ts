@@ -109,7 +109,10 @@ const AWS_SECRET_TOKEN_BEFORE_ID =
  *   - unquoted and after a `:`, a TYPE NAME: a builtin (`str`, `bytes`, …), a
  *     pydantic secret type, or a CamelCase word of letters only (`SecretStr`) —
  *     `db_password: SecretStr` is an annotation. After `=` the CamelCase rule
- *     does not apply: a bare word assigned is a value.
+ *     does not apply: a bare word assigned is a value;
+ *   - unquoted, under a non-password name, an identifier assigned to an
+ *     identifier (`pad_token = eos_token`): snake_case or camelCase words, letters
+ *     only. No literal, no digit — nothing a secret looks like.
  *
  * It can only make a family redact LESS on a match that family already made.
  */
@@ -122,6 +125,11 @@ const CODE_REFERENCE =
 const TYPE_NAME =
   /^(?:str|int|bytes|bool|float|dict|list|tuple|set|object|Any|None|SecretStr|SecretBytes|string|number|boolean|[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+)[,;]?$/;
 const PASSWORD_NAME = /(?:password|passwd|pwd)$/i;
+// A bare identifier assigned to a credential-looking name (`pad_token = eos_token`):
+// letters only, joined by underscores or camelCase humps, no digit. A real secret
+// has digits or no word structure; `hunter2x` and `abcdefghijkl` stay values.
+// No word over twelve letters: `hf_abcdefghijklmnopqrstu` is a token with a prefix.
+const BARE_IDENTIFIER = /^(?:[a-z]{1,12}(?:_[a-z]{1,12})+|[a-z]{1,12}(?:[A-Z][a-z]{1,11})+)$/;
 
 function isSetting(value: string, match: string, name: string): boolean {
   const quoted = /^["']/.test(value);
@@ -132,6 +140,7 @@ function isSetting(value: string, match: string, name: string): boolean {
   }
   if (quoted) return false;
   if (CODE_REFERENCE.test(v)) return true;
+  if (!PASSWORD_NAME.test(name) && BARE_IDENTIFIER.test(v)) return true;
   const sep = /[:=]/.exec(match.slice(name.length))?.[0];
   return sep === ":" && TYPE_NAME.test(v);
 }
