@@ -320,9 +320,8 @@ What the record adds (both seats; text never, ids and labels only, sessions name
     (`under-floor:pieces`, `under-floor:span`, `written`, `lapsed`, `not-a-person`), against
     the floor as `--set` left it. For a session that compacted, an under-floor reason says
     which side of its newest compaction the stretch sits on (CT1): `:before-compaction`
-    (nothing unwritten after the cut), `:recorded-after-compaction` (a record of its own
-    follows the cut), or `:after-compaction` (a tail after the cut under `OWED_PIECES`; three
-    or more are owed whatever their span).
+    (nothing unwritten after the cut) or `:recorded-after-compaction` (a record of its own
+    follows the cut); a tail after the cut with neither is owed from one piece.
 - **Per night:** the session it was launched in, the acts asked with their prompt sizes, the
   catch-up's plan just before it ran (`planCatchUp`: sessions owed, and the parts the first
   batch would read of each), and the catch-up's own row afterwards.

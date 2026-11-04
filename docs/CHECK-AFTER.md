@@ -37,7 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| The tail after a compaction is owed (CT1): what a session says after its newest compaction counts as unrecorded unless a record of its own follows the cut, so three or more quick lines after a compaction are written up at night | 0.3.47 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and whether those write-ups held anything (mostly empty or plumbing-only ones say the floor is too low for this tail) | [below](#the-tail-after-a-compaction-is-owed-ct1) |
+| The tail after a compaction is owed (CT1): what a session says after its newest compaction counts as unrecorded unless a record of its own follows the cut, so even one line after a compaction is written up at night | 0.3.47 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and whether those write-ups held anything (mostly empty or plumbing-only ones say the one-piece floor is too low for this tail) | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -122,18 +122,17 @@ effect on archives folds into the late-October forgetting check). Details: `~/co
 CT1 (2026-11-04, decided by counterparts-a0, lightly held), `core/coverage/index.ts#compactionTail`
 (`coverage/NOTES.md` §11). The developer week's d2s1 chaptered at a Stop ask, compacted, said three things in
 six minutes and was never written up (`under-floor:span`). Now the tail after a session's newest `pre-compaction`
-boundary is owed from `OWED_PIECES` (3) pieces whatever their span, unless a record of its own covers a piece after the cut.
+boundary is owed as an unrecorded session's stretch is (from one piece, S2's rule), unless a record of its own covers a piece after the cut.
 Tier 0 cost: Dana unchanged; Theo one more write-up in the week (14 → 15), no extra catch-up run.
 
 - **How often it fires.** `counterparts coverage` / the ledger on a snapshot: sessions owed with `compactionTail` > 0,
   and their pieces. Expect a few a week on a working store; one a day or more says compactions are common enough
   that this costs real write-ups.
 - **What the write-ups hold.** For those sessions, the night's write-up memories: real content (the d2s1 aside)
-  or nothing / plumbing. Mostly empty says the tail needs the span back, or more pieces; a real aside lost in a
-  one- or two-line tail (`under-floor:pieces:after-compaction` in the harness) says owe it from one piece.
+  or nothing / plumbing. Mostly empty says hold the tail to `OWED_PIECES` (3) without the span.
 - **Nothing lost the other way.** No session whose record followed its compaction is newly owed.
 
-Revert: drop the `|| tail.length >= OWED_PIECES` arm in `ledger` (`core/coverage/index.ts`).
+Revert: drop the `|| isDebt(stretchOf(tail), false)` arm in `ledger` (`core/coverage/index.ts`).
 
 ## The wake knows yesterday's news (WF1)
 

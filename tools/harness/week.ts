@@ -168,8 +168,7 @@ export interface SessionCoverage {
    * `not-a-person` (owed, but not a person's session). For a session that
    * compacted (CT1), an under-floor reason carries why the tail after the cut
    * is not owed: `:before-compaction` (nothing unwritten after the cut) or
-   * `:recorded-after-compaction` (a record of its own follows the cut),
-   * `:after-compaction` (a tail after the cut under `OWED_PIECES`).
+   * `:recorded-after-compaction` (a record of its own follows the cut).
    */
   readonly whyNot: string | null;
 }
@@ -397,12 +396,11 @@ export function whyNotOwed(e: CoverageRow, floor: { pieces: number; spanMs: numb
   if (e.owed) return "not-a-person";
   if (!e.overFloor) {
     const under = e.stretch.pieces < floor.pieces ? "under-floor:pieces" : e.stretch.lastAt - e.stretch.firstAt < floor.spanMs ? "under-floor:span" : "under-floor";
-    // CT1 (2026-11-04): a session that compacted is held to the whole floor only when its record follows the cut, or
-    // everything unwritten was said before it; a tail after the cut with neither is held to its pieces alone. Say
-    // which, so a tail after a compaction is never read as plain span.
+    // CT1 (2026-11-04): a session that compacted is held to the floor only when its record follows the cut, or
+    // everything unwritten was said before it (a tail after the cut with neither is owed); say which, so a tail
+    // after a compaction is never read as plain span.
     if (e.compactedAt === null) return under;
-    const side = e.compactionTail > 0 ? "after-compaction" : e.stretch.lastAt > e.compactedAt ? "recorded-after-compaction" : "before-compaction";
-    return `${under}:${side}`;
+    return `${under}:${e.stretch.lastAt > e.compactedAt ? "recorded-after-compaction" : "before-compaction"}`;
   }
   if (!e.person) return "not-a-person";
   return "not-owed";

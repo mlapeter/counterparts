@@ -70,8 +70,9 @@ durable row names written by `recordCoverage`.
    note. **After a compaction** (CT1, 2026-11-04): what a session said after its newest
    `pre-compaction` boundary is read as unrecorded unless a record of its own reaches past
    it (a record claim covering a piece said after the cut, or a write-up mark after it), so
-   that tail is owed from `OWED_PIECES` pieces whatever their span — the floor without its
-   span. A tail after a record with no compaction between them keeps the whole floor. `remember/owes.ts#planRetention` reads it; nothing else decides it.
+   that tail is owed as an unrecorded session's stretch is, from `UNRECORDED_OWED_PIECES`
+   piece whatever its span. A tail after a record with no compaction between them keeps the
+   whole floor. `remember/owes.ts#planRetention` reads it; nothing else decides it.
 2. **[M] The pacer's third arm is pieces AND time**: `ASK_PIECES` unwritten pieces
    captured since the last ask (all of them, before a first ask) and `ASK_AFTER_MS` since
    the later of the stretch's first piece and the last ask. One piece, however large, is

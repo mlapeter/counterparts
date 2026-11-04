@@ -9,8 +9,8 @@
  * reaches past it. Through the real night: `runNight`, its catch-up child
  * driving the real MCP server as the runner.
  *
- * The tail is held to the floor but its span: three pieces however quick, so
- * two lines after the cut stay a closing tail. Negatives: the same short tail
+ * The tail is owed as an unrecorded session's is, from one piece: two lines
+ * after the cut are owed too. Negatives: the same short tail
  * said BEFORE a compaction (nothing after the cut), and the same session with
  * no compaction at all, stay not owed; a tail after a record written after the
  * cut stays on the whole floor.
@@ -196,14 +196,15 @@ describe("CT1: what follows a session's newest compaction counts as unrecorded",
     expect(whyNotOwed(after)).toBe("written");
   });
 
-  test("two lines after the cut are under the floor's pieces: not owed, and the harness says it is the tail after a compaction", async () => {
+  test("two lines after the cut are owed too (S2's one piece), and the night writes them up", async () => {
     lived("s-short", "short-tail-after-compaction");
     const row = rowOf("s-short")!;
-    expect(row).toMatchObject({ owed: false, recorded: true, overFloor: false, compactionTail: 2 });
-    expect(whyNotOwed(row)).toBe("under-floor:pieces:after-compaction");
+    expect(row).toMatchObject({ owed: true, person: true, recorded: true, overFloor: false, compactionTail: 2 });
+    expect(whyNotOwed(row)).toBeNull();
     const seen: ChildPlan[] = [];
     await night("nrn_short", seen);
-    expect(seen.length).toBe(0);
+    expect(seen.length).toBe(1);
+    expect(writtenFrom()).toEqual(["s-short"]);
   });
 
   test("the same tail said BEFORE a compaction (nothing after the cut) stays held to the floor: not owed", async () => {
