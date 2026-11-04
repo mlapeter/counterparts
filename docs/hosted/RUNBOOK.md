@@ -543,7 +543,9 @@ the hosted server exists. The volume and the bucket stay as they are, so startin
 
 ## Railway's notifications (built in; nothing of ours sends anything)
 
-Checked against Railway's docs 2026-11-04. Each line says whether the docs confirm it. Turn these on once:
+Checked against Railway's docs 2026-11-04. Each line says whether the docs confirm it. For the beta, items 1 and 2
+are the ones in use (crash and deploy-failure emails on; a usage email alert). Items 3 (monitors) and 4 (webhooks)
+are not set up for now; they're here for when they are.
 
 1. **Crash and failed deploy, by email.** Railway restarts a crashed deployment up to 10 times, then marks it
    `Crashed` and emails the project's members (CONFIRMED, docs.railway.com/deployments/deployment-actions). Where to
@@ -558,12 +560,12 @@ Checked against Railway's docs 2026-11-04. Each line says whether the docs confi
    docs.railway.com/pricing/cost-control). "Custom email alert" is a soft threshold: an email, nothing stops. "Hard
    limit" takes workloads offline when reached, so set it well above the alert, or leave it off. Both are per
    "Compute Usage". Only workspace admins can set them; every plan has them.
-3. **Monitors (Pro plan only): CPU, RAM, disk.** The project's Observability dashboard → a widget's three-dot menu
+3. **Not set up for now. Monitors (Pro plan only): CPU, RAM, disk.** The project's Observability dashboard → a widget's three-dot menu
    → Add monitor (CONFIRMED, docs.railway.com/guides/monitoring). Above or below a threshold, by email and in-app,
    per environment. Worth one on disk usage (say 80%). Whether that disk widget is the volume is NOT CONFIRMED; the
    volume has its own "volume usage" alerts (a webhook event, and a notification type in the changelog), whose
    threshold setting the docs don't show.
-4. **Optional: the same into Discord or Slack.** Paste a Discord channel webhook URL or a Slack incoming-webhook URL.
+4. **Not set up for now. The same into Discord or Slack.** Paste a Discord channel webhook URL or a Slack incoming-webhook URL.
    Railway reformats for Discord and Slack itself, so nothing of ours receives it. Events: deployment status
    (`Failed`, `Crashed`), volume usage alerts, monitor alerts. Delivery pauses for 24 h after 100 failures in 6 h.
    - Where: the docs give two places, and don't say how they differ (docs.railway.com/observability/webhooks):
@@ -578,6 +580,16 @@ What none of this sees: a container that runs and answers wrongly. Railway's hea
 ("Railway does not monitor the healthcheck endpoint after the deployment has gone live",
 docs.railway.com/reference/healthchecks), so `backups: "stale"` and its log line reach no one until someone curls
 `/readyz` or reads the log. An outside uptime checker would close that; it is not set up, on purpose.
+
+### Daily check during the beta
+
+Nothing outside watches `backups: "stale"`, so the coordinator's morning read (which already reads the night's log)
+does it:
+
+1. `curl -s https://app.counterparts.ai/readyz`: every check `"ok"`.
+2. In the night's hosted log, look for `backup.uploads.stale` and for Litestream's own `level=ERROR` lines. The second
+   is the only signal for one store's replica failing while control's uploads land (INTERFACE-GAPS §7).
+3. A real alert (something that pages without anyone reading) comes once there are more than 10 users.
 
 ## Watch for in the first week
 
