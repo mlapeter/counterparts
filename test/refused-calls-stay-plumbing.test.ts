@@ -32,6 +32,8 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { CARRIED_TOLD_NOTE } from "../src/core/dream/index.js";
 import { OWN_PLUMBING_META_KEY, ownPlumbingCue } from "../src/core/remember/index.js";
+import { SELF_OWN_PLUMBING_META_KEY } from "../src/core/self/work.js";
+import { STORE_OWN_PLUMBING_META_KEY } from "../src/core/store/reads-memories.js";
 import { Store } from "../src/core/store/index.js";
 
 const BUDGET = 9_000;
@@ -360,5 +362,12 @@ describe("the gate reads the subject, and only this system's own vocabulary (own
   test("the person's own words about a prompt are theirs: saidBy owner is never plumbing", () => {
     expect(ownPlumbingCue({ title: "Theo declined the permission prompt for the reflect call: he didn't know what it was", content: "x", saidBy: "owner" })).toBe(null);
     expect(ownPlumbingCue({ title: "Theo declined the permission prompt for the reflect call: he didn't know what it was", content: "x" })).toBe("tool-refused");
+  });
+});
+
+describe("the own-plumbing key is spelled three times and means one thing", () => {
+  test("self/work.ts's and the store's copies equal remember/own-plumbing.ts's (neither may import it)", () => {
+    expect(SELF_OWN_PLUMBING_META_KEY).toBe(OWN_PLUMBING_META_KEY);
+    expect(STORE_OWN_PLUMBING_META_KEY).toBe(OWN_PLUMBING_META_KEY);
   });
 });

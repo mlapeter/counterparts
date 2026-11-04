@@ -366,7 +366,7 @@ export function aboutUsWrittenSince(store: Store, since: number, until: number, 
         WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
           AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
           AND about IN ('owner', 'us') AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
-          AND meta NOT LIKE '%"ownPlumbing"%'
+          AND meta NOT LIKE '%"${STORE_OWN_PLUMBING_META_KEY}"%'
         ORDER BY created_at DESC, id LIMIT ?`,
       since,
       until,
@@ -415,6 +415,12 @@ export function supersededPairs(store: Store): { id: string; by: string }[] {
 }
 
 /**
+ * `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY` (TC1), spelled here as the
+ * store imports no module above it; a test holds the spellings equal.
+ */
+export const STORE_OWN_PLUMBING_META_KEY = "ownPlumbing";
+
+/**
  * One or two work titles a folder, for another folder's Elsewhere (both shapes)
  * and "Since you started". Never a row about our own plumbing (2026-11-04, TC1:
  * `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY`, spelled here, as the store
@@ -453,7 +459,7 @@ export function memoryTitlesByScopeSince(
               AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
               AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}
               AND meta NOT LIKE '%"unresolved":true%' AND meta NOT LIKE '%"secondHand":true%'
-              AND meta NOT LIKE '%"ownPlumbing"%'
+              AND meta NOT LIKE '%"${STORE_OWN_PLUMBING_META_KEY}"%'
          ) WHERE tier < 2
        ) WHERE rank <= ?
        ORDER BY origin_scope, rank`,

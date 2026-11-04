@@ -65,8 +65,12 @@ import { CRAFT_BORN_META } from "../store/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { datePrefix, flatten } from "./briefing.js";
 
-/** `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY` (TC1), spelled here: self/ imports nothing from remember/ (self.test's structural guarantee). */
-const OWN_PLUMBING_META_KEY = "ownPlumbing";
+/**
+ * `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY` (TC1), spelled here: self/
+ * imports nothing from remember/ (self.test's structural guarantee). Exported
+ * for the test that holds the spellings equal.
+ */
+export const SELF_OWN_PLUMBING_META_KEY = "ownPlumbing";
 
 export interface WorkFacts {
   readonly about: string | null;
@@ -365,7 +369,7 @@ export function workHere(
     }
     if (doc.meta["unresolved"] === true) return null;
     // Our own plumbing (TC1, `remember/own-plumbing.ts`): kept for recall, never a work line.
-    if (doc.meta[OWN_PLUMBING_META_KEY] !== undefined) return null;
+    if (doc.meta[SELF_OWN_PLUMBING_META_KEY] !== undefined) return null;
     // BELOW REACH (2026-10-10, Group 1, review 03 C2): the wake's work lines
     // are an ambient channel, so a memory that has faded below physics'
     // `REACH` is not offered here; deliberate recall still finds it.
