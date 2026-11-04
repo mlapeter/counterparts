@@ -143,7 +143,7 @@ lines: tool, session, ok, reason, the hashed store; no words) and what people sa
   Sonnet 5.5) it left the answer only in the model's thinking in 5 of 5 runs, so it was never tested on claude.ai.
 - **A model low on budget skips the night.** On the M1 rig (run F, a $0.15 cap with a cold prompt cache) the model was
   told its budget was nearly used, answered, and offered to run the night next time; the day's claim then holds until
-  a later chat picks it up after 30 quiet minutes. In the first week, watch for claude.ai first chats that skip the
+  a later chat picks it up after 30 quiet minutes, at most twice a day (`RELAUNCHES_PER_DAY`). In the first week, watch for claude.ai first chats that skip the
   night this way (a claimed day with no `launch` from that session), and whether people near their usage limits see it.
 - **Complaints.** A person surprised by the night in their first reply, a slow first answer, or usage limits hit after
   it. One clear complaint is reason to make `ask` hosted's default for new accounts.

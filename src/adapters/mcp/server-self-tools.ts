@@ -21,6 +21,9 @@ import { DREAMING_OFF_REFUSAL, dreamHow, dreamLaunchHowFor, PAGE_REFUSAL_DETAIL,
 import type { McpServer } from "./server.js";
 import { isTold } from "../../core/told.js";
 
+/** A dream call filed under a session that doesn't own the dream (with two chats open, an unnamed call files under the newest one; review of #740). */
+const NOT_THIS_SESSION = "That dream belongs to another session: pass `session` (the session that began it, this conversation's) and send it again.";
+
 /**
  * `dream` — dreaming, in phases (`core/dream/`, 2026-09-26). Every phase
  * binds the session: the dreamer is a background agent the session launched,
@@ -234,7 +237,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         const aliases = dreams.aliasesOf(dream);
         const sent = aliases === null ? changes : (aliases.resolveIn(changes, ID_KEYS) as unknown[]);
         const out = dreams.propose({ dream, session, changes: sent as never });
-        if (!out.ok) return refused(out.reason, "That dream is not open for this session.");
+        if (!out.ok) return refused(out.reason, out.reason === "not-this-session" ? NOT_THIS_SESSION : "That dream is not open for this session.");
         server["emit"]("mcp.dream", dream, { phase: "propose", applied: out.results.filter((r) => r.ok).length });
         const refusedN = out.results.filter((r) => !r.ok).length;
         // Each refusal names what tripped it (`detail`); 2026-09-28.
@@ -253,7 +256,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         }
         const title = args["title"];
         const out = dreams.journal({ dream, session, text, ...(typeof title === "string" ? { title } : {}) });
-        if (!out.ok) return refused(out.reason, "detail" in out && out.detail !== undefined ? out.detail : "The journal was not written.");
+        if (!out.ok) return refused(out.reason, "detail" in out && out.detail !== undefined ? out.detail : out.reason === "not-this-session" ? NOT_THIS_SESSION : "The journal was not written.");
         server["emit"]("mcp.dream", dream, { phase: "journal" });
         const next = nextAfter("dream", dream);
         return server["result"](

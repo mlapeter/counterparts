@@ -382,7 +382,10 @@ export const CLAUDE_AI_NIGHT_SAID = "I sorted yesterday's memories just now. Tel
  * lightly held): on the M1 rig, answer-first wordings left the answer only in
  * the model's thinking, 0 of 5 runs, while night-first answered 2 of 2; the
  * end of a reply is where every client shows text. Answer-first is the cheap
- * way back if real claude.ai differs. A dream whose reflection
+ * way back if real claude.ai differs. The launch prompt, journal's `next` and
+ * the reflection's all say the final message is the hand-back: right for the
+ * night routine (`night: true`, left alone), so this line says that in a chat
+ * the final message is the reply, with the dream's line in it (review of #740). A dream whose reflection
  * was cut off (`reflects`) gets the reflection alone. Every call names the
  * session: with two chats open, an unnamed call files under the newest one.
  */
@@ -394,7 +397,7 @@ export function claudeAiNightLine(p: { readonly session: string; readonly settin
   const what = p.reflects === null ? "Last night's sorting is due" : "Last night's reflection was cut off";
   const later = `If ${p.who} says "ask first", call the dream tool with phase "setting", session: ${p.session}, value: "ask"; if "no dreams", value: "off".`;
   if (p.setting === "auto") {
-    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). Run it now, before you reply: ${start}, without narrating the steps. Then write your reply to ${p.who}: answer what they said, and say this line once — "${CLAUDE_AI_NIGHT_SAID}" ${later}`;
+    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). Run it now, before you reply: ${start}, without narrating the steps. The prompt's "final message" rule is for a night routine, not this chat: your final message is your reply to ${p.who}, with the dream's line shown once as it came back. Then write that reply: answer what they said, and say this line once — "${CLAUDE_AI_NIGHT_SAID}" ${later}`;
   }
   return (
     `Counterparts: ${what}, and dreaming asks first. After you answer ${p.who}, ask once, in one plain sentence of your own, whether to sort yesterday's memories now (about a minute: day's end, a dream, a reflection); then wait for their word and don't ask again today. ` +

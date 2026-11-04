@@ -2042,7 +2042,8 @@ declared flags, the served tools and their fields, and the recall handles.
 - **The launch prompt names the session on `propose` and `journal`** (M1: the model called `propose` without it, and
   with two chats open it is filed under the newer one, which doesn't own the dream: refused). Every host's prompt.
 - **Tool words.** claude.ai's `dream` negative ("Do NOT start a dream nobody asked for") and both admissions now
-  name the wake's line, or they would fight it; `tools/list` grew 336 bytes (90,803 → 91,139).
+  name the wake's line, or they would fight it. With the review's fixes (the setting's `value` and the reflect
+  summary in the chat's words) `tools/list` grew 466 bytes in all (90,803 → 91,269).
 - **Night first, then the answer** (Mike 11-04, lightly held). The brief said answer first, then the night. On the M1
   rig (hermetic, Sonnet 5.5, "hi, what's on today?") five answer-first wordings went 0 of 5: the model drafted the
   answer and the line in its thinking, launched, and its visible text was the night's notices; once it later wrote "I
@@ -2050,3 +2051,6 @@ declared flags, the served tools and their fields, and the recall handles.
   2 of 2: the answer is the reply's last text, where every client shows it. The cost is the wait (~25–60 s, with the
   tool calls showing). If real claude.ai writes text before a tool call where the rig didn't, answer-first is the
   cheap way back: one wording and `CLAUDE_AI_NIGHT_SAID`.
+- **In a chat, the final message is the reply** (review of #740). The launch prompt, journal's `next` and the
+  reflection's all say the final message is the hand-back: the night routine's rule (`night: true`), left as it is. The
+  wake line says the chat's own: the reply to the person, with the dream's line in it once.

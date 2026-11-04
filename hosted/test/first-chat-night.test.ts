@@ -3,13 +3,16 @@
  * Driven through the hosted server's real /mcp socket, with claude.ai's words
  * (every tenant is opened as claude.ai's host):
  *
- *   - the first wake of a day that owes a night carries the instruction (answer
- *     first, then the one line, then `dream` launch with this session), and
- *     claims the day; a second wake that day carries nothing;
+ *   - the first wake of a day that owes a night carries the instruction (night
+ *     first: `dream` launch with this session, then the answer and the one
+ *     line), and claims the day; a second wake that day carries nothing;
  *   - `ask` makes it ask first; `off` says nothing and claims nothing;
- *   - of two connections waking at once, one is told; a night started by one
+ *   - of two connections waking back to back on one store (`withTenant` runs
+ *     a store's calls one at a time), one is told; a night started by one
  *     connection blocks a second (its wake is told nothing, its `begin` is
  *     refused); a routine's launch first leaves the day's chats untold;
+ *   - a claim nobody runs is offered again after `ABANDONED_AFTER_MS`, at most
+ *     `RELAUNCHES_PER_DAY` times (the store's clock moved, not waited);
  *   - the launch prompt names the session on `propose` and `journal`, and a
  *     `propose` that names it lands under that session even with a newer chat
  *     open (one that doesn't is filed under the newer chat, and refused).
@@ -24,6 +27,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { CLAUDE_AI_NIGHT_SAID, claudeAiNightLine } from "../../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../../src/adapters/spawn.js";
+import { DREAM_TUNABLES } from "../../src/core/dream/tunables.js";
 import { addDays } from "../../src/core/time.js";
 import { createHostedServer } from "../src/server.js";
 import type { Caller, HostedCallRecord } from "../src/server.js";
@@ -57,9 +61,9 @@ interface Rig {
   plans: SpawnPlan[];
 }
 
-async function rig(): Promise<Rig> {
+async function rig(storeClock?: () => number): Promise<Rig> {
   const plans: SpawnPlan[] = [];
-  const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: (p) => (plans.push(p), { pid: 4242 }) });
+  const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: (p) => (plans.push(p), { pid: 4242 }), ...(storeClock === undefined ? {} : { storeClock }) });
   closers.push(() => tenants.closeAll());
   const caller: Caller = { personId: "person-a", storeId: storeId(), timeZone: "UTC" };
   const token = randomBytes(24).toString("base64url");
@@ -123,15 +127,25 @@ describe("the first chat of the day runs the night (HN1)", () => {
     const session = String(first.out["session"]);
     const line = claudeAiNightLine({ session, setting: "auto", reflects: null, who: "the person" });
     assert.ok(first.text.includes(line), first.text);
-    // Night first (Mike 11-04): the launch, naming this session, then the answer with the one line, in the past tense.
-    assert.ok(line.indexOf('phase "launch"') < line.indexOf("answer what they said"));
-    assert.ok(line.indexOf("answer what they said") < line.indexOf(CLAUDE_AI_NIGHT_SAID));
+    // Night first (Mike 11-04), read off the served wake: the launch, naming this session; then the chat's own
+    // final-message rule (the launch prompt's is the routine's); then the answer, with the one line in the past tense.
+    const at = (s: string): number => {
+      const i = first.text.indexOf(s);
+      assert.ok(i >= 0, s);
+      return i;
+    };
+    // The person's things come first: the line rides at the wake's end (this store has no published wake yet, so
+    // no wake/end marker; the session line opens it).
+    assert.ok(at(`Counterparts session ${session}`) < at("Counterparts: Last night's sorting is due"));
+    assert.ok(first.text.trimEnd().endsWith(line), first.text.slice(-300));
+    assert.ok(at("Counterparts: Last night's sorting is due") < at(`phase "launch", session: ${session}`));
+    assert.ok(at(`phase "launch", session: ${session}`) < at("your final message is your reply to the person"));
+    assert.ok(at("your final message is your reply to the person") < at("answer what they said"));
+    assert.ok(at("answer what they said") < at(CLAUDE_AI_NIGHT_SAID));
     assert.ok(CLAUDE_AI_NIGHT_SAID.startsWith("I sorted yesterday's memories"));
-    assert.ok(line.includes(`phase "launch", session: ${session}`));
-    // The person's things come first: the line rides after the wake itself.
-    assert.ok(first.text.indexOf("<!-- counterparts:wake/end") < first.text.indexOf(line));
     assert.deepEqual(await dayRow(r, today).then((x) => ({ state: x?.state, session: x?.session })), { state: "launched", session });
-    // No run is started: the chat's own tool calls are the night.
+    // No run is started: the chat's own tool calls are the night. The worker is planned; no night run is.
+    assert.ok(r.plans.length > 0);
     for (const p of r.plans) assert.equal(p.env["COUNTERPARTS_NIGHT_RUN"], undefined);
     const second = await call(r, "wake", {});
     assert.equal(told(second.text), false, second.text);
@@ -155,7 +169,7 @@ describe("the first chat of the day runs the night (HN1)", () => {
     assert.equal(await dayRow(r2, today2), undefined);
   });
 
-  test("two connections waking at once: one is told; a night started by one blocks a second", async () => {
+  test("two connections waking back to back (withTenant serializes a store's calls): one is told; a night started by one blocks a second", async () => {
     const r = await rig();
     await owed(r);
     const [a, b] = await Promise.all([call(r, "wake", {}), call(r, "wake", {})]);
@@ -185,6 +199,27 @@ describe("the first chat of the day runs the night (HN1)", () => {
     assert.equal(told((await call(r, "wake", {})).text), false);
   });
 
+  test("a claim nobody runs: after 30 quiet minutes the next chat is told; after two relaunches, none is", async () => {
+    // Well away from midnight UTC, so the hops below stay on one day.
+    const sinceMidnight = Date.now() % 86_400_000;
+    let offset = sinceMidnight > 18 * 3_600_000 ? -8 * 3_600_000 : 0;
+    const r = await rig(() => Date.now() + offset);
+    await owed(r);
+    const quiet = DREAM_TUNABLES.ABANDONED_AFTER_MS + 60_000;
+    assert.equal(DREAM_TUNABLES.RELAUNCHES_PER_DAY, 2);
+    assert.ok(told((await call(r, "wake", {})).text), "the first chat is told");
+    // Inside the quiet window, the claim holds.
+    offset += DREAM_TUNABLES.ABANDONED_AFTER_MS / 2;
+    assert.equal(told((await call(r, "wake", {})).text), false);
+    // Quiet past it, with no launch: the next chat is told, twice at most.
+    offset += quiet;
+    assert.ok(told((await call(r, "wake", {})).text), "relaunch 1");
+    offset += quiet;
+    assert.ok(told((await call(r, "wake", {})).text), "relaunch 2");
+    offset += quiet;
+    assert.equal(told((await call(r, "wake", {})).text), false, "no third relaunch");
+  });
+
   test("the launch prompt names the session on propose and journal; a propose that names it lands under it with a newer chat open", async () => {
     const r = await rig();
     await owed(r);
@@ -202,6 +237,7 @@ describe("the first chat of the day runs the night (HN1)", () => {
     const unnamed = await call(r, "dream", { phase: "propose", dream, changes: [] });
     assert.equal(unnamed.isError, true);
     assert.equal(unnamed.out["boundTo"], other);
+    assert.match(unnamed.text, /pass `session`/);
     // Named, it lands under this chat's session, with no bind note.
     const named = await call(r, "dream", { phase: "propose", session: s, dream, changes: [] });
     assert.equal(named.isError, false, named.text);

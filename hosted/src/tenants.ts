@@ -81,6 +81,8 @@ export interface TenantsOptions {
   /** What starts the worker child; this runtime and `runner.ts` by default. */
   readonly worker?: { readonly command: string; readonly args: readonly string[] };
   readonly now?: () => number;
+  /** Each store's clock, and its server's (tests that move time, e.g. a claim left quiet); the system clock when absent. */
+  readonly storeClock?: () => number;
   /** Told when a handle opens or closes. Ids only. A throw is swallowed. */
   readonly onEvent?: (name: "tenant.open" | "tenant.close", storeId: string) => void;
   /**
@@ -363,6 +365,7 @@ export class Tenants {
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(tenant.timeZone === undefined ? {} : { timeZone: tenant.timeZone }),
       manifestVersion: () => null,
+      ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
       lifecycle: {
         config,
         configPath,

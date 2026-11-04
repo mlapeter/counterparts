@@ -2207,7 +2207,7 @@ export const CLAUDE_AI_WAKE: ToolSpec = {
     },
     {
       claim:
-        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it, then answer (or to ask first, on ask): the day's one claim decides, so one conversation a day is told, none while a night is under way or after one ran. It never starts the headless nightly run.",
+        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it, then answer (or to ask first, on ask): the day's one claim decides, so one conversation at a time is told — a later one only if the first never ran it (at most twice more a day) — and none while a night is under way or after one ran. It never starts the headless nightly run.",
       mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#claudeAiNight -> src/core/dream/index.ts#claimOffer",
     },
     {
@@ -2315,7 +2315,7 @@ export const CLAUDE_AI_WORDS: Readonly<
   },
   reflect: {
     summary:
-      "Reflection: a few quiet, awake minutes — usually at the end of the person's night routine, after the dream — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+      "Reflection: a few quiet, awake minutes — usually at the end of the night, after the dream (in the day's first conversation or the person's night routine) — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
     admission:
       "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In a conversation, call `launch` when the person asks you to reflect, or when the wake says to finish a reflection that was cut off, and follow its prompt there yourself. Call `told` after you told the person a morning share that a conversation's wake carried, in your own words. Call `close` or `reopen` only on the person's word about a share's open threads.",
   },
@@ -2389,6 +2389,23 @@ export const CLAUDE_AI_SCOPE: ToolSpec = {
   },
 };
 
+/**
+ * THE `dream` SETTING'S VALUE, IN THE CHAT'S WORDS (HN1, review of #740):
+ * every host's says the host starts the run itself, in a separate session —
+ * Claude Code's background run, which claude.ai has none of. Here the day's
+ * first conversation runs it.
+ */
+export const CLAUDE_AI_DREAM_VALUE =
+  "`setting`: auto (the day's first conversation runs the night itself, then answers, and says so in one line), ask (that conversation asks the person first), or off (no dreams).";
+
+function withClaudeAiDreamValue(spec: ToolSpec): ToolSpec {
+  if (spec.name !== "dream") return spec;
+  const schema = spec.inputSchema as { properties?: Record<string, Record<string, unknown>> };
+  const value = schema.properties?.["value"];
+  if (value === undefined) return spec;
+  return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...schema.properties, value: { ...value, description: CLAUDE_AI_DREAM_VALUE } } } };
+}
+
 function withClaudeAiWords(spec: ToolSpec): ToolSpec {
   const words = CLAUDE_AI_WORDS[spec.name as ToolName];
   return words === undefined ? spec : { ...spec, ...words };
@@ -2398,7 +2415,7 @@ function withClaudeAiWords(spec: ToolSpec): ToolSpec {
  *  able to name its session, in the chat's words where those differ. */
 export const CLAUDE_AI_TOOLS: readonly ToolSpec[] = [
   CLAUDE_AI_WAKE,
-  ...TOOLS.map((t) => withClaudeAiSession(t.name === "scope" ? CLAUDE_AI_SCOPE : withClaudeAiWords(t))),
+  ...TOOLS.map((t) => withClaudeAiSession(t.name === "scope" ? CLAUDE_AI_SCOPE : withClaudeAiDreamValue(withClaudeAiWords(t)))),
 ];
 
 /**

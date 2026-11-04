@@ -30,8 +30,9 @@
 - **claude.ai's surface (2026-10-26, OL1b).** Its wake has its own shape
   (`mcp/chat-wake.ts`): one short session line, what is for the person first (a slot for
   the carried share, the clock and plain reminders, then "Coming up" and "Still open"
-  moved up whole), and no dream line — its nights are the person's routine (since HN1,
-  2026-11-04, the day's first chat is also told to run the night, then answer). Its tool
+  moved up whole), and no core dream line. Since HN1 (2026-11-04) its own night line
+  tells the day's first chat to run the night, then answer; a routine, or "dream", runs
+  it too. Its tool
   words describe and never command: the directory's review refuses "call this first",
   so wake-first lives in the person's instruction block. Its one MCP prompt is "Wake
   Counterparts" (the + menu). readOnly stays on Memory status alone (since H1, 2026-10-29,
@@ -49,6 +50,14 @@
   carried a work-week dream beside six of eight ordinary questions). A dream never displaces
   the answer: one that would pass the ceiling stays out. Dream journals have no embedding, so "by meaning" is words
   for now; a real index would be a cache table, batched with other store-format changes.
+- **A claude.ai claim holds the day on a shared store (HN1, 2026-11-04, review of #740).**
+  Through this door claude.ai's wake claims the day's night on the same local store Claude
+  Code uses (`mcp/server.ts#claudeAiNight`). Claude Code's first session then finds the day
+  `launched` and starts no headless night until the claim has been quiet
+  `ABANDONED_AFTER_MS` (30 minutes); if the chat never ran it, that session then starts one,
+  as for any launch nobody followed. Left so on purpose: the trial door is the owner's own
+  test path, and gating the line to hosted would need a host flag the server doesn't have
+  (hosted and this door are both `CLAUDE_AI_HOST`).
 - **The first meeting over the door (2026-10-26, OL1b).** It runs cleanly once the store
   starts as a new install (`onboarding.ts#beginNewInstall`); on claude.ai its words say
   a connector, keep no store path or console command, and leave the first dream to the
