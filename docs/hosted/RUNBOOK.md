@@ -46,9 +46,14 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    - Settings → Deploy:
      - healthcheck path `/readyz`;
      - **one replica**: the rate limits live in memory, and the stores must have one writer.
-   - Railway turns on **auto-deploy on every push to master**. That's fine for family use. Before non-family users,
-     it should wait for CI ("Wait for CI") or deploy from a branch of its own. Which one is the owner's call; not
-     decided yet.
+   - Railway turns on **auto-deploy on every push to master**. Since 2026-11-04 (Mike) the service deploys from a
+     branch of its own instead: Settings → Source, the branch is `hosted-live`, which the release process moves
+     forward (`docs/RELEASING.md` §5, step 6). A merge to master no longer redeploys; a release, or an urgent fix
+     moved to `hosted-live` on purpose, does. Before the switch, `hosted-live` is created once, by hand, at the live
+     sha (the newest `success` deployment of `fabulous-recreation / production` on GitHub; the `content-beauty /
+     production` rows there are another project), so the switch deploys nothing new. Railway's "Wait for CI" acts on
+     workflows that run on a push to the deploy branch, and `tests.yml`'s push list (`master`, `release/**`) doesn't
+     match `hosted-live`; the commit has already passed on master, and step 6 checks that before the push.
    - Leave Railway's **Edge** section (CDN caching, edge rules, Under Attack Mode) off. Caching in front of sign-in
      pages and `/mcp` isn't something this server expects, and any of it could change the hops in section 5, step 3.
 2. Add a **volume** to the service, mounted at `/data`, and set the variable `RAILWAY_RUN_UID=0` from the start.

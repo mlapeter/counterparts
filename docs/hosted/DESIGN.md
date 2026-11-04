@@ -591,6 +591,8 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 
 - One service and one volume at `/data`, from a `hosted/Dockerfile`. Node 24 slim, Litestream pinned, and a small
   supervisor: the Node server plus the sidecar. If either dies, the container exits and Railway restarts it.
+- **Deploys** follow the `hosted-live` branch, not master (2026-11-04): the release process moves it forward, so a
+  docs merge doesn't restart the service (`docs/RELEASING.md` §5, step 6).
 - A service with a volume runs as **one replica** (**I**, to confirm in Railway's docs). That suits a single-instance
   design.
 - **Health checks.**
