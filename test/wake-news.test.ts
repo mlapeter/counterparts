@@ -329,14 +329,14 @@ describe("a dated item that already happened settles", () => {
   const S2 = "dddd0002-0000-4000-8000-000000000000";
 
   /** Dana's WK2 d6s1: the launch set for today as a plain reminder, then a done memory the day before, both through remember. */
-  async function launch(news: string): Promise<void> {
+  async function launch(news: string, newsScope: string = SHOP): Promise<void> {
     const { c, at, today } = brain();
     at(NOW - 3 * 24 * HOUR);
     recordSession(storeDir, { sessionId: S1, scope: SHOP, phase: "start", at: NOW - 3 * 24 * HOUR });
     await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S1 }).call("remember", { kind: "fact", title: LAUNCH_DAY, text: "Dana's pottery shop launches today; nervous nobody will buy.", eventDate: today, remind: "plain", status: "planned", about: "work" });
     at(NOW - 24 * HOUR);
-    recordSession(storeDir, { sessionId: S2, scope: SHOP, phase: "start", at: NOW - 24 * HOUR });
-    await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S2 }).call("remember", { kind: "fact", title: news, text: `${news}.`, status: "done", about: "us" });
+    recordSession(storeDir, { sessionId: S2, scope: newsScope, phase: "start", at: NOW - 24 * HOUR });
+    await new McpServer({ counterpart: c, scope: newsScope, registryDir: storeDir, session: S2 }).call("remember", { kind: "fact", title: news, text: `${news}.`, status: "done", about: "us" });
     at(NOW);
     c.close();
   }
@@ -389,6 +389,22 @@ describe("a dated item that already happened settles", () => {
     const text = full(NOTES);
     expect(text).toContain("Plain reminder (they asked to be told) — Today: Biscuit's vet check-up");
     expect(section(text.slice(text.indexOf("<!-- counterparts:wake ")), "Coming up:")).toContain("Biscuit's vet check-up");
+  });
+
+  test("a done memory from a folder that's off settles nothing here: the plain reminder and Coming up both stand (review of #734)", async () => {
+    await launch("Shop launched: 11 pieces sold in the first two hours", NOTES);
+    scopes({ [NOTES]: "off", [SHOP]: "on" });
+    const text = full(SHOP);
+    expect(text).toContain(`Plain reminder (they asked to be told) — Today: ${LAUNCH_DAY}`);
+    expect(section(text.slice(text.indexOf("<!-- counterparts:wake ")), "Coming up:")).toContain("- Due today · Dana's pottery shop launches today");
+    expect(text).not.toContain("11 pieces sold");
+  });
+
+  test("the same memory from a folder that's on does settle it", async () => {
+    await launch("Shop launched: 11 pieces sold in the first two hours", NOTES);
+    const text = full(SHOP);
+    expect(text).not.toContain("Plain reminder (they asked to be told)");
+    expect(text).not.toContain("pottery shop launches today");
   });
 
   test("a done memory that names the launch but not the shop's launch settles nothing", async () => {

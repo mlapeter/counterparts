@@ -3380,14 +3380,24 @@ export class Counterpart {
    * and the sentence around it are the host adapter's to decide. Never throws:
    * any failure is an empty list.
    */
-  plainDueToday(input: { at: string }): PlainReminder[] {
+  plainDueToday(input: { at: string; scope?: string; folders?: () => FolderOn | undefined }): PlainReminder[] {
     if (this.observer) return [];
     const out: PlainReminder[] = [];
+    // The reader's fence for what may settle a reminder (review of #734), the
+    // news line's rule: this folder's rows always, another's only when it is
+    // on. Asked only when a done row could settle one; `folders` absent or
+    // answering nothing is every folder on, as `plainHeldBack`'s caller reads it.
+    let fence: FolderOn | undefined | null = null;
+    const here = (input.scope ?? "").trim().replace(/\/+$/, "");
+    const open = (r: MemoryRow): boolean => {
+      if (fence === null) fence = input.folders?.();
+      return fence === undefined || !memoryClosedTo(this.store, r, fence, here.length === 0 ? undefined : here);
+    };
     try {
       for (const due of this.prospective.plainDue({ at: input.at })) {
         // ALREADY HAPPENED (WF1, 2026-11-03): a newer done memory says so, as
         // the shop that launched a day early did; nobody is told it's today.
-        if (happenedAlready(this.store, due.memoryId, input.at) !== null) continue;
+        if (happenedAlready(this.store, due.memoryId, input.at, { open }) !== null) continue;
         let what = "";
         try {
           const doc = this.store.readProse(due.memoryId);

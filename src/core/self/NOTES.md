@@ -3052,6 +3052,8 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   went fine", and today's vet check-up by a stitches-out visit five days before. Now the date fences it too: only an item
   whose day is the wake's or before, and only by a done row written (and stating its day, when it does) no earlier than
   `HAPPENED_EARLY_DAYS` (1) before that day. The launch, done a day early, still settles; a stale line is the cost.
+  And the plain reminder's settle reads the fence the news line does (`plainDueToday`'s `scope` and `folders`, the
+  setting read lazily): a done row from a folder that's off settles nothing here.
 - **On for new stores.** `beginNewInstall` writes `self.wake_shape = on` (`NEW_INSTALL_WAKE_SHAPE`): the same "new store"
   door #729's starter memories use. `counterparts install` calls it only for a store that call created (`!existed`,
   `start-fresh`'s blank store included), and hosted's `startNewStore` for a person's new store. The tunable stays false, so
