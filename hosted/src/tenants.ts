@@ -372,6 +372,9 @@ export class Tenants {
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(tenant.timeZone === undefined ? {} : { timeZone: tenant.timeZone }),
       manifestVersion: () => null,
+      // HOSTED'S WORDS for the starter memories (EX1): a local store moved up
+      // here gets them, as a hosted export opened locally gets local's.
+      toldSurface: "hosted",
       // A CHAT'S DELETE ON HOSTED (HD1): the answer promises the hosted
       // erase (the app's timer) and the backups' bound, and the hold is told
       // to the control database so the timer finds this store.

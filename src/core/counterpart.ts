@@ -290,6 +290,7 @@ import * as sweepPart from "./counterpart-sweep.js";
 import * as depositPart from "./counterpart-deposit.js";
 import * as projectsPart from "./counterpart-projects.js";
 import { reviseTold } from "./told.js";
+import type { ToldSurface } from "./told.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -595,8 +596,10 @@ export class Counterpart {
     if (!this.observer) settleMovedReminders(this.store, { retarget: this.retargetLinks });
     // Once per store, the starter memories v2 changed, where still in v1's
     // words (HD1, 2026-11-04; `told.ts#reviseTold`). After the subject finder
-    // above: a revise relinks what the new words name.
-    if (!this.observer) this.reviseToldOnce();
+    // above: a revise relinks what the new words name. And once per change of
+    // surface, the starters still in the other surface's words (EX1: a hosted
+    // export opened locally), when this door says which surface it serves.
+    if (!this.observer) this.reviseToldOnce(opts.toldSurface);
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
@@ -6279,9 +6282,9 @@ export class Counterpart {
   }
 
   /** `told.ts#reviseTold` from an open: one meta read once done; a failure never fails the open, and the next one tries again. */
-  private reviseToldOnce(): void {
+  private reviseToldOnce(opening: ToldSurface | undefined): void {
     try {
-      const out = reviseTold(this.store);
+      const out = reviseTold(this.store, opening);
       if (out !== null) this.emit("counterpart.told.revise", undefined, { revised: out.revised.length, kept: out.kept, failed: out.failed });
     } catch (err) {
       this.emit("counterpart.told.revise.failed", undefined, { code: errCode(err) });

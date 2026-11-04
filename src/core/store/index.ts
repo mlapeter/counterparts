@@ -144,6 +144,7 @@ import {
   docFrequency,
   embeddingCount,
   indexDoc,
+  indexedDocCount,
   nearest,
   nearestVectors,
   heldExits,
@@ -637,6 +638,13 @@ export const STORE_MIGRATED_EVENT = "store.migrated";
  *  paths lost their group and other bits, and the ones the filesystem kept. */
 export const STORE_TIGHTENED_EVENT = "store.modes.tightened";
 
+/**
+ * The durable row a writable open leaves when it found the word index EMPTY
+ * beside live rows and rebuilt it (EX1, 2026-11-04): how many rows it indexed.
+ * `doctor` reads it; the open never fails for want of it.
+ */
+export const INDEX_REBUILT_AT_OPEN_EVENT = "store.index.rebuilt-at-open";
+
 /** Rows per box-3 transaction in the at-open inline refill. CAL. */
 const REFILL_BATCH = 500;
 /**
@@ -1023,12 +1031,70 @@ export class Store {
     });
     this.assertLayout();
     this.afterReconcile(identity);
+    // AN EMPTY WORD INDEX BESIDE LIVE ROWS IS REBUILT HERE (EX1, 2026-11-04):
+    // a hosted "Download my memory" file, or any `counterparts.sqlite` put in
+    // place by hand, arrives with no `cache/`, and until now only
+    // `verify --rebuild` filled one. Every writable door crosses this line.
+    if (!this.observer) this.reindexIfEmpty();
     if (migration !== null) this.noteMigration(migration);
     // PRIVATE TO ITS USER (R1, `private.ts`): a store an older build left
     // readable by others is tightened the first time a writer opens it. Two
     // stats when it is already tight, no write at open either way, and a chmod
     // the filesystem refuses is a line in the ring, never a refusal.
     if (!this.observer && process.platform !== "win32") this.tightenIfOpen(opts);
+  }
+
+  /**
+   * TRUE when the word index (box 3's `doc_lens`) holds nothing while the
+   * store has live rows: two COUNTs, observer-safe. The shape of a store file
+   * moved in without its cache (a hosted export opened locally, EX1), which
+   * answers "Nothing found" to every question until the index is rebuilt.
+   */
+  wordIndexEmpty(): boolean {
+    if (indexedDocCount(this.cache) > 0) return false;
+    return (this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND superseded_by IS NULL")?.n ?? 0) > 0;
+  }
+
+  /**
+   * THE AT-OPEN REBUILD of an empty word index (EX1). The same rows
+   * `rebuildCache` indexes (live, not denied), the LEXICAL HALF ONLY: no
+   * vector is dropped (a reset tag or an inline refill this open made stays)
+   * and none is computed here, because an embedder at open runs with no
+   * budget and a hook would wait on every row of an imported store; the
+   * worker's backfill gives them vectors, as it does any row without one.
+   * One box-3 transaction. A cache from a newer build, or a lock past the
+   * busy timeout, costs this open the rebuild, never the open: the next
+   * writable open asks again.
+   */
+  private reindexIfEmpty(): void {
+    try {
+      if (cacheAhead(this.cache) !== null || !this.wordIndexEmpty()) return;
+      const denied = new Set(this.deniedIds());
+      const rows = this.ops.all<{ id: string; title: string | null; body: string }>(
+        "SELECT id, title, body FROM memories WHERE archived = 0 AND superseded_by IS NULL ORDER BY id",
+      );
+      let indexed = 0;
+      this.cache.transaction(() => {
+        // Asked again under box 3's write lock: a second process opening the
+        // same file at once finds the first one's index and writes nothing.
+        if (indexedDocCount(this.cache) > 0) return;
+        for (const row of rows) {
+          if (denied.has(row.id)) continue;
+          indexDoc(this.cache, row.id, indexTextOf(row.title, row.body));
+          indexed += 1;
+        }
+      });
+      if (indexed === 0) return;
+      const data = { indexed, live: rows.length };
+      this.emit(INDEX_REBUILT_AT_OPEN_EVENT, undefined, data);
+      try {
+        this.appendEvent({ name: INDEX_REBUILT_AT_OPEN_EVENT, day: this.livedDay(), payload: data });
+      } catch {
+        // A lost lock costs the row, never the open; the index is rebuilt either way.
+      }
+    } catch (err) {
+      this.emit("store.index.rebuild-at-open.failed", undefined, { locked: isLocked(err) });
+    }
   }
 
   private tightenIfOpen(opts: StoreOptions): void {

@@ -2,7 +2,7 @@
 
 How this memory works and how to use it: the phrases, the switches, the commands, and what to do when something seems off. It is written for the counterpart first (that's you, if you opened it through `recall`), and a person can read it too.
 
-Some things differ by where the memory lives. **[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, used from claude.ai, or from Claude Code when there's no local install. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. This file ships with the code, so it describes the version that's installed.
+**[local]** means a memory on the person's own computer, used from Claude Code or Claude Desktop. **[hosted]** means Counterparts Online, used from claude.ai, or from Claude Code when there's no local install. Where neither mark appears, it holds for both. "Since 0.3.x" says when something arrived, where that matters. It describes the installed version.
 
 ## What Counterparts is
 
@@ -32,7 +32,7 @@ Offer a phrase when it fits: "Remember this", "That's wrong", "Remind me Thursda
 
 ## Folders
 
-[local] Memory is set per folder with the `scope` tool: on, observer (reads only), off, or paused.
+[local] Memory is set per folder with the `scope` tool: on, observer, off, or paused.
 
 - The `scope` tool reads the setting for this folder with no `mode`, and sets it with `mode` `on`, `observer`, `off`, `pause` or `resume`. Set it when the person says so, not on a guess.
 - Off: the hooks write nothing and read nothing here, and every tool but `scope` refuses. Paused is off until they say to resume; it has no timer. `resume` goes back to what it was before, or on.
@@ -82,7 +82,7 @@ Look with `recall` or `self_page`, correct with `updates`; `remember`'s `remove`
 
 ## Export, backup, uninstall
 
-The memory is theirs to take: export, uninstall, start-fresh, or "Download my memory" when hosted.
+Theirs to take: export, uninstall, start-fresh, or "Download my memory" when hosted.
 
 - [local] `counterparts export --out <dir> --passphrase <secret>` makes an encrypted copy they can take anywhere. Export refuses without `--passphrase`, or `--plaintext` said on purpose. `--markdown` writes a readable tree instead.
 - [local] `counterparts backup --out <dir>` saves a snapshot to a folder. A daily snapshot is also kept automatically.
@@ -115,6 +115,16 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - Nights run in the day's first chat, after the `wake` and before the answer (see Nights and dreams), or from the person's own routine.
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
+
+## Taking your hosted memory home
+
+A "Download my memory" file replaces a local memory: export that first.
+
+- A hosted memory's "Download my memory" file becomes a local install's memory when it is put in the store folder as "counterparts.sqlite". It replaces, it doesn't merge: whatever memory the local install had is no longer the one in use. [local] To keep it, export it first with `counterparts export --out <dir> --passphrase <secret>`, or save a copy with `counterparts backup --out <dir>`.
+- [local] Where it goes: the store folder `counterparts doctor` names on its Memory line (usually .counterparts/store in the home folder). Quit Claude Code and Claude Desktop first, so no session holds the store, then put the file there as "counterparts.sqlite", in place of the one there.
+- [local] The first Claude Code or Claude Desktop session after that rebuilds its word index as it opens it, so questions find things at once (`counterparts ask` only looks, so before then it says the index is empty, and `counterparts verify --rebuild` rebuilds it by hand); search by meaning fills in over the next sessions. Starter notes still in hosted's words switch to this install's; one that was edited stays as it is (since 0.3.47).
+- The download is not encrypted. Once it is in place, delete the copy left in Downloads.
+- The hosted account and its memory stay as they were until the person deletes the account; the two don't sync.
 
 ## What's new
 
