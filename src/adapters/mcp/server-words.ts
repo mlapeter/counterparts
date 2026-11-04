@@ -532,3 +532,40 @@ export function dreamLaunchHowFor(host: string): string {
 export function reflectLaunchHowFor(host: string): string {
   return host === CLAUDE_AI_HOST ? CLAUDE_AI_REFLECT_LAUNCH_HOW : host === DESKTOP_HOST ? DESKTOP_REFLECT_LAUNCH_HOW : REFLECT_LAUNCH_HOW;
 }
+
+/**
+ * WHAT A CHAT'S DELETE SAYS (HD1, 2026-11-04; Mike's line, 11-04 09:16:
+ * "deleted now; gone from backups within about two days", with the undo window
+ * named). Written by the engine per host, so it is true for the host that
+ * answers.
+ *
+ * HOSTED'S "ABOUT TWO DAYS", EXACTLY. The hold is `REMOVAL_HOLD_MS` (24 h of
+ * wall clock); the server's timer then erases it at its next tick
+ * (`hosted/src/app.ts`, every `finishEveryMs`, ten minutes). Litestream then
+ * keeps the erased words only in the last snapshot taken before the erase and
+ * the log after it: `hosted/src/backup.ts` sets `snapshot.interval` and
+ * `snapshot.retention` both to `SNAPSHOT_HOURS` = 12, so that snapshot ages out
+ * at most max(12 h, 12 h) = 12 h after the erase, plus Litestream's retention
+ * enforcement lag, which its docs don't state (the same bet the account
+ * delete's "purged within 24 h" makes, with a 12 h margin). Ask to gone:
+ * 24 h + 10 min + 12 h + lag — about 36 h, "within about two days" while the
+ * lag stays under about 12 h. The pre-upgrade copy (`<tenant>/snapshots/`,
+ * kept up to 14 days) is a copy, not a backup, and /privacy/ says it; the
+ * reply leaves it out (Mike, 11-04).
+ *
+ * "OUR BACKUPS" ARE OURS ONLY (ROADMAP 11-04 12:35): the bound above is our
+ * Litestream copies in R2. Railway, which runs the server, also snapshots its
+ * volumes "multiple times per day, with retention ... varying by storage tier"
+ * (its SOC 3); that retention is unknown to us (Mike is asking), so the reply
+ * names those snapshots plainly and promises no time for them.
+ *
+ * LOCAL: the worker erases it at the first session boundary after the window,
+ * and the daily snapshots on this computer hold it until they rotate out
+ * (14 kept, `adapters/snapshots.ts`).
+ */
+export function deletedNote(title: string, erasedBy: "hosted" | "local"): string {
+  return erasedBy === "hosted"
+    ? `Deleted: "${title}". It's hidden now and erased in 24 hours; say "undo that" before then to bring it back. Our backups let go of it within about a day of the erase, so it's gone from our backups within about two days. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.`
+    : `Deleted: "${title}". It's hidden now and erased at the first session after 24 hours; say "undo that" before then to bring it back. Snapshots on this computer keep a copy until they rotate out, about two weeks (\`counterparts delete backups\` clears them).`;
+}
+

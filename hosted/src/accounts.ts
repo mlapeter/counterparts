@@ -192,6 +192,15 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "delete_after")) {
       this.db.exec("ALTER TABLE people ADD COLUMN delete_after INTEGER");
     }
+    // HD1 (2026-11-04): when a chat's delete in this store may first be erased
+    // (its 24-hour hold ends). NULL when none waits. Set at a hold through the
+    // store's server (`tenants.ts`, the `removal.onHeld` callback), so the
+    // ten-minute timer opens only a store with an erase due — a quiet person's
+    // "deleted" memory must not wait for their next wake. Added by ALTER like
+    // the two above, so it is safe to run twice and on the beta volume.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "removal_due_at")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN removal_due_at INTEGER");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -219,6 +228,30 @@ export class Accounts {
   /** When this store was first opened (ms), or null: the keyless-store mint compares it with the volume's keys (R5). */
   openedAt(storeId: string): number | null {
     return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at ?? null;
+  }
+
+  // ── a chat's deletes, erased after their hold (HD1) ──────────────────────
+
+  /** A hold was written: this store has an erase due at `at` (ms). Keeps the EARLIER of the two when one is set already. */
+  noteRemovalDue(storeId: string, at: number): void {
+    this.db.run("UPDATE stores SET removal_due_at = ? WHERE id = ? AND (removal_due_at IS NULL OR removal_due_at > ?)", at, storeId, at);
+  }
+
+  /** After a sweep: the next hold's time, or null when none waits. */
+  setRemovalDue(storeId: string, at: number | null): void {
+    this.db.run("UPDATE stores SET removal_due_at = ? WHERE id = ?", at, storeId);
+  }
+
+  /** Live, unlocked stores with an erase due now. A time still ahead never appears. */
+  removalsDue(): string[] {
+    return this.db
+      .all<{ id: string }>("SELECT id FROM stores WHERE state = 'active' AND removal_due_at IS NOT NULL AND removal_due_at <= ? ORDER BY removal_due_at", this.now())
+      .map((r) => r.id);
+  }
+
+  /** When this store's next erase is due (ms), or null. */
+  removalDueAt(storeId: string): number | null {
+    return this.db.get<{ removal_due_at: number | null }>("SELECT removal_due_at FROM stores WHERE id = ?", storeId)?.removal_due_at ?? null;
   }
 
   /** Whose store this is (any state), or null. */

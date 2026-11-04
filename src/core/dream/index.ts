@@ -1421,6 +1421,14 @@ export class Dreams {
     return row.day >= this.store.livedDay() - 1;
   }
 
+  /**
+   * Is a dream under way in ANY session: begun, not journaled, and not left
+   * behind? (HD1 fix round: a chat's delete waits for hosted's in-chat night.)
+   */
+  busyAnywhere(): boolean {
+    return this.store.dreams({ limit: 5 }).some((d) => d.state === "begun" && !this.abandoned(d));
+  }
+
   /** Is a dream under way in this session: begun by it, and not left behind? */
   busyIn(session: string): boolean {
     return this.store.dreams({ limit: 5 }).some((d) => d.state === "begun" && d.session === session && !this.abandoned(d));

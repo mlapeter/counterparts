@@ -289,6 +289,7 @@ import { rowIds } from "./counterpart-boundary.js";
 import * as sweepPart from "./counterpart-sweep.js";
 import * as depositPart from "./counterpart-deposit.js";
 import * as projectsPart from "./counterpart-projects.js";
+import { reviseTold } from "./told.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -590,6 +591,10 @@ export class Counterpart {
     // Once per store, the memories whose reminder moved before a move wrote
     // its own row (2026-10-11, Group 2b): each steps back behind its holder.
     if (!this.observer) settleMovedReminders(this.store, { retarget: this.retargetLinks });
+    // Once per store, the starter memories v2 changed, where still in v1's
+    // words (HD1, 2026-11-04; `told.ts#reviseTold`). After the subject finder
+    // above: a revise relinks what the new words name.
+    if (!this.observer) this.reviseToldOnce();
     // SEAMS H: the REAL battery, so `self/`'s refusing default is unreachable.
     this.self = new Self({
       store: this.store,
@@ -6268,6 +6273,16 @@ export class Counterpart {
       this.store.setMeta(CORRECTED_RELINK_META, JSON.stringify({ at: this.nowFn(), day, carried }));
     } catch (err) {
       this.emit("counterpart.corrected.relink.failed", undefined, { code: errCode(err) });
+    }
+  }
+
+  /** `told.ts#reviseTold` from an open: one meta read once done; a failure never fails the open, and the next one tries again. */
+  private reviseToldOnce(): void {
+    try {
+      const out = reviseTold(this.store);
+      if (out !== null) this.emit("counterpart.told.revise", undefined, { revised: out.revised.length, kept: out.kept, failed: out.failed });
+    } catch (err) {
+      this.emit("counterpart.told.revise.failed", undefined, { code: errCode(err) });
     }
   }
 

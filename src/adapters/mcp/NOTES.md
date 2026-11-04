@@ -2025,6 +2025,15 @@ declared flags, the served tools and their fields, and the recall handles.
   the older `started`). Each in-flight meeting starts in one session through `meet` and resumes in another. The
   script it reads there is the new one, and the old script's next step lands.
 
+## 2026-11-04 — a chat's delete during a night (HD1 fix round, item 1)
+
+Hosted's nights run in the person's chat (HN1), so the local night's env marks never see them. `removeOutcome`
+refuses a DELETE (`night-under-way`, "ask again after the night") while the store has a dream begun and not journaled
+or a reflection begun and not finished, in any chat, either quiet past `ABANDONED_AFTER_MS` (30 min) left behind
+(`Dreams.busyAnywhere`, `Reflections.busyAnywhere`). Store-wide, because the night's chat isn't the chat that
+deletes. An UNDO always goes through (ROADMAP 11:55): it only restores, and it is the safety net for a delete nobody
+asked for. Hosted only for now: a claude.ai connector to a local store isn't covered (INTERFACE-GAPS §14).
+
 ## 2026-11-04 — the first claude.ai chat of the day runs the night (HN1)
 
 - **The latch is the day's, not new.** `wakeTool` on claude.ai asks `Dreams#offer` (null when nothing is owed, a

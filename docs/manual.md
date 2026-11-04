@@ -69,16 +69,16 @@ A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `
 
 ## Seeing and changing what's kept
 
-Look with `recall` or `self_page`, correct with `updates`; on a local install, `counterparts remove` deletes one.
+Look with `recall` or `self_page`, correct with `updates`; `remember`'s `remove` deletes one, with a day to undo.
 
 - Ask the memory: `recall` with a question and a mode, or a memory's id or exact title as `handle` to read it whole. [local] From a terminal: `counterparts ask "…"`.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
 - [local] `counterparts dashboard` opens the dashboard in a browser: the memories, the self page and the memory's health.
 - Correct a memory with `remember`, `updates` and `how: "corrected"` (see Remembering well).
-- [local] `counterparts remove <id>` shows what would go; with `--confirm` it asks them to type the id back, then deletes that memory for good. It needs a terminal, and it is the person's to run.
+- [local] `counterparts remove <id>` shows what would go; with `--confirm` it asks them to type the id back, then deletes that memory for good. It needs a terminal, and it is the person's to run. `--confirm` also finishes a memory deleted in chat, at once.
 - [local] `counterparts delete conversation-text`, `counterparts delete backups` or `counterparts delete activity-log` deletes one kind of data and nothing else (since 0.3.21).
 - [local] `counterparts settle` lists memories that disagree and how each pair was settled; `counterparts core` lists what became part of who I am, and `counterparts core --demote <id>` sends one back.
-- [hosted] One memory can't be removed; a correction takes it out of what comes up.
+- Delete one memory: `remember` with `remove` and the memory's id, on a memory shown in this conversation, after saying which one. It's hidden at once and erased after 24 hours. `remove` with `undo: true` brings it back before then, and recall's handle `deleted` lists what's waiting.
 
 ## Export, backup, uninstall
 
@@ -89,6 +89,7 @@ The memory is theirs to take: export, uninstall, start-fresh, or "Download my me
 - [local] `counterparts uninstall` disconnects Claude Code and keeps the memory unless they say otherwise; `--keep-memories` keeps it without asking.
 - [local] `counterparts start-fresh` sets this memory aside and starts a blank one; `counterparts start-fresh --undo` brings it back. Nothing is deleted.
 - [local] `counterparts rollback` puts the memory back as it was before an upgrade (since 0.3.17).
+- A memory held for deletion is left out of the markdown export; a full copy still has it until it's erased.
 - [hosted] The account page's "Download my memory" gives the whole memory as one SQLite file, readable by any SQLite tool. "Delete my account" locks it at once and erases the memory, its backups and its key after 24 hours, unless they sign in and keep it; "Delete everything now" erases at once.
 
 ## Checking that it works
@@ -112,7 +113,6 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands and no dashboard.
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
 - Nights run in the day's first chat, after the `wake` and before the answer (see Nights and dreams), or from the person's own routine.
-- One memory can't be removed.
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
 

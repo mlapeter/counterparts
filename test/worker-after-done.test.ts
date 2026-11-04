@@ -24,7 +24,7 @@ import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 const HOOK = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 /** Every step the run laps, in the order it runs them. */
-const STEPS = ["embedder", "open", "lag", "backfill", "terms", "cycle", "held", "wake", "coverage", "retention", "carries", "snapshot", "close", "sidebar", "updates"];
+const STEPS = ["embedder", "open", "lag", "backfill", "terms", "cycle", "held", "wake", "coverage", "retention", "carries", "removals", "snapshot", "close", "sidebar", "updates"];
 
 let root: string;
 
