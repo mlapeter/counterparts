@@ -148,6 +148,8 @@ HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage
   `removal.failed` and `removal.sweep.failed`. Any `failed` row, or an `erased` with unchased surfaces above 0 (the
   likely one: the write-ahead log's TRUNCATE checkpoint coming back busy against Litestream's read lock), gets a look.
 - On local, the worker's `runner.holds` and `holds.threw` log lines.
+- How long one erase takes on a real hosted store: `ownerRemoval` rebuilds the cache (`rebuildCache()`, vectors
+  dropped and re-embedded) and VACUUMs both databases inside the tenant's queue, so the person's calls wait on it.
 - Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text
   the model read); none at all says little.
 

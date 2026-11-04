@@ -425,11 +425,20 @@ export function createApp(opts: AppOptions): App {
     let erased = 0;
     for (const storeId of accounts.removalsDue()) {
       const personId = accounts.personOfStore(storeId);
+      // A store waiting for a restore can't open; it is left due, unaudited, until it is back.
+      if (accounts.wasOpened(storeId) && !existsSync(join(tenantDir(tenants.root, storeId), "store", DATABASE_FILE))) continue;
       try {
         const report = await tenants.withTenant(storeId, {}, (t, server) =>
-          t.serial(async () => sweepHeldRemovals(server.counterpart.store, { now: (opts.now ?? Date.now)() })),
+          t.serial(async () => {
+            const swept = sweepHeldRemovals(server.counterpart.store, { now: (opts.now ?? Date.now)() });
+            // INSIDE the store's queue, beside the sweep: a hold written by a
+            // call queued behind it sets its own due time after this, never
+            // before it — so this can't wipe a new hold's time and leave it
+            // waiting for a wake.
+            accounts.setRemovalDue(storeId, swept.nextAt);
+            return swept;
+          }),
         );
-        accounts.setRemovalDue(storeId, report.nextAt);
         erased += report.erased.length;
         if (report.erased.length > 0) {
           const unchased = report.erased.reduce((n, e) => n + e.unchased, 0);

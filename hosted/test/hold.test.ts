@@ -272,7 +272,7 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     // Gone for good: undo is refused, and the record holds none of its words.
     const late = (await call("remember", { session: s2, remove: { id: victim, undo: true } }))["remove"] as Record<string, unknown>;
     assert.equal(late["ok"], false);
-    assert.ok(late["reason"] === "already-removed" || late["reason"] === "not-shown", JSON.stringify(late));
+    assert.equal(late["reason"], "already-removed", JSON.stringify(late));
     const record = await inStore((s) => JSON.stringify(s.removalRecord(victim)));
     assert.ok(!record.includes("flowerpot") && !record.includes("spare key"), record);
     const listedAfter = await call("recall", { session: s2, handle: "deleted" });

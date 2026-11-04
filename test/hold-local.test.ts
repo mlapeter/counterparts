@@ -28,6 +28,7 @@ import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import type { AdapterConfig } from "../src/adapters/config.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { REMOVAL_HOLD_MS, Store } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 
 const SERVE = resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts");
 const VICTIM = "The spare bike lock code is 4471, written on the back of the garage calendar.";
@@ -212,7 +213,7 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     const calls: SpawnPlan[] = [];
     const hooks = openAdapter(config(), { embedder: null, spawner: (plan) => (calls.push(plan), { pid: 1 }) });
     try {
-      const at = new Date().toISOString().slice(0, 10);
+      const at = localDate(Date.now(), peek((s) => s.zone()));
       const woke = hooks.sessionStart({ sessionId: "s-wake", scope: root, turns: [], at });
       const wake = woke.injection ?? "";
       expect(wake).not.toContain("garage calendar");
@@ -235,7 +236,7 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     // NOT VACUOUS: the same prompt's footnotes do carry it once it is back.
     const back = openAdapter(config(), { embedder: null, spawner: () => ({ pid: 1 }) });
     try {
-      const at = new Date().toISOString().slice(0, 10);
+      const at = localDate(Date.now(), peek((s) => s.zone()));
       back.sessionStart({ sessionId: "s-back", scope: root, turns: [], at });
       const prompt = back.userPromptSubmit({ sessionId: "s-back", scope: root, turns: [], at, prompt: "what was the bike lock code on the garage calendar again?" });
       expect(`${prompt.injection ?? ""}`).toContain(victim);
