@@ -267,6 +267,11 @@ function shortLine(name: string, column: number): string[] {
 const ASK_A_COMMAND = "counterparts help <command>   everything a command can do";
 const ASK_ADVANCED = "counterparts help advanced    maintenance and developer commands";
 const HOME_PAGE = "https://www.npmjs.com/package/counterparts";
+/** Where to send a bug, and anything else (Mike, 2026-11-04). */
+const FEEDBACK = [
+  "Bugs: https://github.com/mlapeter/counterparts/issues",
+  "Anything else: mike@resonantventures.com",
+];
 
 /**
  * The console in about twenty-five lines — what `counterparts`, `--help` and
@@ -286,7 +291,7 @@ export function shortHelp(): string {
     lines.push("", group.title);
     for (const name of group.commands) lines.push(...shortLine(name, NAME_COLUMN));
   }
-  lines.push("", ASK_A_COMMAND, ASK_ADVANCED, HOME_PAGE);
+  lines.push("", ASK_A_COMMAND, ASK_ADVANCED, HOME_PAGE, ...FEEDBACK);
   return lines.join("\n");
 }
 
@@ -300,7 +305,7 @@ export function advancedHelp(): string {
   for (const { flag, said } of GLOBAL_FLAGS) {
     lines.push(`  ${flag.padEnd(ADVANCED_NAME_COLUMN)}${said}`);
   }
-  lines.push("", ASK_A_COMMAND, HOME_PAGE);
+  lines.push("", ASK_A_COMMAND, HOME_PAGE, ...FEEDBACK);
   return lines.join("\n");
 }
 

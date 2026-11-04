@@ -231,9 +231,12 @@ Your data
 counterparts help <command>   everything a command can do
 counterparts help advanced    maintenance and developer commands
 https://www.npmjs.com/package/counterparts
+Bugs: https://github.com/mlapeter/counterparts/issues
+Anything else: mike@resonantventures.com
 ```
 
-*(2026-09-24: the `credentials` line was removed with the API keys, on the owner's word.)*
+*(2026-09-24: the `credentials` line was removed with the API keys, on the owner's word.
+2026-11-04: the two feedback lines were added, on the owner's word.)*
 
 *(2026-11-03: the `export` line said "encrypted by default", which was never true: export refuses without `--passphrase` or `--plaintext`. Corrected under the owner's "go ahead with everything" that day, for him to confirm.)*
 

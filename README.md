@@ -8,6 +8,9 @@ its memories itself, and they fade and grow the way yours do. It runs today with
 
 [counterparts.ai](https://counterparts.ai)
 
+Found a bug? [Open an issue](https://github.com/mlapeter/counterparts/issues). For anything
+else, write to mike@resonantventures.com.
+
 ## Install
 
 You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer.
