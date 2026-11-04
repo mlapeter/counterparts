@@ -62,9 +62,11 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { belowReach, strength } from "../physics/index.js";
 import { CRAFT_BORN_META } from "../store/index.js";
-import { OWN_PLUMBING_META_KEY } from "../remember/own-plumbing.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { datePrefix, flatten } from "./briefing.js";
+
+/** `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY` (TC1), spelled here: self/ imports nothing from remember/ (self.test's structural guarantee). */
+const OWN_PLUMBING_META_KEY = "ownPlumbing";
 
 export interface WorkFacts {
   readonly about: string | null;
