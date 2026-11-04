@@ -183,6 +183,18 @@ export function liveRoot(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env["HOME"] ?? homedir(), ".counterparts");
 }
 
+/** The roots CLAUDE.md fences off from every session: Counterparts' live store, v1's, engram's, and the host's own folder. */
+export const FENCED_ROOTS = [".counterparts", ".bansai", ".claude", ".claude-engram"] as const;
+
+/** Under any fenced root (`FENCED_ROOTS`, under HOME): where no harness output may be written. */
+export function underFencedRoot(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const real = realish(path);
+  return FENCED_ROOTS.some((d) => {
+    const root = realish(resolve(env["HOME"] ?? homedir(), d));
+    return real === root || real.startsWith(root + "/");
+  });
+}
+
 export function underLiveRoot(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
   const real = realish(path);
   const realRoot = realish(liveRoot(env));

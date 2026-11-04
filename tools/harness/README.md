@@ -388,16 +388,20 @@ set them and run as before):
 - **`declined: true`**: the host's `[Request interrupted by user for tool use]` goes into the
   transcript before the line, with no prompt hook (WP1 reads it as plumbing), and the model
   is shown it ahead of the line.
-- **`after`** now moves a model's clock too, but only when a line names it (a model's turn
-  still takes 3 minutes).
+- **`modelAfter`** (the developer week turns it on): a model's turn takes 3 minutes, and a
+  line that names `after` adds its minutes on top (a long session's breaks). Off by default:
+  Robin's lines name `after` for the scripted seat's pacing, so her week and Dana's keep
+  their model-seat timing.
 - **Expectations** (`expectations.ts`, `DEVELOPER_EXPECTATIONS`): per fact, a probe, the
   session that tells it, and where it should and mustn't come back. Personal and "us" facts
   should reach every folder. Work facts should reach their own folder and no other. The
   harness tries each probe against every wake, compaction wake and prompt injection, and
   reads the store's live memories at the end. The record's `expectations` gives, per fact
   and folder, seen (first session), MISSED, or no session, plus every leak with where it
-  was and the wake heading above it (an `Elsewhere` line is listed and left for the reader to
-  judge). It holds ids, labels and headings, never text. A hit is what the memory delivered,
+  was and the wake heading above it (a line under `Elsewhere`, `Today, elsewhere` or `Since
+  you started` is by design, see the grade below; a lane hit at a prompt counts only a work
+  memory, by the product's own `isWorkMemory`, so a journal chapter or a reflection is never
+  a crossing). It holds ids, labels and headings, never text. A hit is what the memory delivered,
   not what the model did with it.
 - **`roots`** (`--roots one|each`; `each` is the developer week's default): each session
   folder is answered `on` by itself and the work root isn't registered, as a person's repos
@@ -418,7 +422,8 @@ set them and run as before):
   session launched included.
 - **`--trace <file>`**: one JSON line per wake, turn, Stop ask, compaction and night, with
   their text, plus `<file>.store-dayN.sqlite` and `<file>.page-dayN.md`. It's what the 11-03
-  runs did with a scratch patch. It's refused under the live root, and `compare` refuses it
+  runs did with a scratch patch. Its folder is made and the file emptied at the start. It's refused, like `--out`, under
+  `~/.counterparts`, `~/.bansai`, `~/.claude` and `~/.claude-engram`, and `compare` refuses it
   (both sides would write one file).
 
 ## Two sides, one table (`compare`)

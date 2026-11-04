@@ -10,7 +10,7 @@
  * and a fake HOME, removed after.
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,7 +21,8 @@ import type { ScriptedDay } from "../tools/harness/owner-week.js";
 import { renderWeek } from "../tools/harness/cli.js";
 import { SERVE_AT_ENV } from "../tools/harness/serve-at.js";
 import { resetUsage } from "../tools/harness/usage.js";
-import { INTERRUPTED_FOR_TOOL, hostTurns, runWeek } from "../tools/harness/week.js";
+import { INTERRUPTED_FOR_TOOL, hostTurns, promptHits, runWeek, workMemoryText } from "../tools/harness/week.js";
+import { Counterpart } from "../src/core/counterpart.js";
 
 let root: string;
 
@@ -142,7 +143,7 @@ test("with a model in the seat, a compaction starts the model on a fresh convers
       ],
     },
   ];
-  await runWeek({ script, start, install: "without-meeting", nights: false, workRoot: join(root, "work"), env: env() });
+  await runWeek({ script, start, install: "without-meeting", nights: false, modelAfter: true, workRoot: join(root, "work"), env: env() });
   // The person's lines, not a Stop ask put to the model.
   const turns = plans.filter((p) => (p.args[p.args.indexOf("--allowedTools") + 1] ?? "").includes("mcp__counterparts__remember") && !(p.stdin ?? "").includes("(Stop hook feedback)"));
   expect(turns.length).toBe(4);
@@ -198,4 +199,53 @@ test("expectations: a hit counts after the telling session, leaks are named with
     { folder: "evals", verdict: "seen", first: "s3", sessions: 1 },
     { folder: "sim", verdict: "missed", first: null, sessions: 1 },
   ]);
+});
+
+test("without modelAfter a model's turns keep their 3 minutes whatever a line's `after` says: Robin's and Dana's weeks time as before", async () => {
+  const plans: ChildPlan[] = [];
+  const start = (p: ChildPlan): Promise<ChildResult> => {
+    plans.push(p);
+    return Promise.resolve({ code: 0, timedOut: false, error: null, output: JSON.stringify({ type: "result", result: "ok." }) });
+  };
+  await runWeek({ script: [{ sessions: [{ scope: "chat", turns: ["one", { say: "two", after: 30 }] }] }], start, install: "without-meeting", nights: false, workRoot: join(root, "work"), env: env() });
+  const turns = plans.filter((p) => (p.args[p.args.indexOf("--allowedTools") + 1] ?? "").includes("mcp__counterparts__remember") && !(p.stdin ?? "").includes("(Stop hook feedback)"));
+  const now = turns.map((t) => Number((JSON.parse(t.args[t.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env[SERVE_AT_ENV.now]));
+  expect(now[1]! - now[0]!).toBe(3 * 60_000);
+});
+
+test("an output or a trace under any fenced root is refused before anything runs; a trace's folder is made and the file starts empty", async () => {
+  const home = join(root, "home");
+  for (const d of [".counterparts", ".bansai", ".claude", ".claude-engram"]) {
+    await expect(runWeek({ seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env(), out: join(home, d, "x", "week.sqlite") })).rejects.toThrow("TARGET_IS_LIVE: out");
+    await expect(runWeek({ seat: "scripted", start: noModel, workRoot: join(root, "work"), env: env(), trace: join(home, d, "trace.jsonl") })).rejects.toThrow("TARGET_IS_LIVE: trace");
+  }
+  expect(existsSync(join(home, ".bansai"))).toBe(false);
+  const trace = join(root, "new", "deeper", "trace.jsonl");
+  const day: ScriptedDay[] = [{ sessions: [{ scope: "repo", turns: [{ say: "hello", reply: "hi" }] }] }];
+  await runWeek({ script: day, seat: "scripted", start: noModel, workRoot: join(root, "w1"), env: env(), nights: false, trace });
+  const first = readFileSync(trace, "utf8");
+  expect(first.length).toBeGreaterThan(0);
+  writeFileSync(trace, first + "STALE LINE FROM AN OLD RUN\n");
+  await runWeek({ script: day, seat: "scripted", start: noModel, workRoot: join(root, "w2"), env: env(), nights: false, trace });
+  const second = readFileSync(trace, "utf8");
+  expect(second).not.toContain("STALE LINE");
+  expect(second.split("\n").length).toBe(first.split("\n").length);
+});
+
+test("a journal chapter's copy shown loud is not a work crossing, by the product's own rule; a work fact shown loud is", () => {
+  const dir = join(root, "store");
+  const c = Counterpart.open({ dir, budgetBytes: 9_000, now: () => Date.parse("2026-03-02T10:00:00Z"), timeZone: "UTC" });
+  try {
+    const sim = join(root, "code", "sim");
+    const journal = c.store.put({ type: "memory", kind: "fact", body: "Chapter copy: the sweep OOMed on gpu-07 twice.", meta: { episodeId: "epi_x" }, origin: { scope: sim } });
+    const work = c.store.put({ type: "memory", kind: "fact", body: "The gpu-07 box keeps failing.", origin: { scope: sim } });
+    expect(workMemoryText(c, journal)).toBe("");
+    expect(workMemoryText(c, work)).toContain("gpu-07");
+    const e = [{ id: "W4", kind: "work" as const, fact: "f", probe: /gpu-07/, told: "s1", folder: "sim", reach: ["sim"], never: "others" as const }];
+    const at = { label: "s2", folder: "paper" };
+    expect(promptHits(e, "Now: 10:00", at, { loud: [journal], footnotes: [], relevant: [] }, (id) => workMemoryText(c, id))).toEqual([]);
+    expect(promptHits(e, "Now: 10:00", at, { loud: [work], footnotes: [], relevant: [] }, (id) => workMemoryText(c, id)).map((h) => h.lane)).toEqual(["loud"]);
+  } finally {
+    c.close();
+  }
 });

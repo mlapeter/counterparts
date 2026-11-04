@@ -236,7 +236,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const record = await runWeek({
       ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL, scriptName } : {}),
       ...(scriptName === "checkins" ? { script: OWNER_WEEK_CHECKINS, scriptName, owner: CHECKINS_OWNER } : {}),
-      ...(scriptName === "developer" ? { script: DEVELOPER_WEEK, scriptName, owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, roots: "each" as const } : {}),
+      ...(scriptName === "developer" ? { script: DEVELOPER_WEEK, scriptName, owner: DEVELOPER_OWNER, expect: DEVELOPER_EXPECTATIONS, roots: "each" as const, modelAfter: true } : {}),
       ...(flag(args, "--roots") === "one" || flag(args, "--roots") === "each" ? { roots: flag(args, "--roots") as "one" | "each" } : {}),
       ...(seatName === "scripted" ? { seat: "scripted" as const } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),

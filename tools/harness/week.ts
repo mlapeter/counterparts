@@ -34,7 +34,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
@@ -46,7 +46,8 @@ import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { McpServer } from "../../src/adapters/mcp/index.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
 import { readSession } from "../../src/adapters/sessions.js";
-import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs, plantTold } from "../../src/core/counterpart.js";
+import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs, craftBornDay, craftSince, isWorkMemory, plantTold } from "../../src/core/counterpart.js";
+import { aboutMarkOf } from "../../src/core/store/index.js";
 import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
 import { probeHits, readExpectations } from "./expectations.js";
@@ -64,7 +65,7 @@ import { settledOf } from "./settled.js";
 import type { SettledReading } from "../../src/adapters/cli/commands.js";
 import { recordUsage, totalTokens, usageByAct, usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
-import { underLiveRoot } from "./source.js";
+import { underFencedRoot, underLiveRoot } from "./source.js";
 
 /** The memory tools a person's session has, as the host names them. Not the night's dream or reflection. */
 export const SESSION_TOOLS: readonly string[] = ["recall", "remember", "session_end", "chapter", "self_page", "meet", "status", "scope"].map((t) => `mcp__counterparts__${t}`);
@@ -151,6 +152,14 @@ export interface WeekOptions {
    * real user's repos are, each asked at its first launch.
    */
   readonly roots?: "one" | "each";
+  /**
+   * A MODEL'S TURNS HONOUR `after` (2026-11-04, the developer week's long
+   * sessions): a line that names `after` adds those minutes to the 3 a
+   * model's turn already takes. Off by default, so Dana's and Robin's weeks
+   * (Robin's lines name `after` for the scripted seat's pacing) keep their
+   * model-seat timing; the developer script turns it on.
+   */
+  readonly modelAfter?: boolean;
   /**
    * A TRACE FILE (2026-11-04; what the 11-03 runs did with a scratch patch):
    * one JSON line per wake, turn, Stop ask, compaction and night, WITH their
@@ -623,8 +632,13 @@ export async function runWeek(opts: WeekOptions = {}): Promise<WeekRecord> {
   const env = opts.env ?? process.env;
   const preset = env["COUNTERPARTS_DATA_DIR"];
   if (preset !== undefined && preset.trim().length > 0) throw new Error("DATA_DIR_PRESET: the harness makes its own store");
-  if (opts.out !== undefined && underLiveRoot(opts.out, env)) throw new Error("TARGET_IS_LIVE: out");
-  if (opts.trace !== undefined && underLiveRoot(opts.trace, env)) throw new Error("TARGET_IS_LIVE: trace");
+  if (opts.out !== undefined && underFencedRoot(opts.out, env)) throw new Error("TARGET_IS_LIVE: out");
+  if (opts.trace !== undefined && underFencedRoot(opts.trace, env)) throw new Error("TARGET_IS_LIVE: trace");
+  if (opts.trace !== undefined) {
+    // A fresh trace each run: its parent made, the file emptied (an old run's lines would read as this one's).
+    mkdirSync(dirname(resolve(opts.trace)), { recursive: true });
+    writeFileSync(opts.trace, "");
+  }
   const script = (opts.script ?? OWNER_WEEK).slice(0, opts.days ?? (opts.script ?? OWNER_WEEK).length);
   const startDate = opts.startDate ?? "2026-03-02";
   const timeZone = opts.timeZone ?? "UTC";
@@ -834,15 +848,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     // product reads work (`self/work.ts#isWorkMemory`: marked work, or unmarked fact/entity/place/skill): the
     // meeting's journal or a reflection that mentions a repo's seed is not that repo's work (11-04 run: the
     // "Meeting Theo" journal read as W1 crossing four times).
-    const textOf = (id: string): string => memoryText(dir, id, true);
-    const local = new Map<string, ExpectationHit>();
-    for (const h of probeHits(opts.expect, text, { label, folder, where })) local.set(h.id, { ...h, lane: "line", relevant: shown.relevant.includes(h.id) });
-    for (const e of opts.expect) {
-      const re = new RegExp(e.probe.source, e.probe.flags.replace("g", ""));
-      const lane = shown.loud.some((id) => re.test(textOf(id))) ? "loud" : shown.footnotes.some((id) => re.test(textOf(id))) ? "footnote" : null;
-      if (lane !== null) local.set(e.id, { id: e.id, label, folder, where, section: null, lane, relevant: shown.relevant.includes(e.id) });
-    }
-    hits.push(...local.values());
+    const textOf = (id: string): string => workMemoryText(counterpart, id);
+    hits.push(...promptHits(opts.expect, text, { label, folder }, shown, textOf));
   };
   const trace = (o: Record<string, unknown>): void => {
     if (opts.trace !== undefined) appendFileSync(opts.trace, JSON.stringify(o) + "\n");
@@ -969,7 +976,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           // HUMAN PACING (scripted): the line is typed `after` minutes past the last Stop. A model's turn already
           // took 3; a line that names `after` adds it (a long session's breaks).
           if (scripted && i > 0) clock += (line.after ?? SCRIPTED_GAP_MIN) * MIN;
-          else if (!scripted && i > 0 && line.after !== undefined) clock += line.after * MIN;
+          else if (!scripted && i > 0 && line.after !== undefined && opts.modelAfter === true) clock += line.after * MIN;
           if (line.compact !== undefined) {
             // THE CONVERSATION COMPACTS (2026-11-04): PreCompact on the whole transcript, then the host's fresh
             // `compact` start. The transcript stays whole for the hooks (the summary is the host's and enters no
@@ -1161,18 +1168,54 @@ export function hostTurns(entry: Record<string, unknown>): { role: "user" | "ass
   return parseTranscript(JSON.stringify(entry)).turns.map((t) => ({ role: t.role, text: t.text, ...(t.source === undefined ? {} : { source: t.source }) }));
 }
 
-/** One memory's words (title and body), or "" when there is none by that id. */
-function memoryText(dir: string, id: string, workOnly = false): string {
-  const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+/**
+ * One memory's words (title and body) when it is a folder's WORK by the
+ * product's own rule (`self/work.ts#isWorkMemory`, read as
+ * `Counterpart#withElsewhere` reads it: the mark, a journal copy by
+ * `meta.episodeId`, a directory scope, craft that travels); "" otherwise, or
+ * when there is no such memory. A journal chapter or a reflection that
+ * mentions a repo's seed is not that repo's work.
+ */
+export function workMemoryText(c: Counterpart, id: string): string {
   try {
-    const row = db.query("SELECT COALESCE(title, '') || ' ' || body AS t, kind, about FROM memories WHERE id = ?").get(id) as { t: string; kind: string; about: string | null } | null;
-    if (row === null) return "";
-    if (workOnly && !(row.about === "work" || (row.about === null && ["fact", "entity", "place", "skill"].includes(row.kind)))) return "";
-    return row.t;
-  } finally {
-    db.close();
+    const row = c.store.row(id);
+    if (row === undefined) return "";
+    const doc = c.store.readProse(id);
+    const meta = doc.meta;
+    const bornDay = row.kind === "skill" ? craftBornDay(meta, row.birth_day) : row.birth_day;
+    const work = isWorkMemory(
+      { about: aboutMarkOf(row.about), kind: row.kind as Parameters<typeof isWorkMemory>[0]["kind"], originScope: row.origin_scope, journal: typeof meta["episodeId"] === "string", bornDay },
+      { craftTravels: c.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(c.store) },
+    );
+    return work ? `${row.title ?? ""} ${doc.body}` : "";
+  } catch {
+    return "";
   }
 }
+
+/**
+ * A PROMPT'S HITS, BY LANE (a0's rule): each expectation in a memory recall
+ * showed loud, else in one it showed as a footnote, whose own words carry the
+ * fact and which is WORK (`textOf` gives "" for anything else); else in a
+ * line of the prompt's own ("Since you started"). One hit per expectation.
+ */
+export function promptHits(
+  expectations: readonly Expectation[],
+  text: string,
+  at: { readonly label: string; readonly folder: string },
+  shown: { readonly loud: readonly string[]; readonly footnotes: readonly string[]; readonly relevant: readonly string[] },
+  textOf: (id: string) => string,
+): ExpectationHit[] {
+  const local = new Map<string, ExpectationHit>();
+  for (const h of probeHits(expectations, text, { ...at, where: "prompt" })) local.set(h.id, { ...h, lane: "line", relevant: shown.relevant.includes(h.id) });
+  for (const e of expectations) {
+    const re = new RegExp(e.probe.source, e.probe.flags.replace("g", ""));
+    const lane = shown.loud.some((id) => re.test(textOf(id))) ? "loud" : shown.footnotes.some((id) => re.test(textOf(id))) ? "footnote" : null;
+    if (lane !== null) local.set(e.id, { id: e.id, label: at.label, folder: at.folder, where: "prompt", section: null, lane, relevant: shown.relevant.includes(e.id) });
+  }
+  return [...local.values()];
+}
+
 
 /** The week's `recall.decision` rows, summed for their cross-project counts. */
 function recallProjectsOf(dir: string): NonNullable<WeekRecord["recallProjects"]> {
