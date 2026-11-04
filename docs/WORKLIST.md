@@ -50,6 +50,12 @@ repeating them.*
   (3) "Last said here" is cut past meaning ("morning! morning!"): give it enough words, or drop it when it's
   that short. random-7b called "Today, elsewhere" the wake's most useful line (F4 working as meant).
 
+- **HD1 follow-ups (11-04, from the #739 review):** `counterparts verify`'s "removed (deny-list)" count and the
+  sidebar status file still read a chat's held memories (the dashboard was fixed in #739; these two weren't probed).
+  `verify` should count holds apart from removals; the sidebar file is only rewritten at an erase, so it may show a
+  held memory until then. Real Litestream under an erase stays a [CHECK-AFTER](CHECK-AFTER.md) item (the 48 h
+  backups check), not work here.
+
 ## Needs a talk first
 
 - **Lists vs attachments.** Decided 10-15, lightly held: lists and tables stay word for word in memory bodies, no
