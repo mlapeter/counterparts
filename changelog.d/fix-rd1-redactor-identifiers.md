@@ -7,3 +7,5 @@
   and a bare capitalised `AUTH=` / `BEARER=` now keep their name and lose their value;
   `pin_memory=True`, `session_key_fn` and key-file paths such as `private_key = "keys/a.pem"`
   stay readable.
+- **Prefixed PINs and suffixed AUTH are redacted too.** `user_pin`, `SIM_PIN`, `PIN_CODE`,
+  `pinCode`, `gpgPassphrase` and `BASIC_AUTH=` keep their name and lose their value.

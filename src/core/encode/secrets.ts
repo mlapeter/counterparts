@@ -135,6 +135,16 @@ const IDENTIFIER_WORD_END = /(?:^|_)(?:token|tokens|key|keys|id|ids)$|[a-z](?:To
 // No word over twelve letters: `hf_abcdefghijklmnopqrstu` is a token with a prefix.
 const BARE_IDENTIFIER = /^(?:[a-z]{1,12}(?:_[a-z]{1,12})+|[a-z]{1,12}(?:[A-Z][a-z]{1,11})+)$/;
 
+const KEY_FILE = /^([\w./~-]+)\.(?:pem|key|p12|pfx|crt|cer|der|jks)$/i;
+/** A key FILE, by its shape: a path (has a `/`, or starts `./` `~/`), or a short
+ *  word-structured name (`server.key`) with no digit and no long alphanumeric run. */
+function isKeyFilePath(v: string): boolean {
+  const m = KEY_FILE.exec(v);
+  if (!m) return false;
+  if (v.includes("/")) return true;
+  return /^[A-Za-z_-]{1,40}(?:\.[A-Za-z_-]+)*$/.test(m[1]!);
+}
+
 function isSetting(value: string, match: string, name: string): boolean {
   const quoted = /^["']/.test(value);
   const v = quoted ? value.slice(1, -1) : value.replace(/[,;]+$/, "");
@@ -143,13 +153,14 @@ function isSetting(value: string, match: string, name: string): boolean {
     return !(PASSWORD_NAME.test(name) && v.replace(/\D/g, "").length >= 6);
   }
   // A key FILE is a path, not the key: `private_key = "keys/a.pem"`.
-  if (/^[\w./~-]+\.(?:pem|key|p12|pfx|crt|cer|der|jks)$/i.test(v)) return true;
+  if (!PASSWORD_NAME.test(name) && isKeyFilePath(v)) return true;
   if (quoted) return false;
   if (CODE_REFERENCE.test(v)) return true;
   if (
-    !PASSWORD_NAME.test(name) &&
+    // `*_pass` names are skipped only for another `*_pass` (`first_pass = second_pass`).
+    (!PASSWORD_NAME.test(name) || (/pass$/i.test(name) && /(?:_|[a-z])[Pp]ass$/.test(v))) &&
     BARE_IDENTIFIER.test(v) &&
-    IDENTIFIER_WORD_END.test(v) &&
+    (IDENTIFIER_WORD_END.test(v) || /pass$/i.test(name)) &&
     name !== name.toUpperCase() &&
     /^[^:=]*=/.test(match.slice(name.length))
   ) {
@@ -411,7 +422,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     //    because under the `i` flag `[A-Z]` is every letter. A bare `Key` is not
     //    a keyword here: `primaryKey`, `sortKey` and `cacheKey` are not secrets.
     re: new RegExp(
-      "((?<=[a-z0-9])(?:Password|Passwd|Pwd|Secret|Token|ApiKey|SecretKey|AccessKey|PrivateKey|Credentials?)" +
+      "((?<=[a-z0-9])(?:Password|Passwd|Pwd|Passphrase|Secret|Token|ApiKey|SecretKey|AccessKey|PrivateKey|Credentials?)" +
         "|(?<![A-Za-z0-9])[A-Z][A-Z0-9]*(?:PASSWORD|PASSWD))\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
@@ -428,10 +439,10 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
   },
   {
     family: "assigned-credential",
-    // 4. A PIN, as a WHOLE name (`pin_memory=True` and `spin` never match) and only
+    // 4. A PIN, as a whole name or `user_pin` / `PIN_CODE` / `pinCode` (`pin_memory=True` and `spin` never match) and only
     //    with a numeric value of four to twelve digits, quoted or not.
     re: new RegExp(
-      "(?<![A-Za-z0-9_.-])(pin)\\b" +
+      "(?:(?<![A-Za-z0-9])|(?<=[_-]))(pin(?:[_-]?code)?)\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
         "(\"\\d{4,12}\"|'\\d{4,12}'|\\d{4,12})(?![\\w.])",
@@ -446,7 +457,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     // 5. BARE `AUTH=` / `BEARER=` in capitals, `=` only: the env-var form. Lowercase
     //    `auth` is prose and code (`auth: failed`, `auth = request.auth`).
     re: new RegExp(
-      "(?<![A-Za-z0-9_])(AUTH|BEARER)\\b" + "\\s*=\\s*" + NOT_A_PLACEHOLDER + CREDENTIAL_VALUE,
+      "(?:(?<![A-Za-z0-9])|(?<=[A-Z0-9]_))(AUTH|BEARER)\\b" + "\\s*=\\s*" + NOT_A_PLACEHOLDER + CREDENTIAL_VALUE,
       "g",
     ),
     value: 2,
