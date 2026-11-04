@@ -123,9 +123,10 @@ describe("the first chat of the day runs the night (HN1)", () => {
     const session = String(first.out["session"]);
     const line = claudeAiNightLine({ session, setting: "auto", reflects: null, who: "the person" });
     assert.ok(first.text.includes(line), first.text);
-    // Answer first, then the one line, then the launch, naming this session.
+    // Night first (Mike 11-04): the launch, naming this session, then the answer with the one line, in the past tense.
+    assert.ok(line.indexOf('phase "launch"') < line.indexOf("answer what they said"));
     assert.ok(line.indexOf("answer what they said") < line.indexOf(CLAUDE_AI_NIGHT_SAID));
-    assert.ok(line.indexOf(CLAUDE_AI_NIGHT_SAID) < line.indexOf('phase "launch"'));
+    assert.ok(CLAUDE_AI_NIGHT_SAID.startsWith("I sorted yesterday's memories"));
     assert.ok(line.includes(`phase "launch", session: ${session}`));
     // The person's things come first: the line rides after the wake itself.
     assert.ok(first.text.indexOf("<!-- counterparts:wake/end") < first.text.indexOf(line));

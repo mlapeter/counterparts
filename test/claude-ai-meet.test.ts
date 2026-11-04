@@ -152,9 +152,9 @@ describe("a cold first chat on claude.ai meets", () => {
     expect(Object.keys(JSON.parse(rows()[1] ?? "{}") as Record<string, string>).sort()).toEqual(["love", "name", "origin"]);
   });
 
-  test("the first dream on the web: on auto, a later day's chat has it after answering; on ask, it asks first (HN1)", () => {
+  test("the first dream on the web: on auto, a later day's chat has it before answering; on ask, it asks first (HN1)", () => {
     const text = finishText({ name: "Wren", dreaming: "auto", web: true, session: "s1", sidebar: false });
-    expect(text).toContain("When we talk on another day, I'll have my first dream once I've answered you");
+    expect(text).toContain("When we talk on another day, I'll have my first dream before I answer you");
     expect(text).not.toContain("nightly routine");
     expect(finishText({ name: "Wren", dreaming: "ask", web: true, session: "s1", sidebar: false })).toContain("I'll ask to have my first dream");
     // Every other host: unchanged.

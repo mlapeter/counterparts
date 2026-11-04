@@ -2043,3 +2043,10 @@ declared flags, the served tools and their fields, and the recall handles.
   with two chats open it is filed under the newer one, which doesn't own the dream: refused). Every host's prompt.
 - **Tool words.** claude.ai's `dream` negative ("Do NOT start a dream nobody asked for") and both admissions now
   name the wake's line, or they would fight it; `tools/list` grew 336 bytes (90,803 → 91,139).
+- **Night first, then the answer** (Mike 11-04, lightly held). The brief said answer first, then the night. On the M1
+  rig (hermetic, Sonnet 5.5, "hi, what's on today?") five answer-first wordings went 0 of 5: the model drafted the
+  answer and the line in its thinking, launched, and its visible text was the night's notices; once it later wrote "I
+  need to correct my first answer", as if the draft had been sent. Night first, with the line in the past tense, went
+  2 of 2: the answer is the reply's last text, where every client shows it. The cost is the wait (~25–60 s, with the
+  tool calls showing). If real claude.ai writes text before a tool call where the rig didn't, answer-first is the
+  cheap way back: one wording and `CLAUDE_AI_NIGHT_SAID`.

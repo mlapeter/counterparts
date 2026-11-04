@@ -182,7 +182,7 @@ to cost too much. Open question Q7.
 
 **Nights.** The plan's decision 6 is the user's own routine, through the tools (`remote/NOTES.md`, "a night through the
 tools alone"). No server-run night in the beta. Since HN1 (2026-11-04) the day's first claude.ai chat runs the night
-with its own tool calls, after answering, as its wake says; the routine stays the nicer option. The tagging child's `tags` phase stays skipped on this host, as on the
+with its own tool calls, then answers, as its wake says; the routine stays the nicer option. The tagging child's `tags` phase stays skipped on this host, as on the
 trial door.
 
 ---

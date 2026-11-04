@@ -3649,7 +3649,7 @@ export class McpServer {
    * conversations racing, one wins (`claimOffer`), and only that one is told.
    * A tool result is certain delivery, so the claim is safe here. No run is
    * started — this host has none to start; the words are the start: on `auto`
-   * (headless) the model runs the night after answering, on `ask` it asks.
+   * (headless) the model runs the night, then answers; on `ask` it asks.
    * A claim the model never acts on is taken up by a later conversation once
    * it has been quiet `ABANDONED_AFTER_MS`, at most `RELAUNCHES_PER_DAY`
    * times (`Dreams#mayStartAgain`), as a launch nobody followed is. Never throws.

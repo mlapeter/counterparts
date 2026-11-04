@@ -37,7 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to answer, then run the night (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
+| The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to run the night, then answer (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -137,11 +137,10 @@ lines: tool, session, ok, reason, the hashed store; no words) and what people sa
 - **Light days get no in-chat night, by design.** A day with fewer than three new memories (the dream's `MIN_NEW`)
   gets no night line, and so no day's end either: hosted has no catch-up for owed write-ups. ROADMAP 11-04: fine as
   built. Watch only whether light-use accounts go many days without a night, or say their memory doesn't seem to sort.
-- **Answer first, on real claude.ai.** On the M1 rig (`claude -p`, Sonnet 5.5) the model wrote its answer and the
-  line only in its thinking, then launched, in five of five answer-first runs across five wordings (once it later
-  said "I need to correct my first answer", as if the draft had been sent). Read a few real first-chat replies, from
-  what people report or the owner's own account: is the answer visible before the night's tool calls? If not, the
-  night-first wording (answer and a past-tense line after the night, 2/2 on the rig) is the alternative, Mike's call.
+- **Night first, on real claude.ai** (Mike 11-04, lightly held: "we can see how it goes"). In the first real
+  claude.ai week, read how the wait felt (the answer comes after the night's calls, ~25–60 s) and whether the question
+  got answered every time. Answer-first stays the cheap way back if real claude.ai differs: on the M1 rig (`claude -p`,
+  Sonnet 5.5) it left the answer only in the model's thinking in 5 of 5 runs, so it was never tested on claude.ai.
 - **Complaints.** A person surprised by the night in their first reply, a slow first answer, or usage limits hit after
   it. One clear complaint is reason to make `ask` hosted's default for new accounts.
 

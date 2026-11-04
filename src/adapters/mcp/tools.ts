@@ -2207,7 +2207,7 @@ export const CLAUDE_AI_WAKE: ToolSpec = {
     },
     {
       claim:
-        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it after answering (or to ask first, on ask): the day's one claim decides, so one conversation a day is told, none while a night is under way or after one ran. It never starts the headless nightly run.",
+        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it, then answer (or to ask first, on ask): the day's one claim decides, so one conversation a day is told, none while a night is under way or after one ran. It never starts the headless nightly run.",
       mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#claudeAiNight -> src/core/dream/index.ts#claimOffer",
     },
     {
@@ -2304,9 +2304,9 @@ export const CLAUDE_AI_WORDS: Readonly<
   },
   dream: {
     summary:
-      "Dreaming, once a day — run by the day's first conversation after it answers, or the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+      "Dreaming, once a day — run by the day's first conversation before it answers, or the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
     admission:
-      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In a conversation, call `launch` when the wake says this conversation runs the night (after answering), or when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
+      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In a conversation, call `launch` when the wake says this conversation runs the night (then answer), or when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
     negativeExamples: [
       "Do NOT start a dream nobody asked for: it runs when the wake says this conversation runs the night, in the routine the person set up, on its prompt, or on the person's word — never on your own.",
       "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",

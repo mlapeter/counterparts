@@ -132,7 +132,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 - **Dreaming starts `auto`, as for every new install** (the roadmap's ruling of 2026-10-26, following Mike's 10-11
   "dreaming on by default"). The setting is the person's wish; the host decides who starts the night.
   - On this host no path from the server or its worker spawns a night run (that is Claude Code's hooks alone).
-  - The day's first claude.ai chat runs the night with its own tool calls, after answering (HN1, 2026-11-04): its
+  - The day's first claude.ai chat runs the night with its own tool calls, then answers (HN1, 2026-11-04): its
     wake claims the day (`dream_asks`, one row per calendar day, so of two chats one is told) and says so; on `ask` it
     asks first. The person's own routine can run it too, through the `dream` tool. Tests check that a wake under
     `auto` plans only the worker (`runner.ts`) and no night run, that `dream` launch works, and the first-chat night

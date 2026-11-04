@@ -440,7 +440,7 @@ export class Tenants {
  * 2026-10-26): the setting is the PERSON'S wish, and the HOST decides who starts
  * the night. On this host no night run is spawned — no path from the server or
  * its worker starts one (that is Claude Code's hooks alone): the day's first
- * claude.ai chat is told to run the night itself after answering (HN1,
+ * claude.ai chat is told to run the night itself, then answer (HN1,
  * `mcp/server.ts#claudeAiNight`), and the person's own routine can run it
  * through the `dream` tool. The tests pin both halves
  * (`hosted/test/tenants.test.ts`, `hosted/test/first-chat-night.test.ts`).

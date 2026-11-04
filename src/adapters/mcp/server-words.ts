@@ -366,9 +366,10 @@ export const CLAUDE_AI_DREAM_NOTE =
 
 /**
  * THE ONE LINE A FIRST-CHAT NIGHT SAYS (HN1, Mike 11-03): the person hears that
- * the night is running, and how to have it asked first instead.
+ * the night ran, and how to have it asked first instead. Past tense: it comes
+ * with the answer, after the night (Mike 11-04, night first, lightly held).
  */
-export const CLAUDE_AI_NIGHT_SAID = "Sorting yesterday's memories now. Tell me if you'd rather I ask first next time.";
+export const CLAUDE_AI_NIGHT_SAID = "I sorted yesterday's memories just now. Tell me if you'd rather I ask first next time.";
 
 /**
  * THE FIRST CHAT OF THE DAY RUNS THE NIGHT (HN1, 2026-11-04; Mike 11-03, the
@@ -376,8 +377,12 @@ export const CLAUDE_AI_NIGHT_SAID = "Sorting yesterday's memories now. Tell me i
  * that starts a run on its own, so the night runs in the first conversation of
  * a day that owes one: the wake that wins the day's claim (`server.ts#wakeTool`
  * → `Dreams#claimOffer`) carries this, and no other conversation that day does.
- * On `auto` the model answers first, then says the one line and runs the night
- * in the same reply; on `ask` it asks once and waits. A dream whose reflection
+ * On `auto` the model runs the night first, then answers, with the one line,
+ * in the same reply; on `ask` it asks once and waits. NIGHT FIRST (Mike 11-04,
+ * lightly held): on the M1 rig, answer-first wordings left the answer only in
+ * the model's thinking, 0 of 5 runs, while night-first answered 2 of 2; the
+ * end of a reply is where every client shows text. Answer-first is the cheap
+ * way back if real claude.ai differs. A dream whose reflection
  * was cut off (`reflects`) gets the reflection alone. Every call names the
  * session: with two chats open, an unnamed call files under the newest one.
  */
@@ -389,7 +394,7 @@ export function claudeAiNightLine(p: { readonly session: string; readonly settin
   const what = p.reflects === null ? "Last night's sorting is due" : "Last night's reflection was cut off";
   const later = `If ${p.who} says "ask first", call the dream tool with phase "setting", session: ${p.session}, value: "ask"; if "no dreams", value: "off".`;
   if (p.setting === "auto") {
-    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). Before any of the night's calls, write your reply to ${p.who} as text in this message, not only in your thinking (they see nothing you don't write): answer what they said, and end with this line, once — "${CLAUDE_AI_NIGHT_SAID}" Then, in the same reply, ${start}, without narrating the steps. ${later}`;
+    return `Counterparts: ${what}, and this conversation runs it (the first today; no other conversation is told). Run it now, before you reply: ${start}, without narrating the steps. Then write your reply to ${p.who}: answer what they said, and say this line once — "${CLAUDE_AI_NIGHT_SAID}" ${later}`;
   }
   return (
     `Counterparts: ${what}, and dreaming asks first. After you answer ${p.who}, ask once, in one plain sentence of your own, whether to sort yesterday's memories now (about a minute: day's end, a dream, a reflection); then wait for their word and don't ask again today. ` +
@@ -457,7 +462,7 @@ export const DREAMING_OFF_REFUSAL =
  * wish; the HOST decides who starts the night. Claude Code's first session
  * starts it in the background (its words, byte for byte as before). On
  * claude.ai (and the hosted server, which is claude.ai's host) the first
- * conversation of a day runs it after answering, or asks first on `ask`
+ * conversation of a day runs it before answering, or asks first on `ask`
  * (HN1, 2026-11-04: its wake says so, `claudeAiNightLine`); the person's
  * routine, or a chat on their word, runs it too. Desktop's chat says the day's
  * question itself and follows a launch's prompt in the chat, while a Claude
@@ -473,12 +478,12 @@ export const CLAUDE_CODE_SETTING_SAID: DreamingSettingWords = {
 
 /**
  * CLAUDE.AI'S SETTING WORDS (HN1, 2026-11-04): the first conversation of a day
- * runs the night after answering. The words before HN1 — "nothing here starts
+ * runs the night, then answers. The words before HN1 — "nothing here starts
  * a night on its own: their night routine, or saying \"dream\" in a chat, runs
  * the night" — were the old default, when only a routine or a "dream" did.
  */
 export const CLAUDE_AI_SETTING_SAID: DreamingSettingWords = {
-  auto: "Dreaming on: once a day, the first conversation runs the night (day's end, the dream, the reflection) after answering, and says so in one line. Their night routine, if they set one up, runs it instead when it comes first, and saying \"dream\" in a chat runs it too. \"Ask first\" is value ask.",
+  auto: "Dreaming on: once a day, the first conversation runs the night (day's end, the dream, the reflection) before it answers, and says so in one line. Their night routine, if they set one up, runs it instead when it comes first, and saying \"dream\" in a chat runs it too. \"Ask first\" is value ask.",
   ask: "Dreaming asks first: once a day, the first conversation asks them, after answering, whether to run the night now, and waits for their word. Their night routine, if they set one up, still runs it, and saying \"dream\" in a chat runs it too.",
   off: "No dreams: no conversation runs the night or asks, and the night is skipped even if their routine runs — its launch is refused and says so. Saying \"dreams on\" turns it back on (this phase, value auto).",
 };

@@ -498,8 +498,9 @@ signup in `hosted/test/oauth.test.ts`.
 ## 2026-11-04 — the first claude.ai chat of the day runs the night (HN1)
 
 claude.ai has no background, so the night runs in a chat: the wake of the day's first conversation that owes a night
-claims the day and tells the model to answer first, then say one line and run the night in the same reply (`ask`:
-ask first). The claim is the existing `dream_asks` latch, not a new one, so a routine's launch, another chat's claim,
+claims the day and tells the model to run the night, then answer with one line in the same reply (`ask`:
+ask first; night first is Mike's 11-04 call, lightly held: answer-first left the answer in the model's thinking on the
+M1 rig). The claim is the existing `dream_asks` latch, not a new one, so a routine's launch, another chat's claim,
 or a night already run or under way leave every other chat untold. No night run is spawned here; the chat's tool
 calls are the night. A claim the model never acts on is taken up by a later chat after 30 quiet minutes, at most twice
 a day (core's relaunch). Through the socket: `hosted/test/first-chat-night.test.ts`. M1 measured a full night at 8–9

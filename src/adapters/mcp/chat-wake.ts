@@ -17,7 +17,7 @@
  *   3. THE NIGHT, ONCE A DAY (HN1, 2026-11-04). The core's day's dream line,
  *      relayed in a chat, read as "say dream if you want" (trial, 2026-10-26),
  *      so it is never said here. Instead the first conversation of a day that
- *      owes a night is told to run it after answering (`auto`), or to ask
+ *      owes a night is told to run it, then answer (`auto`), or to ask
  *      first (`ask`): claude.ai's own words (`server-words.ts#claudeAiNightLine`),
  *      after the notices, so the person's things come first.
  *   4. "THE SAME YOU" ONLY WHEN IT IS TRUE (`sameYouLine`): one line naming

@@ -91,12 +91,12 @@ export interface ToldMemory {
  * Edit these constants when either ships; the memories below read them.
  *
  * SHIPPED (hosted nights, HN1 2026-11-04): "claude.ai's first chat of the day
- * runs the night" (Mike, 11-03, the hosted plan's "First-week talk"), after
- * answering; "ask first" makes it ask. A nightly routine still runs it, if
+ * runs the night" (Mike, 11-03, the hosted plan's "First-week talk"), then
+ * answers (night first, 11-04); "ask first" makes it ask. A nightly routine still runs it, if
  * they set one up. Memories 1 and 2 read these.
  */
 export const HOSTED_NIGHTS_TIP = '"Ask first" has me ask before I sort yesterday\'s memories in our first chat of the day; "no dreams" turns the nights off.';
-export const HOSTED_NIGHTS_HOW = "After a day of use, the next day's first chat runs a night pass once I've answered: it sorts that day, connects things, settles what changed, and writes a short dream and reflection. A nightly routine they set up runs it instead, when it comes first.";
+export const HOSTED_NIGHTS_HOW = "After a day of use, the next day's first chat runs a night pass before I answer: it sorts that day, connects things, settles what changed, and writes a short dream and reflection. A nightly routine they set up runs it instead, when it comes first.";
 /*
  * PENDING (hosted single-memory delete): "build it" (the hosted plan's
  * "First-week talk", 11-03). Today hosted has no way to remove one memory.
