@@ -1193,8 +1193,14 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
       env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
     });
     expect(r.status).toBe(0);
-    const out = JSON.parse(r.stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
+    // Two forms, the envelope's contract (`envelope.ts#hostDelivery`): a JSON object
+    // when there is a line for the person (a reminder told, a doctor notice), else
+    // the model's context as plain text. A dev checkout's own "Checkout" notice
+    // makes every local start the object; CI's clean tree prints plain text
+    // whenever nothing is told.
+    const out = (r.stdout.startsWith("{") ? JSON.parse(r.stdout) : { hookSpecificOutput: { additionalContext: r.stdout } }) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
     const model = out.hookSpecificOutput?.additionalContext ?? "";
+    if (o.event !== "UserPromptSubmit") expect(model).toContain("<!-- counterparts:wake ");
     const at = model.indexOf("<!-- counterparts:wake ");
     const end = model.indexOf("\n", model.indexOf("<!-- counterparts:wake/end"));
     return { wake: at < 0 ? model : model.slice(at, end < 0 ? undefined : end), above: at < 0 ? "" : model.slice(0, at), person: out.systemMessage ?? "" };
