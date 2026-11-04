@@ -328,14 +328,15 @@ export function settingsLeftEmpty(home: string, env: Record<string, string | und
 }
 
 /** The lines for both, said once the hooks are out. */
-function tidyHost(input: UninstallInput, u: Ui): void {
+function tidyHost(input: UninstallInput, u: Ui, took: boolean): void {
   const { home, env } = input;
   const settings = userSettingsPath(home, env);
   const { removed, failed } = removeSettingsBackups(home, env);
   if (removed.length > 0) {
     u.ok(
       `removed ${removed.length === 1 ? "the backup" : `${String(removed.length)} backups`} of ` +
-        `${basename(settings)} that Counterparts made in ${tilde(dirname(removed[0]!), home)}`,
+        `${basename(settings)} that Counterparts made in ${tilde(dirname(removed[0]!), home)}` +
+        (took && removed.length > 1 ? ", the one just taken included" : ""),
     );
   }
   for (const path of failed) u.hint(`could not remove ${tilde(path, home)}; it is a backup Counterparts made, safe to delete.`);
@@ -1510,7 +1511,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   if (input.record !== undefined) input.record.unwired = true;
   // The plugin's keep arm (`onlyDead`) may leave a live npm install's hooks:
   // its backups are that install's, and stay.
-  if (!viaPlugin && (removed.hooks === "removed" || removed.hooks === "none")) tidyHost(input, u);
+  if (!viaPlugin && (removed.hooks === "removed" || removed.hooks === "none")) tidyHost(input, u, removed.backup !== null);
 
   // ── the memory ────────────────────────────────────────────────────────────
   u.blank();
@@ -1700,7 +1701,7 @@ async function offerDelete(
       }
       return rest.outcome !== "ok" ? rest.outcome : "refused";
     }
-    if (rest.hooks === "removed" || rest.hooks === "none") tidyHost(input, u);
+    if (rest.hooks === "removed" || rest.hooks === "none") tidyHost(input, u, rest.backup !== null);
   }
   u.blank();
   return deletePlan(input, u, { ...again, census: plan.census });

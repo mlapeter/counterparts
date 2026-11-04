@@ -495,7 +495,7 @@ describe("the remover it names, and the backups it takes back", () => {
     expect(existsSync(join(claude, "settings.json.bak"))).toBe(true);
     expect(JSON.parse(readFileSync(join(claude, "settings.json"), "utf8"))).toEqual({ model: "opus" });
     const said = text(c.out);
-    expect(said).toContain("removed 3 backups of settings.json that Counterparts made in ~/.claude");
+    expect(said).toContain("removed 3 backups of settings.json that Counterparts made in ~/.claude, the one just taken included");
     expect(said).not.toContain("is left as {}");
     // The last line is the remover for this copy.
     expect(c.out.filter((l) => l.length > 0).at(-1)).toBe(`To remove the program too: ${REMOVE_PACKAGE}`);
