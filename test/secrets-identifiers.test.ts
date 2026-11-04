@@ -32,6 +32,18 @@ const ORDINARY_CODE = [
   "secret = secrets.token_hex()",
   "num_tokens = count_tokens(text)",
   "unk_token = pad_token",
+  "pin_memory=True",
+  "dataloader = DataLoader(ds, pin_memory=True)",
+  "bypass = skip_auth",
+  'compass = "north"',
+  "session_key_fn = make_key()",
+  'private_key_path = "keys/a.pem"',
+  'private_key = "keys/server.pem"',
+  "auth = request.auth",
+  'author = "bob"',
+  "password_hash = compute_hash",
+  "pass_rate = 0.93",
+  "auth: failed",
   "pad_token_id = eos_token_id",
   "sep_token = cls_token",
   "mask_token = unk_token",
@@ -70,7 +82,34 @@ const REAL_SECRETS: Array<[string, string]> = [
   ["token = lin_api_abcdefghijkl", "lin_api_abcdefghijkl"],
   ["api_key = aBcdEfghIjklMnop", "aBcdEfghIjklMnop"],
   ["secret = abcdefabcdef_fedcbafedcba", "abcdefabcdef_fedcbafedcba"],
+  ["passphrase = correct horse", "correct"],
+  ['passphrase = "correct horse battery"', "correct horse battery"],
+  ["passphrase=correct_horse_battery", "correct_horse_battery"],
+  ["passphrase: xK9mQ2vL7pR4", "xK9mQ2vL7pR4"],
+  ["db_pass = hunter2x", "hunter2x"],
+  ["DB_PASS=Zq8xT3vLm9", "Zq8xT3vLm9"],
+  ['user_pass: "s3cr3tvalue"', "s3cr3tvalue"],
+  ["user_pass = correct_horse", "correct_horse"],
+  ["pin = 123456", "123456"],
+  ['pin = "4821"', "4821"],
+  ["PIN=1234", "1234"],
+  ['private_key = "xK9mQ2vL7pR4wZ8nB3"', "xK9mQ2vL7pR4wZ8nB3"],
+  ['privateKey: "xK9mQ2vL7pR4wZ8nB3"', "xK9mQ2vL7pR4wZ8nB3"],
+  ["private_key = correct_horse_battery", "correct_horse_battery"],
+  ["signing_key = abc123XYZ789", "abc123XYZ789"],
+  ["SIGNING_KEY=correct_horse_battery", "correct_horse_battery"],
+  ["session_key = qW3rT5yU7i", "qW3rT5yU7i"],
+  ["session_key: purple_monkey_dishwasher", "purple_monkey_dishwasher"],
+  ["AUTH=Zq8xT3vLm9pp", "Zq8xT3vLm9pp"],
+  ["BEARER=Zq8xT3vLm9pp", "Zq8xT3vLm9pp"],
+  ["BEARER=correct_horse_battery", "correct_horse_battery"],
 ];
+
+test("a PEM block under private_key is still caught (by the private-key-block rule)", () => {
+  const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234abcd\n-----END RSA PRIVATE KEY-----";
+  expect(redactSecrets(`private_key = "${pem.replace(/\n/g, "\\n")}"`)).not.toContain("MIIEow");
+  expect(redactSecrets(`private_key = """${pem}"""`)).not.toContain("MIIEow");
+});
 
 describe("RD1: identifiers assigned to identifiers", () => {
   for (const line of ORDINARY_CODE) {

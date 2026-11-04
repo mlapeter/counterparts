@@ -124,7 +124,7 @@ const CODE_REFERENCE =
   /^[A-Za-z_$][A-Za-z_$]*(?:(?:(?:\.|::|->)[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]\n]{0,60}\]|\([^)\n]{0,80}\))+[[(]?|[[(])[,;]?$/;
 const TYPE_NAME =
   /^(?:str|int|bytes|bool|float|dict|list|tuple|set|object|Any|None|SecretStr|SecretBytes|string|number|boolean|[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+)[,;]?$/;
-const PASSWORD_NAME = /(?:password|passwd|pwd)$/i;
+const PASSWORD_NAME = /(?:password|passwd|pwd|passphrase|pass)$/i;
 // A bare identifier assigned to a credential-looking name (`pad_token = eos_token`):
 // letters only, joined by underscores or camelCase humps, no digit. A real secret
 // has digits or no word structure; `hunter2x` and `abcdefghijkl` stay values.
@@ -142,6 +142,8 @@ function isSetting(value: string, match: string, name: string): boolean {
   if (/^[+-]?\d+(?:\.\d+)?$/.test(v)) {
     return !(PASSWORD_NAME.test(name) && v.replace(/\D/g, "").length >= 6);
   }
+  // A key FILE is a path, not the key: `private_key = "keys/a.pem"`.
+  if (/^[\w./~-]+\.(?:pem|key|p12|pfx|crt|cer|der|jks)$/i.test(v)) return true;
   if (quoted) return false;
   if (CODE_REFERENCE.test(v)) return true;
   if (
@@ -371,7 +373,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     //    one (re-review R4: `DB_PASSWORD=abc,defghij`, `DB_PASSWORD=Ab3$x`).
     //    `pgpassword` is Postgres's own variable, glued with no separator.
     re: new RegExp(
-      "(?<![A-Za-z0-9])(pgpassword|password|passwd|pwd)\\b" +
+      "(?<![A-Za-z0-9])(pgpassword|password|passwd|pwd|passphrase|(?<=[A-Za-z0-9][_-])pass)\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
         PASSWORD_VALUE,
@@ -389,7 +391,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     re: new RegExp(
       "(?<![A-Za-z0-9])(api[_-]?key|apikey|access[_-]?key|secret[_-]?key[_-]?base|secret[_-]?key|" +
         "client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|" +
-        "bearer[_-]?token|secret|token|credentials?)\\b" +
+        "bearer[_-]?token|private[_-]?key|signing[_-]?key|session[_-]?key|secret|token|credentials?)\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
         CREDENTIAL_VALUE,
@@ -423,6 +425,34 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
       // A password may be four characters; anything else needs six.
       (!/(?:password|passwd|pwd)$/i.test(name) && value.replace(/^["']|["']$/g, "").length < 6),
     why: "A credential under a camelCase or glued name.",
+  },
+  {
+    family: "assigned-credential",
+    // 4. A PIN, as a WHOLE name (`pin_memory=True` and `spin` never match) and only
+    //    with a numeric value of four to twelve digits, quoted or not.
+    re: new RegExp(
+      "(?<![A-Za-z0-9_.-])(pin)\\b" +
+        ASSIGNED_SEPARATOR +
+        NOT_A_PLACEHOLDER +
+        "(\"\\d{4,12}\"|'\\d{4,12}'|\\d{4,12})(?![\\w.])",
+      "gi",
+    ),
+    value: 2,
+    propagate: true,
+    why: "A PIN under its own name.",
+  },
+  {
+    family: "assigned-credential",
+    // 5. BARE `AUTH=` / `BEARER=` in capitals, `=` only: the env-var form. Lowercase
+    //    `auth` is prose and code (`auth: failed`, `auth = request.auth`).
+    re: new RegExp(
+      "(?<![A-Za-z0-9_])(AUTH|BEARER)\\b" + "\\s*=\\s*" + NOT_A_PLACEHOLDER + CREDENTIAL_VALUE,
+      "g",
+    ),
+    value: 2,
+    propagate: true,
+    skip: isSetting,
+    why: "A bare AUTH / BEARER environment variable.",
   },
 ];
 
