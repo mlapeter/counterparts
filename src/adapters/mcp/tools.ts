@@ -2270,6 +2270,12 @@ function withClaudeAiSession(spec: ToolSpec): ToolSpec {
  * routine's own prompt. A replaced negative still says "Do NOT", and the
  * list is chosen by the server's host (`toolListFor`), never a client's name.
  */
+/** `text` with `from` replaced once; throws when `from` is not there (a reworded base fails loudly). */
+function replacedOnce(text: string, from: string, to: string): string {
+  if (!text.includes(from)) throw new Error(`claude.ai words: "${from}" is no longer in the base text`);
+  return text.replace(from, to);
+}
+
 export const CLAUDE_AI_WORDS: Readonly<
   Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string; readonly negativeExamples?: readonly string[] }>>
 > = {
@@ -2302,6 +2308,8 @@ export const CLAUDE_AI_WORDS: Readonly<
   },
   // TT1 (2026-11-04): hosted claude.ai keeps the page on a server, not "this machine".
   self_page: {
+    // TT1 review: "a longer page is kept whole" read as any length; the cap is said where the length is.
+    summary: replacedOnce(SELF_PAGE.summary, "a longer page is kept whole,", "a longer page is kept whole (past 16,384 bytes it is refused, never trimmed),"),
     negativeExamples: SELF_PAGE.negativeExamples.map((n) => n.replace("the most durable text on this machine", "the most durable text in this memory")),
   },
   chapter: {
@@ -2444,8 +2452,8 @@ const TRAIT_ITEM_UNDESCRIBED = { "[].axis": null, "[].toward": null, "[].strengt
 /** One memory's fields, as `remember` and each `session_end` entry share them. */
 const CLAUDE_AI_ENTRY_FIELDS: Readonly<Record<string, string | null>> = {
   updates:
-    'The id or handle of a memory this revises: a field, never written into the memory\'s words. To close a dated or open one: its id with `eventDate: null` or `unresolved: false`. A repeating reminder done this time: its id with `status: "done"` and no eventDate (`eventDate: null` ends the repeat). Its date, remind, about, tags, occurredOn, saidBy and status carry over unless you send your own.',
-  how: 'With `updates`: `changed` (the default: both were true at their time; the old one is shown as earlier), `corrected` (the old one was wrong; it leaves recall), `open` (a real disagreement: both stay). For changed or corrected, say the journey in your own words ("I used to think X, now Y").',
+    'The id or handle of a memory this revises: a field, never written into the memory\'s words. To close a dated or open one: its id with `eventDate: null` or `unresolved: false`. A repeating reminder done this time: its id with `status: "done"` and no eventDate (`eventDate: null` ends the repeat). Its date, remind, recurring, about, tags, occurredOn, saidBy and status carry over unless you send your own, and settlesWhen does too when the revision keeps `unresolved: true`.',
+  how: 'With `updates`: `changed` (the default: both were true at their time; the old one is shown as earlier), `corrected` (the old one was wrong; it leaves recall), `open` (a real disagreement: both stay). For changed or corrected, say the journey in your own words ("I used to think X, now Y"). If the memory looks unrelated, nothing is settled and you are shown it: settle it yourself if you meant it.',
   salience:
     "Optional, 0-1: how much this caught your attention. Leave it unset for routine things. 0.3 something only skimmed; 0.5 a lesson or decision; 0.7 something they told you about their life, a moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high.",
   relevance: "Optional 0-1: how much this bears on them, on you, or on the two of you.",
@@ -2561,7 +2569,8 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
     },
   },
   self_page: {
-    served: ["It writes ONE row, kept with its versions", "Pass `ifVersion`", "This tool cannot unwrite the page"],
+    // "This tool cannot unwrite the page" names the owner's console, which hosted has none of: an engine row here.
+    served: ["It writes ONE row, kept with its versions", "Pass `ifVersion`"],
     fields: {
       short: `A SHORT VERSION, for a page past ${String(PAGE_ROOM_BYTES)} bytes: under ${String(PAGE_ROOM_BYTES)} bytes, first person, the whole of who you are condensed. Beside \`body\`, or alone (with \`ifVersion\`) to add one to the page as it stands.`,
     },

@@ -18,6 +18,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -243,6 +244,218 @@ describe("2. claude.ai's wake, through the door", () => {
   });
 });
 
+/** What claude.ai's trim was last read against (TT1): see the drift guard below. */
+const REVIEWED: Record<string, unknown> = {
+  "remember": {
+    "claims": [
+      "d0327d81d3",
+      "f54c8690fd",
+      "98baa4f3e1",
+      "63eacaf1ba",
+      "9b3be4be5f",
+      "b37659c3d3",
+      "6e024a616f"
+    ],
+    "fields": {
+      "text": "acc78bd9ad",
+      "updates": "2a424621d5",
+      "how": "e714d82a7a",
+      "salience": "1834cd690e",
+      "relevance": "7a7f8e3999",
+      "title": "8afc29c74e",
+      "eventDate": "98298dca72",
+      "remind": "ab0bfa03b1",
+      "recurring": "b88fe2a713",
+      "occurredOn": "1edf3ed3be",
+      "saidBy": "85d56d9cf7",
+      "status": "d4fbfe4c52",
+      "tags": "1ac013d11e",
+      "feelings": "c99b2992a8",
+      "feelings[].whose": "0d206058ad",
+      "feelings[].core": "9911db1028",
+      "feelings[].emotion": "023c77c53c",
+      "feelings[].strength": "bd1273bb51",
+      "feelings[].valence": "af3d5ba021",
+      "feelings[].carried_by": "ec8c64bc6b",
+      "feelings[].beneath": "21cd428e58",
+      "about": "61db531e04",
+      "unresolved": "cbd16aad96",
+      "settlesWhen": "b6305e2b4e",
+      "settle": "45475eb24f",
+      "settle.holds": "6a58514bdd",
+      "settle.over": "0e32ce9884",
+      "settle.why": "e251d15b83",
+      "belief": "f088b81712",
+      "traits": "e48e635dcd",
+      "traits[].axis": "4ea8cee912",
+      "traits[].toward": "d87177c798",
+      "traits[].strength": "6cfd8d9786",
+      "traits[].carried_by": "901e01a5ce",
+      "feelingsNow": "4db0f39551",
+      "feelingsNow[].id": "293b5fce93",
+      "feelingsNow[].whose": "9cb1dc84c6",
+      "feelingsNow[].core": "9911db1028",
+      "feelingsNow[].emotion": "023c77c53c",
+      "feelingsNow[].strength": "b6ebd82f72",
+      "feelingsNow[].valence": "6e86e907f7",
+      "feelingsNow[].carried_by": "2a8ae4e5eb",
+      "remark": "3e9b45b1d5",
+      "core": "519446dddc"
+    },
+    "drop": {
+      "feelings[].other_word": "ead44e7a57"
+    }
+  },
+  "recall": {
+    "claims": [
+      "913873af41",
+      "312153695b",
+      "288907549d",
+      "056871d394",
+      "6e1b0ef218",
+      "ca4f6302b5",
+      "ab397b31e7",
+      "17c340725c",
+      "0ed0b658cf"
+    ],
+    "fields": {
+      "question": "090112a6c7",
+      "page": "aa1b4f19b4",
+      "handle": "9464451b8b"
+    },
+    "drop": {}
+  },
+  "session_end": {
+    "claims": [
+      "fc8ed84b10",
+      "919361e09b",
+      "b4c2358982",
+      "0572e5746c",
+      "b37659c3d3",
+      "3f518669ca",
+      "6e024a616f"
+    ],
+    "fields": {
+      "session": "c7de830b9b",
+      "memories": "5fefea46d7",
+      "memories[].content": "c45ca15650",
+      "memories[].updates": "a6f4f4941b",
+      "memories[].how": "e714d82a7a",
+      "memories[].salience": "1834cd690e",
+      "memories[].relevance": "7a7f8e3999",
+      "memories[].title": "8afc29c74e",
+      "memories[].eventDate": "98298dca72",
+      "memories[].remind": "ab0bfa03b1",
+      "memories[].recurring": "b88fe2a713",
+      "memories[].occurredOn": "1edf3ed3be",
+      "memories[].saidBy": "85d56d9cf7",
+      "memories[].status": "d4fbfe4c52",
+      "memories[].tags": "1ac013d11e",
+      "memories[].feelings": "c99b2992a8",
+      "memories[].feelings[].whose": "0d206058ad",
+      "memories[].feelings[].core": "9911db1028",
+      "memories[].feelings[].emotion": "023c77c53c",
+      "memories[].feelings[].strength": "bd1273bb51",
+      "memories[].feelings[].valence": "af3d5ba021",
+      "memories[].feelings[].carried_by": "ec8c64bc6b",
+      "memories[].feelings[].beneath": "21cd428e58",
+      "memories[].about": "61db531e04",
+      "memories[].unresolved": "cbd16aad96",
+      "memories[].settlesWhen": "b6305e2b4e",
+      "handoff": "fa6de1c646",
+      "retireHandoff": "34bc6caa85",
+      "writeUp": "1fdaed7301",
+      "part": "ace4ea8b85",
+      "nothing": "34d8726914",
+      "drewOn": "cbaecd892f",
+      "rated": "5c705cf810",
+      "rated[].id": "0824ef53e4",
+      "rated[].score": "71bbe091d9"
+    },
+    "drop": {
+      "memories[].traits": "d132aa0aa1",
+      "memories[].feelings[].other_word": "ead44e7a57"
+    }
+  },
+  "chapter": {
+    "claims": [
+      "eea74247a7",
+      "78b28e5dd5",
+      "922a9218ee",
+      "974a5eab35",
+      "600c7b1878"
+    ],
+    "fields": {
+      "session": "728826c924",
+      "about": "7e2907d04a"
+    },
+    "drop": {}
+  },
+  "self_page": {
+    "claims": [
+      "382ca09ed8",
+      "f263a9a748",
+      "c5d586229b",
+      "8f28858062",
+      "f70e3ad3fa",
+      "580a77e324",
+      "cfc5410773",
+      "596f7c9a4e",
+      "3125002f69",
+      "1871f5d91b",
+      "32a9cd2fbf"
+    ],
+    "fields": {
+      "short": "d94ea23d16"
+    },
+    "drop": {}
+  },
+  "dream": {
+    "claims": [
+      "798679dd04",
+      "b89cdd86bf",
+      "5ee0f84881",
+      "7490213a88",
+      "15a23bb2be",
+      "d4488c1b6e",
+      "e2d61270a8",
+      "09268ba204",
+      "637784db2d"
+    ],
+    "fields": {
+      "session": "7d4241f119",
+      "changes[].emotion": "3801918a03",
+      "changes[].core": "2985e8ff7b"
+    },
+    "drop": {}
+  },
+  "reflect": {
+    "claims": [
+      "2f4e172f97",
+      "29e1effdc1",
+      "e84c6cb9ad",
+      "dc0db6b551",
+      "81696c8d4f",
+      "c869eaf6cc",
+      "94e981652a",
+      "bf572bb209",
+      "92124fde45",
+      "1cc7f7a4aa"
+    ],
+    "fields": {
+      "session": "c28179806e",
+      "traits": "901488a68e",
+      "feelings[].emotion": "023c77c53c",
+      "feelings[].core": "acd48bd5a0"
+    },
+    "drop": {}
+  },
+  "remember.negativeExamples": "c9716eb17f",
+  "session_end.negativeExamples": "5dca71613a",
+  "self_page.negativeExamples": "caa0d05bfb",
+  "self_page.summary": "1d98475edc"
+};
+
 describe("4. the tool words for chat", () => {
   test("no claude.ai description tells Claude to call a tool unasked; wake's words are for tool search", async () => {
     const { http } = await door();
@@ -301,10 +514,11 @@ describe("4. the tool words for chat", () => {
         expect(spec.privileges).toEqual((base?.privileges ?? []).filter((p) => spec.privileges.includes(p)));
         for (const p of spec.privileges) expect(base?.privileges.includes(p)).toBe(true);
       }
-      // Served and engine together are exactly the base's rows: none lost, none added.
+      // Served and engine together are exactly the base's rows, each once: none lost, none added, none doubled.
       const rows = [...spec.privileges, ...(spec.engine ?? [])];
       expect(rows.length).toBe(baseRows.length);
-      for (const p of rows) expect(baseRows.includes(p)).toBe(true);
+      expect(new Set(rows).size).toBe(rows.length);
+      expect(new Set(rows)).toEqual(new Set(baseRows));
       // The same annotations, but a chat copy is never read-only: it takes `session` (H1, `tools.ts#chatAnnotations`).
       const b = base?.annotations;
       expect(spec.annotations).toEqual((b?.readOnlyHint === true ? { ...b, readOnlyHint: false, idempotentHint: false } : b) as never);
@@ -334,8 +548,12 @@ describe("4. the tool words for chat", () => {
     // Words false on claude.ai: no terminal, no folders, no hooks' registry, no dashboard, no
     // end-of-session or boundary ask. `reflect.phase` keeps "join" (a share's question about two
     // folders being one project), which a claude.ai store never asks and a shared local store may.
-    const FALSE_HERE = /terminal|\bfolders?\b|director(y|ies)|hooks' |dashboard|end-of-session ask|boundary ask|this machine/i;
-    const found = texts.filter(([path, text]) => path !== "reflect.phase" && FALSE_HERE.test(text)).map(([path, text]) => `${path}: ${String(text.match(FALSE_HERE)?.[0])}`);
+    // `recall` (its description) keeps "the session-start 'Last here' line" inside the time-filter claim,
+    // which claude.ai serves whole because it says how a time in the question reads; a claude.ai wake has
+    // a last-here line too. `self_page.session` names the night's own writer, as on every host.
+    const FALSE_HERE = /terminal|\bfolders?\b|director(y|ies)|hooks' |dashboard|end-of-session ask|boundary ask|this machine|console|session-start/i;
+    const EXEMPT = new Set(["reflect.phase", "recall"]);
+    const found = texts.filter(([path, text]) => !EXEMPT.has(path) && FALSE_HERE.test(text)).map(([path, text]) => `${path}: ${String(text.match(FALSE_HERE)?.[0])}`);
     expect(found).toEqual([]);
 
     const by = Object.fromEntries(defs.map((t) => [t.name, t]));
@@ -380,6 +598,46 @@ describe("4. the tool words for chat", () => {
       expect(json).toContain("in their terminal");
       expect(json).toContain("other_word");
     }
+  });
+
+  /**
+   * THE DRIFT GUARD (TT1 review, 2026-11-04). claude.ai's short words are a reading of every host's
+   * words at one moment. When those change — a field's description, a claim added, reworded or
+   * dropped, a negative the chat's own are derived from — this fails, so the short words are read
+   * again instead of going quietly stale: a new claim would otherwise be served on claude.ai as an
+   * engine row (unrendered) with nobody having decided it. To pass again, re-read the base words
+   * against `CLAUDE_AI_TRIM` / `CLAUDE_AI_WORDS`, change claude.ai's if needed, and paste the new
+   * value of REVIEWED from the failure.
+   */
+  test("drift guard: every host's words that claude.ai's trim was read against are still those words", () => {
+    const hash = (text: string): string => createHash("sha256").update(text).digest("hex").slice(0, 10);
+    const at = (schema: unknown, path: string): Record<string, unknown> => {
+      let node = schema as Record<string, unknown>;
+      path.split(".").forEach((step) => {
+        const items = step.endsWith("[]");
+        const property = (node["properties"] as Record<string, Record<string, unknown>>)[items ? step.slice(0, -2) : step] as Record<string, unknown>;
+        node = items ? (property["items"] as Record<string, unknown>) : property;
+      });
+      return node;
+    };
+    const now: Record<string, unknown> = {};
+    for (const [name, trim] of Object.entries(CLAUDE_AI_TRIM)) {
+      const base = TOOLS.find((t) => t.name === name);
+      expect(base).toBeDefined();
+      now[name] = {
+        claims: base!.privileges.map((p) => hash(p.claim)),
+        fields: Object.fromEntries(Object.keys(trim?.fields ?? {}).map((path) => [path, hash(String(at(base!.inputSchema, path)["description"]))])),
+        drop: Object.fromEntries((trim?.drop ?? []).map((path) => [path, hash(JSON.stringify(at(base!.inputSchema, path)))])),
+      };
+    }
+    for (const [name, words] of Object.entries(CLAUDE_AI_WORDS)) {
+      const base = TOOLS.find((t) => t.name === name);
+      // Only words derived from the base's (filtered, mapped, replaced) are read against it.
+      if (words?.negativeExamples !== undefined && name !== "dream") now[`${name}.negativeExamples`] = hash(JSON.stringify(base?.negativeExamples));
+      if (name === "self_page") now["self_page.summary"] = hash(String(base?.summary));
+    }
+    if (process.env["TT1_PRINT_REVIEWED"] === "1") console.log(JSON.stringify(now, null, 2));
+    expect(now).toEqual(REVIEWED);
   });
 
   // H1 (2026-10-29): the honesty question, closed by the door test below. Whether claude.ai skips its
