@@ -175,37 +175,32 @@ describe("Elsewhere names a folder by its name (FS1 item 3)", () => {
   });
 });
 
-describe("a dream files what it writes under its sources' folder (FS1 item 1)", () => {
+describe("a dream files what it writes by its sources' folders (FS1 item 1)", () => {
   const D1 = "2026-10-23";
   const D2 = "2026-10-24";
   const at = (ymd: string, h: number): number => Date.parse(`${ymd}T00:00:00Z`) + h * HOUR;
 
   function nightBrain(): { c: Counterpart; set(t: number): void } {
-    let clock = at(D1, 10);
+    let clock = at(D1, 8);
     const c = Counterpart.open({ dir: storeDir, snapshotsDir: join(root, "snaps"), budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
     open.push(c);
     c.store.advanceClock(D1);
     return { c, set: (t) => void (clock = t) };
   }
 
-  function worked(c: Counterpart, scope: string, body: string): string {
-    const day = c.store.livedDay();
-    return c.store.put({ type: "memory", kind: "fact", body, about: "work", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day }, origin: { session: WRITER, scope } });
+  /** A memory written at `hour` on D1, so "newest" is told by when. */
+  function worked(n: { c: Counterpart; set(t: number): void }, hour: number, scope: string, body: string, about = "work"): string {
+    n.set(at(D1, hour));
+    const day = n.c.store.livedDay();
+    return n.c.store.put({ type: "memory", kind: "fact", body, about: about as "work", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day }, origin: { session: WRITER, scope } });
   }
 
-  test("launched from evals: sim's merge is sim's, a fold across sim and paper has no folder, evals' own fold is evals'", async () => {
-    const { c, set } = nightBrain();
-    const sim1 = worked(c, SIM, "Ablation-7 against baseline: five seeds, 0.41 against 0.38.");
-    const sim2 = worked(c, `${SIM}/`, "Ablation-7 against baseline, five seeds: 0.41 to 0.38.");
-    const sim3 = worked(c, SIM, "Theo launched a ten-seed rerun of ablation-7.");
-    const paper1 = worked(c, PAPER, "Ablation-7 against baseline in the paper: ten seeds, 0.42 against 0.37, stds pending.");
-    const ev1 = worked(c, EVALS, "The probe sweep over twelve checkpoints: probe accuracy 0.61 rising.");
-    const ev2 = worked(c, EVALS, "No fixed seed is recorded for the evals sweeps.");
+  /** The night's dream child, launched from a session in evals: each change through the door; the rows it wrote, in order. */
+  async function dreamFromEvals(n: { c: Counterpart; set(t: number): void }, changes: Record<string, unknown>[]): Promise<string[]> {
     scopes({ [EVALS]: "on", [SIM]: "on", [PAPER]: "on" });
-    set(at(D2, 3));
-    // The night's dream child, launched from a session in evals.
+    n.set(at(D2, 3));
     const s = new McpServer({
-      counterpart: c,
+      counterpart: n.c,
       session: NIGHT,
       scope: EVALS,
       registryDir: join(root, "registry"),
@@ -213,29 +208,81 @@ describe("a dream files what it writes under its sources' folder (FS1 item 1)", 
       scopesFile: join(conf, "scopes.json"),
       env: { COUNTERPARTS_NIGHT_CHILD: "dream", COUNTERPARTS_NIGHT_RUN: "1" },
     });
-    const began = (await s.call("dream", { phase: "begin", session: NIGHT })).structuredContent;
-    const dream = String(began["dream"]);
+    const dream = String((await s.call("dream", { phase: "begin", session: NIGHT })).structuredContent["dream"]);
     expect(dream).toStartWith("drm_");
-    const out = (
-      await s.call("dream", {
-        phase: "propose",
-        session: NIGHT,
-        dream,
-        changes: [
-          { action: "merge", ids: [sim1, sim2], text: "Ablation-7 against baseline: five seeds, 0.41 against 0.38.", why: "the same result twice" },
-          { action: "gist", fold: true, sources: [sim3, paper1], text: "Ablation-7 against baseline, where it stands: a ten-seed rerun in sim, the paper's table waiting on stds.", why: "one thread" },
-          { action: "gist", fold: true, sources: [ev1, ev2], text: "The evals probe sweep: accuracy rising, its seed unrecorded.", why: "one sweep" },
-        ],
-      })
-    ).structuredContent;
+    const out = (await s.call("dream", { phase: "propose", session: NIGHT, dream, changes })).structuredContent;
     expect(out["refused"] ?? []).toEqual([]);
-    const made = c.store.dreamChanges(dream).filter((x) => x.action === "merge" || x.action === "gist").map((x) => String(x.ref));
-    expect(made.length).toBe(3);
-    const scopeOf = (id: string | undefined): string | null => c.store.row(String(id))?.origin_scope ?? null;
-    expect(scopeOf(made[0])).toBe(SIM);
-    expect(scopeOf(made[1])).toBeNull();
-    expect(scopeOf(made[2])).toBe(EVALS);
+    return n.c.store.dreamChanges(dream).filter((x) => x.action === "merge" || x.action === "gist").map((x) => String(x.ref));
+  }
+
+  const scopeOf = (c: Counterpart, id: string | undefined): string | null => c.store.row(String(id))?.origin_scope ?? null;
+
+  test("launched from evals: sim's merge is sim's; a work fold goes to its majority folder, a tie to the newest source's; a personal fold across folders has none", async () => {
+    const n = nightBrain();
+    const sim1 = worked(n, 8, SIM, "Ablation-7 against baseline: five seeds, 0.41 against 0.38.");
+    const sim2 = worked(n, 9, `${SIM}/`, "Ablation-7 against baseline, five seeds: 0.41 to 0.38.");
+    const sim3 = worked(n, 10, SIM, "Theo launched a ten-seed rerun of ablation-7.");
+    const sim4 = worked(n, 11, SIM, "The rerun's seeds are 0 through 9, logged to the sim notebook.");
+    const paper1 = worked(n, 12, PAPER, "Ablation-7 against baseline in the paper: ten seeds, 0.42 against 0.37, stds pending.");
+    const ev1 = worked(n, 13, EVALS, "The probe sweep over twelve checkpoints: probe accuracy 0.61 rising.");
+    const ev2 = worked(n, 14, EVALS, "No fixed seed is recorded for the evals sweeps.");
+    const own1 = worked(n, 15, SIM, "Theo's sister Ana visits in the spring.", "owner");
+    const own2 = worked(n, 16, PAPER, "Ana is staying for two weeks in April.", "owner");
+    const made = await dreamFromEvals(n, [
+      { action: "merge", ids: [sim1, sim2], text: "Ablation-7 against baseline: five seeds, 0.41 against 0.38.", why: "the same result twice" },
+      { action: "gist", fold: true, sources: [sim3, sim4, paper1], text: "Ablation-7, where it stands: a ten-seed rerun in sim, the paper's table waiting on stds.", why: "one thread" },
+      { action: "gist", fold: true, sources: [sim3, paper1], text: "Ablation-7 between the sim rerun and the paper's table.", why: "the tie" },
+      { action: "gist", fold: true, sources: [ev1, ev2], text: "The evals probe sweep: accuracy rising, its seed unrecorded.", why: "one sweep" },
+      { action: "gist", fold: true, sources: [own1, own2], text: "Ana visits for two weeks in April.", why: "one visit" },
+    ]);
+    expect(made.length).toBe(5);
+    expect(scopeOf(n.c, made[0])).toBe(SIM);
+    expect(scopeOf(n.c, made[1])).toBe(SIM); // two of three sources
+    expect(scopeOf(n.c, made[2])).toBe(PAPER); // one each: paper's is the newer
+    expect(scopeOf(n.c, made[3])).toBe(EVALS);
+    expect(n.c.store.row(String(made[1]))?.about).toBe("work");
+    expect(scopeOf(n.c, made[4])).toBeNull(); // personal, from two folders: everyone's
+    expect(n.c.store.row(String(made[4]))?.about).toBe("owner");
     // Its session is still the launching one: the night wrote it.
-    expect(c.store.row(String(made[0]))?.origin_session).toBe(NIGHT);
+    expect(n.c.store.row(String(made[0]))?.origin_session).toBe(NIGHT);
+  });
+
+  /** The fold, dated today (a reschedule, as a session would), then the real SessionStart hook in each folder. */
+  async function datedFoldComesUp(sources: (n: { c: Counterpart; set(t: number): void }) => string[]): Promise<Record<string, string>> {
+    const n = nightBrain();
+    const ids = sources(n);
+    const [fold] = await dreamFromEvals(n, [{ action: "gist", fold: true, sources: ids, text: "Ablation-7 rerun: write up the ten-seed table, due today.", title: "Ablation-7 table write-up", why: "one thread" }]);
+    n.c.store.setMeta(WAKE_SHAPE_KEY, "on");
+    n.c.store.revise(String(fold), { eventDate: new Date().toISOString().slice(0, 10) });
+    n.c.close();
+    const out: Record<string, string> = {};
+    let k = 0;
+    for (const [name, dir] of [["sim", SIM], ["paper", PAPER], ["evals", EVALS]] as const) {
+      out[name] = section(hook(dir, `eeee55${String(k++).padStart(2, "0")}-0000-4000-8000-000000000005`), "Coming up:");
+    }
+    return out;
+  }
+
+  test("a dated sim+paper work fold, mostly sim's, is due in sim's Coming up only, counted elsewhere", async () => {
+    const up = await datedFoldComesUp((n) => [
+      worked(n, 8, SIM, "Theo launched a ten-seed rerun of ablation-7."),
+      worked(n, 9, SIM, "The rerun's seeds are 0 through 9."),
+      worked(n, 10, PAPER, "The paper's ablation table waits on the rerun's stds."),
+    ]);
+    expect(up["sim"]).toContain("- Due today · Ablation-7 table write-up");
+    for (const other of ["paper", "evals"]) {
+      expect(up[other]).not.toContain("Due today · Ablation-7 table write-up");
+      expect(up[other]).toContain("1 in other folders");
+    }
+  });
+
+  test("a tie: the newest source's folder, and only there", async () => {
+    const up = await datedFoldComesUp((n) => [
+      worked(n, 8, SIM, "Theo launched a ten-seed rerun of ablation-7."),
+      worked(n, 10, PAPER, "The paper's ablation table waits on the rerun's stds."),
+    ]);
+    expect(up["paper"]).toContain("- Due today · Ablation-7 table write-up");
+    expect(up["sim"]).not.toContain("Due today · Ablation-7 table write-up");
+    expect(up["evals"]).not.toContain("Due today · Ablation-7 table write-up");
   });
 });

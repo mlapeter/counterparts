@@ -348,9 +348,13 @@ dreamer is the model (a background agent the session launches), outside this pro
   standing: an original written before the old-claims cutoff gives the merged memory its
   moment (`meta.eraWrittenAt`) and its `claimedDefault`, so the era reads the merged
   memory as it read that original; `store/marks.ts#inheritFrom`, `store/operational.ts#eraCarriedFrom`),
-  **where a merge or gist is filed** (FS1, 2026-11-04): under the folder its sources share
-  (`slices.ts#nightFolder`), or no folder when they span folders or one records none; until
-  then the launching session's, so a fold of one repo's work landed in another's. Its session
+  **where a merge or gist is filed** (FS1, 2026-11-04; the work rule from counterparts-a0 that
+  afternoon, `slices.ts#nightFolder`): by what it is, its own mark and kind as `isWorkMemory`
+  reads them (the mark from its sources, as above: `inheritFrom`, `foldMarkFrom` for a fold).
+  Work stays work in one folder: the one most of its sources come from, on a tie the newest
+  source's; never none, since a work row with no folder reads as personal everywhere. Anything
+  else goes under the folder its sources share, else none. A source with no folder doesn't vote.
+  Until then the launching session's, so a fold of one repo's work landed in another's. Its session
   is still the launching one, and `dreams.scope` still says where the dream ran;
   `link` (both ways, proposed at `LINK_WEIGHT` through
   `associate`, only where there is room, since 2026-09-28), `replayed` (a

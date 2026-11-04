@@ -524,7 +524,7 @@ type FolderRow = { type: string; origin_scope: string | null; origin_ref: string
  * A ROW THE NIGHTLY RUN WROTE — a dream's merge or gist, a reflection's entry —
  * told by origin (`dream:` / `reflection:`, which catches a merge, whose
  * `source` is its best source's) or by source, as the store's `NIGHTLY_SQL`
- * tells it. A dream's merge or gist is filed under its sources' folder
+ * tells it. A dream's merge or gist is filed by its sources' folders
  * (`nightFolder`, FS1, 2026-11-04), a reflection's entry under the folder the
  * night ran in; a privacy read still follows its originals either way.
  */
@@ -554,21 +554,46 @@ export function memoryFolder(store: Pick<Store, "row">, row: FolderRow): string 
 }
 
 /**
- * WHERE A DREAM FILES WHAT IT WRITES (FS1, 2026-11-04): the folder its sources
- * share, each read as `memoryFolder` reads it and `projectFolder`-normalized;
- * null — no folder, the unscoped default — when they span folders, or when any
- * source records none. Until FS1 a merge or gist took the folder of the session
- * that launched the night, so a fold of sim's work run from evals was evals'
- * (the 11-04 developer week). Never throws.
+ * WHERE A DREAM FILES WHAT IT WRITES (FS1, 2026-11-04; the work rule from
+ * counterparts-a0 that afternoon, lightly held). Until FS1 a merge or gist took
+ * the folder of the session that launched the night, so a fold of sim's work
+ * run from evals was evals' (the 11-04 developer week).
+ *
+ * What it IS decides, by the mark the written memory takes (`about`, from its
+ * sources: `inheritFrom` / `foldMarkFrom`) and its kind, as `isWorkMemory` reads
+ * any memory:
+ *
+ *   - WORK stays work, in one folder: the folder most of its sources come from;
+ *     on a tie, the newest source's (by `created_at`) among the tied. Never no
+ *     folder: a work row with none reads as personal and would reach every
+ *     folder's Coming up, the leak FS1 stops.
+ *   - Anything else (me, us, owner, world): the folder its sources share, else
+ *     none — the unscoped default, which reaches every folder as personal does.
+ *
+ * Each source's folder is `memoryFolder`'s, `projectFolder`-normalized; a source
+ * with none doesn't vote (for work) and makes "shared" fail (for the rest).
+ * Null when no source has a folder. Never throws.
  */
-export function nightFolder(store: Pick<Store, "row">, sources: readonly FolderRow[]): string | null {
-  const folders = new Set(sources.map((r) => {
+export function nightFolder(
+  store: Pick<Store, "row">,
+  sources: readonly (FolderRow & { created_at?: number | null })[],
+  written: { about: string | null; kind: WorkFacts["kind"] },
+): string | null {
+  const folders = sources.map((r) => {
     const f = memoryFolder(store, r);
     return f === null ? "" : projectFolder(f);
-  }));
-  if (folders.size !== 1) return null;
-  const only = [...folders][0] as string;
-  return only.length > 0 ? only : null;
+  });
+  const votes = new Map<string, { n: number; newest: number }>();
+  folders.forEach((f, i) => {
+    if (f.length === 0) return;
+    const at = sources[i]?.created_at ?? 0;
+    const had = votes.get(f);
+    votes.set(f, { n: (had?.n ?? 0) + 1, newest: Math.max(had?.newest ?? -Infinity, at) });
+  });
+  if (votes.size === 0) return null;
+  const top = [...votes.entries()].sort((a, b) => b[1].n - a[1].n || b[1].newest - a[1].newest)[0]?.[0] ?? null;
+  if (top !== null && isWorkMemory({ about: written.about, kind: written.kind, originScope: top, journal: false })) return top;
+  return new Set(folders).size === 1 && votes.size === 1 ? top : null;
 }
 
 /** Does this night row rest on a closed row, following night rows among its originals? An original that is gone says nothing. */

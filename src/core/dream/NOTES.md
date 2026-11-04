@@ -1438,9 +1438,14 @@ at review): a tag on one would count toward a topic card's bar. Pinned by one ni
 ## 2026-11-04 — FS1: where a dream files what it writes
 
 - The developer week (tier 2) caught a fold of sim's and paper's ablation work filed under evals, the folder of the
-  session that launched the night, so it showed as evals' own news. A merge or gist now takes the folder its sources
-  share (`slices.ts#nightFolder`, each read as `memoryFolder` reads it), or none when they span folders or one records
-  none. The privacy reads (`nightOriginFolders`, `restsOnClosed`, `memoryClosedTo`) still follow the originals, so they
-  hold for rows filed before FS1 and for the no-folder case. `dreams.scope` and the row's session are unchanged.
-- Not followed: a source that is itself a night row written before FS1 still carries the launching folder, and a merge
-  of it files by that. Rows written since are right; following originals here too is the fix if it bites.
+  session that launched the night, so it showed as evals' own news. `slices.ts#nightFolder` now files by what the row
+  is. Work (its mark and kind, as `isWorkMemory` reads them; the mark comes from its sources, so a fold is personal only
+  when most of its parts are): the folder most of its sources come from, on a tie the newest source's. Anything else:
+  the folder its sources share, else none. Sources with no folder don't vote.
+- First built as "shared folder, else none" for everything. counterparts-a0 ruled against it the same afternoon: a
+  work fold with no folder reads as personal (`threadPlace`), so a dated one is due in every folder's Coming up, the
+  leak FS1 exists to stop. Work therefore always lands in one of its folders.
+- The privacy reads (`nightOriginFolders`, `restsOnClosed`, `memoryClosedTo`) still follow the originals, so they hold
+  for rows filed before FS1 and for whichever folder a work fold lands in. `dreams.scope` and the row's session are
+  unchanged.
+- Not followed: a source that is itself a night row written before FS1 votes with the launching folder it carries.

@@ -2248,8 +2248,8 @@ export class Dreams {
         const status = statusOf(best.r.status);
         const occurredOn = occurredOnOf(best.r.occurred_on);
         const names = this.namesToKeep(rs, words.text, change.title, day);
-        // FILED UNDER ITS ORIGINALS' FOLDER (FS1, 2026-11-04), not the launching session's: one they share, else none.
-        const folder = nightFolder(this.store, rs);
+        // FILED BY ITS ORIGINALS' FOLDERS (FS1, 2026-11-04), not the launching session's (`nightFolder`).
+        const folder = nightFolder(this.store, rs, { about: about?.about ?? null, kind: best.r.kind as Kind });
         const newId = this.store.put({
           type: "memory",
           kind: best.r.kind,
@@ -2428,8 +2428,8 @@ export class Dreams {
         // A plain gist's sources stay as they were, each still naming what it
         // names; a fold's fade and stand behind it, so it keeps their names.
         const names = isFold ? this.namesToKeep(sourceRows as MemoryRow[], words.text, change.title, day) : NO_NAMES;
-        // FILED UNDER ITS SOURCES' FOLDER (FS1, 2026-11-04), not the launching session's: one they share, else none.
-        const folder = nightFolder(this.store, sourceRows as MemoryRow[]);
+        // FILED BY ITS SOURCES' FOLDERS (FS1, 2026-11-04), not the launching session's (`nightFolder`).
+        const folder = nightFolder(this.store, sourceRows as MemoryRow[], { about: about?.about ?? null, kind });
         const id = this.store.put({
           type: "memory",
           kind,
