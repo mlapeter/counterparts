@@ -42,6 +42,7 @@ import { HANDOFFS_HERE_HANDLE } from "../src/core/handoff/index.js";
 import { LAST_EXCHANGE_HANDLE } from "../src/core/handoff/last-exchange.js";
 import { TOLD_TITLE_PREFIX } from "../src/core/told.js";
 import { STILL_OPEN_HANDLE } from "../src/core/self/index.js";
+import { DELETED_HANDLE } from "../src/core/removal-hold.js";
 import { planBundle, bundlePaths } from "../tools/plugin-bundle/build.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
 
@@ -87,6 +88,7 @@ const HANDLES = new Set<string>([
   LAST_EXCHANGE_HANDLE,
   ...LAST_NIGHT_HANDLES,
   MANUAL_HANDLE,
+  DELETED_HANDLE,
 ]);
 /** The two update commands the manual may print, as `update-words.ts` says them. */
 const UPDATE_COMMANDS = new Set([npmUpdateCommand("node"), npmUpdateCommand("bun")]);

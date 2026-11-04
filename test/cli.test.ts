@@ -4684,9 +4684,20 @@ describe("owner operations never run under observer", () => {
 // ── the import graph ────────────────────────────────────────────────────────
 
 describe("the destruction path is importable from this directory only", () => {
-  test("no core module, no other adapter, and no test but this one imports removal.ts", () => {
+  test("no core module and nothing a model can reach imports removal.ts — only this directory and the worker's hold sweep", () => {
+    // THE RULE, REWORDED 2026-11-04 (HD1; CLI CONTRACT §1 and §3). Until then:
+    // no file outside `adapters/cli/` might name `removal.ts` at all. Now a
+    // chat may delete one memory, and keeps v1's purpose by making the model's
+    // call NON-DESTRUCTIVE: `remember`'s `remove` writes a `held` row
+    // (`core/removal-hold.ts`, which imports nothing that destroys), and the
+    // erase runs only in the console or in a sweep after 24 hours of wall-clock
+    // time. So ONE file in `src/` outside this directory may import it — the
+    // background worker (`claude-code/bin/runner.ts`), which no model calls —
+    // and only `sweepHeldRemovals` from it. Hosted's timer is pinned below.
     const root = join(import.meta.dir, "..", "src");
+    const RUNNER = join("adapters", "claude-code", "bin", "runner.ts");
     const offenders: string[] = [];
+    const runnerLines: string[] = [];
     const walk = (path: string): void => {
       for (const name of readdirSync(path)) {
         const full = join(path, name);
@@ -4698,12 +4709,35 @@ describe("the destruction path is importable from this directory only", () => {
         const body = readFileSync(full, "utf8");
         if (!body.includes("removal.js") && !body.includes("removal.ts")) continue;
         if (full.includes(join("adapters", "cli"))) continue;
+        if (full.endsWith(RUNNER)) {
+          runnerLines.push(...body.split("\n").filter((l) => l.includes("removal.js") || l.includes("removal.ts")));
+          continue;
+        }
         offenders.push(full);
       }
     };
     walk(root);
     // §16 G2, earned-mechanism #14: THIS TEST FAILING IS THE POINT.
     expect(offenders).toEqual([]);
+    // NOT VACUOUS, and NARROW: the worker imports the sweep, and nothing else of it.
+    expect(runnerLines).toEqual(['import { sweepHeldRemovals } from "../../cli/removal.js";']);
+  });
+
+  test("hosted reaches removal.ts from its timer's file only, and the door a model talks to never does", () => {
+    // `hosted/` sits outside `src/` and the walk above, so it gets its own pin
+    // (HD1). `hosted/src/app.ts` runs the ten-minute timer that erases a chat's
+    // delete after its hold; `server.ts` (the `/mcp` door) and `tenants.ts`
+    // (the per-store servers) must not reach the erase.
+    const root = join(import.meta.dir, "..", "hosted", "src");
+    const hits: string[] = [];
+    for (const name of readdirSync(root)) {
+      if (!name.endsWith(".ts")) continue;
+      const body = readFileSync(join(root, name), "utf8");
+      for (const line of body.split("\n")) {
+        if (/from\s+["'][^"']*\/removal\.js["']|import\s*\(\s*["'][^"']*\/removal\.js["']|require\s*\(\s*["'][^"']*\/removal\.js["']/.test(line)) hits.push(`${name}: ${line.trim()}`);
+      }
+    }
+    expect(hits).toEqual(['app.ts: import { sweepHeldRemovals } from "../../src/adapters/cli/removal.js";']);
   });
 
   test("the seam's CHASE is imported by this directory only — a type import is not a caller", () => {

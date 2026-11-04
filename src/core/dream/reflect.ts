@@ -4261,6 +4261,16 @@ export class Reflections {
   }
 
   /**
+   * Is a reflection begun and not finished in ANY session, and not left
+   * behind (quiet past `ABANDONED_AFTER_MS`)? HD1 fix round: a chat's delete
+   * waits for hosted's in-chat night.
+   */
+  busyAnywhere(): boolean {
+    const now = this.store.now();
+    return this.store.reflections({ limit: 5 }).some((r) => r.state === "begun" && now - r.started_at <= DREAM_TUNABLES.ABANDONED_AFTER_MS);
+  }
+
+  /**
    * IS A REFLECTION UNDER WAY IN THIS SESSION, as the night's fence reads it
    * (`Dreams.busyIn`'s twin): begun, or finished with a part sent back that
    * `finish` would still take. Both let go past `ABANDONED_AFTER_MS`, a run

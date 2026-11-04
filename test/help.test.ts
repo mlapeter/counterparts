@@ -88,7 +88,8 @@ describe("the short page", () => {
     // this page has had no Advanced group since, and is shorter than the target.
     // 25 since 2026-09-24: the `credentials` line went with the API keys, on
     // the owner's word. 24 since 2026-10-12: `self-page` is one plain line.
-    expect(lines).toHaveLength(24);
+    // 26 since 2026-11-04: where to send a bug, and anything else (owner's word).
+    expect(lines).toHaveLength(26);
     expect(page).not.toContain("\nAdvanced\n");
     // `usage()` is the same page — the two names are one thing.
     expect(usage()).toBe(page);

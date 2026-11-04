@@ -479,6 +479,23 @@ export { RECURRING_META };
  */
 export const STORE_CREATED_KEY = "store.created";
 
+/**
+ * HOW LONG A CHAT'S DELETE WAITS BEFORE THE ERASE (HD1, 2026-11-04; Mike's
+ * yes, lightly held): 24 hours of WALL-CLOCK time, never lived days — the CLI
+ * CONTRACT's rule for any cooling-off (a day away must still be a day of
+ * second thoughts). Inside it the memory is hidden and `released` brings it
+ * back; after it the owner-side sweep erases it (`sweepHeldRemovals`, `adapters/cli/`).
+ */
+export const REMOVAL_HOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One memory's `removal_record` rows, grouped: true when its newest `held`
+ * is newer than its newest `released` (HD1). Shared by every deny-list read so
+ * the rule is written once.
+ */
+const HELD_HAVING =
+  "COALESCE(MAX(CASE WHEN stage = 'held' THEN seq END), 0) > COALESCE(MAX(CASE WHEN stage = 'released' THEN seq END), 0)";
+
 export const WRITE_METHODS = [
   "put",
   "putMany",
@@ -1407,10 +1424,18 @@ export class Store {
        *  last model's. A revise that leaves the body alone keeps the model. */
       model?: string;
       reason?: string;
+      /**
+       * A precondition asked of the row INSIDE the write transaction
+       * (`BEGIN IMMEDIATE`, `putUnless`'s pattern): true writes nothing and
+       * the revise returns 0. For a revise two processes may make at once from
+       * one stale read (the starter memories' one-time revision, HD1).
+       */
+      unless?: (row: { title: string | null; body: string; revision: number; archived: number; superseded_by: string | null }) => boolean;
     },
   ): number {
-    const { doc, seq, hash } = this.mutate("revise", () => {
+    const out = this.mutate("revise", () => {
       const row = this.requireRow(id);
+      if (patch.unless?.(row) === true) return null;
       const prior = this.docOf(row);
       const seq = row.revision + 1;
       // THE PRIOR VERSION, WORDS AND ALL, IN THE SAME TRANSACTION. It used to be
@@ -1505,6 +1530,8 @@ export class Store {
       }
       return { doc: next, seq, hash: nextHash };
     });
+    if (out === null) return 0;
+    const { doc, seq, hash } = out;
     this.indexOne(doc);
     this.emit("store.revise", id, { seq, hash });
     return seq;
@@ -3994,20 +4021,43 @@ export class Store {
    * A later stage appends; it never rewrites the earlier line (§16 G8). If this
    * cannot be written, the caller must move nothing (§16 G10).
    */
-  appendRemovalRecord(note: RemovalNote): number {
+  appendRemovalRecord(note: RemovalNote, opts: { unless?: () => boolean; at?: number } = {}): number {
+    // `unless` (HD1's claim, 2026-11-04): asked INSIDE the write transaction —
+    // `BEGIN IMMEDIATE`, so a second process asking the same waits on the busy
+    // timeout and then reads what the first wrote (`putUnless`'s pattern). True
+    // writes nothing and returns 0. `at`: the caller's clock for this row, when
+    // the caller's decision was made on it (the hold sweep's `now`).
     const seq = this.mutate("appendRemovalRecord", () => {
+      if (opts.unless?.() === true) return 0;
       this.ops.run(
         "INSERT INTO removal_record (memory_id, stage, at, actor, reason) VALUES (?, ?, ?, ?, ?)",
         note.memoryId,
         note.stage,
-        this.nowFn(),
+        opts.at ?? this.nowFn(),
         note.actor,
         note.reason ?? null,
       );
       const row = this.ops.get<{ seq: number }>("SELECT last_insert_rowid() AS seq");
       return row?.seq ?? 0;
     });
+    if (seq === 0) return 0;
     this.emit("store.removal.recorded", note.memoryId, { stage: note.stage, seq });
+    // AN UNDO PUTS IT BACK IN THE WORD INDEX (HD1). A cache rebuild inside the
+    // window (`verify --rebuild`, a repair, a migration) skips every denied id,
+    // the held one too, so a `released` re-indexes that one row from its own
+    // prose — the lexical half; a vector the rebuild dropped comes back with
+    // the worker's backfill. Only a row that is live and no longer denied.
+    if (note.stage === "released") {
+      const row = this.row(note.memoryId);
+      if (row !== undefined && row.archived === 0 && row.superseded_by === null && !this.isDenied(note.memoryId)) {
+        try {
+          indexDoc(this.cache, note.memoryId, indexTextOf(row.title, row.body));
+        } catch {
+          // The undo stands; a later rebuild indexes it.
+          this.emit("store.removal.reindex.failed", note.memoryId, {});
+        }
+      }
+    }
     return seq;
   }
 
@@ -5452,13 +5502,91 @@ export class Store {
     return this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE source = 'told' AND archived = 0 AND superseded_by IS NULL")?.n ?? 0;
   }
 
-  /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
+  /**
+   * Ids a removal has taken dark: consulted at load and at rebuild (§16 G12).
+   *
+   * And, since HD1 (2026-11-04), ids on a HOLD: a `held` with no later
+   * `released`. A chat's delete hides the memory everywhere the deny-list is
+   * read, at once — recall, the wake, the night, sleep, reminders — and the
+   * owner-side sweep erases it after the window. Two clauses, never "the
+   * latest stage": the sweep's own `requested`, appended between the hold and
+   * `dark`, must not bring a held memory back for that moment.
+   */
   deniedIds(): string[] {
     return this.ops
       .all<{ memory_id: string }>(
-        "SELECT DISTINCT memory_id FROM removal_record WHERE stage IN ('dark', 'chased', 'complete')",
+        `SELECT DISTINCT memory_id FROM removal_record WHERE stage IN ('dark', 'chased', 'complete')
+         UNION
+         SELECT memory_id FROM removal_record GROUP BY memory_id HAVING ${HELD_HAVING}`,
       )
       .map((r) => r.memory_id);
+  }
+
+  /**
+   * EVERY HOLD STILL ACTIVE (HD1): ids held and not released, that no removal
+   * has taken dark yet, each with when its newest hold was written (epoch ms)
+   * and the sweep's CLAIMS on it since (`erasing` rows after that hold: how
+   * many, and the newest one's moment). A claim is the sweep's "I am erasing
+   * this now", taken in one transaction (`core/removal-hold.ts#claimHold`); an
+   * undo is refused once one exists. More than one claim means an erase that
+   * failed and was tried again. Oldest first. A read: pure and emit-free.
+   */
+  holds(id?: string): { id: string; at: number; claims: number; claimedAt: number | null }[] {
+    return this.ops
+      .all<{ id: string; at: number; claims: number; claimed_at: number | null }>(
+        `WITH g AS (
+           SELECT memory_id,
+                  MAX(CASE WHEN stage = 'held' THEN seq END) AS hs,
+                  COALESCE(MAX(CASE WHEN stage = 'released' THEN seq END), 0) AS rs,
+                  SUM(CASE WHEN stage IN ('dark', 'chased', 'complete') THEN 1 ELSE 0 END) AS fin
+             FROM removal_record ${id === undefined ? "" : "WHERE memory_id = ?"} GROUP BY memory_id)
+         SELECT g.memory_id AS id, h.at AS at,
+                (SELECT COUNT(*) FROM removal_record e WHERE e.memory_id = g.memory_id AND e.stage = 'erasing' AND e.seq > g.hs) AS claims,
+                (SELECT MAX(e.at) FROM removal_record e WHERE e.memory_id = g.memory_id AND e.stage = 'erasing' AND e.seq > g.hs) AS claimed_at
+           FROM g JOIN removal_record h ON h.seq = g.hs
+          WHERE g.hs IS NOT NULL AND g.hs > g.rs AND g.fin = 0
+          ORDER BY h.at, g.memory_id`,
+        ...(id === undefined ? [] : [id]),
+      )
+      .map((r) => ({ id: r.id, at: r.at, claims: r.claims, claimedAt: r.claimed_at }));
+  }
+
+  /** One id's active hold (`holds()`'s row), or null when it is not on one. */
+  holdState(id: string): { id: string; at: number; claims: number; claimedAt: number | null } | null {
+    return this.holds(id)[0] ?? null;
+  }
+
+  /**
+   * THE HOLDS STILL WAITING (HD1): active holds no sweep has claimed — the
+   * ones an undo can still bring back. The `deleted` handle lists them and the
+   * wake counts them. Oldest first. A read: pure and emit-free.
+   */
+  pendingHolds(): { id: string; at: number }[] {
+    return this.holds()
+      .filter((h) => h.claims === 0)
+      .map((h) => ({ id: h.id, at: h.at }));
+  }
+
+  /** Is this id on a hold an undo can still release: held, not released, not claimed by the sweep, not taken dark (HD1)? */
+  isHeld(id: string): boolean {
+    const h = this.holdState(id);
+    return h !== null && h.claims === 0;
+  }
+
+  /**
+   * READ THROUGH THE HOLD (HD1): a held memory's prose, for the three callers
+   * that must see it while everything else is refused — the erase (its body
+   * is the span chase's fallback, the contamination scan's needle and the cue
+   * sweep's words, read before anything moves: §16 G13), the `deleted` handle
+   * and an undo's answer, which name it by title. Null for anything that is
+   * not held (live, released, or taken dark), so this is never a way around a
+   * removal. `readProse` itself still refuses a held id by name (REMOVED).
+   */
+  heldProse(id: string): ProseDoc | null {
+    // Claimed too: the sweep's own erase reads through its claim.
+    if (this.holdState(id) === null) return null;
+    const row = this.row(id);
+    return row === undefined ? null : this.docOf(row);
   }
 
   /**
@@ -5673,11 +5801,14 @@ export class Store {
 
   /** Emit-free (§14.1 G8: reads are pure) — this is called on every read path. */
   private isDenied(id: string): boolean {
-    const denied = this.ops.get<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM removal_record WHERE memory_id = ? AND stage IN ('dark','chased','complete')",
+    // `deniedIds()`'s two clauses, for one id: taken dark, or on a hold (HD1).
+    const denied = this.ops.get<{ dark: number; held: number | null }>(
+      `SELECT SUM(CASE WHEN stage IN ('dark','chased','complete') THEN 1 ELSE 0 END) AS dark,
+              (${HELD_HAVING}) AS held
+         FROM removal_record WHERE memory_id = ?`,
       id,
     );
-    return (denied?.n ?? 0) > 0;
+    return (denied?.dark ?? 0) > 0 || denied?.held === 1;
   }
 
   private refuseIfDenied(id: string): void {

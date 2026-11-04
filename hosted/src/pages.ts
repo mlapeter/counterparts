@@ -92,15 +92,15 @@ const SENT_WORDS =
 const DELETE_LATER_WORDS =
   "Deleting locks your account and your memory at once: every connected AI is disconnected, and your memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and its key are erased, unless you sign in before then and keep your account. Download your memory first if you want a copy.";
 const DELETE_NOW_WORDS = "your memory, its backups and its key are erased at once, and your account is closed. It can't be undone.";
-const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted account backups within 24 hours of the erase.";
+const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted account backups within 24 hours of the erase. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.";
 const FORGET_WORDS =
   "Removing a single memory isn't available on hosted. You can download your whole memory, or delete your account, which erases all of it.";
 const KEEP_WORDS = "Keeping it brings your account and memory back as they were. Your connected AIs stay disconnected: connect them again from Claude.";
 // The done pages' words, shared with their emails (R9) so the two say the same thing.
 const LOCKED_WORDS = "Your account and memory are locked, every connected AI is disconnected, and you're signed out.";
-const ERASED_WORDS = "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours.";
+const ERASED_WORDS = "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.";
 const ERASING_WORDS =
-  "Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.";
+  "Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.";
 const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 
 /**
