@@ -31,9 +31,9 @@ const SHIMS = ["cli/bin/counterparts.mjs", "claude-code/bin/hook.mjs", "mcp/bin/
 const CANARY = "The project env canary: the kettle in the studio is a Fellow Stagg.";
 
 /**
- * These start Counterparts through `/bin/sh` — the plugin's `plugin-run.sh`,
- * the npm hook line, the POSIX shims — with a POSIX PATH. Windows has no
- * `/bin/sh` for a spawned process to find, so there they fail before running
+ * These start Counterparts through `/bin/sh` or a POSIX shim's shebang — the
+ * plugin's `plugin-run.sh`, the npm hook line, the shims — with a POSIX PATH.
+ * Windows has neither for a spawned process to use, so there they fail before running
  * any of our code (status undefined), or pass for no reason. Skipped there,
  * like `plugin-binary.test.ts`'s launcher tests; no release ships Windows.
  */
