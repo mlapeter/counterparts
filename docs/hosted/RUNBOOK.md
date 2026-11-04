@@ -163,7 +163,9 @@ the domain on Cloudflare.
    node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite --note mike
    ```
 
-   It prints one `cpi_…` code, once. It needs the backup variables set, as `serve` does.
+   It prints one `cpi_…` code, once, and the time it expires. A code lasts 7 days; `--expires 30` gives it 30 (whole
+   days, 1 to 365). A code made before 2026-11-04 has no expiry and stays valid until used. It needs the backup
+   variables set, as `serve` does.
 2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email, so open it
    **in the same browser**.
 3. Your account page shows no connected apps yet.

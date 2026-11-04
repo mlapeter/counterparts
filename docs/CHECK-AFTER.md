@@ -152,7 +152,8 @@ HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage
 - On local, the worker's `runner.holds` and `holds.threw` log lines.
 - Claims: each erase is preceded by an `erasing` row (the sweep's claim, one transaction; an undo is refused once it
   exists). More than one `erasing` after a hold is an erase that failed and was tried again after its backoff (an hour,
-  doubling, at most a day); hosted audits `removal.failed` at the first failure only.
+  doubling, at most a day); hosted audits `removal.failed` at the first failure only, as a count and short codes
+  (`1 failed: unknown-id`, `ERR_SQLITE_ERROR`, else `error`), never an error's words (G1 L6).
 - How long one erase takes on a real hosted store: `ownerRemoval` rebuilds the cache (`rebuildCache()`, vectors
   dropped and re-embedded) and VACUUMs both databases inside the tenant's queue, so the person's calls wait on it.
 - Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text

@@ -57,7 +57,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - The wrong browser is refused without spending the link, so a forwarded email or a mail scanner signs nobody in
       and doesn't burn the link either.
 11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
-    the verified email identity and the store.
+    the verified email identity and the store. A code expires 7 days after it is made unless `invite --expires <days>`
+    (1 to 365) says otherwise (G1 L4, 2026-11-04). Codes made before that default have no expiry and stay valid until
+    used.
 12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
     the email is sent without being awaited, so the response time doesn't say it either. Every ask, refused or not,
     writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
@@ -69,7 +71,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
     first (the client's own words). One proxy hop is assumed; check the header's shape on the first Railway deploy.
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
-    Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
+    Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https. With an https origin EVERY response
+    carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`, set once before routing, so the pages,
+    redirects and the OAuth library's answers have it too (G1 L1). `includeSubDomains` on `app.counterparts.ai`
+    covers only names under it, never the site at the apex or `www`.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 
@@ -104,6 +109,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     The authorization-server document is at both `/.well-known/oauth-authorization-server` and
     `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`: requests reach the library with
     `Host` pinned to it and `X-Forwarded-Host` dropped, because the library builds endpoint URLs from the request.
+    - **DPoP and RP-initiated logout are off** (G1 L2, L3, 2026-11-04; both on by default in oidc-provider 9):
+      `authenticate` never checks a DPoP binding, and no ID tokens are issued, so neither is advertised and
+      `/oauth/session/end` isn't served. Our `/logout` is the sign-out; it still doesn't end the library's own 24 h
+      session (NOTES).
 21. **The CIMD fetch** goes through `egress.ts#cimdFetch`. On Node the library applies its own guard: https only, no
     redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs (checked on the connected socket, so
     DNS rebinding doesn't pass). A Node-only test proves the guard reaches our fetch. We add https-on-443 only.
@@ -116,7 +125,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
     - the mail key.
 
-    `invite` prints one code, once.
+    `invite` prints one code, once, and says on stderr when it expires (7 days, or `--expires <days>`).
 
     `signups` (`src/signups.ts`) prints the people there are now and the sign-ups per week (Monday 00:00 UTC), counts
     only, so its output can be pasted anywhere. It reads `people`'s dates and states on a read-only connection, needs

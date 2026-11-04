@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
+import { openDb } from "../../src/core/store/db.js";
 import { overrideGuard, readEnv } from "../src/main.js";
 import { tempRoot } from "./helpers.js";
 
@@ -97,6 +98,37 @@ describe("the entry point", () => {
       assert.match(String(unauth.headers.get("www-authenticate")), /resource_metadata=/);
     } finally {
       child.kill("SIGTERM");
+    }
+  });
+});
+
+describe("G1 L4: invite --expires", () => {
+  test("no flag: 7 days; --expires 30: 30 days, said on stderr; a bad value is refused and makes no code", () => {
+    const env = baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "http://127.0.0.1", MAIL: "log", BACKUPS: "off" });
+    const before = Date.now();
+    const plain = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite"], { env, encoding: "utf8", timeout: 30_000 });
+    assert.equal(plain.status, 0, plain.stderr);
+    const month = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite", "--expires", "30", "--note", "month"], { env, encoding: "utf8", timeout: 30_000 });
+    assert.equal(month.status, 0, month.stderr);
+    assert.match(month.stdout.trim(), /^cpi_[A-Za-z0-9_-]{43}$/);
+    assert.match(month.stderr, /the code expires \d{4}-\d{2}-\d{2}T/);
+    for (const bad of ["0", "1.5", "never", "366"]) {
+      const run = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite", "--expires", bad], { env, encoding: "utf8", timeout: 30_000 });
+      assert.equal(run.status, 1, bad);
+      assert.match(run.stderr, /--expires takes whole days, 1 to 365/);
+      assert.doesNotMatch(run.stdout, /cpi_/);
+    }
+    const db = openDb(join(tmp.root, "data", "control", "accounts.sqlite"));
+    try {
+      const rows = db.all<{ note: string | null; expires_at: number }>("SELECT note, expires_at FROM invites ORDER BY created_at, note");
+      assert.equal(rows.length, 2, JSON.stringify(rows));
+      const day = 86_400_000;
+      const week = rows.find((r) => r.note === null)!;
+      const thirty = rows.find((r) => r.note === "month")!;
+      assert.ok(week.expires_at >= before + 7 * day && week.expires_at <= Date.now() + 7 * day, String(week.expires_at));
+      assert.ok(thirty.expires_at >= before + 30 * day && thirty.expires_at <= Date.now() + 30 * day, String(thirty.expires_at));
+    } finally {
+      db.close();
     }
   });
 });

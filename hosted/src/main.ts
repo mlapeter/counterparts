@@ -3,7 +3,7 @@
  * THE HOSTED SERVER'S ENTRY POINT (OL2 step 4). Run on Node 24:
  *
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
- *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT]
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT] [--expires DAYS]
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
@@ -583,10 +583,27 @@ async function main(): Promise<void> {
   if (command === "invite") {
     const uses = Number(rest[rest.indexOf("--uses") + 1] ?? "1");
     const note = rest.includes("--note") ? rest[rest.indexOf("--note") + 1] : undefined;
+    // --expires <days> (G1 L4): whole days, 1 to 365; without it, 7. A bad value is refused
+    // rather than read as the default, so a typo never makes a code live longer than meant.
+    let expiresAt: number | undefined;
+    if (rest.includes("--expires")) {
+      const days = Number(rest[rest.indexOf("--expires") + 1]);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        process.stderr.write("[hosted] refused: --expires takes whole days, 1 to 365 (the default is 7).\n");
+        process.exitCode = 1;
+        return;
+      }
+      expiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+    }
     const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
-    const { code } = accounts.createInvite({ maxUses: rest.includes("--uses") && Number.isInteger(uses) && uses > 0 ? uses : 1, ...(note === undefined ? {} : { note }) });
+    const { code, expiresAt: until } = accounts.createInvite({
+      maxUses: rest.includes("--uses") && Number.isInteger(uses) && uses > 0 ? uses : 1,
+      ...(note === undefined ? {} : { note }),
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+    });
     accounts.close();
     process.stdout.write(`${code}\n`);
+    process.stderr.write(`[hosted] the code expires ${new Date(until).toISOString()}\n`);
     return;
   }
   if (command !== "serve" && command !== "rewrap" && command !== "restore") {
