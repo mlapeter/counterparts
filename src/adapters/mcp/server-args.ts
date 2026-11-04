@@ -2,7 +2,7 @@
 import type { DepositResult, SentFacts } from "../../core/counterpart.js";
 import { isRecurrence, occurrenceOnOrAfter, parseCalendarDate, readableDate, readableRecurrence } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
-import { AUTHOR_DIMENSIONS, OWN_PLUMBING_NOTE } from "../../core/remember/index.js";
+import { AUTHOR_DIMENSIONS, ownPlumbingNote } from "../../core/remember/index.js";
 import { screenTags } from "../../core/tag-screen.js";
 import {
   ABOUT_MARKS,
@@ -434,7 +434,7 @@ export function ownPlumbingEcho(deposit: DepositResult): Record<string, unknown>
       kept: true,
       ...(p.dropped.length === 0 ? {} : { dropped: [...p.dropped] }),
       ...(p.aboutRefused === null ? {} : { aboutNotKept: p.aboutRefused }),
-      note: OWN_PLUMBING_NOTE,
+      note: ownPlumbingNote({ dropped: p.dropped, aboutRefused: p.aboutRefused, id: deposit.memoryId ?? "" }),
     },
   };
 }

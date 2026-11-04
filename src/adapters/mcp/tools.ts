@@ -639,16 +639,19 @@ const RELEVANCE_TEXT = "Optional 0-1: how much this bears on them, on you, or on
 /**
  * WHAT A SESSION'S OWN WRITE LEAVES OUT (2026-11-04, TC1): the sentence WP1
  * gave every writer of an ended session's words (`sessions.ts#WRITE_UP_PLUMBING_RULE`),
- * said to the session's own writes too: a Do NOT on `session_end` (inside the
- * host's cut) and on `remember`'s `text` field, served whole (its head has no
- * room left inside the cut). The developer week's red came through
- * here, not the write-up: the session's Stop-ask `session_end` filed its
- * denied `reflect` call as a dated `us` memory. Engine-backed by
+ * said to the session's own writes too: whole on the field the memory is
+ * written in (`remember`'s `text`, a `session_end` entry's `content`), served
+ * whole, and as a short Do NOT on `session_end` inside the host's 2,048 cut —
+ * short so the line that says `saidBy` is a field (the gate's exemption)
+ * stays inside the cut too (review of #751). The developer week's red came
+ * through here, not the write-up: the session's Stop-ask `session_end` filed
+ * its denied `reflect` call as a dated `us` memory. Engine-backed by
  * `counterpart-deposit.ts#ownPlumbingOf`: one that lands anyway keeps no date,
- * open thread or me/us mark, and the result says so.
+ * open thread or me/us/owner mark, and the result says so.
  */
-const OWN_PLUMBING_NEGATIVE =
-  "Do NOT write about this system's plumbing — a refused tool call, a permission prompt, what this session can't do — unless they raised it.";
+const OWN_PLUMBING_RULE =
+  "Do NOT write about this system's plumbing — a refused tool call, a permission prompt, what this session can't do — unless the person raised it.";
+const OWN_PLUMBING_NEGATIVE = "Do NOT save refused calls unless the person raised it.";
 
 const REMEMBER: ToolSpec = {
   name: "remember",
@@ -751,7 +754,7 @@ const REMEMBER: ToolSpec = {
       text: {
         type: "string",
         description:
-          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark` or `core` is sent. " + OWN_PLUMBING_NEGATIVE,
+          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark` or `core` is sent. " + OWN_PLUMBING_RULE,
       },
       updates: {
         type: "string",
@@ -1209,7 +1212,7 @@ const SESSION_END: ToolSpec = {
             content: {
               type: "string",
               description:
-                "One thing, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line.",
+                "One thing, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. " + OWN_PLUMBING_RULE,
             },
             kind: {
               type: "string",

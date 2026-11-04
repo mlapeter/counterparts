@@ -645,7 +645,8 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
         const asked = reflections.joinProposal(reflection);
         if (asked === null) return refused("nothing-proposed", "That reflection asked to join no folders, or the owner's yes is already recorded.");
         if (server.counterpart.store.reflection(reflection)?.share_state !== "told") {
-          return refused("share-not-told", "Tell the share first and mark it told (phase \"told\"); the yes must follow the owner hearing the question.");
+          // Only a share your own `launch` handed back is still untold here (TC1): a carried one was marked as it arrived.
+          return refused("share-not-told", "This share hasn't been told yet: it came back from a reflection you launched, so tell it to the owner first and then call phase \"told\". The yes must follow the owner hearing the question.");
         }
         const folderOn = server["folderOn"]();
         const stale = joinStillStands(server.counterpart.store, asked, { day: server.counterpart.store.livedDay(), ...(folderOn === undefined ? {} : { folderOn }) });

@@ -22,3 +22,10 @@
   notes out. Why: without a date, thread or mark the row still headed its own folder's news
   and, as the folder's newest work, every other folder's Elsewhere in the test; each is a read
   of the write's own stamp, not a word filter.
+- Decided by the TC1 builder after review of #751, 2026-11-04, lightly held: the gate reads
+  only this system's nouns beside a refusal (a counterparts tool named as a tool, a reflect
+  phase's call, marking a share told, the host's own tool), refuses an `owner` mark too, and
+  a revision keeps only the date and thread it carries from a real target. Why: the first
+  cues read ordinary English refusals as plumbing; an `owner`-marked refusal reached every
+  folder's "Since the last night"; and `updates` with a fresh date brought back what the
+  gate had dropped.

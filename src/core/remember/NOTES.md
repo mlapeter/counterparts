@@ -880,3 +880,29 @@ it led Coming up in all 7 later wakes, in every folder. Two halves again:
   kept for recall, never a wake line. Pinned in both wake shapes by `test/refused-calls-stay-plumbing.test.ts`.
 - Open: a revision whose title is plumbing keeps its date and thread, because dropping them would read as closing the
   memory it revises (`closeReminderChain`, `closeThread`). Only its mark is refused. Not seen yet.
+
+### After review of #751 (same day)
+
+- **Only this system's nouns.** A refusal word alone is ordinary English ("Visa permission denied; consulate call on
+  the 12th", "Dad declined permission for the surgery prompt", "the CI tool wasn't granted access", "mcp__github was
+  blocked by SSO"); the first cues read all four. Now a refusal (denied, blocked, not allowed, not approved, said no,
+  needs approval, …) must sit with one of: a counterparts tool named as a tool (`reflect`, `session_end`,
+  `mcp__counterparts…`, the word "counterparts", or `remember`/`recall`/`dream`/`chapter` followed by "call", "tool" or
+  a phase), a reflect phase's call ("the join call"), marking a share, note or reflection told or delivered, or the
+  host's own tool ("the Bash tool call"). Apart from a refusal: a slash command it couldn't run ("Couldn't run /loop
+  here") and a session without file or shell tools ("No Bash in this session"). `status`, `meet` and `scope` are left
+  out of the tool names: "the status call was declined" is a work fact. Every title from the review is a test, either
+  way. The five harness stores read the same: 5 hits, all the refused-`reflect` memories.
+- **`owner` is refused too.** A plumbing title marked about the owner printed in every folder's "Since the last
+  night"; the mark is refused, and `aboutUsWrittenSince` leaves an `ownPlumbing` row out as well.
+- **A revision can't bring the date back.** `updates` on a gated row with a fresh date and thread kept both. Now a
+  revision keeps only what it carries from a real target (its reminder chain, an open thread it carries on); a fresh
+  date on an undated target is dropped as on a first write, and a revision of a plumbing row is a first write. The
+  way back is a real title: "save it again with `updates: <id>` and a title that names the thing, not the refusal",
+  which the result now says, beside only what was actually dropped.
+- **Ambient recall at a prompt** leaves an `ownPlumbing` row out (`recall/index.ts`, after `headsWin`; not a
+  deliberate feeling ask). A question or an id still finds it.
+- **The cut.** The whole rule now sits on the field the memory is written in (`remember`'s `text`, a `session_end`
+  entry's `content`); `session_end`'s Do NOT is the short "Do NOT save refused calls unless the person raised it.",
+  so the sentence saying `saidBy` is a field (the gate's exemption) ends inside the 2,048 cut on every host
+  (`test/description-cut.test.ts`). The rest of that claim's line was already past the cut before TC1.

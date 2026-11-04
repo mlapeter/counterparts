@@ -3039,7 +3039,8 @@ export class Reflections {
     // A CLAIM, not a read then a write (review of #256, S5): two prompts
     // racing both read "offered"; only the one whose write still finds it
     // offered carries it.
-    if (!this.store.updateReflection(row.id, { shareState: "told", shareSession: input.session, ifShareState: "offered" })) return null;
+    // `toldVia` keeps "told on delivery" readable apart from a told call (doctor's Reflection line).
+    if (!this.store.updateReflection(row.id, { shareState: "told", shareSession: input.session, ifShareState: "offered", detail: { ...parseDetail(row.detail), toldVia: "carry" } })) return null;
     const cited = this.toldOnCites(row);
     this.record("reflection.told", row.id, { cited, via: "carry" });
     const who = this.ctx.ownerName() ?? "the owner";

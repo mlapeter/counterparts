@@ -81,12 +81,14 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   hook's output written as user text), is `plumbing`, and `enters()` refuses it, counted.
   What either of them said about it is conversation and still enters.
 - **A memory about our own plumbing keeps no standing** (2026-11-04, TC1) — one whose
-  subject (title, else first line) is a refused tool call, a permission prompt or what the
-  session couldn't do (`own-plumbing.ts#ownPlumbingCue`, pure; never `saidBy: owner`) is
-  kept, without a date, an open thread or a `me`/`us` mark (`counterpart-deposit.ts#ownPlumbingOf`,
-  `meta.ownPlumbing`; the door refuses the mark and says why), and no wake line names it.
-  Every authored door crosses it: `remember`, `session_end`, write-ups. A revision keeps its date and thread (dropping
-  them would close what it revises).
+  subject (title, else first line) is a refused call to this memory's own tools or what the
+  session couldn't do (`own-plumbing.ts#ownPlumbingCue`, pure; only this system's nouns;
+  never `saidBy: owner`) is kept, without a date, an open thread or a `me`/`us`/`owner`
+  mark (`counterpart-deposit.ts#ownPlumbingOf`, `meta.ownPlumbing`; the door refuses the
+  mark and says what it dropped), and no wake line or prompt's ambient recall offers it; a
+  question or an id still finds it. Every authored door crosses it: `remember`,
+  `session_end`, write-ups. A revision of a real memory keeps only the date and thread it
+  carries from that memory; a revision of a plumbing row is a first write.
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].
 

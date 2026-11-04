@@ -15,7 +15,8 @@
  *      the night (the routine's run)    → wake night:true, dream launch / writer /
  *                                         begin / propose / journal, reflect begin /
  *                                         finish with a morning share
- *   7. "hey" after the night            → wake (carries the share and the plan), reflect told
+ *   7. "hey" after the night            → wake (carries the share, marked told as it is handed over,
+ *                                         and the plan), reflect told (a plain yes: already told)
  *
  * Each chat wakes once, as claude.ai does on a new chat, and all of them share
  * one connection (claude.ai keeps one), so the call log reads back per chat
@@ -123,7 +124,7 @@ export interface Observations {
     readonly chapter: { readonly stored: boolean; readonly episodeId: string | null };
     /** The dream's own row: its state, and whether its journal holds the words written. */
     readonly dream: { readonly state: string | null; readonly journalHasWords: boolean; readonly changes: readonly { readonly action: string; readonly ref: string | null }[] };
-    readonly share: { readonly afterNight: string | null; readonly afterWake: string | null; readonly afterTold: string | null; readonly carriedBy: string | null };
+    readonly share: { readonly afterNight: string | null; readonly afterWake: string | null; readonly afterTold: string | null; readonly carriedBy: string | null; readonly toldCall: { readonly ok: boolean; readonly told: boolean } | null };
   };
 }
 
@@ -269,7 +270,7 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
   let episodeId: string | null = null;
   let reflection: string | null = null;
   let dream: string | null = null;
-  const share = { afterNight: null as string | null, afterWake: null as string | null, afterTold: null as string | null, carriedBy: null as string | null };
+  const share = { afterNight: null as string | null, afterWake: null as string | null, afterTold: null as string | null, carriedBy: null as string | null, toldCall: null as { ok: boolean; told: boolean } | null };
 
   try {
     await post("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "ol4-chat-script", version: "0" } });
@@ -347,7 +348,11 @@ export async function playChats(opts: ScriptOptions): Promise<Observations> {
     const s7 = await wake("chat 7");
     share.afterWake = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_state ?? null);
     share.carriedBy = reflection === null ? null : (counterpart.store.reflection(reflection)?.share_session ?? null);
-    if (reflection !== null) await call("chat 7", "reflect", { phase: "told", session: s7, reflection });
+    // A model that still calls `told` (TC1): the share was marked as it was handed over, so a plain yes.
+    if (reflection !== null) {
+      const told = await call("chat 7", "reflect", { phase: "told", session: s7, reflection });
+      share.toldCall = { ok: told.ok, told: told.structured["told"] === true };
+    }
     // "when's the dentist?" — the plan found again by its words.
     await call("chat 7", "recall", { session: s7, question: "dentist zqalvarez", mode: "facts" });
     // The door "Coming up" counts behind: the plan's own id must be behind it, by title.
@@ -453,15 +458,19 @@ export function score(o: Observations, opts: { maxMs?: number } = {}): { rows: R
   );
   add("night: share left offered", o.store.share.afterNight === "offered", `share_state ${String(o.store.share.afterNight)}`);
 
-  // SHARE TOLD: chat 7's wake carries it, the store says so, told marks it.
+  // SHARE TOLD: chat 7's wake carries it, and handing it over marks it told (TC1); a told call after is a plain yes.
   const w7 = stepsOf(o, "chat 7")[0];
   const carried = w7?.text.includes(WORDS.share) === true;
   add(
     "chat 7: wake carries the share",
-    carried && o.store.share.afterWake === "carried" && o.store.share.carriedBy === o.sessions["chat 7"],
+    carried && o.store.share.afterWake === "told" && o.store.share.carriedBy === o.sessions["chat 7"],
     `in the wake ${String(carried)}, share_state ${String(o.store.share.afterWake)}, carried by chat 7 ${String(o.store.share.carriedBy === o.sessions["chat 7"])}`,
   );
-  add("chat 7: share told", o.store.share.afterTold === "told", `share_state ${String(o.store.share.afterTold)}`);
+  add(
+    "chat 7: share told",
+    o.store.share.afterTold === "told" && o.store.share.toldCall?.ok === true && o.store.share.toldCall.told,
+    `share_state ${String(o.store.share.afterTold)}, told call ${JSON.stringify(o.store.share.toldCall)}`,
+  );
   // THE ITEM, NOT A COUNT (WK2, #687's review): the plan's own id, by its title, from the door the
   // wake's "Coming up" names; and with the shape on, the wake's own line naming it.
   const planId = o.ids["plan"] ?? null;

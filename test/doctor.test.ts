@@ -3109,6 +3109,16 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
     expect(f.data["carriedDays"]).toBe(4);
   });
 
+  test("Reflection: a share told on delivery (TC1) says when it was handed over, and that told means delivered", () => {
+    const c = Counterpart.open({ dir, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
+    c.store.openReflection({ id: "rfl_aaaaaaaaaaaa", day: c.store.livedDay(), date: "2026-09-10", questions: [], shown: [] });
+    c.store.updateReflection("rfl_aaaaaaaaaaaa", { state: "reflected", share: "Something to say.", shareState: "told", shareSession: "s-later", detail: { toldVia: "carry" } });
+    c.close();
+    writeConfig({ timeZone: "UTC" });
+    const f = by(doctorFindings(input({ store: store(), config: { dataDir: dir, embedder: { enabled: true }, timeZone: "UTC" } })), "reflection");
+    expect(f.detail).toContain("its morning share handed to a later session 4 days ago (marked told on delivery)");
+  });
+
   /**
    * THE WEEK'S RETURNS ARE THE PERSON'S WEEK (2026-10-09). The window began at
    * UTC midnight six days back, so in Denver an evening return from the day

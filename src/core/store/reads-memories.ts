@@ -356,7 +356,8 @@ export function memoriesWrittenHereSince(store: Store, scope: string, since: num
  * THE LIVE MEMORIES MARKED ABOUT THE OWNER OR US WRITTEN AFTER A MOMENT, in any
  * folder, newest first (WF1, 2026-11-03; the wake's "Since the last night"): the
  * caller ranks them, fences them by folder and drops what another line names.
- * Not the nightly run's (`NIGHTLY_SQL`), not a starter memory. Bounded by `limit`.
+ * Not the nightly run's (`NIGHTLY_SQL`), not a starter memory, not our own plumbing
+ * (TC1, `meta.ownPlumbing`, as `memoryTitlesByScopeSince`). Bounded by `limit`.
  */
 export function aboutUsWrittenSince(store: Store, since: number, until: number, limit: number): MemoryRow[] {
   return store["ops"]
@@ -365,6 +366,7 @@ export function aboutUsWrittenSince(store: Store, since: number, until: number, 
         WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
           AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
           AND about IN ('owner', 'us') AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
+          AND meta NOT LIKE '%"ownPlumbing"%'
         ORDER BY created_at DESC, id LIMIT ?`,
       since,
       until,

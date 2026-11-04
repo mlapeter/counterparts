@@ -5,5 +5,6 @@
 - **A memory about Counterparts' own refused calls stays out of your wake.** When a session
   writes down that a tool call was denied, that a permission prompt was declined, or what it
   couldn't do (a slash command, a tool it doesn't have), the memory is kept without a date, an
-  open thread or a "me"/"us" mark, so it never leads Coming up or the folder's news. The
-  person's own words about a prompt are kept as usual.
+  open thread or a "me", "us" or owner mark, so it never leads Coming up, the wake's news or
+  a prompt's footnotes; asking for it still finds it. The person's own words about a prompt
+  are kept as usual.

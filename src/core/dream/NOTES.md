@@ -1456,7 +1456,9 @@ What it moves, on purpose:
 - `recalled.ts#dreamReach` counts a carry as a touch, even when the model never got to say it.
 - `join`'s "share-not-told" check passes once the share is carried. The trust model is the one the 10-21 accepted-risk
   paragraph above already describes: the yes is the owner's word in the conversation, which the host can't read.
-- `carried` is a historical state: older rows keep it, and doctor's "stuck at carried" line still reads them.
+- `carried` is a historical state: older rows keep it, and doctor's "stuck at carried" line still reads them. A
+  share told on delivery carries `detail.toldVia: "carry"` (after review of #751), and doctor's Reflection line says
+  "handed to a later session N days ago (marked told on delivery)", so whether it was said stays a readable unknown.
 - Unchanged: the hand-back of a reflection a session launched still asks that session for `told`. Only the session
   that just ran `finish` reads it, and it already holds the tool. The night's hand-back is never read by a person.
 - Still open: `closeHow`, `coreHow` and `joinHow` ask the carrying session to call reflect phases on the owner's yes.

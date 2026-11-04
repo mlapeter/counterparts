@@ -4,7 +4,7 @@ import { mintProposal, settlesWhenOf, UNRESOLVED_META_KEY } from "./mint.js";
 import type { MintResult } from "./mint.js";
 import { screenTags } from "./tag-screen.js";
 import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
-import { errCode, ownPlumbingCue, prepareProposal, settleProposal } from "./remember/index.js";
+import { errCode, OWN_PLUMBING_META_KEY, ownPlumbingCue, prepareProposal, settleProposal } from "./remember/index.js";
 import type { OwnPlumbingCue, Proposal, SubmitContext, SubmitResult, ProposalSource } from "./remember/index.js";
 import {
   settleMovedReminder,
@@ -238,7 +238,7 @@ export async function deposit(
   const carriedAbout = cp["carryAbout"](carry.proposal, ctx.about);
   // THIS SYSTEM'S OWN PLUMBING (2026-11-04, TC1): a subject that is a refused
   // call, a prompt or the session's own limits keeps no date, thread or me/us.
-  const plumbing = ownPlumbingOf(minting, carry.from, ctx.about, carriedAbout?.about ?? null);
+  const plumbing = ownPlumbingOf(cp, minting, carry.from, ctx.about, carriedAbout?.about ?? null);
   const minting2: Proposal = plumbing === null ? minting : plumbing.proposal;
   const about = plumbing !== null && carriedAbout !== null && plumbing.aboutRefused === carriedAbout.about ? null : carriedAbout;
   const sentAbout = plumbing !== null && plumbing.aboutRefused !== null && plumbing.aboutRefused === ctx.about ? undefined : ctx.about;
@@ -359,27 +359,32 @@ export async function deposit(
   };
 }
 
-/** The marks a plumbing memory may not carry: being about me, or about the two of us (TC1). */
-const PLUMBING_REFUSED_MARKS: ReadonlySet<string> = new Set(["me", "us"]);
+/** The marks a plumbing memory may not carry: about me, the two of us, or the owner (TC1; owner after review of #751). */
+const PLUMBING_REFUSED_MARKS: ReadonlySet<string> = new Set(["me", "us", "owner"]);
 
 /**
  * THIS SYSTEM'S OWN PLUMBING AT THE WRITE (2026-11-04, TC1): when the
- * memory's subject reads as a refused tool call, a permission prompt or what
- * the session couldn't do (`remember/own-plumbing.ts`; never `saidBy: owner`),
- * it is kept, without the standing a life event has: no date that comes back
+ * memory's subject reads as a refused call to this memory's tools or what the
+ * session couldn't do (`remember/own-plumbing.ts`; never `saidBy: owner`), it
+ * is kept, without the standing a life event has: no date that comes back
  * (`eventDate`, `remind`, a repeat), no open thread (`unresolved`,
- * `settlesWhen`), and no `me` or `us` mark (sent, or carried from what it
- * revises; the door's `recordAbout` honours `aboutRefused`). The developer
- * week's "Morning share told to Theo but reflect 'told' call was
+ * `settlesWhen`), and no `me`, `us` or `owner` mark (sent, or carried from
+ * what it revises; the door's `recordAbout` honours `aboutRefused`). The
+ * developer week's "Morning share told to Theo but reflect 'told' call was
  * permission-denied", dated and `us`, led Coming up in every folder for 7
  * wakes; that is what this stops at the source.
  *
- * A REVISION keeps its date and thread as they are (`carryFrom` set, or an
- * `updates` that resolved): dropping them there would read as closing the
- * memory it revises (`closeReminderChain`, `closeThread`). Only its mark is
- * refused. Null when the subject is not plumbing.
+ * A REVISION OF A REAL MEMORY keeps only what it carries FROM that memory
+ * (review of #751): its date when the reminder is the target's own chain
+ * (`carryFrom`, which also covers a redate of it), its thread when the target
+ * is open. Dropping those would close the memory it revises
+ * (`closeReminderChain`, `closeThread`); a fresh date or thread the target
+ * never had is dropped as on a first write, so `updates` cannot bring back
+ * what the gate dropped. A revision of a plumbing row is a first write. Null
+ * when the subject is not plumbing.
  */
 function ownPlumbingOf(
+  cp: Counterpart,
   p: Proposal,
   carryFrom: string | null,
   sentAbout: string | null | undefined,
@@ -387,14 +392,23 @@ function ownPlumbingOf(
 ): { proposal: Proposal; cue: OwnPlumbingCue; dropped: ("eventDate" | "unresolved")[]; aboutRefused: AboutMark | null } | null {
   const cue = ownPlumbingCue({ title: p.title, content: p.content, saidBy: p.facts?.saidBy ?? null });
   if (cue === null) return null;
-  const revision = carryFrom !== null || (p.updates?.resolved ?? null) !== null;
+  const target = p.updates?.resolved ?? null;
+  let row: MemoryRow | undefined;
+  try {
+    row = target === null ? undefined : cp.store.row(target);
+  } catch {
+    row = undefined;
+  }
+  const real = row !== undefined && !(row.meta ?? "").includes(`"${OWN_PLUMBING_META_KEY}"`);
+  const keepDate = real && carryFrom !== null;
+  const keepThread = real && (row?.meta ?? "").includes('"unresolved":true');
   const dropped: ("eventDate" | "unresolved")[] = [];
   let out: Proposal = p;
-  if (!revision && p.eventDate !== null) {
+  if (!keepDate && p.eventDate !== null) {
     out = { ...out, eventDate: null, remind: null, recurring: null };
     dropped.push("eventDate");
   }
-  if (!revision && p.unresolved) {
+  if (!keepThread && p.unresolved) {
     const { settlesWhen: _s, ...rest } = out;
     void _s;
     out = { ...rest, unresolved: false };

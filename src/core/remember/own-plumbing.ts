@@ -1,25 +1,34 @@
 /**
  * A MEMORY ABOUT THIS SYSTEM'S OWN PLUMBING (2026-11-04, TC1) — a memory
- * whose SUBJECT is a refused or denied tool call, a declined permission
- * prompt, or what the session it was written in could not do (no such tool,
- * a slash command it cannot run). Seen twice live: in Dana's week (11-03) and
- * the developer week (11-04) the session wrote "Morning share told to Theo but
+ * whose SUBJECT is a refused or denied call to this memory's own tools, or
+ * what the session it was written in could not do (a slash command it cannot
+ * run, a tool it lacks). Seen twice live: in Dana's week (11-03) and the
+ * developer week (11-04) the session wrote "Morning share told to Theo but
  * reflect 'told' call was permission-denied", dated and marked `us`, and it
  * led Coming up in every folder for the rest of the week.
  *
  * Not a filter on what is kept: the memory still lands. What its subject
  * cannot claim is the standing a life event has — a date that comes back, an
- * open thread, a mark that it is about me or about us (`counterpart-deposit.ts`
- * applies it, the door says so). The person's own words about a prompt are
- * theirs (WP1's rule): `saidBy: owner` is never read as plumbing.
+ * open thread, a mark that it is about me, us or the owner
+ * (`counterpart-deposit.ts` applies it, the door says so). The person's own
+ * words about a prompt are theirs (WP1's rule): `saidBy: owner` is never read
+ * as plumbing.
  *
  * WHAT IS READ: the subject only — the title, or the text's first line when
  * there is no title — never the whole body. A real memory may mention a
  * refusal in passing ("deadline Friday; I couldn't set the reminder") and
- * keeps its date; one whose headline IS the refusal does not. And only this
- * system's own vocabulary: a work fact about a refusal ("deploy failed:
- * permission denied on /var/log", "the API call was rejected with 429") names
- * no tool call, prompt or mark, and is not read as one.
+ * keeps its date; one whose headline IS the refusal does not.
+ *
+ * AND ONLY THIS SYSTEM'S OWN NOUNS (review of #751): a refusal word alone is
+ * ordinary English ("Visa permission denied; consulate call on the 12th",
+ * "mcp__github was blocked by SSO", "the CI tool wasn't granted access"). A
+ * subject is read as plumbing when a refusal sits with one of: a counterparts
+ * tool named as a tool (`reflect`, `session_end`, `mcp__counterparts…`, or
+ * `remember`/`recall`/`dream`/… followed by "call", "tool" or a phase), a
+ * reflect phase's call ("the join call"), marking a share told or delivered,
+ * or the host's own tool for this session ("the Bash tool call"). Apart from a
+ * refusal: a slash command the session couldn't run, and a session with no
+ * file or shell tools.
  *
  * Pure: no store, no clock. The cue it returns is the pattern's name, for the
  * row's meta and the door's note.
@@ -28,29 +37,60 @@
 /** The meta key a plumbing memory carries, with the cue that read it so (`own-plumbing.ts`). */
 export const OWN_PLUMBING_META_KEY = "ownPlumbing";
 
-export type OwnPlumbingCue = "permission" | "tool-refused" | "tool-not-granted" | "slash-command" | "session-tools";
+export type OwnPlumbingCue = "tool-refused" | "host-tool-refused" | "slash-command" | "session-tools";
 
-const REFUSED = /\b(?:denied|blocked|refused|declined|rejected|disallowed)\b/i;
+/** A refusal, as a model words one: denied, blocked, not allowed, needs approval. */
+const REFUSED =
+  /\b(?:denied|blocked|refused|declined|rejected|disallowed|(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not|not)\s+(?:allowed|permitted|approved|granted)|said no|(?:needs|needed|requires|required)\s+(?:approval|permission))\b/i;
+
+/** This memory's tools, by name. */
+// Not `status`, `meet` or `scope`: "the status call was declined" is a work fact.
+const TOOL = "(?:reflect|remember|recall|dream|chapter|session_end|self_page)";
+/** A reflect phase a session might be asked to call. */
+const PHASE = "(?:told|close|reopen|join|settle)";
+const Q = "['\"`]?";
+
+/** Where a subject names this memory's own tool as a tool (not the English word). */
+const OURS: readonly RegExp[] = [
+  // Unambiguous: the server's name, or a tool name no sentence uses as a word.
+  /\bmcp__counterparts\w*|\bcounterparts\b|\bsession_end\b|\bself_page\b/i,
+  // Quoted as a name: `reflect`, 'remember'.
+  new RegExp(`['"\`]${TOOL}['"\`]`, "i"),
+  // A tool with "tool", "call" or a phase after it: "the reflect tool", "reflect 'told' call", "reflect join".
+  new RegExp(`\\b${TOOL}\\s+${Q}(?:tool|call|phase|${PHASE})\\b`, "i"),
+  // A phase's call: "the join call", "'told' call" (not "a close call").
+  new RegExp(`\\bthe\\s+${Q}${PHASE}${Q}\\s+call\\b|['"\`]${PHASE}['"\`]\\s+call\\b`, "i"),
+  // Reflect straight before or after the refusal: "reflect wasn't allowed", "permission denied for reflect".
+  /\breflect\s+(?:(?:isn't|is not|wasn't|was not|was|got)\s+)?(?:allowed|permitted|approved|granted|denied|blocked|refused)\b/i,
+  /\b(?:denied|blocked|refused|declined)\s+for\s+(?:the\s+)?(?:reflect|session_end|self_page)\b/i,
+  // Marking a share, a note or a reflection told, delivered, shared: the bookkeeping itself
+  // (not "marked the boxes as delivered").
+  /\bmark(?:ed|ing)?\s+(?:the|a|that|this|last night's)\s+(?:morning\s+)?(?:share|note|reflection)\b[^.;\n]{0,20}?\b(?:as\s+)?(?:told|delivered|shared|passed on)\b/i,
+];
+
+/** The host's own tools for this session, named as tools: "the Bash tool call". */
+const HOST_TOOL = /\b(?:bash|shell|edit|write|read|webfetch|websearch)\s+tool(?:[- ]calls?)?\b/i;
 
 /** Ordered: the first that reads the subject names the cue. */
 const CUES: readonly { readonly cue: OwnPlumbingCue; readonly reads: (s: string) => boolean }[] = [
-  // A permission prompt or request refused, for a call, a tool, a prompt or a mark
-  // ("reflect 'told' call was permission-denied", "declined permission to mark a note delivered").
-  { cue: "permission", reads: (s) => /\bpermission/i.test(s) && REFUSED.test(s) && /\b(?:tools?|calls?|prompts?|mark(?:ed|ing)?|counterparts|mcp__\w+)\b/i.test(s) },
-  // A tool's call refused, by the tool's own name or the word ("the Bash tool call was denied", "mcp__counterparts__reflect was blocked").
+  { cue: "tool-refused", reads: (s) => REFUSED.test(s) && OURS.some((r) => r.test(s)) },
+  { cue: "host-tool-refused", reads: (s) => REFUSED.test(s) && HOST_TOOL.test(s) },
+  // A slash command the session couldn't run: "/loop is a slash command, so I couldn't", "Couldn't run /loop here".
   {
-    cue: "tool-refused",
+    cue: "slash-command",
     reads: (s) =>
-      /\btool(?:[- ]calls?|s)?\b[^.;\n]{0,30}?\b(?:was|were|got|is|are|been)\s+(?:permission[- ])?(?:denied|blocked|refused|declined|rejected|disallowed)\b/i.test(s) ||
-      (/\bmcp__\w+/i.test(s) && REFUSED.test(s)),
+      /\bis a slash command\b/i.test(s) ||
+      (/\bslash commands?\b/i.test(s) && /\b(?:couldn't|could not|can't|cannot|unable)\b/i.test(s)) ||
+      /\b(?:couldn't|could not|can't|cannot|unable to)\s+(?:run|use|invoke|start|set up|call)\s+\/[a-z][\w-]*(?![\w/.-])/i.test(s),
   },
-  // A tool this session wasn't granted ("the reflect tool isn't granted here"). Only "granted", the
-  // permission prompt's word: "the deploy tool is not permitted to write to prod" is a work fact.
-  { cue: "tool-not-granted", reads: (s) => /\btools?\b[^.;\n]{0,30}?\b(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not|not)\s+granted\b/i.test(s) },
-  // A slash command the session cannot run ("/loop is a slash command, so I couldn't").
-  { cue: "slash-command", reads: (s) => /\bis a slash command\b/i.test(s) || (/\bslash commands?\b/i.test(s) && /\b(?:couldn't|could not|can't|cannot|unable)\b/i.test(s)) },
-  // What tools the session had ("that session had only memory tools").
-  { cue: "session-tools", reads: (s) => /\bonly (?:had |has |have )?(?:the )?(?:memory|counterparts) tools\b/i.test(s) || /\b(?:had|has|have) no (?:file|shell|bash|edit(?:ing)?) tools?\b/i.test(s) },
+  // What tools the session had: "that session had only memory tools", "No Bash in this session".
+  {
+    cue: "session-tools",
+    reads: (s) =>
+      /\bonly (?:had |has |have )?(?:the )?(?:memory|counterparts) tools\b/i.test(s) ||
+      /\b(?:had|has|have) no (?:file|shell|bash|edit(?:ing)?) tools?\b/i.test(s) ||
+      /\bno (?:bash|shell|file|edit(?:ing)?|web) (?:tools? |access )?(?:in|for) this session\b/i.test(s),
+  },
 ];
 
 /** The subject a memory is read by: its title, else its text's first line. */
@@ -72,6 +112,20 @@ export function ownPlumbingCue(input: { readonly title: string | null | undefine
   return null;
 }
 
-/** What the door says beside a memory the gate read as plumbing (`mcp/server-args.ts#ownPlumbingEcho`). */
-export const OWN_PLUMBING_NOTE =
-  "Kept, but its subject is this memory system's own plumbing (a refused tool call, a permission prompt, what this session can't do), so it carries no date, no open thread and no me/us mark. That isn't something that happened between you and them: next time write what they wanted instead, or nothing.";
+/**
+ * What the door says beside a memory the gate read as plumbing
+ * (`mcp/server-args.ts#ownPlumbingEcho`): only what was dropped, and the way
+ * back for a real dated thing (review of #751).
+ */
+export function ownPlumbingNote(input: { readonly dropped: readonly ("eventDate" | "unresolved")[]; readonly aboutRefused: string | null; readonly id: string }): string {
+  const lost = [
+    ...(input.dropped.includes("eventDate") ? ["no date"] : []),
+    ...(input.dropped.includes("unresolved") ? ["no open thread"] : []),
+    ...(input.aboutRefused === null ? [] : [`no "${input.aboutRefused}" mark`]),
+  ];
+  const what = lost.length === 0 ? "no wake line names it" : `it carries ${lost.length === 1 ? lost[0] : `${lost.slice(0, -1).join(", ")} and ${String(lost[lost.length - 1])}`}, and no wake line names it`;
+  return (
+    `Kept, but its subject is this memory system's own plumbing (a refused tool call, a permission prompt, what this session can't do), so ${what}. ` +
+    `That isn't something that happened between you and the person. If this is a real dated thing for them, save it again with \`updates: ${input.id}\` and a title that names the thing, not the refusal.`
+  );
+}

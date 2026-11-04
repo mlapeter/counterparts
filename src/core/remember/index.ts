@@ -132,5 +132,5 @@ export type {
 
 // A memory whose subject is this system's own plumbing (2026-11-04, TC1): pure;
 // `counterpart-deposit.ts` applies it, the MCP door says it.
-export { OWN_PLUMBING_META_KEY, OWN_PLUMBING_NOTE, ownPlumbingCue, subjectOf } from "./own-plumbing.js";
+export { OWN_PLUMBING_META_KEY, ownPlumbingCue, ownPlumbingNote, subjectOf } from "./own-plumbing.js";
 export type { OwnPlumbingCue } from "./own-plumbing.js";

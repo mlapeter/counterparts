@@ -165,6 +165,8 @@ describe("(a) a carried share is marked told as it is handed over", () => {
     expect(said.injection).toContain(CARRIED_TOLD_NOTE);
     expect(said.injection).not.toContain('phase "told"');
     expect(a.counterpart.store.reflection(reflection)).toMatchObject({ share_state: "told", share_session: "d2s1" });
+    // Told on delivery stays readable apart from a told call (doctor's Reflection line reads it).
+    expect(JSON.parse(a.counterpart.store.reflection(reflection)?.detail ?? "{}")["toldVia"]).toBe("carry");
     // Not carried twice, in any folder.
     recordSession(dir, { sessionId: "d2s2", scope: EVALS, phase: "start" });
     expect(a.userPromptSubmit({ sessionId: "d2s2", scope: EVALS, turns: [], at: today, prompt: "next" }).injection).not.toContain("ZQSHARE");
@@ -191,15 +193,24 @@ describe("(b) a memory about our own refused call or the session's limits", () =
         { title: "ablation-7 vs baseline on 10 seeds: 0.42 vs 0.37", content: "ZQWORK The 10-seed rerun came back: ablation-7 0.42 vs baseline 0.37; a paired test is next." },
         { title: DW_TITLE, content: DW_TEXT, eventDate: friday, about: "us", unresolved: true, settlesWhen: "Theo says which abstract version is real and gives the sparse vs dense drop numbers" },
         { title: "Theo and I go over the abstract together before Friday", content: "ZQCONTROL We agreed to go over the abstract together before the Friday deadline.", eventDate: friday, about: "us" },
+        // Marked about the owner (review of #751): it printed in every folder's "Since the last night".
+        { title: "Couldn't mark the share as told — the call was blocked", content: "Tried to record Theo's morning share as told; the call was blocked.", about: "owner", relevance: 0.9, emotional: 0.8, predictive: 0.7 },
+        { title: "Theo's partner Ines starts her residency on Monday", content: "ZQINES Ines starts her residency at the hospital on Monday; Theo is proud of her.", about: "owner", relevance: 0.9, emotional: 0.8, predictive: 0.7 },
       ],
     });
     const results = end.structuredContent["outcomes"] as Record<string, unknown>[];
-    expect(results).toHaveLength(3);
-    const [, dw, control] = results as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
+    expect(results).toHaveLength(5);
+    const [, dw, control, ownerPlumbing, ines] = results as Record<string, unknown>[] as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
+    expect(ownerPlumbing["ownPlumbing"]).toMatchObject({ aboutNotKept: "owner" });
+    expect(ines["ownPlumbing"]).toBeUndefined();
     // The result says what it did not keep, and why.
     expect(dw["ownPlumbing"]).toMatchObject({ kept: true, dropped: ["eventDate", "unresolved"], aboutNotKept: "us" });
     expect(dw["about"]).toMatchObject({ stored: false, reason: "own-plumbing" });
     expect(dw["reminder"]).toBeUndefined();
+    // The note says only what it dropped, and the way back for a real dated thing.
+    const note = String((dw["ownPlumbing"] as Record<string, unknown>)["note"]);
+    expect(note).toContain('no date, no open thread and no "us" mark');
+    expect(note).toContain(`updates: ${String(dw["id"])}`);
     expect(control["ownPlumbing"]).toBeUndefined();
     // And `remember` the same, for the session's own limits.
     const loop = await mcp.call("remember", { title: "Couldn't put a /loop on CI: /loop is a slash command, so I couldn't run it", text: "Gave Theo a /loop 10m command to paste instead.", eventDate: friday, about: "me" });
@@ -209,7 +220,7 @@ describe("(b) a memory about our own refused call or the session's limits", () =
     const dwRow = rowOf(String(dw["memoryId"] ?? dw["id"]));
     expect(dwRow.event_date).toBe(null);
     expect(dwRow.about).toBe(null);
-    expect(dwRow.meta[OWN_PLUMBING_META_KEY]).toBe("permission");
+    expect(dwRow.meta[OWN_PLUMBING_META_KEY]).toBe("tool-refused");
     expect(dwRow.meta["unresolved"]).toBeUndefined();
     const controlRow = rowOf(String(control["memoryId"] ?? control["id"]));
     expect(controlRow).toMatchObject({ event_date: friday, about: "us" });
@@ -225,23 +236,86 @@ describe("(b) a memory about our own refused call or the session's limits", () =
       if (shape === "on") expect(comingUp).toContain("Theo and I go over the abstract together before Friday");
       else expect(wake).toContain("Coming up: 1 — none due today");
       // The refused call and the slash command reach no lane of any folder's wake.
-      for (const words of ["permission-denied", "slash command", "Morning share told"]) expect(wake).not.toContain(words);
+      for (const words of ["permission-denied", "slash command", "Morning share told", "Couldn't mark the share"]) expect(wake).not.toContain(words);
+      // The real owner news still reaches the other folders' "Since the last night".
+      if (shape === "on" && scope !== SIM) expect(wake).toContain("Ines starts her residency");
       // Another folder's Elsewhere names sim's newest real work, not the newer plumbing rows.
       if (scope !== SIM) expect(shape === "on" ? section(wake, "Elsewhere:") : wake).toContain("ablation-7 vs baseline on 10");
     }
   });
 });
 
+describe("(b) revisions and recall (review of #751)", () => {
+  test("`updates` cannot bring back what the gate dropped; a real title can; a plumbing revision of a real dated memory keeps the date it carries", async () => {
+    const { today } = seed();
+    const friday = plusDays(today, 3);
+    recordSession(dir, { sessionId: "d2s1", scope: SIM, phase: "start" });
+    const mcp = openServer({ dir, session: "d2s1", scope: SIM });
+    closers.push(mcp.counterpart);
+    const first = await mcp.call("remember", { title: DW_TITLE, text: DW_TEXT, eventDate: friday, about: "us", unresolved: true });
+    const id = String(first.structuredContent["id"]);
+    expect(rowOf(id).event_date).toBe(null);
+    // Revising the plumbing row with a fresh date and thread, the title still the refusal: a first write again.
+    const again = await mcp.call("remember", { title: DW_TITLE, text: `${DW_TEXT} Still blocked.`, updates: id, eventDate: friday, unresolved: true, settlesWhen: "Theo answers" });
+    expect(again.structuredContent["ownPlumbing"]).toMatchObject({ dropped: ["eventDate", "unresolved"] });
+    expect(again.structuredContent["reminder"]).toBeUndefined();
+    const againRow = rowOf(String(again.structuredContent["id"]));
+    expect(againRow.event_date).toBe(null);
+    expect(againRow.meta["unresolved"]).toBeUndefined();
+    // The way back the note names: the same id, a title that names the thing.
+    const real = await mcp.call("remember", { title: "Theo's abstract questions, due before Friday", text: "Which abstract version is real, and the sparse vs dense drop numbers.", updates: String(again.structuredContent["id"]), eventDate: friday, unresolved: true });
+    expect(real.structuredContent["ownPlumbing"]).toBeUndefined();
+    expect(rowOf(String(real.structuredContent["id"])).event_date).toBe(friday);
+    // A real dated memory, revised under a refusal's title: the date is the target's own reminder, kept.
+    const deadline = await mcp.call("remember", { title: "Workshop paper deadline", text: "The workshop paper is due Friday 23:59 AoE.", eventDate: friday });
+    const under = await mcp.call("remember", { title: "reflect 'told' call was denied for the deadline note", text: "The workshop paper is still due Friday 23:59 AoE.", updates: String(deadline.structuredContent["id"]) });
+    const underRow = rowOf(String(under.structuredContent["id"]));
+    expect(underRow.event_date).toBe(friday);
+    expect(underRow.meta[OWN_PLUMBING_META_KEY]).toBe("tool-refused");
+    expect((under.structuredContent["ownPlumbing"] as Record<string, unknown>)["dropped"]).toBeUndefined();
+  });
+
+  test("a prompt's ambient recall never offers a plumbing row; a question still finds it", async () => {
+    const { today } = seed();
+    recordSession(dir, { sessionId: "d2s1", scope: SIM, phase: "start" });
+    const mcp = openServer({ dir, session: "d2s1", scope: SIM });
+    closers.push(mcp.counterpart);
+    const plumbing = String((await mcp.call("remember", { title: "zqlighthouse share: reflect 'told' call was denied", text: "The zqlighthouse share could not be marked told." })).structuredContent["id"]);
+    const real = String((await mcp.call("remember", { title: "zqlighthouse trip with Theo", text: "Theo plans the zqlighthouse trip for the spring, with Ines." })).structuredContent["id"]);
+    const found = await mcp.call("recall", { session: "d2s1", question: "zqlighthouse share told", mode: "facts" });
+    expect(JSON.stringify(found.structuredContent)).toContain(plumbing);
+    mcp.counterpart.close();
+    await turnEnd("d2s1", SIM, today);
+    const a = adapter();
+    recordSession(dir, { sessionId: "d3s1", scope: SIM, phase: "start" });
+    const said = a.userPromptSubmit({ sessionId: "d3s1", scope: SIM, turns: [], at: today, prompt: "what about the zqlighthouse share and the zqlighthouse trip?" });
+    expect(said.injection).toContain(real);
+    expect(said.injection).not.toContain(plumbing);
+  });
+});
+
 describe("the gate reads the subject, and only this system's own vocabulary (ownPlumbingCue)", () => {
   test.each([
-    [DW_TITLE, "permission"],
-    ["Declined permission to mark a note delivered", "permission"],
-    ["Tried to mark the reflection delivered but the permission request was declined", "permission"],
-    ["Couldn't run pytest: the Bash tool call was denied", "tool-refused"],
+    [DW_TITLE, "tool-refused"],
+    ["Declined permission to mark a note delivered", "tool-refused"],
+    ["Tried to mark the reflection delivered but the permission request was declined", "tool-refused"],
+    ["Memory tool permission blocked marking a note as passed on (2026-03-06)", "tool-refused"],
+    ["Tried to mark a reflection as shared; the reflect tool permission was denied", "tool-refused"],
     ["mcp__counterparts__reflect was blocked", "tool-refused"],
-    ["The reflect tool isn't granted in this session", "tool-not-granted"],
+    ["The reflect tool isn't granted in this session", "tool-refused"],
+    // The review of #751's misses.
+    ["Theo declined the counterparts reflect call", "tool-refused"],
+    ["Couldn't mark the share as told — the call was blocked", "tool-refused"],
+    ["reflect wasn't allowed", "tool-refused"],
+    ["Permission denied for reflect", "tool-refused"],
+    ["Tried to close the stale threads, but the reflect close call was denied", "tool-refused"],
+    ["Theo said yes to joining the folders, but the join call was blocked", "tool-refused"],
+    ["Couldn't record Theo's yes: reflect join needs approval", "tool-refused"],
+    ["Couldn't run pytest: the Bash tool call was denied", "host-tool-refused"],
     ["/loop is a slash command, so I couldn't set it up", "slash-command"],
+    ["Couldn't run /loop here", "slash-command"],
     ["That session had only memory tools, so the agent wasn't launched", "session-tools"],
+    ["No Bash in this session", "session-tools"],
   ])("plumbing: %s", (title, cue) => {
     expect(ownPlumbingCue({ title, content: "body" })).toBe(cue as never);
   });
@@ -256,17 +330,29 @@ describe("the gate reads the subject, and only this system's own vocabulary (own
     "Ops denied the deploy permission request; retry Friday",
     "Asked to /loop CI every 10 min on tokenizer fixture PR",
     "The deploy tool is not permitted to write to prod",
+    // The review of #751's false positives: ordinary English and work facts.
+    "Visa permission denied; consulate call on the 12th",
+    "Dad declined permission for the surgery prompt",
+    "The CI tool wasn't granted access",
+    "mcp__github was blocked by SSO",
+    // And their near relatives.
+    "I remember Dad declined permission for the trip",
+    "Theo wants to reflect on why the grant was denied",
+    "That was a close call; the loan was denied",
+    "The packers marked the boxes as delivered but the refund was declined",
+    "The status call with ops was declined",
+    "Couldn't open /usr/local/bin/tool: permission denied",
   ])("not plumbing: %s", (title) => {
     expect(ownPlumbingCue({ title, content: "body" })).toBe(null);
   });
 
   test("the subject only: a refusal in the body of a real memory leaves it alone; with no title, the first line is the subject", () => {
     expect(ownPlumbingCue({ title: "Paper deadline Friday", content: "Due Friday. I tried to set a reminder but the tool call was denied." })).toBe(null);
-    expect(ownPlumbingCue({ title: null, content: "The reflect tool call was denied by the permission prompt.\nMore after." })).toBe("permission");
+    expect(ownPlumbingCue({ title: null, content: "The reflect tool call was denied by the permission prompt.\nMore after." })).toBe("tool-refused");
   });
 
   test("the person's own words about a prompt are theirs: saidBy owner is never plumbing", () => {
     expect(ownPlumbingCue({ title: "Theo declined the permission prompt for the reflect call: he didn't know what it was", content: "x", saidBy: "owner" })).toBe(null);
-    expect(ownPlumbingCue({ title: "Theo declined the permission prompt for the reflect call: he didn't know what it was", content: "x" })).toBe("permission");
+    expect(ownPlumbingCue({ title: "Theo declined the permission prompt for the reflect call: he didn't know what it was", content: "x" })).toBe("tool-refused");
   });
 });
