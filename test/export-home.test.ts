@@ -371,3 +371,67 @@ describe("the surface a door names", () => {
     }
   });
 });
+
+describe("the word index of another file, and one with nothing to index", () => {
+  test("a download dropped over an EXISTING local store's database (the old cache left beside it): the next writable open rebuilds from this file", async () => {
+    const ex = await hostedDownload();
+    // An existing local install, used: its cache is full of its own ids.
+    const dir = join(root, "local", "store");
+    const l = Store.open({ dir });
+    plantTold(l, "local");
+    const garden = l.put({ type: "memory", kind: "fact", title: "Garden", body: "The tomatoes went in on Saturday." });
+    expect(l.search("tomatoes").map((h) => h.id)).toContain(garden);
+    l.close();
+    // The old way: only the database replaced.
+    copyFileSync(ex.file, join(dir, "counterparts.sqlite"));
+
+    session(dir);
+    const s = Store.open({ dir, observer: true });
+    try {
+      expect(s.search("kayak").map((h) => h.id)).toContain(ex.kayak);
+      expect(s.search("tomatoes")).toEqual([]);
+      const rows = s.eventLog({ name: INDEX_REBUILT_AT_OPEN_EVENT });
+      expect(rows).toHaveLength(1);
+      expect(JSON.parse(rows[0]!.payload ?? "{}")["foreign"]).toBe(true);
+    } finally {
+      s.close();
+    }
+    // Once rebuilt it is this file's: the next open writes nothing.
+    session(dir);
+    const again = Store.open({ dir, observer: true });
+    try {
+      expect(again.eventLog({ name: INDEX_REBUILT_AT_OPEN_EVENT })).toHaveLength(1);
+    } finally {
+      again.close();
+    }
+  }, 60_000);
+
+  test("a store whose live rows give the index nothing (CJK only), opened 4 times: one rebuild attempt at most, no event, and doctor isn't amber", () => {
+    const dir = join(root, "store");
+    const made = Store.open({ dir });
+    made.put({ type: "memory", kind: "fact", body: "東京で会議がありました。" });
+    made.put({ type: "memory", kind: "fact", body: "明日は雨です。" });
+    made.close();
+    rmSync(join(dir, "cache"), { recursive: true, force: true });
+    for (let i = 0; i < 4; i += 1) Store.open({ dir }).close();
+    const s = Store.open({ dir, observer: true });
+    try {
+      expect(s.eventLog({ name: INDEX_REBUILT_AT_OPEN_EVENT }).length).toBeLessThanOrEqual(1);
+      expect(s.wordIndexEmpty()).toBe(false);
+    } finally {
+      s.close();
+    }
+  });
+});
+
+describe("the two surfaces' starter sets", () => {
+  test("are the same length, with the same titles in the same places, but #7", () => {
+    const local = toldSet("local");
+    const hosted = toldSet("hosted");
+    expect(local.length).toBe(hosted.length);
+    for (let i = 0; i < local.length; i += 1) {
+      if (i === SEVEN) expect(local[i]!.title).not.toBe(hosted[i]!.title);
+      else expect(local[i]!.title).toBe(hosted[i]!.title);
+    }
+  });
+});

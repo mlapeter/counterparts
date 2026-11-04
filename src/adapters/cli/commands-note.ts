@@ -470,7 +470,7 @@ export function printAskList(
       // `ask` only looks (observer), so it cannot rebuild the index itself:
       // say why nothing came, and what does (EX1).
       io.out("  This memory's word index is empty: the file was moved in and nothing has opened it to write yet.");
-      io.out(`  The next Claude Code session rebuilds it as it starts; or run: ${BIN.cli} verify --rebuild`);
+      io.out(`  The next Claude Code or Claude Desktop session that uses this memory rebuilds it as it opens it (not in a folder where memory is off or observer only); or run: ${BIN.cli} verify --rebuild`);
       return;
     }
     // A faded match is counted in `matched` and listed with the rest (2026-10-10).

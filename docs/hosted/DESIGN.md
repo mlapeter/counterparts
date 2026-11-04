@@ -623,8 +623,8 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
   - Over quota, `remember`, `chapter` and `dream` writes get a plain refusal with a reason code. Reads always work.
 - **Export.** `GET /account/export` (signed in, with a fresh re-authentication inside 10 minutes) streams a zip:
   - the core's own export, `cli/export.ts`: its `markdown` tree (readable), and its `database` copy (complete,
-    openable by anything that speaks SQLite, and the shape a local install could import at stage 3). *As built:* one
-    plaintext `counterparts.sqlite`, no zip; a local install takes it in as its store file, and its first writable open
+    openable by anything that speaks SQLite, and the shape a local install could import at stage 3). *As built:*
+    `POST /account/export` from the account page (signed in, with its CSRF token), one plaintext `counterparts.sqlite`, no zip; a local install takes it in as its store file, and its first writable open
     rebuilds the word index and switches the starter notes to local words (EX1; the manual's "Taking your hosted memory home").
 - **Delete.** `POST /account/delete` (typing your email) locks the account and sets the erase for 24 hours later;
   with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`

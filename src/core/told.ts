@@ -398,12 +398,19 @@ export function reviseTold(store: Store, opening?: ToldSurface): ToldRevision | 
     // The words that count as "as planted": v2's for the recorded surface,
     // and v1's while the store still says v1.
     const bodies = [was.body, ...(v1.get(was.title) ?? [])];
+    // ONE TEST, asked of the first read and again under the write lock: the
+    // row already says the target words (nothing to do), or it is still as
+    // planted (rewrite it). Without the first half under the lock, a second
+    // opener's stale read rewrote v2 over v2 when the surface didn't change
+    // (review of 41e490ed).
+    const done = (r: { title: string | null; body: string }): boolean => r.title === now.title && r.body === now.body;
+    const asPlanted = (r: { title: string | null; body: string; archived: number; superseded_by: string | null }): boolean =>
+      !done(r) && r.archived === 0 && r.superseded_by === null && r.title === was.title && bodies.includes(r.body);
     for (const row of rows) {
       if (row === undefined || row.title !== was.title) continue;
       // Already the words it should say: nothing to do, nothing to count.
-      if (row.title === now.title && row.body === now.body) continue;
-      const live = row.source === TOLD_SOURCE && row.archived === 0 && row.superseded_by === null;
-      if (!live || !bodies.includes(row.body)) {
+      if (done(row)) continue;
+      if (row.source !== TOLD_SOURCE || !asPlanted(row)) {
         kept += 1;
         continue;
       }
@@ -417,7 +424,7 @@ export function reviseTold(store: Store, opening?: ToldSurface): ToldRevision | 
           ...(now.title === was.title ? {} : { title: now.title }),
           meta: { told: TOLD_SET_VERSION },
           reason,
-          unless: (cur) => cur.archived !== 0 || cur.superseded_by !== null || cur.title !== was.title || !bodies.includes(cur.body),
+          unless: (cur) => !asPlanted(cur),
         });
         if (seq > 0) revised.push(row.id);
         else kept += 1;

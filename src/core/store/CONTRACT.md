@@ -108,7 +108,10 @@ ended up with canonical state spread across a prose store plus half a dozen side
      lexical half only, in one box-3 transaction, so no vector is dropped or computed (the
      backfill fills them); it leaves a durable `store.index.rebuilt-at-open` row, and
      `wordIndexEmpty()` lets `doctor` amber the state while only observers have seen it.
-     Observers never rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
+     The same open resets an index that belongs to ANOTHER file (none of the newest 8 indexed
+     ids is in this file: a database dropped into a used store folder), keeping vectors of ids
+     this file holds; and a rebuild that finds every live row tokenless stamps that count in
+     `cache_meta`, so it neither rescans nor reads as empty. Observers never rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
      `cache_meta.embedder = <model>@<dim>` beside `embedderRebuild = inline|external` — and
      `Store.open` checks that tag against the configured embedder's identity ONCE, at open
      (`cache.ts#reconcileEmbedder`, verdict on `Store.embedderVerdict`): a match touches

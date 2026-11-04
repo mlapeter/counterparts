@@ -2490,3 +2490,14 @@ when no embedder is wired (the console) and embeds every row, unbudgeted, when o
 big import would wait on all of them). The vectors come from the inline refill (a static table's
 first tag) or the worker's backfill, as for any row without one. `ask` stays an observer (owner,
 2026-09-25: asking is looking), so before any writable open it says the index is empty instead.
+
+Review of 41e490ed added two cases. **Another file's index:** the manual's first wording had the
+download dropped into a used store folder, over its database; the old `cache/` stayed, nothing
+was empty, and search answered with the old store's ids. The open now samples the newest 8
+indexed ids (`doc_lens` by rowid) and resets the index (vectors kept, orphans deleted) when none
+is in this file. Chosen over a store id in `cache_meta` because a download carries none and
+adding one is a format change, and over a count comparison, which can't tell two stores of one
+size apart; requiring every sampled id to miss keeps one stray row from firing it. **Tokenless
+rows:** a store whose live rows are all in a script the tokenizer keeps nothing of (CJK) rebuilt
+and wrote an event at every open, and doctor stayed amber; the rebuild now stamps the live count
+it saw in `cache_meta` (`index.tokenlessLive`) and writes no event when the index is still empty.

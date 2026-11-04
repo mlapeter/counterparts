@@ -645,6 +645,12 @@ export const STORE_TIGHTENED_EVENT = "store.modes.tightened";
  */
 export const INDEX_REBUILT_AT_OPEN_EVENT = "store.index.rebuilt-at-open";
 
+/** Box 3's note that a rebuild found every live row tokenless: the live count it saw (EX1). */
+const INDEX_TOKENLESS_META_KEY = "index.tokenlessLive";
+
+/** How many of the newest indexed ids the at-open check looks up (EX1). */
+const INDEX_SAMPLE = 8;
+
 /** Rows per box-3 transaction in the at-open inline refill. CAL. */
 const REFILL_BATCH = 500;
 /**
@@ -1044,36 +1050,89 @@ export class Store {
     if (!this.observer && process.platform !== "win32") this.tightenIfOpen(opts);
   }
 
-  /**
-   * TRUE when the word index (box 3's `doc_lens`) holds nothing while the
-   * store has live rows: two COUNTs, observer-safe. The shape of a store file
-   * moved in without its cache (a hosted export opened locally, EX1), which
-   * answers "Nothing found" to every question until the index is rebuilt.
-   */
-  wordIndexEmpty(): boolean {
-    if (indexedDocCount(this.cache) > 0) return false;
-    return (this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND superseded_by IS NULL")?.n ?? 0) > 0;
+  /** Live rows, the denominator both checks below read. One COUNT. */
+  private liveRowCount(): number {
+    return this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND superseded_by IS NULL")?.n ?? 0;
   }
 
   /**
-   * THE AT-OPEN REBUILD of an empty word index (EX1). The same rows
-   * `rebuildCache` indexes (live, not denied), the LEXICAL HALF ONLY: no
-   * vector is dropped (a reset tag or an inline refill this open made stays)
-   * and none is computed here, because an embedder at open runs with no
-   * budget and a hook would wait on every row of an imported store; the
-   * worker's backfill gives them vectors, as it does any row without one.
-   * One box-3 transaction. A cache from a newer build, or a lock past the
-   * busy timeout, costs this open the rebuild, never the open: the next
-   * writable open asks again.
+   * TRUE when the word index (box 3's `doc_lens`) holds nothing while the
+   * store has live rows that would give it entries: observer-safe, two COUNTs
+   * and a `cache_meta` read. The shape of a store file moved in without its
+   * cache (a hosted export opened locally, EX1), which answers "Nothing found"
+   * to every question until the index is rebuilt. A store whose live rows
+   * give no index entry at all (every one in a script the tokenizer keeps
+   * nothing of) is not empty in that sense: a writable open that rebuilt and
+   * still found nothing stamps the count it saw (`INDEX_TOKENLESS_META_KEY`),
+   * and the same count reads as settled.
+   */
+  wordIndexEmpty(): boolean {
+    if (indexedDocCount(this.cache) > 0) return false;
+    const live = this.liveRowCount();
+    if (live === 0) return false;
+    const stamped = this.cache.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = ?", INDEX_TOKENLESS_META_KEY)?.value;
+    return stamped !== String(live);
+  }
+
+  /**
+   * A WORD INDEX THAT BELONGS TO ANOTHER FILE (EX1 review): a store file put
+   * in place of another inside the same folder keeps the old `cache/`, whose
+   * index is full of the old store's ids. Nothing was empty, so nothing
+   * rebuilt, and every question answered from the wrong memory. The check: the
+   * newest indexed ids (`doc_lens` by rowid, so the last written; at most
+   * `INDEX_SAMPLE` primary-key reads) are looked up among this file's rows,
+   * and the index is the other file's when NONE of them is here. Cheapest
+   * honest test, and why: no store id exists to compare (a hosted download
+   * carries none, and adding one would be a format change for this); a count
+   * comparison can't tell two stores of the same size apart; and a sample
+   * that must miss entirely won't fire on one stray row an older build left
+   * indexed. It also catches an OLDER copy of the same store put back over a
+   * newer cache: the newest indexed ids are the ones that copy lacks.
+   */
+  private indexFromAnotherFile(): boolean {
+    const sample = this.cache.all<{ memory_id: string }>(`SELECT memory_id FROM doc_lens ORDER BY rowid DESC LIMIT ${String(INDEX_SAMPLE)}`);
+    if (sample.length === 0) return false;
+    for (const r of sample) {
+      if (this.ops.get("SELECT 1 FROM memories WHERE id = ?", r.memory_id) !== undefined) return false;
+    }
+    return true;
+  }
+
+  /**
+   * THE AT-OPEN REBUILD of an empty or another file's word index (EX1). The
+   * same rows `rebuildCache` indexes (live, not denied), the LEXICAL HALF
+   * ONLY: no vector of this store is dropped (a reset tag or an inline refill
+   * this open made stays) and none is computed here, because an embedder at
+   * open runs with no budget and a hook would wait on every row of an
+   * imported store; the worker's backfill gives them vectors, as it does any
+   * row without one. Another file's index is reset first, keeping the vector
+   * table and its tag, and the vectors of ids this file doesn't hold are
+   * deleted. One box-3 transaction for the words. A cache from a newer build,
+   * or a lock past the busy timeout, costs this open the rebuild, never the
+   * open: the next writable open asks again. Rows that give no entry at all
+   * leave the index empty: then the count is stamped, no event is written, and
+   * the next open doesn't rescan.
    */
   private reindexIfEmpty(): void {
     try {
-      if (cacheAhead(this.cache) !== null || !this.wordIndexEmpty()) return;
+      if (cacheAhead(this.cache) !== null) return;
+      const foreign = this.indexFromAnotherFile();
+      if (!foreign && !this.wordIndexEmpty()) return;
       const denied = new Set(this.deniedIds());
       const rows = this.ops.all<{ id: string; title: string | null; body: string }>(
         "SELECT id, title, body FROM memories WHERE archived = 0 AND superseded_by IS NULL ORDER BY id",
       );
-      let indexed = 0;
+      let dropped = 0;
+      if (foreign) {
+        resetCache(this.cache, { keepEmbeddings: true });
+        const canonical = new Set(this.ops.all<{ id: string }>("SELECT id FROM memories").map((r) => r.id));
+        const del = this.cache.prepare("DELETE FROM embeddings WHERE memory_id = ?");
+        const orphans = this.cache.all<{ memory_id: string }>("SELECT memory_id FROM embeddings").filter((r) => !canonical.has(r.memory_id) || denied.has(r.memory_id));
+        this.cache.transaction(() => {
+          for (const r of orphans) del.run(r.memory_id);
+        });
+        dropped = orphans.length;
+      }
       this.cache.transaction(() => {
         // Asked again under box 3's write lock: a second process opening the
         // same file at once finds the first one's index and writes nothing.
@@ -1081,11 +1140,14 @@ export class Store {
         for (const row of rows) {
           if (denied.has(row.id)) continue;
           indexDoc(this.cache, row.id, indexTextOf(row.title, row.body));
-          indexed += 1;
+        }
+        if (indexedDocCount(this.cache) === 0) {
+          this.cache.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", INDEX_TOKENLESS_META_KEY, String(rows.length));
         }
       });
-      if (indexed === 0) return;
-      const data = { indexed, live: rows.length };
+      const indexed = indexedDocCount(this.cache);
+      if (indexed === 0 && !foreign) return;
+      const data = { indexed, live: rows.length, foreign, droppedVectors: dropped };
       this.emit(INDEX_REBUILT_AT_OPEN_EVENT, undefined, data);
       try {
         this.appendEvent({ name: INDEX_REBUILT_AT_OPEN_EVENT, day: this.livedDay(), payload: data });

@@ -118,10 +118,10 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 
 ## Taking your hosted memory home
 
-A "Download my memory" file replaces a local memory: export that first.
+A "Download my memory" file replaces a local memory: set the old store folder aside first.
 
-- A hosted memory's "Download my memory" file becomes a local install's memory when it is put in the store folder as "counterparts.sqlite". It replaces, it doesn't merge: whatever memory the local install had is no longer the one in use. [local] To keep it, export it first with `counterparts export --out <dir> --passphrase <secret>`, or save a copy with `counterparts backup --out <dir>`.
-- [local] Where it goes: the store folder `counterparts doctor` names on its Memory line (usually .counterparts/store in the home folder). Quit Claude Code and Claude Desktop first, so no session holds the store, then put the file there as "counterparts.sqlite", in place of the one there.
+- A hosted memory's "Download my memory" file becomes a local install's memory when it is the only file in a fresh store folder, named "counterparts.sqlite". It replaces, it doesn't merge: whatever memory the local install had is no longer the one in use.
+- [local] How: quit Claude Code and Claude Desktop, so no session holds the store. Rename the store folder `counterparts doctor` names on its Memory line (usually .counterparts/store in the home folder) to something like "store-before-hosted": that renamed folder is the backup of the local memory, whole. Then make a new, empty folder with the old name, and put the downloaded file in it as "counterparts.sqlite". Don't drop the file into the old folder over its database: the old search index and write-ahead files beside it belong to the other memory. To also keep a portable copy of the local memory, `counterparts export --out <dir> --passphrase <secret>` before the swap.
 - [local] The first Claude Code or Claude Desktop session after that rebuilds its word index as it opens it, so questions find things at once (`counterparts ask` only looks, so before then it says the index is empty, and `counterparts verify --rebuild` rebuilds it by hand); search by meaning fills in over the next sessions. Starter notes still in hosted's words switch to this install's; one that was edited stays as it is (since 0.3.47).
 - The download is not encrypted. Once it is in place, delete the copy left in Downloads.
 - The hosted account and its memory stay as they were until the person deletes the account; the two don't sync.
