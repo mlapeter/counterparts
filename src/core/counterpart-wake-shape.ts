@@ -184,7 +184,7 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     // Already happened (WF1): a newer done memory this reader may read says so (the shop that launched a day early).
     const fence = here?.exportsFrom;
     const own = norm(here?.scope ?? "");
-    if (happenedAlready(store, h.id, { open: (r) => (fence === undefined ? norm(r.origin_scope ?? "") === own : !memoryClosedTo(store, r, fence, own)) }) !== null) continue;
+    if (happenedAlready(store, h.id, at, { open: (r) => (fence === undefined ? norm(r.origin_scope ?? "") === own : !memoryClosedTo(store, r, fence, own)) }) !== null) continue;
     const place = threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false }, folders, rule);
     let folder: string | null = null;
     if (place === "out") {
@@ -444,10 +444,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // THE HANDOFF STEPS DOWN (WF1): past `HANDOFF_STEP_DOWN_MS` with a session
   // here since, it is one line with its age after what came since, not whole
   // and first (Dana's day-1 "waiting on Dana to pick a platform" led every shop
-  // wake through day 6). Sessions since: the host's registry, and where it has
-  // none, the chapters and memories written here by another session.
+  // wake through day 6). Sessions since: the ended ones that left a chapter or
+  // a memory here.
   const sinceSessions = newest === undefined || newestAt === null ? 0 : sessionsSince(cp, { at: newestAt, own: newest.session, reader, folders: hereFolders, sessions, headless, chapters: chaptersHere, now });
-  const stepDown = newestAt !== null && now - newestAt >= SHAPE.HANDOFF_STEP_DOWN_MS && sinceSessions > 0;
+  // And only with something in "Since, here" to read in its place (review of #734).
+  const stepDown = newestAt !== null && now - newestAt >= SHAPE.HANDOFF_STEP_DOWN_MS && sinceSessions > 0 && sinceAged.length > 0;
   const night = safe(() => nightWords(cp, at, here, scope), null);
   const installed = here?.installed ?? null;
   const news = safe(() => sinceLastNight(cp, at, here, { ours: new Set(hereFolders), skip: cueIds }), { items: [] as NewsItem[], since: 0, night: false });
@@ -806,10 +807,13 @@ function finish(
 }
 
 /**
- * HOW MANY SESSIONS WORKED HERE SINCE A HANDOFF: the host's registry's (in this
- * folder or its project's, started after it, not the handoff's own, not this
- * reader, not one nobody attended), else, for a host with no registry, the
- * distinct other sessions that wrote a chapter or a memory here since. Never throws.
+ * HOW MANY SESSIONS WORKED HERE SINCE A HANDOFF: the distinct other sessions
+ * that left a chapter or a memory here after it (not the handoff's own, not
+ * this reader, not one nobody attended, not the night's), and that have ended.
+ * A session that only opened here, a check-in that left nothing, or one still
+ * open beside this one says nothing about the handoff (review of #734: a
+ * silent check-in, still live, stepped a 20-hour handoff down to a recall, with
+ * nothing in "Since, here" to read instead). Never throws.
  */
 function sessionsSince(
   cp: Counterpart,
@@ -824,13 +828,12 @@ function sessionsSince(
     readonly now: number;
   },
 ): number {
-  const other = (s: string | null): s is string => s !== null && s.length > 0 && s !== o.own && s !== o.reader && !o.headless.has(s);
+  const live = new Set(o.sessions.filter((s) => s.live).map((s) => s.session));
+  const other = (s: string | null): s is string => s !== null && s.length > 0 && s !== o.own && s !== o.reader && !o.headless.has(s) && !live.has(s);
   const seen = new Set<string>();
-  for (const s of o.sessions) if (s.startedAt > o.at && o.folders.includes(norm(s.scope)) && other(s.session)) seen.add(s.session);
-  if (o.sessions.length > 0) return seen.size;
   for (const c of o.chapters) if (c.writtenAt > o.at && other(c.session)) seen.add(c.session);
   try {
-    for (const f of o.folders) for (const r of cp.store.memoriesWrittenHereSince(f, o.at, o.now, SHAPE.SINCE_READ)) if (other(r.origin_session ?? null)) seen.add(r.origin_session as string);
+    for (const f of o.folders) for (const r of cp.store.memoriesWrittenHereSince(f, o.at, o.now, SHAPE.SINCE_READ)) if (!isNightRow(r) && !isTold(r) && other(r.origin_session ?? null)) seen.add(r.origin_session as string);
   } catch {
     /* what the chapters said */
   }

@@ -680,6 +680,8 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_SHARE: 0.5,
   /** Done rows read after a dated item to find one saying it happened. */
   HAPPENED_READ: 200,
+  /** How many days before its day a dated item can be done (the shop launched one day early); an earlier done row is another visit of the same name (review of #734). */
+  HAPPENED_EARLY_DAYS: 1,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,

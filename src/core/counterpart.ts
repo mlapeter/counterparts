@@ -3387,7 +3387,7 @@ export class Counterpart {
       for (const due of this.prospective.plainDue({ at: input.at })) {
         // ALREADY HAPPENED (WF1, 2026-11-03): a newer done memory says so, as
         // the shop that launched a day early did; nobody is told it's today.
-        if (happenedAlready(this.store, due.memoryId) !== null) continue;
+        if (happenedAlready(this.store, due.memoryId, input.at) !== null) continue;
         let what = "";
         try {
           const doc = this.store.readProse(due.memoryId);

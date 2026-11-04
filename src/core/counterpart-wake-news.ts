@@ -189,11 +189,23 @@ function headOf(title: string): string | null {
  * again, so it never has. A read of the done rows written since the item,
  * bounded by `HAPPENED_READ`. `open`, when given, is the reader's fence: a row
  * it may not read settles nothing. Never throws.
+ *
+ * WORDS ALONE SETTLE TOO MUCH (review of #734): "Dentist appointment: cleaning"
+ * six days out was settled by "Dentist appointment for the kids went fine", and
+ * today's vet check-up by last week's stitches-out visit. A lost reminder is
+ * worse than a stale one, so the date fences it too: only an item whose day is
+ * the wake's (`at`) or before can have happened, and only by a done row written,
+ * and saying it happened, no earlier than `HAPPENED_EARLY_DAYS` before that day
+ * (the shop launched one day early). An item with no single day never settles.
  */
-export function happenedAlready(store: Store, id: string, opts: { readonly open?: (row: MemoryRow) => boolean } = {}): string | null {
+export function happenedAlready(store: Store, id: string, at: string, opts: { readonly open?: (row: MemoryRow) => boolean } = {}): string | null {
   try {
     const item = store.row(id);
     if (item === undefined || item.created_at === null || item.created_at === undefined || recurrenceOfRow(item) !== null) return null;
+    const due = typeof item.event_date === "string" ? stampDay(item.event_date.trim()) : "";
+    if (!isDay(due) || !isDay(at) || due > at) return null;
+    const earliest = addDays(due, -SHAPE.HAPPENED_EARLY_DAYS);
+    const zone = store.zone();
     const name = nameOf(item);
     const want = stems(name);
     if (want.size < SHAPE.HAPPENED_SHARED) return null;
@@ -202,6 +214,9 @@ export function happenedAlready(store: Store, id: string, opts: { readonly open?
     for (const r of store.doneWrittenSince(item.created_at, SHAPE.HAPPENED_READ)) {
       if (r.id === id || isTold(r) || isNightRow(r) || r.band === "identity") continue;
       if (opts.open !== undefined && !opts.open(r)) continue;
+      // Written, and saying it happened, near the item's day: not an earlier visit of the same name.
+      if (localDate(r.created_at ?? 0, zone) < earliest) continue;
+      if ([r.occurred_on, r.happened_on].some((d) => typeof d === "string" && isDay(stampDay(d)) && stampDay(d) < earliest)) continue;
       const have = stems(nameOf(r));
       const shared = [...want].filter((w) => have.has(w)).length;
       if (shared < SHAPE.HAPPENED_SHARED) continue;

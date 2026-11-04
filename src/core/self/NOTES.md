@@ -3027,12 +3027,14 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   chapter copies, an older fact noted again (a stated day before the window), and an echo of a stronger title. Nothing new,
   no section. It costs ~100 B a title; Dana's two cases are one line each. In the shaped wake only: the old road's
   `ROOM_ORDER` and its byte-identical tests were not touched.
-- **A stale handoff steps down.** Older than `HANDOFF_STEP_DOWN_MS` (12 h) with a session here since (the host's registry,
-  this folder or its project's, not the handoff's own session, not the reader, not a headless one; with no registry, the
-  other sessions that wrote a chapter or memory here), the newest handoff is one line, after "Since, here": `Last handoff,
+- **A stale handoff steps down.** Older than `HANDOFF_STEP_DOWN_MS` (12 h) with a session here since (one that wrote a
+  chapter or a memory here, not the handoff's own session, not the reader, not a headless one, not one still open), and
+  something in "Since, here" to read, the newest handoff is one line, after "Since, here": `Last handoff,
   <seat>, <day> (<age> old; N sessions here since): recall sch_…`. None of its words: the point is that it no longer leads.
   "Nothing here since." goes with it (sessions came, so it would contradict the line). Saves ~300–560 B a wake from day 3
   of Dana's shop on; costs ~20 B over the old head line.
+  Review of #734: the first cut counted every session the registry saw start, so a silent check-in, still open, stepped a
+  20-hour handoff down to a bare recall with nothing above it; now only an ended session that left something counts.
 - **Empty sections collapse.** "Open here now: no other session.", "Nothing dated." and "Nothing open." are gone, and their
   headings with them: a section with nothing in it isn't printed (a door line alone still is). Dana's WK2 week printed them
   33 times in 11 wakes (~25–30 B each, ~60–90 B a wake). `arrivingTense` reads under the last `Coming up:`; with the lane
@@ -3046,6 +3048,10 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   wrote. In Dana's WK2 week the launch row didn't `updates` the launch day, and they shared only the "Dana" card. What
   would make it exact: the session's `remember` linking the done row to the dated one (`updates`, which settles it today).
   Saves the plain line and the Due-today line, ~260 B, on d6s1/d6s2.
+  Review of #734: words alone settled "Dentist appointment: cleaning" two days out by "Dentist appointment for the kids
+  went fine", and today's vet check-up by a stitches-out visit five days before. Now the date fences it too: only an item
+  whose day is the wake's or before, and only by a done row written (and stating its day, when it does) no earlier than
+  `HAPPENED_EARLY_DAYS` (1) before that day. The launch, done a day early, still settles; a stale line is the cost.
 - **On for new stores.** `beginNewInstall` writes `self.wake_shape = on` (`NEW_INSTALL_WAKE_SHAPE`): the same "new store"
   door #729's starter memories use. `counterparts install` calls it only for a store that call created (`!existed`,
   `start-fresh`'s blank store included), and hosted's `startNewStore` for a person's new store. The tunable stays false, so

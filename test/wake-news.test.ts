@@ -286,6 +286,41 @@ describe("a stale handoff steps down", () => {
     expect(stands).toContain("waiting on Dana to pick a platform");
     expect(stands).toStartWith("Where this folder stands:\nHandoff, session eeee0001");
   });
+
+  test("a check-in since that left nothing here, ended or still open: the handoff stays whole (review of #734)", () => {
+    for (const phase of ["end", "start"] as const) {
+      const { c, at } = brain();
+      at(NOW - 20 * HOUR);
+      recordSession(storeDir, { sessionId: SEAT1, scope: SHOP, phase: "start", at: NOW - 20 * HOUR });
+      c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 });
+      const s = "ffff0001-0000-4000-8000-000000000000";
+      at(NOW - 2 * HOUR);
+      recordSession(storeDir, { sessionId: s, scope: SHOP, phase: "start", at: NOW - 2 * HOUR });
+      if (phase === "end") recordSession(storeDir, { sessionId: s, scope: SHOP, phase: "end", at: NOW - 2 * HOUR + 5 * MIN });
+      at(NOW);
+      c.close();
+      const stands = section(hook(SHOP).wake, "Where this folder stands:");
+      expect(stands).toContain("waiting on Dana to pick a platform");
+      expect(stands).not.toContain("Last handoff,");
+      rmSync(storeDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a session still open beside this one, writing here, doesn't step the handoff down (review of #734)", () => {
+    const { c, at } = brain();
+    at(NOW - 20 * HOUR);
+    recordSession(storeDir, { sessionId: SEAT1, scope: SHOP, phase: "start", at: NOW - 20 * HOUR });
+    c.writeHandoff(PLATFORM, { scope: SHOP, session: SEAT1 });
+    const s = "ffff0002-0000-4000-8000-000000000000";
+    at(NOW - HOUR);
+    recordSession(storeDir, { sessionId: s, scope: SHOP, phase: "start", at: NOW - HOUR });
+    note(c, "Shop voice: friendly, not cutesy", { scope: SHOP, about: "work", session: s, status: "done" });
+    at(NOW);
+    c.close();
+    const stands = section(hook(SHOP).wake, "Where this folder stands:");
+    expect(stands).toContain("waiting on Dana to pick a platform");
+    expect(stands).not.toContain("Last handoff,");
+  });
 });
 
 describe("a dated item that already happened settles", () => {
@@ -327,6 +362,33 @@ describe("a dated item that already happened settles", () => {
     expect(text).not.toContain("Plain reminder (they asked to be told)");
     expect(text).not.toContain("Shop launch day");
     expect(text).not.toContain("pottery shop launches today");
+  });
+
+  /** A dated item, then a done memory that shares its words, each through remember in notes. */
+  async function visit(item: { title: string; date: string; ago: number; plain?: boolean }, done: { title: string; ago: number }): Promise<void> {
+    const { c, at } = brain();
+    at(NOW - item.ago);
+    recordSession(storeDir, { sessionId: S1, scope: NOTES, phase: "start", at: NOW - item.ago });
+    await new McpServer({ counterpart: c, scope: NOTES, registryDir: storeDir, session: S1 }).call("remember", { kind: "fact", title: item.title, text: `${item.title}.`, eventDate: item.date, ...(item.plain === true ? { remind: "plain" } : {}), status: "planned", about: "owner" });
+    at(NOW - done.ago);
+    recordSession(storeDir, { sessionId: S2, scope: NOTES, phase: "start", at: NOW - done.ago });
+    await new McpServer({ counterpart: c, scope: NOTES, registryDir: storeDir, session: S2 }).call("remember", { kind: "fact", title: done.title, text: `${done.title}.`, status: "done", about: "owner" });
+    at(NOW);
+    c.close();
+  }
+
+  test("a visit not yet due isn't settled by an earlier one of the same name (review of #734)", async () => {
+    const soon = new Date(NOW + 2 * 24 * HOUR).toISOString().slice(0, 10);
+    await visit({ title: "Dentist appointment: cleaning and x-ray", date: soon, ago: 3 * 24 * HOUR }, { title: "Dentist appointment for the kids went fine", ago: 24 * HOUR });
+    expect(section(hook(NOTES).wake, "Coming up:")).toContain("Dentist appointment: cleaning and x-ray");
+  });
+
+  test("today's reminder isn't settled by a done memory from days before its day (review of #734)", async () => {
+    const today = new Date(NOW).toISOString().slice(0, 10);
+    await visit({ title: "Biscuit's vet check-up", date: today, ago: 10 * 24 * HOUR, plain: true }, { title: "Stitches out at the vet for Biscuit, all good", ago: 5 * 24 * HOUR });
+    const text = full(NOTES);
+    expect(text).toContain("Plain reminder (they asked to be told) — Today: Biscuit's vet check-up");
+    expect(section(text.slice(text.indexOf("<!-- counterparts:wake ")), "Coming up:")).toContain("Biscuit's vet check-up");
   });
 
   test("a done memory that names the launch but not the shop's launch settles nothing", async () => {
