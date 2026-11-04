@@ -54,6 +54,10 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
      production` rows there are another project), so the switch deploys nothing new. Railway's "Wait for CI" acts on
      workflows that run on a push to the deploy branch, and `tests.yml`'s push list (`master`, `release/**`) doesn't
      match `hosted-live`; the commit has already passed on master, and step 6 checks that before the push.
+     Railway stages a settings change (the branch, a disconnect) until **Deploy Changes** at the top of the project
+     canvas is pressed; until then the old source stays live. On 2026-11-04 the switch sat staged and the next
+     master merge still deployed, so press it, then check that a docs-only merge to master makes no new
+     `fabulous-recreation / production` deployment.
    - Leave Railway's **Edge** section (CDN caching, edge rules, Under Attack Mode) off. Caching in front of sign-in
      pages and `/mcp` isn't something this server expects, and any of it could change the hops in section 5, step 3.
 2. Add a **volume** to the service, mounted at `/data`, and set the variable `RAILWAY_RUN_UID=0` from the start.
