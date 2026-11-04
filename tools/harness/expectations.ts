@@ -66,7 +66,7 @@ export interface ExpectationHit {
   readonly relevant?: boolean;
 }
 
-export type Grade = "ok" | "amber" | "red";
+export type Grade = "ok" | "amber" | "red" | "untold";
 
 /** The headings whose lines name other folders by design. */
 export const BY_DESIGN_HEADINGS: readonly RegExp[] = [/^Elsewhere$/, /^Today, elsewhere\b/, /^Since you started\b/, /^About me, from another directory\b/];
@@ -151,6 +151,11 @@ export function readExpectations(
   const order = new Map(sessions.map((s, i) => [s.label, i]));
   const folders = [...new Set(sessions.map((s) => s.folder))];
   return expectations.map((e) => {
+    // A FACT THIS RUN NEVER TOLD (a `--days` run that stops before its session): nothing to reach, nothing to grade.
+    if (!order.has(e.told)) {
+      const folders0 = e.reach === "every" ? folders : e.reach;
+      return { id: e.id, kind: e.kind, fact: e.fact, told: e.told, folder: e.folder, reach: folders0.map((folder) => ({ folder, verdict: "no-session" as const, first: null, sessions: 0 })), leaks: [], grade: "untold" as const, why: ["not told in this run"], store: {}, about: {} };
+    }
     const told = order.get(e.told) ?? -1;
     const after = (h: ExpectationHit): boolean => {
       const i = order.get(h.label) ?? -1;

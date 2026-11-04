@@ -87,7 +87,7 @@ test("tier 0: the developer week runs through the real hooks with no model; comp
     for (const l of x.leaks) expect(l.folder).not.toBe(x.folder);
     // Every crossing at a prompt says its lane and whether the script judged it relevant.
     for (const l of x.leaks.filter((y) => y.where === "prompt")) expect(l.lane !== undefined && l.relevant !== undefined).toBe(true);
-    expect(["ok", "amber", "red"]).toContain(x.grade);
+    expect(["ok", "amber", "red", "untold"]).toContain(x.grade);
   }
   // The scripted `remember`s are written in the folder they were said in: the store side of separation.
   for (const id of ["W1-seed", "W2-shaping", "W3-nfc", "W4-gpu07", "W5-paper"]) {
@@ -186,6 +186,10 @@ test("expectations: a hit counts after the telling session, leaks are named with
   const [w, p] = readExpectations(e, hits, sessions, [{ folder: "evals", about: null, text: "gpu-07 failed" }]);
   expect(w!.reach).toEqual([{ folder: "evals", verdict: "missed", first: null, sessions: 1 }]);
   expect(w!.leaks).toEqual([{ label: "s2", folder: "sim", where: "wake", section: "Elsewhere", judged: "by-design" }]);
+  // A fact told in a session the run never reached is untold, not missed.
+  const [u] = readExpectations([{ ...e[1]!, told: "s9" }], hits, sessions, []);
+  expect(u!.grade).toBe("untold");
+  expect(u!.reach.every((x) => x.verdict === "no-session")).toBe(true);
   // Missing in its own folder is amber for a work fact; a personal fact missing anywhere is red.
   expect(w!.grade).toBe("amber");
   expect(p!.grade).toBe("red");

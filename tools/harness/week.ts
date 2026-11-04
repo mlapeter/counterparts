@@ -830,8 +830,11 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       return;
     }
     // AT A PROMPT, WHICH LANE (a0's rule): a memory recall showed loud, or as a footnote, whose own words carry the
-    // fact; else a line of the prompt's (the "Since you started" line).
-    const textOf = (id: string): string => memoryText(dir, id);
+    // fact; else a line of the prompt's (the "Since you started" line). Only WORK memories count in a lane, as the
+    // product reads work (`self/work.ts#isWorkMemory`: marked work, or unmarked fact/entity/place/skill): the
+    // meeting's journal or a reflection that mentions a repo's seed is not that repo's work (11-04 run: the
+    // "Meeting Theo" journal read as W1 crossing four times).
+    const textOf = (id: string): string => memoryText(dir, id, true);
     const local = new Map<string, ExpectationHit>();
     for (const h of probeHits(opts.expect, text, { label, folder, where })) local.set(h.id, { ...h, lane: "line", relevant: shown.relevant.includes(h.id) });
     for (const e of opts.expect) {
@@ -1159,10 +1162,13 @@ export function hostTurns(entry: Record<string, unknown>): { role: "user" | "ass
 }
 
 /** One memory's words (title and body), or "" when there is none by that id. */
-function memoryText(dir: string, id: string): string {
+function memoryText(dir: string, id: string, workOnly = false): string {
   const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
   try {
-    return (db.query("SELECT COALESCE(title, '') || ' ' || body AS t FROM memories WHERE id = ?").get(id) as { t: string } | null)?.t ?? "";
+    const row = db.query("SELECT COALESCE(title, '') || ' ' || body AS t, kind, about FROM memories WHERE id = ?").get(id) as { t: string; kind: string; about: string | null } | null;
+    if (row === null) return "";
+    if (workOnly && !(row.about === "work" || (row.about === null && ["fact", "entity", "place", "skill"].includes(row.kind)))) return "";
+    return row.t;
   } finally {
     db.close();
   }
