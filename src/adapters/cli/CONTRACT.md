@@ -317,6 +317,14 @@ The standalone verb does not ask either: typing it is the yes.*
     question, not by the plan made before it. When another process did the same work
     while the question was up, nothing is written and no backup is taken, and the screen
     says the hooks were already in place (or already gone) when the file was read again.*
+    *Amended 2026-11-04 (LD1): `connect` and `disconnect` keep their backups, but
+    `uninstall`, when its unwire read a healthy settings file, took our hooks out and
+    wrote it back, removes every backup of ours beside the file (the whole
+    `<file>.counterparts-backup-<stamp>` name, regular files only, never a link or a
+    directory), the one it just took included, and says how many went. The backups are
+    the only recovery if something else damaged the file, so only an unwire that read and
+    rewrote a healthy file removes them: a missing, empty or hook-free file, or a failed
+    unwire, keeps every one, and uninstall says where they are.*
 22. **[M] Every other key and every other tool's hooks survive, and the merge works on
     the INNER hook entry.** Another tool's entry keeps its position, its `matcher`, its
     `timeout` and every key this package has never heard of; an event we do not use is not
