@@ -559,6 +559,17 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
    Railway's v1 is the ring in use rests on the running service: its deploy started after `HOSTED_KEKS` was last set
    and it opens its stores, and with one version any `HOSTED_KEK_CURRENT` but `v1` refuses at start-up.
 
+**Deferred, not gates and not built (2026-11-04, ROADMAP, on Mike's "reasonably secure, not overkill" for a free beta of
+0-10 users).** Gates 2 and 3 above, and the alert and uptime lines in §7.1, are moved here until the beta grows:
+- **The Cloudflare key service** (gate 2). Why: one leak of Railway's environment is a risk worth closing, but for a
+  handful of invited users it isn't worth a second `KeyWrapper` yet. The breach report is still unverified.
+- **The account email encrypted under the person's DEK** (gate 3). Why: it belongs with the encrypted live store, and
+  that drop is pending Mike's final word. Until then the 24-hour purge wording stands.
+- **The four custom alerts** (lag, volume full, 5xx rate, sidecar restarts; §7.1). Why: Railway's own crash and deploy
+  emails and `/readyz` are enough to start.
+- **An outside uptime service** (§7.1). Why: it needs an account of Mike's, and Railway's notices cover a crash.
+- **A formal data-request process.** Why: with a few users, a request to the feedback address is handled by hand.
+
 ---
 
 ## 6. Tables (control plane, `control/accounts.sqlite`)
