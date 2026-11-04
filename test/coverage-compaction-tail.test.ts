@@ -9,9 +9,11 @@
  * reaches past it. Through the real night: `runNight`, its catch-up child
  * driving the real MCP server as the runner.
  *
- * Negatives: the same short tail said BEFORE a compaction (nothing after the
- * cut), and the same session with no compaction at all, stay not owed; a tail
- * after a record written after the cut stays on the floor.
+ * The tail is held to the floor but its span: three pieces however quick, so
+ * two lines after the cut stay a closing tail. Negatives: the same short tail
+ * said BEFORE a compaction (nothing after the cut), and the same session with
+ * no compaction at all, stay not owed; a tail after a record written after the
+ * cut stays on the whole floor.
  *
  * Hermetic (CLAUDE.md): a fresh temp store per test, removed after. No model
  * and no `claude`: the child is an injected starter.
@@ -61,7 +63,7 @@ function yesterday10(): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - 14 * HOUR;
 }
 
-type Shape = "tail-after-compaction" | "tail-before-compaction" | "no-compaction" | "record-after-compaction";
+type Shape = "tail-after-compaction" | "short-tail-after-compaction" | "tail-before-compaction" | "no-compaction" | "record-after-compaction";
 
 /**
  * d2s1's day, as the hooks leave it in the store: six turns over 48 minutes,
@@ -94,7 +96,7 @@ function lived(id: string, shape: Shape): void {
     // ITS OWN RECORD, at the Stop ask: a chapter claims everything unclaimed.
     at += MIN;
     expect(claimUnwritten(c.spans, { session: id, scope: proj, by: CLAIM_CHAPTER, ref: `ep-${id}` }).pieces).toBe(6);
-    if (shape === "tail-after-compaction" || shape === "record-after-compaction") compact();
+    if (shape === "tail-after-compaction" || shape === "short-tail-after-compaction" || shape === "record-after-compaction") compact();
     if (shape === "record-after-compaction") {
       at += MIN;
       say(`${id}: after the summary, the backfill batch size is 500.`);
@@ -106,8 +108,8 @@ function lived(id: string, shape: Shape): void {
     say(`${id}: rename the flag to orders_v2.`);
     at += 3 * MIN;
     say(`${id}: keep the old index until Friday.`);
-    at += 3 * MIN;
-    say(`${id}: Ines starts her first shift at the bakery tomorrow, she is nervous.`);
+    if (shape !== "short-tail-after-compaction") at += 3 * MIN;
+    if (shape !== "short-tail-after-compaction") say(`${id}: Ines starts her first shift at the bakery tomorrow, she is nervous.`);
     if (shape === "tail-before-compaction") compact();
     at += MIN;
     c.boundary({ session: id, scope: proj, kind: "session-end" });
@@ -192,6 +194,16 @@ describe("CT1: what follows a session's newest compaction counts as unrecorded",
     const after = rowOf("s-tail")!;
     expect(after).toMatchObject({ owed: false, stretch: null, compactionTail: 0 });
     expect(whyNotOwed(after)).toBe("written");
+  });
+
+  test("two lines after the cut are under the floor's pieces: not owed, and the harness says it is the tail after a compaction", async () => {
+    lived("s-short", "short-tail-after-compaction");
+    const row = rowOf("s-short")!;
+    expect(row).toMatchObject({ owed: false, recorded: true, overFloor: false, compactionTail: 2 });
+    expect(whyNotOwed(row)).toBe("under-floor:pieces:after-compaction");
+    const seen: ChildPlan[] = [];
+    await night("nrn_short", seen);
+    expect(seen.length).toBe(0);
   });
 
   test("the same tail said BEFORE a compaction (nothing after the cut) stays held to the floor: not owed", async () => {

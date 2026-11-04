@@ -176,9 +176,10 @@ tail back: `under-floor:span`, never written up. The record it relied on was wri
 compaction; nothing about what came after the cut is in it.
 
 The rule (decided by counterparts-a0): what follows a session's NEWEST compaction counts as
-unrecorded — owed as an unrecorded session's stretch is (`isDebt(tail, false)`), whatever its
-span. Not the broader "a recorded session owes 3+ pieces whatever their span": a tail after a
-record with no compaction between them keeps the floor.
+unrecorded, and is owed with the usual floor except the span: `OWED_PIECES` (3) pieces after the
+cut, however quick. Not S2's one piece (a lone line after a compaction is still a closing tail),
+and not the broader "a recorded session owes 3+ pieces whatever their span": a tail after a record
+with no compaction between them keeps the whole floor.
 
 How the cut is found: the store's own `pre-compaction` boundary (`boundaries.jsonl`, written by
 the PreCompact hook through `captureBoundary` whether or not anything new was captured), the
@@ -197,4 +198,5 @@ Cost, tier 0 (2026-11-04, before → after): Dana (`--script meaningful`) unchan
 10 write-ups (no compactions in it); Theo (`--script developer`, #747) 7 catch-up runs either way,
 write-ups 14 → 15 (d2s1 joins night 3's batch, 2 → 3 sessions; one part). The other compacted
 session, d4s3, answered an ask after its compaction and keeps the floor. Revert: drop the
-`|| isDebt(stretchOf(tail), false)` arm in `ledger`.
+`|| tail.length >= OWED_PIECES` arm in `ledger`; to owe from one piece instead, read the tail
+with `isDebt(stretchOf(tail), false)`.

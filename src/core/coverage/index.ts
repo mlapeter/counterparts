@@ -110,9 +110,9 @@ export interface LedgerEntry {
   /**
    * Unwritten pieces after that compaction that NO RECORD OF ITS OWN follows
    * (CT1): what the session said after its context was cut, when the only
-   * record it relies on was written before the cut. Counted as an unrecorded
-   * session's stretch is (`isDebt(…, false)`). 0 when it never compacted, or
-   * when a record of its own covers a piece after the cut.
+   * record it relies on was written before the cut. Owed from `OWED_PIECES`
+   * pieces whatever their span (the floor but its span). 0 when it never
+   * compacted, or when a record of its own covers a piece after the cut.
    */
   readonly compactionTail: number;
   readonly owed: boolean;
@@ -391,9 +391,12 @@ export function ledger(buffer: SpanBuffer, opts: LedgerOptions): LedgerEntry[] {
     // AFTER ITS NEWEST COMPACTION (CT1, 2026-11-04): what follows the cut is
     // unrecorded unless a record of its own reaches past it — a record claim
     // covering a piece said after the cut, or a write-up mark after it. A
-    // record written before the compaction does not hold the tail to the floor.
+    // record written before the compaction does not hold the tail to the floor's
+    // span: the floor's pieces still apply, not the broader "3 pieces whatever
+    // their span" for every tail after a record (a0, 2026-11-04).
     const tail = compactionTail(unwritten, t.compactedAt, t.recordPieceAts, t.writtenUpAt);
-    const debt = isDebt(stretch, recorded) || isDebt(stretchOf(tail), false);
+    // Owed with the usual floor but its span: `OWED_PIECES` pieces, however quick.
+    const debt = isDebt(stretch, recorded) || tail.length >= COVERAGE_TUNABLES.OWED_PIECES;
     const since = stretch === null ? 0 : usesAfter(uses, localDate(stretch.lastAt, opts.zone));
     const lapsed = debt && since >= COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE;
     const owed = debt && state !== "active" && !lapsed;
