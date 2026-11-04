@@ -32,6 +32,9 @@ const ORDINARY_CODE = [
   "secret = secrets.token_hex()",
   "num_tokens = count_tokens(text)",
   "unk_token = pad_token",
+  "pad_token_id = eos_token_id",
+  "sep_token = cls_token",
+  "mask_token = unk_token",
 ];
 
 const REAL_SECRETS: Array<[string, string]> = [
@@ -44,6 +47,29 @@ const REAL_SECRETS: Array<[string, string]> = [
   ["auth_token = abc123def456", "abc123def456"],
   ["access_token = Zq8_xT3vLm9", "Zq8_xT3vLm9"],
   ["HF_TOKEN=hf_abcdefghijklmnopqrstu", "hf_abcdefghijklmnopqrstu"],
+  ["SECRET_KEY=correct_horse_battery_staple", "correct_horse_battery_staple"],
+  ["export WEBHOOK_SECRET=purple_monkey_dishwasher", "purple_monkey_dishwasher"],
+  ["CLIENT_SECRET=tangerine_wombat_sky", "tangerine_wombat_sky"],
+  ["API_KEY=my_secret_value", "my_secret_value"],
+  ["SESSION_TOKEN=blue_whale_river", "blue_whale_river"],
+  ["BEARER_TOKEN=open_sesame", "open_sesame"],
+  ["SLACK_TOKEN=xoxp_abcdefghijkl_mnopqrstuvwx", "xoxp_abcdefghijkl_mnopqrstuvwx"],
+  ["client_secret: tangerine_wombat_sky", "tangerine_wombat_sky"],
+  ["api_key: my_secret_value", "my_secret_value"],
+  ["webhookSecret: purpleMonkeyDishwasher", "purpleMonkeyDishwasher"],
+  ["client_secret = tangerine_wombat_sky", "tangerine_wombat_sky"],
+  ["webhook_secret = correct_horse_battery", "correct_horse_battery"],
+  ["secret_key_base = rails_dev_secret_base", "rails_dev_secret_base"],
+  ["credentials = admin_letmein", "admin_letmein"],
+  ["token = correctHorseBatteryStaple", "correctHorseBatteryStaple"],
+  ["apiKey = openSesameDoor", "openSesameDoor"],
+  ["secret=letmeinNow", "letmeinNow"],
+  ["I set token = sunset_harbor_lime and then restarted", "sunset_harbor_lime"],
+  ["token = foo_barbaz; secret = baz_quxquux", "baz_quxquux"],
+  ["api_key = xoxb_abcdefghijk", "xoxb_abcdefghijk"],
+  ["token = lin_api_abcdefghijkl", "lin_api_abcdefghijkl"],
+  ["api_key = aBcdEfghIjklMnop", "aBcdEfghIjklMnop"],
+  ["secret = abcdefabcdef_fedcbafedcba", "abcdefabcdef_fedcbafedcba"],
 ];
 
 describe("RD1: identifiers assigned to identifiers", () => {

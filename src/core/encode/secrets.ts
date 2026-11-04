@@ -128,6 +128,10 @@ const PASSWORD_NAME = /(?:password|passwd|pwd)$/i;
 // A bare identifier assigned to a credential-looking name (`pad_token = eos_token`):
 // letters only, joined by underscores or camelCase humps, no digit. A real secret
 // has digits or no word structure; `hunter2x` and `abcdefghijkl` stay values.
+// It must END in an identifier word (token, key, id), so a passphrase
+// (`correct_horse_battery`) stays redacted; never an ALL-CAPS name (env vars) and
+// never after `:` (YAML) — only a code assignment with `=`.
+const IDENTIFIER_WORD_END = /(?:^|_)(?:token|tokens|key|keys|id|ids)$|[a-z](?:Token|Tokens|Key|Keys|Id|Ids)$/;
 // No word over twelve letters: `hf_abcdefghijklmnopqrstu` is a token with a prefix.
 const BARE_IDENTIFIER = /^(?:[a-z]{1,12}(?:_[a-z]{1,12})+|[a-z]{1,12}(?:[A-Z][a-z]{1,11})+)$/;
 
@@ -140,7 +144,15 @@ function isSetting(value: string, match: string, name: string): boolean {
   }
   if (quoted) return false;
   if (CODE_REFERENCE.test(v)) return true;
-  if (!PASSWORD_NAME.test(name) && BARE_IDENTIFIER.test(v)) return true;
+  if (
+    !PASSWORD_NAME.test(name) &&
+    BARE_IDENTIFIER.test(v) &&
+    IDENTIFIER_WORD_END.test(v) &&
+    name !== name.toUpperCase() &&
+    /^[^:=]*=/.test(match.slice(name.length))
+  ) {
+    return true;
+  }
   const sep = /[:=]/.exec(match.slice(name.length))?.[0];
   return sep === ":" && TYPE_NAME.test(v);
 }
