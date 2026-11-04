@@ -2475,6 +2475,14 @@ const CLAUDE_AI_ENTRY_FIELDS: Readonly<Record<string, string | null>> = {
     "Optional, with unresolved: true: what would settle it, in a short phrase. The night can close the item once a memory shows it happened. A date goes in eventDate.",
 };
 
+/** The sentence of `text` that begins with `opening`; throws when there is none (a reworded base fails loudly). */
+function sentenceOf(text: string, opening: string): string {
+  const at = text.indexOf(opening);
+  const end = text.indexOf(".", at);
+  if (at < 0 || end < 0) throw new Error(`CLAUDE_AI_TRIM: no sentence begins "${opening}"`);
+  return text.slice(at, end + 1);
+}
+
 function under(prefix: string, words: Readonly<Record<string, string | null>>): Record<string, string | null> {
   return Object.fromEntries(Object.entries(words).map(([path, text]) => [`${prefix}${path}`, text]));
 }
@@ -2483,7 +2491,9 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
   remember: {
     served: ["`updates` is a FIELD", "`eventDate` is a FIELD", "A salience you claim is a FLOOR", "A stored memory comes back"],
     fields: {
-      text: "One thing to remember, in your own words, with the exact quote, number or name when the words matter. A list, table or pasted text whose specifics matter: word for word, with the words someone would search for in the title and first line. Required unless `settle`, `feelingsNow`, `remark` or `core` is sent.",
+      // The "Required unless" sentence is the base's own, so a field that joins it there joins it here.
+      text: (was) =>
+        `One thing to remember, in your own words, with the exact quote, number or name when the words matter. A list, table or pasted text whose specifics matter: word for word, with the words someone would search for in the title and first line. ${sentenceOf(was, "Required unless ")}`,
       ...CLAUDE_AI_ENTRY_FIELDS,
       settle:
         "Settle two memories that already exist (a pair a dream flagged, or two a write showed you) without writing a new one: `pair` (its ctr_ id), or `holds` (holds now) and `over`; `how` as for `updates`, and `why` in a short line.",

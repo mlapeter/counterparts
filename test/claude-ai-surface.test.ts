@@ -353,6 +353,17 @@ describe("4. the tool words for chat", () => {
     }
     expect(field("remember", "feelingsNow")).toContain("Not for a new moment");
     expect(field("recall", "question")).toContain('"I" and "me" mean you, the counterpart');
+    // Every handle Claude Code's recall names is named on claude.ai too, but the three that read
+    // folders or hook-captured words, which claude.ai has none of. A handle added to every host's
+    // words fails here until claude.ai's words name it (or it joins this list, with its reason).
+    const NOT_ON_CLAUDE_AI = new Set(["last exchange", "handoffs here", "elsewhere", "manual <section>"]);
+    const ccHandle = String((TOOLS.find((t) => t.name === "recall")?.inputSchema as { properties: { handle: { description: string } } }).properties.handle.description);
+    for (const [, name] of ccHandle.matchAll(/"([^"]+)"/g)) {
+      if (!NOT_ON_CLAUDE_AI.has(String(name))) expect(field("recall", "handle")).toContain(`"${String(name)}"`);
+    }
+    // Which fields stand in for `text` is every host's sentence, served whole.
+    const ccText = String((TOOLS.find((t) => t.name === "remember")?.inputSchema as { properties: { text: { description: string } } }).properties.text.description);
+    expect(field("remember", "text")).toContain(String(ccText.match(/Required unless [^.]*\./)?.[0]));
     // Claude Code's catch-up fields are kept, short: claude.ai's wake can carry the write-up pointer.
     expect(field("session_end", "writeUp")).toContain("ended session");
     // Not offered here: the legacy other_word, and traits on a write-up entry (remember keeps them).
