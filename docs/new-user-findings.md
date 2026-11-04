@@ -224,7 +224,7 @@ Setup
   uninstall     Remove Counterparts; keeps your memory unless you say otherwise
 
 Your data
-  export        A copy of your memory you can take anywhere, encrypted by default
+  export        A copy of your memory you can take anywhere, encrypted with --passphrase
   backup        Save a snapshot of your memory to a folder
   remove        Delete one memory for good
 
@@ -234,6 +234,8 @@ https://www.npmjs.com/package/counterparts
 ```
 
 *(2026-09-24: the `credentials` line was removed with the API keys, on the owner's word.)*
+
+*(2026-11-03: the `export` line said "encrypted by default", which was never true: export refuses without `--passphrase` or `--plaintext`. Corrected under the owner's "go ahead with everything" that day, for him to confirm.)*
 
 **Doctor** (fresh store, both keys skipped, everything else fine)
 
