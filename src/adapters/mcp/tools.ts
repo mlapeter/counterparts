@@ -2533,7 +2533,7 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
     fields: {
       session: CLAUDE_AI_SESSION_TEXT,
       memories:
-        "One entry per thing, one idea each: a quote, a fact and a decision are three. `[]` only when nothing happened since you last wrote. A refused entry does not fail the others. Each entry's fields are `remember`'s.",
+        "One entry per thing, one idea each: a quote, a fact and a decision are three. `[]` only when nothing happened since you last wrote. A refused entry does not fail the others.",
       "memories[].content": "One thing, in your own words, with the exact quote, number or name when the words matter.",
       ...under("memories[].", CLAUDE_AI_ENTRY_FIELDS),
       handoff:
@@ -2619,6 +2619,11 @@ function trimSchema(base: Record<string, unknown>, trim: ClaudeAiTrim, tool: str
   }
   for (const path of trim.drop ?? []) {
     const { holder, key } = propertyAt(schema, path, tool);
+    // The object that lists `key` among its properties: the schema, a nested object, or an array's item.
+    const up = path.includes(".") ? path.slice(0, path.lastIndexOf(".")) : "";
+    const parent = up === "" ? schema : up.endsWith("[]") ? (propertyAt(schema, up.slice(0, -2), tool).property["items"] as Record<string, unknown>) : propertyAt(schema, up, tool).property;
+    const required = parent["required"];
+    if (Array.isArray(required) && required.includes(key)) throw new Error(`CLAUDE_AI_TRIM: ${tool}'s "${path}" is required; it cannot be left out`);
     delete holder[key];
   }
   return schema;
