@@ -18,7 +18,7 @@
  * temp data dir per test, removed afterwards.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,6 +26,7 @@ import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { openServer } from "../src/adapters/mcp/index.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { canonicalScope, recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
@@ -35,11 +36,14 @@ import { Store } from "../src/core/store/index.js";
 
 const BUDGET = 9_000;
 
+let root: string;
 let dir: string;
 const closers: { close(): void }[] = [];
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "counterparts-refused-calls-"));
+  root = mkdtempSync(join(tmpdir(), "counterparts-refused-calls-"));
+  dir = join(root, "store");
+  mkdirSync(dir);
 });
 
 afterEach(() => {
@@ -50,7 +54,7 @@ afterEach(() => {
       /* already closed */
     }
   }
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(root, { recursive: true, force: true });
 });
 
 const SIM = canonicalScope("/work/sim");
@@ -62,8 +66,18 @@ function config(): AdapterConfig {
   return { dataDir: dir, injectionBudgetBytes: BUDGET };
 }
 
+/** The host's config beside its folder registry: each repo answered `on` by itself, as the developer week ran (`roots: each`). */
+function configPath(): string {
+  const conf = join(root, "conf");
+  mkdirSync(conf, { recursive: true });
+  let reg = null;
+  for (const f of [SIM, EVALS, PAPER]) reg = setScope(reg, f, "on", { at: "2026-11-01" });
+  if (reg !== null) writeScopes(join(conf, "scopes.json"), reg);
+  return join(conf, "claude-code.json");
+}
+
 function adapter(): ReturnType<typeof openAdapter> {
-  const a = openAdapter(config(), { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null });
+  const a = openAdapter(config(), { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null, configPath: configPath() });
   closers.push(a.counterpart);
   return a;
 }
@@ -75,11 +89,11 @@ function plusDays(day: string, n: number): string {
 }
 
 /** A store with a few lived memories, the page, and last night's reflection, whose share was never told (its session ended). */
-function seed(): { today: string; reflection: string } {
+function seed(shape: "on" | "off" = "on"): { today: string; reflection: string } {
   const c = Counterpart.open({ dir, budgetBytes: BUDGET, identity: { name: "Theo" } });
   try {
-    // A new install's wake shape (WF1), as the developer week ran: Coming up lists its dates.
-    c.store.setMeta(WAKE_SHAPE_KEY, "on");
+    // A new install's wake shape (WF1), as the developer week ran: Coming up lists its dates. `off`: a store from before it.
+    c.store.setMeta(WAKE_SHAPE_KEY, shape);
     const day = c.store.livedDay();
     const ids: string[] = [];
     for (const body of ["Theo's workshop paper abstract is 212 words against a 150-word limit.", "ablation-7 vs baseline over 5 seeds: 0.41 vs 0.38, std about 0.04."]) {
@@ -165,8 +179,8 @@ describe("(a) a carried share is marked told as it is handed over", () => {
 });
 
 describe("(b) a memory about our own refused call or the session's limits", () => {
-  test("the DW d2s1 Stop-ask write lands without its date, thread or us mark, and no folder's Coming up carries it; a real dated us item still does", async () => {
-    const { today } = seed();
+  test.each(["on", "off"] as const)("wake shape %s: the DW d2s1 Stop-ask write lands without its date, thread or us mark, and no folder's wake carries it; a real dated us item still leads Coming up", async (shape) => {
+    const { today } = seed(shape);
     const friday = plusDays(today, 3);
     recordSession(dir, { sessionId: "d2s1", scope: SIM, phase: "start" });
     const mcp = openServer({ dir, session: "d2s1", scope: SIM });
@@ -174,13 +188,14 @@ describe("(b) a memory about our own refused call or the session's limits", () =
     const end = await mcp.call("session_end", {
       session: "d2s1",
       memories: [
+        { title: "ablation-7 vs baseline on 10 seeds: 0.42 vs 0.37", content: "ZQWORK The 10-seed rerun came back: ablation-7 0.42 vs baseline 0.37; a paired test is next." },
         { title: DW_TITLE, content: DW_TEXT, eventDate: friday, about: "us", unresolved: true, settlesWhen: "Theo says which abstract version is real and gives the sparse vs dense drop numbers" },
         { title: "Theo and I go over the abstract together before Friday", content: "ZQCONTROL We agreed to go over the abstract together before the Friday deadline.", eventDate: friday, about: "us" },
       ],
     });
     const results = end.structuredContent["outcomes"] as Record<string, unknown>[];
-    expect(results).toHaveLength(2);
-    const [dw, control] = results as [Record<string, unknown>, Record<string, unknown>];
+    expect(results).toHaveLength(3);
+    const [, dw, control] = results as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
     // The result says what it did not keep, and why.
     expect(dw["ownPlumbing"]).toMatchObject({ kept: true, dropped: ["eventDate", "unresolved"], aboutNotKept: "us" });
     expect(dw["about"]).toMatchObject({ stored: false, reason: "own-plumbing" });
@@ -206,9 +221,13 @@ describe("(b) a memory about our own refused call or the session's limits", () =
       const wake = wakeOf(session, scope, today);
       const comingUp = section(wake, "Coming up:");
       // The real dated `us` item reaches every folder's Coming up: the lane works, and is narrow.
-      expect(comingUp).toContain("Theo and I go over the abstract together before Friday");
+      // (The old shape lists only what is due today, and counts the rest.)
+      if (shape === "on") expect(comingUp).toContain("Theo and I go over the abstract together before Friday");
+      else expect(wake).toContain("Coming up: 1 — none due today");
       // The refused call and the slash command reach no lane of any folder's wake.
       for (const words of ["permission-denied", "slash command", "Morning share told"]) expect(wake).not.toContain(words);
+      // Another folder's Elsewhere names sim's newest real work, not the newer plumbing rows.
+      if (scope !== SIM) expect(shape === "on" ? section(wake, "Elsewhere:") : wake).toContain("ablation-7 vs baseline on 10");
     }
   });
 });
@@ -236,6 +255,7 @@ describe("the gate reads the subject, and only this system's own vocabulary (own
     "Theo's workshop paper deadline: Friday 6 Mar 2026",
     "Ops denied the deploy permission request; retry Friday",
     "Asked to /loop CI every 10 min on tokenizer fixture PR",
+    "The deploy tool is not permitted to write to prod",
   ])("not plumbing: %s", (title) => {
     expect(ownPlumbingCue({ title, content: "body" })).toBe(null);
   });

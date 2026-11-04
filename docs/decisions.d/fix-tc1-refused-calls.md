@@ -16,7 +16,9 @@
   Why: guards loose-first, and a mixed memory (DW's also held the open abstract question)
   loses nothing a recall would want; only the standing that put it in every wake goes. Read
   on the title (else the first line) only, never the body, never `saidBy: owner`.
-- Decided by the TC1 builder, 2026-11-04, lightly held: the folder's "Since, here" leaves an
-  `ownPlumbing` row out, as it leaves the starter notes. Why: without a date, thread or mark
-  the row still headed its own folder's news the next morning in the test; it's a read of the
-  write's own stamp, not a word filter.
+- Decided by the TC1 builder, 2026-11-04, lightly held: no wake line names an `ownPlumbing`
+  row ("Since, here", another folder's "Elsewhere" and the old shape's "Today, elsewhere",
+  the old shape's "Work here", the later-session line), as those lanes leave the starter
+  notes out. Why: without a date, thread or mark the row still headed its own folder's news
+  and, as the folder's newest work, every other folder's Elsewhere in the test; each is a read
+  of the write's own stamp, not a word filter.

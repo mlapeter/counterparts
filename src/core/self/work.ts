@@ -62,6 +62,7 @@
 import type { Kind, MemoryPhysics } from "../types.js";
 import { belowReach, strength } from "../physics/index.js";
 import { CRAFT_BORN_META } from "../store/index.js";
+import { OWN_PLUMBING_META_KEY } from "../remember/own-plumbing.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { datePrefix, flatten } from "./briefing.js";
 
@@ -361,6 +362,8 @@ export function workHere(
       return null;
     }
     if (doc.meta["unresolved"] === true) return null;
+    // Our own plumbing (TC1, `remember/own-plumbing.ts`): kept for recall, never a work line.
+    if (doc.meta[OWN_PLUMBING_META_KEY] !== undefined) return null;
     // BELOW REACH (2026-10-10, Group 1, review 03 C2): the wake's work lines
     // are an ambient channel, so a memory that has faded below physics'
     // `REACH` is not offered here; deliberate recall still finds it.

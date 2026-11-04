@@ -112,6 +112,7 @@ import type {
 import { redactSecrets } from "./encode/index.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "./schemas/tunables.js";
 import { similarity as textSimilarity } from "./remember/updates.js";
+import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
 import { REFLECT_TUNABLES } from "./dream/reflect.js";
 import type { SchemaSlice as EncodeSchemaSlice } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
@@ -2163,6 +2164,8 @@ export class Counterpart {
         // said in it. Its own notes and its write-ups (filed under the
         // session they write up) are what the line quotes.
         if (isNightRow(row)) continue;
+        // Nor our own plumbing (TC1, `remember/own-plumbing.ts`): kept for recall, never where the person left off.
+        if ((row.meta ?? "").includes(`"${OWN_PLUMBING_META_KEY}"`)) continue;
         // THIS FOLDER'S OWN (S2 review): a session at work in two folders
         // made its notes, and its write-ups are filed, under each folder; a
         // memory from the other one — or from none recorded — is not this

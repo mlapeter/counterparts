@@ -84,8 +84,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   subject (title, else first line) is a refused tool call, a permission prompt or what the
   session couldn't do (`own-plumbing.ts#ownPlumbingCue`, pure; never `saidBy: owner`) is
   kept, without a date, an open thread or a `me`/`us` mark (`counterpart-deposit.ts#ownPlumbingOf`,
-  `meta.ownPlumbing`; the door refuses the mark and says why). Every authored door crosses
-  it: `remember`, `session_end`, write-ups. A revision keeps its date and thread (dropping
+  `meta.ownPlumbing`; the door refuses the mark and says why), and no wake line names it.
+  Every authored door crosses it: `remember`, `session_end`, write-ups. A revision keeps its date and thread (dropping
   them would close what it revises).
 - **Boundaries are appenders, not thinkers.** Capture completes in microseconds; the host
   never waits on a model call at a boundary. [v1] §2 G1, [engram E4].

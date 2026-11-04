@@ -872,7 +872,11 @@ it led Coming up in all 7 later wakes, in every folder. Two halves again:
 - Measured read-only on five harness stores (the developer week, four Dana weeks; 381 memories): 5 hits, all of them
   the refused-`reflect` memories, and no false ones. The DW "/loop is a slash command" and "only memory tools" asides
   sit in bodies under real work titles ("Asked to /loop CI…"), so they aren't read, and they claimed no date or mark.
-- The folder's "Since, here" also leaves a `meta.ownPlumbing` row out (`counterpart-wake-shape.ts#sinceHere`), as it
-  leaves the starter notes: kept for recall, never the folder's news.
+- Without a date, thread or mark the row still named itself in the wake: as its folder's newest news ("Since, here"),
+  as that folder's newest work under another folder's "Elsewhere" (and the old shape's "Today, elsewhere"), in the old
+  shape's "Work here", and as the line for a later session with no chapter. Each of those reads now leaves a
+  `meta.ownPlumbing` row out, as they leave the starter notes (`counterpart-wake-shape.ts#sinceHere`,
+  `store/reads-memories.ts#memoryTitlesByScopeSince`, `self/work.ts#workHere`, `counterpart.ts`'s later-here pick):
+  kept for recall, never a wake line. Pinned in both wake shapes by `test/refused-calls-stay-plumbing.test.ts`.
 - Open: a revision whose title is plumbing keeps its date and thread, because dropping them would read as closing the
   memory it revises (`closeReminderChain`, `closeThread`). Only its mark is refused. Not seen yet.

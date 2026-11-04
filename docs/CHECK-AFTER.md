@@ -232,8 +232,8 @@ share told to Theo but reflect 'told' call was permission-denied", dated and `us
 WP1 had only reached the write-ups of ended sessions. Two changes: `Reflections#carryLine` marks the share `told` as it
 hands it over (with `told` on its cites) and asks for no call; and `remember/own-plumbing.ts` reads a memory's subject
 (title, else first line; never `saidBy: owner`), so one about our own refused call, a prompt or the session's limits is
-kept without date, thread or me/us mark (`counterpart-deposit.ts#ownPlumbingOf`, `meta.ownPlumbing`), and the folder's
-"Since, here" leaves it out. `session_end` and `remember`'s `text` field say not to write them.
+kept without date, thread or me/us mark (`counterpart-deposit.ts#ownPlumbingOf`, `meta.ownPlumbing`), and no wake
+line names it (Since here, Elsewhere, Work here, the later-session line). `session_end` and `remember`'s `text` field say not to write them.
 
 **What to look at, a few nights after release.** Read-only, titles and counts only:
 

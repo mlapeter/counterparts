@@ -44,8 +44,9 @@ const CUES: readonly { readonly cue: OwnPlumbingCue; readonly reads: (s: string)
       /\btool(?:[- ]calls?|s)?\b[^.;\n]{0,30}?\b(?:was|were|got|is|are|been)\s+(?:permission[- ])?(?:denied|blocked|refused|declined|rejected|disallowed)\b/i.test(s) ||
       (/\bmcp__\w+/i.test(s) && REFUSED.test(s)),
   },
-  // A tool this session isn't allowed ("the reflect tool isn't granted here").
-  { cue: "tool-not-granted", reads: (s) => /\btools?\b[^.;\n]{0,30}?\b(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not|not)\s+(?:granted|allowed|permitted)\b/i.test(s) },
+  // A tool this session wasn't granted ("the reflect tool isn't granted here"). Only "granted", the
+  // permission prompt's word: "the deploy tool is not permitted to write to prod" is a work fact.
+  { cue: "tool-not-granted", reads: (s) => /\btools?\b[^.;\n]{0,30}?\b(?:isn't|is not|wasn't|was not|aren't|are not|weren't|were not|not)\s+granted\b/i.test(s) },
   // A slash command the session cannot run ("/loop is a slash command, so I couldn't").
   { cue: "slash-command", reads: (s) => /\bis a slash command\b/i.test(s) || (/\bslash commands?\b/i.test(s) && /\b(?:couldn't|could not|can't|cannot|unable)\b/i.test(s)) },
   // What tools the session had ("that session had only memory tools").
