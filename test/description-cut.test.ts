@@ -202,7 +202,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       recall: { total: 4606, beforeList: 1200 },
       // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
       status: { total: 1289, beforeList: 501 },
-      session_end: { total: 2485, beforeList: 1088 },
+      // +138 on 2026-11-04 (TC1): the Do NOT on this system's own plumbing (a refused call, a prompt).
+      session_end: { total: 2623, beforeList: 1226 },
       // chapter +33 on 2026-10-11 (chapter wording): "a diary of what
       // happened" in the summary and the diary-vs-log Do NOT line. The
       // `about` claim, last of its leads, ends at 1,778, the description's end.
@@ -220,7 +221,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // the bundle claim's and the self-close claim's confidentiality words.
       dream: { total: 3721, beforeList: 1774 },
       // reflect +382 on 2026-10-21 (lane C2): the beliefs claim, after the list's start.
-      reflect: { total: 3699, beforeList: 1486 },
+      // +5 on 2026-11-04 (TC1): `told` only for a share your own `launch` handed back; a carried one is marked as it arrives.
+      reflect: { total: 3704, beforeList: 1491 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
       // +5 on 2026-10-30 (WK1): "still open and coming up" where "nearby and arriving" was.

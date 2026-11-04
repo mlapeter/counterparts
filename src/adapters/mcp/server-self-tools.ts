@@ -592,7 +592,13 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
         const reflection = args["reflection"];
         if (typeof reflection !== "string") return refused("reflection-required", "Pass `reflection`, the id the share named.");
         const out = reflections.told({ reflection, session });
-        if (!out.ok) return refused(out.reason, "Nothing to record: the share was already told, or there was none.");
+        // ALREADY TOLD IS NOT A FAILURE (2026-11-04, TC1): a share a prompt or a
+        // wake carried was marked told as it was handed over, so a model that
+        // still calls `told` gets a plain yes, not an error to explain or file.
+        if (!out.ok && out.reason === "already-told") {
+          return server["result"]({ phase, reflection, told: true, cited: 0, note: "Already marked told: a share handed to a session is marked as it arrives. Nothing to do." }, false);
+        }
+        if (!out.ok) return refused(out.reason, "Nothing to record: there was no share to tell.");
         server["emit"]("mcp.reflect", reflection, { phase: "told", cited: out.cited });
         return server["result"]({ phase, reflection, told: true, cited: out.cited }, false);
       }
