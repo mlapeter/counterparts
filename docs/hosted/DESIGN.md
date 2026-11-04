@@ -22,7 +22,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | # | Question | Recommendation | The main tradeoff |
 |---|---|---|---|
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
-| Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
+| Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | Railway's disk encryption is confirmed in writing (SOC 3, 2026-11-04, §5.1); a copy of the live disk would be readable plaintext if it didn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
 | Q4 | When a delete becomes unreadable everywhere | **Changed by Mike (2026-10-27; it was "at once, everywhere" on 10-26): delete is locked at once and erased 24 hours later unless the person keeps it; "delete everything now" beside it erases at once.** Each wrapped DEK is one write-once R2 object, deleted with everything else at the erase (§5.4) | A day to change your mind, against a locked copy that lives a day longer. The account email leaves the control database's backups within 24 hours of the erase (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
@@ -421,8 +421,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > And when Claude reads your memory, Anthropic sees what Claude reads.
 >
 > (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
-> claimed encrypted disks, which is unverified (above and §5.4), and a single-memory forget, which hosted has no door
-> for. Say either again only once it is true. Corrected 2026-11-03: it said the promise was "kept by access controls and
+> claimed encrypted disks, which was then unverified (confirmed 2026-11-04, §5.1, so that claim may come back), and a
+> single-memory forget, which hosted has no door for. Say the forget again only once it is true. Corrected 2026-11-03: it said the promise was "kept by access controls and
 > an audit log", but every audit row is an account event (`accounts.audit` in hosted/src) and nothing records a read of a
 > store, an operator's `railway ssh` included.)
 
