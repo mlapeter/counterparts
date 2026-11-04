@@ -43,6 +43,7 @@ const REAL_SECRETS: Array<[string, string]> = [
   ["api_key = abcdefghijkl", "abcdefghijkl"],
   ["auth_token = abc123def456", "abc123def456"],
   ["access_token = Zq8_xT3vLm9", "Zq8_xT3vLm9"],
+  ["HF_TOKEN=hf_abcdefghijklmnopqrstu", "hf_abcdefghijklmnopqrstu"],
 ];
 
 describe("RD1: identifiers assigned to identifiers", () => {
