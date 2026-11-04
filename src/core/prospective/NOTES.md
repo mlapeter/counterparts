@@ -684,3 +684,18 @@ repeat. Any weekly reminder hits this.
 - **Left as it was:** with the switch off, the old road's lane in the wake's body and `recall "still open"` still name it; the brief
   held that body byte-identical. Ambient recall still reaches a closed folder's words, and a quiet dated item in a closed folder
   still arrives as a cue: that's the turn's fence, not this line's.
+
+## 2026-11-04 — RF1: a plain reminder shown earlier today folds in later wakes
+
+- **Asked:** several sessions in a morning each showed the same "Coming up → Due today" lines whole (Mike, 11-04). First wake
+  of the day whole; later wakes one line, "N due today, shown earlier", in Coming up's door (`(…; recall "coming up")`).
+- **What "shown" reads:** the told latch, `prospective.plain` rows (one per memory, window and beat, `payload.date` the calendar
+  day it was told), via `plainToldOn`, now public. Not `wake_display`: that table is per memory id, the hints lane only, in lived
+  days, written by the turn-end publish (`Store#recordHintDisplay`); it never sees Coming up. No new field, no format change.
+- **Timing:** the latch is written by the delivery after the wake is composed (`deliverTurn` → `claimPlain`), so the wake that
+  first reaches a reminder shows it whole, and a reminder written after that wake is whole in the next. Claude.ai and the other
+  MCP hosts claim the same latch (`mcp/server.ts`), so the fold reads the same everywhere, in every folder.
+- **Left as it was:** a dated item that isn't plain has no per-day record of being shown (`fit.index.wake` is one row,
+  overwritten at each start, and is lookup evidence), so it shows as before. The shape-off road is unchanged. A plain reminder
+  told on a prompt before the day's first wake (an overnight session's first turn after midnight) folds in that first wake too:
+  it was told, to whoever read that turn, and recall "coming up" still lists it whole.

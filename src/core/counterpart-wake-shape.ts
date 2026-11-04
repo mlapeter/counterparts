@@ -423,6 +423,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const hereFolders: readonly string[] = gate === null ? [scope] : [...gate.ours];
   const cues = safe(() => readCues(cp, at, here), [] as Cue[]);
   const cueIds = new Set(cues.map((c) => c.id));
+  // SHOWN EARLIER TODAY (RF1, 2026-11-04): a plain reminder already told today
+  // (the told latch, `Prospective.plainToldOn`) folds into Coming up's one line
+  // in every later wake, this folder's own included. The first delivery that
+  // reaches it shows it whole and is what writes the latch (`claimPlain`, after
+  // this compose), so a reminder nobody has been told yet is never folded. A
+  // dated item that isn't plain has no such record and shows as before.
+  const shownEarlier = new Set(cues.filter((c) => c.plain && safe(() => cp.prospective.plainToldOn(c.id, at), false)).map((c) => c.id));
   const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom)), { items: [], parked: 0 });
@@ -591,7 +598,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const live = cues.filter((c) => !claim.has(c.id) || c.plain);
     const todayAll = live.filter((c) => c.today);
     const ranked = [...todayAll].sort(dueOrder);
-    const plain = ranked.filter((c) => c.plain);
+    const plain = ranked.filter((c) => c.plain && !shownEarlier.has(c.id));
+    const folded = live.filter((c) => shownEarlier.has(c.id)).length;
     const rest = ranked.filter((c) => !c.plain);
     const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
@@ -608,9 +616,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     ];
     const render = (shown: readonly { c: Cue; line: string }[]): string[] => {
       const ids = new Set(shown.map((s) => s.c.id));
-      const hiddenToday = todayAll.filter((c) => !ids.has(c.id)).length;
+      const hiddenToday = todayAll.filter((c) => !ids.has(c.id) && !shownEarlier.has(c.id)).length;
       const hereMore = [...overdue, ...laterAll].filter((c) => !ids.has(c.id)).length;
-      const words = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? `${String(other.length)} in other folders` : ""].filter((x) => x.length > 0).join(", ");
+      const words = [folded > 0 ? `${String(folded)} due today, shown earlier` : "", hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? `${String(other.length)} in other folders` : ""].filter((x) => x.length > 0).join(", ");
       // Nothing to list and nothing behind the door: no section (WF1), not "Nothing dated."
       if (shown.length === 0 && words.length === 0) return [];
       const out = ["Coming up:", ...shown.map((s) => s.line)];
@@ -700,7 +708,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const used = (s: Record<SectionKey, Sec>): number => ORDER.reduce((n, k) => n + byteLength(s[k].text), 0);
   const left = room - byteLength(self.text);
 
-  const plainBytes = cues.filter((c) => c.plain).reduce((n, c) => n + byteLength(`- Due today · ${c.body}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]\n`), byteLength("Coming up:\n\n"));
+  const plainBytes = cues.filter((c) => c.plain && !shownEarlier.has(c.id)).reduce((n, c) => n + byteLength(`- Due today · ${c.body}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]\n`), byteLength("Coming up:\n\n"));
   const summaryBytes = summary === null ? 0 : byteLength(`Yesterday, in day's end's words: ${flatten(summary)}\n\n`);
   const budgets: Budgets = { ...SHAPE.ROOM, coming: Math.max(SHAPE.ROOM.coming, plainBytes + SHAPE.COMING_PAST_PLAIN), yesterday: Math.max(SHAPE.ROOM.yesterday, summaryBytes) };
   let sec = compose(budgets);

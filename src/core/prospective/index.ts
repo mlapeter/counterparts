@@ -1024,8 +1024,13 @@ export class Prospective {
     return false;
   }
 
-  /** Was this memory — or one its reminder moved from — told plainly on the calendar day `at`? */
-  private plainToldOn(memoryId: string, at: string): boolean {
+  /**
+   * Was this memory — or one its reminder moved from — told plainly on the
+   * calendar day `at`? A read of the latch `claimPlain` writes (its `date`).
+   * Public for the shaped wake's fold (RF1, 2026-11-04): a plain reminder told
+   * earlier today is one line in a later wake, not its whole text again.
+   */
+  plainToldOn(memoryId: string, at: string): boolean {
     for (const id of this.lineage(memoryId)) {
       for (const e of this.plainRows(id)) {
         try {

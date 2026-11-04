@@ -1180,3 +1180,89 @@ describe("the small words", () => {
     expect(cut.lines.join(" ")).not.toContain("…");
   });
 });
+
+describe("reminder folding (RF1): a plain reminder shown earlier today is one line", () => {
+  /** The real session-start hook, a child process: the wake block, what's above it, and what the person is shown. */
+  function start(session: string, cwd = HERE): { wake: string; above: string; person: string } {
+    const config = join(conf, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+    if (!existsSync(join(conf, "scopes.json"))) scopes({ [HERE]: "on", [THERE]: "on" });
+    const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: session, hook_event_name: "SessionStart", source: "startup", cwd }),
+      env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home") },
+    });
+    expect(r.status).toBe(0);
+    const o = JSON.parse(r.stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
+    const model = o.hookSpecificOutput?.additionalContext ?? "";
+    const at = model.indexOf("<!-- counterparts:wake ");
+    const end = model.indexOf("\n", model.indexOf("<!-- counterparts:wake/end"));
+    return { wake: at < 0 ? model : model.slice(at, end < 0 ? undefined : end), above: at < 0 ? "" : model.slice(0, at), person: o.systemMessage ?? "" };
+  }
+  const plainHere = (c: Counterpart, title: string, today: string, scope = HERE): string => memory(c, `${title}: bring the long ladder round to the east wall.`, { title, eventDate: today, scope, meta: { remind: "plain" } });
+
+  test("wake 1 whole; wake 2 folds what was shown and shows a new one whole; wake 3 folds all three", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    // One of this folder's own and one of another folder's: "one line everywhere".
+    const a = plainHere(c, "Rfold ladder", today);
+    const b = plainHere(c, "Rfold bakery oven", today, THERE);
+    c.close();
+
+    const w1 = start(OWN);
+    const coming1 = section(w1.wake, "Coming up:");
+    expect(coming1).toContain(`- Due today · Rfold ladder: bring the long ladder round to the east wall. [${a}]`);
+    expect(coming1).toContain(`[${b}]`);
+    expect(coming1).not.toContain("shown earlier");
+    expect(w1.person).toContain("Rfold ladder");
+
+    // A new one due today, written after wake 1.
+    const again = brain();
+    const n = plainHere(again.c, "Rfold gate hinge", again.today);
+    again.c.close();
+
+    const w2 = start(READER);
+    const coming2 = section(w2.wake, "Coming up:");
+    expect(coming2.split("\n")).toContain(`(2 due today, shown earlier; recall "coming up")`);
+    expect(coming2).toContain(`- Due today · Rfold gate hinge: bring the long ladder round to the east wall. [${n}]`);
+    for (const id of [a, b]) expect(w2.wake).not.toContain(id);
+    expect(w2.wake).not.toContain("Rfold ladder");
+    expect(w2.wake).not.toContain("Rfold bakery oven");
+    // The new one is told above the wake and to the person; the folded ones aren't told again.
+    expect(w2.person).toContain("Rfold gate hinge");
+    expect(w2.person).not.toContain("Rfold ladder");
+
+    // In the reminder's own folder too, and in another folder: one line.
+    const w3 = start("dddd4444-0000-4000-8000-000000000004", THERE);
+    expect(section(w3.wake, "Coming up:")).toBe(`Coming up:\n(3 due today, shown earlier; recall "coming up")`);
+    expect(w3.person).not.toContain("Rfold");
+
+    // The door still lists them whole.
+    const after = brain();
+    const s = new McpServer({ counterpart: after.c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
+    return s.call("recall", { handle: "coming up" }).then((r) => {
+      const listed = JSON.stringify(r.structuredContent);
+      for (const id of [a, b, n]) expect(listed).toContain(id);
+    });
+  });
+
+  test("told on another day is not shown earlier: a weekly reminder told last week shows whole today", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    // Weekly, not daily: a daily repeat takes no wake line by design (`Prospective#horizon`).
+    const id = memory(c, "Rfold weekly: water the seed trays on the bench before noon.", { title: "Rfold weekly", eventDate: addDays(today, -7), learnedOn: addDays(today, -8), meta: { remind: "plain", recurring: "weekly" } });
+    const lastWeek = addDays(today, -7);
+    const told = c.plainDueToday({ at: lastWeek }).filter((r) => r.memoryId === id && c.claimPlainReminder(r, { at: lastWeek }));
+    expect(told.length).toBe(1);
+    expect(c.prospective.plainToldOn(id, lastWeek)).toBe(true);
+    expect(c.prospective.plainToldOn(id, today)).toBe(false);
+    c.close();
+
+    const w = start(READER);
+    const coming = section(w.wake, "Coming up:");
+    expect(coming).toContain(`[${id}]`);
+    expect(coming).toContain("- Due today · ");
+    expect(coming).not.toContain("shown earlier");
+    expect(w.person).toContain("Rfold weekly");
+  });
+});
