@@ -103,6 +103,14 @@ More hosts (claude.ai needs a tunnel or a hosted piece); the dashboard walk (Hea
 first); the nightly run's timing (a real night run needs a scheduler); dates written into memories' words; the site
 as a public roadmap. Ideas and Parked: see the [roadmap](ROADMAP.md).
 
+- **Windows port** (found 11-04 in #746; not now: no Windows release, and README and QUICKSTART say macOS and
+  Linux). #746 made the windows-x64 unit tests pass; what is still wrong there is real, and blocks the job going green:
+  (a) `runtime.ts#shellTokens` reads a backslash inside double quotes as an escape (POSIX), so a hand-typed
+  Windows-native hook line (`"C:\…\counterparts.exe" hook`) is not recognised by doctor or connect. Everything
+  Counterparts writes goes through `shellQuote` and reads back fine. (b) The Windows binary's `--version` prints
+  "version unknown — package.json is not beside the running code". (c) The Windows smoke step hangs after doctor
+  until the job's 8-minute timeout.
+
 ## Done
 
 - **10-20, merged (unreleased):** F1 the reflection closes plainly done threads, across folders (#535); F2 wake
