@@ -55,6 +55,9 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
      off** for this service: it waits for a workflow run on a push to the deploy branch, `tests.yml` runs only on
      `master` and `release/**`, so with it on a `hosted-live` deploy waits forever (2026-11-04). The CI gate is step
      6's check that every run on the commit passed before `hosted-live` moves.
+     A GitHub ruleset, "hosted-live: no force-push, no deletion" (id 26567959, active since 2026-11-04), blocks
+     force-pushing and deleting `hosted-live`. The release's fast-forward push (`docs/RELEASING.md` §5, step 6) is
+     unaffected: the ruleset sets no update rule.
      Railway stages a settings change (the branch, a disconnect) until **Deploy Changes** at the top of the project
      canvas is pressed; until then the old source stays live. On 2026-11-04 the switch sat staged and the next
      master merge still deployed, so press it, then check that a docs-only merge to master makes no new
@@ -546,6 +549,9 @@ the hosted server exists. The volume and the bucket stay as they are, so startin
 Checked against Railway's docs 2026-11-04. Each line says whether the docs confirm it. For the beta, items 1 and 2
 are the ones in use (crash and deploy-failure emails on; a usage email alert). Items 3 (monitors) and 4 (webhooks)
 are not set up for now; they're here for when they are.
+
+As of 2026-11-04 (checked in Mike's dashboard): crash, deploy-failed, OOM and usage notifications are already Email &
+In-App; the usage email alert is $25, with a hard limit of $150 (left as is); the workspace has one member, Mike.
 
 1. **Crash and failed deploy, by email.** Railway restarts a crashed deployment up to 10 times, then marks it
    `Crashed` and emails the project's members (CONFIRMED, docs.railway.com/deployments/deployment-actions). Where to
