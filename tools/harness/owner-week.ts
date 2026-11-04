@@ -27,13 +27,44 @@ export interface ScriptedTurn {
   readonly remember?: readonly string[];
   /** A chapter written through the `chapter` tool on this turn, before its Stop. */
   readonly chapter?: { readonly title: string; readonly text: string };
-  /** Minutes after the previous turn's Stop that this line is typed (default `SCRIPTED_GAP_MIN`). */
+  /**
+   * Minutes after the previous turn's Stop that this line is typed. A scripted
+   * seat's default is `SCRIPTED_GAP_MIN`; a model's turn already moves the
+   * clock 3 minutes, and only a line that names `after` adds to it (a long
+   * session's lunch break, 2026-11-04).
+   */
   readonly after?: number;
+  /**
+   * WHO WROTE THIS LINE, WHEN NOT THE PERSON (2026-11-04, the developer week):
+   * `"peer"`, a subagent's hand-back (`Another Claude session sent a
+   * message:`, `isMeta`, origin `peer`); `"task-notification"`, a background
+   * task's or a loop's notice (origin `task-notification`). Either way the
+   * prompt hook fires on it and the model answers it, as in Claude Code, and
+   * the harness logs it as the host's transcript reader reads that entry.
+   */
+  readonly host?: "peer" | "task-notification";
+  /**
+   * The person DECLINED A PERMISSION PROMPT just before typing this line: the
+   * host's own `[Request interrupted by user for tool use]` entry goes into
+   * the transcript first (no prompt hook fires for it), and the model is
+   * shown it ahead of the line (WP1 says it enters nothing).
+   */
+  readonly declined?: boolean;
+  /**
+   * THE CONVERSATION COMPACTED just before this line: the summary Claude Code
+   * would carry over. The harness fires PreCompact, then SessionStart with
+   * source `compact` (a fresh wake), keeps the transcript whole for the hooks
+   * (a `compact_boundary` and the summary in it), and starts the model on a
+   * fresh conversation opened by this summary, so its context really is gone.
+   */
+  readonly compact?: string;
 }
 
 export interface ScriptedSession {
   /** The project folder, relative to the run's work dir: the session's scope. */
   readonly scope: string;
+  /** The hour it starts, UTC (default: the k-th of `week.ts#SESSION_HOURS`). */
+  readonly hour?: number;
   readonly turns: readonly (string | ScriptedTurn)[];
   /**
    * What a scripted seat does with a Stop ask (no model): answer it with a

@@ -32,13 +32,13 @@
  * and states only.
  */
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, doctorFindings, NIGHT_CHILD_ENV, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, doctorFindings, NIGHT_CHILD_ENV, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, parseTranscript, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightAnswer, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import { coverageReading } from "../../src/adapters/cli/commands.js";
 import type { CoverageRow } from "../../src/adapters/cli/commands.js";
@@ -49,6 +49,8 @@ import { readSession } from "../../src/adapters/sessions.js";
 import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs, plantTold } from "../../src/core/counterpart.js";
 import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
+import { probeHits, readExpectations } from "./expectations.js";
+import type { Expectation, ExpectationHit, ExpectationReading } from "./expectations.js";
 import { childInit, modelSeat, SERVE_AT_SCRIPT } from "./model-seat.js";
 import type { ChildInit } from "./model-seat.js";
 import { OWNER_NAME, OWNER_WEEK, SCRIPTED_GAP_MIN, SCRIPTED_REPLY, turnOf } from "./owner-week.js";
@@ -136,6 +138,20 @@ export interface WeekOptions {
    */
   readonly told?: boolean;
   readonly workRoot?: string;
+  /**
+   * The script's checkable expectations (`expectations.ts`): each fact's
+   * probe tried against every wake and prompt injection, and the store's
+   * memories at the end. The record carries the scorecard, never the text.
+   */
+  readonly expect?: readonly Expectation[];
+  /**
+   * A TRACE FILE (2026-11-04; what the 11-03 runs did with a scratch patch):
+   * one JSON line per wake, turn, Stop ask, compaction and night, WITH their
+   * text, plus each day's store (`<trace>.store-dayN.sqlite`) and page
+   * (`<trace>.page-dayN.md`). For a person scoring a run by hand. Never
+   * under the live root; on the owner's own records, never in a repo.
+   */
+  readonly trace?: string;
   /** Where to write the week's store as one file, for `cli.ts replay`. */
   readonly out?: string;
   readonly keep?: boolean;
@@ -196,6 +212,11 @@ export interface SessionLine {
   readonly chapters: number | null;
   readonly chaptersRefused: number | null;
   readonly memoriesAfter: number;
+  /** Compactions the script put in this session (PreCompact, then a `compact` wake). */
+  readonly compactions: number;
+  /** Lines the host wrote, not the person: hand-backs and notices (each through the prompt hook), and declined permission prompts (none). */
+  readonly hostLines: number;
+  readonly declined: number;
   readonly failedTurns: number;
   readonly init: ChildInit | null;
   /** The ledger's word on it right after its end; null when it captured nothing the ledger holds. */
@@ -230,6 +251,8 @@ export interface WakeLine {
   readonly bytes: number;
   /** A morning's `doctor` Catch-up line, read through the real doctor at the session start, before the first prompt launches the night (S2c, 2026-10-26); null on a later session. */
   readonly doctor: { readonly severity: string; readonly detail: string } | null;
+  /** A compaction's fresh wake (`source: "compact"`), mid-session; absent on a session's own start. */
+  readonly compact?: true;
 }
 
 export interface WeekRecord {
@@ -282,7 +305,9 @@ export interface WeekRecord {
    * us passing `self`'s floors as set for the run (`self/measures.ts#coreFromBeliefs`),
    * counted whether or not `self.CORE_FROM_BELIEFS` is on, of `beliefs` on the self subject.
    */
-  readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number; readonly beliefCore: number; readonly beliefs: number }[];
+  readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number; readonly beliefCore: number; readonly beliefs: number; readonly spent?: { readonly calls: number; readonly tokens: number; readonly costUsd: number } }[];
+  /** The script's expectations, read off the run (`expectations.ts`); absent when it named none. */
+  readonly expectations?: readonly ExpectationReading[];
   /** The week's store as one file, when `out` asked. */
   readonly out: string | null;
   /** Settled things repeated, re-raised, shown, over the week's whole record (`settled.ts`). */
@@ -513,6 +538,8 @@ interface TurnChild {
   readonly prompt: string;
   /** The folder registry the session's server reads (the meeting's "where", the scope tool). */
   readonly scopesFile?: string;
+  /** The model's own conversation, when not the session's id: after a compaction it starts afresh (`ScriptedTurn.compact`). */
+  readonly conversation?: string;
 }
 
 /** One turn of a person's session, planned as the night's child is locked down, but with the session's tools, its folder, and `--resume`. */
@@ -567,7 +594,8 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
   args[args.indexOf("--disallowedTools") + 1] = NIGHT_DENIED_TOOLS.join(",");
   const mcp = args.indexOf("--mcp-config");
   args[mcp + 1] = JSON.stringify({ mcpServers: { counterparts: server } });
-  args.push("--setting-sources", "project", ...(t.first ? ["--session-id", t.session] : ["--resume", t.session]));
+  const conversation = t.conversation ?? t.session;
+  args.push("--setting-sources", "project", ...(t.first ? ["--session-id", conversation] : ["--resume", conversation]));
   const env = { ...plan.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
   delete (env as Record<string, string>)["COUNTERPARTS_NIGHT_RUN"];
   return { ...plan, args, env, cwd: t.scope };
@@ -580,6 +608,7 @@ export async function runWeek(opts: WeekOptions = {}): Promise<WeekRecord> {
   const preset = env["COUNTERPARTS_DATA_DIR"];
   if (preset !== undefined && preset.trim().length > 0) throw new Error("DATA_DIR_PRESET: the harness makes its own store");
   if (opts.out !== undefined && underLiveRoot(opts.out, env)) throw new Error("TARGET_IS_LIVE: out");
+  if (opts.trace !== undefined && underLiveRoot(opts.trace, env)) throw new Error("TARGET_IS_LIVE: trace");
   const script = (opts.script ?? OWNER_WEEK).slice(0, opts.days ?? (opts.script ?? OWNER_WEEK).length);
   const startDate = opts.startDate ?? "2026-03-02";
   const timeZone = opts.timeZone ?? "UTC";
@@ -735,6 +764,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         now,
       });
       nights.push({ day, launchedIn: label, state: night.state, kind, parts: [...(night.parts ?? [])], asked: acts, catchUp: planned === null ? null : { ...planned, ran: catchUpRan(run) } });
+      trace({ kind: "night", day, launchedIn: label, nightKind: kind, state: night.state, parts: night.parts ?? [], asked: acts, catchUp: nights[nights.length - 1]!.catchUp });
     }
   };
   const adapterFor = (scope: string): ClaudeCodeAdapter =>
@@ -766,7 +796,17 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   const sessions: SessionLine[] = [];
   const wakes: WakeLine[] = [];
   const owedAtEnd: string[] = [];
-  const daily: { day: number; date: string; alive: number; core: number; beliefCore: number; beliefs: number }[] = [];
+  const daily: WeekRecord["daily"][number][] = [];
+  // THE SCRIPT'S EXPECTATIONS (2026-11-04): hits by session, in the order the sessions ran.
+  const hits: ExpectationHit[] = [];
+  const order: { label: string; folder: string }[] = [];
+  const probe = (text: string, label: string, folder: string, where: ExpectationHit["where"]): void => {
+    if (opts.expect !== undefined) hits.push(...probeHits(opts.expect, text, { label, folder, where }));
+  };
+  const trace = (o: Record<string, unknown>): void => {
+    if (opts.trace !== undefined) appendFileSync(opts.trace, JSON.stringify(o) + "\n");
+  };
+  let spentBefore = { calls: 0, tokens: 0, costUsd: 0 };
   const sessionOf = (episode: string): string | null => {
     const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
     try {
@@ -805,23 +845,28 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       const date = dateAt(startDate, d);
       const day = script[d] ?? { sessions: [{ scope: script[script.length - 1]?.sessions[0]?.scope ?? "notes", turns: [] }] };
       for (const [k, s] of day.sessions.entries()) {
-        clock = at(date, SESSION_HOURS[k] ?? 21);
+        clock = at(date, s.hour ?? SESSION_HOURS[k] ?? 21);
         const sessionId = randomUUID();
         const label = `d${String(d + 1)}s${String(k + 1)}`;
         labels.set(sessionId, label);
+        order.push({ label, folder: s.scope });
         const scope = join(work, s.scope);
         mkdirSync(scope, { recursive: true });
         w.projects.push(scope);
         const adapter = adapterFor(scope);
-        const log: { role: "user" | "assistant"; text: string }[] = [];
+        const log: { role: "user" | "assistant"; text: string; source?: HostTurnSource }[] = [];
         const expansions: TurnExpansion[] = [];
-        const base = (): HookInput => ({ sessionId, scope, at: date, turns: [...log], expansions: [...expansions] });
+        // Set once the script compacts this session: the host's `compact_boundary`, as its transcript reader gives it.
+        let compactedAt: number | undefined;
+        const base = (): HookInput => ({ sessionId, scope, at: date, turns: [...log], expansions: [...expansions], ...(compactedAt === undefined ? {} : { compactedAt }) });
         say(`day ${String(d + 1)} ${date}: session ${String(k + 1)} (${s.scope}), ${String(s.turns.length)} turns`);
         const woke = adapter.sessionStart({ ...base(), source: "startup" });
         claim(adapter, base(), woke);
         await drain(date, d + 1, label);
         const gate = counterpart.dreams.status(date);
         wakes.push({ day: d + 1, label, morning: k === 0, ...readWake(woke.injection, sessionOf, labelOf), gate: { reason: gate.reason, newSince: gate.newSince }, doctor: k === 0 ? catchUpLine(date) : null });
+        probe(woke.injection, label, s.scope, "wake");
+        trace({ kind: "wake", day: d + 1, date, session: k + 1, label, scope: s.scope, text: [woke.injection, woke.ask ?? ""].filter((x) => x.length > 0).join("\n\n") });
         if (s.turns.length === 0) {
           // THE EXTRA MORNING: the product launches the night from the first
           // prompt (`hooks.ts#dreamLines`), never from the session start, so
@@ -839,6 +884,12 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         }
         let pending = [woke.injection, woke.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
         let first = true;
+        // The model's own conversation: the session's id until a compaction starts it afresh.
+        let conversation = sessionId;
+        let carried = "";
+        let compactions = 0;
+        let hostLines = 0;
+        let declined = 0;
         let footnotes = 0;
         let asks = 0;
         let stops = 0;
@@ -860,7 +911,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           return out.isError !== true && out.structuredContent["ok"] !== false;
         };
         const turn = async (prompt: string): Promise<string> => {
-          const plan = planTurn(turnOpts, { dir, configPath, session: sessionId, scope, now: clock, first, prompt, scopesFile });
+          const plan = planTurn(turnOpts, { dir, configPath, session: sessionId, scope, now: clock, first, prompt, scopesFile, conversation });
           first = false;
           const result = await start(plan);
           if (init === null) init = childInit(result.output);
@@ -874,14 +925,52 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         };
         for (const [i, line] of s.turns.map(turnOf).entries()) {
           const text = line.say;
-          // HUMAN PACING (scripted): the line is typed `after` minutes past the last Stop.
+          // HUMAN PACING (scripted): the line is typed `after` minutes past the last Stop. A model's turn already
+          // took 3; a line that names `after` adds it (a long session's breaks).
           if (scripted && i > 0) clock += (line.after ?? SCRIPTED_GAP_MIN) * MIN;
+          else if (!scripted && i > 0 && line.after !== undefined) clock += line.after * MIN;
+          if (line.compact !== undefined) {
+            // THE CONVERSATION COMPACTS (2026-11-04): PreCompact on the whole transcript, then the host's fresh
+            // `compact` start. The transcript stays whole for the hooks (the summary is the host's and enters no
+            // turn); the model starts a new conversation opened by the summary, as Claude Code's is.
+            adapter.preCompact(base());
+            await drain(date, d + 1, label);
+            compactedAt = clock;
+            const again = adapter.sessionStart({ ...base(), source: "compact" });
+            claim(adapter, base(), again);
+            await drain(date, d + 1, label);
+            const g = counterpart.dreams.status(date);
+            wakes.push({ day: d + 1, label, morning: false, ...readWake(again.injection, sessionOf, labelOf), gate: { reason: g.reason, newSince: g.newSince }, doctor: null, compact: true });
+            probe(again.injection, label, s.scope, "compact-wake");
+            const woke2 = [again.injection, again.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
+            trace({ kind: "compact", day: d + 1, session: k + 1, label, scope: s.scope, text: woke2, summary: line.compact });
+            pending = [pending, woke2].filter((x) => x.length > 0).join("\n\n");
+            compactions += 1;
+            if (!scripted) {
+              conversation = randomUUID();
+              first = true;
+              carried = `This session is being continued from a previous conversation that ran out of context. The conversation is summarized below:\n${line.compact}`;
+            }
+          }
+          if (line.declined === true) {
+            // A DECLINED PERMISSION PROMPT: the host's own entry, no prompt hook; the model is shown it ahead of the line.
+            log.push(...hostTurns({ type: "user", message: { role: "user", content: [{ type: "text", text: INTERRUPTED_FOR_TOOL }] } }));
+            declined += 1;
+          }
           const said = adapter.userPromptSubmit({ ...base(), prompt: text });
           claim(adapter, base(), said);
           footnotes += said.footnotes.length;
+          probe(said.injection, label, s.scope, "prompt");
           const context = [pending, said.injection, said.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
           pending = "";
-          log.push({ role: "user", text });
+          if (line.host === undefined) log.push({ role: "user", text });
+          else {
+            // A LINE THE HOST WROTE: logged as the host's transcript reader reads that entry (`injected`).
+            log.push(...hostTurns(line.host === "peer" ? { type: "user", isMeta: true, origin: { kind: "peer" }, message: { role: "user", content: text } } : { type: "user", origin: { kind: "task-notification" }, message: { role: "user", content: text } }));
+            hostLines += 1;
+          }
+          const shown = [carried, line.declined === true ? INTERRUPTED_FOR_TOOL : "", text].filter((x) => x.length > 0).join("\n\n");
+          carried = "";
           let reply: string;
           if (scripted) {
             // The turn's tool calls first, as a model makes them before its reply ends the turn.
@@ -895,8 +984,9 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
             }
             reply = line.reply ?? SCRIPTED_REPLY;
             clock += MIN / 2;
-          } else reply = await turn(reminded(context, text));
+          } else reply = await turn(reminded(context, shown));
           log.push({ role: "assistant", text: reply });
+          trace({ kind: "turn", day: d + 1, session: k + 1, label, scope: s.scope, prompt: text, ...(line.host === undefined ? {} : { host: line.host }), ...(line.declined === true ? { declined: true } : {}), injection: said.injection, footnotes: said.footnotes, ask: said.ask ?? null, reply });
           // THE STOP, its boundary (the worker it asks for), and its ask: put to the model as the conversation's next message.
           const stopped = adapter.stop({ ...base() });
           stops += 1;
@@ -918,6 +1008,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
               clock += MIN / 2;
             } else answer = await turn(reminded(stopped.ask, "(Stop hook feedback)"));
             log.push({ role: "assistant", text: answer });
+            trace({ kind: "stopAsk", day: d + 1, session: k + 1, label, ask: stopped.ask, answer });
             adapter.stop({ ...base(), reFired: true });
             await drain(date, d + 1, label);
           }
@@ -941,19 +1032,37 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           chapters: scripted ? chapters : null,
           chaptersRefused: scripted ? refusedChapters : null,
           memoriesAfter: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND type = 'memory'"),
+          compactions,
+          hostLines,
+          declined,
           failedTurns: failed,
           init,
           coverage: ledgerOf(sessionId),
         });
       }
       if (d < script.length) {
+        // WHAT THE DAY SPENT: its turns, and the night its first session launched.
+        const u = usageTally();
+        const now = { calls: u.calls, tokens: totalTokens(u), costUsd: u.costUsd };
+        const spent = { calls: now.calls - spentBefore.calls, tokens: now.tokens - spentBefore.tokens, costUsd: Math.round((now.costUsd - spentBefore.costUsd) * 1e4) / 1e4 };
+        spentBefore = now;
         daily.push({
           day: d + 1,
           date,
           alive: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND type = 'memory'"),
           core: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND band = 'identity'"),
           ...beliefCoreNow(counterpart),
+          ...(scripted ? {} : { spent }),
         });
+        if (opts.trace !== undefined) {
+          const page = pageReading(dir, `${opts.trace}.page-day${String(d + 1)}.md`);
+          trace({ kind: "dayEnd", day: d + 1, page });
+          const snap = `${opts.trace}.store-day${String(d + 1)}.sqlite`;
+          rmSync(snap, { force: true });
+          const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+          db.run(`VACUUM INTO '${snap.replace(/'/g, "''")}'`);
+          db.close();
+        }
       }
     }
     for (const e of coverageReading(counterpart.store)) if (e.owed && e.person) owedAtEnd.push(labelOf(e.session));
@@ -961,6 +1070,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     counterpart.close();
   }
   const page = pageReading(dir, opts.pageOut);
+  const expectations = opts.expect === undefined ? undefined : readExpectations(opts.expect, hits, order, memoriesByFolder(dir, work));
   let out: string | null = null;
   if (opts.out !== undefined) {
     // ONE FILE, folded: `VACUUM INTO` writes the whole store, whatever a log still held.
@@ -993,8 +1103,30 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     daily,
     out,
     settled: settledOf(dir),
+    ...(expectations === undefined ? {} : { expectations }),
     keptAt: opts.keep === true ? work : null,
   };
+}
+
+/** The host's own words after a declined permission prompt (`claude-code/transcript.ts`'s plumbing frame, WP1). */
+export const INTERRUPTED_FOR_TOOL = "[Request interrupted by user for tool use]";
+
+type HostTurnSource = NonNullable<NonNullable<HookInput["turns"]>[number]["source"]>;
+
+/** One transcript entry the host wrote, as Claude Code's transcript reader reads it: its turns and their sources. */
+export function hostTurns(entry: Record<string, unknown>): { role: "user" | "assistant"; text: string; source?: HostTurnSource }[] {
+  return parseTranscript(JSON.stringify(entry)).turns.map((t) => ({ role: t.role, text: t.text, ...(t.source === undefined ? {} : { source: t.source }) }));
+}
+
+/** The live memories at the end, with the folder each was written in (relative to the work dir, "?" when none) and its `about` mark. */
+function memoriesByFolder(dir: string, work: string): { folder: string; about: string | null; text: string }[] {
+  const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+  try {
+    const rows = db.query("SELECT origin_scope AS scope, about, COALESCE(title, '') || ' ' || body AS text FROM memories WHERE archived = 0 AND type = 'memory'").all() as { scope: string | null; about: string | null; text: string }[];
+    return rows.map((r) => ({ folder: r.scope === null ? "?" : relative(work, r.scope) || ".", about: r.about, text: r.text }));
+  } finally {
+    db.close();
+  }
 }
 
 function count(dir: string, sql: string): number {

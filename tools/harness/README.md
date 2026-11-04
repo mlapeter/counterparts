@@ -198,7 +198,7 @@ usage.
 ## A scripted owner's first week (`week`)
 
 ```sh
-bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts week [--script plain|meaningful|checkins|developer] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--model <name>] [--trace <file.jsonl>] --out <week.sqlite>
 bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
 ```
 
@@ -357,6 +357,54 @@ with the catch-up and the dream answered by the script:
 - "Last here" names the previous check-in every morning: no chapter, and its newest memory (a
   note it made) or "not written up yet" — the morning's wake comes before that night, which
   starts at its first prompt; the write-up is named from the next session start on.
+
+## A developer's week (`week --script developer`)
+
+```sh
+bun tools/harness/cli.ts week --script developer --out <week.sqlite> --json <record.json> --trace <trace.jsonl>
+bun tools/harness/cli.ts week --script developer --seat scripted      # tier 0, free
+```
+
+Theo, a research engineer, codes with Claude Code across four folders (`developer-week.ts`,
+2026-11-04, for local outreach): `sim` (a JAX gridworld RL env), `evals` (an eval harness),
+`paper` (a workshop paper due Friday), and `scratch`, a weekend folder with no work. 7 days,
+17 sessions at their own hours (`hour`), 54 lines. Two long sessions (d2s1, d4s3) have long
+gaps and one compaction each; two subagent hand-backs and a loop's CI notice arrive as lines
+the host wrote; one permission prompt is declined; a personal aside comes every day, in
+whatever repo he's in. Prompts paste their own code and errors, because a person's session in
+the harness has no file tools.
+
+What the harness grew for it (each a field on a scripted line; Dana's and Robin's weeks don't
+set them and run as before):
+- **`compact: "<summary>"`**: before the line, PreCompact on the whole transcript, then
+  SessionStart with source `compact` (a fresh wake, recorded with `compact: true`), and every
+  later hook input carries `compactedAt`. The model starts a new conversation (`--session-id`,
+  a new id) opened by the summary, in Claude Code's words, so its context is really gone; the
+  memory session stays the same. HARNESS, NOT PRODUCT: the summary is the script's, not one
+  the host wrote, and the compaction comes where the script puts it, not when the context fills.
+- **`host: "peer" | "task-notification"`**: a line the host wrote. The prompt hook fires on
+  it and the model answers it, as live. It's logged as Claude Code's transcript reader reads
+  that entry (`parseTranscript`): `injected`, not the person.
+- **`declined: true`**: the host's `[Request interrupted by user for tool use]` goes into the
+  transcript before the line, with no prompt hook (WP1 reads it as plumbing), and the model
+  is shown it ahead of the line.
+- **`after`** now moves a model's clock too, but only when a line names it (a model's turn
+  still takes 3 minutes).
+- **Expectations** (`expectations.ts`, `DEVELOPER_EXPECTATIONS`): per fact, a probe, the
+  session that tells it, and where it should and mustn't come back. Personal and "us" facts
+  should reach every folder. Work facts should reach their own folder and no other. The
+  harness tries each probe against every wake, compaction wake and prompt injection, and
+  reads the store's live memories at the end. The record's `expectations` gives, per fact
+  and folder, seen (first session), MISSED, or no session, plus every leak with where it
+  was and the wake heading above it (an `Elsewhere` line is listed and left for the reader to
+  judge). It holds ids, labels and headings, never text. A hit is what the memory delivered,
+  not what the model did with it.
+- **`daily[].spent`** (model seat): each day's calls, tokens and dollars, the night its first
+  session launched included.
+- **`--trace <file>`**: one JSON line per wake, turn, Stop ask, compaction and night, with
+  their text, plus `<file>.store-dayN.sqlite` and `<file>.page-dayN.md`. It's what the 11-03
+  runs did with a scratch patch. It's refused under the live root, and `compare` refuses it
+  (both sides would write one file).
 
 ## Two sides, one table (`compare`)
 
