@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { BINARY_CONNECT_REFUSAL, EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
-import { hookTargetPath, readHost } from "../src/adapters/cli/install.js";
+import { hookTargetPath, readHost, shellQuote } from "../src/adapters/cli/install.js";
 import { isOurHookCommand, processMark } from "../src/adapters/cli/wire.js";
 import { hookCommandLive } from "../src/adapters/host-wiring.js";
 import { isEntryPoint as hookIsEntry } from "../src/adapters/claude-code/bin/hook.js";
@@ -167,10 +167,12 @@ describe("reading the binary's own commands back", () => {
   });
 
   test("the binary's hook command is ours, live while the file is there, and names it as its target", () => {
-    const command = `"${fake.self}" hook`;
+    // Quoted the way every writer quotes a path (`install.ts#shellQuote`): a
+    // Windows path's backslashes are escaped, and read back whole.
+    const command = `${shellQuote(fake.self)} hook`;
     expect(isOurHookCommand(command)).toBe(true);
     expect(isOurHookCommand(`${command} --config "/c/claude-code.json"`)).toBe(true);
-    expect(isOurHookCommand(`"${fake.self}" mcp`)).toBe(false);
+    expect(isOurHookCommand(`${shellQuote(fake.self)} mcp`)).toBe(false);
     expect(isOurHookCommand(`${command} --verbose`)).toBe(false);
     expect(hookTargetPath(command)).toBe(fake.self);
     expect(hookCommandLive(command, { PATH: "" })).toBe(true);
@@ -191,7 +193,7 @@ describe("reading the binary's own commands back", () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(
       join(home, ".claude", "settings.json"),
-      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `"${fake.self}" hook` }] }] } }),
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: `${shellQuote(fake.self)} hook` }] }] } }),
     );
     writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: fake.self, args: ["mcp"] } } }));
     const host = readHost(home, home, {});

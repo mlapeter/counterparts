@@ -30,6 +30,15 @@ const SHIMS = ["cli/bin/counterparts.mjs", "claude-code/bin/hook.mjs", "mcp/bin/
 );
 const CANARY = "The project env canary: the kettle in the studio is a Fellow Stagg.";
 
+/**
+ * These start Counterparts through `/bin/sh` — the plugin's `plugin-run.sh`,
+ * the npm hook line, the POSIX shims — with a POSIX PATH. Windows has no
+ * `/bin/sh` for a spawned process to find, so there they fail before running
+ * any of our code (status undefined), or pass for no reason. Skipped there,
+ * like `plugin-binary.test.ts`'s launcher tests; no release ships Windows.
+ */
+const posix = test.skipIf(process.platform === "win32");
+
 let work: string;
 let home: string;
 let project: string;
@@ -109,7 +118,7 @@ afterEach(() => {
 });
 
 describe("a project's .env", () => {
-  test("cannot redirect the plugin's memory server: COUNTERPARTS_DATA_DIR in .env is ignored", () => {
+  posix("cannot redirect the plugin's memory server: COUNTERPARTS_DATA_DIR in .env is ignored", () => {
     installAt(config);
     // The plugin's server is launched with no -e, so a store named in the
     // environment is the one it opens — which is why the FILE must not count.
@@ -149,7 +158,7 @@ describe("a project's .env", () => {
     expect(response(back.stdout ?? "", 2)).toContain("Fellow Stagg");
   }, 120_000);
 
-  test("cannot redirect the npm hook: COUNTERPARTS_CONFIG in .env is ignored", () => {
+  posix("cannot redirect the npm hook: COUNTERPARTS_CONFIG in .env is ignored", () => {
     installAt(decoyConfig);
     const before = filesUnder(decoyStore);
     writeFileSync(join(project, ".env"), `COUNTERPARTS_CONFIG=${decoyConfig}\n`);
@@ -177,7 +186,7 @@ describe("a project's .env", () => {
     expect(existsSync(join(decoyStore, "sessions", "project-env-1.json"))).toBe(false);
   }, 120_000);
 
-  test("cannot redirect the installed console: the CLI shim tells Bun to skip it", () => {
+  posix("cannot redirect the installed console: the CLI shim tells Bun to skip it", () => {
     installAt(decoyConfig);
     const before = filesUnder(decoyStore);
     writeFileSync(join(project, ".env"), `COUNTERPARTS_DATA_DIR=${decoyStore}\n`);
@@ -250,7 +259,7 @@ describe("a project's bunfig.toml", () => {
     expect(existsSync(marker)).toBe(true);
   }, 120_000);
 
-  test("does not run in the npm hook command, nor the plugin's hook and server", () => {
+  posix("does not run in the npm hook command, nor the plugin's hook and server", () => {
     installAt(config);
     const payload = JSON.stringify({
       hook_event_name: "SessionStart",
@@ -292,7 +301,7 @@ describe("a project's bunfig.toml", () => {
     expect(existsSync(marker)).toBe(false);
   }, 180_000);
 
-  test("does not run in an installed command reached through a bin symlink", () => {
+  posix("does not run in an installed command reached through a bin symlink", () => {
     // npm and bun link a bin to the shim; the shim finds the empty bunfig from its real path.
     const bin = join(work, "bin");
     mkdirSync(bin);
