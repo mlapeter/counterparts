@@ -47,7 +47,11 @@ ended up with canonical state spread across a prose store plus half a dozen side
 - **Removal is recorded, the record is canonical and append-only, and carries no body and
   no content hash.** [v1] §16 G7–G9, scar §2.20.
 - **A removed memory cannot be silently resurrected** — a deny-list at load and rebuild;
-  the stray copy is skipped and logged, never deleted. [v1] §16 G12.
+  the stray copy is skipped and logged, never deleted. [v1] §16 G12. *Since 2026-11-04
+  (HD1) the deny-list also holds a memory a chat deleted and the 24-hour hold still keeps
+  (`held` with no later `released`): hidden from every reader at once, read through the hold
+  only by `heldProse` (the erase, the `deleted` handle, an undo), and back whole on
+  `released`. The stages are text in the record, so no format change.*
 - **Per-item persistence isolation** — one item that fails to serialize is logged and
   skipped; the rest persist. [v1] §16 G6.
 - **Three dates, deliberately distinct**: when it happened (at stated precision, never

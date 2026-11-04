@@ -409,9 +409,11 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
 > is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
-> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Removing a
-> single memory isn't available on hosted: you can download your whole memory, or delete your account, which erases all
-> of it. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
+> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. To delete one
+> memory, ask Claude. It's hidden at once and erased after 24 hours, unless you ask Claude to undo it before then. Our
+> backups let go of it within about a day of the erase. A copy made before an upgrade keeps it until that copy goes
+> (about two weeks). A download made inside those 24 hours includes it. Things Claude wrote that mention it, such as a journal
+> chapter or its page, stay unless you ask Claude to change them. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
 > the key whenever a backup is read or written. "We don't read it" is our promise, not something the system enforces or
 > records. Only we can reach the server and its backups, through our accounts at Railway (which runs it) and Cloudflare
 > (which stores the backups); there is no admin page, and each connection reaches only its own account's memory. The

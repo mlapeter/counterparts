@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -115,6 +116,48 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due ~2 weeks after chat delete (HD1)
+
+(2026-11-04, Mike's yes 09:16, lightly held.) **What we're trying.** A person can ask Claude to delete one memory.
+The model's call only HOLDS it (`core/removal-hold.ts`: a `held` row in `removal_record`, which the deny-list reads),
+and the erase is the console's own `ownerRemoval`, run by an owner-side clock after 24 hours of wall-clock time:
+`sweepHeldRemovals` from the worker (`runner.ts`, step `removals`) on local and from `hosted/src/app.ts#finishDueHolds`
+(every ten minutes, stores with `stores.removal_due_at` due) on hosted. `remove.undo` appends `released`. Only an id
+the conversation was shown; refused in a local night run.
+
+**What to look at, ~2 weeks after release.** Read-only, ids and counts only, never a body. Per store (Mike's live store;
+on hosted, each tenant through the operator's read):
+
+```sql
+-- holds placed, undone, and erased, by stage and actor
+SELECT stage, actor, COUNT(*) FROM removal_record WHERE at > strftime('%s','now','-21 days') * 1000 GROUP BY stage, actor;
+-- an erase that ran late: complete more than 24 h 15 min after its newest hold
+SELECT h.memory_id, (c.at - h.at) / 60000 AS minutes FROM
+  (SELECT memory_id, MAX(at) AS at FROM removal_record WHERE stage = 'held' GROUP BY memory_id) h
+  JOIN (SELECT memory_id, MIN(at) AS at FROM removal_record WHERE stage = 'complete' GROUP BY memory_id) c USING (memory_id)
+WHERE c.at - h.at > (24 * 60 + 15) * 60000;
+-- a hold past its window and still waiting (the sweep never ran, or failed)
+SELECT memory_id FROM removal_record GROUP BY memory_id
+HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage = 'released' THEN seq END), 0)
+   AND SUM(stage IN ('dark','chased','complete')) = 0
+   AND MAX(CASE WHEN stage = 'held' THEN at END) < (strftime('%s','now') - 86400 - 3600) * 1000;
+```
+
+- Hosted's control database: `audit` rows `removal.held`, `removal.erased` (with its unchased count),
+  `removal.failed` and `removal.sweep.failed`. Any `failed` row, or an `erased` with unchased surfaces above 0 (the
+  likely one: the write-ahead log's TRUNCATE checkpoint coming back busy against Litestream's read lock), gets a look.
+- On local, the worker's `runner.holds` and `holds.threw` log lines.
+- Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text
+  the model read); none at all says little.
+
+**What would change it:** an erase that fails or runs late (the clock isn't running where we think); a delete nobody
+asked for (the first one is when a rate cap or a confirm step gets added: guards loose-first); people asking for
+a "recently deleted" list on the account page.
+
+**How to revert:** drop `remove` from `remember`'s schema (`tools.ts#REMOVE_PROPERTY`) and its dispatch in
+`server.ts#rememberTool`; release any holds left (`remove.undo`, or append `released`). The `held` stage, the sweep and
+the column can stay inert. The store's format never changed (still v15).
 
 ## The wake knows yesterday's news (WF1)
 

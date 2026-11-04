@@ -98,12 +98,11 @@ export interface ToldMemory {
 export const HOSTED_NIGHTS_TIP = 'Nights run when they set up a nightly routine, or say "dream".';
 export const HOSTED_NIGHTS_HOW = 'When their nightly routine runs, or they say "dream", a night pass sorts the day the same way.';
 /*
- * PENDING (hosted single-memory delete): "build it" (the hosted plan's
- * "First-week talk", 11-03). Today hosted has no way to remove one memory.
- * Memory 9 reads this; memory 10's account-page line is about the whole
- * account and stays.
+ * SHIPPED (HD1, 2026-11-04): one memory is deleted from chat, held 24 hours
+ * for an undo, then erased (`core/removal-hold.ts`). Memory 9 reads this on
+ * hosted; memory 10's account-page line is about the whole account and stays.
  */
-export const HOSTED_ONE_MEMORY = "one memory can't be removed yet, but a correction takes it out of what comes up.";
+export const HOSTED_ONE_MEMORY = "They can ask me to delete one memory, and undo it within a day.";
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 /** The set, in order, with each surface's words chosen. */
@@ -121,6 +120,7 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
         '- "How did X go?" or "what do you remember about Y?" asks my memory, not just this chat.',
         '- "Remind me Thursday to ...": I save it with the date and as a plain reminder, so it comes up that day, or the next time we talk.',
         '- "That\'s wrong" corrects a memory, and the wrong one stops coming up.',
+        '- "Delete that" removes one memory; "undo that" brings it back within a day.',
         ...(local ? [] : [`- ${HOSTED_NIGHTS_TIP}`]),
       ].join("\n"),
     ),
@@ -181,8 +181,8 @@ export function toldSet(surface: ToldSurface): readonly ToldMemory[] {
     told(
       "seeing and changing what I keep",
       pick(
-        '`counterparts ask "..."` asks my memory from a terminal; `counterparts self-page` shows my page; `counterparts night last` shows last night\'s dream and reflection; `counterparts dream --undo <id>` reverses a dream; `counterparts dashboard` shows all of it; `counterparts remove` deletes one memory so it never comes back.',
-        `They ask me; ${HOSTED_ONE_MEMORY}`,
+        '`counterparts ask "..."` asks my memory from a terminal; `counterparts self-page` shows my page; `counterparts night last` shows last night\'s dream and reflection; `counterparts dream --undo <id>` reverses a dream; `counterparts dashboard` shows all of it; `counterparts remove` deletes one memory so it never comes back. They can also ask me to delete one, with a day to undo it.',
+        `They ask me. ${HOSTED_ONE_MEMORY}`,
       ),
     ),
     told(
