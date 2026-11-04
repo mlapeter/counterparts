@@ -918,7 +918,9 @@ describe("Coming up", () => {
     expect(wake).toContain(made.plain.replace(/\s+/g, " ").trim());
     expect(lines[2]).toContain("Cut the release · settles when the release is cut");
     expect(lines.filter((l) => l.startsWith("- Due today"))).toHaveLength(1 + SHAPE.DUE_TODAY_SHOWN);
-    expect(block).toContain(`(5 more due today; recall "coming up")`);
+    // The bakery's due thing is its folder's work (FS1): counted in other folders, not due here.
+    expect(block).toContain(`(4 more due today, 1 in other folders; recall "coming up")`);
+    expect(block).not.toContain("Bakery due thing");
     expect(wake).not.toContain("zqshut");
     // The door counts what the wake counted, and no more.
     const again = brain();

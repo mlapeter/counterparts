@@ -2092,7 +2092,7 @@ export class Counterpart {
       // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line, given up
       // first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
-      const aboutMe = away === null || named?.(away.id) === true ? null : elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader);
+      const aboutMe = away === null || named?.(away.id) === true ? null : elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader, [scope]);
       return {
         chapter: later !== null || this.yesterdayKeepsNewest ? null : first,
         later: later === null ? null : { later, at: later.at ?? 0, before: first },
@@ -2458,7 +2458,7 @@ export class Counterpart {
    *     cite marked about me, us or the owner crossed (`nameableHere`). A cite
    *     that no longer reads (removed, forgotten), is denied, or is not a
    *     memory fails it. A cite the night wrote (a dream's merge or gist, a
-   *     reflection's entry) is filed under the folder the night ran in, so it
+   *     reflection's entry) may be filed under no folder or the night's, so it
    *     is read by its originals' folders (`nightOriginFolders`), and fails
    *     when any original is not open or cannot be told (review of Y2);
    *   - every chapter written that day (`chaptersWrittenOn`, unbounded by
@@ -2538,7 +2538,7 @@ export class Counterpart {
       // `isOfDay`: the day LIVED, so a second-hand write-up the next morning is
       // that day's, and a row written that day about another day is not), born
       // before the summary was told. The night's own rows (a merge, a gist, a
-      // reflection's entry) are filed under the folder the night ran in, so they
+      // reflection's entry) may be filed under no folder or the night's, so they
       // are read by their originals' folders (`nightOriginFolders`, review of
       // Y2): a night that ran early in the day may have merged an older memory
       // of a folder since set off, and day's end reads that merge as the day's.
@@ -2556,8 +2556,8 @@ export class Counterpart {
       // never showed for someone who works in several (10-24: one ~/motelier
       // `work` cite held it in ~/counterparts).
       // A cite the NIGHT wrote (a dream's merge or gist, a reflection's
-      // entry) is filed under the folder the night ran in, not where its
-      // words came from: it is read by its originals' folders instead
+      // entry) may be filed under no folder or the night's (FS1: a dream's
+      // under its sources' shared folder): it is read by its originals' folders instead
       // (`nightOriginFolders`, review of Y2), and fails when any of them is
       // not open or cannot be told.
       for (const id of told.cites) {
@@ -2633,8 +2633,9 @@ export class Counterpart {
    * THE FOLDERS A NIGHT ROW'S WORDS CAME FROM, for a privacy read (review of
    * Y2, 2026-10-25): a dream's merge (`meta.mergedFrom`), a dream's gist or
    * fold (`meta.sources`), a reflection's entry (`meta.cites`) — each is
-   * filed under the folder the night ran in, so its own `origin_scope` says
-   * nothing about whose memories it rewords. Its originals are followed, a
+   * filed under its sources' shared folder or none (FS1; a reflection's entry
+   * under the night's), so its own `origin_scope` can't say whose memories it
+   * rewords. Its originals are followed, a
    * night row among them through its own, `NIGHT_ORIGINS_DEPTH` deep, as
    * `self/writer.ts#isOfDay` follows a merge to its day; an archived original
    * reads as any row does. Null — the caller fails the cite — when it names

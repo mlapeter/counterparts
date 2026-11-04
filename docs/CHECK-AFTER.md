@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Folder attribution (FS1): a dream files a merge or gist under its sources' shared folder (none when they span folders); another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 11-04 | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -115,6 +116,24 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Folder attribution (FS1)
+
+FS1 (2026-11-04, from the developer week's three ambers; a fix, no switch): `dream/slices.ts#nightFolder`,
+`core/counterpart-wake-shape.ts` (Coming up), `handoff/last-here.ts#placeWords`. No date: read it on the next developer
+week at tier 2, or on a week of Mike's shaped wakes after release.
+
+- **Night rows by folder.** A dream's merges and gists by `origin_scope`: one folder's work filed under that folder, a fold
+  across folders under none. Expect no "Since yesterday, here" item in a folder that is another folder's work. The cost
+  to look for: a cross-folder fold now in no folder's "here" (it is still recalled, and personal ones reach everywhere).
+- **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
+  `coming up` door lists it. A personal or plain dated item is still due in every folder.
+- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places and the about-me line name
+  folders by their last part. Two of a name print their paths. A name that reads ambiguous (two repos called `app`
+  under one wake, only one of them named) would say the collision set should be wider.
+
+Revert: `nightFolder` returning the dream's own `scope`; `todayAll`/`other` back to `c.today` / `!c.today && !c.mine`;
+`placeWords` back to the `~`-path.
 
 ## The wake knows yesterday's news (WF1)
 

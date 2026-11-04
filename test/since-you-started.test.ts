@@ -162,8 +162,9 @@ function chapter(c: Counterpart, o: { session: string; scope: string; title: str
   return epi;
 }
 
-function tilde(p: string): string {
-  return p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+/** A folder as the elsewhere lines name it (FS1): its last part, no other folder in the line sharing it. */
+function place(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
 }
 
 describe("Since you started", () => {
@@ -186,11 +187,11 @@ describe("Since you started", () => {
     w.set(at(10, 53));
     const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", origin: { session: C, scope: YON } });
     const first = prompt(w, at(11, 10));
-    // Both folders with their newest memory by title, and the chapter given
-    // up first when they do not all fit (the temp paths are long).
+    // Both folders with their newest memory by title, and the chapter, which
+    // fits now that a folder is named by its name (FS1), not its temp path.
     expect(first).toBe(
-      `Since you started (10:40): ${tilde(THERE)} ended 11:05, 2 memories: "The rye starter was fed twice." (${rye}); ` +
-        `${tilde(YON)} open since 10:52, 1 memory: "The pear wants pruning in February." (${pear}).`,
+      `Since you started (10:40): ${place(THERE)} ended 11:05, chapter "Why I bake before dawn" (${epi}), 2 memories: "The rye starter was fed twice." (${rye}); ` +
+        `${place(YON)} open since 10:52, 1 memory: "The pear wants pruning in February." (${pear}).`,
     );
     expect(epi).toStartWith("epi_");
     expect(Buffer.byteLength(first ?? "", "utf8")).toBeLessThanOrEqual(TODAY_ELSEWHERE_MAX_BYTES);
@@ -202,7 +203,7 @@ describe("Since you started", () => {
     expect(prompt(w, at(12, 9))).toBeUndefined();
     // An hour after the line: what changed since IT, not since the start.
     // The titles the first line named are not named again: only the new one.
-    expect(prompt(w, at(12, 11))).toBe(`Since 11:10: ${tilde(YON)} open, 1 memory: "The orchard gate sticks in the rain." (${gate}).`);
+    expect(prompt(w, at(12, 11))).toBe(`Since 11:10: ${place(YON)} open, 1 memory: "The orchard gate sticks in the rain." (${gate}).`);
   });
 
   test("no change, no line — and an open session elsewhere that only kept working is not a change", () => {
@@ -246,10 +247,10 @@ describe("Since you started", () => {
     // This folder is not named by path; its other open session is (2026-10-20),
     // without its chapter's copy.
     expect(line).toBe(
-      `Since you started (10:00): ${tilde(THERE)} open since 10:10, 2 memories: "WORKTITLE-oven-offset" (${worktitle}). ` +
+      `Since you started (10:00): ${place(THERE)} open since 10:10, 2 memories: "WORKTITLE-oven-offset" (${worktitle}). ` +
         "Here, also open: session b0b0b0b3 open since 10:15.",
     );
-    for (const never of ["WORKCHAPTER", "proofing timer", "SPANWORDS", "HANDOFFBODY", "NOTNAMED", tilde(WATCH), tilde(REST), tilde(FAR), tilde(HERE) + " ", tilde(storeDir)]) {
+    for (const never of ["WORKCHAPTER", "proofing timer", "SPANWORDS", "HANDOFFBODY", "NOTNAMED", place(WATCH), place(REST), place(FAR), place(HERE) + " ", place(storeDir)]) {
       expect(line).not.toContain(never);
     }
   });
@@ -268,7 +269,7 @@ describe("Since you started", () => {
     expect(tight.events("adapter.since.deferred")).toHaveLength(1);
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(10), state: "armed" });
     // The next prompt has room, and it says it.
-    expect(prompt(w, at(10, 25))).toBe(`Since you started (10:00): ${tilde(YON)} open since 10:10, 1 memory: "The pear wants pruning in February." (${pear}).`);
+    expect(prompt(w, at(10, 25))).toBe(`Since you started (10:00): ${place(YON)} open since 10:10, 1 memory: "The pear wants pruning in February." (${pear}).`);
   });
 
   test("it rides as context for the model, above the recall note, and gives way to recall: it takes only what recall left of its budget", () => {
@@ -277,7 +278,7 @@ describe("Since you started", () => {
     expect(prompt(w, at(10, 1))).toBeUndefined();
     w.set(at(10, 10));
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "start", at: at(10, 10) });
-    const expected = `Since you started (10:00): ${tilde(YON)} open since 10:10.`;
+    const expected = `Since you started (10:00): ${place(YON)} open since 10:10.`;
     const need = Buffer.byteLength(`${expected}\n`, "utf8");
     const head = "<!-- counterparts:recall -->\n";
     /** Hooks whose recall prints a note of exactly `size` bytes. */
@@ -307,8 +308,8 @@ describe("Since you started", () => {
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "end", at: at(11, 0) });
     recordSession(storeDir, { sessionId: "c9cacbcd-0000-4000-8000-00000000000c", scope: YON, phase: "start", at: at(11, 10) });
     w.set(at(11, 25));
-    const fits = recalling(RECALL_TUNABLES.BUDGET_BYTES - Buffer.byteLength(`Since 10:20: ${tilde(YON)} open since 11:10.\n`, "utf8")).userPromptSubmit(input());
-    expect(lineOf(fits.injection)).toBe(`Since 10:20: ${tilde(YON)} open since 11:10.`);
+    const fits = recalling(RECALL_TUNABLES.BUDGET_BYTES - Buffer.byteLength(`Since 10:20: ${place(YON)} open since 11:10.\n`, "utf8")).userPromptSubmit(input());
+    expect(lineOf(fits.injection)).toBe(`Since 10:20: ${place(YON)} open since 11:10.`);
     expect(fits.injection.indexOf("Since 10:20: ")).toBeLessThan(fits.injection.indexOf(head));
     expect(fits.injection.endsWith("r")).toBe(true);
     expect(fits.notices ?? []).toHaveLength(0);
@@ -345,7 +346,7 @@ describe("Since you started", () => {
     const before = state();
     w.set(at(10, 20));
     const since = w.hooks().sinceLine({ sessionId: S, scope: HERE, at: D }, 1_000);
-    expect(since).toBe(`Since you started (10:00): ${tilde(YON)} open since 10:10, 1 memory: "The pear wants pruning in February." (${pear}).`);
+    expect(since).toBe(`Since you started (10:00): ${place(YON)} open since 10:10, 1 memory: "The pear wants pruning in February." (${pear}).`);
     expect(state()).toBe(before);
   });
 
@@ -396,8 +397,8 @@ describe("Since you started — review of #387", () => {
     expect(prompt(w, at(10, 20))).toBeUndefined();
     recordSession(storeDir, { sessionId: "d0d0d0d3-0000-4000-8000-00000000000d", scope: SIB, phase: "start", at: at(10, 25) });
     const line = prompt(w, at(10, 30)) ?? "";
-    expect(line).toBe(`Since you started (10:00): ${tilde(SIB)} open since 10:25.`);
-    for (const never of ["INNER", "RESTCHAPTER", tilde(CHILD), tilde(REST), "ended"]) expect(line).not.toContain(never);
+    expect(line).toBe(`Since you started (10:00): ${place(SIB)} open since 10:25.`);
+    for (const never of ["INNER", "RESTCHAPTER", place(CHILD), place(REST), "ended"]) expect(line).not.toContain(never);
   });
 
   test("a scope file that cannot be read names nothing (fail closed); the nightly run's prompt says nothing and moves nothing", () => {
@@ -421,7 +422,7 @@ describe("Since you started — review of #387", () => {
     expect(prompt(w, at(10, 1))).toBeUndefined();
     w.set(at(10, 10));
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "start", at: at(10, 10) });
-    expect(prompt(w, at(10, 20))).toBe(`Since you started (10:00): ${tilde(YON)} open since 10:10.`);
+    expect(prompt(w, at(10, 20))).toBe(`Since you started (10:00): ${place(YON)} open since 10:10.`);
     w.set(at(10, 21));
     w.hooks().stop({ sessionId: S, scope: HERE, at: D } as HookInput);
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(10, 20), state: "shown" });

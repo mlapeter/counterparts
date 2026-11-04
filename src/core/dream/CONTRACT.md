@@ -348,6 +348,10 @@ dreamer is the model (a background agent the session launches), outside this pro
   standing: an original written before the old-claims cutoff gives the merged memory its
   moment (`meta.eraWrittenAt`) and its `claimedDefault`, so the era reads the merged
   memory as it read that original; `store/marks.ts#inheritFrom`, `store/operational.ts#eraCarriedFrom`),
+  **where a merge or gist is filed** (FS1, 2026-11-04): under the folder its sources share
+  (`slices.ts#nightFolder`), or no folder when they span folders or one records none; until
+  then the launching session's, so a fold of one repo's work landed in another's. Its session
+  is still the launching one, and `dreams.scope` still says where the dream ran;
   `link` (both ways, proposed at `LINK_WEIGHT` through
   `associate`, only where there is room, since 2026-09-28), `replayed` (a
   return at `DREAM_RETURN_WEIGHT`, never a use), `gist` (source `dreamed`, citing and
