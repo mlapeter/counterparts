@@ -176,7 +176,9 @@ audit's `removal.erased` row says when). About 48 h after the hold, restore the 
 scratch directory with the operator's tools (never the live service's data) and grep it for the word, and the write-ahead
 log segments after it. **Passes:** the word is in no snapshot or segment. **Fails:** it is; then the lag is longer
 than the reply assumes, and the reply's "within about two days" and the /privacy/ copy wait for a measured number.
-"About two days" goes on /privacy/ only once this passes.
+"About two days" goes on /privacy/ only once this passes. It covers our Litestream/R2 copies only: Railway's own
+volume snapshots ("multiple times per day, with retention ... varying by storage tier", its SOC 3) have a retention
+we don't know yet (Mike is asking Railway); the reply and /privacy/ name them without a time until we do.
 
 ## The wake knows yesterday's news (WF1)
 

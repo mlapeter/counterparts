@@ -215,7 +215,9 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     assert.equal(heldOut["reason"], "held");
     assert.equal(heldOut["title"], "Where the spare key is");
     assert.match(String(heldOut["note"]), /^Deleted: "Where the spare key is"\. It's hidden now and erased in 24 hours; say "undo that" before then/);
-    assert.match(String(heldOut["note"]), /within about two days/);
+    assert.match(String(heldOut["note"]), /it's gone from our backups within about two days\./);
+    // Our backups only: the host's own disk snapshots are named, with no promised time (ROADMAP 12:35).
+    assert.match(String(heldOut["note"]), /Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule\.$/);
     // A second ask is the first one's answer.
     const again = (await call("remember", { session: s1, remove: { id: victim } }))["remove"] as Record<string, unknown>;
     assert.equal(again["ok"], true);

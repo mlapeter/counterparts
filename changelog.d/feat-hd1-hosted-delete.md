@@ -3,7 +3,8 @@
   it's hidden at once from recall, the wake, footnotes and the night, and erased for good after
   24 hours. "Undo that" brings it back whole before then; recall's handle `deleted` lists what's
   waiting, and the wake counts it. On hosted the erase runs on the server's own timer and the
-  backups let go of it within about a day after; on a local install it's erased at the first
+  backups let go of it within about a day after (the hosting provider's own short-term disk
+  snapshots rotate on its schedule); on a local install it's erased at the first
   session after the 24 hours. `counterparts remove <id> --confirm` still deletes at once, and
   finishes a memory deleted in chat.
 - **Recalling a removed memory by its id no longer fails with an internal error;** it reads as

@@ -505,13 +505,19 @@ export function reflectLaunchHowFor(host: string): string {
  * kept up to 14 days) is a copy, not a backup, and /privacy/ says it; the
  * reply leaves it out (Mike, 11-04).
  *
+ * "OUR BACKUPS" ARE OURS ONLY (ROADMAP 11-04 12:35): the bound above is our
+ * Litestream copies in R2. Railway, which runs the server, also snapshots its
+ * volumes "multiple times per day, with retention ... varying by storage tier"
+ * (its SOC 3); that retention is unknown to us (Mike is asking), so the reply
+ * names those snapshots plainly and promises no time for them.
+ *
  * LOCAL: the worker erases it at the first session boundary after the window,
  * and the daily snapshots on this computer hold it until they rotate out
  * (14 kept, `adapters/snapshots.ts`).
  */
 export function deletedNote(title: string, erasedBy: "hosted" | "local"): string {
   return erasedBy === "hosted"
-    ? `Deleted: "${title}". It's hidden now and erased in 24 hours; say "undo that" before then to bring it back. Our backups let go of it within about a day of the erase, so it's gone from our backups within about two days.`
+    ? `Deleted: "${title}". It's hidden now and erased in 24 hours; say "undo that" before then to bring it back. Our backups let go of it within about a day of the erase, so it's gone from our backups within about two days. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.`
     : `Deleted: "${title}". It's hidden now and erased at the first session after 24 hours; say "undo that" before then to bring it back. Snapshots on this computer keep a copy until they rotate out, about two weeks (\`counterparts delete backups\` clears them).`;
 }
 

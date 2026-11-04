@@ -411,7 +411,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
 > pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. To delete one
 > memory, ask Claude. It's hidden at once and erased after 24 hours, unless you ask Claude to undo it before then. Our
-> backups let go of it within about a day of the erase. A copy made before an upgrade keeps it until that copy goes,
+> backups let go of it within about a day of the erase; our hosting provider (Railway) also keeps short-term snapshots
+> of its disks for its own recovery, and rotates them on its own schedule. A copy made before an upgrade keeps it until that copy goes,
 > which is at the first worker run after 14 days (longer for someone who stops chatting). A download made inside those 24 hours includes it. Things Claude wrote that mention it, such as a journal
 > chapter or its page, stay unless you ask Claude to change them. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
 > the key whenever a backup is read or written. "We don't read it" is our promise, not something the system enforces or
