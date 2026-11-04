@@ -332,7 +332,7 @@ Connecting Claude Code…
 
 Recall by meaning: on. A small model runs on your machine and sends nothing anywhere.
 
-Updates: once a day Counterparts asks registry.npmjs.org for the newest version number; it sends nothing about you or your memory. COUNTERPARTS_UPDATE_CHECK=off turns that off.
+Updates: once a day Counterparts asks registry.npmjs.org for the newest version number; it sends nothing about you or your memory. To turn that off, set "updateCheck": false in ~/.counterparts/claude-code.json.
 
 Done. Your memory lives at ~/.counterparts.
 Restart Claude Code, then run `counterparts doctor` — it should be all green.

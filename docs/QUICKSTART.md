@@ -34,9 +34,12 @@ thing and is safe to run again. It asks two things, and you can skip either of t
 
 There are no API keys. Search by meaning is turned on for you and runs on your machine,
 and your memory leaves it only through Claude Code itself. Counterparts makes one request
-of its own: once a day it asks registry.npmjs.org for the newest version number, and sends
-nothing about you or your memory. `COUNTERPARTS_UPDATE_CHECK=off`, or Claude Code's
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, stops it.
+of its own: once a day, the background worker that Claude Code's hooks start asks
+registry.npmjs.org for the newest version number, and sends nothing about you or your
+memory. To stop it, set `"updateCheck": false` in `~/.counterparts/claude-code.json`, or ask
+Claude to stop the update reminders. `COUNTERPARTS_UPDATE_CHECK=off` or Claude Code's
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` stops it too, set in the environment Claude Code
+runs in.
 
 Your memory lives in `~/.counterparts/`.
 

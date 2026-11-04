@@ -156,8 +156,12 @@ export type PackageManager = "bun" | "npm" | "unknown";
  */
 export function packageManagerOf(path: string): PackageManager {
   const p = path.replace(/\\/g, "/");
+  // Other installers that also lay out a `node_modules`: pnpm, npx's cache,
+  // yarn, Volta (whose image holds a `lib/node_modules`). Neither line fits them.
+  if (/\/(\.pnpm|_npx|yarn|\.volta)\//i.test(p)) return "unknown";
   if (/\/install\/global\/node_modules\/counterparts\//.test(p)) return "bun";
-  if (/\/node_modules\/counterparts\//.test(p)) return "npm";
+  if (/\/lib\/node_modules\/counterparts\//.test(p)) return "npm";
+  if (/\/npm\/node_modules\/counterparts\//i.test(p)) return "npm";
   return "unknown";
 }
 
@@ -195,7 +199,7 @@ export function removeProgram(env: Record<string, string | undefined>): string {
   const route = installRoute(env);
   if (route === "npm") return REMOVE_PACKAGE;
   if (route === "plugin") return REMOVE_PLUGIN;
-  return `${REMOVE_PACKAGE} (npm) · ${REMOVE_PLUGIN} (plugin)`;
+  return `${REMOVE_PACKAGE} (package) · ${REMOVE_PLUGIN} (plugin)`;
 }
 
 /** The plugin's id when Claude Code records none here: the published one. */
@@ -251,7 +255,7 @@ function removeProgramAfterGone(input: UninstallInput): void {
     return;
   }
   const plugin = removePluginAtTerminal(input.env, input.home);
-  input.io.out(`To remove the program too: ${route === "plugin" ? plugin : `${REMOVE_PACKAGE} (npm) · ${plugin} (plugin)`}`);
+  input.io.out(`To remove the program too: ${route === "plugin" ? plugin : `${REMOVE_PACKAGE} (package) · ${plugin} (plugin)`}`);
   input.io.out(PLUGIN_BEFORE_REOPEN);
 }
 
@@ -278,10 +282,7 @@ export function isSettingsBackup(name: string, file: string): boolean {
  * (a symlinked settings file is backed up beside its target). Called only
  * after an unwire that succeeded. Returns what went and what could not.
  */
-export function removeSettingsBackups(
-  home: string,
-  env: Record<string, string | undefined>,
-): { readonly removed: string[]; readonly failed: string[] } {
+export function settingsBackups(home: string, env: Record<string, string | undefined>): string[] {
   const named = userSettingsPath(home, env);
   const spots = new Map<string, string>([[named, dirname(named)]]);
   try {
@@ -290,8 +291,7 @@ export function removeSettingsBackups(
   } catch {
     /* no settings file (or a dangling link): the named spelling is the only one */
   }
-  const removed: string[] = [];
-  const failed: string[] = [];
+  const found: string[] = [];
   const seen = new Set<string>();
   for (const [file, dir] of spots) {
     let names: string[];
@@ -306,12 +306,27 @@ export function removeSettingsBackups(
       if (seen.has(path)) continue;
       seen.add(path);
       try {
-        if (!lstatSync(path).isFile()) continue;
-        rmSync(path);
-        removed.push(path);
+        if (lstatSync(path).isFile()) found.push(path);
       } catch {
-        failed.push(path);
+        /* gone between the listing and the look */
       }
+    }
+  }
+  return found;
+}
+
+export function removeSettingsBackups(
+  home: string,
+  env: Record<string, string | undefined>,
+): { readonly removed: string[]; readonly failed: string[] } {
+  const removed: string[] = [];
+  const failed: string[] = [];
+  for (const path of settingsBackups(home, env)) {
+    try {
+      rmSync(path);
+      removed.push(path);
+    } catch {
+      failed.push(path);
     }
   }
   return { removed, failed };
@@ -327,10 +342,28 @@ export function settingsLeftEmpty(home: string, env: Record<string, string | und
   }
 }
 
-/** The lines for both, said once the hooks are out. */
-function tidyHost(input: UninstallInput, u: Ui, took: boolean): void {
+/**
+ * The lines for both, said once the hooks are out. `rewrote`: this run's unwire
+ * read a healthy settings file, took our hooks out of it and wrote it back
+ * (`hooks: "removed"`). Only then do the backups go. A file that was missing,
+ * empty or held nothing of ours may have been damaged by something else, and
+ * the backups (the pre-Counterparts one among them) are then the only copy:
+ * they stay, and the line says where.
+ */
+function tidyHost(input: UninstallInput, u: Ui, rewrote: boolean, took: boolean): void {
   const { home, env } = input;
   const settings = userSettingsPath(home, env);
+  if (!rewrote) {
+    const kept = settingsBackups(home, env);
+    if (kept.length > 0) {
+      u.hint(
+        `${kept.length === 1 ? "A backup" : `${String(kept.length)} backups`} of ${basename(settings)} that ` +
+          `Counterparts made ${kept.length === 1 ? "stays" : "stay"} in ${tilde(dirname(kept[0]!), home)}: ` +
+          `no hooks of ours were in the file, so ${kept.length === 1 ? "it" : "they"} may be the only copy of an earlier one.`,
+      );
+    }
+    return;
+  }
   const { removed, failed } = removeSettingsBackups(home, env);
   if (removed.length > 0) {
     u.ok(
@@ -1151,7 +1184,7 @@ export function notTouched(
   const out: NotTouched[] = [
     {
       path: hostSettingsDir(home, env),
-      why: "Claude Code's own files: its settings, history and transcripts (only the settings backups Counterparts made go)",
+      why: "Claude Code's own files: its settings, history and transcripts (the settings backups Counterparts made go only if its hooks are taken out of the file)",
     },
   ];
   if (plan.storeDir !== null) {
@@ -1511,7 +1544,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   if (input.record !== undefined) input.record.unwired = true;
   // The plugin's keep arm (`onlyDead`) may leave a live npm install's hooks:
   // its backups are that install's, and stay.
-  if (!viaPlugin && (removed.hooks === "removed" || removed.hooks === "none")) tidyHost(input, u, removed.backup !== null);
+  if (!viaPlugin) tidyHost(input, u, removed.hooks === "removed", removed.backup !== null);
 
   // ── the memory ────────────────────────────────────────────────────────────
   u.blank();
@@ -1701,7 +1734,9 @@ async function offerDelete(
       }
       return rest.outcome !== "ok" ? rest.outcome : "refused";
     }
-    if (rest.hooks === "removed" || rest.hooks === "none") tidyHost(input, u, rest.backup !== null);
+    // Every hook of ours is out now; either unwire that rewrote a healthy
+    // file earns the backups' removal.
+    tidyHost(input, u, rest.hooks === "removed" || removed.hooks === "removed", rest.backup !== null || removed.backup !== null);
   }
   u.blank();
   return deletePlan(input, u, { ...again, census: plan.census });
