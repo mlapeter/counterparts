@@ -1440,6 +1440,9 @@ export class McpServer {
     const file = this.scopesFile;
     const verdict = this.scopeVerdict();
     const read = file === null ? null : readScopes(file);
+    const words = wordingFor(this.placeHost);
+    // The registry's path only where its person can open it (`hosts.ts#scopeShowsRegistry`).
+    const registry = file !== null && words.scopeShowsRegistry ? { registry: file } : {};
 
     if (mode === undefined) {
       this.emit("mcp.scope.read", undefined, { mode: verdict.mode, matched: verdict.matched });
@@ -1452,7 +1455,7 @@ export class McpServer {
           ...(verdict.entry?.since === undefined ? {} : { since: verdict.entry.since }),
           ...(verdict.entry?.note === undefined ? {} : { note: verdict.entry.note }),
           ...(verdict.mode === "paused" ? { resumesTo: resumeTarget(verdict.entry) } : {}),
-          ...(file === null ? {} : { registry: file }),
+          ...registry,
           // Counterparts' daily update check (U1b), on or off, for "are you checking?".
           ...(this.host === CLAUDE_AI_HOST ? {} : { updates: this.updateCheckSwitch() === "none" ? "on" : "off" }),
           // A registry in trouble is never silent, on any surface that has a
@@ -1462,10 +1465,7 @@ export class McpServer {
           ...(read === null || read.refused.length === 0
             ? {}
             : { registryRefused: read.refused.map((r) => `${r.key} (${r.detail})`) }),
-          detail:
-            verdict.mode === "unset"
-              ? "Nothing is set for this directory or any parent, so it is on by default. Ask the user before setting it."
-              : "This is what the host's scope registry says about this directory.",
+          detail: verdict.mode === "unset" ? words.scopeReadUnset : words.scopeReadSet,
         },
         false,
       );
@@ -1556,12 +1556,12 @@ export class McpServer {
         scope: this.scope,
         mode: target,
         stance: stanceOfMode(target),
-        registry: file,
+        ...registry,
         // In the HOST's words (`hosts.ts`, 2026-09-30): Claude Code's name its
         // hooks and their boundaries — the text is what it always was, and why
         // it says what it says sits beside it in the table — and Desktop,
         // which has neither, gets its own.
-        detail: target === "off" || target === "paused" ? wordingFor(this.placeHost).scopeOff : wordingFor(this.placeHost).scopeOn,
+        detail: target === "off" || target === "paused" ? words.scopeOff : words.scopeOn,
       },
       false,
     );

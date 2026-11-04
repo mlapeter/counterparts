@@ -92,7 +92,7 @@ counterparts ask "..."       # ask the memory a question
 counterparts status          # how much it holds
 counterparts self-page       # who it thinks it is, and who you are
 counterparts remove          # delete one memory for good
-counterparts export          # a copy of everything, encrypted by default
+counterparts export          # a copy of everything; --passphrase encrypts it
 counterparts --help          # everything else
 ```
 
