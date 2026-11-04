@@ -246,6 +246,37 @@ describe("local: an existing store gets the new #1 and #9 once, on its next open
     });
   });
 
+  test("two opens at once (hook + server + worker after an upgrade): one revision, no duplicate version — the v1 words are re-asked under the write lock", async () => {
+    plantedBeforeHd1("local");
+    // A stale read, made deterministic: the revise re-asks the row inside its
+    // transaction, so words already moved to v2 by another process write nothing.
+    withStore((s) => {
+      const nine = toldRow(s, NINE);
+      s.revise(nine.id, { body: v2Body("local", NINE), meta: { told: "v2" }, reason: TOLD_REVISE_REASON });
+      const again = s.revise(nine.id, {
+        body: v2Body("local", NINE),
+        reason: TOLD_REVISE_REASON,
+        unless: (now) => !toldV1Words("local")[1]!.bodies.includes(now.body),
+      });
+      expect(again).toBe(0);
+      expect(s.versions(nine.id)).toHaveLength(1);
+      expect(toldRow(s, NINE).revision).toBe(1);
+    });
+    // And four memory servers opening the same v1 store at once.
+    rmSync(store, { recursive: true, force: true });
+    plantedBeforeHd1("local");
+    await Promise.all([openThroughMcp(), openThroughMcp(), openThroughMcp(), openThroughMcp()]);
+    withStore((s) => {
+      expect(s.getMeta(TOLD_SET_KEY)).toBe(TOLD_SET_VERSION);
+      for (const title of [NINE, TIPS]) {
+        const row = toldRow(s, title);
+        expect(row.body).toBe(v2Body("local", title));
+        expect(row.revision).toBe(1);
+        expect(s.versions(row.id)).toHaveLength(1);
+      }
+    });
+  }, 60_000);
+
   test("edited: a #9 the person rewrote and a #1 they corrected stay theirs; the meta still moves to v2", async () => {
     plantedBeforeHd1("local");
     const MINE = "Told, not lived: I use `counterparts remove` myself, from the terminal, when something has to go.";

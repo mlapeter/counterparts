@@ -1424,10 +1424,18 @@ export class Store {
        *  last model's. A revise that leaves the body alone keeps the model. */
       model?: string;
       reason?: string;
+      /**
+       * A precondition asked of the row INSIDE the write transaction
+       * (`BEGIN IMMEDIATE`, `putUnless`'s pattern): true writes nothing and
+       * the revise returns 0. For a revise two processes may make at once from
+       * one stale read (the starter memories' one-time revision, HD1).
+       */
+      unless?: (row: { title: string | null; body: string; revision: number; archived: number; superseded_by: string | null }) => boolean;
     },
   ): number {
-    const { doc, seq, hash } = this.mutate("revise", () => {
+    const out = this.mutate("revise", () => {
       const row = this.requireRow(id);
+      if (patch.unless?.(row) === true) return null;
       const prior = this.docOf(row);
       const seq = row.revision + 1;
       // THE PRIOR VERSION, WORDS AND ALL, IN THE SAME TRANSACTION. It used to be
@@ -1522,6 +1530,8 @@ export class Store {
       }
       return { doc: next, seq, hash: nextHash };
     });
+    if (out === null) return 0;
+    const { doc, seq, hash } = out;
     this.indexOne(doc);
     this.emit("store.revise", id, { seq, hash });
     return seq;

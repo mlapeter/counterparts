@@ -361,8 +361,18 @@ export function reviseTold(store: Store): ToldRevision | null {
         continue;
       }
       try {
-        store.revise(row.id, { body, meta: { told: TOLD_SET_VERSION }, reason: TOLD_REVISE_REASON });
-        revised.push(row.id);
+        // RE-ASKED UNDER THE WRITE LOCK (review of 474db3cf, R4-a): the hook,
+        // the MCP server and the worker can open at once on the first launch
+        // after an upgrade; the one that comes second finds v2's words and
+        // writes nothing (no duplicate version).
+        const seq = store.revise(row.id, {
+          body,
+          meta: { told: TOLD_SET_VERSION },
+          reason: TOLD_REVISE_REASON,
+          unless: (now) => now.archived !== 0 || now.superseded_by !== null || now.title !== changed.title || !changed.bodies.includes(now.body),
+        });
+        if (seq > 0) revised.push(row.id);
+        else kept += 1;
       } catch {
         failed += 1;
       }
