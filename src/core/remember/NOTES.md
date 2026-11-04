@@ -852,3 +852,27 @@ pass per id. What was checked before calling a console line the same kind of thi
   the store locked, against this change alone (gone by day 4, with newer notes coming) and with
   that one (kept to 14). A claim on disk from before that change still reads as written, so the
   first pass after updating takes such a line, and with it the only copy of those words.
+
+## 2026-11-04 — a memory about our own plumbing (TC1)
+
+WP1 (11-03) kept the host's own refusal line out of capture and told every writer of an ended session's words to leave
+plumbing out. The developer week's red came through the other door: the session's own Stop-ask `session_end` wrote
+"Morning share told to Theo but reflect 'told' call was permission-denied", dated (the share's deadline) and `us`, and
+it led Coming up in all 7 later wakes, in every folder. Two halves again:
+
+- **The sentence**, where the session writes: a Do NOT on `session_end` (inside the host's 2,048-character cut, with
+  8 characters to spare), and on `remember`'s `text` field, served whole: `remember`'s head has no room left in the cut
+  (`test/description-cut.test.ts`).
+- **The gate**, `own-plumbing.ts`: reads the SUBJECT only (title, else first line), and only this system's vocabulary
+  (permission + a refusal word + a call, tool, prompt or mark; a tool's call refused; a tool not granted; a slash
+  command it couldn't run; only memory tools). WP1 declined a word filter on replies, because a reply's words are the
+  counterpart speaking and the person's words about a prompt are theirs. This reads the memory's own headline instead,
+  never a reply, and never `saidBy: owner`. It doesn't refuse (guards loose-first): the memory is kept, and only what a
+  life event claims is dropped, the date (with `remind` and a repeat), the open thread, and a `me`/`us` mark.
+- Measured read-only on five harness stores (the developer week, four Dana weeks; 381 memories): 5 hits, all of them
+  the refused-`reflect` memories, and no false ones. The DW "/loop is a slash command" and "only memory tools" asides
+  sit in bodies under real work titles ("Asked to /loop CI…"), so they aren't read, and they claimed no date or mark.
+- The folder's "Since, here" also leaves a `meta.ownPlumbing` row out (`counterpart-wake-shape.ts#sinceHere`), as it
+  leaves the starter notes: kept for recall, never the folder's news.
+- Open: a revision whose title is plumbing keeps its date and thread, because dropping them would read as closing the
+  memory it revises (`closeReminderChain`, `closeThread`). Only its mark is refused. Not seen yet.

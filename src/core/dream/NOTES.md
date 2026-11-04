@@ -1434,3 +1434,30 @@ never in the reflection's `see` or its main loop (so no `recent`, core ask, cand
 one), and closed to the night's own `recall` (`McpServer#nightClosed`). Day's end leaves them out of the day
 (`self/writer.ts`), and the page's and day summary's cites refuse one. Nor the night's tag ask (`untaggedMemories`,
 at review): a tag on one would count toward a topic card's bar. Pinned by one night through `runNight` in `test/told.test.ts`.
+
+
+## 2026-11-04 — a carried share is marked told as it is handed over (TC1)
+
+The carry line asked the session to call the reflect tool's `told` once it had told the share. That is bookkeeping,
+and in a person's session it put a permission prompt for a tool the session never otherwise calls in front of someone
+on their second day, with no context. In the developer week (11-04) and Dana's (11-03) the prompt was denied, the
+session said so, and its Stop-ask `session_end` filed the denial as a dated `us` memory that led Coming up in every
+folder for the rest of the run.
+
+Now `carryLine`'s claim writes `told` (not `carried`), with `told` on the share's cites (`toldOnCites`, as the
+`told` phase writes them), and the line says handing it over marked it (`CARRIED_TOLD_NOTE`). Delivery is the honest
+mark the host has: the tool call was the model saying it meant to, no more, and a carried share was never carried
+twice either way. All three carries go through it: Claude Code's prompt (`hooks.ts#dreamLines`), the headless night's
+hand-back (`hooks.ts#nightHandBack`) and a hookless wake (`mcp/server.ts#wakeShareLine`). A `told` call on a share
+already told is a plain yes at the MCP door, not a refusal the model would explain.
+
+What it moves, on purpose:
+
+- `recalled.ts#dreamReach` counts a carry as a touch, even when the model never got to say it.
+- `join`'s "share-not-told" check passes once the share is carried. The trust model is the one the 10-21 accepted-risk
+  paragraph above already describes: the yes is the owner's word in the conversation, which the host can't read.
+- `carried` is a historical state: older rows keep it, and doctor's "stuck at carried" line still reads them.
+- Unchanged: the hand-back of a reflection a session launched still asks that session for `told`. Only the session
+  that just ran `finish` reads it, and it already holds the tool. The night's hand-back is never read by a person.
+- Still open: `closeHow`, `coreHow` and `joinHow` ask the carrying session to call reflect phases on the owner's yes.
+  Those follow a yes, so the prompt has context, but a stranger can still deny one.

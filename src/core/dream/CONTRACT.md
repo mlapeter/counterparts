@@ -555,7 +555,8 @@ dream having run.
     from a session) at the worker's next boundary once it has settled.
   - **The share** — two or three sentences, citing what it rests on — is offered in the
     hand-back; `told` records `told` on the memories it cites; a later session carries
-    an untold one once (Claude Code on a prompt, once the reflecting session ended or went
+    an untold one once, and the carry marks it `told` as it hands it over, asking for no
+    tool call (2026-11-04, TC1) (Claude Code on a prompt, once the reflecting session ended or went
     quiet; a hookless chat host on its `wake`, where a chat's session, never ended, counts
     ended once it reflected: `sessions.ts#reflectorDone`). A memory promoted on reflection alone is named in the next share.
   - **Feelings** are the self's, recorded later (`source: reflection`, `recorded_later`

@@ -63,6 +63,7 @@ import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
+import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
 import { happenedAlready, sinceLastNight } from "./counterpart-wake-news.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
 
@@ -320,6 +321,8 @@ export function sinceHere(
     if (opts.reader !== null && r.origin_session === opts.reader) continue;
     const title = (r.title ?? "").trim();
     if (title.length === 0 || r.source === "episode" || isTold(r) || (r.origin_ref ?? "").startsWith("epi_") || isNightRow(r) || (r.meta ?? "").includes('"episodeId"')) continue;
+    // Our own plumbing (TC1, `remember/own-plumbing.ts`): kept for recall, never the folder's news.
+    if ((r.meta ?? "").includes(`"${OWN_PLUMBING_META_KEY}"`)) continue;
     if (!r.status && !isWorkMemory({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false })) continue;
     // A closing batch from the handoff's own session echoes its lead.
     const at = r.created_at ?? 0;

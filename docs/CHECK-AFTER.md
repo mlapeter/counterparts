@@ -41,6 +41,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
+| Refused calls stay plumbing (TC1): a carried morning share is marked told as it is handed over (no `reflect` call asked of the session); a memory whose subject is our own refused call, a permission prompt or the session's limits keeps no date, open thread or me/us mark (`meta.ownPlumbing`) | 0.3.47 (TC1) | a few nights after release (dated reminder set at merge): no dated or me/us memory about a refused call or prompt, `ownPlumbing` rows and their titles, and no share stuck untold | "Due a few nights after refused calls stay plumbing" below |
 | Write-ups skip plumbing (WP1): the host's line after a declined permission prompt and a hook's output enter no capture; every write-up is told permission prompts, refused tool calls and the system's own notices aren't events between the two | 0.3.46, 11-03 (#731) | a few nights after release (dated reminder set at merge): no write-up memory about a permission prompt or a refused tool, and the person's own words about one still kept | "Due a few nights after write-ups skip plumbing" below |
 | Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
@@ -222,6 +223,37 @@ puts inside the rejected `tool_result` and so has never reached capture, turning
 **How to revert:** the two are separate. The sentence: drop `WRITE_UP_PLUMBING_RULE` from `catchUpPrompt` and the
 door's `next`. The reader: move the two frames back into `HOST_FRAMES` (both read as `injected` again, and the hook
 frame inside a system reminder goes back to `classifyBlock`'s `injected`). Neither touches the store's shape.
+
+## Due a few nights after refused calls stay plumbing (2026-11-04, TC1, lightly held — a fix, no switch)
+
+**What we're trying.** In the developer week (11-04) and Dana's (11-03) the carried morning share asked the session to
+call `reflect` `told`; the host's permission prompt denied it, and the session's own Stop-ask `session_end` filed "Morning
+share told to Theo but reflect 'told' call was permission-denied", dated and `us`, which led Coming up in every folder.
+WP1 had only reached the write-ups of ended sessions. Two changes: `Reflections#carryLine` marks the share `told` as it
+hands it over (with `told` on its cites) and asks for no call; and `remember/own-plumbing.ts` reads a memory's subject
+(title, else first line; never `saidBy: owner`), so one about our own refused call, a prompt or the session's limits is
+kept without date, thread or me/us mark (`counterpart-deposit.ts#ownPlumbingOf`, `meta.ownPlumbing`), and the folder's
+"Since, here" leaves it out. `session_end` and `remember`'s `text` field say not to write them.
+
+**What to look at, a few nights after release.** Read-only, titles and counts only:
+
+```sql
+SELECT id, about, event_date, title, json_extract(meta,'$.ownPlumbing') AS cue, json_extract(meta,'$.build') AS build
+FROM memories WHERE json_extract(meta,'$.ownPlumbing') IS NOT NULL ORDER BY created_at DESC LIMIT 30;
+SELECT id, share_state, share_session FROM reflections ORDER BY started_at DESC LIMIT 7;
+```
+
+- **Every `ownPlumbing` title really is plumbing** (a false positive is a real memory that lost its date); and few of
+  them: the sentence should keep most from being written at all.
+- **No dated or me/us memory about a refusal** got past the gate (the WP1 query above, without `secondHand`).
+- **Shares are `told`, not `offered` for days:** a share stuck `offered` means no session carried it.
+
+**What would change it:** a real memory read as plumbing (narrow the cue that read it); plumbing memories still landing
+dated (a phrasing the cues miss: add it, from the title it used); a person missing a share the model never actually
+told (the host marks delivery, not the telling).
+
+**How to revert:** separate. The carry: write `carried` again in `carryLine` and restore the `told` ask (`CARRIED_TOLD_NOTE`).
+The gate: return null from `ownPlumbingOf`. Neither touches the store's shape.
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
