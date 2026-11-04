@@ -114,6 +114,9 @@ Close your Claude Code sessions, then:
 bun add -g counterparts@latest
 ```
 
+With Node, the same step is `npm install -g counterparts@latest`. Keep the `@latest`: a
+bare `npm install` can fetch an older version.
+
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
@@ -211,8 +214,11 @@ worker has the memory open: close them and run it again.
 Options:
 
 - `--keep-memories` keeps your memory without asking.
+- `--yes` skips the "Go ahead?" question. A script or a pipe needs it, or uninstall
+  refuses before changing anything: `counterparts uninstall --keep-memories --yes`
+  (`--park --yes` works the same way).
 - `--park` renames `~/.counterparts` aside. `counterparts install` offers to bring it back.
-- `--delete-memories` deletes it, after asking you to type `DELETE MEMORIES`.
+- `--delete-memories` deletes it, after asking you to type `DELETE MEMORIES`. It has no `--yes`, so a script can't run it.
 
 Each shows your memory's size first. Part of that can be a database log that shrinks on its
 own; nothing is lost when it does.
