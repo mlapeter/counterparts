@@ -1086,8 +1086,9 @@ export class Store {
    * carries none, and adding one would be a format change for this); a count
    * comparison can't tell two stores of the same size apart; and a sample
    * that must miss entirely won't fire on one stray row an older build left
-   * indexed. It also catches an OLDER copy of the same store put back over a
-   * newer cache: the newest indexed ids are the ones that copy lacks.
+   * indexed. It catches an OLDER copy of the same store put back over a newer
+   * cache only when at least `INDEX_SAMPLE` rows were indexed since that copy
+   * was made: fewer, and some sampled id is still in the copy.
    */
   private indexFromAnotherFile(): boolean {
     const sample = this.cache.all<{ memory_id: string }>(`SELECT memory_id FROM doc_lens ORDER BY rowid DESC LIMIT ${String(INDEX_SAMPLE)}`);
@@ -1107,7 +1108,7 @@ export class Store {
    * imported store; the worker's backfill gives them vectors, as it does any
    * row without one. Another file's index is reset first, keeping the vector
    * table and its tag, and the vectors of ids this file doesn't hold are
-   * deleted. One box-3 transaction for the words. A cache from a newer build,
+   * deleted. All in one box-3 transaction, re-asked under its lock. A cache from a newer build,
    * or a lock past the busy timeout, costs this open the rebuild, never the
    * open: the next writable open asks again. Rows that give no entry at all
    * leave the index empty: then the count is stamped, no event is written, and
@@ -1116,41 +1117,49 @@ export class Store {
   private reindexIfEmpty(): void {
     try {
       if (cacheAhead(this.cache) !== null) return;
-      const foreign = this.indexFromAnotherFile();
-      if (!foreign && !this.wordIndexEmpty()) return;
-      const denied = new Set(this.deniedIds());
-      const rows = this.ops.all<{ id: string; title: string | null; body: string }>(
-        "SELECT id, title, body FROM memories WHERE archived = 0 AND superseded_by IS NULL ORDER BY id",
-      );
-      let dropped = 0;
-      if (foreign) {
-        resetCache(this.cache, { keepEmbeddings: true });
-        const canonical = new Set(this.ops.all<{ id: string }>("SELECT id FROM memories").map((r) => r.id));
-        const del = this.cache.prepare("DELETE FROM embeddings WHERE memory_id = ?");
-        const orphans = this.cache.all<{ memory_id: string }>("SELECT memory_id FROM embeddings").filter((r) => !canonical.has(r.memory_id) || denied.has(r.memory_id));
-        this.cache.transaction(() => {
-          for (const r of orphans) del.run(r.memory_id);
-        });
-        dropped = orphans.length;
-      }
+      // The cheap look first, outside any lock: the steady state ends here.
+      if (!this.indexFromAnotherFile() && !this.wordIndexEmpty()) return;
+      let wrote: { indexed: number; live: number; foreign: boolean; droppedVectors: number } | null = null;
+      // ALL OF IT IN ONE box-3 TRANSACTION (review of d5f328c9): the reset,
+      // the orphan sweep and the words, with both questions asked again under
+      // the write lock. Six openers at once on a file dropped into a used
+      // folder used to interleave a reset with another's rebuild and leave a
+      // few rows indexed for good; now the first one through does the work,
+      // and the rest find this file's index and write nothing, not even an event.
       this.cache.transaction(() => {
-        // Asked again under box 3's write lock: a second process opening the
-        // same file at once finds the first one's index and writes nothing.
-        if (indexedDocCount(this.cache) > 0) return;
+        const foreign = this.indexFromAnotherFile();
+        if (!foreign && !this.wordIndexEmpty()) return;
+        const denied = new Set(this.deniedIds());
+        let dropped = 0;
+        if (foreign) {
+          resetCache(this.cache, { keepEmbeddings: true });
+          const canonical = new Set(this.ops.all<{ id: string }>("SELECT id FROM memories").map((r) => r.id));
+          const del = this.cache.prepare("DELETE FROM embeddings WHERE memory_id = ?");
+          for (const r of this.cache.all<{ memory_id: string }>("SELECT memory_id FROM embeddings")) {
+            if (canonical.has(r.memory_id) && !denied.has(r.memory_id)) continue;
+            del.run(r.memory_id);
+            dropped += 1;
+          }
+        }
+        const rows = this.ops.all<{ id: string; title: string | null; body: string }>(
+          "SELECT id, title, body FROM memories WHERE archived = 0 AND superseded_by IS NULL ORDER BY id",
+        );
         for (const row of rows) {
           if (denied.has(row.id)) continue;
           indexDoc(this.cache, row.id, indexTextOf(row.title, row.body));
         }
-        if (indexedDocCount(this.cache) === 0) {
+        const indexed = indexedDocCount(this.cache);
+        if (indexed === 0) {
           this.cache.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", INDEX_TOKENLESS_META_KEY, String(rows.length));
         }
+        wrote = { indexed, live: rows.length, foreign, droppedVectors: dropped };
       });
-      const indexed = indexedDocCount(this.cache);
-      if (indexed === 0 && !foreign) return;
-      const data = { indexed, live: rows.length, foreign, droppedVectors: dropped };
-      this.emit(INDEX_REBUILT_AT_OPEN_EVENT, undefined, data);
+      const done = wrote as { indexed: number; live: number; foreign: boolean; droppedVectors: number } | null;
+      // Nothing written (another opener did it), or only the tokenless stamp: no event.
+      if (done === null || (done.indexed === 0 && !done.foreign)) return;
+      this.emit(INDEX_REBUILT_AT_OPEN_EVENT, undefined, done);
       try {
-        this.appendEvent({ name: INDEX_REBUILT_AT_OPEN_EVENT, day: this.livedDay(), payload: data });
+        this.appendEvent({ name: INDEX_REBUILT_AT_OPEN_EVENT, day: this.livedDay(), payload: done });
       } catch {
         // A lost lock costs the row, never the open; the index is rebuilt either way.
       }

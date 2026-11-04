@@ -23,7 +23,7 @@
  * Hermetic (CLAUDE.md): one temp dir per test, removed after it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -405,6 +405,57 @@ describe("the word index of another file, and one with nothing to index", () => 
       again.close();
     }
   }, 60_000);
+
+  test("six real processes open a big download dropped over a used folder at once: the index covers every live row, with exactly one event", async () => {
+    // A hosted-shaped file of a few thousand rows (the reviewer's rig: rows
+    // copied in one transaction, then the cache dropped with the download).
+    const h = Store.open({ dir: join(root, "h") });
+    plantTold(h, "hosted");
+    h.put({ type: "memory", kind: "fact", title: "seed", body: "seed kayak" });
+    const ops = (h as unknown as { ops: { all: <T>(sql: string) => T[]; run: (sql: string, ...p: string[]) => void; transaction: (fn: () => void) => void } }).ops;
+    const cols = ops.all<{ name: string }>("PRAGMA table_info(memories)").map((c) => c.name);
+    const pick = cols.map((c) => (c === "id" || c === "body" ? "?" : c)).join(",");
+    ops.transaction(() => {
+      for (let i = 0; i < 4000; i += 1) {
+        ops.run(`INSERT INTO memories (${cols.join(",")}) SELECT ${pick} FROM memories WHERE title = 'seed' LIMIT 1`, `mem_h${String(i).padStart(10, "0")}`, `Hosted memory ${String(i)} about kayaks`);
+      }
+    });
+    h.close();
+    const dir = join(root, "store");
+    const l = Store.open({ dir });
+    plantTold(l, "local");
+    for (let i = 0; i < 50; i += 1) l.put({ type: "memory", kind: "fact", title: `garden ${String(i)}`, body: `Tomatoes row ${String(i)}` });
+    l.close();
+    copyFileSync(join(root, "h", "counterparts.sqlite"), join(dir, "counterparts.sqlite"));
+    rmSync(join(dir, "counterparts.sqlite-wal"), { force: true });
+    rmSync(join(dir, "counterparts.sqlite-shm"), { force: true });
+
+    const opener = join(root, "open.ts");
+    writeFileSync(
+      opener,
+      `import { Counterpart } from ${JSON.stringify(resolve(import.meta.dir, "../src/core/counterpart.ts"))};\nCounterpart.open({ dir: process.argv[2], toldSurface: "local" }).close();\n`,
+      "utf8",
+    );
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: join(root, "home"), COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    mkdirSync(env.HOME, { recursive: true });
+    const exits = await Promise.all(
+      Array.from({ length: 6 }, () => new Promise<number | null>((done) => spawn(process.execPath, ["run", opener, dir], { cwd: root, env, stdio: "ignore" }).on("exit", done))),
+    );
+    expect(exits).toEqual([0, 0, 0, 0, 0, 0]);
+
+    const s = Store.open({ dir, observer: true });
+    try {
+      const cache = (s as unknown as { cache: { all: <T>(sql: string) => T[] } }).cache;
+      const indexed = new Set(cache.all<{ memory_id: string }>("SELECT memory_id FROM doc_lens").map((r) => r.memory_id));
+      const live = (s as unknown as { ops: { all: <T>(sql: string) => T[] } }).ops.all<{ id: string }>("SELECT id FROM memories WHERE archived = 0 AND superseded_by IS NULL").map((r) => r.id);
+      expect(live.length).toBeGreaterThan(4000);
+      expect(live.filter((id) => !indexed.has(id))).toEqual([]);
+      expect(s.search("tomatoes")).toEqual([]);
+      expect(s.eventLog({ name: INDEX_REBUILT_AT_OPEN_EVENT })).toHaveLength(1);
+    } finally {
+      s.close();
+    }
+  }, 120_000);
 
   test("a store whose live rows give the index nothing (CJK only), opened 4 times: one rebuild attempt at most, no event, and doctor isn't amber", () => {
     const dir = join(root, "store");
