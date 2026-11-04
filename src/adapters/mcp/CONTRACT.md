@@ -190,6 +190,13 @@ actually wrote (chapter), the written self page or the version a write to it pro
      `drewOn`'s credit.
    Most are also guarantees elsewhere in this section (1, 4–6, 12, 16, 6b–6f) or in the
    module that enforces them; the registry row is the claim's exact wording.
+   **One host can serve fewer (2026-11-04, TT1).** claude.ai's list goes through
+   `tools.ts#CLAUDE_AI_TRIM`: it renders a named subset of each trimmed tool's claims, and
+   the rest are its engine rows there — the same row objects, so the audit above still
+   holds every one; it also serves shorter field descriptions and leaves out two fields
+   (`traits` on a write-up entry, the legacy `other_word`). Claude Code's and Desktop's
+   lists are untouched. `test/claude-ai-surface.test.ts` holds served ⊆ base and served +
+   engine = the base's rows.
 3. **[M] Every tool carries an admission test and at least one named negative example** in
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero
