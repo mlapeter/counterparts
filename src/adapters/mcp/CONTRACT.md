@@ -417,7 +417,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
     update and doctor notices as plain lines, and the write-up pointer measured against
     `TOOL_RESULT_CHARS`; it starts the worker. It never asks the first-launch question,
     never touches primacy, and never starts the headless nightly run. It sits under the
-    schema gate like every tool.
+    schema gate like every tool. On claude.ai (HN1, 2026-11-04) it says no core dream
+    line; instead the wake that claims the day's offer (`Dreams#claimOffer`, one per
+    calendar day) tells that conversation to run the night after answering, or to ask
+    first on `ask`, and no other wake that day is told.
 21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
     Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
     server (same name, shadowing the session's own). So a Desktop call whose `session`

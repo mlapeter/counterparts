@@ -276,6 +276,7 @@ import {
   TITLE_ASKED_NOTE,
   chatWordsFor,
   claudeAiInstructions,
+  claudeAiNightLine,
 } from "./server-words.js";
 import { resolveScope, SEEN_SESSIONS, EVENT_RING } from "./server-options.js";
 import type {
@@ -3531,12 +3532,14 @@ export class McpServer {
     const plain = lc.plainFor(input);
     const told = lc.claimPlain(input, plain.due);
     const spawn = lc.spawnWorker(input);
-    // NO DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): its nights are the
-    // person's own routine, and the ask relayed in a chat read as "say dream
-    // if you want". Left unclaimed, the offer is never said here. And none —
-    // no share, no owner-facing ask — in a night's own wake (`night`).
+    // NO CORE DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): the ask relayed in a
+    // chat read as "say dream if you want". Its own night line instead (HN1,
+    // 2026-11-04): the first conversation of a day that owes a night runs it,
+    // or asks first (`claudeAiNight`). And none — no share, no owner-facing
+    // ask — in a night's own wake (`night`).
     const claudeAi = this.host === CLAUDE_AI_HOST;
     const dream = claudeAi || night ? null : this.wakeDreamLine(input);
+    const nightLine = claudeAi && !night ? this.claudeAiNight(input) : null;
     const share = night ? null : this.wakeShareLine(input);
     const notices = [this.wakeUpdateLine(), this.wakeDoctorLine(night)].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
@@ -3563,6 +3566,7 @@ export class McpServer {
           // No host shares a claude.ai store yet: the line waits for one that does.
           sameYou: sameYouLine(this.counterpart.ownerDisplayName(), []),
           notices,
+          night: nightLine,
           meet: meet === null ? null : meet.text,
         })
       : [
@@ -3590,7 +3594,7 @@ export class McpServer {
       bytes: Buffer.byteLength(text, "utf8"),
       plain: told.length,
       spawned: spawn.started,
-      dream: dream !== null,
+      dream: dream !== null || nightLine !== null,
       share: share !== null,
       night,
       notices: notices.length,
@@ -3631,6 +3635,38 @@ export class McpServer {
       const line = reflections.carryLine({ session: input.sessionId, reflection: pending.id });
       this.emit("mcp.wake.share", input.sessionId, { reflection: pending.id, carried: line !== null });
       return line;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * THE FIRST CHAT OF THE DAY RUNS THE NIGHT, for claude.ai's `wake` (HN1,
+   * 2026-11-04). The day's offer, read as every host reads it (`Dreams#offer`:
+   * null when no night is owed, one already ran or is under way, or the day
+   * was already claimed — by another conversation, or a routine's launch), and
+   * CLAIMED here: `dream_asks` holds one row per calendar day, so of two
+   * conversations racing, one wins (`claimOffer`), and only that one is told.
+   * A tool result is certain delivery, so the claim is safe here. No run is
+   * started — this host has none to start; the words are the start: on `auto`
+   * (headless) the model runs the night after answering, on `ask` it asks.
+   * A claim the model never acts on is taken up by a later conversation once
+   * it has been quiet `ABANDONED_AFTER_MS`, at most `RELAUNCHES_PER_DAY`
+   * times (`Dreams#mayStartAgain`), as a launch nobody followed is. Never throws.
+   */
+  private claudeAiNight(input: SessionInput): string | null {
+    if (this.observer || input.at === undefined) return null;
+    try {
+      const dreams = this.counterpart.dreams;
+      const offer = dreams.offer({ at: input.at, session: input.sessionId });
+      if (offer === null || offer.setting === "off") return null;
+      if (!dreams.claimOffer(offer)) {
+        this.emit("mcp.wake.dream", input.sessionId, { told: false, reason: "claimed-elsewhere" });
+        return null;
+      }
+      const setting = offer.headless ? "auto" : "ask";
+      this.emit("mcp.wake.dream", input.sessionId, { told: true, state: offer.state, setting, firstChat: true, reflects: offer.reflects !== null });
+      return claudeAiNightLine({ session: input.sessionId, setting, reflects: offer.reflects, who: this.counterpart.ownerDisplayName() ?? "the person" });
     } catch {
       return null;
     }

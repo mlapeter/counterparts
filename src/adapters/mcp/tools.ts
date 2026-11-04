@@ -2207,8 +2207,8 @@ export const CLAUDE_AI_WAKE: ToolSpec = {
     },
     {
       claim:
-        "It starts the background worker that sleeps and fades memories, as a session start does. It offers no dream line here: on claude.ai the night is the person's own routine, through the dream tool, and never the headless nightly run.",
-      mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#wakeTool",
+        "It starts the background worker that sleeps and fades memories, as a session start does. The first conversation of a day that owes a night is told to run it after answering (or to ask first, on ask): the day's one claim decides, so one conversation a day is told, none while a night is under way or after one ran. It never starts the headless nightly run.",
+      mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#claudeAiNight -> src/core/dream/index.ts#claimOffer",
     },
     {
       claim: "Under observer stance it stands down over the wire and says so.",
@@ -2265,7 +2265,9 @@ function withClaudeAiSession(spec: ToolSpec): ToolSpec {
  * dream line and has no background agent: its nights are a scheduled run the
  * person set up, which wakes with `night: true`, launches, and follows the
  * run's prompt itself, in that same run. So `dream` and `reflect` name that
- * routine, and in an ordinary conversation run only when the person asks.
+ * routine, and in an ordinary conversation run only when the person asks —
+ * or, since HN1 (2026-11-04), when the day's first conversation's wake says
+ * it runs the night.
  * The every-host words — "the day's dream line", "a background agent", "Do
  * NOT run the dream yourself in this conversation" — would fight the
  * routine's own prompt. A replaced negative still says "Do NOT", and the
@@ -2302,11 +2304,11 @@ export const CLAUDE_AI_WORDS: Readonly<
   },
   dream: {
     summary:
-      "Dreaming, in the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+      "Dreaming, once a day — run by the day's first conversation after it answers, or the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
     admission:
-      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In an ordinary conversation, call `launch` only when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
+      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In a conversation, call `launch` when the wake says this conversation runs the night (after answering), or when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
     negativeExamples: [
-      "Do NOT start a dream nobody asked for: it runs in the routine the person set up, on its prompt, or in a conversation on the person's word — never on your own.",
+      "Do NOT start a dream nobody asked for: it runs when the wake says this conversation runs the night, in the routine the person set up, on its prompt, or on the person's word — never on your own.",
       "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",
       "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
     ],
@@ -2315,7 +2317,7 @@ export const CLAUDE_AI_WORDS: Readonly<
     summary:
       "Reflection: a few quiet, awake minutes — usually at the end of the person's night routine, after the dream — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
     admission:
-      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In an ordinary conversation, call `launch` only when the person asks you to reflect, and follow its prompt there yourself. Call `told` after you told the person a morning share that a conversation's wake carried, in your own words. Call `close` or `reopen` only on the person's word about a share's open threads.",
+      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In a conversation, call `launch` when the person asks you to reflect, or when the wake says to finish a reflection that was cut off, and follow its prompt there yourself. Call `told` after you told the person a morning share that a conversation's wake carried, in your own words. Call `close` or `reopen` only on the person's word about a share's open threads.",
   },
 };
 

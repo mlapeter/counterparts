@@ -30,7 +30,8 @@
 - **claude.ai's surface (2026-10-26, OL1b).** Its wake has its own shape
   (`mcp/chat-wake.ts`): one short session line, what is for the person first (a slot for
   the carried share, the clock and plain reminders, then "Coming up" and "Still open"
-  moved up whole), and no dream line — its nights are the person's routine. Its tool
+  moved up whole), and no dream line — its nights are the person's routine (since HN1,
+  2026-11-04, the day's first chat is also told to run the night after answering). Its tool
   words describe and never command: the directory's review refuses "call this first",
   so wake-first lives in the person's instruction block. Its one MCP prompt is "Wake
   Counterparts" (the + menu). readOnly stays on Memory status alone (since H1, 2026-10-29,

@@ -2024,3 +2024,22 @@ declared flags, the served tools and their fields, and the recall handles.
   one in-flight meeting for each changed step (`love` after a `later`; `work` from a dropped session; `origin`, sent as
   the older `started`). Each in-flight meeting starts in one session through `meet` and resumes in another. The
   script it reads there is the new one, and the old script's next step lands.
+
+## 2026-11-04 — the first claude.ai chat of the day runs the night (HN1)
+
+- **The latch is the day's, not new.** `wakeTool` on claude.ai asks `Dreams#offer` (null when nothing is owed, a
+  night ran or is under way, or the day was claimed or declined) and claims it (`claimOffer`): a fresh `dream_asks`
+  row, or a reclaim of the row the offer read, so of two chats one wins. Only the winner's wake carries the line
+  (`server-words.ts#claudeAiNightLine`). On `auto` the offer is headless and the claim writes `launched`; this host
+  has no run to start, so the words are the start. On `ask` the claim writes `offered` and the line asks once.
+- **Claimed at the wake, not at the launch.** A model that never launches holds the day for `ABANDONED_AFTER_MS`;
+  then a later chat is offered it again (`mayStartAgain`, at most `RELAUNCHES_PER_DAY`), as a launch nobody followed
+  is. A routine's `launch` writes the same row, so a chat after it is told nothing; a routine after a chat's night
+  meets the dream's own refusals (`dreamed-today`, the writer's `already-claimed`).
+- **The trigger is the dream's gate** (`MIN_NEW` new memories, a lived day behind it, not the meeting's day). A day
+  with one or two memories gets no in-chat night, and so no day's end either: Claude Code's catch-up for owed write-ups
+  (`catchUpOffer`) has no hosted equivalent. Left to ROADMAP.
+- **The launch prompt names the session on `propose` and `journal`** (M1: the model called `propose` without it, and
+  with two chats open it is filed under the newer one, which doesn't own the dream: refused). Every host's prompt.
+- **Tool words.** claude.ai's `dream` negative ("Do NOT start a dream nobody asked for") and both admissions now
+  name the wake's line, or they would fight it; `tools/list` grew 336 bytes (90,803 → 91,139).

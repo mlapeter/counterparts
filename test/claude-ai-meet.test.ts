@@ -96,7 +96,9 @@ describe("a cold first chat on claude.ai meets", () => {
     const done = await call(url, "meet", { session, step: "done" });
     expect(done.structured).toMatchObject({ recorded: "done", meet: "done" });
     expect(done.text).toContain(`session: ${session}`);
-    expect(done.text).not.toContain("I'll ask to have my first dream");
+    // On ask (this store's setting), a later day's first chat asks first (HN1).
+    expect(done.text).toContain("I'll ask to have my first dream");
+    expect(done.text).not.toContain("nightly routine");
 
     const again = await call(url, "wake", {});
     expect(again.text).not.toContain(MEET_LINE_OPEN);
@@ -150,10 +152,11 @@ describe("a cold first chat on claude.ai meets", () => {
     expect(Object.keys(JSON.parse(rows()[1] ?? "{}") as Record<string, string>).sort()).toEqual(["love", "name", "origin"]);
   });
 
-  test("with dreaming on, the first dream is the routine's, never an ask", () => {
-    const text = finishText({ name: "Wren", dreaming: "ask", web: true, session: "s1", sidebar: false });
-    expect(text).toContain("when the nightly routine runs, I'll have my first dream");
-    expect(text).not.toContain("I'll ask to have my first dream");
+  test("the first dream on the web: on auto, a later day's chat has it after answering; on ask, it asks first (HN1)", () => {
+    const text = finishText({ name: "Wren", dreaming: "auto", web: true, session: "s1", sidebar: false });
+    expect(text).toContain("When we talk on another day, I'll have my first dream once I've answered you");
+    expect(text).not.toContain("nightly routine");
+    expect(finishText({ name: "Wren", dreaming: "ask", web: true, session: "s1", sidebar: false })).toContain("I'll ask to have my first dream");
     // Every other host: unchanged.
     expect(finishText({ name: "Wren", dreaming: "ask", session: "s1", sidebar: false })).toContain("I'll ask to have my first dream");
   });

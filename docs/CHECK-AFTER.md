@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to answer, then run the night (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
 | The wake knows yesterday's news (WF1): "Since the last night" (owner/us news since the last night, any open folder), a stale handoff steps down to one line, empty sections collapse, a dated item a newer done memory says happened settles; the wake's shape on for new stores | 0.3.46, 11-03 (#734) | **no date**: settles on a few days of real shaped wakes after release (Mike's store has had the shape on since 11-01) or the next new-user week, whichever comes first | [below](#the-wake-knows-yesterdays-news-wf1) |
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
@@ -115,6 +116,29 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The first claude.ai chat of the day runs the night (HN1)
+
+HN1 (2026-11-04, ROADMAP's go 09:41, Mike's design 11-03, lightly held), in `mcp/server.ts#claudeAiNight` and
+`server-words.ts#claudeAiNightLine`. Read ~1 week after the hosted deploy, from the hosted call log (`[hosted] mcp`
+lines: tool, session, ok, reason, the hashed store; no words) and what people say. Nobody reads a person's store.
+
+- **Where nights start.** Per store and day, the session that called `dream` successfully: one whose connection's
+  `initialize` named claude.ai's client is a chat's night; `claude-code` with a `wake` that had `night: true` before it
+  is a routine's (the call log doesn't keep arguments, so tell them apart by client name and by a launch within a few
+  calls of the wake). Expect most nights from a chat, and the routine where people set one up.
+- **Double starts.** Two sessions on one store and day that both reached `dream` `begin`: the second should be refused
+  (`dreaming-now` or `dreamed-today`). Any day with two journaled dreams, or two successful `begin`s, is a bug in the
+  latch. A routine meeting refusals after a chat's night is expected, not a double start.
+- **Nights that didn't finish.** A `launch` with no `begin` after it, or a `begin` with no `journal`, in a chat:
+  claude.ai cut the reply, or the model stopped. A later chat picking it up after 30 minutes is the designed recovery.
+- **Days that owed a night and got none.** Stores active on two days in a row with no `dream` call on the second: the
+  model ignored the line, or the gate wasn't met (fewer than three new memories). Count which, if the log can say.
+- **Complaints.** A person surprised by the night in their first reply, a slow first answer, or usage limits hit after
+  it. One clear complaint is reason to make `ask` hosted's default for new accounts.
+
+Revert: drop the `night` line from claude.ai's wake (`server.ts#claudeAiNight` returning null); the setting words, the
+tool words, the told lines and the manual go back with it.
 
 ## The wake knows yesterday's news (WF1)
 
