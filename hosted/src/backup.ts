@@ -647,6 +647,7 @@ export class UploadWatch {
   private lastRiseAt: number | null = null;
   private wasStale = false;
   private looking = false;
+  private stopped = false;
   private readonly opts: {
     readonly objects: ObjectStore;
     readonly heartbeat: () => void;
@@ -673,9 +674,18 @@ export class UploadWatch {
     return this.lastRiseAt !== null && this.opts.now() - this.lastRiseAt > this.staleAfterMs ? "stale" : "ok";
   }
 
+  /**
+   * The server is closing: no more looks, and a look in flight skips its
+   * heartbeat and its event (the accounts database may be closing under it, and
+   * a `heartbeat-failed` line at shutdown would mislead).
+   */
+  stop(): void {
+    this.stopped = true;
+  }
+
   /** One look: the LIST, then the heartbeat. Never throws; a look still running makes this one a no-op. */
   async look(): Promise<void> {
-    if (this.looking || this.lastRiseAt === null) return;
+    if (this.stopped || this.looking || this.lastRiseAt === null) return;
     this.looking = true;
     try {
       const riseBefore = this.lastRiseAt;
@@ -688,6 +698,7 @@ export class UploadWatch {
       } catch {
         reason = "list-failed";
       }
+      if (this.stopped) return;
       try {
         this.opts.heartbeat();
       } catch {

@@ -560,10 +560,11 @@ export function createApp(opts: AppOptions): App {
         }
         await backups.release();
       }
-      // The sidecar runs from here: the upload watch's grace starts now, and its first look is the baseline.
+      // The sidecar runs from here: the upload watch's grace starts now. Its first look (the baseline) isn't
+      // awaited: a slow R2 must not add to the boot, and the grace clock doesn't need the baseline.
       if (uploads !== null) {
         uploads.begin();
-        await uploads.look();
+        void uploads.look();
         if (uploadsTimer === null) {
           uploadsTimer = setInterval(() => void uploads.look(), opts.uploadsEveryMs ?? UPLOADS_EVERY_MS);
           uploadsTimer.unref?.();
@@ -595,6 +596,7 @@ export function createApp(opts: AppOptions): App {
     finishPendingDeletes,
     async close(): Promise<void> {
       started = false;
+      uploads?.stop();
       if (retryTimer !== null) clearInterval(retryTimer);
       retryTimer = null;
       if (uploadsTimer !== null) clearInterval(uploadsTimer);

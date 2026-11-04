@@ -563,12 +563,16 @@ Checked against Railway's docs 2026-11-04. Each line says whether the docs confi
    per environment. Worth one on disk usage (say 80%). Whether that disk widget is the volume is NOT CONFIRMED; the
    volume has its own "volume usage" alerts (a webhook event, and a notification type in the changelog), whose
    threshold setting the docs don't show.
-4. **Optional: the same into Discord or Slack.** Project → Settings (top right) → Webhooks → paste a Discord channel
-   webhook URL or a Slack incoming-webhook URL → Save Webhook (CONFIRMED, docs.railway.com/observability/webhooks).
+4. **Optional: the same into Discord or Slack.** Paste a Discord channel webhook URL or a Slack incoming-webhook URL.
    Railway reformats for Discord and Slack itself, so nothing of ours receives it. Events: deployment status
-   (`Failed`, `Crashed`), volume usage alerts, monitor alerts. "Test Webhook" is sent from the browser and can show
-   a CORS error that means nothing; the next deploy is the real test. Delivery pauses for 24 h after 100 failures in
-   6 h. Plan requirement NOT CONFIRMED.
+   (`Failed`, `Crashed`), volume usage alerts, monitor alerts. Delivery pauses for 24 h after 100 failures in 6 h.
+   - Where: the docs give two places, and don't say how they differ (docs.railway.com/observability/webhooks):
+     project → Settings (top right) → Webhooks tab → Save Webhook; and, in the Discord guide on the same page, the
+     input under "Build and Deploy Webhooks" in the project's deployment settings. Which one a Discord paste belongs
+     in is NOT CONFIRMED: try the Webhooks tab first.
+   - "Test Webhook" is a real test: Railway's servers send it (not your browser), with the custom headers from the
+     form, a 10 s timeout, and it shows the status code your endpoint answered (CONFIRMED, same page).
+   - Plan requirement NOT CONFIRMED.
 
 What none of this sees: a container that runs and answers wrongly. Railway's healthcheck runs at deploy time only
 ("Railway does not monitor the healthcheck endpoint after the deployment has gone live",

@@ -93,7 +93,7 @@ export interface HostedServerOptions {
   readonly logForwardedFor?: (raw: string) => void;
 }
 
-/** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting"). */
+/** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting", and for backups "stale": uploads not landing, `backup.ts#UploadWatch`). */
 export interface Readiness {
   readonly ready: boolean;
   readonly checks: Readonly<Record<string, string>>;

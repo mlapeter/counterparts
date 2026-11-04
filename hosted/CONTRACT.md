@@ -354,7 +354,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       starts when the sidecar does, so a fresh boot can't read `stale` before 30 minutes. `/readyz` reads the
       cached time; it never calls R2. Each look while stale logs `[hosted] backup.uploads.stale minutes=<n>
       reason=<no-rise|list-failed|heartbeat-failed>`, and the first look that sees a rise again logs
-      `[hosted] backup.uploads.ok after=<n>`.
+      `[hosted] backup.uploads.ok after=<n>`. Since `/readyz` answers `503` while backups are stale (and a restart
+      doesn't fix that), never point a restart policy or a load balancer at it: Railway calls it at deploy time only.
 34. **`/mcp` limits, per account, loose to start** (`limits.ts`):
     - `tools/call`: 120 a minute and 1,500 an hour;
     - 8 POSTs in flight at once;

@@ -623,4 +623,24 @@ describe("UploadWatch", () => {
     assert.equal(w.state(), "ok");
     assert.deepEqual(events.at(-1), { state: "ok", minutes: 0 });
   });
+
+  test("stop: a look in flight at close skips its heartbeat and its event; later looks do nothing", async () => {
+    const inner = memoryObjectStore();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const objects: ObjectStore = { ...inner, list: async (p) => (await gate, inner.list(p)) };
+    let beats = 0;
+    const events: UploadsEvent[] = [];
+    let t = 0;
+    const w = new UploadWatch({ objects, heartbeat: () => void (beats += 1), now: () => t, staleAfterMs: 1, onEvent: (e) => events.push(e) });
+    w.begin();
+    t = 100; // stale by the clock
+    const inFlight = w.look();
+    w.stop();
+    release();
+    await inFlight;
+    await w.look();
+    assert.equal(beats, 0);
+    assert.deepEqual(events, []);
+  });
 });
