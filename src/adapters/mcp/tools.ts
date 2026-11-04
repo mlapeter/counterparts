@@ -68,6 +68,7 @@ import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE, FACTS_TAIL_SIZE } from "./facts.js"
 import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { MANUAL_HANDLE } from "./manual.js";
+import { DELETED_HANDLE } from "../../core/removal-hold.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
@@ -282,6 +283,27 @@ const CORE_DECISION_PROPERTY = {
   additionalProperties: false,
   description:
     'Optional: decide on a core memory — {id, decision: "keep" | "retire", why}. The answer to one the wake lists as being reconsidered for the core; retire sends it back to ordinary fading. Recorded as yours, with the why. Alone, or beside text.',
+};
+
+/**
+ * `remove` on `remember` (HD1, 2026-11-04; Mike's yes, lightly held): delete
+ * one memory the person asked to delete. A FIELD, not a tool — a tool would
+ * cost a new approval on claude.ai and Desktop and at least 1.2 KB on every
+ * session's list. It holds, never erases: the memory is hidden at once and the
+ * owner-side sweep erases it after 24 hours (`core/removal-hold.ts`,
+ * `sweepHeldRemovals` in `adapters/cli/`). `destructiveHint` stays false for
+ * `remember`, honestly: the call destroys nothing for a day.
+ */
+const REMOVE_PROPERTY = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    undo: { type: "boolean" },
+  },
+  required: ["id"],
+  additionalProperties: false,
+  description:
+    'Optional: delete one memory the person asks you to delete — {id}, one this conversation was shown, after saying which it is (more than one could be meant: ask first). It is hidden at once and erased after 24 hours; tell them what the result says. {id, undo: true} brings it back before then; recall "deleted" lists what waits. Alone, or beside text.',
 };
 
 /**
@@ -737,7 +759,7 @@ const REMEMBER: ToolSpec = {
       text: {
         type: "string",
         description:
-          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark` or `core` is sent.",
+          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent.",
       },
       updates: {
         type: "string",
@@ -791,6 +813,7 @@ const REMEMBER: ToolSpec = {
       feelingsNow: FEELINGS_NOW_PROPERTY,
       remark: REMARK_PROPERTY,
       core: CORE_DECISION_PROPERTY,
+      remove: REMOVE_PROPERTY,
     },
     // `text` is not required in the published schema (2026-09-29): a `settle`
     // or (2026-10-02) `feelingsNow` alone writes no memory. The server refuses
@@ -926,7 +949,7 @@ const RECALL: ToolSpec = {
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
       },
       ids: {
         type: "array",

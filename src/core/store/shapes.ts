@@ -476,7 +476,13 @@ export interface Tombstone {
 /** No body, no content hash — hashing low-entropy content leaks it (§16 G9). */
 export interface RemovalNote {
   memoryId: string;
-  stage: "requested" | "dark" | "chased" | "complete";
+  /**
+   * `held` and `released` (HD1, 2026-11-04): a chat's delete puts a memory on
+   * a 24-hour hold — hidden by the deny-list at once, erased by the owner-side
+   * sweep after the window — and `released` is its undo. Text in the column,
+   * so no store-format change: a build older than this one reads neither.
+   */
+  stage: "held" | "released" | "requested" | "dark" | "chased" | "complete";
   actor: string;
   reason?: string;
 }

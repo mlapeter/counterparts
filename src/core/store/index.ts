@@ -479,6 +479,23 @@ export { RECURRING_META };
  */
 export const STORE_CREATED_KEY = "store.created";
 
+/**
+ * HOW LONG A CHAT'S DELETE WAITS BEFORE THE ERASE (HD1, 2026-11-04; Mike's
+ * yes, lightly held): 24 hours of WALL-CLOCK time, never lived days — the CLI
+ * CONTRACT's rule for any cooling-off (a day away must still be a day of
+ * second thoughts). Inside it the memory is hidden and `released` brings it
+ * back; after it the owner-side sweep erases it (`sweepHeldRemovals`, `adapters/cli/`).
+ */
+export const REMOVAL_HOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One memory's `removal_record` rows, grouped: true when its newest `held`
+ * is newer than its newest `released` (HD1). Shared by every deny-list read so
+ * the rule is written once.
+ */
+const HELD_HAVING =
+  "COALESCE(MAX(CASE WHEN stage = 'held' THEN seq END), 0) > COALESCE(MAX(CASE WHEN stage = 'released' THEN seq END), 0)";
+
 export const WRITE_METHODS = [
   "put",
   "putMany",
@@ -4008,6 +4025,22 @@ export class Store {
       return row?.seq ?? 0;
     });
     this.emit("store.removal.recorded", note.memoryId, { stage: note.stage, seq });
+    // AN UNDO PUTS IT BACK IN THE WORD INDEX (HD1). A cache rebuild inside the
+    // window (`verify --rebuild`, a repair, a migration) skips every denied id,
+    // the held one too, so a `released` re-indexes that one row from its own
+    // prose — the lexical half; a vector the rebuild dropped comes back with
+    // the worker's backfill. Only a row that is live and no longer denied.
+    if (note.stage === "released") {
+      const row = this.row(note.memoryId);
+      if (row !== undefined && row.archived === 0 && row.superseded_by === null && !this.isDenied(note.memoryId)) {
+        try {
+          indexDoc(this.cache, note.memoryId, indexTextOf(row.title, row.body));
+        } catch {
+          // The undo stands; a later rebuild indexes it.
+          this.emit("store.removal.reindex.failed", note.memoryId, {});
+        }
+      }
+    }
     return seq;
   }
 
@@ -5452,13 +5485,68 @@ export class Store {
     return this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE source = 'told' AND archived = 0 AND superseded_by IS NULL")?.n ?? 0;
   }
 
-  /** Ids a removal has taken dark: consulted at load and at rebuild (§16 G12). */
+  /**
+   * Ids a removal has taken dark: consulted at load and at rebuild (§16 G12).
+   *
+   * And, since HD1 (2026-11-04), ids on a HOLD: a `held` with no later
+   * `released`. A chat's delete hides the memory everywhere the deny-list is
+   * read, at once — recall, the wake, the night, sleep, reminders — and the
+   * owner-side sweep erases it after the window. Two clauses, never "the
+   * latest stage": the sweep's own `requested`, appended between the hold and
+   * `dark`, must not bring a held memory back for that moment.
+   */
   deniedIds(): string[] {
     return this.ops
       .all<{ memory_id: string }>(
-        "SELECT DISTINCT memory_id FROM removal_record WHERE stage IN ('dark', 'chased', 'complete')",
+        `SELECT DISTINCT memory_id FROM removal_record WHERE stage IN ('dark', 'chased', 'complete')
+         UNION
+         SELECT memory_id FROM removal_record GROUP BY memory_id HAVING ${HELD_HAVING}`,
       )
       .map((r) => r.memory_id);
+  }
+
+  /**
+   * THE HOLDS STILL WAITING (HD1): ids held and not released, that no removal
+   * has taken dark yet, each with when its newest hold was written (epoch ms).
+   * The sweep erases one once `at + REMOVAL_HOLD_MS` has passed; the `deleted`
+   * handle lists them. Oldest first. A read: pure and emit-free.
+   */
+  pendingHolds(): { id: string; at: number }[] {
+    return this.ops
+      .all<{ id: string; at: number }>(
+        `SELECT memory_id AS id, MAX(CASE WHEN stage = 'held' THEN at END) AS at
+           FROM removal_record GROUP BY memory_id
+          HAVING ${HELD_HAVING}
+             AND SUM(CASE WHEN stage IN ('dark', 'chased', 'complete') THEN 1 ELSE 0 END) = 0
+          ORDER BY at, memory_id`,
+      )
+      .map((r) => ({ id: r.id, at: r.at }));
+  }
+
+  /** Is this id on a hold and nothing more: held, not released, not taken dark (HD1)? */
+  isHeld(id: string): boolean {
+    const row = this.ops.get<{ held: number; final: number }>(
+      `SELECT (${HELD_HAVING}) AS held,
+              SUM(CASE WHEN stage IN ('dark', 'chased', 'complete') THEN 1 ELSE 0 END) AS final
+         FROM removal_record WHERE memory_id = ?`,
+      id,
+    );
+    return row !== undefined && row.held === 1 && (row.final ?? 0) === 0;
+  }
+
+  /**
+   * READ THROUGH THE HOLD (HD1): a held memory's prose, for the three callers
+   * that must see it while everything else is refused — the erase (its body
+   * is the span chase's fallback, the contamination scan's needle and the cue
+   * sweep's words, read before anything moves: §16 G13), the `deleted` handle
+   * and an undo's answer, which name it by title. Null for anything that is
+   * not held (live, released, or taken dark), so this is never a way around a
+   * removal. `readProse` itself still refuses a held id by name (REMOVED).
+   */
+  heldProse(id: string): ProseDoc | null {
+    if (!this.isHeld(id)) return null;
+    const row = this.row(id);
+    return row === undefined ? null : this.docOf(row);
   }
 
   /**
@@ -5673,11 +5761,14 @@ export class Store {
 
   /** Emit-free (§14.1 G8: reads are pure) — this is called on every read path. */
   private isDenied(id: string): boolean {
-    const denied = this.ops.get<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM removal_record WHERE memory_id = ? AND stage IN ('dark','chased','complete')",
+    // `deniedIds()`'s two clauses, for one id: taken dark, or on a hold (HD1).
+    const denied = this.ops.get<{ dark: number; held: number | null }>(
+      `SELECT SUM(CASE WHEN stage IN ('dark','chased','complete') THEN 1 ELSE 0 END) AS dark,
+              (${HELD_HAVING}) AS held
+         FROM removal_record WHERE memory_id = ?`,
       id,
     );
-    return (denied?.n ?? 0) > 0;
+    return (denied?.dark ?? 0) > 0 || denied?.held === 1;
   }
 
   private refuseIfDenied(id: string): void {

@@ -99,6 +99,13 @@ export interface TenantsOptions {
    * locked store is never opened (`StoreLocked`). Absent ⇒ never.
    */
   readonly locked?: (storeId: string) => boolean;
+  /**
+   * A chat's delete put a memory in this store on its 24-hour hold (HD1):
+   * `at` is when the earliest hold waiting may be erased. The app records it
+   * in the control database (`stores.removal_due_at`) for its timer. A throw
+   * is swallowed by the server.
+   */
+  readonly onRemovalHeld?: (storeId: string, at: number) => void;
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -363,6 +370,13 @@ export class Tenants {
       ...(this.opts.embedder === undefined ? {} : { embedder: this.opts.embedder }),
       ...(tenant.timeZone === undefined ? {} : { timeZone: tenant.timeZone }),
       manifestVersion: () => null,
+      // A CHAT'S DELETE ON HOSTED (HD1): the answer promises the hosted
+      // erase (the app's timer) and the backups' bound, and the hold is told
+      // to the control database so the timer finds this store.
+      removal: {
+        erasedBy: "hosted",
+        onHeld: (at: number) => this.opts.onRemovalHeld?.(storeId, at),
+      },
       lifecycle: {
         config,
         configPath,
