@@ -27,6 +27,15 @@
    every connection under both runtimes, so tenant memory stores match bun; the removal path's `VACUUM` then
    checkpoint measured clean under both Nodes. `keys`, `accounts` and `oauth` still raise it to ON after the open.
 
+**Deferred, not gates and not built (2026-11-04, ROADMAP, on Mike's "reasonably secure, not overkill" for a free beta of
+0-10 users).** They stay owed; the lists above and item 8 say what each would take.
+- The Cloudflare key service (the second gate above): one leak of Railway's environment is a real risk, but a second
+  `KeyWrapper` is more than a small beta needs.
+- The account email under the DEK (item 2): it comes with the encrypted live store, which is pending Mike's final word.
+- The four custom alerts (item 8): Railway's crash and deploy emails cover the start.
+- An outside uptime service (item 8): it needs Mike's account, and Railway's notices cover a crash.
+- A formal data-request process: a request to the feedback address is handled by hand at this size.
+
 ## The first Railway deploy (`docs/hosted/RUNBOOK.md` walks each)
 
 4. **Check `X-Forwarded-For`.** `LOG_FORWARDED_FOR=1` logs the raw header of each `/readyz` request. Checked
