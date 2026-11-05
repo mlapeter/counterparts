@@ -495,7 +495,7 @@ describe("a night's own wake (night: true), through the door", () => {
     const chat = await tool(http.url, "wake", {});
     expect(chat.text).toContain(SHARE);
     expect(chat.text.indexOf(SHARE)).toBeLessThan(chat.text.indexOf("Now:"));
-    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: String(chat.structured["session"]) });
+    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "told", share_session: String(chat.structured["session"]) });
   });
 
   test("a night's wake still lets the routine dream: launch from the quiet wake's session hands back the run's prompt", async () => {

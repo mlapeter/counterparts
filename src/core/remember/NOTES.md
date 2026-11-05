@@ -852,3 +852,57 @@ pass per id. What was checked before calling a console line the same kind of thi
   the store locked, against this change alone (gone by day 4, with newer notes coming) and with
   that one (kept to 14). A claim on disk from before that change still reads as written, so the
   first pass after updating takes such a line, and with it the only copy of those words.
+
+## 2026-11-04 — a memory about our own plumbing (TC1)
+
+WP1 (11-03) kept the host's own refusal line out of capture and told every writer of an ended session's words to leave
+plumbing out. The developer week's red came through the other door: the session's own Stop-ask `session_end` wrote
+"Morning share told to Theo but reflect 'told' call was permission-denied", dated (the share's deadline) and `us`, and
+it led Coming up in all 7 later wakes, in every folder. Two halves again:
+
+- **The sentence**, where the session writes: a Do NOT on `session_end` (inside the host's 2,048-character cut, with
+  8 characters to spare), and on `remember`'s `text` field, served whole: `remember`'s head has no room left in the cut
+  (`test/description-cut.test.ts`).
+- **The gate**, `own-plumbing.ts`: reads the SUBJECT only (title, else first line), and only this system's vocabulary
+  (permission + a refusal word + a call, tool, prompt or mark; a tool's call refused; a tool not granted; a slash
+  command it couldn't run; only memory tools). WP1 declined a word filter on replies, because a reply's words are the
+  counterpart speaking and the person's words about a prompt are theirs. This reads the memory's own headline instead,
+  never a reply, and never `saidBy: owner`. It doesn't refuse (guards loose-first): the memory is kept, and only what a
+  life event claims is dropped, the date (with `remind` and a repeat), the open thread, and a `me`/`us` mark.
+- Measured read-only on five harness stores (the developer week, four Dana weeks; 381 memories): 5 hits, all of them
+  the refused-`reflect` memories, and no false ones. The DW "/loop is a slash command" and "only memory tools" asides
+  sit in bodies under real work titles ("Asked to /loop CI…"), so they aren't read, and they claimed no date or mark.
+- Without a date, thread or mark the row still named itself in the wake: as its folder's newest news ("Since, here"),
+  as that folder's newest work under another folder's "Elsewhere" (and the old shape's "Today, elsewhere"), in the old
+  shape's "Work here", and as the line for a later session with no chapter. Each of those reads now leaves a
+  `meta.ownPlumbing` row out, as they leave the starter notes (`counterpart-wake-shape.ts#sinceHere`,
+  `store/reads-memories.ts#memoryTitlesByScopeSince`, `self/work.ts#workHere`, `counterpart.ts`'s later-here pick):
+  kept for recall, never a wake line. Pinned in both wake shapes by `test/refused-calls-stay-plumbing.test.ts`.
+- Open: a revision whose title is plumbing keeps its date and thread, because dropping them would read as closing the
+  memory it revises (`closeReminderChain`, `closeThread`). Only its mark is refused. Not seen yet.
+
+### After review of #751 (same day)
+
+- **Only this system's nouns.** A refusal word alone is ordinary English ("Visa permission denied; consulate call on
+  the 12th", "Dad declined permission for the surgery prompt", "the CI tool wasn't granted access", "mcp__github was
+  blocked by SSO"); the first cues read all four. Now a refusal (denied, blocked, not allowed, not approved, said no,
+  needs approval, …) must sit with one of: a counterparts tool named as a tool (`reflect`, `session_end`,
+  `mcp__counterparts…`, the word "counterparts", or `remember`/`recall`/`dream`/`chapter` followed by "call", "tool" or
+  a phase), a reflect phase's call ("the join call"), marking a share, note or reflection told or delivered, or the
+  host's own tool ("the Bash tool call"). Apart from a refusal: a slash command it couldn't run ("Couldn't run /loop
+  here") and a session without file or shell tools ("No Bash in this session"). `status`, `meet` and `scope` are left
+  out of the tool names: "the status call was declined" is a work fact. Every title from the review is a test, either
+  way. The five harness stores read the same: 5 hits, all the refused-`reflect` memories.
+- **`owner` is refused too.** A plumbing title marked about the owner printed in every folder's "Since the last
+  night"; the mark is refused, and `aboutUsWrittenSince` leaves an `ownPlumbing` row out as well.
+- **A revision can't bring the date back.** `updates` on a gated row with a fresh date and thread kept both. Now a
+  revision keeps only what it carries from a real target (its reminder chain, an open thread it carries on); a fresh
+  date on an undated target is dropped as on a first write, and a revision of a plumbing row is a first write. The
+  way back is a real title: "save it again with `updates: <id>` and a title that names the thing, not the refusal",
+  which the result now says, beside only what was actually dropped.
+- **Ambient recall at a prompt** leaves an `ownPlumbing` row out (`recall/index.ts`, after `headsWin`; not a
+  deliberate feeling ask). A question or an id still finds it.
+- **The cut.** The whole rule now sits on the field the memory is written in (`remember`'s `text`, a `session_end`
+  entry's `content`); `session_end`'s Do NOT is the short "Do NOT save refused calls unless the person raised it.",
+  so the sentence saying `saidBy` is a field (the gate's exemption) ends inside the 2,048 cut on every host
+  (`test/description-cut.test.ts`). The rest of that claim's line was already past the cut before TC1.

@@ -299,6 +299,7 @@ import {
   readWriteFacts,
   readTags,
   reminderEcho,
+  ownPlumbingEcho,
   titleEcho,
   undatedReminderWarning,
   factsEcho,
@@ -1984,6 +1985,7 @@ export class McpServer {
       ...tagsEcho(deposit, tags),
       ...this.settledOf(deposit, args["how"] !== undefined),
       ...threadOf(deposit),
+      ...ownPlumbingEcho(deposit),
       // IN THE PAYLOAD, so it rides in `structuredContent` — which is what
       // Claude Code hands the model (the #282 lesson, f387f55).
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
@@ -2841,7 +2843,7 @@ export class McpServer {
         ...(night.reflection === null ? {} : { reflection: { ...night.reflection } }),
         ...(found ? { nightsGloss: NIGHTS_GLOSS } : {}),
         note: found
-          ? `The newest dream, whole, and the reflection after it. Reading it marks nothing: a share it shows as not yet told is still untold (once it is told, the reflect tool's phase "told" marks it, as the wake says).${cutNote}`
+          ? `The newest dream, whole, and the reflection after it. Reading it marks nothing: a share it shows as not yet told is still untold, and a later prompt hands it over to tell (marked told as it is handed over).${cutNote}`
           : "No dream or reflection yet: nights have not run on this memory.",
       },
       false,
@@ -4477,6 +4479,10 @@ export class McpServer {
     }
     if (!deposit.deposited || deposit.memoryId === null) {
       return { about: { stored: false, reason: "memory-not-stored" } };
+    }
+    // A memory about this system's own plumbing is never about me or us (TC1): `ownPlumbing` says why.
+    if (deposit.ownPlumbing?.aboutRefused === mark) {
+      return { about: { stored: false, reason: "own-plumbing" } };
     }
     try {
       const row = this.counterpart.store.row(deposit.memoryId);
