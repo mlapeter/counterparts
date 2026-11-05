@@ -41,6 +41,7 @@ import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { CARRIED_TOLD_NOTE } from "../src/core/dream/index.js";
 import { localDate } from "../src/core/time.js";
 
 const SHARE = "ZQSHARE I keep coming back to the lighthouse we talked about.";
@@ -152,12 +153,14 @@ describe("claude.ai, through the HTTP door: the routine's share reaches the next
     const text = String(next["wake"]);
     expect(text).toContain(SHARE);
     expect(text).toContain(NOT_TOLD);
-    expect(text).toContain(`reflection: ${rid}`);
+    // Handed over, it is marked told (TC1): the line asks for no tool call.
+    expect(text).toContain(CARRIED_TOLD_NOTE);
+    expect(text).not.toContain('phase "told"');
     expect(text.indexOf(SHARE)).toBeLessThan(text.indexOf("Now:"));
     expect(String(next["_text"])).toContain(SHARE);
-    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: chat });
+    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "told", share_session: chat });
 
-    // TOLD, by the chat that carried it.
+    // TOLD AGAIN by a model that still calls the tool: a plain yes, not an error (TC1).
     const told = await tool(http.url, "reflect", { phase: "told", session: chat, reflection: rid });
     expect(told["told"]).toBe(true);
     expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
@@ -178,7 +181,7 @@ describe("claude.ai, through the HTTP door: the routine's share reaches the next
     const [a, b] = await Promise.all([tool(http.url, "wake", {}), tool(http.url, "wake", {})]);
     const carried = [a, b].filter((w) => String(w["wake"]).includes("ZQSHARE"));
     expect(carried).toHaveLength(1);
-    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
   });
 
   test("OPEN QUESTION, documented: a routine's own wake carries a share still offered from an earlier night", async () => {
@@ -194,7 +197,7 @@ describe("claude.ai, through the HTTP door: the routine's share reaches the next
     await reflectFinish(http.url, first, rid, cite);
     const secondNight = await tool(http.url, "wake", {});
     expect(String(secondNight["wake"])).toContain("ZQSHARE");
-    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
   });
 });
 
@@ -265,7 +268,7 @@ describe("the rule, and Claude Code unchanged", () => {
     recordSession(dir, { sessionId: "cc-reflect", scope: "/proj", phase: "end" });
     const after = await s.call("wake", {});
     expect(String(after.structuredContent["wake"])).toContain("ZQSHARE");
-    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
   });
 
   test("Claude Code unchanged for a hookless chat's share too: a prompt inside the four hours does not carry it; a hookless wake does", async () => {
@@ -276,7 +279,7 @@ describe("the rule, and Claude Code unchanged", () => {
     const s = chatServer(DESKTOP_HOST);
     const woke = await s.call("wake", {});
     expect(String(woke.structuredContent["wake"])).toContain("ZQSHARE");
-    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
   });
 
   test("a hookless wake and a Claude Code prompt on one store carry an ended reflector's share once, either order (review of #642)", async () => {
@@ -286,11 +289,11 @@ describe("the rule, and Claude Code unchanged", () => {
       const rid = reflectedBy(`cc-${first}`);
       recordSession(dir, { sessionId: `cc-${first}`, scope: "/proj", phase: "end" });
       const s = chatServer(DESKTOP_HOST);
-      const viaPrompt = (): boolean => prompt(`p-${first}`).injection.includes(`reflection: ${rid}`);
-      const viaWake = async (): Promise<boolean> => String((await s.call("wake", {})).structuredContent["wake"]).includes(`reflection: ${rid}`);
+      const viaPrompt = (): boolean => prompt(`p-${first}`).injection.includes("ZQSHARE");
+      const viaWake = async (): Promise<boolean> => String((await s.call("wake", {})).structuredContent["wake"]).includes("ZQSHARE");
       const carried = first === "wake" ? [await viaWake(), viaPrompt()] : [viaPrompt(), await viaWake()];
       expect(carried).toEqual([true, false]);
-      expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+      expect(s.counterpart.store.reflection(rid)?.share_state).toBe("told");
     }
   });
 });
@@ -351,8 +354,8 @@ describe("awkward states (review of #642)", () => {
     expect(store.reflection(crashed.bundle.reflection)).toMatchObject({ state: "begun", share_state: "none" });
     expect(store.reflection(earlier)?.share_state).toBe("offered");
     const next = await s.call("wake", {});
-    expect(String(next.structuredContent["wake"])).toContain(`reflection: ${earlier}`);
-    expect(store.reflection(earlier)?.share_state).toBe("carried");
+    expect(String(next.structuredContent["wake"])).toContain(SHARE);
+    expect(store.reflection(earlier)?.share_state).toBe("told");
   });
 
   test("a wake composed to its full budget still carries the whole share, ahead of the briefing", async () => {
@@ -383,8 +386,10 @@ describe("awkward states (review of #642)", () => {
     expect(text).not.toContain("No briefing has been composed yet");
     expect(Buffer.byteLength(text.slice(text.indexOf("Now:")), "utf8")).toBeGreaterThan(1_000);
     expect(text).toContain(SHARE);
-    expect(text).toContain(`reflection: ${rid}`);
+    // Handed over, it is marked told (TC1): the line asks for no tool call.
+    expect(text).toContain(CARRIED_TOLD_NOTE);
+    expect(text).not.toContain('phase "told"');
     expect(text.indexOf(SHARE)).toBeLessThan(text.indexOf("Now:"));
-    expect(store.reflection(rid)?.share_state).toBe("carried");
+    expect(store.reflection(rid)?.share_state).toBe("told");
   });
 });

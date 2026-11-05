@@ -198,7 +198,7 @@ usage.
 ## A scripted owner's first week (`week`)
 
 ```sh
-bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts week [--script plain|meaningful|checkins|developer] [--seat model|scripted] [--days N] [--no-nights] [--no-told] [--model <name>] [--trace <file.jsonl>] --out <week.sqlite>
 bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
 ```
 
@@ -361,6 +361,74 @@ with the catch-up and the dream answered by the script:
 - "Last here" names the previous check-in every morning: no chapter, and its newest memory (a
   note it made) or "not written up yet" — the morning's wake comes before that night, which
   starts at its first prompt; the write-up is named from the next session start on.
+
+## A developer's week (`week --script developer`)
+
+```sh
+bun tools/harness/cli.ts week --script developer --out <week.sqlite> --json <record.json> --trace <trace.jsonl>
+bun tools/harness/cli.ts week --script developer --seat scripted      # tier 0, free
+```
+
+Theo, a research engineer, codes with Claude Code across four folders (`developer-week.ts`,
+2026-11-04, for local outreach): `sim` (a JAX gridworld RL env), `evals` (an eval harness),
+`paper` (a workshop paper due Friday), and `scratch`, a weekend folder with no work. 7 days,
+17 sessions at their own hours (`hour`), 54 lines. Two long sessions (d2s1, d4s3) have long
+gaps and one compaction each; two subagent hand-backs and a loop's CI notice arrive as lines
+the host wrote; one permission prompt is declined; a personal aside comes every day, in
+whatever repo he's in. Prompts paste their own code and errors, because a person's session in
+the harness has no file tools.
+
+What the harness grew for it (each a field on a scripted line; Dana's and Robin's weeks don't
+set them and run as before):
+- **`compact: "<summary>"`**: before the line, PreCompact on the whole transcript, then
+  SessionStart with source `compact` (a fresh wake, recorded with `compact: true`), and every
+  later hook input carries `compactedAt`. The model starts a new conversation (`--session-id`,
+  a new id) opened by the summary, in Claude Code's words, so its context is really gone; the
+  memory session stays the same. HARNESS, NOT PRODUCT: the summary is the script's, not one
+  the host wrote, and the compaction comes where the script puts it, not when the context fills.
+- **`host: "peer" | "task-notification"`**: a line the host wrote. The prompt hook fires on
+  it and the model answers it, as live. It's logged as Claude Code's transcript reader reads
+  that entry (`parseTranscript`): `injected`, not the person.
+- **`declined: true`**: the host's `[Request interrupted by user for tool use]` goes into the
+  transcript before the line, with no prompt hook (WP1 reads it as plumbing), and the model
+  is shown it ahead of the line.
+- **`modelAfter`** (the developer week turns it on): a model's turn takes 3 minutes, and a
+  line that names `after` adds its minutes on top (a long session's breaks). Off by default:
+  Robin's lines name `after` for the scripted seat's pacing, so her week and Dana's keep
+  their model-seat timing.
+- **Expectations** (`expectations.ts`, `DEVELOPER_EXPECTATIONS`): per fact, a probe, the
+  session that tells it, and where it should and mustn't come back. Personal and "us" facts
+  should reach every folder. Work facts should reach their own folder and no other. The
+  harness tries each probe against every wake, compaction wake and prompt injection, and
+  reads the store's live memories at the end. The record's `expectations` gives, per fact
+  and folder, seen (first session), MISSED, or no session, plus every leak with where it
+  was and the wake heading above it (a line under `Elsewhere`, `Today, elsewhere` or `Since
+  you started` is by design, see the grade below; a lane hit at a prompt counts only a work
+  memory, by the product's own `isWorkMemory`, so a journal chapter or a reflection is never
+  a crossing). It holds ids, labels and headings, never text. A hit is what the memory delivered,
+  not what the model did with it.
+- **`roots`** (`--roots one|each`; `each` is the developer week's default): each session
+  folder is answered `on` by itself and the work root isn't registered, as a person's repos
+  are. `one` is what Dana's and Robin's weeks have. The record's `recallProjects` sums the
+  week's recall decisions: `crossProjectLifted` (what only the 1.25x cross-project bar kept
+  back), the turns where it bound, and `projectSkipped`. On tier 0 (2026-11-04) the two
+  registrations gave the same crossings: a folder is its own project by its path either way,
+  and the lift bound on 2 turns with one root, 1 with each.
+- **The grade** (a0's rule, 2026-11-04, lightly held): a work fact recalled in another repo
+  is ok when the line's `relevant` labels name it (the judge: written with the script, fixed),
+  amber when not, and red when it's irrelevant and loud or irrelevant in 3+ sessions. Lines
+  that name other folders by design ("Elsewhere", "Today, elsewhere", "Since you started")
+  are by design. A work fact's content under another heading of another folder's wake is
+  amber. A personal or "us" fact missing from a folder is red, and a work fact missing from
+  its own folder is amber. The cross-folder numbers print as their own table. At tier 0 the
+  personal reds mean little: no page writer runs, so "us" facts can only travel by recall.
+- **`daily[].spent`** (model seat): each day's calls, tokens and dollars, the night its first
+  session launched included.
+- **`--trace <file>`**: one JSON line per wake, turn, Stop ask, compaction and night, with
+  their text, plus `<file>.store-dayN.sqlite` and `<file>.page-dayN.md`. It's what the 11-03
+  runs did with a scratch patch. Its folder is made and the file emptied at the start. It's refused, like `--out`, under
+  `~/.counterparts`, `~/.bansai`, `~/.claude` and `~/.claude-engram`, and `compare` refuses it
+  (both sides would write one file).
 
 ## Two sides, one table (`compare`)
 

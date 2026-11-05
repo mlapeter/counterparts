@@ -395,3 +395,13 @@ does, and to hand the prompt to a background Agent tool it may not have. This wa
 master before OL1d (review of #650 noted it; not fixed there). Closing it needs the server
 to know it has no hooks — a session the hooks never recorded is the likely signal — and
 words for "nothing here starts a night; say 'dream' to run it in the chat".
+
+## 14. The night's refusal of `remove` doesn't reach a claude.ai connector to a LOCAL store — OPEN 2026-11-04
+
+HD1's fix round (item 1) refuses `remember`'s `remove` while a night is under way in the store (a dream begun and not
+journaled, or a reflection begun and not finished, quiet past `ABANDONED_AFTER_MS` left behind), but only on hosted
+(`removalOpts.erasedBy === "hosted"`): hosted's nights run in the person's chat, where the local night's env marks
+(`NIGHT_CHILD_ENV`, `NIGHT_RUN_ENV`) never apply. A claude.ai (or Desktop) connector to a local store over
+remote-http also runs its nights in the chat, and its server says `erasedBy: "local"`, so its deletes aren't refused
+during that night. Closing it: key the refusal on "this host's nights run in the chat" (claude.ai/Desktop host)
+rather than on hosted. Not built (ROADMAP 11:55). An UNDO is never refused, night or not.

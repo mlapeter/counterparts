@@ -378,6 +378,15 @@ true:
   so the lane caps bind before the byte ceiling does; on a store whose lanes fill the
   ceiling, the compose-budget difference is what the lanes give up, never past an eighth.
 
+- **FS1 (2026-11-04): a folder by its name.** Every line that names another folder in a wake or a
+  prompt's line (Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me
+  line, the `coming up` door's `folder`, and "Work here"'s "(from …)", `self/work.ts#folderName`)
+  prints its last part ("sim"), and its path (home as `~`)
+  only when another folder the same line or section names, or the reader's own where the caller has
+  it, has the same last part (`last-here.ts#placeWords`). Until then every line printed the path.
+  In the shaped wake's Coming up, another folder's dated work (not a plain reminder) is no longer
+  "Due today": it is counted "in other folders", as the `coming up` door already listed it.
+
 - **WK2 (2026-10-30), behind `self.WAKE_SHAPE`, off by default:** a delivery names its handoffs in
   `core/counterpart-wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.
   The doors are `handoffs` (with `handoffs here` as before, now with what came after the newest), `coming up` and `elsewhere`

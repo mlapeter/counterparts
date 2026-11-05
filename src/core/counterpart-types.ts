@@ -447,6 +447,13 @@ export interface WakeHere {
    * (`exportsFrom`). Absent: the line names no session.
    */
   readonly sessions?: () => readonly WakeSession[];
+  /**
+   * Why the host started this session, as it says it (Claude Code's
+   * SessionStart `source`: `startup`, `resume`, `clear`, `compact`). The shaped
+   * wake folds nothing on a `compact`: the same session's model just lost what
+   * it was shown (RF1). Absent: a start.
+   */
+  readonly source?: string;
 }
 
 /** One session in the host's registry, as `WakeHere.sessions` hands it. */
@@ -663,6 +670,15 @@ export interface DepositResult {
    * was not carried (it would read as still open), and the reply asks for one.
    */
   readonly titleAsked?: true;
+  /**
+   * THIS SYSTEM'S OWN PLUMBING (2026-11-04, TC1): the memory's subject is a
+   * refused tool call, a permission prompt or what the session couldn't do
+   * (`remember/own-plumbing.ts`), so it landed without what it sent of a date
+   * (with its `remind` and repeat) and an open thread, and a `me` or `us` mark
+   * is not written (`aboutRefused`: the door's `recordAbout` honours it).
+   * Absent otherwise.
+   */
+  readonly ownPlumbing?: { readonly cue: string; readonly dropped: readonly ("eventDate" | "unresolved")[]; readonly aboutRefused: AboutMark | null };
 }
 
 /**

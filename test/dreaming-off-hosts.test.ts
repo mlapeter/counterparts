@@ -5,8 +5,10 @@
  *   - while dreaming is `off`, `dream` launch refuses with one plain reason —
  *     Claude Code, Desktop's chat and claude.ai (the hosted server is claude.ai's
  *     host) — and writes nothing to the day's row; `auto`/`ask` launch again;
- *   - `auto` on claude.ai starts nothing on its own: a wake (a chat's or a
- *     night's) plans only the worker, never a night run, and leaves no night row;
+ *   - `auto` on claude.ai starts no night run: a wake (a chat's or a night's)
+ *     plans only the worker, never a night run, and leaves no night row (the
+ *     first chat of a day that owes a night is told to run it, HN1: that is
+ *     the chat's own tool calls, `hosted/test/first-chat-night.test.ts`);
  *   - the `setting` result says what happens on that host: Claude Code's words
  *     byte for byte as before, claude.ai's name the routine, Desktop's name no
  *     terminal and no background agent of its own;
@@ -210,7 +212,7 @@ describe("off refuses launch, on every host", () => {
   });
 });
 
-describe("auto on claude.ai starts nothing on its own", () => {
+describe("auto on claude.ai starts no night run of its own", () => {
   test("a chat's wake and a night's wake under auto plan only the worker — no night run, no night row, no dream line", async () => {
     const { call, s, plans } = await door(CLAUDE_AI_HOST);
     expect(s.counterpart.dreams.setSetting("auto", { by: "owner" }).ok).toBe(true);
@@ -229,7 +231,7 @@ describe("auto on claude.ai starts nothing on its own", () => {
 });
 
 describe("the setting result says what happens on this host", () => {
-  test("claude.ai: auto names the routine or a chat; off says the night is skipped even if the routine runs; nothing about a terminal or a background session", async () => {
+  test("claude.ai: auto names the first conversation, the routine and a chat; off says the night is skipped even if the routine runs; nothing about a terminal or a background session", async () => {
     const { call } = await door(CLAUDE_AI_HOST);
     const session = String((await call("wake", {})).out["session"]);
     for (const value of ["auto", "ask", "off"] as const) {
@@ -237,7 +239,9 @@ describe("the setting result says what happens on this host", () => {
       expect(said).toBe(CLAUDE_AI_SETTING_SAID[value]);
       expect(said).not.toMatch(/terminal|background|first session/);
     }
-    expect(CLAUDE_AI_SETTING_SAID.auto).toContain('their night routine, or saying "dream" in a chat, runs the night');
+    expect(CLAUDE_AI_SETTING_SAID.auto).toContain("once a day, the first conversation runs the night");
+    expect(CLAUDE_AI_SETTING_SAID.auto).toContain("Their night routine, if they set one up, runs it instead");
+    expect(CLAUDE_AI_SETTING_SAID.ask).toContain("the first conversation asks them, after answering");
     expect(CLAUDE_AI_SETTING_SAID.off).toContain("the night is skipped even if their routine runs");
   });
 

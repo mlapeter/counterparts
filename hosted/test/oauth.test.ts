@@ -286,7 +286,7 @@ describe("connecting, as claude.ai does", () => {
         assert.ok(x.body.startsWith("Told, not lived: "), x.body);
         assert.equal(x.archived, 0);
       }
-      assert.equal(store.getMeta("told.set"), "v1");
+      assert.equal(store.getMeta("told.set"), "v2");
       assert.equal(store.getMeta("told.surface"), "hosted");
       const all = rows.map((x) => x.body).join("\n");
       assert.match(all, /account page/);

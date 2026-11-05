@@ -542,7 +542,7 @@ describe("what gives way for Still open's first item, in order — never the pag
     const untitled = day.map((c) => ({ ...c, title: null }));
     expect(yesterdayLine(untitled, "2026-10-07")).toBe("Yesterday, Oct 7: 5 sessions.");
     expect(yesterdayLine(untitled.slice(0, 1), "2026-10-07", undefined, [{ scope: "/Users/x/random", sessions: 2 }], false)).toBe(
-      "Yesterday: 1 session; 2 sessions in ~/random.",
+      "Yesterday: 1 session; 2 sessions in random.",
     );
   });
 

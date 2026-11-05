@@ -360,13 +360,14 @@ describe("a chapter about me reaches a wake in another directory, and only what 
     copy(k.c, epi, A, THERE, about, opts.confidential === "copy");
     return { epi, THERE };
   }
-  const tilde = (p: string): string => p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+  /** A folder as the line names it (FS1): its last part. */
+  const place = (p: string): string => p.replace(/\/+$/, "").split("/").pop() ?? p;
 
   test("marked about me, from a directory that is on: one line, by title, id and where it was written", () => {
     const k = afternoon();
     const { epi, THERE } = bakery(k, "me");
     const line = wake(k.c, B, 9_000, HERE, () => true).split("\n").find((l) => l.startsWith("A chapter about me from "));
-    expect(line).toBe(`A chapter about me from ${tilde(THERE)}: session a1b2c3d4, Sep 30 — "Naming the garden beds" (${epi}).`);
+    expect(line).toBe(`A chapter about me from ${place(THERE)}: session a1b2c3d4, Sep 30 — "Naming the garden beds" (${epi}).`);
     const there = wake(k.c, B, 9_000, THERE, () => true);
     expect(there).toContain("Where this folder stands: session a1b2c3d4");
     expect(there).not.toContain("A chapter about me from");

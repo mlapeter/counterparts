@@ -4,7 +4,7 @@
  *
  *   2. claude.ai's wake: one short session line, the clock and today's plain
  *      reminders, then the wake with "Coming up" and "Still open" moved up
- *      whole; no dream line on this host even when the day's ask is due; no
+ *      whole; not core's dream line, but claude.ai's own once a day (HN1); no
  *      "same you" line while no host shares the store. Desktop's wake keeps
  *      its words.
  *   4. The tool words: no claude.ai description tells Claude to call a tool
@@ -26,7 +26,7 @@ import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions 
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_SCOPE, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, claudeAiNightLine, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -142,7 +142,7 @@ describe("2. claude.ai's wake, through the door", () => {
     expect(woke.structured).toMatchObject({ session, host: CLAUDE_AI_HOST, wake: text });
   });
 
-  test("no dream line on claude.ai, even with the day's ask due — and it is left unclaimed", async () => {
+  test("not core's dream line on claude.ai: with the day's ask due, the first wake asks in claude.ai's words and claims the day; a second wake says nothing (HN1)", async () => {
     const at = new Date("2026-09-26T12:00:00").getTime();
     const { http, s } = await door(CLAUDE_AI_HOST, () => at);
     const c = s.counterpart;
@@ -153,9 +153,16 @@ describe("2. claude.ai's wake, through the door", () => {
       c.store.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.5, emotional: 0, predictive: 0.5 }, physics: { birthDay: day, lastUsedDay: day } });
     }
     expect(c.dreams.setSetting("ask", { by: "owner" }).ok).toBe(true);
-    const text = (await tool(http.url, "wake", {})).text;
-    expect(text).not.toContain('phase "launch"');
+    const first = await tool(http.url, "wake", {});
+    const text = first.text;
+    const session = String(first.structured["session"]);
+    expect(text).toContain(claudeAiNightLine({ session, setting: "ask", reflects: null, who: "the person" }));
     expect(text).not.toContain(CLAUDE_AI_DREAM_NOTE);
+    expect(text).not.toMatch(/terminal|Agent tool|background agent/);
+    expect(c.store.dreamAsk(today())).toMatchObject({ state: "offered", session });
+    const again = (await tool(http.url, "wake", {})).text;
+    expect(again).not.toContain("dreaming asks first");
+    expect(again).not.toContain('phase "launch"');
     // Desktop, on the same kind of store, still says it.
     const d = await door(DESKTOP_HOST, () => at);
     const dc = d.s.counterpart;
@@ -488,7 +495,7 @@ describe("a night's own wake (night: true), through the door", () => {
     const chat = await tool(http.url, "wake", {});
     expect(chat.text).toContain(SHARE);
     expect(chat.text.indexOf(SHARE)).toBeLessThan(chat.text.indexOf("Now:"));
-    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: String(chat.structured["session"]) });
+    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "told", share_session: String(chat.structured["session"]) });
   });
 
   test("a night's wake still lets the routine dream: launch from the quiet wake's session hands back the run's prompt", async () => {
@@ -539,12 +546,14 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     const reflect = by["reflect"] ?? "";
     for (const d of [dream, reflect]) {
       expect(d).toContain("night routine");
-      expect(d).toContain("In an ordinary conversation, call `launch` only when the person asks");
+      expect(d).toContain("In a conversation, call `launch` when");
       for (const phrase of SHARED) expect(d).not.toContain(phrase);
       expect(d.toLowerCase()).not.toContain("background");
     }
     expect(dream).toContain("follows the prompt that returns itself, in that same run");
     expect(dream).toContain("Do NOT start a dream nobody asked for");
+    // HN1: the wake that tells a conversation to run the night is not "nobody asked".
+    expect(dream).toContain("when the wake says this conversation runs the night");
     // The propose guard is every host's, kept verbatim.
     expect(dream).toContain("Do NOT use `propose` to correct or delete a memory");
     expect(reflect).toContain("The night routine calls `begin` and `finish` after the dream");
