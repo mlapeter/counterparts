@@ -1998,7 +1998,7 @@ function wordIndexFindings(store: Store): Finding[] {
       "word-index",
       "green",
       "Word index",
-      `was empty when the store was opened on ${new Date(newest.at).toISOString().slice(0, 10)}, and that open rebuilt it (${String(n)} ${n === 1 ? "row" : "rows"})`,
+      `was empty when the store was opened on ${localDate(newest.at, store.zone())}, and that open rebuilt it (${String(n)} ${n === 1 ? "row" : "rows"})`,
       "",
       { empty: false, rebuiltDay: newest.day, indexed: n },
     ),
