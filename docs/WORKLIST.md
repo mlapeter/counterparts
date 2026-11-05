@@ -16,6 +16,12 @@ repeating them.*
 
 ## Follow-ups found today (not started)
 
+- **TC1's own-plumbing gate: what it still gets wrong** (#751, merged 11-04). The gate (`remember/own-plumbing.ts`)
+  keeps notes about refused tool calls and permission prompts out of `us`/`owner`. Known false positives, a
+  developer's notes about their own agent's tools filed as plumbing: "The Bash tool call in our agent framework is
+  blocked on Windows", "Theo couldn't run /deploy on staging". Known misses, our own plumbing that still gets through:
+  "Theo denied Bash", "the told mark was refused", "Theo said no to the reflect prompt". Tune the cue on real rows
+  after the release, not before.
 - **A "wake showed it" record, for the next batched store-format change** (RF1, #742; ROADMAP 11-04 11:12). The wake folds a
   plain reminder told earlier today (the told latch); a dated item that isn't plain has no per-day record of being shown, so it
   stays whole in every wake for now. Same record would let a reminder told in last night's session after midnight fold after
