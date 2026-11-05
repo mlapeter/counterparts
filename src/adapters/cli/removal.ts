@@ -1287,8 +1287,8 @@ export function sweepHeldRemovals(
     try {
       claimed = claimHold(store, hold.id, now);
     } catch (err) {
-      const code = (err as { code?: unknown }).code;
-      failed.push({ id: hold.id, why: typeof code === "string" ? code : "claim-failed", attempt: hold.claims + 1 });
+      const why = failureCode(err);
+      failed.push({ id: hold.id, why: why === "error" ? "claim-failed" : why, attempt: hold.claims + 1 });
       continue;
     }
     if (!claimed) {
@@ -1303,15 +1303,27 @@ export function sweepHeldRemovals(
       );
       erased.push({ id: hold.id, unchased: outcome.unchased.length });
     } catch (err) {
-      // A StoreError's code, or the refusal's reason: never memory text (§5 G10).
-      const code = (err as { code?: unknown }).code;
-      failed.push({ id: hold.id, why: typeof code === "string" ? code : String((err as Error).message ?? err), attempt: hold.claims + 1 });
+      failed.push({ id: hold.id, why: failureCode(err), attempt: hold.claims + 1 });
     }
   }
   const active = store.holds();
   const nextAt = active.length === 0 ? null : Math.min(...active.map(holdNextAt));
   opts.onEvent?.("cli.removal.sweep", { due: due.length, erased: erased.length, failed: failed.length, skipped, waiting: active.length });
   return { due: due.length, erased, failed, skipped, nextAt };
+}
+
+/**
+ * Why an erase failed, as a short constant and never an error's message (G1 L6:
+ * hosted writes this into its audit, which holds codes only; a message can name
+ * a path or a store id, and its words are unbounded). A StoreError's or a
+ * system error's `code` when it is a short constant; the refusal's reason from
+ * `removal refused: <reason>`; else "error".
+ */
+export function failureCode(err: unknown): string {
+  const e = err !== null && typeof err === "object" ? (err as { code?: unknown; message?: unknown }) : {};
+  if (typeof e.code === "string" && /^[A-Za-z0-9_.-]{1,40}$/.test(e.code)) return e.code;
+  const refused = typeof e.message === "string" ? /^removal refused: ([a-z0-9-]{1,40})$/.exec(e.message) : null;
+  return refused?.[1] ?? "error";
 }
 
 /** The reason the sweep's erase records: fixed words, none of the memory's (§16 G9). */

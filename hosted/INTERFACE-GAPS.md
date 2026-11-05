@@ -200,3 +200,12 @@ next wake unless a sweep is built; whether to build one is Mike's, open.
     day-0 raw copy on disk at day 40). Now each line goes on its own age, 3 days if it owes nothing and 14 regardless
     (`remember/owes.ts#planUnboundLines`). Live on hosted; local installs get it in the release after 0.3.44. It still
     needs a worker to run, so on hosted it waits for the next wake (above).
+
+## The G1 security review's low findings (2026-11-04)
+
+43. **Closed by the G1F pull request: HSTS on every answer, DPoP and RP-initiated logout off, invites that expire,
+    and `removal.failed` holding codes only** (L1, L2, L3, L4, L6; CONTRACT §11, §15, §20). Codes made before invites
+    expired stay valid until used, rather than expiring at the deploy.
+44. **Still open (G1 L5, not taken up in G1F): a 30-day sliding web session can export the whole memory** (and delete it
+    now, §35) with no fresh sign-in (G1 L5). Someone at an unlocked, signed-in browser can download it. A fix would
+    ask for a session younger than about 15 minutes for export and delete-now.

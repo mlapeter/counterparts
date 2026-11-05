@@ -477,7 +477,9 @@ export function createApp(opts: AppOptions): App {
         // (an hour, doubling, at most a day: `claimRetryAfter`), so this store
         // isn't reopened every tick; audited at its FIRST failure only (R8).
         const firsts = report.failed.filter((f) => f.attempt === 1);
-        if (firsts.length > 0) accounts.audit(personId, storeId, "removal.failed", `${String(firsts.length)} failed: ${firsts.map((f) => f.why).join(", ")}`);
+        // Codes only (G1 L6): `why` is already a short constant (`failureCode`),
+        // and anything else is written as "error", never its words.
+        if (firsts.length > 0) accounts.audit(personId, storeId, "removal.failed", `${String(firsts.length)} failed: ${firsts.map((f) => (/^[A-Za-z0-9_.-]{1,40}$/.test(f.why) ? f.why : "error")).join(", ")}`);
       } catch {
         // Locked meanwhile, waiting for a restore, or a store that would not
         // open: left due, so the next tick tries again.

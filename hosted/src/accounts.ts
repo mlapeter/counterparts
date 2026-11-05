@@ -31,6 +31,8 @@ import type { Db } from "../../src/core/store/db.js";
 export const LINK_MS = 15 * 60 * 1000;
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
+/** How long an invite code lives by default (G1 L4). The `invite` command takes `--expires <days>`. */
+export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_EMAIL = 254;
 /** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
 export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -294,21 +296,26 @@ export class Accounts {
 
   // ── invites ────────────────────────────────────────────────────────────────
 
-  /** A new invite. The code is returned once and stored hashed. */
-  createInvite(opts: { maxUses?: number; expiresAt?: number; note?: string } = {}): { id: string; code: string } {
+  /**
+   * A new invite. The code is returned once and stored hashed. It expires
+   * `INVITE_TTL_MS` (7 days) after it is made unless `expiresAt` says otherwise
+   * (G1 L4); codes made before that default have no expiry and stay valid.
+   */
+  createInvite(opts: { maxUses?: number; expiresAt?: number; note?: string } = {}): { id: string; code: string; expiresAt: number } {
     const code = secret("cpi_");
     const id = id128();
+    const expiresAt = opts.expiresAt ?? this.now() + INVITE_TTL_MS;
     this.db.run(
       "INSERT INTO invites (id, code_hash, created_at, max_uses, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)",
       id,
       sha256(code),
       this.now(),
       opts.maxUses ?? 1,
-      opts.expiresAt ?? null,
+      expiresAt,
       opts.note ?? null,
     );
     this.audit(null, null, "invite.created", id);
-    return { id, code };
+    return { id, code, expiresAt };
   }
 
   private liveInvite(code: string): string | null {
