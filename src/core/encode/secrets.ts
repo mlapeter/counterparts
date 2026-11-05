@@ -111,7 +111,7 @@ const AWS_SECRET_TOKEN_BEFORE_ID =
  *     `db_password: SecretStr` is an annotation. After `=` the CamelCase rule
  *     does not apply: a bare word assigned is a value;
  *   - unquoted, under a non-password name, an identifier assigned to an
- *     identifier (`pad_token = eos_token`): snake_case or camelCase words, letters
+ *     identifier (`pad_token` set to `eos_token`): snake_case or camelCase words, letters
  *     only. No literal, no digit — nothing a secret looks like.
  *
  * It can only make a family redact LESS on a match that family already made.
@@ -125,7 +125,7 @@ const CODE_REFERENCE =
 const TYPE_NAME =
   /^(?:str|int|bytes|bool|float|dict|list|tuple|set|object|Any|None|SecretStr|SecretBytes|string|number|boolean|[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+)[,;]?$/;
 const PASSWORD_NAME = /(?:password|passwd|pwd|passphrase|pass)$/i;
-// A bare identifier assigned to a credential-looking name (`pad_token = eos_token`):
+// A bare identifier assigned to a credential-looking name (`pad_token` set to `eos_token`):
 // letters only, joined by underscores or camelCase humps, no digit. A real secret
 // has digits or no word structure; `hunter2x` and `abcdefghijkl` stay values.
 // It must END in an identifier word (token, key, id), so a passphrase
@@ -157,7 +157,7 @@ function isSetting(value: string, match: string, name: string): boolean {
   if (quoted) return false;
   if (CODE_REFERENCE.test(v)) return true;
   if (
-    // `*_pass` names are skipped only for another `*_pass` (`first_pass = second_pass`).
+    // `*_pass` names are skipped only for another `*_pass` (`first_pass` set to `second_pass`).
     (!PASSWORD_NAME.test(name) || (/pass$/i.test(name) && /(?:_|[a-z])[Pp]ass$/.test(v))) &&
     BARE_IDENTIFIER.test(v) &&
     (IDENTIFIER_WORD_END.test(v) || /pass$/i.test(name)) &&

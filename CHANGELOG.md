@@ -22,9 +22,9 @@
 - **The night names its conversation on every step.** The dream's prompt now passes the
   session on its propose and journal steps too, so with two chats open a night's changes
   stay with the chat that runs it.
-- **Tokenizer code is no longer redacted.** `pad_token = eos_token` and other code lines
-  that assign one identifier to another whose last word is token, key or id (letters only,
-  no digit, lowercase name, `=`) are kept as written; env vars, YAML, passphrase-shaped
+- **Tokenizer code is no longer redacted.** Code lines that assign one identifier to another
+  whose last word is token, key or id (`pad_token` set to `eos_token`; letters only, no digit,
+  lowercase name, `=`) are kept as written; env vars, YAML, passphrase-shaped
   values, quoted values, digits and passwords still redact as before.
 - **More credential names are redacted.** `passphrase`, `db_pass` and other `*_pass` names,
   a whole-name `pin` with a numeric value, `private_key`, `signing_key`, `session_key`
