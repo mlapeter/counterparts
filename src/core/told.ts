@@ -33,6 +33,12 @@
  * (`Counterpart`'s constructor), never under observer; once the store's meta
  * says `v2` it costs one meta read.
  *
+ * AND A CHANGE OF SURFACE (EX1, 2026-11-04): the same pass, the same
+ * safeguard, when a door that names its surface (`Counterpart.open`'s
+ * `toldSurface`) opens a store planted in the other one's words — a hosted
+ * "Download my memory" file put in place of a local store. Unchanged starters
+ * read as the opening surface's; edited ones stay. The worker names none.
+ *
  * WEAKER THAN ANYTHING LIVED, and kept out of the self — the rules live where
  * the readers are, each keyed on `isTold`: recall's gate fills its tiers
  * lived-first, leaves told rows out of a turn's background, and reads every
@@ -340,46 +346,85 @@ export interface ToldRevision {
 }
 
 /**
- * BRING A v1 STORE'S UNCHANGED STARTERS TO v2, once. Nothing to do — no set
- * (every store from before S1), or a set already past v1 — answers `null`
- * after one meta read and writes nothing. Otherwise each memory v2 changed is
- * looked for by title among the told rows; one that is live (not archived,
- * not superseded) and still exactly v1's words for this store's surface is
- * rewritten through `Store#revise`, the door that keeps its id and its
- * source, files the v1 words as a version, and re-indexes the row; its meta
- * says `told: "v2"`. Then the store's meta says v2, whether or not anything
- * matched — unless a rewrite threw, when it stays v1 so the next open tries
- * again (a match is exact, so a second pass never rewrites twice).
+ * The version row's reason when a starter memory changes SURFACE (EX1): a
+ * hosted export opened by a local install, or a local store opened by hosted.
  */
-export function reviseTold(store: Store): ToldRevision | null {
-  if (store.getMeta(TOLD_SET_KEY) !== TOLD_SET_V1) return null;
+export const TOLD_SURFACE_REASON = "told-surface";
+
+/**
+ * BRING A STORE'S UNCHANGED STARTERS TO THE WORDS THEY SHOULD SAY NOW, once.
+ *
+ * Two cases, one pass, one safeguard. (a) A v1 store (HD1): the memories v2
+ * changed get v2's words for the store's own surface. (b) A store opened on
+ * the OTHER surface (EX1, 2026-11-04): `opening` names the surface of the door
+ * that opened it, and when it differs from the store's `told.surface` — a
+ * hosted "Download my memory" file opened by a local install, say — every
+ * starter still in the recorded surface's words gets the opening surface's
+ * (its title too: #7's differs by surface). `opening` absent (the worker, which
+ * serves both) never switches.
+ *
+ * Nothing to do — no set (every store from before S1), a set past v1 on the
+ * surface it was planted for — answers `null` after a meta read or two and
+ * writes nothing. Otherwise each memory of the set is looked for by its
+ * recorded-surface title among the told rows; one that is live (not archived,
+ * not superseded) and still exactly the words it was planted with (v2's for
+ * the recorded surface, or v1's while the store says v1) is rewritten through
+ * `Store#revise`, the door that keeps its id and its source, files the old
+ * words as a version, and re-indexes the row; its meta says `told: "v2"`. A row
+ * the person corrected, let go, or a night rewrote is theirs and stays. Then
+ * the store's meta says v2 and the surface the words are now in, whether or
+ * not anything matched — unless a rewrite threw, when it stays as it was so
+ * the next open tries again (a match is exact, so a second pass never
+ * rewrites twice).
+ */
+export function reviseTold(store: Store, opening?: ToldSurface): ToldRevision | null {
+  const set = store.getMeta(TOLD_SET_KEY);
   const surface = store.getMeta(TOLD_SURFACE_KEY);
   if (surface !== "local" && surface !== "hosted") return null;
-  const now = new Map(toldSet(surface).map((m) => [m.title, m.body]));
+  const switching = opening !== undefined && opening !== surface;
+  if (set !== TOLD_SET_V1 && !(set === TOLD_SET_VERSION && switching)) return null;
+  const target: ToldSurface = switching ? opening : surface;
+  const from = toldSet(surface);
+  const to = toldSet(target);
+  const v1 = set === TOLD_SET_V1 ? new Map(toldV1Words(surface).map((c) => [c.title, c.bodies])) : new Map<string, readonly string[]>();
+  const reason = switching ? TOLD_SURFACE_REASON : TOLD_REVISE_REASON;
   const rows = store.toldIds().map((id) => store.row(id));
   const revised: string[] = [];
   let kept = 0;
   let failed = 0;
-  for (const changed of toldV1Words(surface)) {
-    const body = now.get(changed.title);
-    if (body === undefined) continue;
+  for (let i = 0; i < from.length; i += 1) {
+    const was = from[i]!;
+    const now = to[i]!;
+    // The words that count as "as planted": v2's for the recorded surface,
+    // and v1's while the store still says v1.
+    const bodies = [was.body, ...(v1.get(was.title) ?? [])];
+    // ONE TEST, asked of the first read and again under the write lock: the
+    // row already says the target words (nothing to do), or it is still as
+    // planted (rewrite it). Without the first half under the lock, a second
+    // opener's stale read rewrote v2 over v2 when the surface didn't change
+    // (review of 41e490ed).
+    const done = (r: { title: string | null; body: string }): boolean => r.title === now.title && r.body === now.body;
+    const asPlanted = (r: { title: string | null; body: string; archived: number; superseded_by: string | null }): boolean =>
+      !done(r) && r.archived === 0 && r.superseded_by === null && r.title === was.title && bodies.includes(r.body);
     for (const row of rows) {
-      if (row === undefined || row.title !== changed.title) continue;
-      const live = row.source === TOLD_SOURCE && row.archived === 0 && row.superseded_by === null;
-      if (!live || !changed.bodies.includes(row.body)) {
+      if (row === undefined || row.title !== was.title) continue;
+      // Already the words it should say: nothing to do, nothing to count.
+      if (done(row)) continue;
+      if (row.source !== TOLD_SOURCE || !asPlanted(row)) {
         kept += 1;
         continue;
       }
       try {
         // RE-ASKED UNDER THE WRITE LOCK (review of 474db3cf, R4-a): the hook,
         // the MCP server and the worker can open at once on the first launch
-        // after an upgrade; the one that comes second finds v2's words and
+        // after an upgrade; the one that comes second finds the new words and
         // writes nothing (no duplicate version).
         const seq = store.revise(row.id, {
-          body,
+          body: now.body,
+          ...(now.title === was.title ? {} : { title: now.title }),
           meta: { told: TOLD_SET_VERSION },
-          reason: TOLD_REVISE_REASON,
-          unless: (now) => now.archived !== 0 || now.superseded_by !== null || now.title !== changed.title || !changed.bodies.includes(now.body),
+          reason,
+          unless: (cur) => !asPlanted(cur),
         });
         if (seq > 0) revised.push(row.id);
         else kept += 1;
@@ -388,6 +433,11 @@ export function reviseTold(store: Store): ToldRevision | null {
       }
     }
   }
-  if (failed === 0) store.setMeta(TOLD_SET_KEY, TOLD_SET_VERSION);
+  if (failed === 0) {
+    store.setMetaMany([
+      [TOLD_SET_KEY, TOLD_SET_VERSION],
+      [TOLD_SURFACE_KEY, target],
+    ]);
+  }
   return { revised, kept, failed };
 }

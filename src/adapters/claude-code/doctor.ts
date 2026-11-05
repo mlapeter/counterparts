@@ -68,6 +68,7 @@ import {
 } from "../../core/counterpart.js";
 import { Counterpart } from "../../core/counterpart.js";
 import {
+  INDEX_REBUILT_AT_OPEN_EVENT,
   STORE_CREATED_KEY,
   Store,
   isSelfRelevantFeeling,
@@ -1965,6 +1966,45 @@ function halfwayMemoryFinding(dir: string): Finding {
   });
 }
 
+/**
+ * THE WORD INDEX, when it was ever found empty (EX1, 2026-11-04). A store file
+ * moved in without its cache — a hosted "Download my memory" file opened
+ * locally — finds nothing by question until the index is rebuilt. Every
+ * writable open rebuilds it now (`Store#reindexIfEmpty`), so this reads two
+ * things: AMBER while it is empty (only observer opens have seen the file
+ * yet), and a green line for a week after an open rebuilt it, so the repair is
+ * seen. Silent otherwise. Two COUNTs and one bounded event read.
+ */
+function wordIndexFindings(store: Store): Finding[] {
+  if (store.wordIndexEmpty()) {
+    return [
+      finding(
+        "word-index",
+        "amber",
+        "Word index",
+        "empty, though the store has memories: recall by question finds nothing until it is rebuilt",
+        "The next session rebuilds it as it opens the store; or run: counterparts verify --rebuild",
+        { empty: true },
+      ),
+    ];
+  }
+  const day = store.livedDay();
+  const newest = newestRows(store, INDEX_REBUILT_AT_OPEN_EVENT, 1, day).rows.at(-1);
+  if (newest === undefined || day - newest.day > 7) return [];
+  const indexed = payloadOf(newest)["indexed"];
+  const n = typeof indexed === "number" ? indexed : 0;
+  return [
+    finding(
+      "word-index",
+      "green",
+      "Word index",
+      `was empty when the store was opened on ${localDate(newest.at, store.zone())}, and that open rebuilt it (${String(n)} ${n === 1 ? "row" : "rows"})`,
+      "",
+      { empty: false, rebuiltDay: newest.day, indexed: n },
+    ),
+  ];
+}
+
 function vectorFindings(input: DoctorInput, store: Store): Finding[] {
   // NOTHING TO EMBED, NOTHING TO SAY (finding #24). With the embedder off every
   // live memory has no vector, so this line reported the whole store as a
@@ -3552,6 +3592,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["rows", () => rowFindings(input, store)],
     ["authorship", () => authorshipFindings(input, store, owedReading)],
     ["journal", () => journalFindings(store)],
+    ["word-index", () => wordIndexFindings(store)],
     ["vectors", () => vectorFindings(input, store)],
     // The snapshot policy lives in the configuration, so with none read this
     // line would grade a default nobody chose.

@@ -117,6 +117,16 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
 - A hosted memory and a local one are separate. [local] `counterparts connect` keeps the hosted connector out of Claude Code, so one session never sees two memories.
 
+## Taking your hosted memory home
+
+A "Download my memory" file replaces a local memory: set the old store folder aside first.
+
+- A hosted memory's "Download my memory" file becomes a local install's memory when it is the only file in a fresh store folder, named "counterparts.sqlite". It replaces, it doesn't merge: whatever memory the local install had is no longer the one in use.
+- [local] How: quit Claude Code and Claude Desktop, so no session holds the store. Rename the store folder `counterparts doctor` names on its Memory line (usually .counterparts/store in the home folder) to something like "store-before-hosted": that renamed folder is the backup of the local memory, whole. Then make a new, empty folder with the old name, and put the downloaded file in it as "counterparts.sqlite". Don't drop the file into the old folder over its database: the old search index and write-ahead files beside it belong to the other memory. To also keep a portable copy of the local memory, `counterparts export --out <dir> --passphrase <secret>` before the swap.
+- [local] The first Claude Code or Claude Desktop session after that rebuilds its word index as it opens it, so questions find things at once (`counterparts ask` only looks, so before then it says the index is empty, and `counterparts verify --rebuild` rebuilds it by hand); search by meaning fills in over the next sessions. Starter notes still in hosted's words switch to this install's; one that was edited stays as it is (since 0.3.47).
+- The download is not encrypted. Once it is in place, delete the copy left in Downloads.
+- The hosted account and its memory stay as they were until the person deletes the account; the two don't sync.
+
 ## What's new
 
 What changed in each version is in CHANGELOG.md, in the package and on GitHub.

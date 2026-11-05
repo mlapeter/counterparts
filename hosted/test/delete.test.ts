@@ -551,8 +551,11 @@ describe("delete everything now", () => {
     assert.match(page, /Delete everything now/);
     // The default button comes first, so Enter in the address field is the delete that can be kept.
     assert.ok(page.indexOf('value="later"') < page.indexOf('value="now"'));
-    // Hosted has no door that removes one memory, and Railway's disk encryption is unconfirmed (DESIGN §5.1): the page claims neither.
-    assert.match(page, /Removing a single memory isn&#39;t available on hosted\. You can download your whole memory, or delete your account, which erases all of it\./);
+    // One memory is deleted by asking Claude (HD1, EX1), with its 24-hour undo; the page claims no encrypted disks of its own (DESIGN §5.1).
+    assert.match(page, /To delete a single memory, ask Claude: it&#39;s hidden at once and erased after 24 hours, and Claude can undo it before then\./);
+    assert.doesNotMatch(page, /Removing a single memory isn/);
+    // The download says what it is: a plain file (EX1).
+    assert.match(page, /not encrypted: keep it somewhere safe/);
     assert.doesNotMatch(page, /Forgetting one memory|encrypted disks/);
     assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "both@example.com" })).status, 200);
     await assertErased(r, me.storeId);

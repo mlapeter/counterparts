@@ -1405,7 +1405,11 @@ describe("box 3 — deleting the cache loses nothing canonical", () => {
     expect(existsSync(paths.cache(dir))).toBe(false);
 
     s = store({ embed: fakeEmbed });
-    expect(s.search("coffee")).toEqual([]); // really gone, not a stale handle
+    // Really gone, not a stale handle: no vector came back. The WORDS did: a
+    // writable open rebuilds an empty word index (EX1, `Store#reindexIfEmpty`),
+    // and computes no vector while it does.
+    expect(s.nearestTo(fakeEmbed("Cold brew every morning, never iced coffee"), 3)).toEqual([]);
+    expect(s.search("coffee")).toEqual(before[0]!);
     const report = s.rebuildCache();
     // `skippedArchived` joined the report with I13: a rebuild reproduces the
     // LIVE index, so a canonical row that is archived or superseded is counted

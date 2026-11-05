@@ -46,7 +46,7 @@ import {
   SNAPSHOT_TAKEN_EVENT,
 } from "../src/core/counterpart.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
-import { Store, paths } from "../src/core/store/index.js";
+import { INDEX_REBUILT_AT_OPEN_EVENT, Store, paths } from "../src/core/store/index.js";
 import type { EventRow } from "../src/core/store/index.js";
 import { loadConfig } from "../src/adapters/config.js";
 import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
@@ -1082,13 +1082,15 @@ describe("a half-copy is never a snapshot", () => {
 /**
  * THE QUESTION THE WHOLE TRACK IS FOR: if the database were wiped this
  * afternoon, what comes back? The F2 review proved both halves of the answer —
- * the memories come back, and they cannot be FOUND until the cache is rebuilt,
- * because `cache/` is classified out of the backup set on purpose. A person
- * restoring on the worst day of the year, not told about the second half, opens
- * the copy, asks it something, gets nothing, and concludes the backup is empty.
+ * the memories come back, and they could not be FOUND until the cache was
+ * rebuilt, because `cache/` is classified out of the backup set on purpose. A
+ * person restoring on the worst day of the year, not told about the second
+ * half, opened the copy, asked it something, got nothing, and concluded the
+ * backup was empty. Since EX1 (2026-11-04) the first writable open rebuilds an
+ * empty word index itself (`Store#reindexIfEmpty`), so the copy answers at once.
  */
 describe("a snapshot can actually be restored", () => {
-  test("the memories come back with the copy; the search index comes back with a rebuild", () => {
+  test("the memories come back with the copy; the search index comes back with the first writable open (EX1)", () => {
     const c = seeded();
     const id = c.store.list({ archived: false })[0] as string;
     const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
@@ -1108,10 +1110,12 @@ describe("a snapshot can actually be restored", () => {
     // The canonical halves are all there.
     expect(restored.store.list({ archived: false })).toContain(id);
     expect(restored.store.readProse(id).body.length).toBeGreaterThan(0);
-    // And NOTHING is findable, which is the half nobody was being told about.
-    expect(restored.store.search("rebuilt")).toEqual([]);
+    // And it is findable at once: the open found the word index empty and
+    // rebuilt it, leaving its durable row. No `verify --rebuild` step.
+    expect(restored.store.search("rebuilt").length).toBeGreaterThan(0);
+    expect(restored.store.eventLog({ name: INDEX_REBUILT_AT_OPEN_EVENT })).toHaveLength(1);
 
-    // Step 3: the rebuild. This is what `counterparts verify --rebuild` runs.
+    // `counterparts verify --rebuild` still works, and finds the same.
     restored.store.rebuildCache();
     expect(restored.store.search("rebuilt").length).toBeGreaterThan(0);
   });

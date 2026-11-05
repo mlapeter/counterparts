@@ -2477,3 +2477,27 @@ The plans of the other queries on the table don't change (`SELECT DISTINCT memor
 text, so no format change. `newMemoryIds` leaves it out (never what a night sorts), `memoryTexts` and
 `liveMemoryTexts` leave it out (never a card's names), and `toldIds()` lists the set for the night's fence and the
 tests. An older build opening a store with told rows reads them as ordinary memories with an unknown source.
+
+## 2026-11-04 — an empty word index is rebuilt at open (EX1)
+
+The G2 check opened a hosted "Download my memory" file locally: same schema, ids intact, and
+"Nothing found" to every question, because the download is `counterparts.sqlite` alone and only
+`verify --rebuild` ever filled an empty `doc_lens`. Now every writable open asks two COUNTs
+(`doc_lens`, live rows) after the identity check and, when the index is empty and rows are live,
+indexes the words of every live, non-denied row in one box-3 transaction, re-asking the COUNT
+under the lock so two openers at once write it once. Not `rebuildCache()`: that drops the vectors
+when no embedder is wired (the console) and embeds every row, unbudgeted, when one is (a hook on a
+big import would wait on all of them). The vectors come from the inline refill (a static table's
+first tag) or the worker's backfill, as for any row without one. `ask` stays an observer (owner,
+2026-09-25: asking is looking), so before any writable open it says the index is empty instead.
+
+Review of 41e490ed added two cases. **Another file's index:** the manual's first wording had the
+download dropped into a used store folder, over its database; the old `cache/` stayed, nothing
+was empty, and search answered with the old store's ids. The open now samples the newest 8
+indexed ids (`doc_lens` by rowid) and resets the index (vectors kept, orphans deleted) when none
+is in this file. Chosen over a store id in `cache_meta` because a download carries none and
+adding one is a format change, and over a count comparison, which can't tell two stores of one
+size apart; requiring every sampled id to miss keeps one stray row from firing it. **Tokenless
+rows:** a store whose live rows are all in a script the tokenizer keeps nothing of (CJK) rebuilt
+and wrote an event at every open, and doctor stayed amber; the rebuild now stamps the live count
+it saw in `cache_meta` (`index.tokenlessLive`) and writes no event when the index is still empty.

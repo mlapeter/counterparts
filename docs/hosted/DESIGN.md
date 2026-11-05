@@ -416,7 +416,7 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > memory, ask Claude. It's hidden at once and erased after 24 hours, unless you ask Claude to undo it before then. Our
 > backups let go of it within about a day of the erase; our hosting provider (Railway) also keeps short-term snapshots
 > of its disks for its own recovery, and rotates them on its own schedule. A copy made before an upgrade keeps it until that copy goes,
-> which is at the first worker run after 14 days (longer for someone who stops chatting). A download made inside those 24 hours includes it. Things Claude wrote that mention it, such as a journal
+> which is at the first worker run after 14 days (longer for someone who stops chatting). A download made inside those 24 hours includes it. A download is not encrypted: keep it somewhere safe. Things Claude wrote that mention it, such as a journal
 > chapter or its page, stay unless you ask Claude to change them. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
 > the key whenever a backup is read or written. "We don't read it" is our promise, not something the system enforces or
 > records. Only we can reach the server and its backups, through our accounts at Railway (which runs it) and Cloudflare
@@ -426,7 +426,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 >
 > (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
 > claimed encrypted disks, which was then unverified (confirmed 2026-11-04, §5.1, so that claim may come back), and a
-> single-memory forget, which hosted has no door for. Say the forget again only once it is true. Corrected 2026-11-03: it said the promise was "kept by access controls and
+> single-memory forget, which hosted then had no door for. Said again 2026-11-04, once HD1 made it true (ask Claude,
+> 24 hours to undo), with the account page's words to match and the download called plainly unencrypted (EX1). Corrected 2026-11-03: it said the promise was "kept by access controls and
 > an audit log", but every audit row is an account event (`accounts.audit` in hosted/src) and nothing records a read of a
 > store, an operator's `railway ssh` included.)
 
@@ -633,7 +634,9 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
   - Over quota, `remember`, `chapter` and `dream` writes get a plain refusal with a reason code. Reads always work.
 - **Export.** `GET /account/export` (signed in, with a fresh re-authentication inside 10 minutes) streams a zip:
   - the core's own export, `cli/export.ts`: its `markdown` tree (readable), and its `database` copy (complete,
-    openable by anything that speaks SQLite, and the shape a local install could import at stage 3).
+    openable by anything that speaks SQLite, and the shape a local install could import at stage 3). *As built:*
+    `POST /account/export` from the account page (signed in, with its CSRF token), one plaintext `counterparts.sqlite`, no zip; a local install takes it in as its store file, and its first writable open
+    rebuilds the word index and switches the starter notes to local words (EX1; the manual's "Taking your hosted memory home").
 - **Delete.** `POST /account/delete` (typing your email) locks the account and sets the erase for 24 hours later;
   with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`
   undoes a pending delete. *As built (R6):* there is no re-authentication beyond the signed-in session (a pending
