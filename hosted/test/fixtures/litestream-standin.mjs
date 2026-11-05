@@ -8,6 +8,10 @@
  *       every 100 ms and once more on SIGTERM: each configured database's file
  *       (and its -wal) PUT whole to <endpoint>/<bucket>/<replica path>/standin/{db,wal},
  *       under the replica's SSE-C key (read from its key file, as Litestream does).
+ *       Each sync that put something also puts an empty LTX-NAMED object,
+ *       <replica path>/0000/<16 hex>-<16 hex>.ltx, its max TXID rising across
+ *       children (from the clock), so the upload watch's TXID read
+ *       (`backup.ts#maxTxid`) has the real binary's names to read.
  *   restore -config <yml> -o <out> [-if-replica-exists] <db path>
  *       the same objects back, with the same key, into <out> (and <out>-wal).
  *
@@ -71,8 +75,15 @@ if (command === "replicate") {
   const dbs = parseConfig(configPath);
   const sent = new Map();
   let busy = Promise.resolve();
+  let lastTxid = 0n;
+  const nextTxid = () => {
+    const t = BigInt(Date.now()) * 1000n;
+    lastTxid = t > lastTxid ? t : lastTxid + 1n;
+    return lastTxid;
+  };
   const syncOnce = async () => {
     for (const db of dbs) {
+      let put = false;
       for (const [name, file] of [["db", db.path], ["wal", `${db.path}-wal`]]) {
         if (!existsSync(file)) continue;
         const body = readFileSync(file);
@@ -80,8 +91,16 @@ if (command === "replicate") {
         const id = `${db.path}|${name}`;
         if (sent.get(id) === digest) continue;
         const res = await fetch(objectUrl(db, name), { method: "PUT", body, headers: sse(db) });
-        if (res.ok) sent.set(id, digest);
-        else process.stderr.write(`standin: PUT answered ${String(res.status)}\n`);
+        if (res.ok) {
+          sent.set(id, digest);
+          put = true;
+        } else process.stderr.write(`standin: PUT answered ${String(res.status)}\n`);
+      }
+      if (put) {
+        const txid = nextTxid().toString(16).padStart(16, "0");
+        const ltx = `${db.endpoint}/${db.bucket}/${db.replicaPath}/0000/${txid}-${txid}.ltx`;
+        const res = await fetch(ltx, { method: "PUT", body: "", headers: sse(db) });
+        if (!res.ok) process.stderr.write(`standin: PUT answered ${String(res.status)}\n`);
       }
     }
   };

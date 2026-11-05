@@ -441,7 +441,7 @@ export class Backups {
         continue;
       }
       // A file in place (`--force`) is moved aside, never deleted: the replica
-      // may be behind it (`/readyz` doesn't see lag yet). Litestream's own
+      // may be behind it (`/readyz` sees control's uploads, never one store's). Litestream's own
       // position for the old file (`.<name>-litestream`) goes: it describes a
       // database that is no longer there.
       if (id !== CONTROL_KEY_ID) {
@@ -586,6 +586,137 @@ export class Backups {
     const out: string[] = [];
     for (const id of this.opts.liveStores()) if ((await this.opts.objects.get(tombstoneObject(id))) !== null) out.push(id);
     return out;
+  }
+}
+
+/** The replica the upload watch reads: the accounts database, which it also writes (`Accounts.heartbeat`). */
+export const WATCHED_REPLICA = "control/accounts.sqlite/";
+/** How often the watch looks (one LIST of `WATCHED_REPLICA`, then one heartbeat write). */
+export const UPLOADS_EVERY_MS = 10 * 60 * 1000;
+/** No rise seen for this long ⇒ `stale`. Three looks: one slow or failed LIST never turns it. */
+export const UPLOADS_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * The highest TXID among a replica's LTX files, `<prefix><4-hex level>/<16 hex
+ * min TXID>-<16 hex max TXID>.ltx` (Litestream 0.5.17, ltx v0.5.2's
+ * FormatFilename; the restore drill read replication this way on the real
+ * binary, `drill/drill-client.ts#maxTxid`). 0n for none. Every level counts, so
+ * compaction moving L0 files up never lowers it.
+ */
+export function maxTxid(keys: readonly string[], prefix: string): bigint {
+  let max = 0n;
+  for (const k of keys) {
+    if (!k.startsWith(prefix)) continue;
+    const m = /^[0-9a-f]{4}\/([0-9a-f]{16})-([0-9a-f]{16})\.ltx$/.exec(k.slice(prefix.length));
+    if (m !== null && BigInt(`0x${m[2]!}`) > max) max = BigInt(`0x${m[2]!}`);
+  }
+  return max;
+}
+
+/** Why the last look didn't see a rise: a code for the log, never a readyz word. */
+export type UploadsReason = "no-rise" | "list-failed" | "heartbeat-failed";
+
+/** What the watch tells the log: still stale (each look while it is), or uploading again. */
+export type UploadsEvent = { readonly state: "stale"; readonly minutes: number; readonly reason: UploadsReason } | { readonly state: "ok"; readonly minutes: number };
+
+/**
+ * ARE UPLOADS LANDING? (G3; INTERFACE-GAPS §7.) The sidecar running says
+ * nothing about R2 accepting what it sends. So, every `UPLOADS_EVERY_MS`:
+ *
+ *   1. one LIST of `control/accounts.sqlite/`: the highest TXID there. Above
+ *      the last look's ⇒ an upload landed since; the clock of the last rise moves.
+ *   2. one write to `accounts.sqlite` (`Accounts.heartbeat`), so the next look
+ *      has something Litestream must have shipped by then, even on a day nobody
+ *      writes anything.
+ *
+ * `stale` is no rise for `UPLOADS_STALE_MS`, whatever the cause (R2 refusing,
+ * the LIST failing, a child that runs and ships nothing). `/readyz` reads
+ * `state()`, which is arithmetic on the cached time: no R2 call per hit.
+ *
+ * A FRESH BOOT can't be stale: `begin()` (when the sidecar starts) sets the
+ * last rise to now, so the first `stale` is `UPLOADS_STALE_MS` after a start in
+ * which no rise was ever seen. A rise needs two looks (a baseline, then above
+ * it), and the second comes `UPLOADS_EVERY_MS` in, well inside that.
+ *
+ * What it doesn't see: one store's replica failing (its own SSE-C key file)
+ * while control's uploads land. Litestream's own `level=ERROR` lines in the log
+ * are the signal for that (INTERFACE-GAPS §7).
+ */
+export class UploadWatch {
+  private lastMax: bigint | null = null;
+  private lastRiseAt: number | null = null;
+  private wasStale = false;
+  private looking = false;
+  private stopped = false;
+  private readonly opts: {
+    readonly objects: ObjectStore;
+    readonly heartbeat: () => void;
+    readonly now: () => number;
+    readonly staleAfterMs?: number;
+    readonly onEvent?: (e: UploadsEvent) => void;
+  };
+
+  constructor(opts: UploadWatch["opts"]) {
+    this.opts = opts;
+  }
+
+  private get staleAfterMs(): number {
+    return this.opts.staleAfterMs ?? UPLOADS_STALE_MS;
+  }
+
+  /** The sidecar started: the grace begins now. Idempotent within a process (a later call keeps the first). */
+  begin(): void {
+    this.lastRiseAt ??= this.opts.now();
+  }
+
+  /** `stale` once no rise was seen for the threshold; `ok` before `begin` and during the first threshold after it. */
+  state(): "ok" | "stale" {
+    return this.lastRiseAt !== null && this.opts.now() - this.lastRiseAt > this.staleAfterMs ? "stale" : "ok";
+  }
+
+  /**
+   * The server is closing: no more looks, and a look in flight skips its
+   * heartbeat and its event (the accounts database may be closing under it, and
+   * a `heartbeat-failed` line at shutdown would mislead).
+   */
+  stop(): void {
+    this.stopped = true;
+  }
+
+  /** One look: the LIST, then the heartbeat. Never throws; a look still running makes this one a no-op. */
+  async look(): Promise<void> {
+    if (this.stopped || this.looking || this.lastRiseAt === null) return;
+    this.looking = true;
+    try {
+      const riseBefore = this.lastRiseAt;
+      let reason: UploadsReason = "no-rise";
+      try {
+        const max = maxTxid(await this.opts.objects.list(WATCHED_REPLICA), WATCHED_REPLICA);
+        if (this.lastMax !== null && max > this.lastMax) this.lastRiseAt = this.opts.now();
+        // Lower than before (a restore, a new bucket): the new baseline, not a rise.
+        this.lastMax = max;
+      } catch {
+        reason = "list-failed";
+      }
+      if (this.stopped) return;
+      try {
+        this.opts.heartbeat();
+      } catch {
+        if (reason === "no-rise") reason = "heartbeat-failed";
+      }
+      const stale = this.state() === "stale";
+      // Stale: minutes since the last rise. Back to ok: how long it was without one.
+      const minutes = Math.floor((this.opts.now() - riseBefore) / 60_000);
+      try {
+        if (stale) this.opts.onEvent?.({ state: "stale", minutes, reason });
+        else if (this.wasStale) this.opts.onEvent?.({ state: "ok", minutes });
+      } catch {
+        /* a log, not a gate */
+      }
+      this.wasStale = stale;
+    } finally {
+      this.looking = false;
+    }
   }
 }
 

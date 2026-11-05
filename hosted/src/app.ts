@@ -35,8 +35,8 @@ import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
-import type { KeylessReason, LitestreamRun, Sidecar } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject } from "./backup.js";
+import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
@@ -92,6 +92,15 @@ export interface AppOptions {
   readonly finishEveryMs?: number;
   /** `server.ts#HostedServerOptions.logForwardedFor` (the entry point's `LOG_FORWARDED_FOR=1`). */
   readonly logForwardedFor?: (raw: string) => void;
+  /**
+   * The upload watch (G3; `backup.ts#UploadWatch`), with a sidecar only: told
+   * each look while uploads are stale, and once when they land again. Codes
+   * and minutes only. A throw is swallowed.
+   */
+  readonly onUploads?: (e: UploadsEvent) => void;
+  /** How often the upload watch looks (`backup.ts#UPLOADS_EVERY_MS` by default), and how long without a rise is `stale` (`UPLOADS_STALE_MS`). */
+  readonly uploadsEveryMs?: number;
+  readonly uploadsStaleMs?: number;
 }
 
 export interface StartOptions {
@@ -144,6 +153,8 @@ export interface App {
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
   readiness(): Promise<Readiness>;
+  /** One look of the upload watch now (its timer does this every `uploadsEveryMs`); a no-op without a sidecar. */
+  lookAtUploads(): Promise<void>;
   /** Delete one person's account and memory, at once, everywhere ("delete everything now"). Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;
   /**
@@ -476,7 +487,19 @@ export function createApp(opts: AppOptions): App {
     return erased;
   };
   let retryTimer: ReturnType<typeof setInterval> | null = null;
+  let uploadsTimer: ReturnType<typeof setInterval> | null = null;
   let started = false;
+  // Uploads landing, not only the sidecar running (G3; INTERFACE-GAPS §7).
+  const uploads =
+    opts.backup?.sidecar === undefined || opts.backup.sidecar === null
+      ? null
+      : new UploadWatch({
+          objects: opts.backup.objects,
+          heartbeat: () => accounts.heartbeat(),
+          now: opts.now ?? Date.now,
+          ...(opts.uploadsStaleMs === undefined ? {} : { staleAfterMs: opts.uploadsStaleMs }),
+          ...(opts.onUploads === undefined ? {} : { onEvent: opts.onUploads }),
+        });
   const limits = new McpLimits({
     ...opts.mcpLimits,
     sizeOf: (storeId) => dirBytes(tenantDir(tenants.root, storeId)),
@@ -504,7 +527,8 @@ export function createApp(opts: AppOptions): App {
       }
     }
     const sidecar = opts.backup?.sidecar ?? null;
-    checks["backups"] = sidecar === null ? "off" : sidecar.up?.() === false ? "down" : "ok";
+    // "stale": the sidecar runs, and no upload has been seen landing in R2 for `uploadsStaleMs` (`UploadWatch`; cached, no R2 call here).
+    checks["backups"] = sidecar === null ? "off" : sidecar.up?.() === false ? "down" : uploads?.state() === "stale" ? "stale" : "ok";
     return { ready: Object.values(checks).every((v) => v === "ok" || v === "off"), checks };
   };
 
@@ -613,6 +637,16 @@ export function createApp(opts: AppOptions): App {
         }
         await backups.release();
       }
+      // The sidecar runs from here: the upload watch's grace starts now. Its first look (the baseline) isn't
+      // awaited: a slow R2 must not add to the boot, and the grace clock doesn't need the baseline.
+      if (uploads !== null) {
+        uploads.begin();
+        void uploads.look();
+        if (uploadsTimer === null) {
+          uploadsTimer = setInterval(() => void uploads.look(), opts.uploadsEveryMs ?? UPLOADS_EVERY_MS);
+          uploadsTimer.unref?.();
+        }
+      }
       const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
       if (retryTimer === null) {
@@ -631,6 +665,9 @@ export function createApp(opts: AppOptions): App {
       return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
     },
     readiness,
+    lookAtUploads: async () => {
+      await uploads?.look();
+    },
     deleteAccount,
     scheduleDelete,
     keepAccount,
@@ -638,8 +675,11 @@ export function createApp(opts: AppOptions): App {
     finishDueHolds,
     async close(): Promise<void> {
       started = false;
+      uploads?.stop();
       if (retryTimer !== null) clearInterval(retryTimer);
       retryTimer = null;
+      if (uploadsTimer !== null) clearInterval(uploadsTimer);
+      uploadsTimer = null;
       await tenants.closeAll();
       await opts.backup?.sidecar?.stop();
       o.close();
