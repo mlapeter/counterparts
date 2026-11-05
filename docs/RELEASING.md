@@ -7,13 +7,15 @@ binary each have their own detail, linked below rather than repeated.
 ## 1. The release commit
 
 Branch `release/<version>` from master at the commit being released. The release commit
-sets the version in four places, moves one example, and sets the release date in one
+sets the version in five places, moves one example, and sets the release date in one
 (`RELEASE_DATE`, below):
 
 - `package.json` `"version"`;
 - `SERVER_VERSION` in `src/adapters/mcp/server-words.ts` (the version the memory server reports;
   an open session compares it to say "Counterparts was updated");
 - `"version"` in `.claude-plugin/plugin.json`;
+- both `"version"`s in `server.json` (the MCP Registry listing; `test/mcp.test.ts` holds them
+  to package.json). Publishing the listing is a step after npm: `mcp-publisher publish`;
 - the marketplace entry's `"ref"` in `.claude-plugin/marketplace.json`, as `v<version>`.
   Since 0.3.22 the entry's `url` is the bundle repository,
   `https://github.com/counterparts-ai/counterparts-plugin.git` (3b), so the ref names
