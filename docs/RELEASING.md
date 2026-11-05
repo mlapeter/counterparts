@@ -128,13 +128,23 @@ comment, a heading the install loop still read by its old words) cost a full run
 the changelog's words here too: `CHANGELOG.md` and `tools/install-loop/run.sh` ship, so a change
 to either is a new tarball and a new run. In 0.3.46 a merged change to what a new store's install
 gives (the wake's shape on) left four install-loop steps reading the unshaped wake's words: caught
-here, fixed on the release branch, and the loop now reads both.
+here, fixed on the release branch, and the loop now reads both. In 0.3.47 the scan stopped on three
+examples merged code carried, none of them real: a sample `/Users/<name>/…` path in a comment, and
+`x = y` lines whose left side ends in token or pass, in a comment and in a changelog fragment.
+Reworded on the release branch (prose and comments only, then the binaries again, section 3);
+the cheaper place is the pull request, so a fragment or comment that needs an example of a path or
+an assignment says it in words (`pad_token` set to `eos_token`).
 
 **On the laptop, on the commit CI passed.** `uptime` first; these run one at a time.
 
 - the check against a copy of the owner's memories, which is private and can't go near a
   public log. The release brief says what to look at. A snapshot carries no cache, so run
-  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing;
+  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing.
+  Run that with the last release, not this one, so this release's first open meets the index the owner's store has.
+  A snapshot is the database alone: no `spans/` (the capture buffer the write-up ledger reads) and no `sessions/`
+  (the registry). A check on what is owed needs `spans/` cloned beside it; a check on what a wake folds as already
+  shown today (RF1, 0.3.47) needs the registry entry of the session that showed it, since a told latch whose
+  session the registry doesn't hold doesn't count. Clone those read-only from the live store, delete them with the copy;
 - the bundles (section 3b), then the plugin loop on the release head, which needs a real
   `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)):
   `tools/plugin-loop/run.sh --bundle=core`, `--bundle=directory`, and `tools/plugin-loop/split.sh`.
