@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 11-04 | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
 | Hosted's backups let go of a chat-deleted memory "within about two days" (HD1): the 24 h hold, the timer's erase, then Litestream's 12 h snapshot retention plus its unstated enforcement lag | unreleased, 11-04 (HD1 PR); starts at the first hosted deploy with HD1 | **~48 h after the test erase** (dated reminder set at the deploy): on Mike's hosted account, hold and erase one throwaway memory with a unique word, then grep the R2 bucket's newest snapshot for that word. "About two days" goes on /privacy/ only once that passes | [below](#48-h-after-the-first-hosted-chat-delete-hd1-backups) |
@@ -120,6 +121,28 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The tail after a compaction is owed (CT1)
+
+CT1 (2026-11-04, decided by counterparts-a0, lightly held), `core/coverage/index.ts#tailCut`
+(`coverage/NOTES.md` §11). The developer week's d2s1 chaptered at a Stop ask, compacted, said three things in
+six minutes and was never written up (`under-floor:span`). Now the tail after the earliest `pre-compaction`
+boundary later than the session's last record point is owed as an unrecorded session's stretch is (from one piece, S2's rule).
+Tier 0 cost: Dana unchanged; Theo one more write-up in the week (14 → 15), no extra catch-up run.
+
+- **Live cost, the first nights.** Of each night's owed sessions, how many are owed only by a compacted tail
+  (`compactionTail` > 0, `overFloor` false, `recorded` true), and their write-up parts against the night's total.
+  For each such tail, read its pieces on a snapshot: the person's own words, or only `<task-notification>`,
+  peer messages or injected context (pieces carry no source tag, so this is a read of the text). Mostly plumbing
+  says count the one-piece floor from the person's own messages (WP1's frames), which CT1 did not do.
+- **How often it fires.** `counterparts coverage` / the ledger on a snapshot: sessions owed with `compactionTail` > 0,
+  and their pieces. Expect a few a week on a working store; one a day or more says compactions are common enough
+  that this costs real write-ups.
+- **What the write-ups hold.** For those sessions, the night's write-up memories: real content (the d2s1 aside)
+  or nothing / plumbing. Mostly empty says hold the tail to `OWED_PIECES` (3) without the span.
+- **Nothing lost the other way.** No session whose record followed its compaction is newly owed.
+
+Revert: drop the `|| isDebt(stretchOf(tail), false)` arm in `ledger` (`core/coverage/index.ts`).
 
 ## Folder attribution (FS1)
 
