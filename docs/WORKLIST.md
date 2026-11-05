@@ -66,6 +66,20 @@ repeating them.*
   held memory until then. Real Litestream under an erase stays a [CHECK-AFTER](CHECK-AFTER.md) item (the 48 h
   backups check), not work here.
 
+- **Developer-week confirm ambers (11-04).** Evidence for each: `~/counterparts-notes/2026-11-04-developer-week-confirm.md`,
+  the section named. In priority order, morning interruptions first (the ROADMAP's call: developers will feel it).
+  1. **Morning interruptions.** The dream notice, then "the nightly run finished" plus an untold morning share, land in the
+     first coding prompts of days 2 and 3 (confirm report, item 8).
+  2. **The wake at three sessions a day.** 2.4-4.0 KB on day 3 (3.2-5.0 before RF1), with paragraphs repeating across a day's
+     wakes: the "Since yesterday" pair, the "Last night" paragraph (confirm report, item 3).
+  3. **The header day lags by one.** "Day 1" on Tuesday morning, "day 2" on Wednesday (confirm report, item 3).
+  4. **An irrelevant cross-folder footnote.** An evals fact ("Theo asked for the new probe eval...") surfaced at the paper's
+     related-work prompt, in a quiet lane (confirm report, item 1).
+  5. **Repeating footnotes during coding.** The meeting journal (4 times) and the onboarding fact (3 times in other folders)
+     (confirm report, item 4).
+  6. **Harness scorer: W2 false amber.** Let the shown memory's own work-ness, not the prompt line, decide whether a footnote
+     counts as a work crossing. The meeting journal's title scored as a crossing (confirm report, item 1, scorer note).
+
 ## Needs a talk first
 
 - **Lists vs attachments.** Decided 10-15, lightly held: lists and tables stay word for word in memory bodies, no
