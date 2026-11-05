@@ -144,8 +144,9 @@ function copy(c: Counterpart, epi: string, session: string, scope: string, about
   });
 }
 
-function tilde(p: string): string {
-  return p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+/** A folder as the elsewhere lines name it (FS1): its last part, no other folder in the line sharing it. */
+function place(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
 }
 
 function bytes(s: string): number {
@@ -476,11 +477,11 @@ describe("Today, elsewhere", () => {
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     const line = lineOf(text);
     expect(line).toBe(
-      `Today, elsewhere: ${tilde(THERE)} open since 08:02 (live) — "Why I bake before dawn" (${m.ids["named"]}), 3 memories: "WORKTITLE-oven-seven-offset" (${m.ids["worktitle"]}); ` +
-        `${tilde(YON)} 08:05–09:40, 1 memory.`,
+      `Today, elsewhere: ${place(THERE)} open since 08:02 (live) — "Why I bake before dawn" (${m.ids["named"]}), 3 memories: "WORKTITLE-oven-seven-offset" (${m.ids["worktitle"]}); ` +
+        `${place(YON)} 08:05–09:40, 1 memory.`,
     );
     // The newest chapter about me is the "About me" line's, and not named twice.
-    expect(text).toContain(`A chapter about me from ${tilde(YON)}: session c9cacbcc, Oct 10 — "Pruning the old pear"`);
+    expect(text).toContain(`A chapter about me from ${place(YON)}: session c9cacbcc, Oct 10 — "Pruning the old pear"`);
     expect(text.split("\n").filter((l) => l.includes("Pruning the old pear"))).toHaveLength(1);
     // What stays where it was made, anywhere in the wake.
     expect(text.split("\n").filter((l) => l.includes("WORKTITLE"))).toEqual([line as string]);
@@ -502,22 +503,24 @@ describe("Today, elsewhere", () => {
     copy(m.c, mine, E, HERE, "me", "Weeding the herb bed slowly is how I think.");
     m.set(at(D2, 10));
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
-    expect(text).toContain(`A chapter about me from ${tilde(YON)}: session c9cacbcc, Oct 10 — "Pruning the old pear"`);
+    expect(text).toContain(`A chapter about me from ${place(YON)}: session c9cacbcc, Oct 10 — "Pruning the old pear"`);
     expect(text.split("\n").filter((l) => l.includes("Pruning the old pear"))).toHaveLength(1);
-    expect(lineOf(text)).toContain(`${tilde(YON)} 08:05–09:40, 1 memory`);
+    expect(lineOf(text)).toContain(`${place(YON)} 08:05–09:40, 1 memory`);
     expect(lineOf(text)).not.toContain("Weeding the herb bed");
   });
 
   test("its own directory, a directory whose scope is off, the nightly run's, and yesterday's sessions are skipped", () => {
     const m = morning();
     const line = lineOf(m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text) ?? "";
-    expect(line).not.toContain(tilde(HERE));
-    expect(line).not.toContain(tilde(FAR));
-    expect(line).not.toContain(tilde(storeDir));
+    // Named as a folder: the line's head or after a "; " (a title may say "garden").
+    expect(line).not.toContain(`elsewhere: ${place(HERE)} `);
+    expect(line).not.toContain(`; ${place(HERE)} `);
+    expect(line).not.toContain(place(FAR));
+    expect(line).not.toContain(place(storeDir));
     // From THERE, THERE is skipped and HERE is named — and its own session is not.
     const there = lineOf(m.lc.composeWake({ sessionId: A, scope: THERE, at: D2 }, BUDGET).text) ?? "";
-    expect(there).not.toContain(tilde(THERE));
-    expect(there).toContain(`${tilde(HERE)} open since 07:30 (live), 1 memory`);
+    expect(there).not.toContain(place(THERE));
+    expect(there).toContain(`${place(HERE)} open since 07:30 (live), 1 memory`);
   });
 
   test("an observer folder, a paused one and a folder under an off one are not named; a work chapter's title stays home (review of #376)", () => {
@@ -563,9 +566,9 @@ describe("Today, elsewhere", () => {
     const lc = new Lifecycle({ counterpart: c, config: { dataDir: storeDir }, configPath: join(root, "claude-code.json"), now: () => at(D2, 10) });
     const text = lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     const line = lineOf(text) ?? "";
-    for (const kept of [WATCH, REST, FAR]) expect(line).not.toContain(tilde(kept));
+    for (const kept of [WATCH, REST, FAR]) expect(line).not.toContain(place(kept));
     expect(text).not.toContain("KEPTHOME");
-    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:00 (live), 2 memories: "A placeholder memory." (${thereMemory}).`);
+    expect(line).toBe(`Today, elsewhere: ${place(THERE)} open since 08:00 (live), 2 memories: "A placeholder memory." (${thereMemory}).`);
   });
 
   test("with no way to ask the scope setting, or every directory closed, nothing crosses", () => {
@@ -767,7 +770,7 @@ describe("the line has a small room of its own, and the page keeps its own", () 
     expect(readSentinel(text).intact).toBe(true);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
     const line = text.split("\n").find((l) => l.startsWith("Today, elsewhere: "));
-    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:02 (live), 1 memory: "The bakery's flour arrived." (${flour}).`);
+    expect(line).toBe(`Today, elsewhere: ${place(THERE)} open since 08:02 (live), 1 memory: "The bakery's flour arrived." (${flour}).`);
     expect(bytes(line ?? "")).toBeLessThanOrEqual(TODAY_ELSEWHERE_MAX_BYTES);
     // The page keeps its top and end lines and gives none of its room: it
     // and its borrowing outrank the line (review of #380).
@@ -786,9 +789,9 @@ describe("the line has a small room of its own, and the page keeps its own", () 
       { scope: "/home/someone/today", firstAt: at(D2, 7, 30), lastAt: at(D2, 8, 0), live: false, chapter: null, memories: 0 },
     ];
     const line = todayElsewhereLines(dirs, ZONE)?.line ?? "";
-    expect(line).toContain("~/overnight open since 10-09 09:08 (live)");
-    expect(line).toContain("~/finished 10-09 22:15–01:05");
-    expect(line).toContain("~/today 07:30–08:00");
+    expect(line).toContain("overnight open since 10-09 09:08 (live)");
+    expect(line).toContain("finished 10-09 22:15–01:05");
+    expect(line).toContain("today 07:30–08:00");
   });
 
   test("many folders: the line stays within its cap, the rest as \"+N more\"", () => {

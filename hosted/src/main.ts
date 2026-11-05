@@ -3,7 +3,7 @@
  * THE HOSTED SERVER'S ENTRY POINT (OL2 step 4). Run on Node 24:
  *
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
- *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT]
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT] [--expires DAYS]
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
@@ -54,7 +54,7 @@ import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
-import type { KeylessReason, LitestreamRun } from "./backup.js";
+import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
@@ -264,6 +264,17 @@ export function eventLine(name: string, store: string): string {
     return `[hosted] backup.keyless storeTag=${store} reason=${reason}: this store is NOT backed up, and no key was made: ${KEYLESS_WORDS[reason]}\n`;
   }
   return `[hosted] ${name} store=${store}\n`;
+}
+
+/**
+ * The upload watch's log line (G3; `backup.ts#UploadWatch`), codes and minutes
+ * only, one fixed shape for monitoring to match on `backup.uploads.stale`:
+ *
+ *   [hosted] backup.uploads.stale minutes=40 reason=no-rise
+ *   [hosted] backup.uploads.ok after=50
+ */
+export function uploadsLine(e: UploadsEvent): string {
+  return e.state === "stale" ? `[hosted] backup.uploads.stale minutes=${String(e.minutes)} reason=${e.reason}\n` : `[hosted] backup.uploads.ok after=${String(e.minutes)}\n`;
 }
 
 /** What each `backup.keyless` reason says to the operator (docs/hosted/RUNBOOK.md, If a start refuses). */
@@ -583,10 +594,27 @@ async function main(): Promise<void> {
   if (command === "invite") {
     const uses = Number(rest[rest.indexOf("--uses") + 1] ?? "1");
     const note = rest.includes("--note") ? rest[rest.indexOf("--note") + 1] : undefined;
+    // --expires <days> (G1 L4): whole days, 1 to 365; without it, 7. A bad value is refused
+    // rather than read as the default, so a typo never makes a code live longer than meant.
+    let expiresAt: number | undefined;
+    if (rest.includes("--expires")) {
+      const days = Number(rest[rest.indexOf("--expires") + 1]);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        process.stderr.write("[hosted] refused: --expires takes whole days, 1 to 365 (the default is 7).\n");
+        process.exitCode = 1;
+        return;
+      }
+      expiresAt = Date.now() + days * 24 * 60 * 60 * 1000;
+    }
     const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
-    const { code } = accounts.createInvite({ maxUses: rest.includes("--uses") && Number.isInteger(uses) && uses > 0 ? uses : 1, ...(note === undefined ? {} : { note }) });
+    const { code, expiresAt: until } = accounts.createInvite({
+      maxUses: rest.includes("--uses") && Number.isInteger(uses) && uses > 0 ? uses : 1,
+      ...(note === undefined ? {} : { note }),
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+    });
     accounts.close();
     process.stdout.write(`${code}\n`);
+    process.stderr.write(`[hosted] the code expires ${new Date(until).toISOString()}\n`);
     return;
   }
   if (command !== "serve" && command !== "rewrap" && command !== "restore") {
@@ -704,6 +732,8 @@ async function main(): Promise<void> {
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
+    // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
+    onUploads: (e) => process.stderr.write(uploadsLine(e)),
     // Every /mcp message, ids and codes only (CONTRACT §6), and every error that became a 500 or an
     // "internal error", by type and code location, never its message (11-02: claude.ai got a 500 nothing logged).
     onCall: (r) => process.stderr.write(callLine(r)),

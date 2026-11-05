@@ -680,6 +680,15 @@ export interface DepositResult {
    * was not carried (it would read as still open), and the reply asks for one.
    */
   readonly titleAsked?: true;
+  /**
+   * THIS SYSTEM'S OWN PLUMBING (2026-11-04, TC1): the memory's subject is a
+   * refused tool call, a permission prompt or what the session couldn't do
+   * (`remember/own-plumbing.ts`), so it landed without what it sent of a date
+   * (with its `remind` and repeat) and an open thread, and a `me` or `us` mark
+   * is not written (`aboutRefused`: the door's `recordAbout` honours it).
+   * Absent otherwise.
+   */
+  readonly ownPlumbing?: { readonly cue: string; readonly dropped: readonly ("eventDate" | "unresolved")[]; readonly aboutRefused: AboutMark | null };
 }
 
 /**

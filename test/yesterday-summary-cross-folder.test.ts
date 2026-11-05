@@ -372,8 +372,9 @@ describe("a dream's merge or gist is read by its originals' folders", () => {
     const c = brain();
     const [a, b] = bakeryTwins(c);
     const merged = await dreamed(c, { date: D0, hour: 22, change: { action: "merge", ids: [a, b], text: "The winter oven schedule: two bakes a day, the second at four." } });
-    // The merge is filed under the folder the dream ran in.
-    expect(c.store.row(merged)?.origin_scope).toBe(HERE);
+    // The merge is filed under its originals' folder (FS1), not the folder the dream ran in;
+    // the gate still reads it by its originals.
+    expect(c.store.row(merged)?.origin_scope).toBe(BAKERY);
     expect(c.store.row(merged)?.origin_ref ?? "").toStartWith("dream:");
     told(c, D1, [ownSummary(c, here), merged]);
     scopes({ [HERE]: "on", [BAKERY]: "off" });

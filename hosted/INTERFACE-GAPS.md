@@ -27,6 +27,15 @@
    every connection under both runtimes, so tenant memory stores match bun; the removal path's `VACUUM` then
    checkpoint measured clean under both Nodes. `keys`, `accounts` and `oauth` still raise it to ON after the open.
 
+**Deferred, not gates and not built (2026-11-04, ROADMAP, on Mike's "reasonably secure, not overkill" for a free beta of
+0-10 users).** They stay owed; the lists above and item 8 say what each would take.
+- The Cloudflare key service (the second gate above): one leak of Railway's environment is a real risk, but a second
+  `KeyWrapper` is more than a small beta needs.
+- The account email under the DEK (item 2): it comes with the encrypted live store, which is pending Mike's final word.
+- The four custom alerts (item 8): Railway's crash and deploy emails cover the start.
+- An outside uptime service (item 8): it needs Mike's account, and Railway's notices cover a crash.
+- A formal data-request process: a request to the feedback address is handled by hand at this size.
+
 ## The first Railway deploy (`docs/hosted/RUNBOOK.md` walks each)
 
 4. **Check `X-Forwarded-For`.** `LOG_FORWARDED_FOR=1` logs the raw header of each `/readyz` request. Checked
@@ -46,10 +55,24 @@
 
 ## Operations still owed
 
-7. **`/readyz` with replication lag.** Litestream's `addr:` metrics endpoint would give it; not configured. Today
-   `/readyz` sees the sidecar process, not whether its uploads succeed: a sidecar that runs but can't reach R2 reads
-   `ok`.
-8. **Alerts** (DESIGN §7.1: lag, volume full, 5xx rate, sidecar restarts), and the Fly fallback.
+7. **`/readyz` with replication lag: control's uploads, built 2026-11-04 (G3); per store, still owed.** Every 10
+   minutes the server LISTs `control/accounts.sqlite/` for its highest LTX TXID (the names the drill read on the real
+   binary), then writes one `heartbeat` row to `accounts.sqlite` so the next look has something Litestream must have
+   shipped, even on a quiet day. No rise for 30 minutes reads `backups: stale` (a `503`), and logs
+   `[hosted] backup.uploads.stale minutes=<n> reason=<no-rise|list-failed|heartbeat-failed>` at each look while it
+   lasts; `[hosted] backup.uploads.ok after=<n>` once it lands again. The clock starts with the sidecar, so a fresh
+   boot is never `stale` before 30 minutes (Railway's healthcheck runs at deploy time only, so a `503` later doesn't
+   restart anything: docs.railway.com/reference/healthchecks). Cost: one LIST and one tiny write each 10 minutes,
+   none per `/readyz` hit. What it doesn't see:
+   - **one store's replica failing while control's land** (its own SSE-C key file, a path problem). Same process,
+     credentials, bucket and endpoint as control, so the common failures show; this one shows only in Litestream's
+     own `level=ERROR` lines. Per-store would need a write to every store or Litestream's `addr:` metrics (not
+     configured; their 0.5 names unverified without the binary);
+   - **whether the real binary's TXID rises within one look** after a heartbeat: the drill saw rises within 60 s, so
+     ten minutes is wide, but the first deploy should show `backups: ok` past the 30-minute mark (RUNBOOK §5.6).
+8. **Alerts** (DESIGN §7.1: lag, volume full, 5xx rate, sidecar restarts), and the Fly fallback. Railway's built-in
+   notifications (crash, failed deploy, usage, monitors) are the first layer (RUNBOOK, "Railway's notifications"); no
+   sender of our own. The `backup.uploads.stale` line is there for a log alert when one exists; nothing reads it yet.
 9. **An R2 outage blocks a start.** `prepareVolume` and `ensureAll` read `keys/` from the bucket, so a deploy during
    an outage refuses to start (it names `R2_ENDPOINT`). A running server keeps serving. Booting with backups
    "down" would need the empty-volume check to fail closed some other way.
@@ -177,3 +200,12 @@ next wake unless a sweep is built; whether to build one is Mike's, open.
     day-0 raw copy on disk at day 40). Now each line goes on its own age, 3 days if it owes nothing and 14 regardless
     (`remember/owes.ts#planUnboundLines`). Live on hosted; local installs get it in the release after 0.3.44. It still
     needs a worker to run, so on hosted it waits for the next wake (above).
+
+## The G1 security review's low findings (2026-11-04)
+
+43. **Closed by the G1F pull request: HSTS on every answer, DPoP and RP-initiated logout off, invites that expire,
+    and `removal.failed` holding codes only** (L1, L2, L3, L4, L6; CONTRACT §11, §15, §20). Codes made before invites
+    expired stay valid until used, rather than expiring at the deploy.
+44. **Still open (G1 L5, not taken up in G1F): a 30-day sliding web session can export the whole memory** (and delete it
+    now, §35) with no fresh sign-in (G1 L5). Someone at an unlocked, signed-in browser can download it. A fix would
+    ask for a session younger than about 15 minutes for export and delete-now.

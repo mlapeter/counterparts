@@ -2474,8 +2474,18 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
   // A SHARE STUCK AT `carried` (2026-10-02): `told` was never called, so the
   // line said "carried to a later session" forever. Now it says since when:
   // the day it was carried (`share_at`), else the reflection's own date.
+  // A SHARE TOLD ON DELIVERY (2026-11-04, TC1): the host marks a carried
+  // share told as it hands it over (`detail.toldVia: "carry"`), so whether it
+  // was ever said isn't recorded. The line keeps that readable: when it was
+  // handed over, and that told means delivered.
+  let viaCarry = false;
+  try {
+    viaCarry = last?.share_state === "told" && (JSON.parse(last.detail ?? "{}") as Record<string, unknown>)["toldVia"] === "carry";
+  } catch {
+    viaCarry = false;
+  }
   const carriedOn =
-    last?.share_state !== "carried"
+    last === undefined || (last.share_state !== "carried" && !viaCarry)
       ? null
       : typeof last.share_at === "number"
         ? localDate(last.share_at, readingZone)
@@ -2484,6 +2494,10 @@ export function reflectionFindings(input: DoctorInput, store: Store): Finding[] 
     carriedOn !== null && isDay(carriedOn) && isDay(input.today) ? Math.max(0, daysBetween(carriedOn, input.today)) : null;
   if (carriedDays !== null && carriedDays > 0) {
     share["carried"] = `its morning share carried to a later session ${String(carriedDays)} ${carriedDays === 1 ? "day" : "days"} ago and never told`;
+  }
+  if (viaCarry) {
+    const ago = carriedDays === null ? "" : carriedDays === 0 ? " today" : ` ${String(carriedDays)} ${carriedDays === 1 ? "day" : "days"} ago`;
+    share["told"] = `its morning share handed to a later session${ago} (marked told on delivery)`;
   }
   const what =
     last === undefined

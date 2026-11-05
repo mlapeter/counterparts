@@ -24,6 +24,7 @@ import { eventLine } from "../src/main.js";
 import type { App } from "../src/app.js";
 import { memoryMailer } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
+import { failureCode } from "../../src/adapters/cli/removal.js";
 import { REMOVAL_HOLD_MS } from "../../src/core/store/index.js";
 import { findSelfPage } from "../../src/core/self/page.js";
 import { freePort, rpc, tempRoot, tool } from "./helpers.js";
@@ -396,6 +397,14 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     await new Promise((res) => setTimeout(res, TICK_MS * 6));
     assert.equal(overdue().length, 1, JSON.stringify(r.events));
     assert.equal(failedAudits(), 1, "audited at the first failure only");
+    // G1 L6: the audit row holds a count and codes, never an error's message.
+    const control = openDb(join(tmp.root, "data", "control", "accounts.sqlite"));
+    try {
+      const row = control.get<{ detail: string }>("SELECT detail FROM audit WHERE store_id = ? AND action = 'removal.failed'", who.storeId)!;
+      assert.equal(row.detail, "1 failed: unknown-id");
+    } finally {
+      control.close();
+    }
     // Codes only: the store's tag, never the memory's id.
     assert.ok(!JSON.stringify(r.events).includes(ghost));
     assert.ok(!JSON.stringify(r.events).includes(who.storeId));
@@ -403,6 +412,16 @@ describe("HD1 on hosted: delete one memory from chat, undo within 24 hours, eras
     assert.match(line, /^\[hosted\] removal\.overdue storeTag=\S+: a memory deleted in chat is overdue: more than 48 h past its erase/);
     // Still hidden, and the console's door is the way out.
     assert.equal(await inStore((s) => s.holds(ghost).length), 1);
+  });
+
+  test("G1 L6: an erase's failure is a short code, never the error's words", () => {
+    const pathy = Object.assign(new Error("SQLITE_IOERR: disk I/O error at /data/tenants/0123456789abcdef0123456789abcdef/store.sqlite"), { code: "ERR_SQLITE_ERROR" });
+    assert.equal(failureCode(pathy), "ERR_SQLITE_ERROR");
+    assert.equal(failureCode(new Error("removal refused: unknown-id")), "unknown-id");
+    assert.equal(failureCode(new Error("ENOENT: no such file or directory, open '/data/tenants/abc/x'")), "error");
+    assert.equal(failureCode(Object.assign(new Error("x"), { code: "a code with spaces and /a/path" })), "error");
+    assert.equal(failureCode("a thrown string naming /data/tenants/abc"), "error");
+    assert.equal(failureCode(null), "error");
   });
 
   test("the control database's new column: added by a migration that is safe to run twice", () => {

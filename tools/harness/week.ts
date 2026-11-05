@@ -197,7 +197,12 @@ export interface SessionCoverage {
    * Why it is not owed, or null when it is: `written` (nothing unwritten),
    * `active`, `lapsed`, `under-floor:pieces` / `under-floor:span` (named
    * against `coverage.OWED_PIECES` / `OWED_SPAN_MS` as set for the run),
-   * `not-a-person`.
+   * `not-a-person` (owed, but not a person's session). For a session that
+   * compacted (CT1), an under-floor reason carries why the tail after the cut
+   * is not owed: `:before-compaction` (nothing unwritten after the cut) or
+   * `:recorded-after-compaction` (a record of its own follows every
+   * compaction), `:after-compaction` (a tail after the cut held back, only
+   * when `UNRECORDED_OWED_PIECES` is set above its size).
    */
   readonly whyNot: string | null;
 }
@@ -439,7 +444,17 @@ export function whyNotOwed(e: CoverageRow, floor: { pieces: number; spanMs: numb
   if (e.stretch === null) return "written";
   if (e.state === "active") return "active";
   if (e.lapsed) return "lapsed";
-  if (!e.overFloor) return e.stretch.pieces < floor.pieces ? "under-floor:pieces" : e.stretch.lastAt - e.stretch.firstAt < floor.spanMs ? "under-floor:span" : "under-floor";
+  // Owed by the ledger (past the floor, unrecorded, or a tail after a compaction) and held back by the catch-up's filter.
+  if (e.owed) return "not-a-person";
+  if (!e.overFloor) {
+    const under = e.stretch.pieces < floor.pieces ? "under-floor:pieces" : e.stretch.lastAt - e.stretch.firstAt < floor.spanMs ? "under-floor:span" : "under-floor";
+    // CT1 (2026-11-04): say which side of a compaction an under-floor stretch sits on, so a tail after one is never
+    // read as plain span: a tail after the cut held back (only when `UNRECORDED_OWED_PIECES` is set above its size),
+    // nothing unwritten after the cut, or a record of its own after every compaction.
+    if (e.compactedAt === null) return under;
+    const side = e.compactionTail > 0 ? "after-compaction" : e.tailFrom !== null ? "before-compaction" : "recorded-after-compaction";
+    return `${under}:${side}`;
+  }
   if (!e.person) return "not-a-person";
   return "not-owed";
 }

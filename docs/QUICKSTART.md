@@ -3,7 +3,8 @@
 ## Install
 
 You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer,
-on macOS or Linux. With Node, install with `npm install -g counterparts@latest` instead of the
+on macOS or Linux; Windows not yet supported. Bun on macOS is the setup in daily use; Node
+and Linux pass a smoke test and an install run but have no daily user yet. With Node, install with `npm install -g counterparts@latest` instead of the
 `bun add` line below; the rest is the same.
 
 ```
@@ -31,8 +32,14 @@ thing and is safe to run again. It asks two things, and you can skip either of t
   entry so the Counterparts Online connector never loads into Claude Code as a second memory.
   Hooks and settings from other tools are left alone.
 
-There are no API keys. Search by meaning is turned on for you and runs on your machine;
-nothing leaves it except through Claude Code itself.
+There are no API keys. Search by meaning is turned on for you and runs on your machine,
+and your memory leaves it only through Claude Code itself. Counterparts makes one request
+of its own: once a day, the background worker that Claude Code's hooks start asks
+registry.npmjs.org for the newest version number, and sends nothing about you or your
+memory. To stop it, set `"updateCheck": false` in `~/.counterparts/claude-code.json`, or ask
+Claude to stop the update reminders. `COUNTERPARTS_UPDATE_CHECK=off` or Claude Code's
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` stops it too, set in the environment Claude Code
+runs in.
 
 Your memory lives in `~/.counterparts/`.
 
@@ -92,9 +99,13 @@ counterparts ask "..."       # ask the memory a question
 counterparts status          # how much it holds
 counterparts self-page       # who it thinks it is, and who you are
 counterparts remove          # delete one memory for good
-counterparts export          # a copy of everything; --passphrase encrypts it
+counterparts export --out <dir> --passphrase <secret>   # an encrypted copy of everything
 counterparts --help          # everything else
 ```
+
+Export needs `--passphrase` or `--plaintext` (a plain copy); it won't pick for you. No
+command opens an encrypted export yet: the README written beside it gives the format
+(scrypt and AES-256-GCM), so it can be opened by hand.
 
 `counterparts help <command>` explains any command in full.
 
@@ -105,6 +116,9 @@ Close your Claude Code sessions, then:
 ```
 bun add -g counterparts@latest
 ```
+
+With Node, the same step is `npm install -g counterparts@latest`. Keep the `@latest`: a
+bare `npm install` can fetch an older version.
 
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
@@ -184,10 +198,11 @@ It renames your current memory aside rather than deleting it. `counterparts star
 
 ```
 counterparts uninstall
-bun remove -g counterparts
+npm uninstall -g counterparts      # or, if bun installed it: bun remove -g counterparts
 ```
 
-`uninstall` disconnects Claude Code, then asks whether to delete your memory too:
+`uninstall` disconnects Claude Code, removes the backups of `~/.claude/settings.json` that
+connecting and disconnecting kept, then asks whether to delete your memory too:
 
 ```
 Also delete all memories and related data? This can't be undone. [y/N]
@@ -202,8 +217,11 @@ worker has the memory open: close them and run it again.
 Options:
 
 - `--keep-memories` keeps your memory without asking.
+- `--yes` skips the "Go ahead?" question. A script or a pipe needs it, or uninstall
+  refuses before changing anything: `counterparts uninstall --keep-memories --yes`
+  (`--park --yes` works the same way).
 - `--park` renames `~/.counterparts` aside. `counterparts install` offers to bring it back.
-- `--delete-memories` deletes it, after asking you to type `DELETE MEMORIES`.
+- `--delete-memories` deletes it, after asking you to type `DELETE MEMORIES`. It has no `--yes`, so a script can't run it.
 
 Each shows your memory's size first. Part of that can be a database log that shrinks on its
 own; nothing is lost when it does.

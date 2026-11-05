@@ -658,6 +658,23 @@ const RELEVANCE_TEXT = "Optional 0-1: how much this bears on them, on you, or on
  * passing — that only this door could keep. f8's addition: write in the moment,
  * as things catch your attention; the end-of-session ask is the backstop.
  */
+/**
+ * WHAT A SESSION'S OWN WRITE LEAVES OUT (2026-11-04, TC1): the sentence WP1
+ * gave every writer of an ended session's words (`sessions.ts#WRITE_UP_PLUMBING_RULE`),
+ * said to the session's own writes too: whole on the field the memory is
+ * written in (`remember`'s `text`, a `session_end` entry's `content`), served
+ * whole, and as a short Do NOT on `session_end` inside the host's 2,048 cut —
+ * short so the line that says `saidBy` is a field (the gate's exemption)
+ * stays inside the cut too (review of #751). The developer week's red came
+ * through here, not the write-up: the session's Stop-ask `session_end` filed
+ * its denied `reflect` call as a dated `us` memory. Engine-backed by
+ * `counterpart-deposit.ts#ownPlumbingOf`: one that lands anyway keeps no date,
+ * open thread or me/us/owner mark, and the result says so.
+ */
+const OWN_PLUMBING_RULE =
+  "Do NOT write about this system's plumbing — a refused tool call, a permission prompt, what this session can't do — unless the person raised it.";
+const OWN_PLUMBING_NEGATIVE = "Do NOT save refused calls unless the person raised it.";
+
 const REMEMBER: ToolSpec = {
   name: "remember",
   annotations: annotate("Remember", { readOnly: false }),
@@ -759,7 +776,7 @@ const REMEMBER: ToolSpec = {
       text: {
         type: "string",
         description:
-          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent.",
+          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent. " + OWN_PLUMBING_RULE,
       },
       updates: {
         type: "string",
@@ -1075,6 +1092,7 @@ const SESSION_END: ToolSpec = {
     "Do NOT fold several things into one entry: a quote, a fact and a decision are three memories.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
     "Do NOT retell the conversation turn by turn; say what each thing was, the way you would want to find it again.",
+    OWN_PLUMBING_NEGATIVE,
   ],
   // How to call it first, inside the host's 2,048-character cut
   // (`renderDescription`); the salience claims stay inside it
@@ -1217,7 +1235,7 @@ const SESSION_END: ToolSpec = {
             content: {
               type: "string",
               description:
-                "One thing, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line.",
+                "One thing, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. " + OWN_PLUMBING_RULE,
             },
             kind: {
               type: "string",
@@ -1766,7 +1784,9 @@ const DREAM: ToolSpec = {
  * own record: usually right after a dream (the dream's launch prompt carries
  * the steps), or on its own (`launch`). `begin` hands it what to reflect on;
  * `finish` takes what it wrote; `told` is the session saying the morning share
- * was told.
+ * a reflection it launched handed back was told. A share a prompt or a wake
+ * CARRIED is marked told as it is handed over (2026-11-04, TC1): nobody is
+ * asked to call a tool for bookkeeping.
  */
 const REFLECT: ToolSpec = {
   name: "reflect",
@@ -1774,7 +1794,7 @@ const REFLECT: ToolSpec = {
   summary:
     "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
   admission:
-    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` after you told the owner a morning share, in your own words. Call `close` or `reopen` only on the owner's word about a share's open threads.",
+    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the owner's word about a share's open threads.",
   negativeExamples: [
     "Do NOT make up depth: a night with nothing much to say is a short entry that cites nothing — it rewrites nothing and shares nothing.",
     "Do NOT store a thought about the owner as a fact about them: say it to them tentatively in the share, or not at all — never a list of flaws.",
@@ -1838,7 +1858,7 @@ const REFLECT: ToolSpec = {
       phase: {
         type: "string",
         enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen", "join"],
-        description: "Which step: launch, begin, part, finish, settle, told, close, reopen, or join (the owner said yes to the share's question about two folders being one project).",
+        description: "Which step: launch, begin, part, finish, settle, told, close, reopen, or join (the owner said yes to the share's question about two folders being one project). `told` is only for a share a reflection you launched handed back: a share a prompt or a wake carried to you was marked told as it arrived.",
       },
       close: {
         type: "array",
@@ -2179,7 +2199,7 @@ export const DESKTOP_WORDS: Readonly<
     summary:
       "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
     admission:
-      "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and follow its prompt yourself, here in the chat. Call `told` after you told the owner a morning share, in your own words. Call `close` or `reopen` only on the owner's word about a share's open threads.",
+      "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and follow its prompt yourself, here in the chat. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the owner's word about a share's open threads.",
   },
 };
 
@@ -2340,7 +2360,7 @@ export const CLAUDE_AI_WORDS: Readonly<
     summary:
       "Reflection: a few quiet, awake minutes — usually at the end of the night, after the dream (in the day's first conversation or the person's night routine) — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
     admission:
-      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In a conversation, call `launch` when the person asks you to reflect, or when the wake says to finish a reflection that was cut off, and follow its prompt there yourself. Call `told` after you told the person a morning share that a conversation's wake carried, in your own words. Call `close` or `reopen` only on the person's word about a share's open threads.",
+      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In a conversation, call `launch` when the person asks you to reflect, or when the wake says to finish a reflection that was cut off, and follow its prompt there yourself. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the person's word about a share's open threads.",
   },
 };
 

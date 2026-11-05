@@ -19,7 +19,7 @@ import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { DREAM_MARK, REFLECT_QUESTIONS, REFLECT_TUNABLES } from "../src/core/dream/index.js";
+import { CARRIED_TOLD_NOTE, DREAM_MARK, REFLECT_QUESTIONS, REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { TUNABLES as PHYSICS, promotionEligibility } from "../src/core/physics/index.js";
 import { REFLECTED_FEELING_KEY, aboutMe, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
 import { SCHEMA_VERSION, V9_UPGRADE_KEY, paths } from "../src/core/store/index.js";
@@ -540,7 +540,17 @@ describe("reflect: dream → journal → reflect", () => {
     expect(done.outcome.handBack).toContain("nothing much tonight");
   });
 
-  test("the share is told once — `told` records it on the memories it cites — or carried once by a later session", () => {
+  test("the share is told once — `told` records it on the memories it cites — by the session that reflected", () => {
+    const c = brain();
+    const d = dreamed(c);
+    const { bundle } = reflect(c, [d.felt], { share: { text: "I've been thinking about being understood.", cites: [d.felt] } });
+    expect(c.reflections.told({ reflection: bundle.reflection, session: SESSION })).toEqual({ ok: true, reason: "told", cited: 1 });
+    expect(c.store.coreEvents({ memoryId: d.felt, action: "told" })).toHaveLength(1);
+    expect(c.reflections.told({ reflection: bundle.reflection, session: SESSION }).reason).toBe("already-told");
+    expect(c.reflections.pendingShare({ session: "s-next" })).toBe(null);
+  });
+
+  test("a share carried once by a later session is marked told as it is handed over: no tool call asked (TC1)", () => {
     const c = brain();
     const d = dreamed(c);
     const { bundle } = reflect(c, [d.felt], { share: { text: "I've been thinking about being understood.", cites: [d.felt] } });
@@ -549,13 +559,16 @@ describe("reflect: dream → journal → reflect", () => {
     expect(c.reflections.pendingShare({ session: "s-next" })?.id).toBe(bundle.reflection);
     const line = c.reflections.carryLine({ session: "s-next", reflection: bundle.reflection });
     expect(line).toContain("I've been thinking about being understood.");
-    expect(line).toContain(`reflection: ${bundle.reflection}`);
+    // The line asks for no `told` call: handing it over recorded it, as the tool would have.
+    expect(line).toContain(CARRIED_TOLD_NOTE);
+    expect(line).not.toContain('phase "told"');
+    expect(c.store.reflection(bundle.reflection)).toMatchObject({ share_state: "told", share_session: "s-next" });
+    expect(c.store.coreEvents({ memoryId: d.felt, action: "told" })).toHaveLength(1);
     expect(c.reflections.pendingShare({ session: "s-other" })).toBe(null);
     expect(c.reflections.carryLine({ session: "s-other", reflection: bundle.reflection })).toBe(null);
-    // Told.
-    expect(c.reflections.told({ reflection: bundle.reflection, session: "s-next" })).toEqual({ ok: true, reason: "told", cited: 1 });
-    expect(c.store.coreEvents({ memoryId: d.felt, action: "told" })).toHaveLength(1);
+    // A model that still calls `told` finds it told: nothing is recorded twice.
     expect(c.reflections.told({ reflection: bundle.reflection, session: "s-next" }).reason).toBe("already-told");
+    expect(c.store.coreEvents({ memoryId: d.felt, action: "told" })).toHaveLength(1);
   });
 
   test("a memory promoted on reflection alone is named in the next share, once", () => {

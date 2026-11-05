@@ -37,6 +37,8 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
+| Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 11-04 | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | unreleased, 11-04 (HD1 PR) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
 | Hosted's backups let go of a chat-deleted memory "within about two days" (HD1): the 24 h hold, the timer's erase, then Litestream's 12 h snapshot retention plus its unstated enforcement lag | unreleased, 11-04 (HD1 PR); starts at the first hosted deploy with HD1 | **~48 h after the test erase** (dated reminder set at the deploy): on Mike's hosted account, hold and erase one throwaway memory with a unique word, then grep the R2 bucket's newest snapshot for that word. "About two days" goes on /privacy/ only once that passes | [below](#48-h-after-the-first-hosted-chat-delete-hd1-backups) |
 | The first claude.ai chat of the day runs the night (HN1): its wake claims the day and says to run the night, then answer (or ask first, on `ask`) | unreleased, 11-04 (HN1 PR) — hosted gets it when it is deployed | ~1 week after the hosted deploy (dated reminder set at merge): nights started from a chat vs a routine, nights double-started, complaints | [below](#the-first-claudeai-chat-of-the-day-runs-the-night-hn1) |
@@ -44,6 +46,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Starter memories (S1): a new store begins with 11 "told, not lived" memories (`core/told.ts`), lived first in recall, kept out of the night, the wake and the self | 0.3.46, 11-03 (#729, #733) | **no date**: settles when Mike runs his fresh-user test. A seeded new store's first week: were the seeds used, did they crowd anything out | [below](#when-mike-runs-his-fresh-user-test-starter-memories-s1) |
 | Habituation's window is 14 lived days, not 7 (H14, `recall.HABITUATION_WINDOW_DAYS`) | 0.3.46, 11-03 (#707); it was to ship alone after R3S and doesn't: it rides with S1, WF1 and WP1, so its read splits by build and by the held set, not by the release | ~14 lived days after release (dated reminder set at merge): memories held then later opened, asked for or rated 2-3, plus the extra footnotes the 7-day arm would have shown, and held-set size; ROADMAP owns that read. Sooner if a ruling didn't come up or a memory rated 3 sits held | "Due ~14 lived days after the longer habituation window" below |
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
+| Refused calls stay plumbing (TC1): a carried morning share is marked told as it is handed over (no `reflect` call asked of the session); a memory whose subject is our own refused call, a permission prompt or the session's limits keeps no date, open thread or me/us/owner mark (`meta.ownPlumbing`), and no wake line or prompt's ambient recall offers it | 0.3.47 (TC1) | a few nights after release (dated reminder set at merge): no dated or me/us/owner memory about a refused call or prompt, `ownPlumbing` rows and their titles, and no share stuck untold | "Due a few nights after refused calls stay plumbing" below |
 | Write-ups skip plumbing (WP1): the host's line after a declined permission prompt and a hook's output enter no capture; every write-up is told permission prompts, refused tool calls and the system's own notices aren't events between the two | 0.3.46, 11-03 (#731) | a few nights after release (dated reminder set at merge): no write-up memory about a permission prompt or a refused tool, and the person's own words about one still kept | "Due a few nights after write-ups skip plumbing" below |
 | Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
@@ -119,6 +122,49 @@ reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: wat
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
 
+## The tail after a compaction is owed (CT1)
+
+CT1 (2026-11-04, decided by counterparts-a0, lightly held), `core/coverage/index.ts#tailCut`
+(`coverage/NOTES.md` §11). The developer week's d2s1 chaptered at a Stop ask, compacted, said three things in
+six minutes and was never written up (`under-floor:span`). Now the tail after the earliest `pre-compaction`
+boundary later than the session's last record point is owed as an unrecorded session's stretch is (from one piece, S2's rule).
+Tier 0 cost: Dana unchanged; Theo one more write-up in the week (14 → 15), no extra catch-up run.
+
+- **Live cost, the first nights.** Of each night's owed sessions, how many are owed only by a compacted tail
+  (`compactionTail` > 0, `overFloor` false, `recorded` true), and their write-up parts against the night's total.
+  For each such tail, read its pieces on a snapshot: the person's own words, or only `<task-notification>`,
+  peer messages or injected context (pieces carry no source tag, so this is a read of the text). Mostly plumbing
+  says count the one-piece floor from the person's own messages (WP1's frames), which CT1 did not do.
+- **How often it fires.** `counterparts coverage` / the ledger on a snapshot: sessions owed with `compactionTail` > 0,
+  and their pieces. Expect a few a week on a working store; one a day or more says compactions are common enough
+  that this costs real write-ups.
+- **What the write-ups hold.** For those sessions, the night's write-up memories: real content (the d2s1 aside)
+  or nothing / plumbing. Mostly empty says hold the tail to `OWED_PIECES` (3) without the span.
+- **Nothing lost the other way.** No session whose record followed its compaction is newly owed.
+
+Revert: drop the `|| isDebt(stretchOf(tail), false)` arm in `ledger` (`core/coverage/index.ts`).
+
+## Folder attribution (FS1)
+
+FS1 (2026-11-04, from the developer week's three ambers; a fix, no switch): `dream/slices.ts#nightFolder`,
+`core/counterpart-wake-shape.ts` (Coming up), `handoff/last-here.ts#placeWords`. No date: read it on the next developer
+week at tier 2, or on a week of Mike's shaped wakes after release.
+
+- **Night rows by folder.** A dream's merges and gists by `origin_scope`: work in its majority folder (a tie, the newest
+  source's), never none; personal ones under the folder they share, else none. Expect no "Since yesterday, here" item
+  in a folder that is another folder's work. The cost to look for: a cross-folder work fold shows only in its majority
+  folder, so the minority folder's "here" doesn't see it (recall still does). Only directories vote; a night row
+  among the sources votes with its originals' folders.
+- **Coming up.** No "Due today" line in a wake that is another folder's work; the count says "N in other folders" and the
+  `coming up` door lists it. A personal or plain dated item is still due in every folder.
+- **Folder names.** Elsewhere, "Today, elsewhere", "Since you started", Yesterday's places, the about-me line and "Work
+  here"'s "(from …)" name
+  folders by their last part. Two of a name print their paths. A name that reads ambiguous (two repos called `app`
+  under one wake, only one of them named) would say the collision set should be wider.
+
+Revert: `nightFolder` returning the dream's own `scope`; `todayAll`/`other` back to `c.today` / `!c.today && !c.mine`;
+`placeWords` back to the `~`-path.
+
 ## Due ~2 weeks after chat delete (HD1)
 
 (2026-11-04, Mike's yes 09:16, lightly held.) **What we're trying.** A person can ask Claude to delete one memory.
@@ -152,7 +198,8 @@ HAVING MAX(CASE WHEN stage = 'held' THEN seq END) > COALESCE(MAX(CASE WHEN stage
 - On local, the worker's `runner.holds` and `holds.threw` log lines.
 - Claims: each erase is preceded by an `erasing` row (the sweep's claim, one transaction; an undo is refused once it
   exists). More than one `erasing` after a hold is an erase that failed and was tried again after its backoff (an hour,
-  doubling, at most a day); hosted audits `removal.failed` at the first failure only.
+  doubling, at most a day); hosted audits `removal.failed` at the first failure only, as a count and short codes
+  (`1 failed: unknown-id`, `ERR_SQLITE_ERROR`, else `error`), never an error's words (G1 L6).
 - How long one erase takes on a real hosted store: `ownerRemoval` rebuilds the cache (`rebuildCache()`, vectors
   dropped and re-embedded) and VACUUMs both databases inside the tenant's queue, so the person's calls wait on it.
 - Whether people undo: `released` against `held`. Many undos would say deletes are being made by mistake (or by text
@@ -321,6 +368,38 @@ puts inside the rejected `tool_result` and so has never reached capture, turning
 **How to revert:** the two are separate. The sentence: drop `WRITE_UP_PLUMBING_RULE` from `catchUpPrompt` and the
 door's `next`. The reader: move the two frames back into `HOST_FRAMES` (both read as `injected` again, and the hook
 frame inside a system reminder goes back to `classifyBlock`'s `injected`). Neither touches the store's shape.
+
+## Due a few nights after refused calls stay plumbing (2026-11-04, TC1, lightly held — a fix, no switch)
+
+**What we're trying.** In the developer week (11-04) and Dana's (11-03) the carried morning share asked the session to
+call `reflect` `told`; the host's permission prompt denied it, and the session's own Stop-ask `session_end` filed "Morning
+share told to Theo but reflect 'told' call was permission-denied", dated and `us`, which led Coming up in every folder.
+WP1 had only reached the write-ups of ended sessions. Two changes: `Reflections#carryLine` marks the share `told` as it
+hands it over (with `told` on its cites) and asks for no call; and `remember/own-plumbing.ts` reads a memory's subject
+(title, else first line; never `saidBy: owner`), so one about our own refused call, a prompt or the session's limits is
+kept without date, thread or me/us/owner mark (`counterpart-deposit.ts#ownPlumbingOf`, `meta.ownPlumbing`), and no wake
+line (Since here, Since the last night, Elsewhere, Work here, the later-session line) or prompt's ambient recall offers
+it. Doctor's Reflection line says a share was "marked told on delivery". `session_end` and `remember`'s `text` field say not to write them.
+
+**What to look at, a few nights after release.** Read-only, titles and counts only:
+
+```sql
+SELECT id, about, event_date, title, json_extract(meta,'$.ownPlumbing') AS cue, json_extract(meta,'$.build') AS build
+FROM memories WHERE json_extract(meta,'$.ownPlumbing') IS NOT NULL ORDER BY created_at DESC LIMIT 30;
+SELECT id, share_state, share_session FROM reflections ORDER BY started_at DESC LIMIT 7;
+```
+
+- **Every `ownPlumbing` title really is plumbing** (a false positive is a real memory that lost its date); and few of
+  them: the sentence should keep most from being written at all.
+- **No dated or me/us/owner memory about a refusal** got past the gate (the WP1 query above, without `secondHand`).
+- **Shares are `told`, not `offered` for days:** a share stuck `offered` means no session carried it.
+
+**What would change it:** a real memory read as plumbing (narrow the cue that read it); plumbing memories still landing
+dated (a phrasing the cues miss: add it, from the title it used); a person missing a share the model never actually
+told (the host marks delivery, not the telling).
+
+**How to revert:** separate. The carry: write `carried` again in `carryLine` and restore the `told` ask (`CARRIED_TOLD_NOTE`).
+The gate: return null from `ownPlumbingOf`. Neither touches the store's shape.
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 

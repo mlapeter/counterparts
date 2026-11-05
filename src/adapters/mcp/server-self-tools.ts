@@ -595,7 +595,13 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
         const reflection = args["reflection"];
         if (typeof reflection !== "string") return refused("reflection-required", "Pass `reflection`, the id the share named.");
         const out = reflections.told({ reflection, session });
-        if (!out.ok) return refused(out.reason, "Nothing to record: the share was already told, or there was none.");
+        // ALREADY TOLD IS NOT A FAILURE (2026-11-04, TC1): a share a prompt or a
+        // wake carried was marked told as it was handed over, so a model that
+        // still calls `told` gets a plain yes, not an error to explain or file.
+        if (!out.ok && out.reason === "already-told") {
+          return server["result"]({ phase, reflection, told: true, cited: 0, note: "Already marked told: a share handed to a session is marked as it arrives. Nothing to do." }, false);
+        }
+        if (!out.ok) return refused(out.reason, "Nothing to record: there was no share to tell.");
         server["emit"]("mcp.reflect", reflection, { phase: "told", cited: out.cited });
         return server["result"]({ phase, reflection, told: true, cited: out.cited }, false);
       }
@@ -642,7 +648,8 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
         const asked = reflections.joinProposal(reflection);
         if (asked === null) return refused("nothing-proposed", "That reflection asked to join no folders, or the owner's yes is already recorded.");
         if (server.counterpart.store.reflection(reflection)?.share_state !== "told") {
-          return refused("share-not-told", "Tell the share first and mark it told (phase \"told\"); the yes must follow the owner hearing the question.");
+          // Only a share your own `launch` handed back is still untold here (TC1): a carried one was marked as it arrived.
+          return refused("share-not-told", "This share hasn't been told yet: it came back from a reflection you launched, so tell it to the owner first and then call phase \"told\". The yes must follow the owner hearing the question.");
         }
         const folderOn = server["folderOn"]();
         const stale = joinStillStands(server.counterpart.store, asked, { day: server.counterpart.store.livedDay(), ...(folderOn === undefined ? {} : { folderOn }) });

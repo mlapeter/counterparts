@@ -115,7 +115,8 @@ describe("signups: the command", () => {
     const accounts = new Accounts({ path: dbPath, now: () => clock });
     const email = "rosalind.known@example.test";
     const note = "for aunt rosalind, from the lake";
-    const invite = accounts.createInvite({ maxUses: 5, note });
+    // One code across three weeks of the fake clock: past the 7-day default (G1 L4), so its expiry is said.
+    const invite = accounts.createInvite({ maxUses: 5, note, expiresAt: Date.now() + WEEK });
     const leaver = signUp(accounts, "leaver@example.test", invite.code);
     accounts.markDeleted(leaver);
     clock = midWeekAgo(1);

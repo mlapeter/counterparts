@@ -318,7 +318,11 @@ What the record adds (both seats; text never, ids and labels only, sessions name
     (`cli/coverage.ts#coverageReading`, the reading `counterparts coverage` prints): pieces
     captured, written up and unwritten, the stretch's span, owed or not, and why not
     (`under-floor:pieces`, `under-floor:span`, `written`, `lapsed`, `not-a-person`), against
-    the floor as `--set` left it.
+    the floor as `--set` left it. For a session that compacted, an under-floor reason says
+    which side of its newest compaction the stretch sits on (CT1): `:before-compaction`
+    (nothing unwritten after the cut), `:recorded-after-compaction` (a record of its own
+    follows every compaction) or `:after-compaction` (a tail after the cut under
+    `UNRECORDED_OWED_PIECES`, when `--set` raised it); otherwise a tail after the cut is owed.
 - **Per night:** the session it was launched in, the acts asked with their prompt sizes, the
   catch-up's plan just before it ran (`planCatchUp`: sessions owed, and the parts the first
   batch would read of each), and the catch-up's own row afterwards.
