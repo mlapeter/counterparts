@@ -475,6 +475,15 @@ CREATE TABLE IF NOT EXISTS volume_facts (
   name TEXT PRIMARY KEY,
   at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS replica_bases (
+  store_id TEXT PRIMARY KEY,
+  base TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS recovery_proofs (
+  fingerprint TEXT PRIMARY KEY,
+  opened INTEGER NOT NULL,
+  at INTEGER NOT NULL
+);
 `;
 
 /**
@@ -488,8 +497,12 @@ CREATE TABLE IF NOT EXISTS volume_facts (
  *     or put. A store opened before it never had a key anywhere.
  *   - `control-key-in-bucket`: this volume's control key has reached a bucket
  *     (`ensureAll`, after its `ensureStore(control)`).
+ *   - `control-rekey-due` (WB1, the #768 review's HIGH 1): this volume's control
+ *     key was once under `HOSTED_KEKS` (an env leak could have opened it), so
+ *     `migrate-keys` gives control a NEW key and new replicas. Recorded before
+ *     any rewrap moves that key onto the volume KEK, so a run cut short still knows.
  */
-export type VolumeFact = "backups-turned-on" | "control-key-in-bucket";
+export type VolumeFact = "backups-turned-on" | "control-key-in-bucket" | "control-rekey-due";
 
 /** The wrapped DEKs, on the volume (`keys/keys.sqlite`). Not replicated by Litestream (design §5.4). */
 export class KeyStore {
@@ -629,6 +642,55 @@ export class KeyStore {
     return this.wrapper.unwrap(wrapped, storeId);
   }
 
+  /**
+   * Where this key's replicas live, when not the default (the control key after a
+   * re-key: `control/<key id>/`, WB1). Null: the default place.
+   */
+  replicaBase(storeId: string): string | null {
+    return this.db.get<{ base: string }>("SELECT base FROM replica_bases WHERE store_id = ?", storeId)?.base ?? null;
+  }
+
+  setReplicaBase(storeId: string, base: string): void {
+    this.db.run("INSERT INTO replica_bases (store_id, base) VALUES (?, ?) ON CONFLICT(store_id) DO UPDATE SET base = excluded.base", storeId, base);
+  }
+
+  /**
+   * THE RE-KEY'S SWITCH, in one write: `from`'s DEK becomes `to`'s (rewrapped
+   * under `to`'s id), keeping `to`'s `created_at` (R5's (f2) reads it: a re-key
+   * isn't a rebuilt `keys.sqlite`), with `to`'s replicas at `base`; `from` goes.
+   */
+  async promote(from: string, to: string, base: string): Promise<void> {
+    const dek = await this.dek(from);
+    try {
+      this.wrapper.ready?.(this.versions());
+      const wrapped = await this.wrapper.wrap(dek, to);
+      this.db.transaction(() => {
+        if (this.wrapped(to) !== null) this.db.run("UPDATE store_keys SET wrapped = ?, kek_version = ? WHERE store_id = ?", wrapped, kekVersionOf(wrapped), to);
+        else this.db.run("INSERT INTO store_keys (store_id, wrapped, kek_version, created_at) VALUES (?, ?, ?, ?)", to, wrapped, kekVersionOf(wrapped), this.now());
+        this.db.run("INSERT INTO replica_bases (store_id, base) VALUES (?, ?) ON CONFLICT(store_id) DO UPDATE SET base = excluded.base", to, base);
+        this.db.run("DELETE FROM store_keys WHERE store_id = ?", from);
+        this.db.run("DELETE FROM replica_bases WHERE store_id = ?", from);
+      });
+    } finally {
+      dek.fill(0);
+    }
+    try {
+      this.db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* busy: the next one folds it */
+    }
+  }
+
+  /** A recovery private key proven against the bucket (`recover-keys`: it opened `opened` sealed keys, each this volume's). */
+  recordProof(fingerprint: string, opened: number): void {
+    this.db.run("INSERT INTO recovery_proofs (fingerprint, opened, at) VALUES (?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET opened = excluded.opened, at = excluded.at", fingerprint, opened, this.now());
+  }
+
+  /** When the recovery key with this fingerprint was last proven here, or null. */
+  proof(fingerprint: string): { opened: number; at: number } | null {
+    return this.db.get<{ opened: number; at: number }>("SELECT opened, at FROM recovery_proofs WHERE fingerprint = ?", fingerprint) ?? null;
+  }
+
   storeIds(): string[] {
     return this.db.all<{ store_id: string }>("SELECT store_id FROM store_keys ORDER BY created_at").map((r) => r.store_id);
   }
@@ -641,6 +703,7 @@ export class KeyStore {
    */
   delete(storeId: string): void {
     this.db.run("DELETE FROM store_keys WHERE store_id = ?", storeId);
+    this.db.run("DELETE FROM replica_bases WHERE store_id = ?", storeId);
     try {
       this.db.get("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch {

@@ -39,6 +39,9 @@ import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { createHash } from "node:crypto";
+
+import { openDb } from "../../src/core/store/db.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
 import type { KeyStore, RecoverySealer } from "./keys.js";
@@ -48,6 +51,17 @@ import { LITESTREAM_META, RESTORED_MARKER, STORE_ID, oldLitestreamMeta, settleLi
 /** The pseudo-store whose DEK keys the control databases' backups. */
 export const CONTROL_KEY_ID = "control";
 export const CONTROL_DATABASES = ["accounts.sqlite", "oauth.sqlite"] as const;
+/**
+ * The control key a re-key is making (WB1, `migrate-keys`): a row in keys.sqlite
+ * only, never in the bucket, until it is proven and becomes `control`.
+ */
+export const CONTROL_NEXT_ID = "control.next";
+/** Where the control databases' replicas live by default: `control/<db>/`. A re-keyed control key's live at `control/<key id>/<db>/`. */
+export const CONTROL_BASE = "control/";
+export const controlBaseFor = (keyId: string): string => `control/${keyId}/`;
+/** The refusal while a control re-key is half done. */
+export const CONTROL_REKEY_PENDING =
+  "a control re-key (migrate-keys) was cut short: keys/keys.sqlite holds the new control key, not yet proven. Stop the server and run migrate-keys again; it finishes it (docs/hosted/RUNBOOK.md, Write-only backups).";
 
 /** Litestream snapshot interval and retention, in hours (see `config()`): the "purged within 24 h" bound's margin. */
 export const SNAPSHOT_HOURS = 12;
@@ -184,6 +198,38 @@ export interface BackupsOptions {
 export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable" | "locked" | "sealed";
 export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable", "locked", "sealed"];
 
+/**
+ * A database's rows, as one digest (the control re-key's proof): every table's
+ * rows, in a stable order. Two files with the same rows give the same digest,
+ * whatever their pages look like.
+ */
+export function databaseDigest(path: string): string {
+  const db = openDb(path);
+  try {
+    const h = createHash("sha256");
+    const tables = db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+    const plain = (_k: string, v: unknown): unknown => (typeof v === "bigint" ? `${v.toString()}n` : v instanceof Uint8Array ? Buffer.from(v).toString("base64") : v);
+    for (const { name } of tables) {
+      h.update(`table ${name}\n`);
+      const rows = db.all(`SELECT * FROM "${name.replace(/"/g, '""')}"`).map((r) => JSON.stringify(r, plain)).sort();
+      for (const r of rows) h.update(`${r}\n`);
+    }
+    return h.digest("hex");
+  } finally {
+    db.close();
+  }
+}
+
+/** One write transaction on a database, changing no row (the re-key's nudge to a Litestream that ships on change). */
+function touchDatabase(path: string): void {
+  const db = openDb(path, { wal: true });
+  try {
+    db.exec("CREATE TABLE IF NOT EXISTS wb1_rekey_touch (x INTEGER); DROP TABLE wb1_rekey_touch;");
+  } finally {
+    db.close();
+  }
+}
+
 function yamlString(s: string): string {
   return JSON.stringify(s); // a JSON string is a valid YAML double-quoted scalar
 }
@@ -202,7 +248,18 @@ export class Backups {
   }
 
   private keyFile(storeId: string): string {
+    if (storeId === CONTROL_NEXT_ID) return join(this.opts.dataRoot, "control", "litestream.next.key");
     return storeId === CONTROL_KEY_ID ? join(this.opts.dataRoot, "control", "litestream.key") : join(tenantDir(this.tenantsRoot(), storeId), "litestream.key");
+  }
+
+  /** Where the control databases' replicas live now: `control/`, or a re-keyed control key's `control/<key id>/`. */
+  controlBase(): string {
+    return this.opts.keys.replicaBase(CONTROL_KEY_ID) ?? CONTROL_BASE;
+  }
+
+  /** One control database's replica prefix, as listed (`control/accounts.sqlite/`, or under the re-keyed base). */
+  controlPrefix(db: (typeof CONTROL_DATABASES)[number]): string {
+    return `${this.controlBase()}${db}/`;
   }
 
   /** Write the store's SSE-C key file (0600) from its DEK. */
@@ -240,10 +297,21 @@ export class Backups {
     const remote = await this.bucketKey(storeId);
     let wrapped = this.opts.keys.wrapped(storeId);
     let adopted = false;
-    if (wrapped === null && remote.sealed !== null) throw new KeySealed();
+    // The one exception (the #768 review, M2's follow-on): a store never opened,
+    // with NO replica in the bucket. Nothing is encrypted under the bucket's key,
+    // so `recover-keys` couldn't prove it (and doesn't adopt it), and a new key
+    // buries nothing: it is made, and its sealed object is put over the old one.
+    // A forged key object can't then set this store's future backups' key.
+    let unproven = false;
+    if (wrapped === null && remote.sealed !== null) {
+      unproven = storeId !== CONTROL_KEY_ID && this.opts.openedBefore?.(storeId) !== true && (await this.opts.objects.list(replicaPrefix(storeId))).length === 0;
+      if (!unproven) throw new KeySealed();
+    }
     if (wrapped === null && remote.legacy !== null) {
       adopted = await this.opts.keys.adopt(storeId, await this.readable(storeId, remote.legacy));
       wrapped = this.opts.keys.wrapped(storeId);
+      // A control key from before WB1: an env leak could have opened it, so migrate-keys re-keys it (HIGH 1).
+      if (storeId === CONTROL_KEY_ID) this.opts.keys.recordFact("control-rekey-due");
     }
     if (wrapped === null && storeId !== CONTROL_KEY_ID && this.opts.openedBefore?.(storeId) === true) {
       // A store that lived, with no key here and none in the bucket: its key may
@@ -253,14 +321,16 @@ export class Backups {
       throw new StoreKeyMissing();
     }
     if (wrapped === null) await this.opts.keys.create(storeId);
-    if (adopted || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
+    if (adopted || unproven || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
     const mine = (await this.opts.keys.keyId(storeId))!;
     const differs = (): Error =>
       // The control key, said as such (the #658 review): after a start against
       // a wrong, empty bucket made this volume a new one, "a different key for
       // that store" misleads. The RUNBOOK's way back is named.
       storeId === CONTROL_KEY_ID ? new Error(CONTROL_KEY_DIFFERS) : new Error("a different key for that store is already here");
-    if (remote.sealed !== null) {
+    if (unproven) {
+      await this.opts.objects.put(keyObject(storeId), await this.opts.keys.sealed(storeId, this.opts.sealer));
+    } else if (remote.sealed !== null) {
       const header = sealedHeader(remote.sealed);
       if (header === null) throw new Error("a store's key object in the bucket (keys/<id>.sealed) isn't one this server wrote: nothing was put over it. Tell the coordinator.");
       if (header.keyId !== mine) throw differs();
@@ -320,6 +390,7 @@ export class Backups {
    * (and said so), never allowed to stop every other person's start.
    */
   async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
+    if (this.opts.keys.wrapped(CONTROL_NEXT_ID) !== null) throw new Error(CONTROL_REKEY_PENDING);
     const unreadable = await this.opts.keys.unreadable();
     if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys in keys/keys.sqlite don't open: keys/volume.kek is missing or not this volume's, or they are under ${KEK_ENV} and the environment no longer has that ring (set ${KEK_ENV} back as it was and run migrate-keys; docs/hosted/RUNBOOK.md, Write-only backups).`);
     // (f) THE BUCKET IS THIS VOLUME'S: it held the control key BEFORE this start.
@@ -454,6 +525,118 @@ export class Backups {
     return { put, different };
   }
 
+  /** Is a control re-key due (or half done)? Due: the control key was once under HOSTED_KEKS and still lives at the default base. */
+  controlRekeyDue(): boolean {
+    if (this.opts.keys.wrapped(CONTROL_NEXT_ID) !== null) return true;
+    return this.opts.keys.fact("control-rekey-due") !== null && this.opts.keys.replicaBase(CONTROL_KEY_ID) === null;
+  }
+
+  /**
+   * THE CONTROL RE-KEY (WB1; the #768 review's HIGH 1). A control key that was
+   * ever under `HOSTED_KEKS` stays openable by an old environment and an old copy
+   * of `keys/control.wrapped`, and so does its SSE-C key: every control snapshot,
+   * past and future (every person's email, the OAuth rows). So control gets a NEW
+   * DEK and new replicas, with the server stopped:
+   *
+   *   1. the new key, `control.next`, in keys.sqlite only (a run again reuses it);
+   *   2. the control databases replicated under it to `control/<its key id>/`,
+   *      once Litestream's local state for them is cleared, by a Litestream of
+   *      the re-key's own (`rekeyConfig`); unless that base already PROVES
+   *      (a run cut short after this step);
+   *   3. PROVEN: each database restored from the new base, under the new key, to
+   *      a scratch file whose rows equal the live file's. Not proven: nothing
+   *      switched, the old replicas and key untouched; a run again starts here;
+   *   4. the switch: `keys/control.sealed` sealed to the new key FIRST (a volume
+   *      lost now restores the new replicas), then keys.sqlite in one write
+   *      (`promote`: control's row the new key, its `created_at` kept for R5's
+   *      (f2), its base the new one), then its key file;
+   *   5. the old replicas (`control/<db>/`) deleted (`dropOldControlReplicas`).
+   *
+   * R7's facts are untouched: the control key object stays in the bucket the
+   * whole time (`bucketProven`, `control-key-in-bucket`). A start while step 1-4
+   * is unfinished refuses (`CONTROL_REKEY_PENDING`). Returns what it did.
+   */
+  async rekeyControl(o: { sidecar: (configPath: string) => Sidecar; run: LitestreamRun; proveMs?: number }): Promise<"done" | "not-due"> {
+    if (!this.controlRekeyDue()) return "not-due";
+    const paths = this.dbPaths(CONTROL_KEY_ID);
+    for (const p of paths) if (!existsSync(p)) throw new Error("a control re-key needs both control databases on this volume: restore them first");
+    if (this.opts.keys.wrapped(CONTROL_NEXT_ID) === null) await this.opts.keys.create(CONTROL_NEXT_ID);
+    const base = controlBaseFor((await this.opts.keys.keyId(CONTROL_NEXT_ID))!);
+    const yml = join(this.opts.dataRoot, "litestream.rekey.yml");
+    await this.writeKeyFile(CONTROL_NEXT_ID);
+    writeFileSync(yml, this.rekeyConfig(base), { mode: 0o600 });
+    try {
+      if (!(await this.rekeyProven(base, yml, o.run))) {
+        // Whatever is at the new base is unproven: it goes, and Litestream starts a fresh snapshot there.
+        for (const db of CONTROL_DATABASES) await this.opts.objects.deletePrefix(`${base}${db}/`);
+        for (const p of paths) rmSync(join(dirname(p), `.${basename(p)}-litestream`), { recursive: true, force: true });
+        const sidecar = o.sidecar(yml);
+        await sidecar.reload();
+        let proven = false;
+        try {
+          // A write to each, so even a Litestream that ships only on change has one to ship.
+          for (const p of paths) touchDatabase(p);
+          const until = Date.now() + (o.proveMs ?? 120_000);
+          while (!proven && Date.now() < until) {
+            await new Promise((r) => setTimeout(r, 1000));
+            proven = await this.rekeyProven(base, yml, o.run);
+          }
+        } finally {
+          await sidecar.stop();
+        }
+        if (!proven) throw new Error("the control re-key's new snapshot didn't prove (restored, it didn't equal the control databases here) within the time: nothing was switched, the old control key and replicas are as they were. Run migrate-keys again");
+      }
+      const next = await this.opts.keys.dek(CONTROL_NEXT_ID);
+      try {
+        await this.opts.objects.put(keyObject(CONTROL_KEY_ID), this.opts.sealer.seal(next, CONTROL_KEY_ID));
+      } finally {
+        next.fill(0);
+      }
+      await this.opts.keys.promote(CONTROL_NEXT_ID, CONTROL_KEY_ID, base);
+      renameSync(this.keyFile(CONTROL_NEXT_ID), this.keyFile(CONTROL_KEY_ID));
+      chmodSync(this.keyFile(CONTROL_KEY_ID), 0o600);
+    } finally {
+      rmSync(yml, { force: true });
+      rmSync(this.keyFile(CONTROL_NEXT_ID), { force: true });
+    }
+    await this.dropOldControlReplicas();
+    return "done";
+  }
+
+  /** The control databases restored from `base` (the re-key's config) equal the files here: the new snapshot is proven. */
+  private async rekeyProven(base: string, yml: string, run: LitestreamRun): Promise<boolean> {
+    for (const db of CONTROL_DATABASES) if ((await this.opts.objects.list(`${base}${db}/`)).length === 0) return false;
+    for (const path of this.dbPaths(CONTROL_KEY_ID)) {
+      const out = `${path}.rekey-proof`;
+      const clean = (): void => {
+        for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
+      };
+      clean();
+      try {
+        const r = await run(["restore", "-config", yml, "-o", out, "-if-replica-exists", path]);
+        if (r.code !== 0 || !existsSync(out)) return false;
+        if (databaseDigest(out) !== databaseDigest(path)) return false;
+      } catch {
+        return false;
+      } finally {
+        clean();
+      }
+    }
+    return true;
+  }
+
+  /**
+   * After a re-key: the control replicas at the default base (`control/<db>/`,
+   * under the old key) deleted, once control's base is another. Idempotent.
+   * Returns how many objects went.
+   */
+  async dropOldControlReplicas(): Promise<number> {
+    if (this.controlBase() === CONTROL_BASE) return 0;
+    let n = 0;
+    for (const db of CONTROL_DATABASES) n += await this.opts.objects.deletePrefix(`${CONTROL_BASE}${db}/`);
+    return n;
+  }
+
   /**
    * DELETE AT ONCE: the local wrapped DEK (so the configuration, written from
    * the key store, no longer has this store), then out of the sidecar — WAITING
@@ -569,9 +752,9 @@ export class Backups {
     return this.opts.liveStores().filter((id) => !existsSync(this.dbPaths(id)[0]!));
   }
 
-  /** The Litestream configuration for every store that has a key, and the control databases. No secret in it. */
-  config(restoring?: string): string {
-    const replica = (path: string, keyFile: string): string[] => [
+  /** One replica's lines in the configuration (`config`, `rekeyConfig`). */
+  private replicaLines(path: string, keyFile: string): string[] {
+    return [
       `    replica:`,
       `      type: s3`,
       `      bucket: ${yamlString(this.opts.bucket)}`,
@@ -580,6 +763,21 @@ export class Backups {
       `      region: auto`,
       `      sse-customer-key-path: ${yamlString(keyFile)}`,
     ];
+  }
+
+  /**
+   * The re-key's own configuration (WB1): the two control databases only, at
+   * `base`, under the NEW control key's key file. Never the sidecar's.
+   */
+  rekeyConfig(base: string): string {
+    const lines = ["# Generated by hosted/src/backup.ts for a control re-key (migrate-keys). Not the sidecar's.", "logging:", "  stderr: true", "snapshot:", `  interval: ${SNAPSHOT_HOURS}h`, `  retention: ${SNAPSHOT_HOURS}h`, "dbs:"];
+    for (const db of CONTROL_DATABASES) lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...this.replicaLines(`${base}${db}`, this.keyFile(CONTROL_NEXT_ID)));
+    return `${lines.join("\n")}\n`;
+  }
+
+  /** The Litestream configuration for every store that has a key, and the control databases. No secret in it. */
+  config(restoring?: string): string {
+    const replica = (path: string, keyFile: string): string[] => this.replicaLines(path, keyFile);
     // SNAPSHOTS EVERY 12 h, KEPT 12 h (Mike, 2026-10-26: "your account email is
     // purged from backups within 24 h"). A deleted address lives on in the
     // control database's history until the last snapshot taken before the
@@ -608,7 +806,7 @@ export class Backups {
     const listed: string[] = [];
     if (ids.includes(CONTROL_KEY_ID)) {
       for (const db of CONTROL_DATABASES) {
-        lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...replica(`control/${db}`, this.keyFile(CONTROL_KEY_ID)));
+        lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...replica(`${this.controlBase()}${db}`, this.keyFile(CONTROL_KEY_ID)));
       }
     }
     for (const id of ids) {
@@ -746,6 +944,8 @@ export class UploadWatch {
   private readonly opts: {
     readonly objects: ObjectStore;
     readonly heartbeat: () => void;
+    /** The replica prefix it LISTs (control's accounts database: under a re-keyed control's base after WB1's migration). Absent: `WATCHED_REPLICA`. */
+    readonly prefix?: () => string;
     readonly now: () => number;
     readonly staleAfterMs?: number;
     readonly onEvent?: (e: UploadsEvent) => void;
@@ -786,7 +986,8 @@ export class UploadWatch {
       const riseBefore = this.lastRiseAt;
       let reason: UploadsReason = "no-rise";
       try {
-        const max = maxTxid(await this.opts.objects.list(WATCHED_REPLICA), WATCHED_REPLICA);
+        const watched = this.opts.prefix?.() ?? WATCHED_REPLICA;
+        const max = maxTxid(await this.opts.objects.list(watched), watched);
         if (this.lastMax !== null && max > this.lastMax) this.lastRiseAt = this.opts.now();
         // Lower than before (a restore, a new bucket): the new baseline, not a rise.
         this.lastMax = max;

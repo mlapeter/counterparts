@@ -13,7 +13,7 @@
  *   … main.ts recovery-keygen <new file>   (on Mike's Mac: a recovery keypair; the private key into the file, 0600)
  *   … main.ts recovery-fingerprint [--key-file <path>]   (a private key's fingerprint, the key read from stdin, not shown)
  *   … main.ts migrate-keys [--dry-run]   (server stopped, HOSTED_KEKS still set: the keys onto the volume KEK, the bucket's sealed)
- *   … main.ts recover-keys [--dry-run] [--key-file <path>] [--control-aside <label>]   (server stopped, after a volume is lost:
+ *   … main.ts recover-keys [--dry-run] [--key-file <path>] [--control-aside <label>] [--adopt-unproven]   (after a volume is lost:
  *                                         the private key from stdin, not shown, or the file; never from the environment)
  *   … main.ts hold   (a start-command override: answers /readyz and nothing else, so `railway ssh` reaches a stopped server)
  *
@@ -779,7 +779,9 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const out = await migrateKeys(read.dataRoot, backup, { dryRun: rest.includes("--dry-run") });
+    // The control re-key runs a Litestream of its own, on the same binary and environment as the sidecar.
+    const litestream = { run: restoreRunner(env), sidecar: (configPath: string) => new LitestreamSidecar({ binary: litestreamBinary(env), configPath, env: litestreamEnv(env, env["R2_ACCESS_KEY_ID"] ?? "", env["R2_SECRET_ACCESS_KEY"] ?? ""), onEvent: (name) => process.stderr.write(`[hosted] re-key ${name}\n`) }) };
+    const out = await migrateKeys(read.dataRoot, backup, { dryRun: rest.includes("--dry-run"), litestream });
     process.stdout.write(`${out.text}\n`);
     if (out.left > 0) process.exitCode = 1;
     return;
@@ -826,7 +828,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const out = await recoverKeys(read.dataRoot, backup, opener, { dryRun });
+    const out = await recoverKeys(read.dataRoot, backup, opener, { dryRun, adoptUnproven: rest.includes("--adopt-unproven") });
     process.stdout.write(`${out.text}\n`);
     if (out.failed > 0) process.exitCode = 1;
     return;

@@ -16,6 +16,8 @@
  *
  * Nothing here logs a token, an address or a message body.
  */
+import { createHash } from "node:crypto";
+
 import { AwsClient } from "aws4fetch";
 
 export interface Mail {
@@ -69,6 +71,13 @@ export interface ObjectStore {
   list(prefix: string): Promise<string[]>;
   /** Every object under `prefix`; returns how many were deleted. */
   deletePrefix(prefix: string): Promise<number>;
+  /**
+   * Does this object open under this SSE-C key (base64)? One ranged GET with the
+   * key's headers: true on 200/206, false when the store refuses the key (or the
+   * object is gone). WB1: `recover-keys` proves a sealed key against the store's
+   * own replica before adopting it. Absent: the store can't tell (a test's memory).
+   */
+  readableWith?(key: string, sseKeyBase64: string): Promise<boolean>;
 }
 
 export interface R2Options {
@@ -142,6 +151,22 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
       const keys = await store.list(prefix);
       for (const k of keys) await store.delete(k);
       return keys.length;
+    },
+    async readableWith(key, sseKeyBase64) {
+      const raw = Buffer.from(sseKeyBase64, "base64");
+      const res = await send(`${base}/${objectKey(key)}`, {
+        method: "GET",
+        headers: {
+          range: "bytes=0-0",
+          "x-amz-server-side-encryption-customer-algorithm": "AES256",
+          "x-amz-server-side-encryption-customer-key": sseKeyBase64,
+          "x-amz-server-side-encryption-customer-key-md5": createHash("md5").update(raw).digest("base64"),
+        },
+      });
+      await res.arrayBuffer().catch(() => undefined);
+      if (res.status === 200 || res.status === 206) return true;
+      if (res.status >= 400 && res.status < 500) return false;
+      throw new Error(`object store GET answered ${String(res.status)}`);
     },
   };
   return store;

@@ -1430,7 +1430,7 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.match(wrong.stderr, /isn't the recovery key/);
     const dry = await cli(env, ["recover-keys", "--dry-run"], `${RECOVERY.privateText}\n`);
     assert.equal(dry.status, 0, dry.stderr);
-    assert.match(dry.stdout, /nothing written[\s\S]*1 keys open with it/);
+    assert.match(dry.stdout, /nothing written but the proof[\s\S]*1 keys would be brought back/);
     assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null, "a dry run writes nothing");
     const done = await cli(env, ["recover-keys"], `${RECOVERY.privateText}\n`);
     assert.equal(done.status, 0, done.stderr);

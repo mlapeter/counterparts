@@ -15,12 +15,39 @@ import { join } from "node:path";
 import { Accounts } from "./accounts.js";
 import { controlVolume, foreignControlRefusal } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, CONTROL_KEY_ID, keyObject, keyObjectId, legacyKeyObject, tombstoneObject } from "./backup.js";
-import { KEK_CURRENT_ENV, KEK_ENV, KeyStore, sealedHeader } from "./keys.js";
+import { Backups, CONTROL_BASE, CONTROL_KEY_ID, controlBaseFor, keyObject, keyObjectId, legacyKeyObject, replicaPrefix, tombstoneObject } from "./backup.js";
+import type { LitestreamRun, Sidecar } from "./backup.js";
+import { KEK_CURRENT_ENV, KEK_ENV, KeyStore, VOLUME_KEK_VERSION, keyIdOf, kekVersionOf, litestreamKey, sealedHeader } from "./keys.js";
 import type { RecoveryOpener } from "./keys.js";
 import { STORE_ID, storeTag, tenantDir } from "./tenants.js";
 
 const tagOf = (id: string): string => (id === CONTROL_KEY_ID ? CONTROL_KEY_ID : storeTag(id));
+
+/**
+ * A sealed key, proven against the store's own replica (the #768 review's M2):
+ * one of its objects opens under the key's SSE-C key ("ok"), refuses it
+ * ("refused": the key object may be forged), or there is nothing to try
+ * ("empty"). Control's replicas are looked for at a re-keyed key's base
+ * (`control/<key id>/`) first, then at the default; "ok" says which (`base`,
+ * null for the default).
+ */
+async function replicaProof(backup: AppBackupOptions, id: string, dek: Buffer): Promise<{ state: "ok"; base: string | null } | { state: "refused" | "empty" | "cannot" }> {
+  const check = backup.objects.readableWith?.bind(backup.objects);
+  const places: { prefix: string; base: string | null }[] =
+    id === CONTROL_KEY_ID
+      ? [
+          { prefix: `${controlBaseFor(keyIdOf(dek))}accounts.sqlite/`, base: controlBaseFor(keyIdOf(dek)) },
+          { prefix: `${CONTROL_BASE}accounts.sqlite/`, base: null },
+        ]
+      : [{ prefix: replicaPrefix(id), base: null }];
+  for (const place of places) {
+    const objects = await backup.objects.list(place.prefix);
+    if (objects.length === 0) continue;
+    if (check === undefined) return { state: "cannot" };
+    return (await check(objects[0]!, litestreamKey(dek))) ? { state: "ok", base: place.base } : { state: "refused" };
+  }
+  return { state: "empty" };
+}
 
 /**
  * `migrate-keys [--dry-run]` (WB1): from the shape before WB1 (DEKs wrapped
@@ -46,7 +73,11 @@ const tagOf = (id: string): string => (id === CONTROL_KEY_ID ? CONTROL_KEY_ID : 
  * second run on a migrated volume does nothing. `dryRun` reads everything,
  * writes nothing (not even the volume KEK), and says what a run would do.
  */
-export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, opts: { dryRun?: boolean } = {}): Promise<{ text: string; left: number }> {
+export async function migrateKeys(
+  dataRoot: string,
+  backup: AppBackupOptions,
+  opts: { dryRun?: boolean; litestream?: { sidecar: (configPath: string) => Sidecar; run: LitestreamRun; proveMs?: number } } = {},
+): Promise<{ text: string; left: number }> {
   const dry = opts.dryRun === true;
   const accountsPath = join(dataRoot, "control", "accounts.sqlite");
   if (!existsSync(accountsPath)) throw new Error("no accounts database on this volume: nothing to migrate (a new server starts in the new shape by itself)");
@@ -65,6 +96,24 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
     const would = dry ? "would be " : "";
     const lines: string[] = [];
     const kept: string[] = [];
+
+    // 0. THE PROOF (the #768 review's M3): the old key objects are the last copies the old KEK opens, and a mistyped
+    // recovery key would leave none that open. So nothing is deleted, moved or re-keyed until `recover-keys --dry-run`
+    // has opened this bucket's sealed keys with the private key (it records the proof here).
+    const fp = backup.sealer.fingerprint;
+    const proof = keys.proof(fp);
+    if (proof === null && !dry) {
+      throw new Error(`no proof yet that the recovery private key opens this bucket's keys: run recover-keys --dry-run with it first (beside the running server is fine; it writes only the proof), with each offline copy. Nothing was written`);
+    }
+    lines.push(proof === null ? `recovery key ${fp}: NOT proven yet; a run refuses until recover-keys --dry-run has opened the bucket's keys with it` : `recovery key ${fp}: proven ${new Date(proof.at).toISOString()} (${String(proof.opened)} sealed keys opened)`);
+    if (proof === null) kept.push(`the recovery key ${fp} isn't proven: run recover-keys --dry-run with it first`);
+
+    // 1b. Control's key once under HOSTED_KEKS ⇒ a re-key (HIGH 1). Recorded BEFORE the rewrap below moves it onto the
+    // volume KEK, so a run cut short still knows.
+    const controlWrapped = keys.wrapped(CONTROL_KEY_ID);
+    const controlWasLegacy = (controlWrapped !== null && kekVersionOf(controlWrapped) !== VOLUME_KEK_VERSION) || (await backup.objects.get(legacyKeyObject(CONTROL_KEY_ID))) !== null;
+    if (controlWasLegacy && !dry && keys.replicaBase(CONTROL_KEY_ID) === null) keys.recordFact("control-rekey-due");
+    const rekeyDue = backups.controlRekeyDue() || (dry && controlWasLegacy && keys.replicaBase(CONTROL_KEY_ID) === null);
 
     // 2. Onto the volume KEK.
     const toMove = keys.notOnCurrent();
@@ -86,6 +135,20 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
       }
     }
     if (adoptable.size > 0) lines.push(`${String(adoptable.size)} keys ${would}adopted from the bucket's old key objects (no key for them was on this volume)`);
+
+    // 3b. The control re-key (HIGH 1): a new control key, new control replicas, proven, then the old ones gone.
+    if (rekeyDue) {
+      if (dry) lines.push("control would be re-keyed: a new control key, its databases replicated under it to a new place, proven by a restore, then the old control replicas deleted");
+      else if (opts.litestream === undefined) kept.push(`control: its key was under ${KEK_ENV} and needs a re-key, which needs Litestream (run migrate-keys from the server's image)`);
+      else {
+        await backups.rekeyControl(opts.litestream);
+        lines.push(`control re-keyed: a new control key; the control databases replicated under it (${backups.controlBase()}), proven by a restore; the old control replicas deleted`);
+      }
+    } else if (!dry) {
+      // A run after a re-key that stopped before its last step: the old replicas still go.
+      const dropped = await backups.dropOldControlReplicas();
+      if (dropped > 0) lines.push(`${String(dropped)} old control replica objects (from before the re-key) deleted`);
+    }
 
     // 4. The sealed objects. In a dry run the adoptable ones count as here.
     const sync = await backups.syncKeyObjects({ dryRun: dry });
@@ -121,6 +184,12 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
       }
       if (adoptable.has(id)) {
         // Adopted from this very object (or, in a dry run, would be).
+        if (!dry) await backup.objects.delete(name);
+        removed += 1;
+        continue;
+      }
+      if (id === CONTROL_KEY_ID && (backups.controlBase() !== CONTROL_BASE || (dry && rekeyDue))) {
+        // The OLD control key, after the re-key (or in a dry run, the one it would replace): its replicas are gone, so it opens nothing we keep.
         if (!dry) await backup.objects.delete(name);
         removed += 1;
         continue;
@@ -191,7 +260,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
  * `dryRun` opens every sealed key and writes nothing: the offline copy proven
  * against the bucket.
  */
-export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, opener: RecoveryOpener, opts: { dryRun?: boolean } = {}): Promise<{ text: string; failed: number }> {
+export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, opener: RecoveryOpener, opts: { dryRun?: boolean; adoptUnproven?: boolean } = {}): Promise<{ text: string; failed: number }> {
   const dry = opts.dryRun === true;
   // Never the control key beside control databases that aren't the bucket's (the #653 review, H1).
   const foreign = foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup));
@@ -229,7 +298,11 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
     let here = 0;
     let deleted = 0;
     let other = 0;
+    let opened = 0;
+    let unproven = 0;
     const failed: string[] = [];
+    const warnings: string[] = [];
+    const legacyControl = (await backup.objects.get(legacyKeyObject(CONTROL_KEY_ID))) !== null;
     for (const [id, sealed] of headers) {
       if (id !== CONTROL_KEY_ID && (await backup.objects.get(tombstoneObject(id))) !== null) {
         deleted += 1;
@@ -245,12 +318,7 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
         failed.push(`${tagOf(id)}: sealed to another recovery key (${h.fingerprint})`);
         continue;
       }
-      const mine = keys === null ? null : await keys.keyId(id);
-      if (mine !== null) {
-        if (mine === h.keyId) here += 1;
-        else failed.push(`${tagOf(id)}: this volume has another key for it (kept; the bucket's is not adopted)`);
-        continue;
-      }
+      // Every sealed key is OPENED, the ones this volume holds too: that is what proves the private key (M3).
       let dek: Buffer;
       try {
         dek = opener.open(sealed, id);
@@ -259,24 +327,65 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
         continue;
       }
       try {
+        opened += 1;
+        if (keys !== null && keys.wrapped(id) !== null) {
+          const mine = await keys.dek(id);
+          const same = mine.equals(dek);
+          mine.fill(0);
+          if (same) here += 1;
+          else failed.push(`${tagOf(id)}: this volume has another key for it (kept; the bucket's is not adopted)`);
+          continue;
+        }
+        // NOT ADOPTED UNPROVEN (the #768 review's M2): anyone with R2 write can seal
+        // a key of their choosing to the public key. So a key is adopted only once
+        // one of the store's own replica objects opens under its SSE-C key.
+        const proof = await replicaProof(backup, id, dek);
+        if (proof.state === "refused") {
+          failed.push(`${tagOf(id)}: its replica doesn't open under the sealed key's SSE-C key: the key object may be FORGED (someone with R2 write access). Not adopted`);
+          continue;
+        }
+        if (proof.state === "cannot") {
+          failed.push(`${tagOf(id)}: this object store can't check a replica: not adopted`);
+          continue;
+        }
+        if (proof.state === "empty") {
+          if (opts.adoptUnproven !== true) {
+            // Nothing is under its key: never opened, or never replicated. Left, and given a new key at its first open.
+            unproven += 1;
+            continue;
+          }
+          warnings.push(`WARNING: ${tagOf(id)} adopted with NO replica to prove its key against (--adopt-unproven): if anyone else could write the bucket, its future backups may be under THEIR key`);
+        }
         if (!dry && keys !== null) {
           await keys.adoptDek(id, dek);
+          if (id === CONTROL_KEY_ID) {
+            if (proof.state === "ok" && proof.base !== null) keys.setReplicaBase(CONTROL_KEY_ID, proof.base);
+            // The bucket still has the control key from before WB1: migrate-keys re-keys control (HIGH 1).
+            if (legacyControl) keys.recordFact("control-rekey-due");
+          }
           // The key file is written again from this key by the next start (`ensureStore`).
           rmSync(id === CONTROL_KEY_ID ? join(dataRoot, "control", "litestream.key") : join(tenantDir(join(dataRoot, "tenants"), id), "litestream.key"), { force: true });
         }
+        brought += 1;
       } finally {
         dek.fill(0);
       }
-      brought += 1;
     }
+    // THE PROOF (M3): this private key opened every sealed key it met, each this volume's or proven against its
+    // replica. migrate-keys deletes nothing without it. The only write a dry run makes, and only on a volume with keys.
+    const proven = keys !== null && failed.length === 0 && opened > 0;
+    if (proven) keys.recordProof(opener.fingerprint, opened);
     const lines = [
-      `${dry ? "recover-keys --dry-run (nothing written)" : "recover-keys"}: recovery key ${opener.fingerprint}`,
-      `${String(brought)} keys ${dry ? "open with it, and would be brought back from the bucket" : "brought back from the bucket (wrapped under this volume's key, keys/volume.kek)"}`,
+      `${dry ? "recover-keys --dry-run (nothing written but the proof)" : "recover-keys"}: recovery key ${opener.fingerprint}: ${String(opened)} sealed keys opened with it`,
+      `${String(brought)} keys ${dry ? "would be brought back from the bucket (each proven against its replica)" : "brought back from the bucket (each proven against its replica; wrapped under this volume's key, keys/volume.kek)"}`,
       `${String(here)} already here (the same key), ${String(deleted)} skipped (the bucket has their tombstone: deleted)`,
     ];
+    if (unproven > 0) lines.push(`${String(unproven)} not adopted: no replica to prove the key against (never opened, or never backed up). Each gets a new key at its first open; --adopt-unproven adopts them anyway`);
+    lines.push(...warnings);
     if (other > 0) lines.push(`${String(other)} sealed to another recovery key`);
     if (failed.length > 0) lines.push(`${String(failed.length)} not brought back:`, ...failed.map((f) => `  - ${f}`));
     if (backup.sealer.fingerprint !== opener.fingerprint) lines.push(`note: HOSTED_RECOVERY_PUBKEY is another key (${backup.sealer.fingerprint}); the next start seals every key to it`);
+    if (proven) lines.push(`proof recorded: recovery key ${opener.fingerprint} opens this bucket's keys (migrate-keys needs it)`);
     if (!dry) lines.push(failed.length === 0 ? "next: deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore)." : "fix the lines above, then run it again (it is safe to repeat).");
     return { text: lines.join("\n"), failed: failed.length };
   } finally {

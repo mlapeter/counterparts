@@ -504,6 +504,7 @@ export function createApp(opts: AppOptions): App {
       : new UploadWatch({
           objects: opts.backup.objects,
           heartbeat: () => accounts.heartbeat(),
+          ...(backups === null ? {} : { prefix: () => backups.controlPrefix("accounts.sqlite") }),
           now: opts.now ?? Date.now,
           ...(opts.uploadsStaleMs === undefined ? {} : { staleAfterMs: opts.uploadsStaleMs }),
           ...(opts.onUploads === undefined ? {} : { onEvent: opts.onUploads }),
