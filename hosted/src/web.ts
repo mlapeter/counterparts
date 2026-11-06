@@ -124,12 +124,15 @@ export function safeNext(raw: unknown): string {
  * JetBrains Mono), since the CSP loads nothing. No url(), no @import: with
  * `default-src 'none'` neither could load anyway.
  * Buttons take their weight from the markup they already have: Allow and the
- * sign-in button are primary, the delete buttons are red, the rest are quiet.
+ * sign-in button are primary, the delete buttons are red, the rest are quiet
+ * (pinned against the real pages in test/delete.test.ts). --field, the input
+ * and button border, holds 3:1 against what it sits on (WCAG 1.4.11); --line,
+ * the card and divider lines, is decoration and stays faint.
  */
-const PAGE_STYLE = [
-  ":root{color-scheme:light dark;--bg:#faf8f3;--panel:#fffefa;--soft:#f3f0e8;--line:#e3dfd3;--line-2:#cfc9ba;--ink:#1a1915;--ink-2:#5f5b51;--accent:#16708c;--accent-ink:#ffffff;--accent-glow:none;--danger:#a3301e;--mark-glow:none;--ground:#faf8f3;--head:#1a1915;",
+export const PAGE_STYLE = [
+  ":root{color-scheme:light dark;--bg:#faf8f3;--panel:#fffefa;--soft:#f3f0e8;--line:#e3dfd3;--field:#8a8373;--ink:#1a1915;--ink-2:#5f5b51;--accent:#16708c;--accent-ink:#ffffff;--accent-glow:none;--danger:#a3301e;--mark-glow:none;--ground:#faf8f3;--head:#1a1915;",
   "--serif:\"Iowan Old Style\",\"Palatino Linotype\",Palatino,Georgia,serif;--mono:ui-monospace,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;--sans:ui-sans-serif,system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif}",
-  "@media (prefers-color-scheme:dark){:root{--bg:#04070c;--panel:#0a0f17;--soft:#070b11;--line:rgba(0,229,255,.14);--line-2:rgba(0,229,255,.32);--ink:#c5cdd8;--ink-2:#8a95a3;--accent:#00e5ff;--accent-ink:#03121a;--accent-glow:0 0 24px rgba(0,229,255,.3);--danger:#ff7a6e;--mark-glow:0 0 20px rgba(0,229,255,.4),0 0 45px rgba(0,229,255,.12);--ground:radial-gradient(1200px 800px at 70% 0%,#0a1220 0%,#04070c 62%) #04070c;--head:#e8eef5}}",
+  "@media (prefers-color-scheme:dark){:root{--bg:#04070c;--panel:#0a0f17;--soft:#070b11;--line:rgba(0,229,255,.14);--field:#2f7d8a;--ink:#c5cdd8;--ink-2:#8a95a3;--accent:#00e5ff;--accent-ink:#03121a;--accent-glow:0 0 24px rgba(0,229,255,.3);--danger:#ff7a6e;--mark-glow:0 0 20px rgba(0,229,255,.4),0 0 45px rgba(0,229,255,.12);--ground:radial-gradient(1200px 800px at 70% 0%,#0a1220 0%,#04070c 62%) #04070c;--head:#e8eef5}}",
   "*,*::before,*::after{box-sizing:border-box}",
   "html{background:var(--bg);-webkit-text-size-adjust:100%}",
   "body{margin:0;min-height:100vh;background:var(--ground);color:var(--ink);font:17px/1.6 var(--serif);-webkit-font-smoothing:antialiased;overflow-wrap:break-word}",
@@ -151,10 +154,10 @@ const PAGE_STYLE = [
   "form{margin:0 0 1rem}form>br,label>br{display:none}",
   "label{display:block;margin:0 0 1rem;font:500 13px/1.4 var(--mono);color:var(--ink-2)}",
   "label .muted{font-size:1em}",
-  "input[type=email],input[type=text]{display:block;width:100%;min-height:44px;margin-top:.4rem;padding:0 14px;font:15px var(--mono);color:var(--ink);background:var(--soft);border:1px solid var(--line-2);border-radius:4px}",
+  "input[type=email],input[type=text]{display:block;width:100%;min-height:44px;margin-top:.4rem;padding:0 14px;font:15px var(--mono);color:var(--ink);background:var(--soft);border:1px solid var(--field);border-radius:4px}",
   "input[type=email]:hover,input[type=text]:hover{border-color:var(--accent)}",
   "input[type=email]:focus,input[type=text]:focus{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}",
-  "button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:.25rem .5rem .25rem 0;padding:0 18px;font:600 13px/1.2 var(--mono);color:var(--ink);background:transparent;border:1px solid var(--line-2);border-radius:4px;cursor:pointer;text-align:center}",
+  "button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:.25rem .5rem .25rem 0;padding:0 18px;font:600 13px/1.2 var(--mono);color:var(--ink);background:transparent;border:1px solid var(--field);border-radius:4px;cursor:pointer;text-align:center}",
   "button:hover{border-color:var(--accent);color:var(--accent)}",
   "button:active{transform:scale(.98)}",
   "button[value=allow],form[action=\"/login\"] button,form[action=\"/account/keep\"] button{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:var(--accent-glow)}",
