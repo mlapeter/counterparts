@@ -302,6 +302,8 @@ describe("(c) the census counts replaced copies apart from real exits", () => {
       for (const m of src.matchAll(/reason = "([^"]+)"\): string/g)) found.add(m[1] as string);
     }
     found.delete("reason"); // self/page.ts#PAGE_META_REASON: a meta key, not an archive reason
+    found.delete("told-v2"); // told.ts#TOLD_REVISE_REASON: a version row's reason (Store#revise keeps the row live), never an archived_reason
+    found.delete("told-surface"); // told.ts#TOLD_SURFACE_REASON: the same, for a starter switched to the opening surface's words (EX1)
     expect(found.size).toBeGreaterThan(8);
     for (const reason of found) expect(`${reason}: ${Object.hasOwn(LEAVING, reason)}`).toBe(`${reason}: true`);
   });

@@ -246,6 +246,11 @@ export function createOAuth(opts: OAuthOptions): OAuth {
       introspection: { enabled: false },
       registration: { enabled: true, initialAccessToken: false },
       revocation: { enabled: true },
+      // Off (G1 L2, L3): `authenticate` never checks a DPoP binding, so advertising it would be a
+      // false promise; and no ID tokens are issued, so nothing needs RP-initiated logout (whose
+      // page is the library's own, without our CSP). On by default in oidc-provider 9.
+      dPoP: { enabled: false },
+      rpInitiatedLogout: { enabled: false },
       clientIdMetadataDocument: {
         enabled: true,
         ack: "draft-02",

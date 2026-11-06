@@ -134,7 +134,7 @@ describe("each episode once", () => {
     k.c.rebrief({ budgetBytes: BUDGET, at: D2 });
     const text = wakeFor(k.c, HERE);
     const line = lineStarting(text, ELSEWHERE_HEAD) ?? "";
-    expect(line).toStartWith(`${ELSEWHERE_HEAD} ${THERE.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~")}: session a1b2c3d4, Oct 16 — "Who I am when I write the site" (${away}).`);
+    expect(line).toStartWith(`${ELSEWHERE_HEAD} ${THERE.split("/").pop() ?? THERE}: session a1b2c3d4, Oct 16 — "Who I am when I write the site" (${away}).`);
     expect(count(text, away)).toBe(1);
   });
 

@@ -18,6 +18,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -502,6 +503,28 @@ describe("binding, per call", () => {
     expect(latestLiveSession(dir, DESKTOP_HOST, now)?.sessionId).toBe("d-new");
     expect(latestLiveSession(dir, DESKTOP_HOST, now + 5 * HOUR)).toBeNull();
     expect(listSessions(dir).map((r) => r.sessionId)).toEqual(["cc-newest", "d-new", "d-old"]);
+  });
+
+  test("a same-millisecond tie goes to the chat that started later, whatever the ids (FL1)", () => {
+    const now = Date.now();
+    // Many id pairs, so the answer cannot come from filename (or hash) order.
+    for (let i = 0; i < 16; i++) {
+      const [older, newer] = [randomUUID(), randomUUID()];
+      const d = join(dir, `pair-${String(i)}`);
+      // The older chat opened an hour ago; a named call touches it at `now`,
+      // the same millisecond the newer chat's wake records it.
+      recordSession(d, { sessionId: older, scope: DESKTOP_SCOPE, phase: "start", at: now - HOUR, host: DESKTOP_HOST });
+      touchDesktopSession(d, older, { now, wroteUp: false, askCalls: 99, askAfterMs: HOUR });
+      recordSession(d, { sessionId: newer, scope: DESKTOP_SCOPE, phase: "start", at: now, host: DESKTOP_HOST });
+      expect(readSession(d, older)?.lastBoundaryAt).toBe(readSession(d, newer)?.lastBoundaryAt);
+      expect(latestLiveSession(d, DESKTOP_HOST, now)?.sessionId).toBe(newer);
+      expect(listSessions(d).map((r) => r.sessionId)).toEqual([newer, older]);
+    }
+    // A full tie (same start too) falls to the id, so it is still one answer.
+    const d = join(dir, "full-tie");
+    recordSession(d, { sessionId: "z-chat", scope: DESKTOP_SCOPE, phase: "start", at: now, host: DESKTOP_HOST });
+    recordSession(d, { sessionId: "a-chat", scope: DESKTOP_SCOPE, phase: "start", at: now, host: DESKTOP_HOST });
+    expect(listSessions(d).map((r) => r.sessionId)).toEqual(["a-chat", "z-chat"]);
   });
 
   test("the pacer: calls and time since the later of wake, last write-up and last ask", () => {

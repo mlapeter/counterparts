@@ -47,7 +47,16 @@ ended up with canonical state spread across a prose store plus half a dozen side
 - **Removal is recorded, the record is canonical and append-only, and carries no body and
   no content hash.** [v1] §16 G7–G9, scar §2.20.
 - **A removed memory cannot be silently resurrected** — a deny-list at load and rebuild;
-  the stray copy is skipped and logged, never deleted. [v1] §16 G12.
+  the stray copy is skipped and logged, never deleted. [v1] §16 G12. *Since 2026-11-04
+  (HD1) the deny-list also holds a memory a chat deleted and the 24-hour hold still keeps
+  (`held` with no later `released`): hidden from every reader at once, read through the hold
+  only by `heldProse` (the erase, the `deleted` handle, an undo), and back whole on
+  `released`. The stages are text in the record, so no format change. The sweep's erase is
+  preceded by `erasing`, its CLAIM: appended in one write transaction only while the hold is
+  still unreleased and unclaimed (`appendRemovalRecord`'s `unless`), as an undo's `released`
+  is only while it is unclaimed, so of an undo and an erase exactly one lands, and of two
+  erasers one erases. A claimed hold stays denied; `isHeld`/`pendingHolds` leave it out
+  (it can't be undone), `holds`/`holdState` and `heldProse` still see it (HD1 fix round).*
 - **Per-item persistence isolation** — one item that fails to serialize is logged and
   skipped; the rest persist. [v1] §16 G6.
 - **Three dates, deliberately distinct**: when it happened (at stated precision, never
@@ -93,7 +102,16 @@ ended up with canonical state spread across a prose store plus half a dozen side
      (measured; `NOTES.md`). "Reconstructible" is honest for the text index and partly
      dishonest for the vectors: those cost a paid network call each, which is why
      `rebuildCache({ keepVectors })` and `counterparts migrate-cache` exist rather than a
-     rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
+     rebuild. **An empty word index beside live rows is rebuilt by any writable open**
+     (EX1, 2026-11-04, `Store#reindexIfEmpty`): the shape of a store file moved in without its
+     `cache/` (a hosted download opened locally). Two COUNTs per open; the rebuild is the
+     lexical half only, in one box-3 transaction, so no vector is dropped or computed (the
+     backfill fills them); it leaves a durable `store.index.rebuilt-at-open` row, and
+     `wordIndexEmpty()` lets `doctor` amber the state while only observers have seen it.
+     The same open resets an index that belongs to ANOTHER file (none of the newest 8 indexed
+     ids is in this file: a database dropped into a used store folder), keeping vectors of ids
+     this file holds; and a rebuild that finds every live row tokenless stamps that count in
+     `cache_meta`, so it neither rescans nor reads as empty. Observers never rebuild. **Since cache v5 (2026-09-23) the vectors say which model wrote them** —
      `cache_meta.embedder = <model>@<dim>` beside `embedderRebuild = inline|external` — and
      `Store.open` checks that tag against the configured embedder's identity ONCE, at open
      (`cache.ts#reconcileEmbedder`, verdict on `Store.embedderVerdict`): a match touches

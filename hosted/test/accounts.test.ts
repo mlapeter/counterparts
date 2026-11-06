@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
-import { Accounts, normalizeEmail, validTimeZone } from "../src/accounts.js";
+import { Accounts, INVITE_TTL_MS, normalizeEmail, validTimeZone } from "../src/accounts.js";
 import { createApp } from "../src/app.js";
 import { memoryMailer, resendMailer, RESEND_ENDPOINT } from "../src/egress.js";
 import { accountPages } from "../src/pages.js";
@@ -171,6 +171,35 @@ describe("signing up and signing in", () => {
     assert.equal((await one.go(l1.link!)).status, 303);
     assert.equal((await two.go(l2.link!)).status, 400);
     assert.equal((await two.go("/account")).status, 303); // not signed in: back to login
+  });
+
+  test("G1 L4: an invite expires 7 days after it is made unless told otherwise; a code from before the default stays valid", async () => {
+    const r = await rig();
+    const start = Date.UTC(2026, 9, 26, 12);
+    const week = r.accounts.createInvite();
+    assert.equal(week.expiresAt, start + INVITE_TTL_MS);
+    const month = r.accounts.createInvite({ expiresAt: start + 30 * 86_400_000 });
+    const old = r.accounts.createInvite();
+    // A code made before the default had no expiry (expires_at NULL): it is kept valid, not expired by the deploy.
+    const db = openDb(join(tmp.root, "control", "accounts.sqlite"));
+    try {
+      db.run("UPDATE invites SET expires_at = NULL WHERE id = ?", old.id);
+    } finally {
+      db.close();
+    }
+    // A minute inside the week: the default code still signs up.
+    r.setNow(start + INVITE_TTL_MS - 60_000);
+    assert.ok((await askLink(r, new Browser(r.base), "inside@example.com", week.code)).link !== null);
+    // A minute past it: refused, the same page as no invite, and no email.
+    r.setNow(start + INVITE_TTL_MS + 60_000);
+    const late = await askLink(r, new Browser(r.base), "late@example.com", week.code);
+    assert.equal(late.link, null);
+    assert.equal(late.res.status, 200);
+    assert.ok((await askLink(r, new Browser(r.base), "month@example.com", month.code)).link !== null);
+    // Ninety days on: the month's code is gone, the code from before the default still works.
+    r.setNow(start + 90 * 86_400_000);
+    assert.equal((await askLink(r, new Browser(r.base), "month2@example.com", month.code)).link, null);
+    assert.ok((await askLink(r, new Browser(r.base), "old@example.com", old.code)).link !== null);
   });
 
   test("forms: no CSRF token, a foreign Origin, or the wrong content type are refused", async () => {

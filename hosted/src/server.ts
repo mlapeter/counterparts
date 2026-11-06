@@ -93,7 +93,7 @@ export interface HostedServerOptions {
   readonly logForwardedFor?: (raw: string) => void;
 }
 
-/** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting"). */
+/** What `/readyz` reports: `ready`, and each check's word ("ok", "off", "down", "starting", and for backups "stale": uploads not landing, `backup.ts#UploadWatch`). */
 export interface Readiness {
   readonly ready: boolean;
   readonly checks: Readonly<Record<string, string>>;
@@ -173,12 +173,19 @@ class TokenRevoked extends Error {}
 /** A call whose token could not be re-checked at its turn (the control database down). */
 class RecheckFailed extends Error {}
 
+/** The HSTS value every https response carries (G1 L1). */
+export const HSTS = "max-age=31536000; includeSubDomains";
+
 export function createHostedServer(opts: HostedServerOptions): Server {
   const origin = opts.publicOrigin.replace(/\/+$/, "");
   const allowed = new Set(opts.allowedOrigins ?? []);
   const salt = opts.logSalt ?? randomBytes(32).toString("hex");
   const tag = (storeId: string): string => createHmac("sha256", salt).update(storeId).digest("hex").slice(0, 16);
-  const hsts: Record<string, string> = origin.startsWith("https://") ? { "Strict-Transport-Security": "max-age=31536000" } : {};
+  // HSTS (G1 L1): one year, and includeSubDomains, which on app.counterparts.ai covers only
+  // *.app.counterparts.ai (none exist), never the apex or www. Set once per response before
+  // routing (below), so the HTML pages, redirects and the OAuth library's answers carry it
+  // too; the explicit spreads into this server's own answers say the same value.
+  const hsts: Record<string, string> = origin.startsWith("https://") ? { "Strict-Transport-Security": HSTS } : {};
   const challenge = (error?: string): Record<string, string> => ({
     "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl(origin)}"${error === undefined ? "" : `, error="${error}"`}`,
   });
@@ -325,6 +332,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
   };
 
   const server = createServer((req, res) => {
+    for (const [k, v] of Object.entries(hsts)) res.setHeader(k, v);
     void (async (): Promise<void> => {
       // ONLY ORIGIN-FORM TARGETS ("/path?query"). An absolute-form or
       // "//host/x" target would give `url.host` a host the client chose; every

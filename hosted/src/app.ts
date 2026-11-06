@@ -16,6 +16,11 @@ import type { Server } from "node:http";
 import { isAbsolute, join } from "node:path";
 
 import { exportStore as exportCoreStore } from "../../src/adapters/cli/export.js";
+// THE ERASE AFTER A CHAT'S HOLD (HD1, 2026-11-04): the console's own removal,
+// run by this file's timer — never by anything a model talks to. This is the
+// one file under hosted/src that may import it (`test/cli.test.ts` pins it).
+import { sweepHeldRemovals } from "../../src/adapters/cli/removal.js";
+import { overdueHolds } from "../../src/core/removal-hold.js";
 
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
@@ -30,8 +35,8 @@ import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
-import type { KeylessReason, LitestreamRun, Sidecar } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject } from "./backup.js";
+import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
@@ -80,13 +85,22 @@ export interface AppOptions {
    * `storeTag` too (R5); and a delete's email that didn't send
    * (`delete.mail.failed`, by `storeTag`; R9).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
-  /** How often the server finishes deletes while it runs: erases that were cut short, and pending deletes now due. Ten minutes by default. */
+  /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
   readonly finishEveryMs?: number;
   /** `server.ts#HostedServerOptions.logForwardedFor` (the entry point's `LOG_FORWARDED_FOR=1`). */
   readonly logForwardedFor?: (raw: string) => void;
+  /**
+   * The upload watch (G3; `backup.ts#UploadWatch`), with a sidecar only: told
+   * each look while uploads are stale, and once when they land again. Codes
+   * and minutes only. A throw is swallowed.
+   */
+  readonly onUploads?: (e: UploadsEvent) => void;
+  /** How often the upload watch looks (`backup.ts#UPLOADS_EVERY_MS` by default), and how long without a rise is `stale` (`UPLOADS_STALE_MS`). */
+  readonly uploadsEveryMs?: number;
+  readonly uploadsStaleMs?: number;
 }
 
 export interface StartOptions {
@@ -139,6 +153,8 @@ export interface App {
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
   readiness(): Promise<Readiness>;
+  /** One look of the upload watch now (its timer does this every `uploadsEveryMs`); a no-op without a sidecar. */
+  lookAtUploads(): Promise<void>;
   /** Delete one person's account and memory, at once, everywhere ("delete everything now"). Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;
   /**
@@ -152,6 +168,8 @@ export interface App {
   keepAccount(personId: string): boolean;
   /** Finish every delete that is due: erases that began and didn't end, and pending deletes whose deadline passed (start-up, and a timer while serving). Returns how many finished. */
   finishPendingDeletes(): Promise<number>;
+  /** Erase every chat's delete whose 24-hour hold has passed (HD1): the timer while serving, and tests. Returns how many were erased. */
+  finishDueHolds(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -253,6 +271,11 @@ export function createApp(opts: AppOptions): App {
     openedBefore: (storeId) => accounts.wasOpened(storeId),
     // A store whose account is set to be deleted is kept and never opened (R6).
     locked: (storeId) => accounts.storeLocked(storeId),
+    // A chat's delete (HD1): when its erase falls due, for the timer below.
+    onRemovalHeld: (storeId, at) => {
+      accounts.noteRemovalDue(storeId, at);
+      accounts.audit(accounts.personOfStore(storeId), storeId, "removal.held", null);
+    },
     onCreated: (storeId) => {
       // A store's dir made while the server runs is a sign-up's (already in the
       // sidecar's configuration) or a store started over (`main.ts start-over`,
@@ -398,8 +421,87 @@ export function createApp(opts: AppOptions): App {
     }
     return done;
   };
+  /**
+   * A CHAT'S DELETES, ERASED AFTER THEIR HOLD (HD1, 2026-11-04). `remember`'s
+   * `remove` only hides a memory (a `held` row); this erases each one whose
+   * 24 hours have passed, with the console's own removal, in the store's
+   * serial queue — the same door export takes. Only stores the control
+   * database says have one due (`stores.removal_due_at`, set at the hold),
+   * so an idle store is opened only when it must be: a worker-only sweep
+   * would wait for a wake that a quiet person never brings. A locked store
+   * (a pending account delete) is left: the account erase takes everything,
+   * holds included, and a keep brings the deadline back to this timer.
+   * Audited by counts, never an id of a memory. Returns how many were erased.
+   */
+  /**
+   * Holds already said to be overdue, by store and memory, so the log line
+   * comes once per hold, not every tick (ROADMAP 11:55). In memory: a restart
+   * says each still-overdue one once more. Never logged itself.
+   */
+  const overdueSaid = new Set<string>();
+  const finishDueHolds = async (): Promise<number> => {
+    let erased = 0;
+    for (const storeId of accounts.removalsDue()) {
+      const personId = accounts.personOfStore(storeId);
+      // A store waiting for a restore can't open; it is left due, unaudited, until it is back.
+      if (accounts.wasOpened(storeId) && !existsSync(join(tenantDir(tenants.root, storeId), "store", DATABASE_FILE))) continue;
+      try {
+        const report = await tenants.withTenant(storeId, {}, (t, server) =>
+          t.serial(async () => {
+            const now = (opts.now ?? Date.now)();
+            const swept = sweepHeldRemovals(server.counterpart.store, { now });
+            // A HOLD WHOSE ERASE KEEPS FAILING IS SEEN (ROADMAP 11:55): once
+            // it is 48 h past its erase time, or claimed by an erase that
+            // didn't finish (`overdueHolds`, R1-a), one codes-only log line
+            // per hold — the store's tag and the event, never the memory.
+            for (const h of overdueHolds(server.counterpart.store, now)) {
+              const key = `${storeId}\u0000${h.id}`;
+              if (overdueSaid.has(key)) continue;
+              overdueSaid.add(key);
+              opts.onEvent?.("removal.overdue", storeTag(storeId));
+            }
+            // INSIDE the store's queue, beside the sweep: a hold written by a
+            // call queued behind it sets its own due time after this, never
+            // before it — so this can't wipe a new hold's time and leave it
+            // waiting for a wake.
+            accounts.setRemovalDue(storeId, swept.nextAt);
+            return swept;
+          }),
+        );
+        erased += report.erased.length;
+        if (report.erased.length > 0) {
+          const unchased = report.erased.reduce((n, e) => n + e.unchased, 0);
+          accounts.audit(personId, storeId, "removal.erased", `${String(report.erased.length)} erased, ${String(unchased)} surfaces unchased`);
+        }
+        // A failed erase keeps its claim and is tried again after a backoff
+        // (an hour, doubling, at most a day: `claimRetryAfter`), so this store
+        // isn't reopened every tick; audited at its FIRST failure only (R8).
+        const firsts = report.failed.filter((f) => f.attempt === 1);
+        // Codes only (G1 L6): `why` is already a short constant (`failureCode`),
+        // and anything else is written as "error", never its words.
+        if (firsts.length > 0) accounts.audit(personId, storeId, "removal.failed", `${String(firsts.length)} failed: ${firsts.map((f) => (/^[A-Za-z0-9_.-]{1,40}$/.test(f.why) ? f.why : "error")).join(", ")}`);
+      } catch {
+        // Locked meanwhile, waiting for a restore, or a store that would not
+        // open: left due, so the next tick tries again.
+        accounts.audit(personId, storeId, "removal.sweep.failed", null);
+      }
+    }
+    return erased;
+  };
   let retryTimer: ReturnType<typeof setInterval> | null = null;
+  let uploadsTimer: ReturnType<typeof setInterval> | null = null;
   let started = false;
+  // Uploads landing, not only the sidecar running (G3; INTERFACE-GAPS §7).
+  const uploads =
+    opts.backup?.sidecar === undefined || opts.backup.sidecar === null
+      ? null
+      : new UploadWatch({
+          objects: opts.backup.objects,
+          heartbeat: () => accounts.heartbeat(),
+          now: opts.now ?? Date.now,
+          ...(opts.uploadsStaleMs === undefined ? {} : { staleAfterMs: opts.uploadsStaleMs }),
+          ...(opts.onUploads === undefined ? {} : { onEvent: opts.onUploads }),
+        });
   const limits = new McpLimits({
     ...opts.mcpLimits,
     sizeOf: (storeId) => dirBytes(tenantDir(tenants.root, storeId)),
@@ -427,7 +529,8 @@ export function createApp(opts: AppOptions): App {
       }
     }
     const sidecar = opts.backup?.sidecar ?? null;
-    checks["backups"] = sidecar === null ? "off" : sidecar.up?.() === false ? "down" : "ok";
+    // "stale": the sidecar runs, and no upload has been seen landing in R2 for `uploadsStaleMs` (`UploadWatch`; cached, no R2 call here).
+    checks["backups"] = sidecar === null ? "off" : sidecar.up?.() === false ? "down" : uploads?.state() === "stale" ? "stale" : "ok";
     return { ready: Object.values(checks).every((v) => v === "ok" || v === "off"), checks };
   };
 
@@ -536,11 +639,22 @@ export function createApp(opts: AppOptions): App {
         }
         await backups.release();
       }
+      // The sidecar runs from here: the upload watch's grace starts now. Its first look (the baseline) isn't
+      // awaited: a slow R2 must not add to the boot, and the grace clock doesn't need the baseline.
+      if (uploads !== null) {
+        uploads.begin();
+        void uploads.look();
+        if (uploadsTimer === null) {
+          uploadsTimer = setInterval(() => void uploads.look(), opts.uploadsEveryMs ?? UPLOADS_EVERY_MS);
+          uploadsTimer.unref?.();
+        }
+      }
       const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
       if (retryTimer === null) {
         retryTimer = setInterval(() => {
           void finishPendingDeletes();
+          void finishDueHolds();
           try {
             o.store.sweepClients();
           } catch {
@@ -553,14 +667,21 @@ export function createApp(opts: AppOptions): App {
       return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
     },
     readiness,
+    lookAtUploads: async () => {
+      await uploads?.look();
+    },
     deleteAccount,
     scheduleDelete,
     keepAccount,
     finishPendingDeletes,
+    finishDueHolds,
     async close(): Promise<void> {
       started = false;
+      uploads?.stop();
       if (retryTimer !== null) clearInterval(retryTimer);
       retryTimer = null;
+      if (uploadsTimer !== null) clearInterval(uploadsTimer);
+      uploadsTimer = null;
       await tenants.closeAll();
       await opts.backup?.sidecar?.stop();
       o.close();

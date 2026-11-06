@@ -1511,7 +1511,7 @@ describe("install, at a terminal", () => {
     const open = doc.indexOf("```\n", at) + 4;
     const block = doc.slice(open, doc.indexOf("\n```", open)).split("\n");
     const topLevel = block.filter((l) => l.length > 0 && !l.startsWith(" "));
-    expect(topLevel).toContain("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+    expect(topLevel).toContain("Recall by meaning: on. A small model runs on your machine and sends nothing anywhere.");
 
     const transcript: string[] = [];
     const answers = ["Mike"];
@@ -1553,7 +1553,7 @@ describe("install, at a terminal", () => {
     expect(said).not.toContain("Voyage");
     expect(said).toContain("it should be all green");
     // WHAT WAS SWITCHED ON IS SAID (the owner, NIT 8), before `Done.`.
-    const recall = c.out.indexOf("Recall by meaning: on. A small model runs on your machine; nothing is sent anywhere.");
+    const recall = c.out.indexOf("Recall by meaning: on. A small model runs on your machine and sends nothing anywhere.");
     expect(recall).toBeGreaterThanOrEqual(0);
     expect(recall).toBeLessThan(c.out.findIndex((l) => l.startsWith("Done.")));
     const body = JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;

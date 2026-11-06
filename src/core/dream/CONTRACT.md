@@ -348,6 +348,18 @@ dreamer is the model (a background agent the session launches), outside this pro
   standing: an original written before the old-claims cutoff gives the merged memory its
   moment (`meta.eraWrittenAt`) and its `claimedDefault`, so the era reads the merged
   memory as it read that original; `store/marks.ts#inheritFrom`, `store/operational.ts#eraCarriedFrom`),
+  **where a merge or gist is filed** (FS1, 2026-11-04; the work rule from counterparts-a0 that
+  afternoon, `slices.ts#nightFolder`): by what it is, its own mark and kind as `isWorkMemory`
+  reads them (the mark from its sources, as above: `inheritFrom`, `foldMarkFrom` for a fold).
+  Work stays work in one folder: the one most of its sources come from, on a tie the newest
+  source's; never none, since a work row with no folder reads as personal everywhere. Anything
+  else goes under the folder its sources share, else none. Only a directory votes (a host's name
+  scope, `claude-desktop:`, doesn't; with no directory, shared-or-none); a source with no folder
+  doesn't vote; a night row among the sources votes with its originals' folders, `MERGE_DEPTH` deep.
+  So a merge with any me, us, owner or world source, which inherits that mark (`inheritFrom`: a
+  personal mark wins, any mark over none), is filed by the shared-or-none branch.
+  Until then the launching session's, so a fold of one repo's work landed in another's. Its session
+  is still the launching one, and `dreams.scope` still says where the dream ran;
   `link` (both ways, proposed at `LINK_WEIGHT` through
   `associate`, only where there is room, since 2026-09-28), `replayed` (a
   return at `DREAM_RETURN_WEIGHT`, never a use), `gist` (source `dreamed`, citing and
@@ -555,7 +567,8 @@ dream having run.
     from a session) at the worker's next boundary once it has settled.
   - **The share** — two or three sentences, citing what it rests on — is offered in the
     hand-back; `told` records `told` on the memories it cites; a later session carries
-    an untold one once (Claude Code on a prompt, once the reflecting session ended or went
+    an untold one once, and the carry marks it `told` as it hands it over, asking for no
+    tool call (2026-11-04, TC1) (Claude Code on a prompt, once the reflecting session ended or went
     quiet; a hookless chat host on its `wake`, where a chat's session, never ended, counts
     ended once it reflected: `sessions.ts#reflectorDone`). A memory promoted on reflection alone is named in the next share.
   - **Feelings** are the self's, recorded later (`source: reflection`, `recorded_later`

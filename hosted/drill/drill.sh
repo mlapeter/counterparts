@@ -243,8 +243,8 @@ fi
 
 step_0() { # preflight: deployed sha and its worktree, Docker, port, no leftovers, empty bucket, the image
   LOG=$LOGS/0-build.log
-  # The hosted service's environment only (Railway project fabulous-recreation, service counterparts;
-  # content-beauty deploys from the same repository): its newest deployment whose latest status is success.
+  # The hosted service's environment only (Railway project fabulous-recreation, service counterparts,
+  # deploying from the hosted-live branch): its newest deployment whose latest status is success.
   # The image is built from exactly that commit, whatever this checkout is on.
   local env="fabulous-recreation / production" deployed="" id state
   for id in $(gh api "repos/$GH_REPO/deployments?environment=fabulous-recreation%20%2F%20production&per_page=10" --jq '.[].id'); do

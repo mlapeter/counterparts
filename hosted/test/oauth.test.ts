@@ -286,7 +286,7 @@ describe("connecting, as claude.ai does", () => {
         assert.ok(x.body.startsWith("Told, not lived: "), x.body);
         assert.equal(x.archived, 0);
       }
-      assert.equal(store.getMeta("told.set"), "v1");
+      assert.equal(store.getMeta("told.set"), "v2");
       assert.equal(store.getMeta("told.surface"), "hosted");
       const all = rows.map((x) => x.body).join("\n");
       assert.match(all, /account page/);
@@ -766,5 +766,57 @@ describe("the manual, on the hosted door (H1)", () => {
     assert.equal(hosted["reason"], "manual");
     assert.match(String(hosted["text"]), /custom connector/);
     assert.doesNotMatch(String(hosted["text"]), /app\.counterparts\.ai/);
+  });
+});
+
+describe("G1 hardening: HSTS on every https answer; DPoP and RP-initiated logout off", () => {
+  /** The app with an https public origin, served over a plain local socket (the proxy's side of Railway's edge). */
+  async function httpsRig(): Promise<{ base: string }> {
+    const port = await freePort();
+    const app = createApp({
+      dataRoot: join(tmp.root, "data"),
+      publicOrigin: "https://app.example.test",
+      mailer: memoryMailer(),
+      embedder: null,
+      spawner: () => ({ pid: 1 }),
+    });
+    closers.push(() => app.close());
+    await new Promise<void>((r) => app.server.listen(port, "127.0.0.1", () => r()));
+    closers.push(
+      () =>
+        new Promise<void>((r) => {
+          app.server.close(() => r());
+          app.server.closeAllConnections?.();
+        }),
+    );
+    return { base: `http://127.0.0.1:${String(port)}` };
+  }
+
+  test("L1: an HTML page, a redirect, the OAuth library's metadata and its error, and our own 404 all carry HSTS", async () => {
+    const r = await httpsRig();
+    for (const path of ["/login", "/account", "/.well-known/oauth-authorization-server", "/oauth/token", "/nowhere"]) {
+      const res = await fetch(`${r.base}${path}`, { redirect: "manual", ...(path === "/oauth/token" ? { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "grant_type=nonsense" } : {}) });
+      await res.arrayBuffer();
+      assert.equal(res.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains", `${path} (${String(res.status)})`);
+    }
+  });
+
+  test("L1: an http public origin (local runs) sends no HSTS", async () => {
+    const r = await rig();
+    const res = await fetch(`${r.origin}/login`);
+    await res.arrayBuffer();
+    assert.equal(res.headers.get("strict-transport-security"), null);
+  });
+
+  test("L2, L3: the metadata advertises neither DPoP nor an end-session endpoint, and the logout path is not served", async () => {
+    const r = await rig();
+    const meta = (await (await fetch(`${r.origin}/.well-known/oauth-authorization-server`)).json()) as Record<string, unknown>;
+    assert.ok(typeof meta["token_endpoint"] === "string", JSON.stringify(meta));
+    assert.equal(meta["dpop_signing_alg_values_supported"], undefined, JSON.stringify(meta));
+    assert.equal(meta["end_session_endpoint"], undefined, JSON.stringify(meta));
+    const end = await fetch(`${r.origin}/oauth/session/end`, { redirect: "manual" });
+    const body = await end.text();
+    assert.notEqual(end.status, 200, body);
+    assert.doesNotMatch(body, /sign me out|logout/i);
   });
 });

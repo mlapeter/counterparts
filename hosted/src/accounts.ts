@@ -31,6 +31,8 @@ import type { Db } from "../../src/core/store/db.js";
 export const LINK_MS = 15 * 60 * 1000;
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
+/** How long an invite code lives by default (G1 L4). The `invite` command takes `--expires <days>`. */
+export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_EMAIL = 254;
 /** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
 export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -91,6 +93,13 @@ CREATE TABLE IF NOT EXISTS web_sessions (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   last_seen_at INTEGER NOT NULL
+);
+-- G3 (2026-11-04): one row, the time of the last write the upload watch made
+-- (backup.ts#UploadWatch). A write Litestream must ship, so a rise in the
+-- bucket's TXID proves uploads work even on a quiet day. No person in it.
+CREATE TABLE IF NOT EXISTS heartbeat (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
@@ -192,6 +201,15 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "delete_after")) {
       this.db.exec("ALTER TABLE people ADD COLUMN delete_after INTEGER");
     }
+    // HD1 (2026-11-04): when a chat's delete in this store may first be erased
+    // (its 24-hour hold ends). NULL when none waits. Set at a hold through the
+    // store's server (`tenants.ts`, the `removal.onHeld` callback), so the
+    // ten-minute timer opens only a store with an erase due — a quiet person's
+    // "deleted" memory must not wait for their next wake. Added by ALTER like
+    // the two above, so it is safe to run twice and on the beta volume.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "removal_due_at")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN removal_due_at INTEGER");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -202,6 +220,11 @@ export class Accounts {
   /** Readiness: the database answers. Throws when it doesn't. */
   ping(): void {
     this.db.get("SELECT 1 AS one");
+  }
+
+  /** The upload watch's write (`backup.ts#UploadWatch`): one row, its time replaced (always a new value, so the page always changes), so Litestream has a transaction to ship. */
+  heartbeat(): void {
+    this.db.run("INSERT INTO heartbeat (id, at) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET at = max(excluded.at, heartbeat.at + 1)", this.now());
   }
 
   // ── stores (OL2b) ──────────────────────────────────────────────────────────
@@ -219,6 +242,30 @@ export class Accounts {
   /** When this store was first opened (ms), or null: the keyless-store mint compares it with the volume's keys (R5). */
   openedAt(storeId: string): number | null {
     return this.db.get<{ opened_at: number | null }>("SELECT opened_at FROM stores WHERE id = ?", storeId)?.opened_at ?? null;
+  }
+
+  // ── a chat's deletes, erased after their hold (HD1) ──────────────────────
+
+  /** A hold was written: this store has an erase due at `at` (ms). Keeps the EARLIER of the two when one is set already. */
+  noteRemovalDue(storeId: string, at: number): void {
+    this.db.run("UPDATE stores SET removal_due_at = ? WHERE id = ? AND (removal_due_at IS NULL OR removal_due_at > ?)", at, storeId, at);
+  }
+
+  /** After a sweep: the next hold's time, or null when none waits. */
+  setRemovalDue(storeId: string, at: number | null): void {
+    this.db.run("UPDATE stores SET removal_due_at = ? WHERE id = ?", at, storeId);
+  }
+
+  /** Live, unlocked stores with an erase due now. A time still ahead never appears. */
+  removalsDue(): string[] {
+    return this.db
+      .all<{ id: string }>("SELECT id FROM stores WHERE state = 'active' AND removal_due_at IS NOT NULL AND removal_due_at <= ? ORDER BY removal_due_at", this.now())
+      .map((r) => r.id);
+  }
+
+  /** When this store's next erase is due (ms), or null. */
+  removalDueAt(storeId: string): number | null {
+    return this.db.get<{ removal_due_at: number | null }>("SELECT removal_due_at FROM stores WHERE id = ?", storeId)?.removal_due_at ?? null;
   }
 
   /** Whose store this is (any state), or null. */
@@ -249,21 +296,26 @@ export class Accounts {
 
   // ── invites ────────────────────────────────────────────────────────────────
 
-  /** A new invite. The code is returned once and stored hashed. */
-  createInvite(opts: { maxUses?: number; expiresAt?: number; note?: string } = {}): { id: string; code: string } {
+  /**
+   * A new invite. The code is returned once and stored hashed. It expires
+   * `INVITE_TTL_MS` (7 days) after it is made unless `expiresAt` says otherwise
+   * (G1 L4); codes made before that default have no expiry and stay valid.
+   */
+  createInvite(opts: { maxUses?: number; expiresAt?: number; note?: string } = {}): { id: string; code: string; expiresAt: number } {
     const code = secret("cpi_");
     const id = id128();
+    const expiresAt = opts.expiresAt ?? this.now() + INVITE_TTL_MS;
     this.db.run(
       "INSERT INTO invites (id, code_hash, created_at, max_uses, expires_at, note) VALUES (?, ?, ?, ?, ?, ?)",
       id,
       sha256(code),
       this.now(),
       opts.maxUses ?? 1,
-      opts.expiresAt ?? null,
+      expiresAt,
       opts.note ?? null,
     );
     this.audit(null, null, "invite.created", id);
-    return { id, code };
+    return { id, code, expiresAt };
   }
 
   private liveInvite(code: string): string | null {

@@ -4,7 +4,7 @@
  *
  *   2. claude.ai's wake: one short session line, the clock and today's plain
  *      reminders, then the wake with "Coming up" and "Still open" moved up
- *      whole; no dream line on this host even when the day's ask is due; no
+ *      whole; not core's dream line, but claude.ai's own once a day (HN1); no
  *      "same you" line while no host shares the store. Desktop's wake keeps
  *      its words.
  *   4. The tool words: no claude.ai description tells Claude to call a tool
@@ -27,7 +27,7 @@ import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions 
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_SCOPE, CLAUDE_AI_TRIM, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, claudeAiNightLine, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -143,7 +143,7 @@ describe("2. claude.ai's wake, through the door", () => {
     expect(woke.structured).toMatchObject({ session, host: CLAUDE_AI_HOST, wake: text });
   });
 
-  test("no dream line on claude.ai, even with the day's ask due — and it is left unclaimed", async () => {
+  test("not core's dream line on claude.ai: with the day's ask due, the first wake asks in claude.ai's words and claims the day; a second wake says nothing (HN1)", async () => {
     const at = new Date("2026-09-26T12:00:00").getTime();
     const { http, s } = await door(CLAUDE_AI_HOST, () => at);
     const c = s.counterpart;
@@ -154,9 +154,16 @@ describe("2. claude.ai's wake, through the door", () => {
       c.store.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.5, emotional: 0, predictive: 0.5 }, physics: { birthDay: day, lastUsedDay: day } });
     }
     expect(c.dreams.setSetting("ask", { by: "owner" }).ok).toBe(true);
-    const text = (await tool(http.url, "wake", {})).text;
-    expect(text).not.toContain('phase "launch"');
+    const first = await tool(http.url, "wake", {});
+    const text = first.text;
+    const session = String(first.structured["session"]);
+    expect(text).toContain(claudeAiNightLine({ session, setting: "ask", reflects: null, who: "the person" }));
     expect(text).not.toContain(CLAUDE_AI_DREAM_NOTE);
+    expect(text).not.toMatch(/terminal|Agent tool|background agent/);
+    expect(c.store.dreamAsk(today())).toMatchObject({ state: "offered", session });
+    const again = (await tool(http.url, "wake", {})).text;
+    expect(again).not.toContain("dreaming asks first");
+    expect(again).not.toContain('phase "launch"');
     // Desktop, on the same kind of store, still says it.
     const d = await door(DESKTOP_HOST, () => at);
     const dc = d.s.counterpart;
@@ -257,7 +264,7 @@ const REVIEWED: Record<string, unknown> = {
       "6e024a616f"
     ],
     "fields": {
-      "text": "acc78bd9ad",
+      "text": "6c28856412",
       "updates": "2a424621d5",
       "how": "e714d82a7a",
       "salience": "1834cd690e",
@@ -300,7 +307,8 @@ const REVIEWED: Record<string, unknown> = {
       "feelingsNow[].valence": "6e86e907f7",
       "feelingsNow[].carried_by": "2a8ae4e5eb",
       "remark": "3e9b45b1d5",
-      "core": "519446dddc"
+      "core": "519446dddc",
+      "remove": "ea1e6fb930"
     },
     "drop": {
       "feelings[].other_word": "ead44e7a57"
@@ -321,7 +329,7 @@ const REVIEWED: Record<string, unknown> = {
     "fields": {
       "question": "090112a6c7",
       "page": "aa1b4f19b4",
-      "handle": "9464451b8b"
+      "handle": "600932b0b1"
     },
     "drop": {}
   },
@@ -338,7 +346,7 @@ const REVIEWED: Record<string, unknown> = {
     "fields": {
       "session": "c7de830b9b",
       "memories": "5fefea46d7",
-      "memories[].content": "c45ca15650",
+      "memories[].content": "b07587ad78",
       "memories[].updates": "a6f4f4941b",
       "memories[].how": "e714d82a7a",
       "memories[].salience": "1834cd690e",
@@ -451,7 +459,7 @@ const REVIEWED: Record<string, unknown> = {
     "drop": {}
   },
   "remember.negativeExamples": "c9716eb17f",
-  "session_end.negativeExamples": "5dca71613a",
+  "session_end.negativeExamples": "bfa4cd4090",
   "self_page.negativeExamples": "caa0d05bfb",
   "self_page.summary": "1d98475edc"
 };
@@ -590,7 +598,7 @@ describe("4. the tool words for chat", () => {
     expect(Object.keys((entry["feelings"] as { items: { properties: object } }).items.properties)).not.toContain("other_word");
     expect(texts.some(([p]) => p === "remember.traits")).toBe(true);
 
-    // The size, loosely: 90,813 B before TT1. A ceiling, so the words do not quietly grow back.
+    // The size, loosely: 92,335 B before TT1 (on 0.3.47's words), 65,044 B after. A ceiling, so the words do not quietly grow back.
     expect(Buffer.byteLength(JSON.stringify({ tools: defs }), "utf8")).toBeLessThan(70_000);
     // Every other host's list is the registry's own, untrimmed.
     for (const host of [false, DESKTOP_HOST] as const) {
@@ -598,6 +606,33 @@ describe("4. the tool words for chat", () => {
       expect(json).toContain("in their terminal");
       expect(json).toContain("other_word");
     }
+  });
+
+  // TT1 over master's 0.3.47 (HD1, TC1): through the door, claude.ai's trimmed list still offers
+  // delete-from-chat and its undo handle, and says the plumbing rule; Claude Code's door serves the
+  // registry's own list; and a remove sent through claude.ai's door holds the memory.
+  test("through the door: claude.ai's trimmed list keeps remove, \"deleted\" and the plumbing rule; Claude Code's list is the registry's", async () => {
+    const { http } = await door();
+    const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: { name: string; inputSchema: { properties: Record<string, { description?: string; properties?: Record<string, unknown> }> } }[] }).tools;
+    const remember = list.find((t) => t.name === "remember")?.inputSchema.properties;
+    expect(Object.keys(remember?.["remove"]?.properties ?? {}).sort()).toEqual(["id", "undo"]);
+    expect(String(remember?.["remove"]?.description)).toContain("erased after 24 hours");
+    expect(String(remember?.["text"]?.description)).toContain("Do NOT write about this system's plumbing");
+    expect(String(list.find((t) => t.name === "recall")?.inputSchema.properties["handle"]?.description)).toContain('"deleted"');
+    // Claude Code's own door, introduced as Claude Code (`door` says it is claude-ai, which picks the chat's list).
+    const ccHttp = await serveHttp({ server: server("claude-code") });
+    closers.push(() => ccHttp.close());
+    await rpc(ccHttp.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "2.0.0" } });
+    const ccList = ((await rpc(ccHttp.url, "tools/list"))["result"] as { tools: unknown[] }).tools;
+    expect(JSON.stringify(ccList)).toBe(JSON.stringify(toolDefinitions(false)));
+    expect(Buffer.byteLength(JSON.stringify({ tools: list }), "utf8")).toBeLessThan(Buffer.byteLength(JSON.stringify({ tools: ccList }), "utf8") - 20_000);
+
+    const session = String((await tool(http.url, "wake", {})).structured["session"]);
+    const id = String((await tool(http.url, "remember", { session, kind: "fact", text: "Wren's bike lock code is 4471.", about: "owner" })).structured["id"]);
+    await tool(http.url, "recall", { session, ids: [id] });
+    const held = (await tool(http.url, "remember", { session, remove: { id } })).structured["remove"] as Record<string, unknown>;
+    expect(held["ok"]).toBe(true);
+    expect(held["reason"]).toBe("held");
   });
 
   /**
@@ -831,7 +866,7 @@ describe("a night's own wake (night: true), through the door", () => {
     const chat = await tool(http.url, "wake", {});
     expect(chat.text).toContain(SHARE);
     expect(chat.text.indexOf(SHARE)).toBeLessThan(chat.text.indexOf("Now:"));
-    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: String(chat.structured["session"]) });
+    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "told", share_session: String(chat.structured["session"]) });
   });
 
   test("a night's wake still lets the routine dream: launch from the quiet wake's session hands back the run's prompt", async () => {
@@ -882,12 +917,14 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     const reflect = by["reflect"] ?? "";
     for (const d of [dream, reflect]) {
       expect(d).toContain("night routine");
-      expect(d).toContain("In an ordinary conversation, call `launch` only when the person asks");
+      expect(d).toContain("In a conversation, call `launch` when");
       for (const phrase of SHARED) expect(d).not.toContain(phrase);
       expect(d.toLowerCase()).not.toContain("background");
     }
     expect(dream).toContain("follows the prompt that returns itself, in that same run");
     expect(dream).toContain("Do NOT start a dream nobody asked for");
+    // HN1: the wake that tells a conversation to run the night is not "nobody asked".
+    expect(dream).toContain("when the wake says this conversation runs the night");
     // The propose guard is every host's, kept verbatim.
     expect(dream).toContain("Do NOT use `propose` to correct or delete a memory");
     expect(reflect).toContain("The night routine calls `begin` and `finish` after the dream");

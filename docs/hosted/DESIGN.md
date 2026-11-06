@@ -22,7 +22,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | # | Question | Recommendation | The main tradeoff |
 |---|---|---|---|
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
-| Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
+| Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | Railway's disk encryption is confirmed in writing (SOC 3, 2026-11-04, §5.1); a copy of the live disk would be readable plaintext if it didn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
 | Q4 | When a delete becomes unreadable everywhere | **Changed by Mike (2026-10-27; it was "at once, everywhere" on 10-26): delete is locked at once and erased 24 hours later unless the person keeps it; "delete everything now" beside it erases at once.** Each wrapped DEK is one write-once R2 object, deleted with everything else at the erase (§5.4) | A day to change your mind, against a locked copy that lives a day longer. The account email leaves the control database's backups within 24 hours of the erase (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
@@ -181,7 +181,8 @@ The in-process queue becomes worth it if the process count or the model reload (
 to cost too much. Open question Q7.
 
 **Nights.** The plan's decision 6 is the user's own routine, through the tools (`remote/NOTES.md`, "a night through the
-tools alone"). No server-run night in the beta. The tagging child's `tags` phase stays skipped on this host, as on the
+tools alone"). No server-run night in the beta. Since HN1 (2026-11-04) the day's first claude.ai chat runs the night
+with its own tool calls, then answers, as its wake says; the routine stays the nicer option. The tagging child's `tags` phase stays skipped on this host, as on the
 trial door.
 
 ---
@@ -383,9 +384,11 @@ library, plus the test-only clients `oauth4webapi` and the MCP SDK client as dev
     **In `dir` mode one key covers every database** (**V**, config reference).
   - It opens databases through its own SQLite driver and checks each file's header (**V**). An encrypted file would
     almost certainly not replicate (**I**).
-- **Railway's volume encryption is unverified.** Forum and bot answers from 2026 say AES-256 covers volumes and backups
-  automatically. Two-year-old answers say volumes weren't encrypted (**F**). There is nothing in Railway's docs. **Before
-  any non-family user, Mike gets this in writing (trust.railway.com, SOC 2 report or support).**
+- **Railway's volume encryption: confirmed in writing, 2026-11-04.** Railway's SOC 3 report (period ending 2026-04-22,
+  unqualified opinion) says AES-256 at rest, volume-level on Railway's own metal and Cloud KMS on GCP, backups encrypted
+  too (notes: `2026-11-04-railway-soc3.md`). The catch from the same report: Railway snapshots customer volumes multiple
+  times a day, with retention by storage tier that we don't know. Mike is asking Railway. Until it answers, "gone from
+  our backups within about two days" covers only our Litestream/R2 copies. Before that, forum answers disagreed (**F**).
 - **R2 supports SSE-C** and can't recover objects whose key is lost (**V**, Cloudflare docs).
 
 ### 5.2 Recommendation (Q2): volume at rest plus per-user-key backups, not file encryption, for the beta
@@ -409,9 +412,12 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > in before then and keep your account. If you choose "delete everything now", they are erased at once, with no undo.
 > Once they are erased, no copy of your memory anywhere can be read again by anyone, us included. Your account email
 > is purged from our encrypted account backups within 24 hours of the erase. Our sign-in and delete-confirmation emails
-> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. Removing a
-> single memory isn't available on hosted: you can download your whole memory, or delete your account, which erases all
-> of it. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
+> pass your address to our mail provider (Resend), which keeps its own logs for its own retention period. To delete one
+> memory, ask Claude. It's hidden at once and erased after 24 hours, unless you ask Claude to undo it before then. Our
+> backups let go of it within about a day of the erase; our hosting provider (Railway) also keeps short-term snapshots
+> of its disks for its own recovery, and rotates them on its own schedule. A copy made before an upgrade keeps it until that copy goes,
+> which is at the first worker run after 14 days (longer for someone who stops chatting). A download made inside those 24 hours includes it. A download is not encrypted: keep it somewhere safe. Things Claude wrote that mention it, such as a journal
+> chapter or its page, stay unless you ask Claude to change them. We hold the backup key, so this protects your memory from leaked backups, not from us, and Cloudflare receives
 > the key whenever a backup is read or written. "We don't read it" is our promise, not something the system enforces or
 > records. Only we can reach the server and its backups, through our accounts at Railway (which runs it) and Cloudflare
 > (which stores the backups); there is no admin page, and each connection reaches only its own account's memory. The
@@ -419,8 +425,9 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 > And when Claude reads your memory, Anthropic sees what Claude reads.
 >
 > (Changed 2026-10-27 with the 24-hour delete, R6; the site's line follows this paragraph. Corrected 2026-11-01: it
-> claimed encrypted disks, which is unverified (above and §5.4), and a single-memory forget, which hosted has no door
-> for. Say either again only once it is true. Corrected 2026-11-03: it said the promise was "kept by access controls and
+> claimed encrypted disks, which was then unverified (confirmed 2026-11-04, §5.1, so that claim may come back), and a
+> single-memory forget, which hosted then had no door for. Said again 2026-11-04, once HD1 made it true (ask Claude,
+> 24 hours to undo), with the account page's words to match and the download called plainly unencrypted (EX1). Corrected 2026-11-03: it said the promise was "kept by access controls and
 > an audit log", but every audit row is an account event (`accounts.audit` in hosted/src) and nothing records a read of a
 > store, an operator's `railway ssh` included.)
 
@@ -539,7 +546,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   - The account page, the done pages and the 202 "didn't finish" page all say "purged within 24 hours" (of the erase).
 
 **Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
-1. Railway's disk encryption confirmed in writing.
+1. Railway's disk encryption confirmed in writing. **Met 2026-11-04** (SOC 3, see §5.1); snapshot retention still open.
 2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
    means every backup. Before building it, verify the reported breach: if it's wrong, the service is still better than
@@ -555,6 +562,17 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
    2026-11-02**: v1's three fingerprints matched (Railway holds v1 only), and the drill passed on 3fe0aa75. That
    Railway's v1 is the ring in use rests on the running service: its deploy started after `HOSTED_KEKS` was last set
    and it opens its stores, and with one version any `HOSTED_KEK_CURRENT` but `v1` refuses at start-up.
+
+**Deferred, not gates and not built (2026-11-04, ROADMAP, on Mike's "reasonably secure, not overkill" for a free beta of
+0-10 users).** Gates 2 and 3 above, and the alert and uptime lines in §7.1, are moved here until the beta grows:
+- **The Cloudflare key service** (gate 2). Why: one leak of Railway's environment is a risk worth closing, but for a
+  handful of invited users it isn't worth a second `KeyWrapper` yet. The breach report is still unverified.
+- **The account email encrypted under the person's DEK** (gate 3). Why: it belongs with the encrypted live store, and
+  that drop is pending Mike's final word. Until then the 24-hour purge wording stands.
+- **The four custom alerts** (lag, volume full, 5xx rate, sidecar restarts; §7.1). Why: Railway's own crash and deploy
+  emails and `/readyz` are enough to start.
+- **An outside uptime service** (§7.1). Why: it needs an account of Mike's, and Railway's notices cover a crash.
+- **A formal data-request process.** Why: with a few users, a request to the feedback address is handled by hand.
 
 ---
 
@@ -591,6 +609,8 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 
 - One service and one volume at `/data`, from a `hosted/Dockerfile`. Node 24 slim, Litestream pinned, and a small
   supervisor: the Node server plus the sidecar. If either dies, the container exits and Railway restarts it.
+- **Deploys** follow the `hosted-live` branch, not master (2026-11-04): the release process moves it forward, so a
+  docs merge doesn't restart the service (`docs/RELEASING.md` §5, step 6).
 - A service with a volume runs as **one replica** (**I**, to confirm in Railway's docs). That suits a single-instance
   design.
 - **Health checks.**
@@ -614,7 +634,9 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
   - Over quota, `remember`, `chapter` and `dream` writes get a plain refusal with a reason code. Reads always work.
 - **Export.** `GET /account/export` (signed in, with a fresh re-authentication inside 10 minutes) streams a zip:
   - the core's own export, `cli/export.ts`: its `markdown` tree (readable), and its `database` copy (complete,
-    openable by anything that speaks SQLite, and the shape a local install could import at stage 3).
+    openable by anything that speaks SQLite, and the shape a local install could import at stage 3). *As built:*
+    `POST /account/export` from the account page (signed in, with its CSRF token), one plaintext `counterparts.sqlite`, no zip; a local install takes it in as its store file, and its first writable open
+    rebuilds the word index and switches the starter notes to local words (EX1; the manual's "Taking your hosted memory home").
 - **Delete.** `POST /account/delete` (typing your email) locks the account and sets the erase for 24 hours later;
   with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`
   undoes a pending delete. *As built (R6):* there is no re-authentication beyond the signed-in session (a pending
@@ -636,7 +658,7 @@ R2 bucket. A move is: restore from R2 into a Fly volume, change DNS. A runbook g
 3. Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP (§5.4).
 4. Resend: verify the sending domain for the login emails.
 5. DNS: `app.counterparts.ai` to Railway, and the TLS certificate there.
-6. Written confirmation of Railway's volume encryption (before any non-family user).
+6. ~~Written confirmation of Railway's volume encryption~~ Met 2026-11-04 (SOC 3, §5.1).
 7. Optional: an outside uptime monitor.
 8. Before adding the connector to his claude.ai: extend `deniedMcpServers` in his `~/.claude/settings.json` to the hosted
    URL and name. The coordinator reminds him; it is his config.

@@ -5,7 +5,9 @@
 ## 1. Purpose
 
 The `counterparts` command: status, install, and the owner-only operations — removal,
-export, backup and restore — that no model-reachable path may perform.
+export, backup and restore. No model-reachable path may perform them. A model may hold one
+memory for removal on the person's word; the erase runs only in the console or in a sweep
+after 24 hours of wall-clock time (HD1, 2026-11-04).
 
 ## 2. Brain analog
 
@@ -19,7 +21,12 @@ owner owns the data.
 
 - **Destruction lives in exactly one place, and a caller-universality test pins who may
   reach it.** [v1] behavioral-spec §16 G1–G2, earned-mechanism #14 — *no model-reachable
-  path may import it, and that test failing is the point.*
+  path may import it, and that test failing is the point.* Since 2026-11-04 (HD1) the test
+  names two more callers, both owner-side clocks no model calls: the background worker on
+  local and hosted's ten-minute timer, each importing only `sweepHeldRemovals`, which erases
+  a memory a chat put on its 24-hour hold. The model's door (`remember`'s `remove`,
+  `core/removal-hold.ts`) writes the hold and nothing else, so it hides and never destroys:
+  the purpose of v1's rule, kept with its wording changed.
 - **Removal is recorded, and the record is canonical, append-only, and carries no body and
   no content hash.** [v1] §16 G7–G9, scar §2.20 — a hash of low-entropy content is
   brute-forceable, which would make the record of removal a leak of the thing removed.
@@ -72,7 +79,7 @@ owner owns the data.
 - **The staged quarantine → cooling-off → chase-every-copy erase ceremony is released**
   (owner rescope 3, settled): 871 lines, never production-fired, no designated target since
   2026-07-29. What replaces it is **plain owner-initiated removal plus a record** — loud,
-  recorded, unreachable from any model path. Every guarantee in §3 survives the release;
+  recorded, unreachable from any model path (a chat's delete only holds, HD1). Every guarantee in §3 survives the release;
   the staging does not.
 - **Forever-archive becomes bounded versioning** (owner rescope 3, settled). Superseded
   rows retain ~90 lived days.
@@ -310,6 +317,14 @@ The standalone verb does not ask either: typing it is the yes.*
     question, not by the plan made before it. When another process did the same work
     while the question was up, nothing is written and no backup is taken, and the screen
     says the hooks were already in place (or already gone) when the file was read again.*
+    *Amended 2026-11-04 (LD1): `connect` and `disconnect` keep their backups, but
+    `uninstall`, when its unwire read a healthy settings file, took our hooks out and
+    wrote it back, removes every backup of ours beside the file (the whole
+    `<file>.counterparts-backup-<stamp>` name, regular files only, never a link or a
+    directory), the one it just took included, and says how many went. The backups are
+    the only recovery if something else damaged the file, so only an unwire that read and
+    rewrote a healthy file removes them: a missing, empty or hook-free file, or a failed
+    unwire, keeps every one, and uninstall says where they are.*
 22. **[M] Every other key and every other tool's hooks survive, and the merge works on
     the INNER hook entry.** Another tool's entry keeps its position, its `matcher`, its
     `timeout` and every key this package has never heard of; an event we do not use is not

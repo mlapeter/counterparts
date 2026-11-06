@@ -7,13 +7,15 @@ binary each have their own detail, linked below rather than repeated.
 ## 1. The release commit
 
 Branch `release/<version>` from master at the commit being released. The release commit
-sets the version in four places, moves one example, and sets the release date in one
+sets the version in five places, moves one example, and sets the release date in one
 (`RELEASE_DATE`, below):
 
 - `package.json` `"version"`;
 - `SERVER_VERSION` in `src/adapters/mcp/server-words.ts` (the version the memory server reports;
   an open session compares it to say "Counterparts was updated");
 - `"version"` in `.claude-plugin/plugin.json`;
+- both `"version"`s in `server.json` (the MCP Registry listing; `test/mcp.test.ts` holds them
+  to package.json). Publishing the listing is a step after npm: `mcp-publisher publish`;
 - the marketplace entry's `"ref"` in `.claude-plugin/marketplace.json`, as `v<version>`.
   Since 0.3.22 the entry's `url` is the bundle repository,
   `https://github.com/counterparts-ai/counterparts-plugin.git` (3b), so the ref names
@@ -126,13 +128,23 @@ comment, a heading the install loop still read by its old words) cost a full run
 the changelog's words here too: `CHANGELOG.md` and `tools/install-loop/run.sh` ship, so a change
 to either is a new tarball and a new run. In 0.3.46 a merged change to what a new store's install
 gives (the wake's shape on) left four install-loop steps reading the unshaped wake's words: caught
-here, fixed on the release branch, and the loop now reads both.
+here, fixed on the release branch, and the loop now reads both. In 0.3.47 the scan stopped on three
+examples merged code carried, none of them real: a sample `/Users/<name>/…` path in a comment, and
+`x = y` lines whose left side ends in token or pass, in a comment and in a changelog fragment.
+Reworded on the release branch (prose and comments only, then the binaries again, section 3);
+the cheaper place is the pull request, so a fragment or comment that needs an example of a path or
+an assignment says it in words (`pad_token` set to `eos_token`).
 
 **On the laptop, on the commit CI passed.** `uptime` first; these run one at a time.
 
 - the check against a copy of the owner's memories, which is private and can't go near a
   public log. The release brief says what to look at. A snapshot carries no cache, so run
-  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing;
+  `counterparts verify --dir <the copy> --rebuild --keep-vectors` first (it refuses a store named only by the environment), or recall finds nothing.
+  Run that with the last release, not this one, so this release's first open meets the index the owner's store has.
+  A snapshot is the database alone: no `spans/` (the capture buffer the write-up ledger reads) and no `sessions/`
+  (the registry). A check on what is owed needs `spans/` cloned beside it; a check on what a wake folds as already
+  shown today (RF1, 0.3.47) needs the registry entry of the session that showed it, since a told latch whose
+  session the registry doesn't hold doesn't count. Clone those read-only from the live store, delete them with the copy;
 - the bundles (section 3b), then the plugin loop on the release head, which needs a real
   `claude` ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)):
   `tools/plugin-loop/run.sh --bundle=core`, `--bundle=directory`, and `tools/plugin-loop/split.sh`.
@@ -334,6 +346,35 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    `claude plugin list` shows the sidebar at the new version and counterparts at
    `<version>-<sha>`. A missing `counterparts--v<version>` tag shows here as "has no git tag
    satisfying" (split.sh scenario 5).
+6. Move hosted onto the release. Since 2026-11-04 (Mike, via ROADMAP) Railway's
+   `fabulous-recreation / production` environment deploys `app.counterparts.ai` from the
+   `hosted-live` branch, not master, so merging the release PR doesn't redeploy it and this
+   push does. (Not `release`: a branch by that name can't sit beside the `release/<version>`
+   branches.) `hosted-live` goes to the release PR's merge commit on master (the tag stays on
+   the packed commit, step 2), and only once master's CI on it has passed:
+
+   ```sh
+   git fetch origin && SHA=<the release PR's merge commit, full sha> &&
+     git merge-base --is-ancestor "$SHA" origin/master &&
+     gh run list --commit "$SHA" --json name,status,conclusion &&
+     [ "$(gh run list --commit "$SHA" --json conclusion --jq 'length > 0 and all(.[]; .conclusion == "success")')" = true ] &&
+     git push origin "$SHA":refs/heads/hosted-live
+   ```
+
+   The chain pushes only when the commit is on master and every run on it finished `success`;
+   an empty list (no runs yet) stops it too. The push has no `--force` and no `+`, so git
+   refuses anything but a fast-forward ("rejected … (non-fast-forward)"). If it refuses, stop
+   and find out how `hosted-live` got ahead of master; never force it. Then watch the deploy
+   (Railway → fabulous-recreation → Deployments, or GitHub's deployments for the
+   `fabulous-recreation / production` environment turning `success`; the
+   `content-beauty / production` rows in that list are another project, not hosted) and check
+   it the way [the RUNBOOK's first boot checks](hosted/RUNBOOK.md#5-first-boot-checks) do: the
+   log's `[hosted] serving …` line, `curl -s https://app.counterparts.ai/healthz` prints `ok`,
+   and `curl -s https://app.counterparts.ai/readyz` prints every check `ok`.
+
+   **An urgent hosted fix between releases** is the same chain on purpose, with the master
+   commit that carries it; read `git log hosted-live..<sha>` first (it ships everything up to
+   that commit), and note the sha and why in the coordinator's handoff.
 
 ## Upgrade and rollback, tested before publish
 

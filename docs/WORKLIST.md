@@ -16,6 +16,16 @@ repeating them.*
 
 ## Follow-ups found today (not started)
 
+- **TC1's own-plumbing gate: what it still gets wrong** (#751, merged 11-04). The gate (`remember/own-plumbing.ts`)
+  keeps notes about refused tool calls and permission prompts out of `us`/`owner`. Known false positives, a
+  developer's notes about their own agent's tools filed as plumbing: "The Bash tool call in our agent framework is
+  blocked on Windows", "Theo couldn't run /deploy on staging". Known misses, our own plumbing that still gets through:
+  "Theo denied Bash", "the told mark was refused", "Theo said no to the reflect prompt". Tune the cue on real rows
+  after the release, not before.
+- **A "wake showed it" record, for the next batched store-format change** (RF1, #742; ROADMAP 11-04 11:12). The wake folds a
+  plain reminder told earlier today (the told latch); a dated item that isn't plain has no per-day record of being shown, so it
+  stays whole in every wake for now. Same record would let a reminder told in last night's session after midnight fold after
+  the morning's first wake.
 - **Refresh the harness corpus copy after each release** (Mike, 10-22). The replay corpus is a copy from 10-20,
   older than beliefs and tags, so the 10-22 replays saw none of either. After each release, copy the corpus from
   that night's snapshot, so replays read a store the release has actually run on.
@@ -49,6 +59,26 @@ repeating them.*
   (2) "Still open"'s tail of five bare recall ids is weight: show the oldest untouched item's title, or nothing.
   (3) "Last said here" is cut past meaning ("morning! morning!"): give it enough words, or drop it when it's
   that short. random-7b called "Today, elsewhere" the wake's most useful line (F4 working as meant).
+
+- **HD1 follow-ups (11-04, from the #739 review):** `counterparts verify`'s "removed (deny-list)" count and the
+  sidebar status file still read a chat's held memories (the dashboard was fixed in #739; these two weren't probed).
+  `verify` should count holds apart from removals; the sidebar file is only rewritten at an erase, so it may show a
+  held memory until then. Real Litestream under an erase stays a [CHECK-AFTER](CHECK-AFTER.md) item (the 48 h
+  backups check), not work here.
+
+- **Developer-week confirm ambers (11-04).** Evidence for each: `~/counterparts-notes/2026-11-04-developer-week-confirm.md`,
+  the section named. In priority order, morning interruptions first (the ROADMAP's call: developers will feel it).
+  1. **Morning interruptions.** The dream notice, then "the nightly run finished" plus an untold morning share, land in the
+     first coding prompts of days 2 and 3 (confirm report, item 8).
+  2. **The wake at three sessions a day.** 2.4-4.0 KB on day 3 (3.2-5.0 before RF1), with paragraphs repeating across a day's
+     wakes: the "Since yesterday" pair, the "Last night" paragraph (confirm report, item 3).
+  3. **The header day lags by one.** "Day 1" on Tuesday morning, "day 2" on Wednesday (confirm report, item 3).
+  4. **An irrelevant cross-folder footnote.** An evals fact ("Theo asked for the new probe eval...") surfaced at the paper's
+     related-work prompt, in a quiet lane (confirm report, item 1).
+  5. **Repeating footnotes during coding.** The meeting journal (4 times) and the onboarding fact (3 times in other folders)
+     (confirm report, item 4).
+  6. **Harness scorer: W2 false amber.** Let the shown memory's own work-ness, not the prompt line, decide whether a footnote
+     counts as a work crossing. The meeting journal's title scored as a crossing (confirm report, item 1, scorer note).
 
 ## Needs a talk first
 
@@ -98,6 +128,14 @@ repeating them.*
 More hosts (claude.ai needs a tunnel or a hosted piece); the dashboard walk (Health, Flow, mobile); Windows (WSL
 first); the nightly run's timing (a real night run needs a scheduler); dates written into memories' words; the site
 as a public roadmap. Ideas and Parked: see the [roadmap](ROADMAP.md).
+
+- **Windows port** (found 11-04 in #746; not now: no Windows release, and README and QUICKSTART say macOS and
+  Linux). #746 made the windows-x64 unit tests pass; what is still wrong there is real, and blocks the job going green:
+  (a) `runtime.ts#shellTokens` reads a backslash inside double quotes as an escape (POSIX), so a hand-typed
+  Windows-native hook line (`"C:\…\counterparts.exe" hook`) is not recognised by doctor or connect. Everything
+  Counterparts writes goes through `shellQuote` and reads back fine. (b) The Windows binary's `--version` prints
+  "version unknown — package.json is not beside the running code". (c) The Windows smoke step hangs after doctor
+  until the job's 8-minute timeout.
 
 ## Done
 
