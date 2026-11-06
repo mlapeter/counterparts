@@ -54,14 +54,18 @@ IMAGE=''
 FROM=0
 REHEARSE=0
 LOCAL=0
+MIGRATION=0
+OLD_SHA=''
 WANT_SHA=''
 while (( $# )); do
   case $1 in
     --from) FROM=${2:?--from N}; [[ $FROM =~ ^([0-9]|1[0-3])$ ]] || { echo "--from takes 0-13" >&2; exit 2; }; shift 2 ;;
     --rehearse) REHEARSE=1; LAST=3; shift ;;
     --local) LOCAL=1; shift ;;
+    --migration) LOCAL=1; MIGRATION=1; LAST=7; shift ;;
+    --old-sha) OLD_SHA=${2:?--old-sha <commit>}; shift 2 ;;
     --sha) WANT_SHA=${2:?--sha <commit>}; shift 2 ;;
-    *) echo "usage: drill.sh [--rehearse] [--local] [--sha <commit>] [--from N]" >&2; exit 2 ;;
+    *) echo "usage: drill.sh [--rehearse] [--local | --migration [--old-sha <commit>]] [--sha <commit>] [--from N]" >&2; exit 2 ;;
   esac
 done
 (( LOCAL && REHEARSE )) && { echo "--local and --rehearse: the rehearsal has no bucket at all" >&2; exit 2; }
@@ -78,6 +82,7 @@ if (( REHEARSE )); then
   BACKUP_ARGS=(-e BACKUPS=off)
 elif (( LOCAL )); then
   NAME=drill VOL=cp-drill TAG=drill-local RESULTS=$SCRATCH/RESULTS-local.md
+  if (( MIGRATION )); then TAG=drill-migration RESULTS=$SCRATCH/RESULTS-migration.md; fi
   BACKUP_ARGS=(--network "$NET" -v "$CERTS:/certs:ro" -e NODE_EXTRA_CA_CERTS=/certs/ca.pem -e SSL_CERT_FILE=/certs/ca.pem -e R2_ENDPOINT -e R2_BUCKET -e R2_ACCESS_KEY_ID -e R2_SECRET_ACCESS_KEY)
 else
   NAME=drill VOL=cp-drill TAG=drill RESULTS=$SCRATCH/RESULTS.md
@@ -281,6 +286,7 @@ else
   IMAGE=counterparts-drill:${SHA:0:8}
   docker image inspect "$IMAGE" >/dev/null 2>&1 || fail "the image $IMAGE from step 0" "no such image: start from step 0"
   export HOSTED_RECOVERY_PUBKEY=$PUB1
+  if (( MIGRATION )); then export HOSTED_KEKS=$KOLD; OLDIMAGE=counterparts-drill-old:${OLDSHA:0:8}; fi
   if (( LOCAL )); then export R2_SECRET_ACCESS_KEY=$S3SECRET; fi
   note ""; note "## resumed at step $FROM, $(date '+%H:%M:%S') (last passed: ${REACHED:-none})"
   LOG=$(ls -t "$LOGS"/*.log 2>/dev/null | head -1 || echo "$LOGS/none.log")
@@ -516,10 +522,10 @@ step_10() { # the Railway restore: hold, recover-keys with P1 (stdin), then REST
   export HOSTED_RECOVERY_PUBKEY=$PUB1
   local before; before=$(c r2-snapshot)
   recover_in_hold "$LOGS/10-hold.log" "$SCRATCH/p1.key" --dry-run
-  [[ $RKC == 0 && $RK == *"3 keys open with it, and would be brought back"* ]] || fail "recover-keys --dry-run with P1: 3 keys open (control, user 1, user 2)" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  [[ $RKC == 0 && $RK == *"2 keys would be brought back from the bucket (each proven against its replica)"* && $RK == *"1 not adopted: no replica"* ]] || fail "recover-keys --dry-run with P1: 2 keys proven against their replicas (control, user 1); user 2's never-opened store, with no replica, not adopted" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
   note "  recover-keys --dry-run with P1 in hold: $(sed -n 2p <<<"$RK")"
   recover_in_hold "$LOGS/10-hold.log" "$SCRATCH/p1.key"
-  [[ $RKC == 0 && $RK == *"3 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 3 keys brought back" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  [[ $RKC == 0 && $RK == *"2 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 2 keys brought back (user 2's store gets a new key at its first open)" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
   note "  recover-keys with P1 in hold (the private key on stdin): $(sed -n 2p <<<"$RK" | redact)"
   [[ $(c r2-snapshot) == "$before" ]] || fail "the bucket unchanged by recover-keys" "it changed"
   serve "$LOGS/10-restore.log" -e RESTORE_ON_BOOT=1
@@ -555,7 +561,7 @@ step_12() { # a second cycle: stop, volume gone, restore, A B C
   docker volume rm "$VOL" >/dev/null
   export HOSTED_RECOVERY_PUBKEY=$PUB1
   recover_in_hold "$LOGS/12-hold.log" "$SCRATCH/p1.key"
-  [[ $RKC == 0 && $RK == *"3 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 3 keys brought back" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  [[ $RKC == 0 && $RK == *"2 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 2 keys brought back" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
   note "  recover-keys with P1 in hold: $(sed -n 2p <<<"$RK" | redact)"
   serve "$LOGS/12-restore.log" -e RESTORE_ON_BOOT=1
   lg -q 'restored the control databases: 2 restored' || fail '"restored the control databases: 2 restored"' "$(hosted_lines | tr '\n' ' ')"
@@ -597,9 +603,129 @@ step_13() { # cleanup
   (( LOCAL )) || note "  next: delete the drill token and the emptied bucket (docs/hosted/RUNBOOK.md, The drill, Cleanup)"
 }
 
+# ── --migration: today's production shape (HOSTED_KEKS, the image before WB1) to write-only backups ──
+# Mike's steps on a throwaway volume and the local S3: the old image serves under a throwaway KEK; the new
+# image serves with HOSTED_KEKS still set (it seals); the proof (recover-keys --dry-run beside it);
+# migrate-keys as a start command, twice; serve without HOSTED_KEKS; then a lost volume restored.
+
+# A one-shot command in the container, as a Railway start-command override: its exit code in RC.
+run_cmd() { # run_cmd <log> <command> [docker args]
+  local log=$1 cmd=$2; shift 2
+  CMD=$cmd start "$log" "$@"
+  RC=$(docker wait "$NAME")
+  end_follower; remove
+}
+
+mstep_0() { # the new image (HEAD) and the local S3 as step 0 does, then the old image and a throwaway KEK
+  step_0
+  STEP=0
+  LOG=$LOGS/0-build-old.log
+  local old; old=$(git -C "$REPO" rev-parse "${OLD_SHA:-$(git -C "$REPO" merge-base HEAD origin/master)}^{commit}" 2>/dev/null || true)
+  [[ $old =~ ^[0-9a-f]{40}$ ]] || fail "the old commit (--old-sha, or this branch's merge-base with origin/master)" "${old:-none}"
+  local owt=$SCRATCH/worktree-old
+  if [[ ! -e $owt ]]; then (umask 022 && git -C "$REPO" worktree add -q --detach "$owt" "$old") || fail "git worktree add $owt $old" "it failed"; fi
+  OLDIMAGE=counterparts-drill-old:${old:0:8}
+  docker build -f "$owt/hosted/Dockerfile" -t "$OLDIMAGE" "$owt" > "$LOG" 2>&1 || fail "the old image builds" "docker build failed"
+  ! docker run --rm --entrypoint grep "$OLDIMAGE" -q recover-keys hosted/src/main.ts || fail "the old image from before WB1 (no recover-keys)" "it has WB1"
+  save OLDSHA "$old"
+  save KOLD "v1:$(openssl rand -base64 32)"
+  export HOSTED_KEKS=$KOLD
+  pass "old image $OLDIMAGE (before WB1: no recover-keys in it), a throwaway KEK (v1:, the shape of production's HOSTED_KEKS)"
+}
+
+mstep_1() { # the OLD image under HOSTED_KEKS: an invite, a sign-up, OAuth, wake, remember A, replicated
+  local IMAGE=$OLDIMAGE
+  serve "$LOGS/1-old.log" -e HOSTED_KEKS
+  cn invite 1
+  cn signup 1 "$LOG"
+  cn oauth; cn wake
+  local db; db=$(user1_store); [[ -n $db ]] || fail "user 1's store database" "none"
+  STORE1=$(sed -E 's#^/data/tenants/([^/]+)/store/.*#\1#' <<<"$db"); save STORE1 "$STORE1"
+  cn remember A
+  wait_txid "tenants/$STORE1/" 0 >/dev/null; wait_txid control/accounts.sqlite/ 0 >/dev/null; wait_txid control/oauth.sqlite/ 0 >/dev/null
+  local keys; keys=$(c r2-list keys/)
+  [[ $keys == *keys/control.wrapped* && $keys == *"keys/$STORE1.wrapped"* && $keys != *.sealed* ]] || fail "today's shape: keys/*.wrapped, no .sealed" "$(tr '\n' ' ' <<<"$keys")"
+  stop_timed
+  pass "the old image served under HOSTED_KEKS: the store and both control databases replicated at control/<db>/; keys/*.wrapped only"
+}
+
+mstep_2() { # Mike's step 3: the release (the new image) with HOSTED_KEKS still set; then the proof beside it (step 4)
+  serve "$LOGS/2-release.log" -e HOSTED_KEKS
+  lg -q 'keys are still under HOSTED_KEKS: stop the server and run migrate-keys' || fail '"N keys are still under HOSTED_KEKS …"' "$(hosted_lines | tail -4 | tr '\n' ' ')"
+  lg -q "key objects sealed to recovery key $FP1" || fail "\"key objects sealed to recovery key $FP1\"" "$(hosted_lines | tail -4 | tr '\n' ' ')"
+  cn recall A
+  local keys; keys=$(c r2-list keys/)
+  [[ $keys == *keys/control.sealed* && $keys == *keys/control.wrapped* ]] || fail "sealed objects beside the old ones" "$(tr '\n' ' ' <<<"$keys")"
+  RKC=0
+  RK=$(docker exec -i "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys --dry-run < "$SCRATCH/p1.key" 2>>"$LOGS/2-recover-keys.stderr") || RKC=$?
+  [[ $RKC == 0 && $RK == *"proof recorded: recovery key $FP1"* ]] || fail "recover-keys --dry-run beside the running server: the proof recorded" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  note "  recover-keys --dry-run beside the running server: $(sed -n 1p <<<"$RK")"
+  stop_timed
+  pass "the release served with HOSTED_KEKS (sealed every key, said to migrate); A recalled; the private key proven beside it"
+}
+
+mstep_3() { # Mike's step 5: migrate-keys as a start command (server stopped), then once more (a restart re-running it)
+  run_cmd "$LOGS/3-migrate.log" migrate-keys -e HOSTED_KEKS
+  [[ $RC == 0 ]] || fail "migrate-keys exit 0" "exit $RC: $(lg -v '^\[hosted\] re-key' | redact | tail -6 | tr '\n' ' ')"
+  lg -q 'control re-keyed' || fail '"control re-keyed …"' "$(logtext | redact | tail -8 | tr '\n' ' ')"
+  lg -q 'done: nothing here or in the bucket needs HOSTED_KEKS now' || fail '"done: …"' "$(logtext | redact | tail -8 | tr '\n' ' ')"
+  note "  migrate-keys:"; logtext | grep -v '^\[hosted\] re-key' | redact | sed 's/^/    /' | tee -a "$RESULTS"
+  local keys control; keys=$(c r2-list keys/); control=$(c r2-list control/)
+  [[ $keys != *.wrapped* ]] || fail "no keys/*.wrapped left" "$(tr '\n' ' ' <<<"$keys")"
+  ! grep -qE '^control/(accounts|oauth)\.sqlite/' <<<"$control" || fail "the old control replicas (control/<db>/) deleted" "$(grep -cE '^control/(accounts|oauth)\.sqlite/' <<<"$control") left"
+  CBASE=$(sed -nE 's#^(control/[A-Za-z0-9_-]{22}/)accounts\.sqlite/.*#\1#p' <<<"$control" | head -1); save CBASE "$CBASE"
+  [[ -n $CBASE ]] && grep -q "^${CBASE}oauth.sqlite/" <<<"$control" || fail "both control databases at a new base, control/<key id>/" "$(head -3 <<<"$control" | tr '\n' ' ')"
+  run_cmd "$LOGS/3-migrate-again.log" migrate-keys -e HOSTED_KEKS
+  [[ $RC == 0 ]] && lg -q '^0 keys moved' && lg -q 'done:' && ! lg -q 're-keyed' || fail "migrate-keys again: exit 0, nothing to do" "exit $RC: $(logtext | redact | tail -6 | tr '\n' ' ')"
+  pass "migrate-keys: done; every old key object gone; control re-keyed to $CBASE, the old control replicas deleted; a second run did nothing"
+}
+
+mstep_4() { # Mike's step 6: HOSTED_KEKS removed; serve; recall A, remember B, replicated (control at its new base)
+  local c0 t0 t c1; c0=$(c r2-txid "${CBASE}accounts.sqlite/")
+  serve "$LOGS/4-serve.log"
+  ! lg -q 'HOSTED_KEKS' || fail "no line about HOSTED_KEKS" "$(lg HOSTED_KEKS | redact)"
+  ! lg -qE 'sidecar\.backoff|level=ERROR' || finding "$(lg -E 'sidecar\.backoff|level=ERROR' | redact | head -3 | tr '\n' ' ')"
+  cn recall A
+  t0=$(c r2-settle "tenants/$STORE1/")
+  cn remember B
+  t=$(wait_txid "tenants/$STORE1/" "$t0")
+  stop_timed
+  c1=$(c r2-txid "${CBASE}accounts.sqlite/")
+  note "  tenants/${STORE1:0:8}… maxTXID rose: $t; ${CBASE}accounts.sqlite maxTXID $c0 before this serve, $c1 after its stop"
+  pass "served without HOSTED_KEKS: A recalled, B remembered and replicated"
+}
+
+mstep_5() { # the volume lost after the migration: hold + recover-keys, RESTORE_ON_BOOT=1; A and B back
+  fresh_volume
+  recover_in_hold "$LOGS/5-hold.log" "$SCRATCH/p1.key"
+  [[ $RKC == 0 && $RK == *"2 keys brought back from the bucket"* ]] || fail "recover-keys: control and user 1's keys brought back, proven against their replicas" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  note "  recover-keys: $(sed -n 2p <<<"$RK" | redact)"
+  serve "$LOGS/5-restore.log" -e RESTORE_ON_BOOT=1
+  lg -q 'restored the control databases: 2 restored' || fail '"restored the control databases: 2 restored"' "$(hosted_lines | tr '\n' ' ')"
+  lg -q 'RESTORE_ON_BOOT: 1 store databases restored' || fail '"RESTORE_ON_BOOT: 1 store databases restored"' "$(hosted_lines | tr '\n' ' ')"
+  local out
+  if ! out=$(ctry recall A B); then cn refresh; out=$(c recall A B); fi
+  note "  $out"
+  pass "restored from the new control replicas and the store's: A and B recalled"
+}
+
+mstep_6() { # what the env from before the migration still opens: nothing of control
+  local control; control=$(c r2-list control/)
+  ! grep -qE '^control/(accounts|oauth)\.sqlite/' <<<"$control" || fail "no control replica under the old key's place" "some"
+  pass "the bucket holds no control replica under the control key HOSTED_KEKS could open (it was re-keyed); keys/ holds no .wrapped"
+}
+
+mstep_7() { # cleanup, and the old image and worktree
+  step_13
+  STEP=7
+  docker image rm "$OLDIMAGE" >/dev/null 2>&1 || true
+  if [[ -e $SCRATCH/worktree-old ]]; then git -C "$REPO" worktree remove --force "$SCRATCH/worktree-old"; fi
+  pass "the old image and its worktree removed"
+}
+
 for (( s = FROM; s <= LAST; s++ )); do
   STEP=$s
-  "step_$s"
+  if (( MIGRATION )); then "mstep_$s"; else "step_$s"; fi
   [[ -f $STATE ]] && save REACHED "$s"
 done
 if (( REHEARSE )); then
