@@ -1,42 +1,79 @@
 # Counterparts
 
-**Agents are great. What you're missing is a counterpart.**
+**Long-term memory for Claude Code, written by Claude itself.**
 
-Counterparts gives your AI assistant its own memory, modeled on human memory. It writes
-its memories itself, and they fade and grow the way yours do. It runs today with
-[Claude Code](https://claude.com/claude-code).
+Agents are great. What you're missing is a counterpart.
 
-[counterparts.ai](https://counterparts.ai)
+Each Claude Code session starts over, apart from your CLAUDE.md files and Claude's short
+MEMORY.md notes. With Counterparts, Claude writes down what it learned at the end of each
+session, in its own words. What matters sticks and the rest fades unless it comes up again.
+After the first few sessions, each one opens with a short "who I am, who you are, where we
+left off" that Claude wrote itself, so you stop re-explaining your projects and how you like
+to work.
 
-Found a bug? [Open an issue](https://github.com/mlapeter/counterparts/issues). For anything
-else, write to mike@resonantventures.com.
+It's for anyone who works with Claude Code every day and wishes it remembered, and for people
+interested in an AI that builds a relationship with them over time. It runs on your machine,
+with Claude Code on macOS and Linux, and with Claude Desktop on macOS.
 
 ## Install
 
-You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer.
-macOS and Linux; Windows not yet supported.
+You need [Node](https://nodejs.org) 22.15 or newer, or [bun](https://bun.sh) 1.3 or newer,
+on macOS or Linux. Windows isn't supported yet. Bun on macOS is the setup in daily use; Node
+and Linux (since 0.3.11) pass a smoke test and an install run but have no daily user yet.
 
 ```
-curl -fsSL https://bun.sh/install | bash     # if you don't have bun
-# then open a new terminal
-bun add -g counterparts
+npm install -g counterparts@latest
 counterparts
 ```
 
-With Node instead: `npm install -g counterparts@latest`, then `counterparts`. Whichever runtime
-runs the setup is the one Claude Code's hooks and memory tools are wired to.
+With bun instead: `bun add -g counterparts`, then `counterparts`. Whichever runtime runs the
+setup is the one Claude Code's hooks and memory tools are wired to.
 
-`counterparts` walks you through setup: your name and connecting Claude Code. No API
-keys. Then restart Claude Code and check it:
+The first run asks two things, and you can skip either: your name, and whether to connect
+Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs the file up first)
+and registers the memory tools. Hooks from other tools are left alone. No API keys and no
+account. Then restart Claude Code and check it:
 
 ```
 counterparts doctor
 ```
 
-To remove it, run `counterparts uninstall`. Your memory is kept unless you ask for it
-to be deleted. The full walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+For Claude Desktop on macOS (since 0.3.9), run `counterparts install --host claude-desktop`,
+then set the counterparts tools to **Always allow** in Claude Desktop, so a chat can wake on
+its own.
 
-![The dashboard](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-overview.png)
+The first session in a new folder asks whether you want memory there. To remove it, run
+`counterparts uninstall`; your memory is kept unless you ask for it to be deleted. The full
+walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
+
+## What it remembers, and where it lives
+
+- Who you are, how you like to work, what you decided together, what's in progress and
+  where you left off. Claude writes these as notes in its own words, not transcripts.
+- What it knows about you reaches every folder. Notes about a project's work show up in that
+  project.
+- The memories live in one SQLite file under `~/.counterparts`, readable by your account
+  only. You can read, export or delete them. Search by meaning runs on a small model on your
+  machine, about 30 MB.
+- Your memory leaves your machine only through Claude Code (or Claude Desktop) itself.
+  Counterparts' one request of its own (since 0.3.39) is a daily check with npm for the
+  newest version number. It sends nothing about you, and you can turn it off (see
+  [Status](#status)).
+- The text of a conversation is kept only until it's written up: since 0.3.21 it is deleted
+  3 days after that, or about two weeks after the conversation goes quiet, whichever comes
+  first, the next time Counterparts runs. It is never in a backup.
+- It doesn't read or change your CLAUDE.md files or Claude Code's own auto memory
+  (MEMORY.md), so they run side by side. A committed CLAUDE.md stays the place for rules
+  your team shares through git.
+
+How Claude Code's own memory works, and where Counterparts fits:
+[counterparts.ai/guides/claude-code-memory](https://counterparts.ai/guides/claude-code-memory/).
+More at [counterparts.ai](https://counterparts.ai). A hosted version for claude.ai is coming
+soon, in beta; [sign up on the home page](https://counterparts.ai/#waitlist) to hear when it
+opens.
+
+Found a bug? [Open an issue](https://github.com/mlapeter/counterparts/issues). For anything
+else, write to mike@resonantventures.com.
 
 ## What it does
 
@@ -52,23 +89,8 @@ to be deleted. The full walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART
   evidence, and it keeps the history of what it used to think.
 - **Things come to mind.** As you talk, related memories surface quietly, the way one
   thing reminds you of another.
-- **It's yours.** Everything lives on your machine in one SQLite file you can read,
-  export or delete. No API keys, no accounts, and nothing about you is sent anywhere; its
-  one request of its own is a daily version check (see [Status](#status)). The text of your
-  conversations is kept only until it's written up: deleted 3 days after that, or at most
-  about two weeks after the conversation goes quiet, whichever comes first, once Counterparts
-  next runs, and never in a backup. You can delete the conversation text,
-  the backups or the activity log on their own at any time (`counterparts delete`).
-
-## Who it's for
-
-People interested in giving an AI its own sense of self and building a relationship
-with it over time. Tinkerers, researchers, writers, and anyone who talks to an assistant
-every day and wishes it remembered.
-
-This is the AI's own memory of you and your work together, in its own words, keeping what
-matters across every project. A committed CLAUDE.md stays the place for team-wide rules
-shared through git.
+- **It's yours.** It lives on your machine, and you can read, export or delete it; see
+  [What it remembers, and where it lives](#what-it-remembers-and-where-it-lives).
 
 ## Where it's going
 
@@ -94,6 +116,8 @@ AES-256-GCM), so it can be opened by hand.
 
 Memory is on for every directory by default. The first session in a new directory asks
 whether you want it there.
+
+![The dashboard](https://raw.githubusercontent.com/mlapeter/counterparts/master/docs/images/dashboard-overview.png)
 
 ## How it works
 
