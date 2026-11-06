@@ -1,5 +1,116 @@
 # Changelog
 
+## 0.3.47 — 2026-11-04
+
+**Folded reminders, honest folders, refused calls kept out of your wake, compacted sessions remembered, and delete one memory from chat (hosted).** With the wake's shape on, a reminder a session started today already showed you folds into one line in later wakes that day. A dream files work under the folder it came from, another folder's dated work is counted rather than listed as due today, and other folders go by their names, not their paths. A memory about a refused tool call or a declined permission prompt stays out of the wake and the footnotes, and a morning share no longer asks for a tool call to mark it told. What you say after a conversation compacts is written up at night. "Delete the memory about X" works in chat, on hosted and locally, with 24 hours to undo it. Also: a hosted download opens in a local install and answers straight away, the redactor keeps tokenizer code readable and catches more secret names, and uninstall names the right remover. Existing stores' starter notes about deleting change once, only where they are still exactly as they started. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.46 needs no store restore: `counterparts disconnect`, 0.3.46's install, then `counterparts connect`.
+
+- **A reminder you were already shown today folds in later wakes.** With the wake's shape on, the first wake of the day
+  lists a plain reminder due today whole; a later wake that day, in a session that started today, counts it instead
+  (`2 due today, shown earlier; recall "coming up"`). A compaction's wake folds nothing, and a reminder told only in
+  last night's session after midnight stays whole. Dated items that aren't plain reminders show whole as before.
+- **The manual's section index says what is inside each section.** `recall` with the handle
+  `manual` now lists every section with a line that names its contents (the phrases, the
+  tools, the commands), so looking for how to pause or how reminders work no longer means
+  guessing from a generic opening sentence.
+- **On claude.ai, the first chat of the day runs the night.** Before answering you, Claude
+  sorts the day before (day's end, a dream, a reflection, about half a minute), then
+  answers in the same reply and says "I sorted yesterday's memories just now. Tell me if
+  you'd rather I ask first next time." One chat at a time is told (a later one only if the first never
+  ran it), and none once a night has run, whether from another chat or your nightly routine. Say "ask first" to have it
+  ask before it starts, or "no dreams" to turn nights off. A nightly routine still works,
+  once Counterparts' tools are set to Always allow (the routine's form lists only those).
+- **The night names its conversation on every step.** The dream's prompt now passes the
+  session on its propose and journal steps too, so with two chats open a night's changes
+  stay with the chat that runs it.
+- **Tokenizer code is no longer redacted.** Code lines that assign one identifier to another
+  whose last word is token, key or id (`pad_token` set to `eos_token`; letters only, no digit,
+  lowercase name, `=`) are kept as written; env vars, YAML, passphrase-shaped
+  values, quoted values, digits and passwords still redact as before.
+- **More credential names are redacted.** `passphrase`, `db_pass` and other `*_pass` names,
+  a whole-name `pin` with a numeric value, `private_key`, `signing_key`, `session_key`
+  and a bare capitalised `AUTH=` / `BEARER=` now keep their name and lose their value;
+  `pin_memory=True`, `session_key_fn` and key-file paths such as `private_key = "keys/a.pem"`
+  stay readable.
+- **Prefixed PINs and suffixed AUTH are redacted too.** `user_pin`, `SIM_PIN`, `PIN_CODE`,
+  `pinCode`, `gpgPassphrase` and `BASIC_AUTH=` keep their name and lose their value.
+- **Ask Claude to delete one memory, with a day to change your mind.** On hosted and on a local
+  install, "delete the memory about X" makes Claude find it, say which one it is, and delete it:
+  it's hidden at once from recall, the wake, footnotes and the night, and erased for good after
+  24 hours. "Undo that" brings it back whole before then; recall's handle `deleted` lists what's
+  waiting, and the wake counts it. On hosted the erase runs on the server's own timer and the
+  backups let go of it within about a day after (the hosting provider's own short-term disk
+  snapshots rotate on its schedule); on a local install it's erased at the first
+  session after the 24 hours. `counterparts remove <id> --confirm` still deletes at once, and
+  finishes a memory deleted in chat.
+- **Recalling a removed memory by its id no longer fails with an internal error;** it reads as
+  not found.
+- **The starter notes say so too.** Two of them changed with this: the one about seeing and
+  changing what Claude keeps now says one memory can be deleted in chat and undone within a day
+  (on hosted it used to say a memory couldn't be removed yet), and the tips list gains "Delete
+  that". On hosted, the note on how memory works gets the new night words too (the day's first
+  chat runs the night). An existing install gets the new words once, at its next session, but only
+  where those notes are still exactly as they started; one you corrected or let go stays as it is.
+- **Uninstall names the right remover and cleans up after itself.** Its last line says
+  `npm uninstall -g counterparts` for an npm install and `bun remove -g counterparts` for a
+  bun one (both when it can't tell), where it used to say the bun line to everyone. When it
+  takes its hooks out of `~/.claude/settings.json`, it also removes the backups of that file
+  that connecting and disconnecting kept, and says so when the file is left as `{}`. When
+  there were no hooks of ours in the file, the backups stay and it says where.
+- **The docs say what goes over the network.** README, the quickstart and setup now say the
+  one request Counterparts makes of its own: a daily check of registry.npmjs.org for the
+  newest version number, sending nothing about you, and how to stop it (`"updateCheck":
+  false` in the configuration, or asking Claude to stop the update reminders). The export example now
+  works as shown (`--out` with `--passphrase` or `--plaintext`), and the docs say no command
+  opens an encrypted export yet.
+- **Work stays in its own folder, and folders go by their names.** A dream now files what it writes
+  under the folder its memories came from, so a summary of one repo's work no longer shows up as
+  another repo's news. Work drawn from several folders goes to the one most of it came from;
+  something personal drawn from several folders belongs to none, so it reaches them all. Another folder's dated work
+  is no longer listed as "Due today" in this folder's wake: it is counted under "in other folders"
+  (personal reminders still reach every folder). And the wake names other folders as `sim` or
+  `paper` instead of their full paths, falling back to the path only when two folders share a name.
+- **A morning share no longer asks for a tool call to mark it told.** When last night's share
+  reaches a session, handing it over marks it told, so a new person isn't shown a permission
+  prompt for bookkeeping they have no context for. A session that still calls `reflect` with
+  `told` gets a plain yes.
+- **A memory about Counterparts' own refused calls stays out of your wake.** When a session
+  writes down that a tool call was denied, that a permission prompt was declined, or what it
+  couldn't do (a slash command, a tool it doesn't have), the memory is kept without a date, an
+  open thread or a "me", "us" or owner mark, so it never leads Coming up, the wake's news or
+  a prompt's footnotes; asking for it still finds it. The person's own words about a prompt
+  are kept as usual.
+- **What you say after a conversation compacts is written up, even when the session had
+  already saved its own notes.** A session that wrote its handoff or chapter, then compacted,
+  then carried on for a few quick lines used to have those lines treated as a short closing
+  tail and never written up. Now anything said after a compaction counts as not yet
+  recorded, so the next night writes it up, unless the session records itself again after
+  the compaction.
+- **Hosted: `/readyz` says when backups stop reaching the bucket.** The hosted server now checks
+  every 10 minutes that its backups are actually landing in storage, not only that the backup
+  process runs. After 30 minutes with nothing landing, `/readyz` answers `503` with
+  `backups: "stale"`, and the log says so with a `backup.uploads.stale` line. A fresh start gets
+  those 30 minutes before it can read stale.
+- **Hosted: invite codes now expire after 7 days.** A code that leaks later can't sign anyone up. Codes made before
+  this change keep working until they're used. Every page from app.counterparts.ai now tells your browser to use
+  https only, and the server no longer advertises two sign-in features it never used (DPoP and the library's own
+  sign-out page).
+- **A hosted "Download my memory" file opens in a local install and answers questions straight
+  away.** The download carries only the memory file, not its search index, so a question used to
+  find nothing until `counterparts verify --rebuild` was run by hand. Now the first session that
+  opens a memory with an empty search index rebuilds it, whichever way it opens (Claude Code,
+  Claude Desktop, the console, the background worker). Search by meaning fills in as usual.
+  `counterparts doctor` shows a "Word index" line when the index is empty (amber) and for a week
+  after an open rebuilt it, and `counterparts ask`, which only looks, says why it found nothing.
+- **Starter notes follow the memory to where it's opened.** A hosted memory opened by a local
+  install gets the local wording of its starter notes (terminal commands instead of the account
+  page), and a local memory opened on hosted gets hosted's. Only notes still exactly as they
+  started change; one you corrected stays as it is.
+- **The manual has a section on taking your hosted memory home:** where the downloaded file goes,
+  that it replaces the local memory there, and to export the local one first.
+- **Hosted's account page:** the download is now marked as not encrypted ("keep it somewhere
+  safe"), and the delete section says a single memory can be deleted by asking Claude, with 24
+  hours to undo it, instead of saying it can't.
+
 ## 0.3.46 — 2026-11-03
 
 **New stores get starter memories and the new wake layout; existing stores barely change.** A store `counterparts install` (or `start-fresh`, or hosted signup) creates begins with eleven starter notes, "told, not lived", counted apart from your own memories, and its sessions start in the wake's shape, which now opens with what happened since the last night, steps an old handoff down to one line, drops empty sections and settles dated things that already happened. A store that already exists gets no starter notes and keeps its wake-shape setting; where the shape is on (`counterparts wake-shape on`), its wake gains those same changes, and on any store a reminder that a newer done memory says already happened is no longer told as due. Also: write-ups leave out permission prompts and refused tool calls, the first meeting asks easier questions, a manual ships with every install (`recall` the handle `manual`), a memory called noise twice stays quieter for 14 lived days rather than 7, and the plugin downloads its program once. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.45 needs no store restore: `counterparts disconnect`, 0.3.45's install, then `counterparts connect`.

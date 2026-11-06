@@ -676,7 +676,7 @@ export function todaySoFarSummaryForms(chapters: readonly TodayChapter[], forms:
 
 /**
  * A DIRECTORY AS THE LINE SAYS IT (FS1, 2026-11-04): its name, the path's last
- * part ("sim", not "/Users/theo/code/sim" in every line of every wake); and
+ * part ("sim", not its whole path in every line of every wake); and
  * only when another folder in `among` (the others the same line or section
  * names, and the reader's own where the caller has it) has the same name, the
  * path, the home directory as `~` read off its shape (`/Users/<name>`,
