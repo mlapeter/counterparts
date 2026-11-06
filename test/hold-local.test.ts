@@ -31,7 +31,7 @@ import { REMOVAL_HOLD_MS, Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
 
 const SERVE = resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts");
-const VICTIM = "The spare bike lock code is 4471, written on the back of the garage calendar.";
+const VICTIM = "The spare bike lock word is marmalade-quill, written on the back of the garage calendar.";
 const OTHER = "The dentist moved the cleaning to the second Tuesday of the month.";
 
 let root: string;
@@ -175,7 +175,7 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     const victim = String((await writer.call("remember", { text: VICTIM, title: "Bike lock code", about: "owner" }))["id"]);
     await writer.call("remember", { text: OTHER, about: "owner" });
     await writer.close();
-    expect(spansText()).toContain("4471");
+    expect(spansText()).toContain("marmalade-quill");
 
     // Not shown in this conversation yet: refused, nothing changes.
     const mcp = await server();
@@ -186,7 +186,7 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     expect(removeOf(await mcp.call("remember", { remove: { id: "mem_ffffffffffff" } }))["reason"]).toBe("unknown-id");
 
     // Shown, then deleted: the answer names it and says what local promises.
-    expect(JSON.stringify(await mcp.call("recall", { ids: [victim] }))).toContain("4471");
+    expect(JSON.stringify(await mcp.call("recall", { ids: [victim] }))).toContain("marmalade-quill");
     const held = removeOf(await mcp.call("remember", { remove: { id: victim } }));
     expect(held["ok"]).toBe(true);
     expect(held["reason"]).toBe("held");
@@ -264,7 +264,7 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     expect(peek((s) => s.row(victim)?.body)).toBe("");
     expect(peek((s) => s.pendingHolds())).toEqual([]);
     // Its own capture under spans/ is struck; the other memory's stays.
-    expect(spansText()).not.toContain("4471");
+    expect(spansText()).not.toContain("marmalade-quill");
     expect(spansText()).toContain("second Tuesday");
     // Nothing brings it back now.
     const late = await server();
