@@ -12,15 +12,23 @@
  *   - **The control databases** (`control/accounts.sqlite`, `control/oauth.sqlite`),
  *     to `r2://<bucket>/control/<name>/`, under the SSE-C key of a DEK kept for
  *     the pseudo-store `control`.
- *   - **Each wrapped DEK, ONCE**, as its own object `keys/<storeId>.wrapped`,
- *     written at sign-up and re-written only by a rewrap (KEK rotation). No
- *     keys.sqlite backup, no daily copies: R2 versioning and object lock stay
- *     OFF for `keys/` (the runbook's bucket setting), so a delete is a delete.
+ *   - **Each DEK (the control key's too), ONCE, SEALED to the recovery key**
+ *     (WB1, `keys.ts#RecoverySealer`), as its own object `keys/<storeId>.sealed`,
+ *     written at sign-up and re-written only when the recovery key changes. The
+ *     server can write it and never open it: a restart reads `keys/keys.sqlite`
+ *     on the volume, and only `recover-keys`, given the offline private key,
+ *     opens the bucket's copies after a volume is lost. So a leak of the
+ *     environment (the R2 token included) and a copy of the bucket open nothing.
+ *     No keys.sqlite backup, no volume-KEK backup, no daily copies: R2 object
+ *     lock stays OFF for `keys/` (the runbook's bucket setting), so a delete is a
+ *     delete. (`keys/<storeId>.wrapped`, the KEK-wrapped object from before WB1,
+ *     is read while it is there and removed by `migrate-keys` and by a delete.)
  *
  * DELETE (`removeStore`), all of it at once: the store leaves the sidecar's
- * configuration (and the sidecar restarts), its key file goes, its wrapped-key
- * object goes, and its whole replica prefix goes. Even a copy someone kept of
- * the bucket is ciphertext under a key that no longer exists anywhere.
+ * configuration (and the sidecar restarts), its key file goes, its key objects
+ * go, and its whole replica prefix goes. Even a copy someone kept of the bucket
+ * is ciphertext under a key that no longer exists anywhere but sealed in that
+ * same copy, which only the offline recovery key opens.
  *
  * The sidecar's R2 credentials come from its environment (Litestream reads
  * `LITESTREAM_ACCESS_KEY_ID` / `LITESTREAM_SECRET_ACCESS_KEY`); the
@@ -33,8 +41,8 @@ import { basename, dirname, join } from "node:path";
 
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
-import type { KeyStore } from "./keys.js";
-import { litestreamKey } from "./keys.js";
+import type { KeyStore, RecoverySealer } from "./keys.js";
+import { LEGACY_KEY_NEEDS_RING, litestreamKey, sealedHeader } from "./keys.js";
 import { LITESTREAM_META, RESTORED_MARKER, STORE_ID, oldLitestreamMeta, settleLitestreamMeta, tenantDir } from "./tenants.js";
 
 /** The pseudo-store whose DEK keys the control databases' backups. */
@@ -44,7 +52,15 @@ export const CONTROL_DATABASES = ["accounts.sqlite", "oauth.sqlite"] as const;
 /** Litestream snapshot interval and retention, in hours (see `config()`): the "purged within 24 h" bound's margin. */
 export const SNAPSHOT_HOURS = 12;
 
-export const keyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
+/** The store's DEK in the bucket, sealed to the recovery key (WB1). */
+export const keyObject = (storeId: string): string => `keys/${storeId}.sealed`;
+/** The store's DEK in the bucket as it was before WB1: wrapped under a `HOSTED_KEKS` KEK. Read while there; `migrate-keys` removes it. */
+export const legacyKeyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
+/** A key object's store id (either form), or null for another name. */
+export function keyObjectId(name: string): { id: string; legacy: boolean } | null {
+  const m = /^keys\/([^/]+)\.(sealed|wrapped)$/.exec(name);
+  return m === null ? null : { id: m[1]!, legacy: m[2] === "wrapped" };
+}
 /**
  * A DELETE'S TOMBSTONE in the bucket (the #653 review, M1): the store id and the
  * time, no PII, written BEFORE the key object goes and never removed. A control
@@ -64,6 +80,22 @@ export class StoreKeyMissing extends Error {
   constructor() {
     super("a store that was opened before has no key here and none in the bucket: it is not backed up until that is resolved");
     this.name = "StoreKeyMissing";
+  }
+}
+
+/** The words for a key this volume doesn't have and the bucket has only sealed (WB1): the one case the private key is for. */
+export const KEY_SEALED =
+  "this volume has no key for it, and the bucket's copy is sealed to the recovery key, which the server never holds: run recover-keys with the recovery private key first (docs/hosted/RUNBOOK.md, Restore)";
+
+/**
+ * A store (or `control`) with no key on this volume whose key the bucket has,
+ * sealed (WB1). Never minted over and never opened here: only `recover-keys`,
+ * given the private key, brings it back.
+ */
+export class KeySealed extends Error {
+  constructor() {
+    super(KEY_SEALED);
+    this.name = "KeySealed";
   }
 }
 
@@ -101,6 +133,8 @@ export interface BackupsOptions {
   readonly dataRoot: string;
   readonly keys: KeyStore;
   readonly objects: ObjectStore;
+  /** What every key object put in the bucket is sealed to (WB1; `HOSTED_RECOVERY_PUBKEY`). */
+  readonly sealer: RecoverySealer;
   /** For the Litestream configuration. */
   readonly bucket: string;
   readonly endpoint: string;
@@ -143,9 +177,12 @@ export interface BackupsOptions {
  *   - `locked` (R6): its account is set to be deleted. A store set to be erased
  *     is never re-keyed; it is checked BEFORE `ensureStore`, so it never reaches
  *     the mint (`ensureAll`).
+ *   - `sealed` (WB1): not a store with no key anywhere: the bucket has its key,
+ *     sealed to the recovery key, and this volume doesn't (`keys.sqlite` was
+ *     lost). Never minted over; `recover-keys` brings it back.
  */
-export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable" | "locked";
-export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable", "locked"];
+export type KeylessReason = "no-database" | "replica-in-bucket" | "tombstone" | "bucket-unproven" | "keys-newer" | "bucket-unreadable" | "locked" | "sealed";
+export const KEYLESS_REASONS: readonly KeylessReason[] = ["no-database", "replica-in-bucket", "tombstone", "bucket-unproven", "keys-newer", "bucket-unreadable", "locked", "sealed"];
 
 function yamlString(s: string): string {
   return JSON.stringify(s); // a JSON string is a valid YAML double-quoted scalar
@@ -188,18 +225,25 @@ export class Backups {
     if (storeId !== CONTROL_KEY_ID && !STORE_ID.test(storeId)) throw new Error("not a store id");
     // THE BUCKET'S KEY IS NEVER OVERWRITTEN BY A NEW ONE (OL2b). `keys.sqlite`
     // is not replicated, so on a new volume (or after losing that file) a store
-    // has no key here while its backup in R2 is encrypted under the key in
-    // `keys/<id>.wrapped`. Minting a fresh DEK and putting it over that object
-    // would make every byte of the backup unreadable, for good. So: a key the
-    // bucket has is adopted (`KeyStore.adopt`); a new key is made only when
-    // neither side has one; and when both have one, the bucket's must be the
-    // same DEK (a rewrap's new wrapping) before the local one replaces it.
-    const remote = await this.opts.objects.get(keyObject(storeId));
+    // has no key here while its backup in R2 is encrypted under the key in its
+    // key object. Minting a fresh DEK and putting it over that object would make
+    // every byte of the backup unreadable, for good. So a new key is made only
+    // when neither side has one, and when both have one the bucket's must be the
+    // same DEK before anything is put.
+    //
+    // WB1: the bucket's copy is SEALED to the recovery key, and this server can
+    // never open it. With no key here and a sealed one there, it refuses
+    // (`KeySealed`): only `recover-keys`, given the private key, brings it back.
+    // "The same DEK" is read off the sealed value's key id, without opening it.
+    // A key object from before WB1 (`.wrapped`, under HOSTED_KEKS) is still
+    // adopted while the ring can open it (`KeyStore.adopt`).
+    const remote = await this.bucketKey(storeId);
     let wrapped = this.opts.keys.wrapped(storeId);
     let adopted = false;
-    if (wrapped === null && remote !== null) {
-      adopted = await this.opts.keys.adopt(storeId, await this.readable(storeId, remote));
-      wrapped = remote;
+    if (wrapped === null && remote.sealed !== null) throw new KeySealed();
+    if (wrapped === null && remote.legacy !== null) {
+      adopted = await this.opts.keys.adopt(storeId, await this.readable(storeId, remote.legacy));
+      wrapped = this.opts.keys.wrapped(storeId);
     }
     if (wrapped === null && storeId !== CONTROL_KEY_ID && this.opts.openedBefore?.(storeId) === true) {
       // A store that lived, with no key here and none in the bucket: its key may
@@ -208,32 +252,58 @@ export class Backups {
       // `ensureAll` at start-up mints one, after checking nothing can be buried.
       throw new StoreKeyMissing();
     }
-    wrapped ??= await this.opts.keys.create(storeId);
+    if (wrapped === null) await this.opts.keys.create(storeId);
     if (adopted || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
-    if (remote !== wrapped) {
-      if (remote !== null) {
-        const checked = await this.readable(storeId, remote);
+    const mine = (await this.opts.keys.keyId(storeId))!;
+    const differs = (): Error =>
+      // The control key, said as such (the #658 review): after a start against
+      // a wrong, empty bucket made this volume a new one, "a different key for
+      // that store" misleads. The RUNBOOK's way back is named.
+      storeId === CONTROL_KEY_ID ? new Error(CONTROL_KEY_DIFFERS) : new Error("a different key for that store is already here");
+    if (remote.sealed !== null) {
+      const header = sealedHeader(remote.sealed);
+      if (header === null) throw new Error("a store's key object in the bucket (keys/<id>.sealed) isn't one this server wrote: nothing was put over it. Tell the coordinator.");
+      if (header.keyId !== mine) throw differs();
+      // A new recovery key (HOSTED_RECOVERY_PUBKEY changed): sealed again to it.
+      if (header.fingerprint !== this.opts.sealer.fingerprint) await this.opts.objects.put(keyObject(storeId), await this.opts.keys.sealed(storeId, this.opts.sealer));
+    } else {
+      // Before WB1's object exists: an old `.wrapped` beside it must be this DEK too.
+      if (remote.legacy !== null && !adopted) {
         try {
-          await this.opts.keys.adopt(storeId, checked); // throws on a different DEK
+          await this.opts.keys.adopt(storeId, await this.readable(storeId, remote.legacy)); // throws on a different DEK
         } catch (err) {
-          // The control key, said as such (the #658 review): after a start against
-          // a wrong, empty bucket made this volume a new one, "a different key for
-          // that store" misleads. The RUNBOOK's way back is named.
-          if (storeId === CONTROL_KEY_ID) throw new Error(CONTROL_KEY_DIFFERS);
+          if (err instanceof Error && err.message === "a different key for that store is already here") throw differs();
           throw err;
         }
       }
-      await this.opts.objects.put(keyObject(storeId), wrapped);
+      await this.opts.objects.put(keyObject(storeId), await this.opts.keys.sealed(storeId, this.opts.sealer));
     }
     if (opts.reload !== false) await this.reload();
   }
 
-  /** The bucket's wrapped key, checked to open under the ring for this store (a refusal that says what to do, never a key). */
+  /**
+   * The bucket's key objects for an id: the sealed one (WB1), and the old
+   * `.wrapped` one, read only when there is no sealed one (a bucket from before
+   * `migrate-keys`).
+   */
+  async bucketKey(storeId: string): Promise<{ sealed: string | null; legacy: string | null }> {
+    const sealed = await this.opts.objects.get(keyObject(storeId));
+    if (sealed !== null) return { sealed, legacy: null };
+    return { sealed: null, legacy: await this.opts.objects.get(legacyKeyObject(storeId)) };
+  }
+
+  /** The bucket has a key object for this id, in either form. */
+  async inBucket(storeId: string): Promise<boolean> {
+    const k = await this.bucketKey(storeId);
+    return k.sealed !== null || k.legacy !== null;
+  }
+
+  /** An old `.wrapped` key object, checked to open under the ring for this store (a refusal that says what to do, never a key). */
   private async readable(storeId: string, remote: string): Promise<string> {
     try {
       (await this.opts.keys.unwrapForCheck(storeId, remote)).fill(0);
     } catch {
-      throw new Error("a store's key object in the bucket doesn't open with the KEK ring: put the old version back in the ring and run rewrap again.");
+      throw new Error(`a store's key object in the bucket (keys/<id>.wrapped, from before WB1) doesn't open: ${LEGACY_KEY_NEEDS_RING}.`);
     }
     return remote;
   }
@@ -251,12 +321,12 @@ export class Backups {
    */
   async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
     const unreadable = await this.opts.keys.unreadable();
-    if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys don't open with the KEK ring: put the old version back in the ring and run rewrap again.`);
+    if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys in keys/keys.sqlite don't open: keys/volume.kek is missing or not this volume's, or they are under HOSTED_KEKS and the environment no longer has that ring (set HOSTED_KEKS back as it was and run migrate-keys; docs/hosted/RUNBOOK.md, Write-only backups).`);
     // (f) THE BUCKET IS THIS VOLUME'S: it held the control key BEFORE this start.
     // Read before `ensureStore(control)`, which puts the local key into a bucket
     // that has none; past it, the bucket's key was adopted (a new volume) or
     // proven the same DEK as this volume's (a different one throws).
-    const bucketProven = (await this.opts.objects.get(keyObject(CONTROL_KEY_ID))) !== null;
+    const bucketProven = await this.inBucket(CONTROL_KEY_ID);
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
     // The control key is in this bucket now (adopted, proven or put): a later
     // start beside a bucket without it is no longer "a turn-on cut short" (R7).
@@ -267,7 +337,7 @@ export class Backups {
       // A locked store (a delete pending) with no key here and none in the
       // bucket is never handed to `ensureStore`, which would make one: it is
       // counted keyless and left as it is until its erase or its keep (R6).
-      if (this.opts.locked?.(id) === true && this.opts.keys.wrapped(id) === null && (await this.opts.objects.get(keyObject(id))) === null) {
+      if (this.opts.locked?.(id) === true && this.opts.keys.wrapped(id) === null && !(await this.inBucket(id))) {
         keyless += 1;
         this.opts.onKeyless?.(id, "locked");
         continue;
@@ -275,6 +345,13 @@ export class Backups {
       try {
         await this.ensureStore(id, { reload: false });
       } catch (err) {
+        if (err instanceof KeySealed) {
+          // Its key is in the bucket, sealed, and not here: never minted over, and
+          // left out of the backups until `recover-keys` (WB1). Everyone else starts.
+          keyless += 1;
+          this.opts.onKeyless?.(id, "sealed");
+          continue;
+        }
         if (!(err instanceof StoreKeyMissing)) throw err;
         const refusal = await this.mintRefusal(id, bucketProven);
         if (refusal !== null) {
@@ -339,29 +416,42 @@ export class Backups {
     return null;
   }
 
-  /** After a rewrap: the moved stores' objects carry the new wrapping (an overwrite; versioning is off). */
-  async reuploadKeys(storeIds: readonly string[]): Promise<void> {
-    for (const id of storeIds) {
-      const wrapped = this.opts.keys.wrapped(id);
-      if (wrapped !== null) await this.opts.objects.put(keyObject(id), wrapped);
-    }
+  /**
+   * Is the bucket's sealed object for this id right: there, sealed to the
+   * current recovery key, and naming this volume's DEK? "different" when it
+   * names another DEK (never overwritten); "missing" or "stale" when a seal of
+   * the key here belongs there. Null: no key here.
+   */
+  async sealedState(storeId: string): Promise<"ok" | "missing" | "stale" | "different" | null> {
+    const mine = await this.opts.keys.keyId(storeId);
+    if (mine === null) return null;
+    const remote = await this.opts.objects.get(keyObject(storeId));
+    if (remote === null) return "missing";
+    const header = sealedHeader(remote);
+    if (header === null || header.keyId !== mine) return "different";
+    return header.fingerprint === this.opts.sealer.fingerprint ? "ok" : "stale";
   }
 
   /**
-   * Every live store's (and the control key's) R2 object made equal to its
-   * wrapped DEK here. `rewrap` ends with this rather than with only the stores
-   * it moved, so a rewrap that died between its database writes and its
-   * uploads is repaired by simply running it again. Returns how many were put.
+   * Every live store's (and the control key's) sealed object made right
+   * (`sealedState`): put where missing or sealed to an older recovery key.
+   * Never over one that names another DEK (counted in `different`). Returns
+   * how many were put; `dryRun` counts them and puts nothing.
    */
-  async syncKeyObjects(): Promise<number> {
+  async syncKeyObjects(opts: { dryRun?: boolean } = {}): Promise<{ put: number; different: string[] }> {
     let put = 0;
+    const different: string[] = [];
     for (const id of [CONTROL_KEY_ID, ...this.opts.liveStores()]) {
-      const wrapped = this.opts.keys.wrapped(id);
-      if (wrapped === null || (await this.opts.objects.get(keyObject(id))) === wrapped) continue;
-      await this.opts.objects.put(keyObject(id), wrapped);
+      const state = await this.sealedState(id);
+      if (state === null || state === "ok") continue;
+      if (state === "different") {
+        different.push(id);
+        continue;
+      }
+      if (opts.dryRun !== true) await this.opts.objects.put(keyObject(id), await this.opts.keys.sealed(id, this.opts.sealer));
       put += 1;
     }
-    return put;
+    return { put, different };
   }
 
   /**
@@ -381,6 +471,7 @@ export class Backups {
     await this.reload();
     rmSync(this.keyFile(storeId), { force: true });
     await this.opts.objects.delete(keyObject(storeId));
+    await this.opts.objects.delete(legacyKeyObject(storeId)); // one from before WB1, if migrate-keys hadn't run
     return this.opts.objects.deletePrefix(replicaPrefix(storeId));
   }
 
@@ -396,10 +487,13 @@ export class Backups {
    * Run with no sidecar replicating these files: the CLI with the server
    * stopped, or start-up before the sidecar starts (`RESTORE_ON_BOOT`).
    *
-   *   1. its key: adopted from `keys/<id>.wrapped` when this volume has none
-   *      (`ensureStore`), the key file written, the configuration rewritten;
-   *      refused when the bucket has no key object and this volume no key (a
-   *      new key would restore nothing, and would replace the record);
+   *   1. its key, from this volume's `keys.sqlite` (`ensureStore`), the key file
+   *      written, the configuration rewritten. A volume without it is refused:
+   *      when the bucket has it sealed (WB1), `recover-keys` must bring it back
+   *      first (`KeySealed`); when the bucket has no key object either, there is
+   *      nothing to restore with (a new key would restore nothing, and would
+   *      replace the record). A `.wrapped` key object from before WB1 is still
+   *      adopted while HOSTED_KEKS opens it;
    *   2. each database: `litestream restore -config <yml> -o <file>.restoring
    *      -if-replica-exists <file>`, which reads the SSE-C key from the
    *      configuration (a replica URL can't carry one), then the stale
@@ -418,7 +512,7 @@ export class Backups {
       const there = paths.filter((p) => existsSync(p));
       if (there.length > 0) throw new Error(`${String(there.length)} of its database files are already in place: move them aside first (or --force).`);
     }
-    if (this.opts.keys.wrapped(id) === null && (await this.opts.objects.get(keyObject(id))) === null) {
+    if (this.opts.keys.wrapped(id) === null && !(await this.inBucket(id))) {
       throw new Error("the bucket has no key object for that id, and this volume has no key: there is nothing to restore it with.");
     }
     await this.ensureStore(id, { reload: false });
@@ -577,8 +671,9 @@ export class Backups {
 
   /** What of a store is still in the bucket: its key object and its replica objects (a count). */
   async objectsLeft(storeId: string): Promise<number> {
-    const key = (await this.opts.objects.get(keyObject(storeId))) === null ? 0 : 1;
-    return key + (await this.opts.objects.list(replicaPrefix(storeId))).length;
+    const sealed = (await this.opts.objects.get(keyObject(storeId))) === null ? 0 : 1;
+    const legacy = (await this.opts.objects.get(legacyKeyObject(storeId))) === null ? 0 : 1;
+    return sealed + legacy + (await this.opts.objects.list(replicaPrefix(storeId))).length;
   }
 
   /** The live stores with a tombstone in the bucket: deleted, whatever the accounts database says. */
