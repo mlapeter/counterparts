@@ -505,7 +505,22 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   re-keying a memory store means a fresh replica of every store (a Litestream re-snapshot each, and its old replicas
   dropped) for stores that belong to Mike and his testers, who know; control, which holds strangers' rows, IS
   re-keyed. **Condition: the migration runs before the first stranger invite**, so every stranger's store is made
-  after it, under a key no environment ever held.
+  after it, under a key no environment ever held. (Done 2026-11-06, steps 1-6, before any stranger invite.)
+- **PLANNED 2026-11-07, BEFORE THE FIRST STRANGER INVITE: rotate the R2 token (RUNBOOK, Write-only backups, step 7).**
+  Not yet done after the 11-06 migration (steps 1-6). Mike first chose to skip it (15:51; no sign the environment
+  ever leaked), then, told that the token's writes reach the live service (below), planned it for 11-07 (16:06). **No
+  stranger invites until it is done.** Until then: whoever holds a copy of the pre-WB1 environment (the old `HOSTED_KEKS` beside this same R2 token) can still
+  read and write the bucket with that token. Reading: today's control and every store made since the release open
+  with nothing they hold (control's snapshots from before step 5, holding Mike's and the testers' rows only, open
+  for someone who also copied the old `keys/control.wrapped` and those replicas then); the stores that existed at the migration (Mike's and the test accounts, above) open only for
+  someone who also copied their old `keys/<id>.wrapped` before step 5 deleted it, and then their new backups too,
+  since those DEKs weren't changed. Writing reaches the LIVE service, not only the backups: they could delete
+  objects; write a tombstone (`deleted/<storeId>`, store ids listed under `tenants/`) that makes the next start mark
+  that live account deleting and finish the delete; or plant a sealed key on a live store, which makes the server
+  refuse that store. A recovery stands in the way of a planted key (`recover-keys` adopts no key unless every object
+  of the store's replica opens under it, and refuses more than one control base; `--adopt-unproven` skips that) but
+  not against someone who also plants a full replica. Rotating the token (step 7) ends all of this for anyone
+  holding only the old environment; at any sign of a leak before 11-07, rotate at once, before any recovery.
 - **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
   with the store id as associated data.
   - It keys the store's Litestream SSE-C key, through HKDF with a purpose label.
