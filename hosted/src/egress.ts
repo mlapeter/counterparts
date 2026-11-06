@@ -65,7 +65,7 @@ export const cimdFetch: CimdFetch = (input, init) => fetch(input, init);
 
 /** What the hosted server needs of an object store. Keys are `/`-separated paths, never starting with `/`. */
 /** `ObjectStore.readableWith`'s answer: it opens; the key doesn't open it; the token is refused (403); the object is gone. */
-export type SseCheck = "ok" | "wrong-key" | "denied" | "missing";
+export type SseCheck = "ok" | "wrong-key" | "denied" | "missing" | "other";
 
 export interface ObjectStore {
   put(key: string, body: string): Promise<void>;
@@ -166,13 +166,15 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
           "x-amz-server-side-encryption-customer-key-md5": createHash("md5").update(raw).digest("base64"),
         },
       });
-      await res.arrayBuffer().catch(() => undefined);
+      const body = await res.text().catch(() => "");
       // 200/206: it opens. 403: the token is refused (never "a wrong key": a bad or revoked token says nothing of the key).
-      // 404: the object is gone. Any other 4xx (R2 and S3 answer 400 InvalidRequest / InvalidArgument): the key doesn't open it.
+      // 404: the object is gone. A 400 that is the store's SSE-C refusal (R2 and S3 answer InvalidRequest / InvalidArgument,
+      // naming the customer key): the key doesn't open it. Any other 4xx (a 416, say) is "other": not a key's verdict.
       if (res.status === 200 || res.status === 206) return "ok";
       if (res.status === 403) return "denied";
       if (res.status === 404) return "missing";
-      if (res.status >= 400 && res.status < 500) return "wrong-key";
+      if (res.status === 400 && (/<Code>(InvalidRequest|InvalidArgument)<\/Code>/.test(body) || /SSE-C|customer[- ]?(provided )?key|encryption key/i.test(body))) return "wrong-key";
+      if (res.status >= 400 && res.status < 500) return "other";
       throw new Error(`object store GET answered ${String(res.status)}`);
     },
   };

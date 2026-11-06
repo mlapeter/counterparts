@@ -335,7 +335,8 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.match(unnamed.stderr, /name the recovery key: migrate-keys --recovery-fingerprint <the fingerprint written beside your offline copies>\. Nothing was written/);
     const wrong = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", testRecovery().fingerprint]);
     assert.equal(wrong.status, 1);
-    assert.match(wrong.stderr, new RegExp(`isn't the recovery key HOSTED_RECOVERY_PUBKEY names \\(${RECOVERY.fingerprint}\\)[^\\n]*Nothing was written`));
+    assert.match(wrong.stderr, /isn't the recovery key HOSTED_RECOVERY_PUBKEY names: compare it[^\n]*Nothing was written/);
+    assert.ok(!wrong.stderr.includes(RECOVERY.fingerprint), "never the server's fingerprint as the value to pass");
     assert.deepEqual(snapshot(o.s3), before);
     assert.deepEqual(readFileSync(join(o.dataRoot, "keys", "keys.sqlite")), keysBytes);
     // Beside a running server: refused (its heartbeat). A dry run is fine beside it (step 4). A crash's stale mark doesn't block.
@@ -371,7 +372,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.equal(dry.status, 0, dry.stderr + dry.stdout);
     const n = String(o.stores.length + 1);
     assert.match(dry.stdout, /^migrate-keys --dry-run \(nothing written\):/);
-    assert.match(dry.stdout, new RegExp(`recovery key ${RECOVERY.fingerprint}: the one named`));
+    assert.match(dry.stdout, /recovery key: the one named/);
     assert.match(dry.stdout, new RegExp(`${n} keys would be moved from HOSTED_KEKS onto the volume key`));
     assert.match(dry.stdout, /control would be re-keyed/);
     assert.match(dry.stdout, new RegExp(`${String(o.stores.length + 2)} old key objects \\(keys/<id>\\.wrapped, under HOSTED_KEKS\\) would be deleted \\(1 of them deleted stores' leftovers\\)`));

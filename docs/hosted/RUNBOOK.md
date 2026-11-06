@@ -29,7 +29,10 @@ the volume, and what leaves for R2 is sealed to a recovery key whose private hal
    backed-up Desktop would be a third copy, and `rm -P` does nothing on macOS's disks).
    **Keep the private key offline in two places before you use it**: a password manager, as "Counterparts hosted
    recovery key", and a paper copy somewhere safe. **Without it, a lost volume can't be restored.** Then clear the
-   terminal (Cmd-K). Check each copy (it reads the key from the prompt and doesn't show it; it must print the same
+   terminal: Cmd-K clears Terminal.app's and iTerm2's scrollback, but not tmux's or screen's history (run it outside
+   them), Warp maps Cmd-K to something else (use its "Clear blocks"), and iTerm2's session restore or a clipboard-history
+   app may keep a copy (turn them off for this, or clear them after). Clear before quitting Terminal.app, which can
+   restore a window's text. Check each copy (it reads the key from the prompt and doesn't show it; it must print the same
    fingerprint), and write the fingerprint beside both:
 
    ```sh
@@ -269,10 +272,16 @@ with the echo off and drops it when it is done. Never a variable, never a file o
    Each asks for the recovery private key (paste the `cp-recovery:…` line, Enter; it isn't shown). The dry run opens
    every key and writes nothing (on a new volume; on a volume with keys it records the proof); the run prints
    `recovery key <fingerprint>` (the one beside your copies), `N keys brought back from the bucket (each proven
-   against its replica)`, and `next: deploy with RESTORE_ON_BOOT=1`. A key is adopted only when one of its store's
-   own replica objects opens under it: one that doesn't is refused as `may be FORGED` (rotate the R2 token, tell the
+   against its replica)`, and `next: deploy with RESTORE_ON_BOOT=1`. A key is adopted only when every object of its
+   store's replica opens under it: one that doesn't is refused as `may be FORGED` (rotate the R2 token, tell the
    coordinator). A store with no replica at all (signed up, never used) is left (`not adopted: no replica`) and gets
-   a new key at its first open; `--adopt-unproven` adopts such keys anyway, with a WARNING. A wrong key refuses before anything is
+   a new key at its first open; `--adopt-unproven` adopts such keys anyway, with a WARNING. **`more than one place in
+   the bucket holds control replicas (control/, control/<id>/)`** has an honest cause too: the volume was lost while
+   a control re-key (`migrate-keys`) was pending, or before a start dropped the old control replicas. A person then
+   decides which place is current: the one whose id is the key id in `keys/control.sealed` (the third `.`-separated
+   part of the object), and whose newest `.ltx` files are the latest. Delete the other prefix in R2's object browser
+   (only after the R2 token was rotated, if a leak is possible), and run `recover-keys` again. When unsure, tell the
+   coordinator before deleting anything. A wrong key refuses before anything is
    written (`this private key (fingerprint …) isn't the recovery key the bucket's keys are sealed to (…)`). It is
    safe to run again. Then `exit`.
 4. **Clear the start command**, add `RESTORE_ON_BOOT=1`, raise the healthcheck timeout for this one deploy
@@ -572,7 +581,7 @@ the family**: the stores that exist at the migration keep their keys (below), an
 
 1. **Make the recovery keypair** on your Mac, from `~/counterparts`: `bun hosted/src/main.ts recovery-keygen`. It
    prints the public key, the fingerprint and the private key once, and writes no file. Put the `cp-recovery:…` line
-   in the password manager and on paper, then clear the terminal (Cmd-K). Check EACH copy with
+   in the password manager and on paper, then clear the terminal (section 1, step 1: Cmd-K, and what it doesn't clear). Check EACH copy with
    `bun hosted/src/main.ts recovery-fingerprint` (paste it; it isn't shown): both must print the fingerprint keygen
    printed. Write that fingerprint beside both copies. This is the proof the migration relies on: the private key
    never goes near the server for it.

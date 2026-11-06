@@ -934,6 +934,12 @@ async function main(): Promise<void> {
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   if (backup !== null) process.stderr.write(`[hosted] backups: keys on this volume (keys/volume.kek); key objects sealed to recovery key ${backup.sealer.fingerprint}\n`);
   if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under ${KEK_ENV}: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
+  // The stop signals are ours BEFORE anyone can be told "serving" (the #768 CI flake): a SIGTERM that lands
+  // between the line and its listener would end the process by default, leaving its heartbeat behind.
+  const stopped = new Promise<void>((resolveStop) => {
+    process.once("SIGINT", () => resolveStop());
+    process.once("SIGTERM", () => resolveStop());
+  });
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
   // The running server's mark (keyops.ts#SERVING_MARK): migrate-keys and recover-keys refuse beside it.
   const aliveMark = join(read.dataRoot, SERVING_MARK);
@@ -948,10 +954,7 @@ async function main(): Promise<void> {
   const alive = setInterval(beat, SERVING_EVERY_MS);
   alive.unref?.();
   process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
-  await new Promise<void>((resolveStop) => {
-    process.once("SIGINT", () => resolveStop());
-    process.once("SIGTERM", () => resolveStop());
-  });
+  await stopped;
   clearInterval(alive);
   rmSync(aliveMark, { force: true });
   await new Promise<void>((r) => app.server.close(() => r()));

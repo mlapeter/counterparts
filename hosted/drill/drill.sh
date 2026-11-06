@@ -663,7 +663,7 @@ mstep_2() { # Mike's step 3: the release (the new image) with HOSTED_KEKS still 
   # Step 4: the dry run beside the running server, naming the fingerprint checked against the offline copies. No private key.
   local dry rc=0
   dry=$(docker exec "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run --recovery-fingerprint "$FP1" 2>>"$LOGS/2-migrate-dry.stderr") || rc=$?
-  [[ $rc == 0 && $dry == *"recovery key $FP1: the one named"* && $dry == *"control would be re-keyed"* && $dry == *"a run would finish the migration"* ]] || fail "migrate-keys --dry-run --recovery-fingerprint beside the running server: a run would finish" "exit $rc: $(redact <<<"$dry" | tr '\n' ' ')"
+  [[ $rc == 0 && $dry == *"recovery key: the one named"* && $dry == *"control would be re-keyed"* && $dry == *"a run would finish the migration"* ]] || fail "migrate-keys --dry-run --recovery-fingerprint beside the running server: a run would finish" "exit $rc: $(redact <<<"$dry" | tr '\n' ' ')"
   note "  migrate-keys --dry-run beside the running server:"; redact <<<"$dry" | sed 's/^/    /' | tee -a "$RESULTS"
   # And the real run beside it: refused (the server's heartbeat).
   rc=0; docker exec "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint "$FP1" >/dev/null 2>"$LOGS/2-migrate-beside.stderr" || rc=$?

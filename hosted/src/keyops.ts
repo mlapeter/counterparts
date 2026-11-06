@@ -47,7 +47,7 @@ export function refuseWhileServing(dataRoot: string, what: string, now: () => nu
 type ReplicaProof =
   | { state: "ok"; base: string | null }
   | { state: "refused" | "empty" | "cannot" }
-  | { state: "denied" }
+  | { state: "denied" | "unreadable" }
   | { state: "several"; bases: string[] };
 
 /** The places under `control/` that hold control replica objects: the default (`control/`) and each `control/<id>/`. */
@@ -92,12 +92,16 @@ async function replicaProof(backup: AppBackupOptions, id: string, dek: Buffer): 
   if (objects.length === 0) return { state: "empty" };
   if (check === undefined) return { state: "cannot" };
   const sse = litestreamKey(dek);
+  let opened = 0;
   for (const o of objects) {
     const r = await check(o, sse);
     if (r === "denied") return { state: "denied" };
     if (r === "wrong-key") return { state: "refused" };
+    if (r === "other") return { state: "unreadable" };
+    if (r === "ok") opened += 1;
   }
-  return { state: "ok", base };
+  // Every object gone between the LIST and its GET: nothing was opened, so nothing is proven.
+  return opened === 0 ? { state: "empty" } : { state: "ok", base };
 }
 
 /**
@@ -175,8 +179,9 @@ export async function migrateKeys(
     const fp = backup.sealer.fingerprint;
     const named = opts.recoveryFingerprint;
     if (!dry && named === undefined) throw new Error(`name the recovery key: migrate-keys --recovery-fingerprint <the fingerprint written beside your offline copies>. Nothing was written`);
-    if (!dry && named !== fp) throw new Error(`--recovery-fingerprint ${String(named)} isn't the recovery key HOSTED_RECOVERY_PUBKEY names (${fp}): check the copies (recovery-fingerprint) and the variable. Nothing was written`);
-    lines.push(named === fp ? `recovery key ${fp}: the one named (--recovery-fingerprint)` : `recovery key ${fp}: ${named === undefined ? "not named" : `NOT the one named (${named})`}; a run needs --recovery-fingerprint ${fp}, checked against your offline copies`);
+    if (!dry && named !== fp) throw new Error(`--recovery-fingerprint ${String(named)} isn't the recovery key HOSTED_RECOVERY_PUBKEY names: compare it with the fingerprint written beside your offline copies (recovery-fingerprint) and the variable. Nothing was written`);
+    // Never the server's own fingerprint as the value to pass: a run must name the one written beside the offline copies.
+    lines.push(named === fp ? `recovery key: the one named (--recovery-fingerprint)` : `recovery key: ${named === undefined ? "not named" : "NOT the key the bucket is sealed to"}; a run needs --recovery-fingerprint <the fingerprint written beside your offline copies>; compare it with the one this server's start logs`);
     if (named !== fp) kept.push(`the recovery key isn't named: run with --recovery-fingerprint <the fingerprint beside your offline copies>`);
 
     // 1b. Control's key once under HOSTED_KEKS ⇒ a re-key (HIGH 1). Recorded BEFORE the rewrap below moves it onto the
@@ -416,6 +421,10 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
           failed.push(`${tagOf(id)}: its replica doesn't open under the sealed key's SSE-C key: the key object may be FORGED (someone with R2 write access). Not adopted`);
           continue;
         }
+        if (proof.state === "unreadable") {
+          failed.push(`${tagOf(id)}: the bucket answered a replica object with an error that says nothing about the key (not 200, 400, 403 or 404). Not adopted; run it again, and tell the coordinator if it repeats`);
+          continue;
+        }
         if (proof.state === "denied") {
           failed.push(`${tagOf(id)}: the bucket refused the request (403): check the R2 token (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY). Not adopted`);
           continue;
@@ -464,7 +473,7 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
     if (other > 0) lines.push(`${String(other)} sealed to another recovery key`);
     if (failed.length > 0) lines.push(`${String(failed.length)} not brought back:`, ...failed.map((f) => `  - ${f}`));
     if (backup.sealer.fingerprint !== opener.fingerprint) lines.push(`note: HOSTED_RECOVERY_PUBKEY is another key (${backup.sealer.fingerprint}); the next start seals every key to it`);
-    if (proven) lines.push(`proof recorded: recovery key ${opener.fingerprint} opens this bucket's keys (migrate-keys needs it)`);
+    if (proven) lines.push(`proof recorded: recovery key ${opener.fingerprint} opens this bucket's keys`);
     if (!dry) lines.push(failed.length === 0 ? "next: deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore)." : "fix the lines above, then run it again (it is safe to repeat).");
     return { text: lines.join("\n"), failed: failed.length };
   } finally {

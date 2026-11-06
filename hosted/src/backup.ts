@@ -349,9 +349,6 @@ export class Backups {
       throw new StoreKeyMissing();
     }
     if (wrapped === null) await this.opts.keys.create(storeId);
-    // The key file is the KEY'S, whatever is there (the #768 delta review): a file left by a key that is gone, or by a crash
-    // between a key's change and its file's, would put the replica under an SSE-C key keys.sqlite doesn't hold.
-    if (!(await this.keyFileCurrent(storeId))) await this.writeKeyFile(storeId);
     const mine = (await this.opts.keys.keyId(storeId))!;
     const differs = (): Error =>
       // The control key, said as such (the #658 review): after a start against
@@ -378,6 +375,10 @@ export class Backups {
       }
       await this.opts.objects.put(keyObject(storeId), await this.opts.keys.sealed(storeId, this.opts.sealer));
     }
+    // The key file is the KEY'S, whatever is there (the #768 delta review): a file left by a key that is gone, or by a crash
+    // between a key's change and its file's, would put the replica under an SSE-C key keys.sqlite doesn't hold. After the
+    // bucket's checks: a key the bucket says is another one's never gets its file written.
+    if (!(await this.keyFileCurrent(storeId))) await this.writeKeyFile(storeId);
     if (opts.reload !== false) await this.reload();
   }
 
