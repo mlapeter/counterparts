@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.50 — 2026-11-06
+
+**Write-only backups for hosted: a leaked environment can no longer open a backup.** This release changes only hosted Counterparts (app.counterparts.ai). Its backup keys used to be openable with a key kept in the server's environment; now the server keeps that key on its own disk and puts each backup key in the bucket sealed to a recovery key whose private half is kept offline, so the server can write those keys and never read them back. For every store made from now on, the environment and a copy of the bucket together open nothing. The stores that already existed before the operator's one-time migration keep their keys, so a copy of the bucket taken before it, together with the old environment key, still opens their backups; that is accepted for those stores only, and is why the migration runs before anyone outside the family is invited. The npm package, Claude Code and Claude Desktop behave exactly as in 0.3.49. No store-format change (store v15, cache v7), no migration on your machine. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.49 needs no store restore: `counterparts disconnect`, 0.3.49's install, then `counterparts connect`.
+
+- **Hosted: backups are write-only.** Each store's backup key, and the key for the account
+  and sign-in databases, is put in the bucket sealed to an offline recovery key: the server
+  can write it and never read it back. The key the server uses day to day lives on its own
+  disk, never in its environment and never in a backup. Restoring after a lost disk takes the
+  recovery key, typed in by the operator for that one step.
+
 ## 0.3.49 — 2026-11-06
 
 **The hosted beta note, and the app's front door no longer 404s.** This release changes only hosted Counterparts (app.counterparts.ai): the account page now says what the beta keeps and how to delete or download it, and the bare address opens your account instead of answering "Not found". The npm package, Claude Code and Claude Desktop behave exactly as in 0.3.48. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.48 needs no store restore: `counterparts disconnect`, 0.3.48's install, then `counterparts connect`.

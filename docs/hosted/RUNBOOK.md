@@ -503,7 +503,7 @@ hosted/drill/drill.sh --rehearse     # optional first: steps 0-3 with BACKUPS=of
 hosted/drill/drill.sh                # the drill on R2, production's deployed image; after a failure, --from <step>
 hosted/drill/drill.sh --local        # the drill on a local S3 (SeaweedFS, SSE-C over TLS), this checkout's HEAD
 hosted/drill/drill.sh --sha <commit> # the drill on R2, the image built from that commit (a change before it deploys)
-hosted/drill/drill.sh --migration   # local too: the image from before WB1 under HOSTED_KEKS, then Mike's migration steps on the new one
+hosted/drill/drill.sh --migration --old-sha <hosted-live's commit>   # local too: that image (from before WB1) under HOSTED_KEKS, then Mike's migration steps on this checkout's; without --old-sha the old commit is this branch's merge-base with origin/master, which since WB1 merged has WB1 and stops step 0
 ```
 
 `--local` needs no Cloudflare account and no credentials: it starts `chrislusf/seaweedfs:4.50` on a Docker network of
@@ -579,7 +579,8 @@ same way.
 These steps are written so the release sheet can copy them. **Run all of them before inviting anyone from outside
 the family**: the stores that exist at the migration keep their keys (below), and that is accepted only for those.
 
-1. **Make the recovery keypair** on your Mac, from `~/counterparts`: `bun hosted/src/main.ts recovery-keygen`. It
+1. **Make the recovery keypair** on your Mac, from `~/counterparts` (on master, after `bun install --cwd hosted
+   --frozen-lockfile`: without hosted's own packages it stops at `Cannot find package`): `bun hosted/src/main.ts recovery-keygen`. It
    prints the public key, the fingerprint and the private key once, and writes no file. Put the `cp-recovery:…` line
    in the password manager and on paper, then clear the terminal (section 1, step 1: Cmd-K, and what it doesn't clear). Check EACH copy with
    `bun hosted/src/main.ts recovery-fingerprint` (paste it; it isn't shown): both must print the fingerprint keygen
@@ -596,19 +597,34 @@ the family**: the stores that exist at the migration keep their keys (below), an
    would finish the migration`. Anything else: stop, tell the coordinator. (`migrate-keys` refuses to run without
    `--recovery-fingerprint` naming the key every object is sealed to: a key whose copies weren't checked would
    otherwise leave no working copy of any key in the bucket. It also refuses beside a running server.)
-5. **Run it with the server stopped**: Settings → Deploy → Custom Start Command
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`,
-   deploy once, read the log, then clear the start command. It prints the counts, `control re-keyed: …`, and ends
-   `done: nothing here or in the bucket needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second
+5. **Run it with the server stopped, in `hold`**: Settings → Deploy → Custom Start Command
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts hold`, and deploy (as Restore, step 2: `hold`
+   answers `/readyz`, so the deploy passes the healthcheck; it opens nothing on the volume and writes no running
+   server's mark, so `migrate-keys` doesn't refuse beside it; the log says `holding on port 8080 …`; the app shows
+   "Down for maintenance" until step 6's deploy). Then `railway ssh`, and
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`.
+   You read its output as it runs. It prints the counts, `control re-keyed: …`, and ends
+   `done: nothing here or in the bucket needs HOSTED_KEKS now`. Running it again is harmless: a second
    run does nothing and says `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and
-   tell the coordinator. A start after a run cut short refuses (`a control re-key (migrate-keys) was cut short`): run
-   step 5 again. **If it keeps failing with `the control re-key's new snapshot didn't prove`** (Litestream can't reach
-   the bucket, say), back out so the server serves again:
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --abort-control-rekey` as the start
-   command, deploy once, clear it (it keeps the old control key, deletes the new one and its replicas; nothing else
-   changes), and tell the coordinator; step 5 can be run again later. (Unverified on Railway: a start command that
-   exits, as `rewrap` was; `hold` + `railway ssh` + the same line is the other way. Litestream runs inside it for the
-   re-key, on the image's own binary.)
+   tell the coordinator. `a server is running on this volume (its heartbeat is N s old)` means the serving container
+   had only just stopped: wait a minute and run it again. A start after a run cut short refuses (`a control re-key
+   (migrate-keys) was cut short`): run step 5 again. **If it keeps failing with `the control re-key's new snapshot
+   didn't prove`** (Litestream can't reach the bucket, say), back out so the server serves again: in the same `hold`
+   and `railway ssh`, `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --abort-control-rekey`
+   (it keeps the old control key, deletes the new one and its replicas; nothing else changes), then clear the start
+   command and deploy, and tell the coordinator; step 5 can be run again later. Then `exit`, and **clear the start
+   command** (step 6's deploy serves again). Litestream runs inside `migrate-keys` for the re-key, on the image's own
+   binary. (Unverified on Railway: that the `hold` deploy passes its healthcheck and `railway ssh` reaches it, as in
+   Restore, step 2.)
+
+   **The other way, a start command that exits**, only if `railway ssh` can't reach `hold`: the `migrate-keys` line
+   above (or the `--abort-control-rekey` one) as the Custom Start Command, deploy once, read the log, then clear it.
+   It never listens, so that deploy can't pass the `/readyz` healthcheck: expect it shown as failed even when the log
+   ends `done`, and no process serving (the app down) until the start command is cleared and the service deployed
+   again. With the restart policy ON_FAILURE an exit 0 isn't restarted; a refusal (exit 1) is, up to 10 times, which
+   is harmless (each run refuses or says `done` again) but says to clear the start command. If the serving container
+   were still up beside it, every run would refuse on its heartbeat. Unverified on Railway: what it does with an
+   exiting command under a healthcheck, and whether it stops the old container first because of the volume.
 6. **Remove `HOSTED_KEKS` and `HOSTED_KEK_CURRENT`** from Railway's variables, and redeploy. It serves, with no
    `still under HOSTED_KEKS` line. A start that says `don't open … set HOSTED_KEKS back` means step 5 didn't finish:
    put the variable back and run step 5 again.
