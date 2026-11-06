@@ -2,12 +2,12 @@
   "name": "counterparts",
   "version": "0.3.47",
   "license": "MIT",
-  "description": "Memory that turns AI tools into counterparts - a local-first, human-memory-modeled memory layer for AI.",
+  "description": "Long-term memory for Claude Code, written by Claude itself. Local MCP server and hooks; remembers you across sessions.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mlapeter/counterparts.git"
   },
-  "homepage": "https://counterparts.ai",
+  "homepage": "https://counterparts.ai/?r=npm",
   "bugs": {
     "url": "https://github.com/mlapeter/counterparts/issues"
   },
@@ -21,7 +21,14 @@
     "mcp-server",
     "model-context-protocol",
     "long-term-memory",
-    "agent-memory"
+    "agent-memory",
+    "claude-code-memory",
+    "ai-memory",
+    "persistent-memory",
+    "claude-desktop",
+    "claude-code-hooks",
+    "anthropic",
+    "sqlite"
   ],
   "mcpName": "ai.counterparts/memory",
   "type": "module",
