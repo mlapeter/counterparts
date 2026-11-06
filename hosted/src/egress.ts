@@ -64,6 +64,9 @@ export type CimdFetch = (input: string | URL, init?: RequestInit) => Promise<Res
 export const cimdFetch: CimdFetch = (input, init) => fetch(input, init);
 
 /** What the hosted server needs of an object store. Keys are `/`-separated paths, never starting with `/`. */
+/** `ObjectStore.readableWith`'s answer: it opens; the key doesn't open it; the token is refused (403); the object is gone. */
+export type SseCheck = "ok" | "wrong-key" | "denied" | "missing";
+
 export interface ObjectStore {
   put(key: string, body: string): Promise<void>;
   get(key: string): Promise<string | null>;
@@ -77,7 +80,7 @@ export interface ObjectStore {
    * object is gone). WB1: `recover-keys` proves a sealed key against the store's
    * own replica before adopting it. Absent: the store can't tell (a test's memory).
    */
-  readableWith?(key: string, sseKeyBase64: string): Promise<boolean>;
+  readableWith?(key: string, sseKeyBase64: string): Promise<SseCheck>;
 }
 
 export interface R2Options {
@@ -164,8 +167,12 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
         },
       });
       await res.arrayBuffer().catch(() => undefined);
-      if (res.status === 200 || res.status === 206) return true;
-      if (res.status >= 400 && res.status < 500) return false;
+      // 200/206: it opens. 403: the token is refused (never "a wrong key": a bad or revoked token says nothing of the key).
+      // 404: the object is gone. Any other 4xx (R2 and S3 answer 400 InvalidRequest / InvalidArgument): the key doesn't open it.
+      if (res.status === 200 || res.status === 206) return "ok";
+      if (res.status === 403) return "denied";
+      if (res.status === 404) return "missing";
+      if (res.status >= 400 && res.status < 500) return "wrong-key";
       throw new Error(`object store GET answered ${String(res.status)}`);
     },
   };

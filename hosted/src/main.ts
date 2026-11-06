@@ -10,9 +10,10 @@
  *
  * Write-only backups (WB1; keys.ts, keyops.ts; docs/hosted/RUNBOOK.md, Write-only backups):
  *
- *   … main.ts recovery-keygen <new file>   (on Mike's Mac: a recovery keypair; the private key into the file, 0600)
+ *   … main.ts recovery-keygen   (on Mike's Mac: a recovery keypair; the private key printed to the terminal once, no file)
  *   … main.ts recovery-fingerprint [--key-file <path>]   (a private key's fingerprint, the key read from stdin, not shown)
- *   … main.ts migrate-keys [--dry-run]   (server stopped, HOSTED_KEKS still set: the keys onto the volume KEK, the bucket's sealed)
+ *   … main.ts migrate-keys --recovery-fingerprint <fp> [--dry-run] [--abort-control-rekey]   (server stopped, HOSTED_KEKS still
+ *                                         set: the keys onto the volume KEK, the bucket's sealed, control re-keyed)
  *   … main.ts recover-keys [--dry-run] [--key-file <path>] [--control-aside <label>] [--adopt-unproven]   (after a volume is lost:
  *                                         the private key from stdin, not shown, or the file; never from the environment)
  *   … main.ts hold   (a start-command override: answers /readyz and nothing else, so `railway ssh` reaches a stopped server)
@@ -50,7 +51,7 @@
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { isAbsolute, join } from "node:path";
 
@@ -70,7 +71,7 @@ import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
 import { KEK_ENV, KeyStore, generateRecoveryKey, recoveryOpenerFromText, recoverySealerFromEnv, volumeWrapperFromEnv } from "./keys.js";
-import { migrateKeys, recoverKeys } from "./keyops.js";
+import { SERVING_EVERY_MS, SERVING_MARK, migrateKeys, recoverKeys } from "./keyops.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
 
@@ -632,18 +633,20 @@ async function hold(env: Record<string, string | undefined>): Promise<void> {
 /** The commands that need no volume, no bucket and no environment but their arguments (WB1's recovery key; `hold`). */
 async function keyCommand(command: string, rest: readonly string[], env: Record<string, string | undefined>): Promise<boolean> {
   if (command === "recovery-keygen") {
-    const file = rest[0];
-    if (file === undefined || file.startsWith("--")) throw new Error("recovery-keygen needs a path for the new private key file (it must not exist)");
+    // To the terminal only, no file (the #768 delta review: `rm -P` does nothing on APFS, and a Desktop is often
+    // synced and backed up). Shown once; nothing keeps it.
+    if (rest.length > 0) throw new Error("recovery-keygen takes no argument: it prints the new private key to this terminal once and writes no file");
     const k = generateRecoveryKey();
-    writeFileSync(file, `${k.privateText}\n`, { mode: 0o600, flag: "wx" });
     process.stdout.write(
       [
         `HOSTED_RECOVERY_PUBKEY=${k.publicText}`,
         `fingerprint ${k.fingerprint}`,
         "",
-        `The PRIVATE key is in ${file} (mode 600). Copy its one line to the password manager and to paper, then`,
-        "check each copy with `recovery-fingerprint` (it must print the fingerprint above), write the fingerprint",
-        `beside both, and delete the file (rm -P ${file}). It never goes into Railway, a chat, a commit or a log.`,
+        "The PRIVATE key, shown this once and saved nowhere. Copy the line below to the password manager and to paper now,",
+        "check each copy with `recovery-fingerprint` (it must print the fingerprint above), write the fingerprint beside",
+        "both, then clear this terminal. It never goes into Railway, a chat, a commit or a log.",
+        "",
+        k.privateText,
         "",
       ].join("\n"),
     );
@@ -781,7 +784,9 @@ async function main(): Promise<void> {
     }
     // The control re-key runs a Litestream of its own, on the same binary and environment as the sidecar.
     const litestream = { run: restoreRunner(env), sidecar: (configPath: string) => new LitestreamSidecar({ binary: litestreamBinary(env), configPath, env: litestreamEnv(env, env["R2_ACCESS_KEY_ID"] ?? "", env["R2_SECRET_ACCESS_KEY"] ?? ""), onEvent: (name) => process.stderr.write(`[hosted] re-key ${name}\n`) }) };
-    const out = await migrateKeys(read.dataRoot, backup, { dryRun: rest.includes("--dry-run"), litestream });
+    const fpAt = rest.indexOf("--recovery-fingerprint");
+    const recoveryFingerprint = fpAt < 0 ? undefined : rest[fpAt + 1];
+    const out = await migrateKeys(read.dataRoot, backup, { dryRun: rest.includes("--dry-run"), abortControlRekey: rest.includes("--abort-control-rekey"), litestream, ...(recoveryFingerprint === undefined ? {} : { recoveryFingerprint }) });
     process.stdout.write(`${out.text}\n`);
     if (out.left > 0) process.exitCode = 1;
     return;
@@ -930,11 +935,25 @@ async function main(): Promise<void> {
   if (backup !== null) process.stderr.write(`[hosted] backups: keys on this volume (keys/volume.kek); key objects sealed to recovery key ${backup.sealer.fingerprint}\n`);
   if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under ${KEK_ENV}: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
+  // The running server's mark (keyops.ts#SERVING_MARK): migrate-keys and recover-keys refuse beside it.
+  const aliveMark = join(read.dataRoot, SERVING_MARK);
+  const beat = (): void => {
+    try {
+      writeFileSync(aliveMark, `${new Date().toISOString()}\n`, { mode: 0o600 });
+    } catch {
+      /* a mark, not a gate */
+    }
+  };
+  beat();
+  const alive = setInterval(beat, SERVING_EVERY_MS);
+  alive.unref?.();
   process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
   await new Promise<void>((resolveStop) => {
     process.once("SIGINT", () => resolveStop());
     process.once("SIGTERM", () => resolveStop());
   });
+  clearInterval(alive);
+  rmSync(aliveMark, { force: true });
   await new Promise<void>((r) => app.server.close(() => r()));
   await app.close();
 }

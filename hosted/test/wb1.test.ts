@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,7 @@ import type { AppBackupOptions } from "../src/app.js";
 import { Backups, CONTROL_KEY_ID, KeySealed, LitestreamSidecar, keyObject, legacyKeyObject, litestreamRunner, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore, RecoverySealer, VOLUME_KEK_FILE, VolumeKeyWrapper, kekVersionOf, keyIdOf, litestreamKey, recoveryOpenerFromText } from "../src/keys.js";
-import { migrateKeys, recoverKeys } from "../src/keyops.js";
+import { migrateKeys, recoverKeys, refuseWhileServing } from "../src/keyops.js";
 import { backupFromEnv, prepareVolume } from "../src/main.js";
 import { storeTag, tenantDir } from "../src/tenants.js";
 import { MAIN, RECOVERY, freePort, s3StandIn, spawnServe, tempRoot, testRecovery } from "./helpers.js";
@@ -301,14 +301,11 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     return { s3, dataRoot, stores, ring, ringText: `v1:${raw.toString("base64")}`, deks, leftover, port: await freePort() };
   }
 
-  /** Mike's steps 3 and 4: the release deployed with HOSTED_KEKS still set (it seals every key), then the proof. */
+  /** Mike's step 3: the release deployed with HOSTED_KEKS still set (it seals every key). No private key on the server. */
   async function releasedAndProven(o: Awaited<ReturnType<typeof oldShape>>): Promise<void> {
     const withRing = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
     assert.ok(withRing.up, withRing.stderr());
     await withRing.stop();
-    const proof = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["recover-keys", "--dry-run"], `${RECOVERY.privateText}\n`);
-    assert.equal(proof.status, 0, proof.stderr + proof.stdout);
-    assert.match(proof.stdout, new RegExp(`proof recorded: recovery key ${RECOVERY.fingerprint}`));
   }
 
   const snapshot = (s3: S3StandIn): Map<string, string> => new Map([...s3.objects].map(([k, v]) => [k, v.body.toString("utf8")]));
@@ -332,17 +329,31 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     const refused = await cli(envOf(o.s3, o.dataRoot, o.port), ["migrate-keys"]);
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /set HOSTED_KEKS as it was before WB1[^\n]*Nothing was written/);
-    // With HOSTED_KEKS but no proof that the recovery private key opens the bucket's keys (M3): refused, nothing written.
-    const unproven = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys"]);
-    assert.equal(unproven.status, 1);
-    assert.match(unproven.stderr, /no proof yet that the recovery private key opens this bucket's keys: run recover-keys --dry-run[^\n]*Nothing was written/);
-    // A wrong private key records no proof.
-    const wrong = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["recover-keys", "--dry-run"], `${testRecovery().privateText}\n`);
+    // With HOSTED_KEKS but the recovery key not named, or named wrong (M3): refused, nothing written. No private key asked for.
+    const unnamed = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys"]);
+    assert.equal(unnamed.status, 1);
+    assert.match(unnamed.stderr, /name the recovery key: migrate-keys --recovery-fingerprint <the fingerprint written beside your offline copies>\. Nothing was written/);
+    const wrong = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", testRecovery().fingerprint]);
     assert.equal(wrong.status, 1);
-    const stillUnproven = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys"]);
-    assert.match(stillUnproven.stderr, /no proof yet/);
+    assert.match(wrong.stderr, new RegExp(`isn't the recovery key HOSTED_RECOVERY_PUBKEY names \\(${RECOVERY.fingerprint}\\)[^\\n]*Nothing was written`));
     assert.deepEqual(snapshot(o.s3), before);
     assert.deepEqual(readFileSync(join(o.dataRoot, "keys", "keys.sqlite")), keysBytes);
+    // Beside a running server: refused (its heartbeat). A dry run is fine beside it (step 4). A crash's stale mark doesn't block.
+    const running = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
+    assert.ok(running.up, running.stderr());
+    const beside = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.equal(beside.status, 1);
+    assert.match(beside.stderr, /a server is running on this volume \(its heartbeat is \d+ s old\): migrate-keys runs with the server stopped/);
+    const dryBeside = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--dry-run", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.equal(dryBeside.status, 0, dryBeside.stderr);
+    const keysBeside = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["recover-keys"], `${RECOVERY.privateText}\n`);
+    assert.match(keysBeside.stderr, /a server is running on this volume[^\n]*recover-keys runs with the server stopped/);
+    await running.stop();
+    assert.equal(existsSync(join(o.dataRoot, "serving.heartbeat")), false, "a clean stop removes the mark");
+    writeFileSync(join(o.dataRoot, "serving.heartbeat"), "a crash's\n");
+    utimesSync(join(o.dataRoot, "serving.heartbeat"), new Date(Date.now() - 120_000), new Date(Date.now() - 120_000));
+    assert.doesNotThrow(() => refuseWhileServing(o.dataRoot, "migrate-keys"), "a stale mark (a crash) doesn't block");
+    assert.throws(() => refuseWhileServing(o.dataRoot, "migrate-keys", () => Date.now() - 100_000), /a server is running/);
   });
 
   test("the whole migration through the CLI: --dry-run writes nothing; the run moves every key onto the volume KEK, seals them, RE-KEYS control (a new DEK, its databases replicated to a new place and proven, the old replicas gone), deletes every old key object; a second run does nothing; serve needs no HOSTED_KEKS; a lost volume restores from the new control replicas", async () => {
@@ -356,11 +367,11 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     const controlCreated = keys0.createdAt(CONTROL_KEY_ID);
     keys0.close();
 
-    const dry = await cli(env, ["migrate-keys", "--dry-run"]);
+    const dry = await cli(env, ["migrate-keys", "--dry-run", "--recovery-fingerprint", RECOVERY.fingerprint]);
     assert.equal(dry.status, 0, dry.stderr + dry.stdout);
     const n = String(o.stores.length + 1);
     assert.match(dry.stdout, /^migrate-keys --dry-run \(nothing written\):/);
-    assert.match(dry.stdout, new RegExp(`recovery key ${RECOVERY.fingerprint}: proven`));
+    assert.match(dry.stdout, new RegExp(`recovery key ${RECOVERY.fingerprint}: the one named`));
     assert.match(dry.stdout, new RegExp(`${n} keys would be moved from HOSTED_KEKS onto the volume key`));
     assert.match(dry.stdout, /control would be re-keyed/);
     assert.match(dry.stdout, new RegExp(`${String(o.stores.length + 2)} old key objects \\(keys/<id>\\.wrapped, under HOSTED_KEKS\\) would be deleted \\(1 of them deleted stores' leftovers\\)`));
@@ -368,7 +379,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.deepEqual(snapshot(o.s3), before, "a dry run writes nothing to the bucket");
     assert.deepEqual(readFileSync(join(o.dataRoot, "keys", "keys.sqlite")), keysBytes);
 
-    const run = await cli(env, ["migrate-keys"]);
+    const run = await cli(env, ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
     assert.equal(run.status, 0, run.stderr + run.stdout);
     assert.match(run.stdout, new RegExp(`${n} keys moved from HOSTED_KEKS onto the volume key`));
     assert.match(run.stdout, /control re-keyed: a new control key; the control databases replicated under it \(control\/[A-Za-z0-9_-]{22}\/\), proven by a restore/);
@@ -400,7 +411,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
 
     // A run again (the start-command override restarts, or Mike re-runs it): nothing to do, nothing written.
     const afterFirst = snapshot(o.s3);
-    const again = await cli(env, ["migrate-keys"]);
+    const again = await cli(env, ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
     assert.equal(again.status, 0, again.stderr + again.stdout);
     assert.match(again.stdout, /^0 keys moved[\s\S]*^0 sealed key objects written[\s\S]*^0 old key objects[\s\S]*done:/m);
     assert.doesNotMatch(again.stdout, /re-keyed/);
@@ -441,7 +452,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
 
     // 1. The new snapshot never proves (its restore keeps failing): nothing switched.
     const failing: typeof run = async () => ({ code: 1, stderr: "standin: no replica" });
-    await assert.rejects(migrateKeys(o.dataRoot, backupOf(objectsOf(o.s3)), { litestream: { sidecar, run: failing, proveMs: 1500 } }), /didn't prove[^\n]*nothing was switched/);
+    await assert.rejects(migrateKeys(o.dataRoot, backupOf(objectsOf(o.s3)), { recoveryFingerprint: RECOVERY.fingerprint, litestream: { sidecar, run: failing, proveMs: 1500 } }), /didn't prove[^\n]*nothing was switched/);
     let keys = keysOf(o.dataRoot, o.ring);
     const next = await keys.dek("control.next");
     assert.deepEqual(await keys.dek(CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID), "control still the old key");
@@ -462,7 +473,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
       },
     };
     cut.readableWith = inner.readableWith!.bind(inner);
-    await assert.rejects(migrateKeys(o.dataRoot, backupOf(cut), { litestream: { sidecar, run } }), /the process died here/);
+    await assert.rejects(migrateKeys(o.dataRoot, backupOf(cut), { recoveryFingerprint: RECOVERY.fingerprint, litestream: { sidecar, run } }), /the process died here/);
     assert.deepEqual(RECOVERY.opener.open(bodyOf(o.s3, keyObject(CONTROL_KEY_ID))!, CONTROL_KEY_ID), next, "the bucket has the new key, sealed");
     keys = keysOf(o.dataRoot, o.ring);
     assert.deepEqual(await keys.dek(CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID), "the volume still the old key, the new one pending");
@@ -473,7 +484,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.match(await refusedAgain.stop(), /was cut short/);
 
     // 3. The run again, through the CLI: finished, with the pending key, the old replicas and key objects gone.
-    const done = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys"]);
+    const done = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
     assert.equal(done.status, 0, done.stderr + done.stdout);
     assert.match(done.stdout, /control re-keyed/);
     keys = keysOf(o.dataRoot);
@@ -498,7 +509,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     o.s3.objects.set(legacyKeyObject(o.stores[0]!), { body: Buffer.from(await o.ring.wrap(randomBytes(32), o.stores[0]!)), keyMd5: null });
     const stranger = randomBytes(16).toString("hex");
     o.s3.objects.set(legacyKeyObject(stranger), { body: Buffer.from(await o.ring.wrap(randomBytes(32), stranger)), keyMd5: null });
-    const out = await migrateKeys(o.dataRoot, backup, { litestream });
+    const out = await migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream });
     assert.equal(out.left, 2, out.text);
     assert.match(out.text, /its old key object is another key than this volume's/);
     assert.match(out.text, /an old key object of a store that isn't in the accounts database/);
@@ -514,9 +525,100 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     // The coordinator looks and removes the two by hand: the next run finishes.
     o.s3.objects.delete(legacyKeyObject(o.stores[0]!));
     o.s3.objects.delete(legacyKeyObject(stranger));
-    const done = await migrateKeys(o.dataRoot, backup, { litestream });
+    const done = await migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream });
     assert.equal(done.left, 0, done.text);
     assert.match(done.text, /done:/);
+  });
+
+  /** The stand-in Litestream as the re-key's own (sidecar and restore), and a backup whose config names the https stand-in. */
+  function rekeyRig(o: Awaited<ReturnType<typeof oldShape>>): { backup: AppBackupOptions; litestream: { sidecar: (p: string) => LitestreamSidecar; run: ReturnType<typeof litestreamRunner>; proveMs?: number } } {
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: CREDS.id, LITESTREAM_SECRET_ACCESS_KEY: CREDS.secret };
+    return {
+      backup: { ...volumeBackup(o.s3, o.dataRoot, o.ring), endpoint: o.s3.tlsBase! },
+      litestream: { run: litestreamRunner(standin(o.s3.ca!), env), sidecar: (configPath: string) => new LitestreamSidecar({ binary: standin(o.s3.ca!), configPath, env, killAfterMs: 10_000 }) },
+    };
+  }
+
+  test("a crash right after the switch, before the new key file (the delta review's HIGH): no control key file is left at all, the next start writes it from the NEW key and drops the old replicas; a key file of the old key is rewritten too; nothing in the bucket is under the old control key", async () => {
+    const o = await oldShape();
+    await releasedAndProven(o);
+    const { backup, litestream } = rekeyRig(o);
+    const original = KeyStore.prototype.promote;
+    KeyStore.prototype.promote = async function (this: KeyStore, ...args: Parameters<KeyStore["promote"]>): Promise<void> {
+      await original.apply(this, args);
+      throw new Error("the process died right after the switch");
+    };
+    try {
+      await assert.rejects(migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream }), /died right after the switch/);
+    } finally {
+      KeyStore.prototype.promote = original;
+    }
+    const keyFile = join(o.dataRoot, "control", "litestream.key");
+    assert.equal(existsSync(keyFile), false, "no key file of either key: the old one went before the switch");
+    let keys = keysOf(o.dataRoot, o.ring);
+    const fresh = await keys.dek(CONTROL_KEY_ID);
+    assert.notDeepEqual(fresh, o.deks.get(CONTROL_KEY_ID));
+    assert.equal(keys.wrapped("control.next"), null);
+    keys.close();
+    assert.equal(underControlDefault(o.s3).length, 2, "the old replicas, not yet dropped");
+    const oldMd5 = createHash("md5").update(Buffer.from(litestreamKey(o.deks.get(CONTROL_KEY_ID)!), "base64")).digest("base64");
+    const started = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
+    assert.ok(started.up, started.stderr());
+    await started.stop();
+    assert.equal(readFileSync(keyFile, "utf8").trim(), litestreamKey(fresh), "written from the new key at the start");
+    assert.deepEqual(underControlDefault(o.s3), [], "the start dropped the old control replicas");
+    assert.ok([...o.s3.objects.values()].every((v) => v.keyMd5 !== oldMd5), "nothing in the bucket under the old control SSE-C key");
+    // The same window reached another way: a file of the OLD key left in place. A start rewrites it before Litestream runs.
+    writeFileSync(keyFile, `${litestreamKey(o.deks.get(CONTROL_KEY_ID)!)}\n`, { mode: 0o600 });
+    const again = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
+    assert.ok(again.up, again.stderr());
+    await again.stop();
+    assert.equal(readFileSync(keyFile, "utf8").trim(), litestreamKey(fresh));
+    assert.ok([...o.s3.objects.values()].every((v) => v.keyMd5 !== oldMd5));
+    // And the run again finishes the migration (the old key objects).
+    const done = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.equal(done.status, 0, done.stderr + done.stdout);
+    assert.doesNotMatch(done.stdout, /re-keyed/);
+    keys = keysOf(o.dataRoot);
+    assert.deepEqual(await keys.dek(CONTROL_KEY_ID), fresh);
+    keys.close();
+    assert.equal([...o.s3.objects.keys()].filter((k) => k.endsWith(".wrapped")).length, 0);
+  });
+
+  test("--abort-control-rekey backs out of a re-key that won't prove: the old control key kept and sealed again, the new key and its replicas gone, the start no longer refused; a later run re-keys", async () => {
+    const o = await oldShape();
+    await releasedAndProven(o);
+    const { backup, litestream } = rekeyRig(o);
+    const failing: typeof litestream.run = async () => ({ code: 1, stderr: "standin: no replica" });
+    await assert.rejects(migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream: { ...litestream, run: failing, proveMs: 1500 } }), /didn't prove/);
+    let keys = keysOf(o.dataRoot, o.ring);
+    const pendingBase = `control/${keyIdOf(await keys.dek("control.next"))}/`;
+    keys.close();
+    assert.ok([...o.s3.objects.keys()].some((k) => k.startsWith(pendingBase)), "the unproven re-key left replicas at its base");
+    const refused = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
+    assert.equal(refused.up, false);
+    assert.match(await refused.stop(), /was cut short/);
+    const dry = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--abort-control-rekey", "--dry-run"]);
+    assert.match(dry.stdout, /a pending control re-key would be backed out/);
+    const abort = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--abort-control-rekey"]);
+    assert.equal(abort.status, 0, abort.stderr + abort.stdout);
+    assert.match(abort.stdout, /the control re-key backed out: the old control key kept/);
+    keys = keysOf(o.dataRoot, o.ring);
+    assert.equal(keys.wrapped("control.next"), null);
+    assert.deepEqual(await keys.dek(CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID));
+    keys.close();
+    assert.deepEqual(RECOVERY.opener.open(bodyOf(o.s3, keyObject(CONTROL_KEY_ID))!, CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID), "the bucket's control key is the old one");
+    assert.ok(![...o.s3.objects.keys()].some((k) => k.startsWith(pendingBase)), "the new base's objects gone");
+    assert.equal(underControlDefault(o.s3).length, 2, "the old replicas kept");
+    const served = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
+    assert.ok(served.up, served.stderr());
+    await served.stop();
+    const nothing = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--abort-control-rekey"]);
+    assert.match(nothing.stdout, /nothing to back out/);
+    // Later, Litestream working: the re-key happens.
+    const done = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.equal(done.status, 0, done.stderr + done.stdout);
+    assert.match(done.stdout, /control re-keyed/);
   });
 });
 
@@ -555,6 +657,37 @@ describe("WB1: recover-keys adopts no key it can't prove against the store's own
     assert.deepEqual(await keys.dek(empty), emptyDek);
     assert.equal(keys.wrapped(forged), null);
     keys.close();
+  });
+
+  test("a forger who seals a control key of theirs AND plants a replica under it beside the real one: control is refused, naming both places (the delta review's MEDIUM)", async () => {
+    const s3 = await bucket();
+    const dataRoot = join(tmp.root, "volume");
+    await livedVolume(s3, volumeBackup(s3, dataRoot));
+    const theirs = randomBytes(32);
+    s3.objects.set(keyObject(CONTROL_KEY_ID), { body: Buffer.from(RECOVERY.sealer.seal(theirs, CONTROL_KEY_ID)), keyMd5: null });
+    const planted = `control/${keyIdOf(theirs)}/`;
+    for (const db of ["accounts.sqlite", "oauth.sqlite"]) {
+      const res = await fetch(`${s3.base}/bkt/${planted}${db}/0000/0000000000000009-0000000000000009.ltx`, { method: "PUT", body: "theirs", headers: { "x-amz-server-side-encryption-customer-algorithm": "AES256", "x-amz-server-side-encryption-customer-key": litestreamKey(theirs) } });
+      assert.ok(res.ok);
+    }
+    rmSync(dataRoot, { recursive: true, force: true });
+    const r = await cli(envOf(s3, dataRoot, await freePort()), ["recover-keys"], `${RECOVERY.privateText}\n`);
+    assert.equal(r.status, 1, r.stdout);
+    assert.ok(r.stdout.includes(`control: more than one place in the bucket holds control replicas (control/, ${planted})`), r.stdout);
+    assert.equal(keysOf(dataRoot).wrapped(CONTROL_KEY_ID), null, "control not adopted");
+  });
+
+  test("a 403 from the bucket (a bad or revoked token) is said as such, never as a forged key", async () => {
+    const s3 = await bucket();
+    const dataRoot = join(tmp.root, "volume");
+    await livedVolume(s3, volumeBackup(s3, dataRoot), 1);
+    rmSync(dataRoot, { recursive: true, force: true });
+    s3.fault = ({ method, key }) => (method === "GET" && key.startsWith("tenants/") ? 403 : null);
+    const r = await cli(envOf(s3, dataRoot, await freePort()), ["recover-keys"], `${RECOVERY.privateText}\n`);
+    s3.fault = null;
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /the bucket refused the request \(403\): check the R2 token/);
+    assert.doesNotMatch(r.stdout, /FORGED/);
   });
 
   test("a never-opened store with no replica and a sealed object in the bucket gets a NEW key at its first ensure, sealed over the old object (nothing is under the old one)", async () => {
@@ -626,20 +759,22 @@ describe("WB1: the erase leaves no readable DEK in the bucket", () => {
 describe("WB1: recovery-keygen, recovery-fingerprint, hold", () => {
   const bare = (): Record<string, string> => ({ PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" });
 
-  test("recovery-keygen writes the private key to a new 0600 file only, prints the public key and fingerprint; recovery-fingerprint reads it from stdin and checks it against HOSTED_RECOVERY_PUBKEY", async () => {
-    const file = join(tmp.root, "recovery.key");
-    const made = await cli(bare(), ["recovery-keygen", file]);
+  test("recovery-keygen prints the keypair to the terminal once and writes no file; recovery-fingerprint reads the private key from stdin and checks it against HOSTED_RECOVERY_PUBKEY", async () => {
+    const cwd = join(tmp.root, "keygen");
+    mkdirSync(cwd);
+    const made = await cli({ ...bare(), HOME: cwd }, ["recovery-keygen"]);
     assert.equal(made.status, 0, made.stderr);
-    assert.equal(statSync(file).mode & 0o777, 0o600);
-    const privateLine = readFileSync(file, "utf8").trim();
-    assert.match(privateLine, /^cp-recovery:[A-Za-z0-9+/]{43}=$/);
-    assert.ok(!made.stdout.includes(privateLine.split(":")[1]!), "the private key is never printed");
+    const privateLine = /^(cp-recovery:[A-Za-z0-9+/]{43}=)$/m.exec(made.stdout)![1]!;
     const pub = /^HOSTED_RECOVERY_PUBKEY=(\S+)$/m.exec(made.stdout)![1]!;
     const fp = /^fingerprint ([0-9a-f]{16})$/m.exec(made.stdout)![1]!;
     assert.equal(new RecoverySealer(Buffer.from(pub, "base64")).fingerprint, fp);
-    const again = await cli(bare(), ["recovery-keygen", file]);
-    assert.equal(again.status, 1, "never over an existing file");
-    assert.equal(readFileSync(file, "utf8").trim(), privateLine);
+    assert.ok(!readdirSync(cwd, { recursive: true }).some((n) => String(n).includes("recovery")), "no key file written");
+    const withArg = await cli(bare(), ["recovery-keygen", join(tmp.root, "recovery.key")]);
+    assert.equal(withArg.status, 1);
+    assert.match(withArg.stderr, /takes no argument/);
+    assert.equal(existsSync(join(tmp.root, "recovery.key")), false);
+    const file = join(tmp.root, "copy.key");
+    writeFileSync(file, `${privateLine}\n`, { mode: 0o600 });
     const checked = await cli({ ...bare(), HOSTED_RECOVERY_PUBKEY: pub }, ["recovery-fingerprint"], `${privateLine}\n`);
     assert.equal(checked.stdout, `fingerprint ${fp}\nit is the key HOSTED_RECOVERY_PUBKEY names\n`);
     const other = await cli({ ...bare(), HOSTED_RECOVERY_PUBKEY: testRecovery().publicText }, ["recovery-fingerprint", "--key-file", file]);

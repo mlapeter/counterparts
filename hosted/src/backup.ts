@@ -36,7 +36,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import { createHash } from "node:crypto";
@@ -252,6 +252,34 @@ export class Backups {
     return storeId === CONTROL_KEY_ID ? join(this.opts.dataRoot, "control", "litestream.key") : join(tenantDir(this.tenantsRoot(), storeId), "litestream.key");
   }
 
+  /** Does the key file hold exactly this key's SSE-C key? False when it is missing, or another key's. */
+  private async keyFileCurrent(storeId: string): Promise<boolean> {
+    const file = this.keyFile(storeId);
+    if (!existsSync(file)) return false;
+    const dek = await this.opts.keys.dek(storeId);
+    try {
+      return readFileSync(file, "utf8").trim() === litestreamKey(dek);
+    } finally {
+      dek.fill(0);
+    }
+  }
+
+  /**
+   * EVERY KEY FILE AGREES WITH keys.sqlite before Litestream starts (the #768
+   * delta review): each key's file rewritten when it is missing or another
+   * key's, whatever crash left it so. Returns how many were written.
+   */
+  async syncKeyFiles(): Promise<number> {
+    let n = 0;
+    for (const id of this.opts.keys.storeIds()) {
+      if (id !== CONTROL_KEY_ID && !STORE_ID.test(id)) continue;
+      if (await this.keyFileCurrent(id)) continue;
+      await this.writeKeyFile(id);
+      n += 1;
+    }
+    return n;
+  }
+
   /** Where the control databases' replicas live now: `control/`, or a re-keyed control key's `control/<key id>/`. */
   controlBase(): string {
     return this.opts.keys.replicaBase(CONTROL_KEY_ID) ?? CONTROL_BASE;
@@ -321,7 +349,9 @@ export class Backups {
       throw new StoreKeyMissing();
     }
     if (wrapped === null) await this.opts.keys.create(storeId);
-    if (adopted || unproven || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
+    // The key file is the KEY'S, whatever is there (the #768 delta review): a file left by a key that is gone, or by a crash
+    // between a key's change and its file's, would put the replica under an SSE-C key keys.sqlite doesn't hold.
+    if (!(await this.keyFileCurrent(storeId))) await this.writeKeyFile(storeId);
     const mine = (await this.opts.keys.keyId(storeId))!;
     const differs = (): Error =>
       // The control key, said as such (the #658 review): after a start against
@@ -399,6 +429,8 @@ export class Backups {
     // proven the same DEK as this volume's (a different one throws).
     const bucketProven = await this.inBucket(CONTROL_KEY_ID);
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
+    // A re-key cut short after its switch: its old control replicas (under the old key) never linger past a start.
+    await this.dropOldControlReplicas();
     // The control key is in this bucket now (adopted, proven or put): a later
     // start beside a bucket without it is no longer "a turn-on cut short" (R7).
     this.opts.keys.recordFact("control-key-in-bucket");
@@ -592,15 +624,42 @@ export class Backups {
       } finally {
         next.fill(0);
       }
+      // The old SSE-C key file goes FIRST (the #768 delta review's HIGH): a crash after the switch then leaves no file,
+      // and the next start writes it from the new key, never Litestream shipping new control data under the old one.
+      rmSync(this.keyFile(CONTROL_KEY_ID), { force: true });
       await this.opts.keys.promote(CONTROL_NEXT_ID, CONTROL_KEY_ID, base);
-      renameSync(this.keyFile(CONTROL_NEXT_ID), this.keyFile(CONTROL_KEY_ID));
-      chmodSync(this.keyFile(CONTROL_KEY_ID), 0o600);
+      await this.writeKeyFile(CONTROL_KEY_ID);
     } finally {
       rmSync(yml, { force: true });
       rmSync(this.keyFile(CONTROL_NEXT_ID), { force: true });
     }
     await this.dropOldControlReplicas();
     return "done";
+  }
+
+  /**
+   * BACKING OUT OF A RE-KEY THAT WON'T FINISH (`migrate-keys
+   * --abort-control-rekey`; the #768 delta review): while `control.next` is
+   * pending, the old control key is still this volume's, and its replicas are
+   * where they were. So: the bucket's control key object sealed to the OLD key
+   * again (a cut-short run may have put the new one), the new base's objects
+   * deleted, the pending key and its key file gone, Litestream's local state for
+   * the control databases cleared (the re-key's run had pointed it at the new
+   * base). The `control-rekey-due` fact stays: the next `migrate-keys` tries
+   * again. Refused once the switch has happened (there is nothing to back out).
+   */
+  async abortControlRekey(): Promise<{ aborted: boolean; deleted: number }> {
+    if (this.opts.keys.wrapped(CONTROL_NEXT_ID) === null) return { aborted: false, deleted: 0 };
+    const base = controlBaseFor((await this.opts.keys.keyId(CONTROL_NEXT_ID))!);
+    if (this.controlBase() === base) throw new Error("the control re-key already switched: nothing to back out");
+    await this.opts.objects.put(keyObject(CONTROL_KEY_ID), await this.opts.keys.sealed(CONTROL_KEY_ID, this.opts.sealer));
+    let deleted = 0;
+    for (const db of CONTROL_DATABASES) deleted += await this.opts.objects.deletePrefix(`${base}${db}/`);
+    for (const p of this.dbPaths(CONTROL_KEY_ID)) rmSync(join(dirname(p), `.${basename(p)}-litestream`), { recursive: true, force: true });
+    this.opts.keys.delete(CONTROL_NEXT_ID);
+    rmSync(this.keyFile(CONTROL_NEXT_ID), { force: true });
+    rmSync(join(this.opts.dataRoot, "litestream.rekey.yml"), { force: true });
+    return { aborted: true, deleted };
   }
 
   /** The control databases restored from `base` (the re-key's config) equal the files here: the new snapshot is proven. */
@@ -858,6 +917,8 @@ export class Backups {
         /* the store's next open tries again (`tenants.ts#openHandle`) */
       }
     }
+    // Every key file is its key's before Litestream reads one.
+    await this.syncKeyFiles();
     await this.reload();
   }
 

@@ -9,44 +9,95 @@
  * fingerprint, and a store's tag (`storeTag`) when one needs a look. No cipher
  * here: every one is in keys.ts.
  */
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { Accounts } from "./accounts.js";
 import { controlVolume, foreignControlRefusal } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, CONTROL_BASE, CONTROL_KEY_ID, controlBaseFor, keyObject, keyObjectId, legacyKeyObject, replicaPrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_BASE, CONTROL_KEY_ID, CONTROL_NEXT_ID, keyObject, keyObjectId, legacyKeyObject, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { LitestreamRun, Sidecar } from "./backup.js";
-import { KEK_CURRENT_ENV, KEK_ENV, KeyStore, VOLUME_KEK_VERSION, keyIdOf, kekVersionOf, litestreamKey, sealedHeader } from "./keys.js";
+import { KEK_CURRENT_ENV, KEK_ENV, KeyStore, VOLUME_KEK_VERSION, kekVersionOf, litestreamKey, sealedHeader } from "./keys.js";
 import type { RecoveryOpener } from "./keys.js";
 import { STORE_ID, storeTag, tenantDir } from "./tenants.js";
 
 const tagOf = (id: string): string => (id === CONTROL_KEY_ID ? CONTROL_KEY_ID : storeTag(id));
 
 /**
- * A sealed key, proven against the store's own replica (the #768 review's M2):
- * one of its objects opens under the key's SSE-C key ("ok"), refuses it
- * ("refused": the key object may be forged), or there is nothing to try
- * ("empty"). Control's replicas are looked for at a re-keyed key's base
- * (`control/<key id>/`) first, then at the default; "ok" says which (`base`,
- * null for the default).
+ * THE RUNNING SERVER'S MARK (the #768 delta review): `serve` rewrites
+ * `<data root>/serving.heartbeat` every `SERVING_EVERY_MS` while it listens, and
+ * removes it at a clean stop. A mark younger than `SERVING_STALE_MS` means a
+ * server is (or was just) running on this volume; an older one is a crash's.
  */
-async function replicaProof(backup: AppBackupOptions, id: string, dek: Buffer): Promise<{ state: "ok"; base: string | null } | { state: "refused" | "empty" | "cannot" }> {
-  const check = backup.objects.readableWith?.bind(backup.objects);
-  const places: { prefix: string; base: string | null }[] =
-    id === CONTROL_KEY_ID
-      ? [
-          { prefix: `${controlBaseFor(keyIdOf(dek))}accounts.sqlite/`, base: controlBaseFor(keyIdOf(dek)) },
-          { prefix: `${CONTROL_BASE}accounts.sqlite/`, base: null },
-        ]
-      : [{ prefix: replicaPrefix(id), base: null }];
-  for (const place of places) {
-    const objects = await backup.objects.list(place.prefix);
-    if (objects.length === 0) continue;
-    if (check === undefined) return { state: "cannot" };
-    return (await check(objects[0]!, litestreamKey(dek))) ? { state: "ok", base: place.base } : { state: "refused" };
+export const SERVING_MARK = "serving.heartbeat";
+export const SERVING_EVERY_MS = 15_000;
+export const SERVING_STALE_MS = 60_000;
+
+/** Refuses when a server's mark is fresh on this volume. */
+export function refuseWhileServing(dataRoot: string, what: string, now: () => number = Date.now): void {
+  const mark = join(dataRoot, SERVING_MARK);
+  if (!existsSync(mark)) return;
+  const age = now() - statSync(mark).mtimeMs;
+  if (age < SERVING_STALE_MS) {
+    throw new Error(`a server is running on this volume (its heartbeat is ${String(Math.max(0, Math.round(age / 1000)))} s old): ${what} runs with the server stopped (a start-command override, or hold). If it stopped just now, wait a minute and run it again. Nothing was written`);
   }
-  return { state: "empty" };
+}
+
+/** What `replicaProof` found. */
+type ReplicaProof =
+  | { state: "ok"; base: string | null }
+  | { state: "refused" | "empty" | "cannot" }
+  | { state: "denied" }
+  | { state: "several"; bases: string[] };
+
+/** The places under `control/` that hold control replica objects: the default (`control/`) and each `control/<id>/`. */
+export async function controlBasesInBucket(objects: AppBackupOptions["objects"]): Promise<string[]> {
+  const bases = new Set<string>();
+  for (const k of await objects.list(CONTROL_BASE)) {
+    if (/^control\/(accounts|oauth)\.sqlite\//.test(k)) bases.add(CONTROL_BASE);
+    const m = /^(control\/[A-Za-z0-9_-]{22}\/)(accounts|oauth)\.sqlite\//.exec(k);
+    if (m !== null) bases.add(m[1]!);
+  }
+  return [...bases].sort();
+}
+
+/**
+ * A sealed key, proven against the store's own replica (the #768 reviews' M2):
+ * EVERY object under its replica opens under the key's SSE-C key ("ok"), one
+ * doesn't ("refused": the key object may be forged, or the replica mixed), the
+ * token is refused ("denied", a 403: says nothing of the key), or there is
+ * nothing to try ("empty"). Control: refused when more than one place under
+ * `control/` holds replica objects ("several"): a forger who sealed a key of
+ * theirs AND planted a replica under it beside the honest one is told apart only
+ * by a person. "ok" says where control's replicas are (`base`, null for the
+ * default).
+ *
+ * What it catches: a lone forged key object, an accident, a mixed replica. Not:
+ * someone with R2 write who replaced a store's whole replica with one under
+ * their own key. The defence there is rotating the R2 token BEFORE a recovery.
+ */
+async function replicaProof(backup: AppBackupOptions, id: string, dek: Buffer): Promise<ReplicaProof> {
+  const check = backup.objects.readableWith?.bind(backup.objects);
+  let prefixes: string[];
+  let base: string | null = null;
+  if (id === CONTROL_KEY_ID) {
+    const bases = await controlBasesInBucket(backup.objects);
+    if (bases.length > 1) return { state: "several", bases };
+    if (bases.length === 0) return { state: "empty" };
+    base = bases[0] === CONTROL_BASE ? null : bases[0]!;
+    prefixes = [`${bases[0]!}accounts.sqlite/`, `${bases[0]!}oauth.sqlite/`];
+  } else prefixes = [replicaPrefix(id)];
+  const objects: string[] = [];
+  for (const p of prefixes) objects.push(...(await backup.objects.list(p)));
+  if (objects.length === 0) return { state: "empty" };
+  if (check === undefined) return { state: "cannot" };
+  const sse = litestreamKey(dek);
+  for (const o of objects) {
+    const r = await check(o, sse);
+    if (r === "denied") return { state: "denied" };
+    if (r === "wrong-key") return { state: "refused" };
+  }
+  return { state: "ok", base };
 }
 
 /**
@@ -76,9 +127,17 @@ async function replicaProof(backup: AppBackupOptions, id: string, dek: Buffer): 
 export async function migrateKeys(
   dataRoot: string,
   backup: AppBackupOptions,
-  opts: { dryRun?: boolean; litestream?: { sidecar: (configPath: string) => Sidecar; run: LitestreamRun; proveMs?: number } } = {},
+  opts: {
+    dryRun?: boolean;
+    recoveryFingerprint?: string;
+    abortControlRekey?: boolean;
+    litestream?: { sidecar: (configPath: string) => Sidecar; run: LitestreamRun; proveMs?: number };
+    now?: () => number;
+  } = {},
 ): Promise<{ text: string; left: number }> {
   const dry = opts.dryRun === true;
+  // Never beside a running server (the #768 delta review): its sidecar and its writes would race every step below.
+  if (!dry) refuseWhileServing(dataRoot, "migrate-keys", opts.now);
   const accountsPath = join(dataRoot, "control", "accounts.sqlite");
   if (!existsSync(accountsPath)) throw new Error("no accounts database on this volume: nothing to migrate (a new server starts in the new shape by itself)");
   const keysPath = join(dataRoot, "keys", "keys.sqlite");
@@ -97,16 +156,28 @@ export async function migrateKeys(
     const lines: string[] = [];
     const kept: string[] = [];
 
-    // 0. THE PROOF (the #768 review's M3): the old key objects are the last copies the old KEK opens, and a mistyped
-    // recovery key would leave none that open. So nothing is deleted, moved or re-keyed until `recover-keys --dry-run`
-    // has opened this bucket's sealed keys with the private key (it records the proof here).
-    const fp = backup.sealer.fingerprint;
-    const proof = keys.proof(fp);
-    if (proof === null && !dry) {
-      throw new Error(`no proof yet that the recovery private key opens this bucket's keys: run recover-keys --dry-run with it first (beside the running server is fine; it writes only the proof), with each offline copy. Nothing was written`);
+    if (opts.abortControlRekey === true) {
+      // Backing out of a control re-key that won't prove (Litestream can't reach the bucket, say): the old key stays.
+      if (dry) return { text: `migrate-keys --abort-control-rekey --dry-run (nothing written):\n${keys.wrapped(CONTROL_NEXT_ID) === null ? "no control re-key is pending: nothing to back out" : "a pending control re-key would be backed out: the old control key kept, the new key and its replicas deleted"}`, left: 0 };
+      const r = await backups.abortControlRekey();
+      return {
+        text: r.aborted
+          ? `migrate-keys --abort-control-rekey:\nthe control re-key backed out: the old control key kept (and sealed in the bucket again), the new key and its ${String(r.deleted)} replica objects deleted. The server starts again; run migrate-keys later to re-key control (docs/hosted/RUNBOOK.md, Write-only backups)`
+          : "migrate-keys --abort-control-rekey:\nno control re-key is pending: nothing to back out",
+        left: 0,
+      };
     }
-    lines.push(proof === null ? `recovery key ${fp}: NOT proven yet; a run refuses until recover-keys --dry-run has opened the bucket's keys with it` : `recovery key ${fp}: proven ${new Date(proof.at).toISOString()} (${String(proof.opened)} sealed keys opened)`);
-    if (proof === null) kept.push(`the recovery key ${fp} isn't proven: run recover-keys --dry-run with it first`);
+
+    // 0. THE RECOVERY KEY, NAMED (the #768 reviews' M3): the old key objects are the last copies the old KEK opens, and a
+    // mistyped recovery key would leave none that open. So nothing is moved, re-keyed or deleted unless the run names the
+    // fingerprint Mike checked on his Mac against both offline copies (`recovery-fingerprint`), and it is the one every
+    // key object is sealed to. The private key itself never comes near the server for this.
+    const fp = backup.sealer.fingerprint;
+    const named = opts.recoveryFingerprint;
+    if (!dry && named === undefined) throw new Error(`name the recovery key: migrate-keys --recovery-fingerprint <the fingerprint written beside your offline copies>. Nothing was written`);
+    if (!dry && named !== fp) throw new Error(`--recovery-fingerprint ${String(named)} isn't the recovery key HOSTED_RECOVERY_PUBKEY names (${fp}): check the copies (recovery-fingerprint) and the variable. Nothing was written`);
+    lines.push(named === fp ? `recovery key ${fp}: the one named (--recovery-fingerprint)` : `recovery key ${fp}: ${named === undefined ? "not named" : `NOT the one named (${named})`}; a run needs --recovery-fingerprint ${fp}, checked against your offline copies`);
+    if (named !== fp) kept.push(`the recovery key isn't named: run with --recovery-fingerprint <the fingerprint beside your offline copies>`);
 
     // 1b. Control's key once under HOSTED_KEKS ⇒ a re-key (HIGH 1). Recorded BEFORE the rewrap below moves it onto the
     // volume KEK, so a run cut short still knows.
@@ -262,6 +333,7 @@ export async function migrateKeys(
  */
 export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, opener: RecoveryOpener, opts: { dryRun?: boolean; adoptUnproven?: boolean } = {}): Promise<{ text: string; failed: number }> {
   const dry = opts.dryRun === true;
+  if (!dry) refuseWhileServing(dataRoot, "recover-keys");
   // Never the control key beside control databases that aren't the bucket's (the #653 review, H1).
   const foreign = foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup));
   if (foreign !== null && !dry) throw new Error(foreign.replace(/^refused: /, ""));
@@ -344,6 +416,14 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
           failed.push(`${tagOf(id)}: its replica doesn't open under the sealed key's SSE-C key: the key object may be FORGED (someone with R2 write access). Not adopted`);
           continue;
         }
+        if (proof.state === "denied") {
+          failed.push(`${tagOf(id)}: the bucket refused the request (403): check the R2 token (R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY). Not adopted`);
+          continue;
+        }
+        if (proof.state === "several") {
+          failed.push(`control: more than one place in the bucket holds control replicas (${proof.bases.join(", ")}): someone may have planted one beside the real one. Not adopted; tell the coordinator, and rotate the R2 token first`);
+          continue;
+        }
         if (proof.state === "cannot") {
           failed.push(`${tagOf(id)}: this object store can't check a replica: not adopted`);
           continue;
@@ -357,14 +437,13 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
           warnings.push(`WARNING: ${tagOf(id)} adopted with NO replica to prove its key against (--adopt-unproven): if anyone else could write the bucket, its future backups may be under THEIR key`);
         }
         if (!dry && keys !== null) {
-          await keys.adoptDek(id, dek);
-          if (id === CONTROL_KEY_ID) {
-            if (proof.state === "ok" && proof.base !== null) keys.setReplicaBase(CONTROL_KEY_ID, proof.base);
-            // The bucket still has the control key from before WB1: migrate-keys re-keys control (HIGH 1).
-            if (legacyControl) keys.recordFact("control-rekey-due");
-          }
-          // The key file is written again from this key by the next start (`ensureStore`).
+          // In this order, so a crash anywhere leaves nothing that disagrees: no key file of another key (the next
+          // start writes it from this key), control's replica place before its key, then the key.
           rmSync(id === CONTROL_KEY_ID ? join(dataRoot, "control", "litestream.key") : join(tenantDir(join(dataRoot, "tenants"), id), "litestream.key"), { force: true });
+          if (id === CONTROL_KEY_ID && proof.state === "ok" && proof.base !== null) keys.setReplicaBase(CONTROL_KEY_ID, proof.base);
+          await keys.adoptDek(id, dek);
+          // The bucket still has the control key from before WB1: migrate-keys re-keys control (HIGH 1).
+          if (id === CONTROL_KEY_ID && legacyControl) keys.recordFact("control-rekey-due");
         }
         brought += 1;
       } finally {
