@@ -505,7 +505,17 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   re-keying a memory store means a fresh replica of every store (a Litestream re-snapshot each, and its old replicas
   dropped) for stores that belong to Mike and his testers, who know; control, which holds strangers' rows, IS
   re-keyed. **Condition: the migration runs before the first stranger invite**, so every stranger's store is made
-  after it, under a key no environment ever held.
+  after it, under a key no environment ever held. (Done 2026-11-06, steps 1-6, before any stranger invite.)
+- **ACCEPTED (Mike, 2026-11-06 15:51): the R2 token was not rotated (RUNBOOK, Write-only backups, step 7 skipped).**
+  No sign the environment ever leaked, and rotating was more than the beta needs (his not-overkill rule). What it
+  leaves: whoever holds a copy of the pre-WB1 environment (the old `HOSTED_KEKS` beside this same R2 token) can still
+  read and write the bucket with that token. Reading: control and every store made since the release open with
+  nothing they hold; the stores that existed at the migration (Mike's and the test accounts, above) open only for
+  someone who also copied their old `keys/<id>.wrapped` before step 5 deleted it, and then their new backups too,
+  since those DEKs weren't changed. Writing: they could delete objects, or plant a sealed key of their own; a recovery
+  stands in their way (`recover-keys` adopts no key unless every object of the store's replica opens under it, and
+  refuses more than one control base) but not against someone who also plants a full replica. **Revisit at any sign
+  of a leak, or at the first token change for any other reason**: then rotate as in step 7, before any recovery.
 - **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
   with the store id as associated data.
   - It keys the store's Litestream SSE-C key, through HKDF with a purpose label.

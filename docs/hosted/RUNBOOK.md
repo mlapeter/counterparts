@@ -633,6 +633,8 @@ the family**: the stores that exist at the migration keep their keys (below), an
 7. **Rotate the R2 token.** In Cloudflare, make a new token as in section 3, step 3 (Object Read & Write, this bucket
    only), set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` on Railway to it, redeploy, check `/readyz` and the
    `backup.uploads` lines, then delete the old token. The old one sat in the same environment as `HOSTED_KEKS`.
+   (Production's migration, 2026-11-06: **skipped, accepted by Mike**. What that leaves, and when to revisit, is in
+   DESIGN §5.4. At any sign of a leak, do this step before anything else.)
 8. **Keep the old KEK's two offline copies until no R2 object needs them**: after step 5 says `done`, R2's object
    browser shows no `keys/*.wrapped` (only `keys/*.sealed`) and no `control/accounts.sqlite/` or
    `control/oauth.sqlite/` (control's replicas are under `control/<key id>/` now). Then retire them (destroy the
