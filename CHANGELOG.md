@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.49 — 2026-11-06
+
+**The hosted beta note, and the app's front door no longer 404s.** This release changes only hosted Counterparts (app.counterparts.ai): the account page now says what the beta keeps and how to delete or download it, and the bare address opens your account instead of answering "Not found". The npm package, Claude Code and Claude Desktop behave exactly as in 0.3.48. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.48 needs no store restore: `counterparts disconnect`, 0.3.48's install, then `counterparts connect`.
+
+- **Hosted: the account page says what the beta keeps.** Right under who you're signed in as,
+  one paragraph says what hosted Counterparts stores and what it doesn't, how the disks and
+  backups are encrypted, how to delete one memory or the whole account, how to download it,
+  and where to send a bug (GitHub issues) or anything else (an email address).
+- **Hosted: app.counterparts.ai/ opens your account.** The bare address used to answer "Not
+  found"; it now goes to the account page, which asks you to sign in first if you aren't.
+
 ## 0.3.48 — 2026-11-06
 
 **A lighter tool list for claude.ai, hosted pages that look like counterparts.ai, and a README that explains itself.** On claude.ai the tool list a chat loads is about a third smaller; Claude Code and Claude Desktop get exactly the tool list 0.3.47 gave them. The hosted sign-in, Allow, account, delete and error pages take counterparts.ai's look, light or dark as your device is set. The README's first screen, which is also the npm page, says what Counterparts is and what the first run does. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.47 needs no store restore: `counterparts disconnect`, 0.3.47's install, then `counterparts connect`.
