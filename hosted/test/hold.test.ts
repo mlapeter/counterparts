@@ -463,6 +463,6 @@ describe("the tool list a claude.ai session pays for (HD1)", () => {
     const props = (remember["inputSchema"] as { properties: Record<string, unknown> }).properties;
     assert.ok("remove" in props);
     const recall = tools.find((t) => t["name"] === "recall")!;
-    assert.ok(JSON.stringify(recall).includes('Or \\"deleted\\": memories deleted in chat'));
+    assert.ok(JSON.stringify(recall).includes('\\"deleted\\": memories deleted in chat'));
   });
 });
