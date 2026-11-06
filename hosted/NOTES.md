@@ -505,3 +505,14 @@ or a night already run or under way leave every other chat untold. No night run 
 calls are the night. A claim the model never acts on is taken up by a later chat after 30 quiet minutes, at most twice
 a day (core's relaunch). Through the socket: `hosted/test/first-chat-night.test.ts`. M1 measured a full night at 8–9
 calls and ~30 s (`~/counterparts-notes/2026-11-03-checks/M1-hosted-night-cost.md`).
+
+## 2026-11-06 — the pages wear the site's look (gate S)
+
+Every page shares `web.ts#PAGE_STYLE`, still the one nonce'd `<style>` under the same CSP. Light is the site's light
+face (the guides' and /check-your-email's cream and teal trace), dark under `prefers-color-scheme` is the home's
+navy-black and cyan; the site itself picks a face per route, so which one is the default is a call, lightly held.
+System fonts stand in for the site's web fonts. The CSP's `default-src 'none'` allows no image at all, `data:`
+included, so the wordmark is text. Button weight comes from markup the bodies already had (Allow, the sign-in and
+keep buttons primary; the delete form's red), so no page body changed. `bun hosted/test/preview-pages.ts <dir>`
+renders every variant through the real app to static files; `hosted/test/web.test.ts` pins the nonce and that the
+frame loads nothing.
