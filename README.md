@@ -5,11 +5,11 @@
 Agents are great. What you're missing is a counterpart.
 
 Each Claude Code session starts over, apart from your CLAUDE.md files and Claude's short
-MEMORY.md notes. With Counterparts, Claude writes down what it learned at the end of each
-session, in its own words. What matters sticks and the rest fades unless it comes up again.
-After the first few sessions, each one opens with a short "who I am, who you are, where we
-left off" that Claude wrote itself, so you stop re-explaining your projects and how you like
-to work.
+MEMORY.md notes. With Counterparts, Claude writes down what it learned as it works and at
+the end of each session, in its own words. What matters sticks and the rest fades unless it
+comes up again. After the first few sessions, each one opens with a short note Claude wrote
+itself: who it is, where the work stands, what's coming up and how yesterday went, so you
+stop re-explaining your projects and how you like to work.
 
 It's for anyone who works with Claude Code every day and wishes it remembered, and for people
 interested in an AI that builds a relationship with them over time. It runs on your machine,
@@ -27,11 +27,15 @@ counterparts
 ```
 
 With bun instead: `bun add -g counterparts`, then `counterparts`. Whichever runtime runs the
-setup is the one Claude Code's hooks and memory tools are wired to.
+setup is the one Claude Code's hooks and memory tools are wired to. Or install it as a Claude
+Code plugin: `/plugin marketplace add mlapeter/counterparts`, then
+`/plugin install counterparts@counterparts`, then restart Claude Code.
 
 The first run asks two things, and you can skip either: your name, and whether to connect
-Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs the file up first)
-and registers the memory tools. Hooks from other tools are left alone. No API keys and no
+Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs the file up first),
+registers the memory tools, and adds one `deniedMcpServers` entry there so the hosted
+Counterparts Online connector never loads into Claude Code as a second memory. Hooks and
+settings from other tools are left alone. No API keys and no
 account. Then restart Claude Code and check it:
 
 ```
@@ -81,8 +85,8 @@ else, write to mike@resonantventures.com.
   learned, in its own words. Notes, not transcripts.
 - **It forgets on purpose.** Memories fade unless they come up again. What matters
   sticks; the rest lets go.
-- **It knows who it has been.** After the first few sessions, every session opens with a short "who I am, who you
-  are, where we left off" that it wrote itself.
+- **It knows who it has been.** After the first few sessions, every session opens with a short
+  note it wrote itself: who it is, where the work stands, what's coming up.
 - **It keeps a journal.** Each session becomes a chapter in a first-person account of
   your time together.
 - **It changes its mind slowly.** What it believes about you shifts only under real
