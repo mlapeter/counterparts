@@ -105,6 +105,20 @@ const ERASING_WORDS =
   "Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.";
 const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 
+// THE BETA NOTE (G4, Mike 2026-11-06): his paragraph word for word, from
+// ~/counterparts-notes/2026-11-04-checks/G4-beta-note.md, whose evidence notes
+// tie each sentence to the code. On the account page, where sign-in lands.
+// Change a sentence here only with him, and when the code behind it changes.
+const ISSUES_URL = "https://github.com/mlapeter/counterparts/issues";
+const FEEDBACK_EMAIL = "mike@resonantventures.com";
+const BETA_NOTE_HTML =
+  escapeHtml(
+    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs and a record of account events. We keep no transcript of your chats. The disks the memory lives on are encrypted (AES-256 at rest), and backups that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
+  ) +
+  `<a href="${ISSUES_URL}">${ISSUES_URL}</a>` +
+  escapeHtml(" (please don't paste memories into it). For anything else, write to ") +
+  `<a href="mailto:${FEEDBACK_EMAIL}">${FEEDBACK_EMAIL}</a>.`;
+
 /**
  * THE DELETE EMAILS (R9, Mike 2026-10-27): one at a delete (24 hours), one at
  * delete everything now. Plain text, the pages' own words. No link that carries
@@ -218,6 +232,13 @@ ${
 
   const route: Route = async (req, res, url) => {
     const p = url.pathname;
+    // The bare address (app.counterparts.ai/) goes to the account page, which
+    // sends a signed-out visitor on to sign in.
+    if (p === "/" && (req.method === "GET" || req.method === "HEAD")) {
+      req.resume();
+      redirect(res, "/account");
+      return true;
+    }
     if (p === "/login" && req.method === "GET") {
       const browser = browserOf(req, res);
       if (personOf(req) !== null) {
@@ -318,6 +339,7 @@ ${
         title: "Your account",
         body: `<h1>Your Counterparts account</h1>
 <p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
+<p class="muted">${BETA_NOTE_HTML}</p>
 <h2>Connected AIs</h2>
 ${
   connections.length === 0

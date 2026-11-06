@@ -77,7 +77,8 @@ describe("the KEK seam", () => {
     // Every file under src/, at any depth, and every spelling of a cipher or KDF node offers.
     for (const f of (readdirSync(dir, { recursive: true }) as string[]).filter((n) => /\.(m?[jt]s)$/.test(n))) {
       const code = readFileSync(join(dir, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ").replace(/^\s*\*.*$/gm, " ");
-      if (/HOSTED_KEK|createCipher|createDecipher|\bhkdf|subtle|webcrypto|aes-\d|chacha20/i.test(code)) touching.push(f);
+      // A cipher name always carries its mode (aes-256-gcm); the page copy's "AES-256 at rest" (G4) doesn't.
+      if (/HOSTED_KEK|createCipher|createDecipher|\bhkdf|subtle|webcrypto|aes-\d+-|chacha20/i.test(code)) touching.push(f);
     }
     assert.deepEqual(touching, ["keys.ts"]);
   });
