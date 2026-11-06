@@ -612,7 +612,9 @@ async function readSecret(args: readonly string[], what: string): Promise<string
 async function hold(env: Record<string, string | undefined>): Promise<void> {
   const port = Number(env["PORT"] ?? "8080");
   const server = createServer((req, res) => {
-    if ((req.url ?? "").split("?")[0] === "/readyz") {
+    // /readyz for Railway's healthcheck, /healthz for the image's own (Dockerfile HEALTHCHECK).
+    const path = (req.url ?? "").split("?")[0];
+    if (path === "/readyz" || path === "/healthz") {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(`${JSON.stringify({ ready: true, holding: true })}\n`);
       return;
     }

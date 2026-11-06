@@ -490,6 +490,7 @@ describe("WB1: recovery-keygen, recovery-fingerprint, hold", () => {
     const ready = await fetch(`http://127.0.0.1:${String(port)}/readyz`);
     assert.equal(ready.status, 200);
     assert.deepEqual(await ready.json(), { ready: true, holding: true });
+    assert.equal((await fetch(`http://127.0.0.1:${String(port)}/healthz`)).status, 200, "the image's own healthcheck");
     const other = await fetch(`http://127.0.0.1:${String(port)}/mcp`, { method: "POST" });
     assert.equal(other.status, 503);
     child.kill("SIGTERM");
