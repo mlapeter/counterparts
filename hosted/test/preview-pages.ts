@@ -86,6 +86,7 @@ try {
   const link = /https?:\/\/\S+/.exec(mail.sent.at(-1)!.text)![0];
   await save("03-link-used-in-another-browser", await new Browser(origin).go(link));
   await me.go(link);
+  await save("03a-account-no-connections", await me.go("/account"));
 
   // The Allow page: what claude.ai does, from discovery to the page.
   const issuer = new URL(origin);
