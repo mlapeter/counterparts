@@ -13,6 +13,7 @@ import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { Accounts } from "./accounts.js";
+import { controlVolume, foreignControlRefusal } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
 import { Backups, CONTROL_KEY_ID, keyObject, keyObjectId, legacyKeyObject, tombstoneObject } from "./backup.js";
 import { KEK_ENV, KeyStore, sealedHeader } from "./keys.js";
@@ -190,9 +191,11 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
  * `dryRun` opens every sealed key and writes nothing: the offline copy proven
  * against the bucket.
  */
-export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, opener: RecoveryOpener, opts: { dryRun?: boolean; foreignControl?: string | null } = {}): Promise<{ text: string; failed: number }> {
+export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, opener: RecoveryOpener, opts: { dryRun?: boolean } = {}): Promise<{ text: string; failed: number }> {
   const dry = opts.dryRun === true;
-  if (opts.foreignControl !== undefined && opts.foreignControl !== null && !dry) throw new Error(opts.foreignControl);
+  // Never the control key beside control databases that aren't the bucket's (the #653 review, H1).
+  const foreign = foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup));
+  if (foreign !== null && !dry) throw new Error(foreign.replace(/^refused: /, ""));
   const names = await backup.objects.list("keys/");
   const ids: string[] = [];
   for (const name of names) {

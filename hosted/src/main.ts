@@ -547,7 +547,7 @@ function emptyBucket(dataRoot: string, backup: AppBackupOptions, v: ControlVolum
   }
   if (existsSync(join(dataRoot, "control", "litestream.key")) || storeKeyFiles(dataRoot)) {
     // Never a NEW_BUCKET here (the #661 review): the stores' keys went with keys.sqlite and are in the old bucket only.
-    return { refusal: `refused: this volume has been backed up (a backup key file is here) but has lost keys/keys.sqlite, and ${where} has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong. Fix it and deploy again; the right bucket then asks for RESTORE_ON_BOOT=1 (with CONTROL_ASIDE=<new label> when control databases are here), which brings the keys and databases back. A new bucket can't take this volume: its stores' keys are only in the old one. If the old bucket is gone, tell the coordinator${runbook}` };
+    return { refusal: `refused: this volume has been backed up (a backup key file is here) but has lost keys/keys.sqlite, and ${where} has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong. Fix it and deploy again; the right bucket then needs recover-keys with the recovery private key (with --control-aside <new label> when control databases are here), then RESTORE_ON_BOOT=1, which bring the keys and databases back. A new bucket can't take this volume: its stores' keys are only in the old one. If the old bucket is gone, tell the coordinator${runbook}` };
   }
   if (vouched) return { note: `NEW_BUCKET=${value}: this volume ran without backups (BACKUPS=off) and starts on this bucket, which has no control key, on purpose. Its control databases and every store are backed up here from this start.${unset}`, firstBackup: true };
   return { refusal: `refused: this volume has people or stores but has never been backed up: it ran with BACKUPS=off. ${where[0]!.toUpperCase()}${where.slice(1)} has no control key. To turn backups on into this bucket, ${optIn}; this start then backs up the control databases and every store. If R2_BUCKET or R2_ENDPOINT is wrong, fix it instead${runbook}${mismatch}` };
@@ -569,11 +569,9 @@ async function readSecret(args: readonly string[], what: string): Promise<string
     return readFileSync(path, "utf8");
   }
   const stdin = process.stdin;
-  if (stdin.isTTY !== true) {
-    const chunks: Buffer[] = [];
-    for await (const c of stdin) chunks.push(typeof c === "string" ? Buffer.from(c) : (c as Buffer));
-    return Buffer.concat(chunks).toString("utf8");
-  }
+  // Piped: read fd 0 to its end, synchronously (a stream already ended before
+  // anything listened would leave nothing to keep the process alive under bun).
+  if (stdin.isTTY !== true) return readFileSync(0, "utf8");
   process.stderr.write(`${what} (paste it, then Enter; it isn't shown): `);
   stdin.setRawMode(true);
   stdin.resume();
@@ -803,17 +801,21 @@ async function main(): Promise<void> {
     // Control databases here without the control key aren't the bucket's: the
     // key is never adopted beside them (the #653 review, H1). --control-aside
     // moves them aside first, once per label, as CONTROL_ASIDE does at a start.
-    let foreign = foreignControlRefusal(read.dataRoot, await controlVolume(read.dataRoot, backup));
+    const foreign = foreignControlRefusal(read.dataRoot, await controlVolume(read.dataRoot, backup));
     const label = rest.includes("--control-aside") ? rest[rest.indexOf("--control-aside") + 1] : undefined;
-    if (foreign !== null && label !== undefined && !dryRun) {
-      const moved = controlAside(read.dataRoot, label);
-      if ("refusal" in moved) {
-        process.stderr.write(`[hosted] ${moved.refusal}\n`);
+    if (foreign !== null && !dryRun) {
+      if (label === undefined) {
+        process.stderr.write(`[hosted] ${foreign}\n`);
         process.exitCode = 1;
         return;
       }
-      process.stderr.write(`[hosted] ${moved.line.replace(/Unset CONTROL_ASIDE now; it/, "It").replace(/^CONTROL_ASIDE=/, "--control-aside ")}\n`);
-      foreign = foreignControlRefusal(read.dataRoot, await controlVolume(read.dataRoot, backup));
+      const moved = controlAside(read.dataRoot, label);
+      if ("refusal" in moved) {
+        process.stderr.write(`[hosted] ${moved.refusal.replace("CONTROL_ASIDE", "--control-aside")}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stderr.write(`[hosted] ${moved.line.replace(/ Unset CONTROL_ASIDE now; it won't/, " It won't").replace(/^CONTROL_ASIDE=/, "--control-aside ")}\n`);
     }
     const text = await readSecret(rest, "recovery private key");
     const opener = recoveryOpenerFromText(text);
@@ -822,7 +824,7 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    const out = await recoverKeys(read.dataRoot, backup, opener, { dryRun, foreignControl: foreign === null ? null : `${foreign.replace(/^refused: /, "").replace(/Deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1[^.]*\./, "Run recover-keys again with --control-aside <new label>, which moves control/ aside first.")}` });
+    const out = await recoverKeys(read.dataRoot, backup, opener, { dryRun });
     process.stdout.write(`${out.text}\n`);
     if (out.failed > 0) process.exitCode = 1;
     return;

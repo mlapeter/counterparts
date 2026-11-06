@@ -73,7 +73,7 @@ export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
 /** The refusal when the bucket's control key is another DEK than this volume's. */
 export const CONTROL_KEY_DIFFERS =
-  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET or R2_ENDPOINT, after keys/keys.sqlite was lost: by a build before R7, or before anyone had signed up) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
+  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET or R2_ENDPOINT, after keys/keys.sqlite was lost: by a build before R7, or before anyone had signed up) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then, with the server stopped, run recover-keys --control-aside <new label> with the recovery private key, then deploy once with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
 
 /** A store that was opened before has no key on this volume and none in the bucket. */
 export class StoreKeyMissing extends Error {
