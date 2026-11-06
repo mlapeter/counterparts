@@ -113,6 +113,62 @@ export function safeNext(raw: unknown): string {
   return path + u.search;
 }
 
+/**
+ * THE ONE STYLESHEET (gate S, 2026-11-06): counterparts.ai's look, inline under
+ * the nonce. Light is the site's light face (the guides' and /check-your-email's
+ * cream, ink and teal trace, features/guides/styles/guide.css); dark, when the
+ * browser asks for it, is the home's (features/home-v2/styles/home-v2.css: the
+ * navy-black ground and the cyan). The site sets its faces per route and has no
+ * `prefers-color-scheme`; the pages follow the browser instead.
+ * System fonts stand in for the site's web fonts (Newsreader / Fraunces /
+ * JetBrains Mono), since the CSP loads nothing. No url(), no @import: with
+ * `default-src 'none'` neither could load anyway.
+ * Buttons take their weight from the markup they already have: Allow and the
+ * sign-in button are primary, the delete buttons are red, the rest are quiet
+ * (pinned against the real pages in test/delete.test.ts). --field, the input
+ * and button border, holds 3:1 against what it sits on (WCAG 1.4.11); --line,
+ * the card and divider lines, is decoration and stays faint.
+ */
+export const PAGE_STYLE = [
+  ":root{color-scheme:light dark;--bg:#faf8f3;--panel:#fffefa;--soft:#f3f0e8;--line:#e3dfd3;--field:#8a8373;--ink:#1a1915;--ink-2:#5f5b51;--accent:#16708c;--accent-ink:#ffffff;--accent-glow:none;--danger:#a3301e;--mark-glow:none;--ground:#faf8f3;--head:#1a1915;",
+  "--serif:\"Iowan Old Style\",\"Palatino Linotype\",Palatino,Georgia,serif;--mono:ui-monospace,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;--sans:ui-sans-serif,system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif}",
+  "@media (prefers-color-scheme:dark){:root{--bg:#04070c;--panel:#0a0f17;--soft:#070b11;--line:rgba(0,229,255,.14);--field:#2f7d8a;--ink:#c5cdd8;--ink-2:#8a95a3;--accent:#00e5ff;--accent-ink:#03121a;--accent-glow:0 0 24px rgba(0,229,255,.3);--danger:#ff7a6e;--mark-glow:0 0 20px rgba(0,229,255,.4),0 0 45px rgba(0,229,255,.12);--ground:radial-gradient(1200px 800px at 70% 0%,#0a1220 0%,#04070c 62%) #04070c;--head:#e8eef5}}",
+  "*,*::before,*::after{box-sizing:border-box}",
+  "html{background:var(--bg);-webkit-text-size-adjust:100%}",
+  "body{margin:0;min-height:100vh;background:var(--ground);color:var(--ink);font:17px/1.6 var(--serif);-webkit-font-smoothing:antialiased;overflow-wrap:break-word}",
+  ".cp-top{display:flex;align-items:center;padding:14px clamp(16px,4vw,40px);border-bottom:1px solid var(--line)}",
+  ".cp-mark{font:700 14px/1 var(--sans);letter-spacing:.32em;text-transform:uppercase;color:var(--accent);text-shadow:var(--mark-glow)}",
+  ".cp-main{width:min(34rem,100% - 32px);margin:clamp(24px,6vw,56px) auto;padding:clamp(20px,5vw,32px);background:var(--panel);border:1px solid var(--line);border-radius:8px}",
+  "h1,h2{font-family:var(--serif);font-weight:600;line-height:1.2;letter-spacing:-.015em;color:var(--head);text-wrap:balance}",
+  "h1{font-size:clamp(1.55rem,5vw,1.95rem);margin:0 0 1rem}",
+  "h2{font-size:1.15rem;margin:1.75rem 0 .6rem;padding-top:1.5rem;border-top:1px solid var(--line)}",
+  "p{margin:0 0 1rem;text-wrap:pretty}",
+  "strong{font-weight:600}",
+  "a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}",
+  "a:hover{text-decoration-thickness:2px}",
+  ".muted{color:var(--ink-2);font-size:.92em}",
+  "code{font:.82em var(--mono);background:var(--soft);border:1px solid var(--line);border-radius:4px;padding:.08em .35em;overflow-wrap:anywhere}",
+  "ul{list-style:none;margin:0 0 1rem;padding:0}",
+  "li{padding:.5rem 0}li+li{border-top:1px solid var(--line);padding-top:.75rem}li form{margin:.5rem 0 0}",
+  "button+p{margin-top:.6rem}",
+  "form{margin:0 0 1rem}form>br,label>br{display:none}",
+  "label{display:block;margin:0 0 1rem;font:500 13px/1.4 var(--mono);color:var(--ink-2)}",
+  "label .muted{font-size:1em}",
+  "input[type=email],input[type=text]{display:block;width:100%;min-height:44px;margin-top:.4rem;padding:0 14px;font:15px var(--mono);color:var(--ink);background:var(--soft);border:1px solid var(--field);border-radius:4px}",
+  "input[type=email]:hover,input[type=text]:hover{border-color:var(--accent)}",
+  "input[type=email]:focus,input[type=text]:focus{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}",
+  "button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:.25rem .5rem .25rem 0;padding:0 18px;font:600 13px/1.2 var(--mono);color:var(--ink);background:transparent;border:1px solid var(--field);border-radius:4px;cursor:pointer;text-align:center}",
+  "button:hover{border-color:var(--accent);color:var(--accent)}",
+  "button:active{transform:scale(.98)}",
+  "button[value=allow],form[action=\"/login\"] button,form[action=\"/account/keep\"] button{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:var(--accent-glow)}",
+  "button[value=allow]:hover,form[action=\"/login\"] button:hover,form[action=\"/account/keep\"] button:hover{color:var(--accent-ink);filter:brightness(1.08)}",
+  "form[action=\"/account/delete\"] button{color:var(--danger);border-color:var(--danger)}",
+  "form[action=\"/account/delete\"] button:hover{color:var(--danger);background:color-mix(in srgb,var(--danger) 10%,transparent)}",
+  ":focus-visible{outline:2px solid var(--accent);outline-offset:3px}",
+  "button:focus-visible{outline-offset:2px}",
+  "@media (prefers-reduced-motion:reduce){button:active{transform:none}}",
+].join("");
+
 /** The page frame. `nonce` gates the one inline style and any inline script. */
 export function page(res: ServerResponse, status: number, opts: { title: string; body: string; nonce?: string; headers?: Record<string, string | string[]>; formAction?: string }): void {
   const nonce = opts.nonce ?? randomBytes(16).toString("base64");
@@ -139,9 +195,12 @@ export function page(res: ServerResponse, status: number, opts: { title: string;
   res.end(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(opts.title)} · Counterparts</title>
-<style nonce="${nonce}">body{font:16px/1.5 system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;color:#1d1d1f}input,button{font:inherit;padding:.5rem .7rem;margin:.25rem 0}input[type=email],input[type=text]{width:100%;box-sizing:border-box}button{cursor:pointer}.muted{color:#666}li{margin:.4rem 0}</style>
+<style nonce="${nonce}">${PAGE_STYLE}</style>
 </head><body>
+<header class="cp-top"><span class="cp-mark">Counterparts</span></header>
+<main class="cp-main">
 ${opts.body}
+</main>
 </body></html>
 `);
 }

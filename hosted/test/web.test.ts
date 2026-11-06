@@ -4,11 +4,11 @@
  * And the forms' CSRF key from the current cookie key (`keys.ts#csrfKey`, H1).
  */
 import assert from "node:assert/strict";
-import type { IncomingMessage } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, test } from "node:test";
 
 import { csrfKey } from "../src/keys.js";
-import { Csrf, clientIp } from "../src/web.js";
+import { Csrf, clientIp, page } from "../src/web.js";
 
 const SOCKET = "10.0.0.9";
 const req = (xff?: string | string[]): IncomingMessage =>
@@ -63,5 +63,47 @@ describe("the CSRF key from COOKIE_KEYS (H1: a restart keeps the forms)", () => 
   });
   test("no key: random per instance, as before", () => {
     assert.notEqual(new Csrf().token("browser-1"), new Csrf().token("browser-1"));
+  });
+});
+
+describe("the page frame's style (gate S: the site's look, under the same CSP)", () => {
+  const render = (opts: { nonce?: string } = {}): { headers: Record<string, string>; html: string } => {
+    let headers: Record<string, string> = {};
+    let html = "";
+    const res = {
+      writeHead: (_status: number, h: Record<string, string>) => {
+        headers = h;
+      },
+      end: (b: string) => {
+        html = b;
+      },
+    } as unknown as ServerResponse;
+    page(res, 200, { title: "T", body: "<h1>T</h1><p>words</p>", ...opts });
+    return { headers, html };
+  };
+
+  test("exactly one <style>, carrying the nonce the CSP names, and the CSP is unchanged", () => {
+    const { headers, html } = render({ nonce: "abc123" });
+    const csp = headers["Content-Security-Policy"]!;
+    assert.equal(csp, "default-src 'none'; style-src 'nonce-abc123'; script-src 'nonce-abc123'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+    const styles = html.match(/<style\b[^>]*>/g) ?? [];
+    assert.deepEqual(styles, ['<style nonce="abc123">']);
+    const fresh = render();
+    const nonce = /style-src 'nonce-([^']+)'/.exec(fresh.headers["Content-Security-Policy"]!)![1]!;
+    assert.ok(fresh.html.includes(`<style nonce="${nonce}">`));
+  });
+
+  test("the frame loads nothing from anywhere: no link, image, src, style attribute, url() or @import", () => {
+    const { html } = render();
+    for (const banned of [/<link\b/i, /<img\b/i, /\ssrc=/i, /\sstyle=/i, /url\(/i, /@import/i, /https?:\/\//i, /\/\/[a-z0-9.-]+\.[a-z]{2,}/i]) {
+      assert.doesNotMatch(html, banned);
+    }
+  });
+
+  test("dark mode follows the browser, and the wordmark is text", () => {
+    const { html } = render();
+    assert.match(html, /@media \(prefers-color-scheme:dark\)/);
+    assert.match(html, /<span class="cp-mark">Counterparts<\/span>/);
+    assert.match(html, /<main class="cp-main">\n<h1>T<\/h1>/);
   });
 });

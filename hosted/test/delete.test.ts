@@ -29,6 +29,7 @@ import { EnvKeyWrapper } from "../src/keys.js";
 import { eventLine } from "../src/main.js";
 import { deadlineWords } from "../src/pages.js";
 import { StoreLocked, storeTag, tenantDir } from "../src/tenants.js";
+import { PAGE_STYLE } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
 import { REFUSED_ERROR } from "../../src/adapters/remote/http.js";
 import { rpc, tempRoot, tool } from "./helpers.js";
@@ -206,7 +207,7 @@ interface Connected {
 }
 
 /** What claude.ai does, from the 401 to a token, in a browser already signed in. */
-async function connect(r: Rig, browser: Browser): Promise<Connected> {
+async function connect(r: Rig, browser: Browser, seen: { allow?: string } = {}): Promise<Connected> {
   const unauth = await rpc(`${r.origin}/mcp`, "tools/list");
   const pointer = /resource_metadata="([^"]+)"/.exec(String(unauth.headers.get("www-authenticate")))![1]!;
   const prm = (await (await fetch(pointer)).json()) as { resource: string; authorization_servers: string[] };
@@ -233,7 +234,8 @@ async function connect(r: Rig, browser: Browser): Promise<Connected> {
   const allowPath = loc.pathname;
   res = await browser.go(allowPath);
   assert.equal(res.status, 200, "the Allow page (the browser is signed in)");
-  res = await browser.form(allowPath, { csrf: csrfOf(await res.text()), decision: "allow" });
+  seen.allow = await res.text();
+  res = await browser.form(allowPath, { csrf: csrfOf(seen.allow), decision: "allow" });
   for (let i = 0; i < 5 && res.status === 303; i++) {
     loc = new URL(res.headers.get("location")!, r.origin);
     if (loc.origin === "https://claude.ai") break;
@@ -340,6 +342,58 @@ async function queuedRecall(r: Rig, storeId: string, c: Connected, text: string,
     },
   };
 }
+
+/**
+ * The pages' style gives buttons their weight by selectors on markup the pages
+ * already have (web.ts#PAGE_STYLE, gate S). Each selector must still match the
+ * real page it was written for, so a renamed route or value fails here instead
+ * of quietly drawing a delete button as a quiet one.
+ */
+describe("the style's primary and danger selectors match the real pages", () => {
+  const rules = [...PAGE_STYLE.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selectors: m[1]!.split(",").map((x) => x.trim()), body: m[2]! }));
+  const selectorsOf = (body: RegExp): string[] => rules.filter((r) => body.test(r.body) && !r.selectors.some((x) => x.includes(":"))).flatMap((r) => r.selectors);
+  const forms = (html: string, action: string): string[] =>
+    [...html.matchAll(/<form\b[^>]*\baction="([^"]+)"[^>]*>([\s\S]*?)<\/form>/g)].filter((f) => f[1] === action).map((f) => f[2]!);
+  /** Does `html` hold an element `selector` picks? Only the two shapes the style uses; any other fails, so this test grows with it. */
+  const matches = (selector: string, html: string): boolean => {
+    const byValue = /^button\[value=([a-z]+)\]$/.exec(selector);
+    if (byValue !== null) return new RegExp(`<button\\b[^>]*\\bvalue="${byValue[1]!}"`).test(html);
+    const byForm = /^form\[action="([^"]+)"\] button$/.exec(selector);
+    if (byForm !== null) return forms(html, byForm[1]!).some((f) => /<button\b/.test(f));
+    throw new Error(`a selector shape this test doesn't know: ${selector}`);
+  };
+
+  test("primary: Allow, sign-in, keep; danger: every delete button; each selector matches a real page", async () => {
+    const r = await rig();
+    const login = await (await new Browser(r.origin).go("/login")).text();
+    const me = await signUp(r, "styled@example.com");
+    const seen: { allow?: string } = {};
+    await connect(r, me.browser, seen);
+    const allow = seen.allow!;
+    const account = await (await me.browser.go("/account")).text();
+    await deleteLater(me.browser, "styled@example.com");
+    const back = new Browser(r.origin);
+    await signIn(r, back, "styled@example.com", "");
+    const pending = await (await back.go("/account")).text();
+    assert.match(pending, /set to be deleted/);
+
+    const primary = selectorsOf(/background:var\(--accent\)/);
+    const danger = selectorsOf(/^color:var\(--danger\)/);
+    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button'].sort());
+    assert.deepEqual(danger, ['form[action="/account/delete"] button']);
+    // Each selector on the page it was written for.
+    assert.ok(matches("button[value=allow]", allow), "Allow is primary on the Allow page");
+    assert.ok(!matches("button[value=allow]", allow.replace(/<button\b[^>]*value="allow"[^>]*>/, "")), "and only Allow: Deny is not");
+    assert.ok(matches('form[action="/login"] button', login), "the sign-in button");
+    assert.ok(matches('form[action="/account/keep"] button', pending), "keep, on the pending page");
+    for (const [name, html] of [["account", account], ["pending", pending]] as const) {
+      const deletes = [...html.matchAll(/<button\b[^>]*>Delete[^<]*<\/button>/g)].map((d) => d[0]);
+      assert.ok(deletes.length > 0, `the ${name} page has delete buttons`);
+      const danger = forms(html, "/account/delete").join("");
+      for (const d of deletes) assert.ok(danger.includes(d), `${name}: ${d} is drawn as danger`);
+    }
+  });
+});
 
 describe("delete, the default: locked at once, kept within 24 hours", () => {
   test("pending: every door refuses but keep and delete-now; a keep at 23 h brings it back as it was, and the old token stays refused", async () => {
