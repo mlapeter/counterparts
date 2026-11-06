@@ -493,3 +493,46 @@ describe("a form opened before a restart (H1: the CSRF key comes from COOKIE_KEY
     assert.match(out.body, /This form expired/);
   });
 });
+
+describe("G4: the beta note, and the bare address", () => {
+  // Mike's paragraph (2026-11-06), copied here by hand: importing the page's
+  // constant would let a changed word through.
+  const NOTE =
+    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at https://github.com/mlapeter/counterparts/issues (please don't paste memories into it). For anything else, write to mike@resonantventures.com.";
+  const visible = (html: string): string =>
+    html
+      .replace(/<[^>]+>/g, "")
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+
+  test("the account page a new sign-up lands on carries the note word for word, with a link to the issues and a mailto", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({});
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "new@example.com", code);
+    const used = await me.go(asked.link!);
+    assert.equal(used.headers.get("location"), "/account");
+    const html = await (await me.go("/account")).text();
+    assert.ok(visible(html).includes(NOTE), "the note, verbatim");
+    assert.equal(visible(html).split(NOTE).length, 2, "once");
+    assert.match(html, /<a href="https:\/\/github\.com\/mlapeter\/counterparts\/issues">https:\/\/github\.com\/mlapeter\/counterparts\/issues<\/a>/);
+    assert.match(html, /<a href="mailto:mike@resonantventures\.com">mike@resonantventures\.com<\/a>/);
+  });
+
+  test("GET / goes to the account page, and a signed-out visitor from there to sign in", async () => {
+    const r = await rig();
+    const b = new Browser(r.base);
+    const root = await b.go("/");
+    assert.equal(root.status, 303);
+    assert.equal(root.headers.get("location"), "/account");
+    assert.equal(root.headers.get("cache-control"), "no-store");
+    const account = await b.go(root.headers.get("location")!);
+    assert.equal(account.status, 303);
+    assert.equal(account.headers.get("location"), "/login?next=%2Faccount");
+    assert.equal((await b.go("/", { method: "HEAD" })).status, 303);
+    assert.equal((await b.go("/nope")).status, 404); // only the bare address
+  });
+});
