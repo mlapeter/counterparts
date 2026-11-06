@@ -493,6 +493,7 @@ hosted/drill/drill.sh --rehearse     # optional first: steps 0-3 with BACKUPS=of
 hosted/drill/drill.sh                # the drill on R2, production's deployed image; after a failure, --from <step>
 hosted/drill/drill.sh --local        # the drill on a local S3 (SeaweedFS, SSE-C over TLS), this checkout's HEAD
 hosted/drill/drill.sh --sha <commit> # the drill on R2, the image built from that commit (a change before it deploys)
+hosted/drill/drill.sh --migration   # local too: the image from before WB1 under HOSTED_KEKS, then Mike's migration steps on the new one
 ```
 
 `--local` needs no Cloudflare account and no credentials: it starts `chrislusf/seaweedfs:4.50` on a Docker network of
