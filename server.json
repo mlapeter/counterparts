@@ -8,12 +8,12 @@
     "url": "https://github.com/mlapeter/counterparts",
     "source": "github"
   },
-  "version": "0.3.47",
+  "version": "0.3.48",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "counterparts",
-      "version": "0.3.47",
+      "version": "0.3.48",
       "runtimeHint": "npx",
       "runtimeArguments": [
         { "type": "positional", "value": "-y" },

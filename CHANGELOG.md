@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.48 — 2026-11-06
+
+**A lighter tool list for claude.ai, hosted pages that look like counterparts.ai, and a README that explains itself.** On claude.ai the tool list a chat loads is about a third smaller; Claude Code and Claude Desktop get exactly the tool list 0.3.47 gave them. The hosted sign-in, Allow, account, delete and error pages take counterparts.ai's look, light or dark as your device is set. The README's first screen, which is also the npm page, says what Counterparts is and what the first run does. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.47 needs no store restore: `counterparts disconnect`, 0.3.47's install, then `counterparts connect`.
+
+- **The README opens by saying what it is: long-term memory for Claude Code, written by
+  Claude itself.** Its first screen, which is also the npm page, now leads the install with
+  npm (bun on the next line), says what the first run asks and changes, and has a short
+  "What it remembers, and where it lives" section, with a link to counterparts.ai's guide to
+  Claude Code's own memory. The npm description and keywords name Claude Code too.
+- **claude.ai's tool list is about a third smaller.** The list a claude.ai chat loads went from
+  about 92 KB to 65 KB (roughly 10k fewer tokens on every turn once memory is in use). The
+  field descriptions are shorter, and the guarantees that change nothing about how Claude calls
+  a tool are no longer spelled out there, though they are still enforced. Words that weren't
+  true on claude.ai are gone: a terminal, folders, the end-of-session ask, the dashboard.
+  Claude Code and Claude Desktop get the same tool list as before.
+- **Hosted pages look like counterparts.ai.** The sign-in, Allow, account, pending-delete,
+  error and done pages share one inline style in the site's look: its light face by default,
+  its dark one when the device is set to dark. No page's words, fields or routes changed, and
+  the content security policy is the same.
+
 ## 0.3.47 — 2026-11-04
 
 **Folded reminders, honest folders, refused calls kept out of your wake, compacted sessions remembered, and delete one memory from chat (hosted).** With the wake's shape on, a reminder a session started today already showed you folds into one line in later wakes that day. A dream files work under the folder it came from, another folder's dated work is counted rather than listed as due today, and other folders go by their names, not their paths. A memory about a refused tool call or a declined permission prompt stays out of the wake and the footnotes, and a morning share no longer asks for a tool call to mark it told. What you say after a conversation compacts is written up at night. "Delete the memory about X" works in chat, on hosted and locally, with 24 hours to undo it. Also: a hosted download opens in a local install and answers straight away, the redactor keeps tokenizer code readable and catches more secret names, and uninstall names the right remover. Existing stores' starter notes about deleting change once, only where they are still exactly as they started. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.46 needs no store restore: `counterparts disconnect`, 0.3.46's install, then `counterparts connect`.
