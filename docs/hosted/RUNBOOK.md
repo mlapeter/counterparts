@@ -603,7 +603,7 @@ the family**: the stores that exist at the migration keep their keys (below), an
    server's mark, so `migrate-keys` doesn't refuse beside it; the log says `holding on port 8080 …`; the app shows
    "Down for maintenance" until step 6's deploy). Then `railway ssh`, and
    `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`.
-   **Keep the `railway ssh` session open until it says `done`** (a dropped session cuts the run short; see below).
+   **Keep the `railway ssh` session open until it says `done`** (a dropped session cuts the run short; running step 5 again finishes it).
    You read its output as it runs. It prints the counts, `control re-keyed: …`, and ends
    `done: nothing here or in the bucket needs HOSTED_KEKS now`. Running it again is harmless: a second
    run does nothing and says `done` again. **On `done`: `exit`, and clear the start command; step 6's deploy serves
