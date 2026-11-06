@@ -136,6 +136,7 @@ function boundAad(version: string, aad: string): Buffer {
 
 /** The env ring's variable from before WB1, for messages elsewhere (only this file names it in code). */
 export const KEK_ENV = "HOSTED_KEKS";
+export const KEK_CURRENT_ENV = "HOSTED_KEK_CURRENT";
 
 /** The volume KEK's version label. `HOSTED_KEKS` may not use it (`kekRingFromEnv`). */
 export const VOLUME_KEK_VERSION = "vol1";

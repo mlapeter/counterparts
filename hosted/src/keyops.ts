@@ -16,7 +16,7 @@ import { Accounts } from "./accounts.js";
 import { controlVolume, foreignControlRefusal } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
 import { Backups, CONTROL_KEY_ID, keyObject, keyObjectId, legacyKeyObject, tombstoneObject } from "./backup.js";
-import { KEK_ENV, KeyStore, sealedHeader } from "./keys.js";
+import { KEK_CURRENT_ENV, KEK_ENV, KeyStore, sealedHeader } from "./keys.js";
 import type { RecoveryOpener } from "./keys.js";
 import { STORE_ID, storeTag, tenantDir } from "./tenants.js";
 
@@ -162,7 +162,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
       lines.push(
         dry
           ? `a run would finish the migration: nothing here or in the bucket would need ${KEK_ENV} after it.`
-          : `done: nothing here or in the bucket needs ${KEK_ENV} now. Remove ${KEK_ENV} and ${KEK_ENV}_CURRENT from the environment (docs/hosted/RUNBOOK.md, Write-only backups).`,
+          : `done: nothing here or in the bucket needs ${KEK_ENV} now. Remove ${KEK_ENV} and ${KEK_CURRENT_ENV} from the environment (docs/hosted/RUNBOOK.md, Write-only backups).`,
       );
     }
     return { text: `${dry ? "migrate-keys --dry-run (nothing written)" : "migrate-keys"}:\n${lines.join("\n")}`, left: kept.length };
