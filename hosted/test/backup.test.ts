@@ -25,7 +25,7 @@ import type { ObjectStore } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
 import { EnvKeyWrapper, KeyStore, kekRingFromEnv, kekVersionOf, litestreamKey } from "../src/keys.js";
 import { tenantDir } from "../src/tenants.js";
-import { listen, storeId, tempRoot } from "./helpers.js";
+import { RECOVERY, listen, storeId, tempRoot, testRecovery } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -256,14 +256,14 @@ class SlowChild extends EventEmitter {
 }
 
 describe("Backups", () => {
-  test("a store's backup: its DEK, a 0600 key file holding its derived SSE-C key, one wrapped-key object, a place in the config with no secret in it", async () => {
+  test("a store's backup: its DEK, a 0600 key file holding its derived SSE-C key, one key object sealed to the recovery key, a place in the config with no secret in it", async () => {
     const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
     const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper });
     closers.push(() => keys.close());
     const objects = memoryObjectStore();
     let reloads = 0;
     const id = storeId();
-    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: { reload: () => void reloads++, stop: async () => undefined }, liveStores: () => [id] });
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: { reload: () => void reloads++, stop: async () => undefined }, liveStores: () => [id] });
     await backups.ensureAll();
     await backups.ensureAll(); // idempotent
     const keyFile = join(tenantDir(join(tmp.root, "data", "tenants"), id), "litestream.key");
@@ -271,7 +271,8 @@ describe("Backups", () => {
     const dek = await keys.dek(id);
     assert.equal(readFileSync(keyFile, "utf8").trim(), litestreamKey(dek));
     assert.equal(Buffer.from(readFileSync(keyFile, "utf8").trim(), "base64").length, 32);
-    assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
+    assert.deepEqual(RECOVERY.opener.open(objects.objects.get(keyObject(id))!, id), await keys.dek(id), "its one key object: the DEK, sealed to the recovery key");
+    assert.ok(!objects.objects.get(keyObject(id))!.includes(keys.wrapped(id)!.split(".")[3]!), "not the volume wrapping");
     assert.ok(objects.objects.has(keyObject(CONTROL_KEY_ID)));
     const yml = readFileSync(backups.configPath, "utf8");
     assert.match(yml, new RegExp(`path: ".*/tenants/${id}/store/counterparts.sqlite"`));
@@ -333,6 +334,7 @@ async function appRig(
     spawner: () => ({ pid: 1 }),
     backup: {
       wrapper: o.wrapper ?? new EnvKeyWrapper(ring("v1"), "v1"),
+      sealer: RECOVERY.sealer,
       objects: o.objects ?? objects,
       bucket: "bkt",
       endpoint: "https://acct.r2.cloudflarestorage.com",
@@ -361,7 +363,7 @@ describe("sign-up, export and delete, through the app", () => {
   test("sign-up gives the store its key, its one wrapped-key object and a place in the sidecar's config", async () => {
     const r = await appRig();
     const { storeId: id } = await signUp(r, "keys@example.com");
-    assert.equal(r.objects.objects.get(keyObject(id)), r.app.keys!.wrapped(id));
+    assert.deepEqual(RECOVERY.opener.open(r.objects.objects.get(keyObject(id))!, id), await r.app.keys!.dek(id));
     assert.match(readFileSync(r.app.backups!.configPath, "utf8"), new RegExp(id));
     assert.ok(existsSync(join(tenantDir(r.app.tenants.root, id), "litestream.key")));
   });
@@ -417,19 +419,42 @@ describe("sign-up, export and delete, through the app", () => {
 });
 
 describe("rotation, end to end", () => {
-  test("after a rewrap onto v2, each store's one key object carries the v2 wrapping (an overwrite, no second copy)", async () => {
+  test("a rewrap on the volume changes nothing in the bucket: the sealed objects name the DEK, not its wrapping (WB1)", async () => {
     const keysRing = ring("v1", "v2");
     const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(keysRing, "v1") });
     closers.push(() => keys.close());
     const objects = memoryObjectStore();
     const ids = [storeId(), storeId()];
-    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids });
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids });
     await backups.ensureAll();
+    const before = new Map(objects.objects);
     const moved = await keys.rewrap(new EnvKeyWrapper(keysRing, "v2"));
-    await backups.reuploadKeys(moved);
+    assert.equal(moved.length, ids.length + 1);
+    await backups.ensureAll();
+    assert.deepEqual(new Map(objects.objects), before);
     for (const id of [...ids, CONTROL_KEY_ID]) {
-      assert.equal(kekVersionOf(objects.objects.get(keyObject(id))!), "v2");
-      assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
+      assert.equal(kekVersionOf(keys.wrapped(id)!), "v2");
+      assert.equal(await backups.sealedState(id), "ok");
+      assert.deepEqual(RECOVERY.opener.open(objects.objects.get(keyObject(id))!, id), await keys.dek(id));
+    }
+    assert.equal((await objects.list("keys/")).length, ids.length + 1);
+  });
+
+  test("a new recovery key: the next start seals every key object to it, one object per store still; the old private key opens none", async () => {
+    const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring("v1"), "v1") });
+    closers.push(() => keys.close());
+    const objects = memoryObjectStore();
+    const ids = [storeId(), storeId()];
+    const opts = { dataRoot: join(tmp.root, "data"), keys, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids };
+    await new Backups({ ...opts, sealer: RECOVERY.sealer }).ensureAll();
+    const next = testRecovery();
+    const b2 = new Backups({ ...opts, sealer: next.sealer });
+    for (const id of ids) assert.equal(await b2.sealedState(id), "stale");
+    await b2.ensureAll();
+    for (const id of [...ids, CONTROL_KEY_ID]) {
+      const sealed = objects.objects.get(keyObject(id))!;
+      assert.deepEqual(next.opener.open(sealed, id), await keys.dek(id));
+      assert.throws(() => RECOVERY.opener.open(sealed, id), /another recovery key/);
     }
     assert.equal((await objects.list("keys/")).length, ids.length + 1);
   });
@@ -553,24 +578,25 @@ describe("delete, when things go wrong", () => {
     const r = await appRig({ wrapper: new EnvKeyWrapper(keysRing, "v1") });
     await signUp(r, "rotate@example.com");
     await r.app.close();
-    await assert.rejects(appRig({ wrapper: new EnvKeyWrapper(new Map([["v2", keysRing.get("v2")!]]), "v2") }), /don't open with the KEK ring/);
+    await assert.rejects(appRig({ wrapper: new EnvKeyWrapper(new Map([["v2", keysRing.get("v2")!]]), "v2") }), /don't open/);
   });
 
-  test("a rewrap that died between its key writes and its uploads is repaired by running it again", async () => {
-    const keysRing = ring("v1", "v2");
-    const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(keysRing, "v1") });
+  test("syncKeyObjects puts a sealed object where one is missing, never over one naming another key; a dry run puts nothing", async () => {
+    const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring("v1"), "v1") });
     closers.push(() => keys.close());
     const objects = memoryObjectStore();
     const ids = [storeId(), storeId()];
-    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids });
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids });
     await backups.ensureAll();
-    const v2 = new EnvKeyWrapper(keysRing, "v2");
-    await keys.rewrap(v2); // ... and the process dies before any upload
-    assert.equal(kekVersionOf(objects.objects.get(keyObject(ids[0]!))!), "v1");
-    assert.deepEqual(await keys.rewrap(v2), []); // the second run moves nothing
-    assert.equal(await backups.syncKeyObjects(), ids.length + 1); // but its sync puts every stale object
-    for (const id of [...ids, CONTROL_KEY_ID]) assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
-    assert.equal(await backups.syncKeyObjects(), 0);
+    objects.objects.delete(keyObject(ids[0]!));
+    const foreign = RECOVERY.sealer.seal(randomBytes(32), ids[1]!);
+    objects.objects.set(keyObject(ids[1]!), foreign);
+    assert.deepEqual(await backups.syncKeyObjects({ dryRun: true }), { put: 1, different: [ids[1]] });
+    assert.equal(objects.objects.has(keyObject(ids[0]!)), false);
+    assert.deepEqual(await backups.syncKeyObjects(), { put: 1, different: [ids[1]] });
+    assert.equal(await backups.sealedState(ids[0]!), "ok");
+    assert.equal(objects.objects.get(keyObject(ids[1]!)), foreign, "never over another key");
+    assert.deepEqual(await backups.syncKeyObjects(), { put: 0, different: [ids[1]] });
   });
 });
 

@@ -41,7 +41,7 @@ import { EnvKeyWrapper, KeyStore, litestreamKey } from "../src/keys.js";
 import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag, uploadsLine } from "../src/main.js";
 import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
-import { MAIN, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
+import { MAIN, RECOVERY, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
 import type { S3StandIn, Stored } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -223,6 +223,7 @@ async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOpti
 function backupOptions(s3: { base: string }, ring: Map<string, Buffer>, sidecar: LitestreamSidecar | null): AppBackupOptions {
   return {
     wrapper: new EnvKeyWrapper(ring, "v1"),
+    sealer: RECOVERY.sealer,
     objects: r2ObjectStore({ endpoint: s3.base, bucket: "bkt", accessKeyId: CREDS.LITESTREAM_ACCESS_KEY_ID, secretAccessKey: CREDS.LITESTREAM_SECRET_ACCESS_KEY }),
     bucket: "bkt",
     endpoint: s3.base,
@@ -313,7 +314,7 @@ describe("the restore drill, through the door", () => {
 
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(backups.restore(who.storeId, run), /already in place/);
     // The store's dir lost; its key lost too (keys.sqlite is not replicated).
     rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
@@ -321,7 +322,7 @@ describe("the restore drill, through the door", () => {
     // A ring without the store's KEK can't adopt the bucket's key: refused, nothing written.
     const strangers = new KeyStore({ path: join(tmp.root, "other-keys.sqlite"), wrapper: new EnvKeyWrapper(new Map([["v1", randomBytes(32)]]), "v1") });
     closers.push(() => strangers.close());
-    const wrongRing = new Backups({ dataRoot, keys: strangers, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const wrongRing = new Backups({ dataRoot, keys: strangers, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(wrongRing.restore(who.storeId, run), /doesn't open with the KEK ring/);
     assert.equal(strangers.wrapped(who.storeId), null);
     // The right ring: back.
@@ -747,7 +748,7 @@ describe("restore, when things go wrong", () => {
     mkdirSync(meta, { recursive: true });
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     const before = readFileSync(join(storeDir, "counterparts.sqlite"));
     assert.equal((await backups.restore(who.storeId, litestreamRunner(bin, litestreamEnv()), { force: true })).restored, 1);
     const { readdirSync } = await import("node:fs");
@@ -929,7 +930,7 @@ describe("#653 review: restores and deletes", () => {
     closers.push(() => chmod(storeDir, 0o700));
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(backups.restore(who.storeId, thenStuck));
     assert.ok(existsSync(join(tenantDir(join(dataRoot, "tenants"), who.storeId), "restored.marker")));
   });
@@ -1246,6 +1247,7 @@ const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: strin
   PORT: String(o.port),
   MAIL: "log",
   HOSTED_KEKS: `v1:${o.ring.get("v1")!.toString("base64")}`,
+  HOSTED_RECOVERY_PUBKEY: RECOVERY.publicText,
   R2_ENDPOINT: o.s3.tlsBase!,
   R2_BUCKET: "bkt",
   R2_ACCESS_KEY_ID: CREDS.LITESTREAM_ACCESS_KEY_ID,
@@ -1430,7 +1432,7 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     await objects.put(keyObject(CONTROL_KEY_ID), keys.wrapped(CONTROL_KEY_ID)!);
     await objects.put(tombstoneObject(other), "2026-10-27T00:00:00.000Z\n");
     const seen: [string, string][] = [];
-    const backups = new Backups({ dataRoot, keys, objects, bucket: "bkt", endpoint: lived.s3.base, sidecar: null, liveStores: () => [other], openedBefore: () => true, openedAt: () => Date.now() + 60_000, onKeyless: (s, outcome) => void seen.push([s, outcome]) });
+    const backups = new Backups({ dataRoot, keys, objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: lived.s3.base, sidecar: null, liveStores: () => [other], openedBefore: () => true, openedAt: () => Date.now() + 60_000, onKeyless: (s, outcome) => void seen.push([s, outcome]) });
     assert.deepEqual(await backups.ensureAll({ reload: false }), { keyless: 1, minted: 0 });
     assert.deepEqual(seen, [[other, "tombstone"]]);
     assert.equal(keys.wrapped(other), null);

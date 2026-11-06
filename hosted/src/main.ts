@@ -69,7 +69,7 @@ import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
-import { KeyStore, generateRecoveryKey, recoveryOpenerFromText, recoverySealerFromEnv, volumeWrapperFromEnv } from "./keys.js";
+import { KEK_ENV, KeyStore, generateRecoveryKey, recoveryOpenerFromText, recoverySealerFromEnv, volumeWrapperFromEnv } from "./keys.js";
 import { migrateKeys, recoverKeys } from "./keyops.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
@@ -752,7 +752,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
-    process.stderr.write(`[hosted] commands: serve, invite, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from HOSTED_KEKS onto it)" : ""}\n`);
+    process.stderr.write(`[hosted] commands: serve, invite, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }
@@ -922,7 +922,7 @@ async function main(): Promise<void> {
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   if (backup !== null) process.stderr.write(`[hosted] backups: keys on this volume (keys/volume.kek); key objects sealed to recovery key ${backup.sealer.fingerprint}\n`);
-  if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under HOSTED_KEKS: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
+  if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under ${KEK_ENV}: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
   process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
   await new Promise<void>((resolveStop) => {

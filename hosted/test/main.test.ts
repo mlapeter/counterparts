@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
 import { overrideGuard, readEnv } from "../src/main.js";
-import { tempRoot } from "./helpers.js";
+import { RECOVERY, tempRoot } from "./helpers.js";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
 

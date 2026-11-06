@@ -42,7 +42,7 @@ import { basename, dirname, join } from "node:path";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
 import type { KeyStore, RecoverySealer } from "./keys.js";
-import { LEGACY_KEY_NEEDS_RING, litestreamKey, sealedHeader } from "./keys.js";
+import { KEK_ENV, LEGACY_KEY_NEEDS_RING, litestreamKey, sealedHeader } from "./keys.js";
 import { LITESTREAM_META, RESTORED_MARKER, STORE_ID, oldLitestreamMeta, settleLitestreamMeta, tenantDir } from "./tenants.js";
 
 /** The pseudo-store whose DEK keys the control databases' backups. */
@@ -321,7 +321,7 @@ export class Backups {
    */
   async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number; minted: number }> {
     const unreadable = await this.opts.keys.unreadable();
-    if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys in keys/keys.sqlite don't open: keys/volume.kek is missing or not this volume's, or they are under HOSTED_KEKS and the environment no longer has that ring (set HOSTED_KEKS back as it was and run migrate-keys; docs/hosted/RUNBOOK.md, Write-only backups).`);
+    if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys in keys/keys.sqlite don't open: keys/volume.kek is missing or not this volume's, or they are under ${KEK_ENV} and the environment no longer has that ring (set ${KEK_ENV} back as it was and run migrate-keys; docs/hosted/RUNBOOK.md, Write-only backups).`);
     // (f) THE BUCKET IS THIS VOLUME'S: it held the control key BEFORE this start.
     // Read before `ensureStore(control)`, which puts the local key into a bucket
     // that has none; past it, the bucket's key was adopted (a new volume) or

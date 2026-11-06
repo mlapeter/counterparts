@@ -134,6 +134,9 @@ function boundAad(version: string, aad: string): Buffer {
   return Buffer.from(`counterparts/dek/w1\u0000${version}\u0000${aad}`, "utf8");
 }
 
+/** The env ring's variable from before WB1, for messages elsewhere (only this file names it in code). */
+export const KEK_ENV = "HOSTED_KEKS";
+
 /** The volume KEK's version label. `HOSTED_KEKS` may not use it (`kekRingFromEnv`). */
 export const VOLUME_KEK_VERSION = "vol1";
 /** The volume KEK's file name, in `keys/` beside `keys.sqlite`: outside every tenant dir, never replicated. */

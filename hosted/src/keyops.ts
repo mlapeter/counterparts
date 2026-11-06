@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Accounts } from "./accounts.js";
 import type { AppBackupOptions } from "./app.js";
 import { Backups, CONTROL_KEY_ID, keyObject, keyObjectId, legacyKeyObject, tombstoneObject } from "./backup.js";
-import { KeyStore, sealedHeader } from "./keys.js";
+import { KEK_ENV, KeyStore, sealedHeader } from "./keys.js";
 import type { RecoveryOpener } from "./keys.js";
 import { STORE_ID, storeTag, tenantDir } from "./tenants.js";
 
@@ -59,7 +59,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
     const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => live });
     const unreadable = await keys.unreadable();
     if (unreadable.length > 0) {
-      throw new Error(`${String(unreadable.length)} keys in keys/keys.sqlite don't open with HOSTED_KEKS and keys/volume.kek: set HOSTED_KEKS as it was before WB1 (every version) and run migrate-keys again. Nothing was written`);
+      throw new Error(`${String(unreadable.length)} keys in keys/keys.sqlite don't open with ${KEK_ENV} and keys/volume.kek: set ${KEK_ENV} as it was before WB1 (every version) and run migrate-keys again. Nothing was written`);
     }
     const would = dry ? "would be " : "";
     const lines: string[] = [];
@@ -68,7 +68,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
     // 2. Onto the volume KEK.
     const toMove = keys.notOnCurrent();
     if (!dry && toMove > 0) await keys.rewrap(backup.wrapper);
-    lines.push(`${String(toMove)} keys ${would}moved from HOSTED_KEKS onto the volume key (keys/volume.kek)`);
+    lines.push(`${String(toMove)} keys ${would}moved from ${KEK_ENV} onto the volume key (keys/volume.kek)`);
 
     // 3. Live keys whose only copy is an old object in the bucket.
     const adoptable = new Set<string>();
@@ -81,7 +81,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
         else await keys.adopt(id, old);
         adoptable.add(id);
       } catch {
-        kept.push(`${tagOf(id)}: its only key is an old key object that doesn't open with HOSTED_KEKS`);
+        kept.push(`${tagOf(id)}: its only key is an old key object that doesn't open with ${KEK_ENV}`);
       }
     }
     if (adoptable.size > 0) lines.push(`${String(adoptable.size)} keys ${would}adopted from the bucket's old key objects (no key for them was on this volume)`);
@@ -136,7 +136,7 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
         theirs.fill(0);
         mine.fill(0);
       } catch {
-        kept.push(`${tagOf(id)}: its old key object doesn't open with HOSTED_KEKS`);
+        kept.push(`${tagOf(id)}: its old key object doesn't open with ${KEK_ENV}`);
         continue;
       }
       if (!same) {
@@ -151,17 +151,17 @@ export async function migrateKeys(dataRoot: string, backup: AppBackupOptions, op
       if (!dry) await backup.objects.delete(name);
       removed += 1;
     }
-    lines.push(`${String(removed)} old key objects (keys/<id>.wrapped, under HOSTED_KEKS) ${dry ? "would be " : ""}deleted${leftovers > 0 ? ` (${String(leftovers)} of them deleted stores' leftovers)` : ""}`);
+    lines.push(`${String(removed)} old key objects (keys/<id>.wrapped, under ${KEK_ENV}) ${dry ? "would be " : ""}deleted${leftovers > 0 ? ` (${String(leftovers)} of them deleted stores' leftovers)` : ""}`);
     const stillLegacy = dry ? 0 : keys.notOnCurrent();
-    if (stillLegacy > 0) kept.push(`${String(stillLegacy)} keys here are still under HOSTED_KEKS`);
+    if (stillLegacy > 0) kept.push(`${String(stillLegacy)} keys here are still under ${KEK_ENV}`);
     if (kept.length > 0) {
-      lines.push(`${String(kept.length)} things ${dry ? "would be " : ""}left that still need HOSTED_KEKS or a look:`, ...kept.map((k) => `  - ${k}`));
-      lines.push(dry ? "a run would NOT finish the migration: keep HOSTED_KEKS, and tell the coordinator about the lines above." : "NOT done: keep HOSTED_KEKS set, and tell the coordinator about the lines above (a run again is safe).");
+      lines.push(`${String(kept.length)} things ${dry ? "would be " : ""}left that still need ${KEK_ENV} or a look:`, ...kept.map((k) => `  - ${k}`));
+      lines.push(dry ? `a run would NOT finish the migration: keep ${KEK_ENV}, and tell the coordinator about the lines above.` : `NOT done: keep ${KEK_ENV} set, and tell the coordinator about the lines above (a run again is safe).`);
     } else {
       lines.push(
         dry
-          ? "a run would finish the migration: nothing here or in the bucket would need HOSTED_KEKS after it."
-          : "done: nothing here or in the bucket needs HOSTED_KEKS now. Remove HOSTED_KEKS and HOSTED_KEK_CURRENT from the environment (docs/hosted/RUNBOOK.md, Write-only backups).",
+          ? `a run would finish the migration: nothing here or in the bucket would need ${KEK_ENV} after it.`
+          : `done: nothing here or in the bucket needs ${KEK_ENV} now. Remove ${KEK_ENV} and ${KEK_ENV}_CURRENT from the environment (docs/hosted/RUNBOOK.md, Write-only backups).`,
       );
     }
     return { text: `${dry ? "migrate-keys --dry-run (nothing written)" : "migrate-keys"}:\n${lines.join("\n")}`, left: kept.length };
@@ -211,7 +211,7 @@ export async function recoverKeys(dataRoot: string, backup: AppBackupOptions, op
     const h = sealedHeader(sealed);
     if (h !== null) sealedTo.add(h.fingerprint);
   }
-  if (headers.size === 0) throw new Error("the bucket has no sealed key objects (keys/<id>.sealed): nothing to recover. A bucket from before WB1 is restored with HOSTED_KEKS (RESTORE_ON_BOOT=1)");
+  if (headers.size === 0) throw new Error(`the bucket has no sealed key objects (keys/<id>.sealed): nothing to recover. A bucket from before WB1 is restored with ${KEK_ENV} (RESTORE_ON_BOOT=1)`);
   if (!sealedTo.has(opener.fingerprint)) {
     throw new Error(`this private key (fingerprint ${opener.fingerprint}) isn't the recovery key the bucket's keys are sealed to (${[...sealedTo].sort().join(", ")}). Nothing was written`);
   }
