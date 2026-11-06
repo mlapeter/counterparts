@@ -516,3 +516,19 @@ included, so the wordmark is text. Button weight comes from markup the bodies al
 keep buttons primary; the delete form's red), so no page body changed. `bun hosted/test/preview-pages.ts <dir>`
 renders every variant through the real app to static files; `hosted/test/web.test.ts` pins the nonce and that the
 frame loads nothing.
+
+## 2026-11-06 — write-only backups (WB1)
+
+The bucket's key objects are sealed to an offline X25519 key, so the server can write them and never read them; the
+KEK moved onto the volume. The design question that took the time: the old code proved "the bucket's key is this
+volume's" by opening the bucket's object (and by comparing it, byte for byte, with the local wrapped value). A seal has
+a fresh ephemeral key every time, and the server can't open it, so each sealed value now carries a key id (an HKDF
+output of the DEK under its own label): equality without the key. That made the private key needed in exactly one
+place, a volume (or `keys.sqlite`) lost, and everything else stayed as it was: `ensureStore` refuses (`KeySealed`)
+where it used to adopt, and `recover-keys` is the only reader. The H1 rule (never adopt the control key beside control
+databases that may not be the bucket's) moved into `recover-keys`, with `--control-aside` reusing the one-shot guard.
+Railway has no way to give a crash-looping service stdin, hence `hold`: a start command that answers `/readyz` and
+nothing else, so `railway ssh` reaches the volume. A piped stdin read with `for await` under bun let the process exit
+0 with nothing done when the input ended before the read began; `readFileSync(0)` doesn't. MinIO's images are gone from
+Docker Hub (2025); SeaweedFS 4.50 enforces SSE-C over TLS and takes region `auto`, so the drill runs locally
+(`--local`). The migration changes no DEK: re-keying every store is a separate, bigger job (INTERFACE-GAPS §1).

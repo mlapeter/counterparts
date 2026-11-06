@@ -153,22 +153,32 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 
 ### Keys, backups, export, delete (step 5: `src/keys.ts`, `src/backup.ts`, `src/egress.ts`, `src/app.ts`)
 
-24. **One seam for the KEK.** All wrapping and unwrapping goes through `KeyWrapper`, and the KEK version rides on every
-    wrapped value. In the beta the KEK is a Railway secret (`EnvKeyWrapper`); later it moves to our Cloudflare key
-    service. A test pins that only `keys.ts` names the KEK variables or the cipher.
+24. **One seam for the KEK, and it is on the volume** (WB1, 2026-11-06). All wrapping and unwrapping goes through
+    `KeyWrapper`, and the KEK version rides on every wrapped value. The KEK is `VolumeKeyWrapper`'s
+    `keys/volume.kek` (0600, made at the first wrap, never backed up, never made over keys under it). `HOSTED_KEKS`
+    (the env ring before WB1) is read only to open keys still under it, until `migrate-keys`. A test pins that only
+    `keys.ts` names the KEK variables or a cipher.
 25. **A DEK per store**, made at sign-up and stored only wrapped (AES-256-GCM, the store id and the KEK version as
     associated data; a ring may not hold one key under two versions).
-    - Only purpose-bound keys derived from it (HKDF) leave `keys.ts`: today, the store's Litestream SSE-C key.
-    - **Rewrap** moves every DEK from KEK N to N+1 without changing it, then compares and re-writes every live store's
-      key object, so running it again repairs one that died part-way. Start-up refuses a ring that can't open a key.
+    - Only purpose-bound keys derived from it (HKDF) leave `keys.ts`: the store's Litestream SSE-C key, and its key
+      id (`keyIdOf`, public).
+    - **`migrate-keys`** moves every DEK from `HOSTED_KEKS` onto the volume KEK without changing it, seals every key
+      object, and deletes each old `.wrapped` object once proven redundant (it opens to the key here and the sealed
+      one is right, or it is a deleted store's). Idempotent; `--dry-run` writes nothing. Start-up refuses a key it
+      can't open, naming `migrate-keys`.
     - `keys.sqlite` and `accounts.sqlite` run with `secure_delete = ON` (node:sqlite's default is off): a deleted
       wrapped DEK or address leaves no free cell behind.
 26. **What is backed up.**
     - Each store's `counterparts.sqlite`, by the Litestream sidecar, under its own SSE-C key (a 0600 key file beside the
       store).
-    - The control databases, under the `control` pseudo-store's key.
-    - Each wrapped DEK, once, as `keys/<storeId>.wrapped`.
-    - The sidecar's configuration holds paths only. Its environment holds R2 credentials only.
+    - The control databases, under the `control` pseudo-store's key (one key for every account's rows).
+    - Each DEK (control's too), once, as `keys/<storeId>.sealed`, **sealed to the recovery key** (`RecoverySealer`:
+      X25519 + HKDF-SHA256 + AES-256-GCM, node:crypto only, to `HOSTED_RECOVERY_PUBKEY`). The server never holds what
+      opens it: nothing in the environment, the bucket, or both together opens a key. Only `recover-keys`, given the
+      offline private key on stdin or a named file, opens them, after a volume is lost. A restart needs only the
+      volume. A new recovery key re-seals every object at the next start.
+    - The sidecar's configuration holds paths only. Its environment holds R2 credentials only (and `SSL_CERT_FILE`
+      when set: the local drill's certificate).
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
@@ -222,7 +232,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the handle closes;
     - the store is retired in this process (a call authenticated just before the revoke can't re-open it);
     - the store leaves the sidecar, and the delete waits for the old Litestream child to EXIT (its last upload done);
-    - the key file, the wrapped DEK, its R2 object and the whole R2 replica prefix are deleted;
+    - the key file, the wrapped DEK, its R2 key objects (`.sealed`, and an old `.wrapped`) and the whole R2 replica prefix are deleted;
     - the tenant dir is removed;
     - identities, sessions and links are deleted, and tombstones stay.
 
@@ -237,11 +247,13 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 ### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
 
 29. **The bucket's key is the store's key.** `keys.sqlite` is never replicated, so a new volume has no keys while its
-    backups in R2 are encrypted under the keys in `keys/<id>.wrapped`.
-    - `ensureStore` adopts a key object the bucket has (`KeyStore.adopt`: it must open under the ring for that store
-      id). It makes a new DEK only when neither side has one.
-    - When both sides have a key, the bucket's must be the same DEK (a rewrap's new wrapping) before the local one
-      is put over it. A different DEK is refused at start-up and left alone.
+    backups in R2 are encrypted under the keys sealed in `keys/<id>.sealed`.
+    - With no key here and a sealed one in the bucket, `ensureStore` refuses (`KeySealed`; a store at start-up is
+      counted keyless, reason `sealed`): only `recover-keys` (`keyops.ts`) brings it back, and never beside control
+      databases this volume has without the control key (H1; `--control-aside` moves them first). It makes a new DEK
+      only when neither side has one. A `.wrapped` object from before WB1 is still adopted while `HOSTED_KEKS` opens it.
+    - When both sides have a key, the bucket's must be the same DEK (its key id) before anything is put. A different
+      DEK is refused at start-up and left alone.
     - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).
     - A store that lived (`opened_at`) with no key here and none in the bucket gets a new one **only at start-up**
       (`Backups.ensureAll`, R5), and only when nothing a new key could bury exists anywhere:
@@ -285,7 +297,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     before the server listens (boot) or before the command ends (CLI), or recall would find nothing. One store's
     failing restore is counted and audited, and the others go on.
 31. **A volume that isn't the bucket's never makes a control database** (`main.ts#prepareVolume`, before `serve`,
-    `invite` and `rewrap`). Once the bucket has `keys/control.wrapped`:
+    `invite` and `migrate-keys`). Once the bucket has `keys/control.sealed` (or `.wrapped`, before WB1):
     - a volume without the control key and without control databases restores them (`RESTORE_ON_BOOT=1`), or
       refuses, saying how;
     - a volume without the control key but WITH a control database (made by an `invite` or a `BACKUPS=off` run on a
@@ -322,11 +334,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       short anywhere, a replica check that failed, or a delete pending then and kept later, all end with the store
       backed up. The fact goes with `keys.sqlite`: a volume that lost it is treated as one whose keys may be elsewhere.
       `control-key-in-bucket` is recorded once `ensureAll` has the control key in the bucket.
-    - The rule stands in front of `invite`, `rewrap`, `start-over` and `restore` too (a `start-over` against a wrong,
+    - The rule stands in front of `invite`, `migrate-keys`, `start-over` and `restore` too (and `recover-keys` checks R7 too) (a `start-over` against a wrong,
       empty bucket would find "no replica"; a `restore --all --force` would put the control key there).
     - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
     - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite`, `control/litestream.key` or a
-      store's `litestream.key`), for `serve` and for `invite`, `rewrap` and `start-over`.
+      store's `litestream.key`), for `serve` and for `invite`, `migrate-keys` and `start-over`.
     - `CONTROL_ASIDE=<label>` (`main.ts#controlAsideAtStart`, `serve` only, never with `BACKUPS=off`) moves `control/`
       to `control.aside-<label>` before anything opens it, ONLY on a volume `foreignControlRefusal` refuses (on any
       other, nothing moves, no guard is written, and the start goes on), and AT MOST ONCE PER LABEL: the guard

@@ -6,13 +6,19 @@
    - Railway's disk encryption confirmed in writing. Met 2026-11-04: SOC 3 (period ending 2026-04-22, unqualified) says
      AES-256 at rest, volume-level, backups too. Open from the same report: Railway snapshots volumes several times a
      day, retention unknown; Mike is asking Railway (DESIGN §5.1);
-   - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
-     both the KEK and the R2 credentials. First verify the reported Railway environment breach (unverified); it
-     changes the urgency, not the direction. Its key is exported to the two offline places. With it down, a restart
-     can't open stores (accepted, like item 9);
-   - lockout: every KEK version held offline in two places before use, both copies proven by fingerprints equal to
-     Railway's, and the throwaway-KEK drill (item 5) passing on the real binary (DESIGN §5.4 gate 4, as of
-     2026-11-02). Met 11-02: v1's three fingerprints matched and the drill passed (RUNBOOK, "The drill").
+   - ~~the Cloudflare Worker key service~~ **replaced by WB1 (write-only backups, 2026-11-06; Hobby has no static
+     egress)**: the KEK is on the volume, every key object in R2 is sealed to an offline recovery key, so one leak of
+     Railway's environment (the R2 token included) opens no backup. **Owed to finish it, Mike's steps** (RUNBOOK,
+     "Write-only backups"): the recovery keypair made and kept offline, `HOSTED_RECOVERY_PUBKEY` set, the release
+     deployed, `migrate-keys` run, `HOSTED_KEKS` removed, the old KEK copies retired once no `keys/*.wrapped` is left.
+     The R2 drill (item 5) again on the deployed image after that;
+   - lockout: the recovery private key held offline in two places before use, both copies proven by
+     `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
+     passing on the real binary. (Met for the KEK 11-02; owed again for the recovery key at the WB1 release.)
+   - **Not closed by WB1** (it was never the goal): a leak of the volume is a leak of everything (the live stores are
+     plaintext there; with the bucket, the backups' history too). And the migration changes no DEK: a copy of the
+     bucket and of `HOSTED_KEKS` taken before it (or an old environment Railway keeps in its history) still opens the
+     backups from before. Re-keying every store (new DEKs, fresh replicas) would close that; not built.
 2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
    lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
    service. Not built now.
@@ -29,8 +35,7 @@
 
 **Deferred, not gates and not built (2026-11-04, ROADMAP, on Mike's "reasonably secure, not overkill" for a free beta of
 0-10 users).** They stay owed; the lists above and item 8 say what each would take.
-- The Cloudflare key service (the second gate above): one leak of Railway's environment is a real risk, but a second
-  `KeyWrapper` is more than a small beta needs.
+- ~~The Cloudflare key service (the second gate above)~~: replaced by WB1 (2026-11-06), above.
 - The account email under the DEK (item 2): it comes with the encrypted live store, which is pending Mike's final word.
 - The four custom alerts (item 8): Railway's crash and deploy emails cover the start.
 - An outside uptime service (item 8): it needs Mike's account, and Railway's notices cover a crash.
@@ -47,8 +52,12 @@
    to R2 by TXID, SSE-C on every replica object, the shutdown sync, both refusals (an empty volume, a wrong KEK) with
    the bucket unchanged, the restore with the old token and the refresh, replication after it, and a second cycle.
    The hermetic drill (`test/ops.test.ts`) still covers our side on every run; this one is run again after each new
-   KEK version or a Litestream bump. Not proven: the production bucket at its real size and age (a read-only
+   recovery key or a Litestream bump. Not proven: the production bucket at its real size and age (a read-only
    `restore --all` on Railway's side would be; never `serve` a drill container against the production bucket).
+   **WB1 (2026-11-06): passed in the new shape with `--local`** (a local S3 with SSE-C, the branch's image): the
+   sealed key objects, both refusals (no private key, the wrong one), and `hold` + `recover-keys` + `RESTORE_ON_BOOT`
+   twice. **Owed:** the same on R2 (`drill.sh --sha <the release>` or after it deploys), and on Railway that `hold`
+   passes the healthcheck and `railway ssh` reaches it (unverified).
 6. **Volume ownership.** The image runs as `node`, and Railway mounts volumes owned by root. The RUNBOOK's answer is
    Railway's `RAILWAY_RUN_UID=0` (unverified), which runs it as root. An entrypoint that chowns and drops privileges
    would keep `node`.
@@ -129,11 +138,11 @@
 24. **The link-validity oracle.** "Wrong browser" and "can't be used" tell a live token from a dead one. At 256 bits
     that isn't exploitable (#644 review).
 25. **Sign-up while R2 is down.** If the key object's put fails, the store is in `litestream.yml` without
-    `keys/<id>.wrapped`, and can't be restored from R2 alone until the next `ensureAll` (#648 review).
+    `keys/<id>.sealed`, and can't be restored from R2 alone until the next `ensureAll` (#648 review).
 26. **Retire, tested only through `withTenant`.** A door-level test (authenticate, then delete, then the MCP POST) is a
     follow-up (#648 review).
 27. **A hung Litestream makes the delete POST wait** up to the 30 s SIGKILL timeout (#648 review).
-28. **`rewrap` with the server up.** "Server stopped" is only a comment. Start-up's unreadable-key refusal catches the
+28. **`migrate-keys` and `recover-keys` with the server up** (`rewrap` before WB1). "Server stopped" is only a comment. Start-up's unreadable-key refusal catches the
     bad outcome (#648 review).
 29. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
 30. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
