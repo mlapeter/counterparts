@@ -494,9 +494,18 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
     every start logs. The restore drill runs on a throwaway keypair (RUNBOOK, "The drill").
   - People hold no keys online, so a person can't lock themselves out. A key a person holds would be opt-in only.
 - **Migration** (`main.ts migrate-keys`, WB1): the keys under `HOSTED_KEKS` rewrapped under the volume KEK, every key
-  object sealed, every old `keys/<id>.wrapped` deleted once proven redundant; idempotent, with `--dry-run`. Then
-  `HOSTED_KEKS` leaves the environment. It does not change any DEK: an old copy of the bucket plus an old copy of
-  `HOSTED_KEKS` still opens the backups from before it.
+  object sealed, **the control key re-keyed** (a new DEK, the control databases replicated under it to a new place,
+  proven by a restore, the old control replicas deleted; the #768 review's HIGH 1: otherwise an old `HOSTED_KEKS` would
+  open every person's email and OAuth rows, past and future), every old `keys/<id>.wrapped` deleted once proven
+  redundant; idempotent, with `--dry-run`, and refused until `recover-keys --dry-run` has proven the recovery private
+  key. Then `HOSTED_KEKS` leaves the environment and the R2 token is rotated.
+- **ACCEPTED (2026-11-06, the #768 review): the memory stores that exist at the migration are not re-keyed.** Mike's
+  store and the test accounts keep DEKs that the old environment's `HOSTED_KEKS` could unwrap (from a copy of their
+  old `keys/<id>.wrapped`), so their backups, past and future, stay exposed to whoever holds both. Why accepted:
+  re-keying a memory store means a fresh replica of every store (a Litestream re-snapshot each, and its old replicas
+  dropped) for stores that belong to Mike and his testers, who know; control, which holds strangers' rows, IS
+  re-keyed. **Condition: the migration runs before the first stranger invite**, so every stranger's store is made
+  after it, under a key no environment ever held.
 - **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
   with the store id as associated data.
   - It keys the store's Litestream SSE-C key, through HKDF with a purpose label.

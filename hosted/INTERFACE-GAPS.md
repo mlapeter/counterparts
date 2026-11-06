@@ -10,15 +10,17 @@
      egress)**: the KEK is on the volume, every key object in R2 is sealed to an offline recovery key, so one leak of
      Railway's environment (the R2 token included) opens no backup. **Owed to finish it, Mike's steps** (RUNBOOK,
      "Write-only backups"): the recovery keypair made and kept offline, `HOSTED_RECOVERY_PUBKEY` set, the release
-     deployed, `migrate-keys` run, `HOSTED_KEKS` removed, the old KEK copies retired once no `keys/*.wrapped` is left.
+     deployed, `recover-keys --dry-run` (the proof), `migrate-keys` run (it re-keys control), `HOSTED_KEKS` removed, the
+     R2 token rotated, the old KEK copies retired once no `keys/*.wrapped` is left; all BEFORE THE FIRST STRANGER
+     INVITE (DESIGN §5.4, accepted).
      The R2 drill (item 5) again on the deployed image after that;
    - lockout: the recovery private key held offline in two places before use, both copies proven by
      `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
      passing on the real binary. (Met for the KEK 11-02; owed again for the recovery key at the WB1 release.)
    - **Not closed by WB1** (it was never the goal): a leak of the volume is a leak of everything (the live stores are
-     plaintext there; with the bucket, the backups' history too). And the migration changes no DEK: a copy of the
-     bucket and of `HOSTED_KEKS` taken before it (or an old environment Railway keeps in its history) still opens the
-     backups from before. Re-keying every store (new DEKs, fresh replicas) would close that; not built.
+     plaintext there; with the bucket, the backups' history too). And the memory stores that exist at the migration
+     keep their DEKs (control is re-keyed): an old `HOSTED_KEKS` plus a copy of their old `keys/<id>.wrapped` still
+     opens their backups. Accepted for Mike's and the test accounts' stores; re-keying them is not built.
 2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
    lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
    service. Not built now.

@@ -266,8 +266,12 @@ with the echo off and drops it when it is done. Never a variable, never a file o
    ```
 
    Each asks for the recovery private key (paste the `cp-recovery:…` line, Enter; it isn't shown). The dry run opens
-   every key and writes nothing; the run prints `recovery key <fingerprint>` (the one beside your copies), `N keys
-   brought back from the bucket`, and `next: deploy with RESTORE_ON_BOOT=1`. A wrong key refuses before anything is
+   every key and writes nothing (on a new volume; on a volume with keys it records the proof); the run prints
+   `recovery key <fingerprint>` (the one beside your copies), `N keys brought back from the bucket (each proven
+   against its replica)`, and `next: deploy with RESTORE_ON_BOOT=1`. A key is adopted only when one of its store's
+   own replica objects opens under it: one that doesn't is refused as `may be FORGED` (rotate the R2 token, tell the
+   coordinator). A store with no replica at all (signed up, never used) is left (`not adopted: no replica`) and gets
+   a new key at its first open; `--adopt-unproven` adopts such keys anyway, with a WARNING. A wrong key refuses before anything is
    written (`this private key (fingerprint …) isn't the recovery key the bucket's keys are sealed to (…)`). It is
    safe to run again. Then `exit`.
 4. **Clear the start command**, add `RESTORE_ON_BOOT=1`, raise the healthcheck timeout for this one deploy
@@ -559,38 +563,58 @@ plaintext on it, as before; with it, the bucket's history opens too). The memory
 store's own key; the control databases' backup (accounts, email, OAuth) is under the one `control` key, sealed the
 same way.
 
-### The migration (once, at the release that brings WB1)
+### The migration (once, at the release that brings WB1, BEFORE THE FIRST STRANGER INVITE)
 
-These steps are written so the release sheet can copy them.
+These steps are written so the release sheet can copy them. **Run all of them before inviting anyone from outside
+the family**: the stores that exist at the migration keep their keys (below), and that is accepted only for those.
 
-1. **Make the recovery keypair** on your Mac (section 1, step 1): the private key into the password manager and on
-   paper, each copy checked with `recovery-fingerprint`, the fingerprint written beside both, the file deleted.
-2. **Set `HOSTED_RECOVERY_PUBKEY`** on Railway to the public key it printed. Leave `HOSTED_KEKS` as it is.
-3. **Deploy the release.** It serves as before: keys still under `HOSTED_KEKS` open with it, a new key goes under the
-   new volume KEK, and every key object gets its sealed copy. The log says `N keys are still under HOSTED_KEKS: stop
-   the server and run migrate-keys` and `key objects sealed to recovery key <fingerprint>` (check it is yours).
-4. **Dry run** (safe beside the running server: it reads, writes nothing): `railway ssh`, then
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run`. It says how many keys
-   would move, how many sealed objects would be written, how many old `.wrapped` objects would be deleted, and `a
-   run would finish the migration`. Anything else: stop and tell the coordinator.
+1. **Make the recovery keypair** on your Mac, from `~/counterparts`:
+   `bun hosted/src/main.ts recovery-keygen ~/Desktop/counterparts-recovery.key`. Put its one `cp-recovery:…` line
+   in the password manager and on paper; check each copy with `bun hosted/src/main.ts recovery-fingerprint` (paste
+   it; it must print the fingerprint keygen printed); write the fingerprint beside both; `rm -P` the file.
+2. **Set `HOSTED_RECOVERY_PUBKEY`** on Railway to the `HOSTED_RECOVERY_PUBKEY=` value it printed. Leave `HOSTED_KEKS`
+   as it is.
+3. **Deploy the release.** It serves as before, and seals every key object. The log says `N keys are still under
+   HOSTED_KEKS: stop the server and run migrate-keys` and `key objects sealed to recovery key <fingerprint>` (check
+   it is yours).
+4. **Prove the private key, then dry-run the migration**, both beside the running server: `railway ssh`, then
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys --dry-run` and paste the private key
+   (it isn't shown). It opens every sealed key and must end `proof recorded: recovery key <fingerprint>`; it writes
+   only that proof. Do it with the paper copy too. Then
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run`: it must say `recovery key
+   …: proven`, `control would be re-keyed` and `a run would finish the migration`. Anything else: stop, tell the
+   coordinator. (`migrate-keys` refuses to run at all without the proof: a mistyped key would otherwise leave no
+   working copy of any key in the bucket.)
 5. **Run it with the server stopped**: Settings → Deploy → Custom Start Command
    `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys`, deploy once, read the log, then
-   clear the start command. It prints `migrate-keys:` and the counts, and ends `done: nothing here or in the bucket
-   needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second run does nothing and says `done`
-   again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and tell the coordinator.
-   (Unverified on Railway: a start command that exits, as with `rewrap` before; `hold` + `railway ssh` + the same
-   line is the other way.)
+   clear the start command. It prints the counts, `control re-keyed: …`, and ends `done: nothing here or in the
+   bucket needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second run does nothing and says
+   `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and tell the coordinator. A
+   start after a run cut short refuses (`a control re-key (migrate-keys) was cut short`): run step 5 again.
+   (Unverified on Railway: a start command that exits, as `rewrap` was; `hold` + `railway ssh` + the same line is the
+   other way.)
 6. **Remove `HOSTED_KEKS` and `HOSTED_KEK_CURRENT`** from Railway's variables, and redeploy. It serves, with no
    `still under HOSTED_KEKS` line. A start that says `don't open … set HOSTED_KEKS back` means step 5 didn't finish:
    put the variable back and run step 5 again.
-7. **Keep the old KEK's two offline copies until no R2 object needs them**: after step 5 says `done`, R2's object
-   browser shows no `keys/*.wrapped` (only `keys/*.sealed`). Then retire them (destroy the paper copy, delete the
-   password-manager entry). Until then they still open those old objects.
+7. **Rotate the R2 token.** In Cloudflare, make a new token as in section 3, step 3 (Object Read & Write, this bucket
+   only), set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` on Railway to it, redeploy, check `/readyz` and the
+   `backup.uploads` lines, then delete the old token. The old one sat in the same environment as `HOSTED_KEKS`.
+8. **Keep the old KEK's two offline copies until no R2 object needs them**: after step 5 says `done`, R2's object
+   browser shows no `keys/*.wrapped` (only `keys/*.sealed`) and no `control/accounts.sqlite/` or
+   `control/oauth.sqlite/` (control's replicas are under `control/<key id>/` now). Then retire them (destroy the
+   paper copy, delete the password-manager entry).
 
-What the migration does NOT do: change any store's key. A copy of the bucket and of `HOSTED_KEKS` taken before step 5
-still opens the backups from before (the old `.wrapped` objects and the replicas under those keys), and the old
-copies of the environment Railway may keep in its history hold `HOSTED_KEKS` too. If an old environment is known to
-have leaked, every store needs a new key (a fresh replica under it): not built; tell the coordinator.
+**What stays exposed, exactly.** The control key is re-keyed by step 5: a new control DEK, the accounts and OAuth
+databases replicated under it to `control/<key id>/` and proven by a restore, the old control replicas deleted. So an
+old `HOSTED_KEKS` (from Railway's variable history, or any leak before step 6) opens no control backup, past or
+future, once step 5 is done. The memory stores that exist at the migration (yours and the test accounts) keep their
+DEKs, so their backups, past and future, stay openable by an old `HOSTED_KEKS` together with a copy of their old
+`keys/<id>.wrapped` taken before step 5. That is accepted (DESIGN §5.4). Every store made after the release deploys
+has a key no environment ever held.
+
+**Before any recovery after a suspected leak, rotate the R2 token first** (step 7's way). Anyone holding the token
+can write the bucket, so could put a sealed key of their own there. `recover-keys` adopts no key unless the store's
+own replica opens under it (and says `may be FORGED` when it doesn't), but a new token stops the writes.
 
 ### A new recovery key
 

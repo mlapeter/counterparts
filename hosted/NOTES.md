@@ -532,3 +532,19 @@ nothing else, so `railway ssh` reaches the volume. A piped stdin read with `for 
 0 with nothing done when the input ended before the read began; `readFileSync(0)` doesn't. MinIO's images are gone from
 Docker Hub (2025); SeaweedFS 4.50 enforces SSE-C over TLS and takes region `auto`, so the drill runs locally
 (`--local`). The migration changes no DEK: re-keying every store is a separate, bigger job (INTERFACE-GAPS §1).
+
+## 2026-11-06 — WB1's review fixes (#768)
+
+Three findings, one theme: the migration has to remove what an old environment can open, and a bucket anyone with the
+token can write is not a source of truth. **Control is re-keyed** (HIGH 1): `rewrap` only re-wraps the same bytes, so
+an old `HOSTED_KEKS` would have kept control's SSE-C key, every email and OAuth row past and future. A re-key needs
+the new snapshot proven before the old replicas go, so the new replicas live at a new base (`control/<key id>/`,
+recorded in keys.sqlite's `replica_bases`, found again by `recover-keys` from the replica itself), written by a
+Litestream of the re-key's own with the server stopped, proven by a restore whose rows equal the live file's (a row
+digest, not bytes: a restored file's pages needn't match). The switch is ordered for a crash: the bucket's sealed key
+first, then keys.sqlite in one write keeping `created_at` (R5's (f2) reads it), then the old replicas; a pending
+`control.next` row makes every start refuse until a run again finishes. **A sealed key is adopted only against its
+store's own replica** (M2): a ranged GET with the derived SSE-C key; a store with no replica is left, and gets a new
+key at its first open (nothing is under the old one). **`migrate-keys` needs a recorded proof** (M3) that the
+recovery private key opens this bucket's keys, from `recover-keys --dry-run`, which now opens every sealed key, the
+volume's own too.

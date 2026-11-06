@@ -164,8 +164,16 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       id (`keyIdOf`, public).
     - **`migrate-keys`** moves every DEK from `HOSTED_KEKS` onto the volume KEK without changing it, seals every key
       object, and deletes each old `.wrapped` object once proven redundant (it opens to the key here and the sealed
-      one is right, or it is a deleted store's). Idempotent; `--dry-run` writes nothing. Start-up refuses a key it
+      one is right, or it is a deleted store's). Idempotent; `--dry-run` writes nothing; a real run refuses without a recorded proof of the recovery key (`recover-keys --dry-run`, the #768 review's M3), and re-keys control (below). Start-up refuses a key it
       can't open, naming `migrate-keys`.
+    - **The control re-key** (`Backups.rekeyControl`, inside `migrate-keys`; the #768 review's HIGH 1): a control
+      key that was ever under `HOSTED_KEKS` (fact `control-rekey-due`, recorded before any rewrap) is replaced, with
+      the server stopped: a new DEK (`control.next`, keys.sqlite only), the control databases replicated under it to
+      `control/<its key id>/` by a Litestream of the re-key's own, PROVEN by a restore whose rows equal the live
+      files', then `keys/control.sealed` sealed to it, then keys.sqlite switched in one write (`created_at` kept, the
+      new base recorded), then the old `control/<db>/` replicas and `keys/control.wrapped` deleted. A run cut short
+      refuses every start (`CONTROL_REKEY_PENDING`) until a run again finishes it with the same new key. Store DEKs
+      are not re-keyed (DESIGN §5.4, accepted).
     - `keys.sqlite` and `accounts.sqlite` run with `secure_delete = ON` (node:sqlite's default is off): a deleted
       wrapped DEK or address leaves no free cell behind.
 26. **What is backed up.**
@@ -252,6 +260,13 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       counted keyless, reason `sealed`): only `recover-keys` (`keyops.ts`) brings it back, and never beside control
       databases this volume has without the control key (H1; `--control-aside` moves them first). It makes a new DEK
       only when neither side has one. A `.wrapped` object from before WB1 is still adopted while `HOSTED_KEKS` opens it.
+    - `recover-keys` adopts a sealed key only when one of the store's own replica objects opens under its SSE-C key
+      (`ObjectStore.readableWith`; control's at its re-keyed base first): anyone with R2 write can seal a key of their
+      choosing (the #768 review's M2). One that doesn't open is refused as possibly forged; a store with no replica is
+      left unless `--adopt-unproven` (a WARNING). Such a store, never opened and with no replica, gets a NEW key at its
+      first `ensureStore`, sealed over the old object (nothing is under that one). Every sealed key it meets is opened,
+      the volume's own too, and a clean run records a proof of the recovery key (`recovery_proofs`), which
+      `migrate-keys` requires.
     - When both sides have a key, the bucket's must be the same DEK (its key id) before anything is put. A different
       DEK is refused at start-up and left alone.
     - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).
