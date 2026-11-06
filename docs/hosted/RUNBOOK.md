@@ -603,17 +603,19 @@ the family**: the stores that exist at the migration keep their keys (below), an
    server's mark, so `migrate-keys` doesn't refuse beside it; the log says `holding on port 8080 …`; the app shows
    "Down for maintenance" until step 6's deploy). Then `railway ssh`, and
    `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`.
+   **Keep the `railway ssh` session open until it says `done`** (a dropped session cuts the run short; running step 5 again finishes it).
    You read its output as it runs. It prints the counts, `control re-keyed: …`, and ends
    `done: nothing here or in the bucket needs HOSTED_KEKS now`. Running it again is harmless: a second
-   run does nothing and says `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and
+   run does nothing and says `done` again. **On `done`: `exit`, and clear the start command; step 6's deploy serves
+   again.** `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and
    tell the coordinator. `a server is running on this volume (its heartbeat is N s old)` means the serving container
    had only just stopped: wait a minute and run it again. A start after a run cut short refuses (`a control re-key
    (migrate-keys) was cut short`): run step 5 again. **If it keeps failing with `the control re-key's new snapshot
    didn't prove`** (Litestream can't reach the bucket, say), back out so the server serves again: in the same `hold`
    and `railway ssh`, `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --abort-control-rekey`
    (it keeps the old control key, deletes the new one and its replicas; nothing else changes), then clear the start
-   command and deploy, and tell the coordinator; step 5 can be run again later. Then `exit`, and **clear the start
-   command** (step 6's deploy serves again). Litestream runs inside `migrate-keys` for the re-key, on the image's own
+   command and deploy, and tell the coordinator; step 5 can be run again later. **After an abort, do NOT do step 6:
+   keep `HOSTED_KEKS`.** Litestream runs inside `migrate-keys` for the re-key, on the image's own
    binary. (Unverified on Railway: that the `hold` deploy passes its healthcheck and `railway ssh` reaches it, as in
    Restore, step 2.)
 
