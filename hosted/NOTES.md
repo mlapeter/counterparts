@@ -548,3 +548,11 @@ store's own replica** (M2): a ranged GET with the derived SSE-C key; a store wit
 key at its first open (nothing is under the old one). **`migrate-keys` needs a recorded proof** (M3) that the
 recovery private key opens this bucket's keys, from `recover-keys --dry-run`, which now opens every sealed key, the
 volume's own too.
+
+The delta review (79cf4dae) found the re-key's one unordered step: the key FILE. keys.sqlite switched before the file
+did, and nothing re-checked a file that existed, so a crash between them left Litestream shipping new control data
+under the old (env-openable) key. Now the old file goes before the switch, and every start rewrites any key file that
+isn't its key's (`syncKeyFiles`, before the sidecar starts), whatever window left it. The routine migration no
+longer asks for the private key on the server: `--recovery-fingerprint` names the key Mike checked on his Mac, and
+the server checks it is the key every object is sealed to. `serve` leaves `serving.heartbeat` while it runs, so
+`migrate-keys` and `recover-keys` refuse beside it.

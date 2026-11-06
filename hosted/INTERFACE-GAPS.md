@@ -10,7 +10,7 @@
      egress)**: the KEK is on the volume, every key object in R2 is sealed to an offline recovery key, so one leak of
      Railway's environment (the R2 token included) opens no backup. **Owed to finish it, Mike's steps** (RUNBOOK,
      "Write-only backups"): the recovery keypair made and kept offline, `HOSTED_RECOVERY_PUBKEY` set, the release
-     deployed, `recover-keys --dry-run` (the proof), `migrate-keys` run (it re-keys control), `HOSTED_KEKS` removed, the
+     deployed, `migrate-keys --recovery-fingerprint <fp>` run (it re-keys control), `HOSTED_KEKS` removed, the
      R2 token rotated, the old KEK copies retired once no `keys/*.wrapped` is left; all BEFORE THE FIRST STRANGER
      INVITE (DESIGN §5.4, accepted).
      The R2 drill (item 5) again on the deployed image after that;

@@ -21,15 +21,16 @@ the volume, and what leaves for R2 is sealed to a recovery key whose private hal
    `--import ./src/adapters/node-hooks.mjs`):
 
    ```sh
-   bun hosted/src/main.ts recovery-keygen ~/Desktop/counterparts-recovery.key
+   bun hosted/src/main.ts recovery-keygen
    ```
 
-   It writes the PRIVATE key into that file (one line, `cp-recovery:…`, mode 600; it refuses a file that exists) and
-   prints `HOSTED_RECOVERY_PUBKEY=…` (the public half, for Railway: public, fine in env) and its `fingerprint`.
+   It prints `HOSTED_RECOVERY_PUBKEY=…` (the public half, for Railway: public, fine in env), its `fingerprint`, and
+   the PRIVATE key (one line, `cp-recovery:…`) to the terminal, once. It writes no file (a file on a synced or
+   backed-up Desktop would be a third copy, and `rm -P` does nothing on macOS's disks).
    **Keep the private key offline in two places before you use it**: a password manager, as "Counterparts hosted
-   recovery key", and a paper copy somewhere safe. **Without it, a lost volume can't be restored.** Check each copy
-   (it reads the key from the prompt and doesn't show it; it must print the same fingerprint), write the fingerprint
-   beside both, then delete the file (`rm -P ~/Desktop/counterparts-recovery.key`):
+   recovery key", and a paper copy somewhere safe. **Without it, a lost volume can't be restored.** Then clear the
+   terminal (Cmd-K). Check each copy (it reads the key from the prompt and doesn't show it; it must print the same
+   fingerprint), and write the fingerprint beside both:
 
    ```sh
    bun hosted/src/main.ts recovery-fingerprint
@@ -569,31 +570,36 @@ same way.
 These steps are written so the release sheet can copy them. **Run all of them before inviting anyone from outside
 the family**: the stores that exist at the migration keep their keys (below), and that is accepted only for those.
 
-1. **Make the recovery keypair** on your Mac, from `~/counterparts`:
-   `bun hosted/src/main.ts recovery-keygen ~/Desktop/counterparts-recovery.key`. Put its one `cp-recovery:…` line
-   in the password manager and on paper; check each copy with `bun hosted/src/main.ts recovery-fingerprint` (paste
-   it; it must print the fingerprint keygen printed); write the fingerprint beside both; `rm -P` the file.
+1. **Make the recovery keypair** on your Mac, from `~/counterparts`: `bun hosted/src/main.ts recovery-keygen`. It
+   prints the public key, the fingerprint and the private key once, and writes no file. Put the `cp-recovery:…` line
+   in the password manager and on paper, then clear the terminal (Cmd-K). Check EACH copy with
+   `bun hosted/src/main.ts recovery-fingerprint` (paste it; it isn't shown): both must print the fingerprint keygen
+   printed. Write that fingerprint beside both copies. This is the proof the migration relies on: the private key
+   never goes near the server for it.
 2. **Set `HOSTED_RECOVERY_PUBKEY`** on Railway to the `HOSTED_RECOVERY_PUBKEY=` value it printed. Leave `HOSTED_KEKS`
    as it is.
 3. **Deploy the release.** It serves as before, and seals every key object. The log says `N keys are still under
-   HOSTED_KEKS: stop the server and run migrate-keys` and `key objects sealed to recovery key <fingerprint>` (check
-   it is yours).
-4. **Prove the private key, then dry-run the migration**, both beside the running server: `railway ssh`, then
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys --dry-run` and paste the private key
-   (it isn't shown). It opens every sealed key and must end `proof recorded: recovery key <fingerprint>`; it writes
-   only that proof. Do it with the paper copy too. Then
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run`: it must say `recovery key
-   …: proven`, `control would be re-keyed` and `a run would finish the migration`. Anything else: stop, tell the
-   coordinator. (`migrate-keys` refuses to run at all without the proof: a mistyped key would otherwise leave no
-   working copy of any key in the bucket.)
+   HOSTED_KEKS: stop the server and run migrate-keys` and `key objects sealed to recovery key <fingerprint>`: it must
+   be the fingerprint beside your copies.
+4. **Dry-run the migration** beside the running server: `railway ssh`, then
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run --recovery-fingerprint <fingerprint>`
+   (the one beside your copies). It must say `recovery key …: the one named`, `control would be re-keyed` and `a run
+   would finish the migration`. Anything else: stop, tell the coordinator. (`migrate-keys` refuses to run without
+   `--recovery-fingerprint` naming the key every object is sealed to: a key whose copies weren't checked would
+   otherwise leave no working copy of any key in the bucket. It also refuses beside a running server.)
 5. **Run it with the server stopped**: Settings → Deploy → Custom Start Command
-   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys`, deploy once, read the log, then
-   clear the start command. It prints the counts, `control re-keyed: …`, and ends `done: nothing here or in the
-   bucket needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second run does nothing and says
-   `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and tell the coordinator. A
-   start after a run cut short refuses (`a control re-key (migrate-keys) was cut short`): run step 5 again.
-   (Unverified on Railway: a start command that exits, as `rewrap` was; `hold` + `railway ssh` + the same line is the
-   other way.)
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`,
+   deploy once, read the log, then clear the start command. It prints the counts, `control re-keyed: …`, and ends
+   `done: nothing here or in the bucket needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second
+   run does nothing and says `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and
+   tell the coordinator. A start after a run cut short refuses (`a control re-key (migrate-keys) was cut short`): run
+   step 5 again. **If it keeps failing with `the control re-key's new snapshot didn't prove`** (Litestream can't reach
+   the bucket, say), back out so the server serves again:
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --abort-control-rekey` as the start
+   command, deploy once, clear it (it keeps the old control key, deletes the new one and its replicas; nothing else
+   changes), and tell the coordinator; step 5 can be run again later. (Unverified on Railway: a start command that
+   exits, as `rewrap` was; `hold` + `railway ssh` + the same line is the other way. Litestream runs inside it for the
+   re-key, on the image's own binary.)
 6. **Remove `HOSTED_KEKS` and `HOSTED_KEK_CURRENT`** from Railway's variables, and redeploy. It serves, with no
    `still under HOSTED_KEKS` line. A start that says `don't open … set HOSTED_KEKS back` means step 5 didn't finish:
    put the variable back and run step 5 again.
@@ -607,15 +613,20 @@ the family**: the stores that exist at the migration keep their keys (below), an
 
 **What stays exposed, exactly.** The control key is re-keyed by step 5: a new control DEK, the accounts and OAuth
 databases replicated under it to `control/<key id>/` and proven by a restore, the old control replicas deleted. So an
-old `HOSTED_KEKS` (from Railway's variable history, or any leak before step 6) opens no control backup, past or
-future, once step 5 is done. The memory stores that exist at the migration (yours and the test accounts) keep their
+old `HOSTED_KEKS` (from Railway's variable history, or any leak before step 6) opens no control backup in any copy of
+the bucket taken after step 5, and nothing written after it. A copy of the bucket taken BEFORE step 5, with that old
+`HOSTED_KEKS`, still opens the control history up to then (accounts and OAuth rows as they were). The memory stores that exist at the migration (yours and the test accounts) keep their
 DEKs, so their backups, past and future, stay openable by an old `HOSTED_KEKS` together with a copy of their old
 `keys/<id>.wrapped` taken before step 5. That is accepted (DESIGN §5.4). Every store made after the release deploys
 has a key no environment ever held.
 
-**Before any recovery after a suspected leak, rotate the R2 token first** (step 7's way). Anyone holding the token
-can write the bucket, so could put a sealed key of their own there. `recover-keys` adopts no key unless the store's
-own replica opens under it (and says `may be FORGED` when it doesn't), but a new token stops the writes.
+**Before any recovery after a suspected leak, rotate the R2 token first** (step 7's way). That is the real defence.
+Anyone holding the token can write the bucket, so could put a sealed key of their own there. `recover-keys` adopts
+no key unless every object of the store's own replica opens under it (it says `may be FORGED` when one doesn't), and
+refuses control when more than one place under `control/` holds replicas (naming them). That catches a lone forged
+key object, a mixed replica and an accident. It does NOT catch someone who sealed a key of their own AND replaced a
+store's whole replica with one under it: they could have deleted the bucket too. A `403` from the bucket is said as
+such (`check the R2 token`), never as a forgery.
 
 ### A new recovery key
 

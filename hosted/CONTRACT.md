@@ -164,7 +164,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       id (`keyIdOf`, public).
     - **`migrate-keys`** moves every DEK from `HOSTED_KEKS` onto the volume KEK without changing it, seals every key
       object, and deletes each old `.wrapped` object once proven redundant (it opens to the key here and the sealed
-      one is right, or it is a deleted store's). Idempotent; `--dry-run` writes nothing; a real run refuses without a recorded proof of the recovery key (`recover-keys --dry-run`, the #768 review's M3), and re-keys control (below). Start-up refuses a key it
+      one is right, or it is a deleted store's). Idempotent; `--dry-run` writes nothing; a real run refuses unless `--recovery-fingerprint` names the key every object is sealed to (the fingerprint Mike checked against both offline copies; the #768 reviews' M3: the private key never goes to the server for a migration), refuses beside a running server (`serving.heartbeat`), and `--abort-control-rekey` backs out of a re-key that won't prove, and re-keys control (below). Start-up refuses a key it
       can't open, naming `migrate-keys`.
     - **The control re-key** (`Backups.rekeyControl`, inside `migrate-keys`; the #768 review's HIGH 1): a control
       key that was ever under `HOSTED_KEKS` (fact `control-rekey-due`, recorded before any rewrap) is replaced, with
@@ -265,8 +265,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       choosing (the #768 review's M2). One that doesn't open is refused as possibly forged; a store with no replica is
       left unless `--adopt-unproven` (a WARNING). Such a store, never opened and with no replica, gets a NEW key at its
       first `ensureStore`, sealed over the old object (nothing is under that one). Every sealed key it meets is opened,
-      the volume's own too, and a clean run records a proof of the recovery key (`recovery_proofs`), which
-      `migrate-keys` requires.
+      the volume's own too, and a clean run records which recovery key opened them (`recovery_proofs`, for the record;
+      the migration's gate is `--recovery-fingerprint`). Every object of the replica must open (control: refused when
+      more than one place under `control/` holds replicas, naming them). A 403 is the token's, never "forged". Every key
+      file is rewritten from keys.sqlite whenever it disagrees, before Litestream starts (`Backups.syncKeyFiles`).
+      Catches a lone forged object or an accident, not someone who replaced a whole replica: rotate the token first.
     - When both sides have a key, the bucket's must be the same DEK (its key id) before anything is put. A different
       DEK is refused at start-up and left alone.
     - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).

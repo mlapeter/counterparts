@@ -142,6 +142,7 @@ port_free() { # names a container holding the port (a rehearsal's left after a f
   fail "port 8080 free" "${who:+container $who(docker rm -f $who) }$(lsof -nP -iTCP:8080 -sTCP:LISTEN | tail -1 | awk '{print $1, $2}')"
 }
 CMD=serve # what start() runs: serve, or hold (the start-command override a restore uses on Railway)
+CMDARGS=() # and its arguments (migrate-keys --recovery-fingerprint <fp>)
 start() { # start <log> [docker args, e.g. -e RESTORE_ON_BOOT=1]
   LOG=$1; shift
   gone || fail "no $NAME container before a start (docker stop $NAME; docker rm $NAME first)" "one exists"
@@ -149,7 +150,7 @@ start() { # start <log> [docker args, e.g. -e RESTORE_ON_BOOT=1]
   printf '=== drill start %s\n' "$(date '+%H:%M:%S')" >> "$LOG"
   docker run -d --name "$NAME" -p 127.0.0.1:8080:8080 -v "$VOL":/data \
     -e HOSTED_DATA_ROOT=/data -e PUBLIC_ORIGIN=http://127.0.0.1:8080 -e MAIL=log -e HOSTED_RECOVERY_PUBKEY \
-    "${BACKUP_ARGS[@]}" "$@" "$IMAGE" "$CMD" > /dev/null
+    "${BACKUP_ARGS[@]}" "$@" "$IMAGE" "$CMD" ${CMDARGS[@]+"${CMDARGS[@]}"} > /dev/null
   docker logs -f "$NAME" >> "$LOG" 2>&1 &
   RUN_PID=$!
 }
@@ -337,7 +338,9 @@ step_0() { # preflight: deployed sha and its worktree, Docker, port, no leftover
   local made p
   for p in 1 2; do
     rm -f "$SCRATCH/p$p.key"
-    made=$(cd "$REPO" && "$BUN" hosted/src/main.ts recovery-keygen "$SCRATCH/p$p.key" 2>>"$LOGS/0-keygen.stderr") || fail "recovery-keygen to make P$p" "it failed ($LOGS/0-keygen.stderr)"
+    # recovery-keygen prints the private key and writes no file: its line goes straight into the 0600 file (umask 077).
+    made=$(cd "$REPO" && "$BUN" hosted/src/main.ts recovery-keygen 2>>"$LOGS/0-keygen.stderr") || fail "recovery-keygen to make P$p" "it failed ($LOGS/0-keygen.stderr)"
+    grep -E '^cp-recovery:' <<<"$made" > "$SCRATCH/p$p.key" || fail "recovery-keygen to print a private key" "none"
     [[ $(stat -f %Lp "$SCRATCH/p$p.key") == 600 ]] || fail "P$p's private key file mode 600" "mode $(stat -f %Lp "$SCRATCH/p$p.key")"
     save "PUB$p" "$(sed -n 's/^HOSTED_RECOVERY_PUBKEY=//p' <<<"$made")"
     save "FP$p" "$(sed -n 's/^fingerprint //p' <<<"$made")"
@@ -605,7 +608,7 @@ step_13() { # cleanup
 
 # ── --migration: today's production shape (HOSTED_KEKS, the image before WB1) to write-only backups ──
 # Mike's steps on a throwaway volume and the local S3: the old image serves under a throwaway KEK; the new
-# image serves with HOSTED_KEKS still set (it seals); the proof (recover-keys --dry-run beside it);
+# image serves with HOSTED_KEKS still set (it seals); the dry run beside it, the fingerprint named (no private key);
 # migrate-keys as a start command, twice; serve without HOSTED_KEKS; then a lost volume restored.
 
 # A one-shot command in the container, as a Railway start-command override: its exit code in RC.
@@ -657,15 +660,20 @@ mstep_2() { # Mike's step 3: the release (the new image) with HOSTED_KEKS still 
   cn recall A
   local keys; keys=$(c r2-list keys/)
   [[ $keys == *keys/control.sealed* && $keys == *keys/control.wrapped* ]] || fail "sealed objects beside the old ones" "$(tr '\n' ' ' <<<"$keys")"
-  RKC=0
-  RK=$(docker exec -i "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys --dry-run < "$SCRATCH/p1.key" 2>>"$LOGS/2-recover-keys.stderr") || RKC=$?
-  [[ $RKC == 0 && $RK == *"proof recorded: recovery key $FP1"* ]] || fail "recover-keys --dry-run beside the running server: the proof recorded" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
-  note "  recover-keys --dry-run beside the running server: $(sed -n 1p <<<"$RK")"
+  # Step 4: the dry run beside the running server, naming the fingerprint checked against the offline copies. No private key.
+  local dry rc=0
+  dry=$(docker exec "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run --recovery-fingerprint "$FP1" 2>>"$LOGS/2-migrate-dry.stderr") || rc=$?
+  [[ $rc == 0 && $dry == *"recovery key $FP1: the one named"* && $dry == *"control would be re-keyed"* && $dry == *"a run would finish the migration"* ]] || fail "migrate-keys --dry-run --recovery-fingerprint beside the running server: a run would finish" "exit $rc: $(redact <<<"$dry" | tr '\n' ' ')"
+  note "  migrate-keys --dry-run beside the running server:"; redact <<<"$dry" | sed 's/^/    /' | tee -a "$RESULTS"
+  # And the real run beside it: refused (the server's heartbeat).
+  rc=0; docker exec "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint "$FP1" >/dev/null 2>"$LOGS/2-migrate-beside.stderr" || rc=$?
+  [[ $rc == 1 ]] && grep -q 'a server is running on this volume' "$LOGS/2-migrate-beside.stderr" || fail "migrate-keys beside the running server: refused" "exit $rc: $(tail -1 "$LOGS/2-migrate-beside.stderr" | redact)"
   stop_timed
-  pass "the release served with HOSTED_KEKS (sealed every key, said to migrate); A recalled; the private key proven beside it"
+  pass "the release served with HOSTED_KEKS (sealed every key, said to migrate); A recalled; the dry run beside it would finish (no private key on the server); the real run beside it refused"
 }
 
 mstep_3() { # Mike's step 5: migrate-keys as a start command (server stopped), then once more (a restart re-running it)
+  CMDARGS=(--recovery-fingerprint "$FP1")
   run_cmd "$LOGS/3-migrate.log" migrate-keys -e HOSTED_KEKS
   [[ $RC == 0 ]] || fail "migrate-keys exit 0" "exit $RC: $(lg -v '^\[hosted\] re-key' | redact | tail -6 | tr '\n' ' ')"
   lg -q 'control re-keyed' || fail '"control re-keyed …"' "$(logtext | redact | tail -8 | tr '\n' ' ')"
@@ -678,6 +686,7 @@ mstep_3() { # Mike's step 5: migrate-keys as a start command (server stopped), t
   [[ -n $CBASE ]] && grep -q "^${CBASE}oauth.sqlite/" <<<"$control" || fail "both control databases at a new base, control/<key id>/" "$(head -3 <<<"$control" | tr '\n' ' ')"
   run_cmd "$LOGS/3-migrate-again.log" migrate-keys -e HOSTED_KEKS
   [[ $RC == 0 ]] && lg -q '^0 keys moved' && lg -q 'done:' && ! lg -q 're-keyed' || fail "migrate-keys again: exit 0, nothing to do" "exit $RC: $(logtext | redact | tail -6 | tr '\n' ' ')"
+  CMDARGS=()
   pass "migrate-keys: done; every old key object gone; control re-keyed to $CBASE, the old control replicas deleted; a second run did nothing"
 }
 
