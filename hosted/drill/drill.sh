@@ -635,7 +635,8 @@ mstep_0() { # the new image (HEAD) and the local S3 as step 0 does, then the old
 
 mstep_1() { # the OLD image under HOSTED_KEKS: an invite, a sign-up, OAuth, wake, remember A, replicated
   local IMAGE=$OLDIMAGE
-  serve "$LOGS/1-old.log" -e HOSTED_KEKS
+  # The image from before WB1 passes no SSL_CERT_FILE to its Litestream: the local S3's CA goes where Go looks by default.
+  serve "$LOGS/1-old.log" -e HOSTED_KEKS -v "$CERTS/ca.pem:/etc/ssl/certs/ca-certificates.crt:ro"
   cn invite 1
   cn signup 1 "$LOG"
   cn oauth; cn wake
