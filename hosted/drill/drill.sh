@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
 # THE HOSTED RESTORE DRILL (docs/hosted/RUNBOOK.md, "The drill with the real binary"):
 # production's deployed image, real Litestream, the drill bucket on R2 with SSE-C, a
-# throwaway KEK. On a Mac, with Docker, from a checkout with hosted/'s dependencies
+# throwaway recovery keypair (WB1: the bucket's keys are sealed to it, and the lost
+# volume's keys come back only with its private key, through `hold` + `recover-keys`,
+# as on Railway). On a Mac, with Docker, from a checkout with hosted/'s dependencies
 # (bun install --cwd hosted --frozen-lockfile).
 #
 #   hosted/drill/drill.sh              the whole drill, steps 0-13 (refuses while a run's state exists)
-#   hosted/drill/drill.sh --from N     resume a failed run at step N (the state file has its KEKs, tokens, ids)
+#   hosted/drill/drill.sh --from N     resume a failed run at step N (the state file has its keys, tokens, ids)
 #   hosted/drill/drill.sh --rehearse   steps 0-3 with BACKUPS=off on a scratch volume: no bucket, no credentials
 #                                      (--rehearse --from N resumes a rehearsal)
+#   hosted/drill/drill.sh --local      the whole drill against a LOCAL S3 with SSE-C (SeaweedFS in Docker, its
+#                                      own throwaway TLS certificate and credentials), no R2 and no account:
+#                                      the image built from this checkout's HEAD. For a change before it deploys
+#   hosted/drill/drill.sh --sha <commit>   build the image from that commit instead of production's deployed one
 #
 # Run it as one background process. Everything it writes goes to one scratch directory
 # outside the repository, $COUNTERPARTS_DRILL_DIR (default $TMPDIR/counterparts-drill):
 # RESULTS.md (REHEARSAL.md for --rehearse), the container logs, the state with the
-# throwaway KEKs (deleted at step 13), and the worktree at the deployed commit that the
-# image is built from. The R2 credentials come from ~/.config/counterparts-drill.env.
-# Nothing secret is printed or put on a command line: docker gets secrets by name
-# (-e NAME), from this shell's env.
+# throwaway keys (deleted at step 13), and the worktree at the commit that the image is
+# built from. The R2 credentials come from ~/.config/counterparts-drill.env (not with
+# --local). Nothing secret is printed or put on a command line: docker gets secrets by
+# name (-e NAME), from this shell's env; a private key goes in on stdin.
 set -Eeuo pipefail
 umask 077
 
@@ -47,17 +53,32 @@ IMAGE=''
 
 FROM=0
 REHEARSE=0
+LOCAL=0
+WANT_SHA=''
 while (( $# )); do
   case $1 in
     --from) FROM=${2:?--from N}; [[ $FROM =~ ^([0-9]|1[0-3])$ ]] || { echo "--from takes 0-13" >&2; exit 2; }; shift 2 ;;
     --rehearse) REHEARSE=1; LAST=3; shift ;;
-    *) echo "usage: drill.sh [--rehearse] [--from N]" >&2; exit 2 ;;
+    --local) LOCAL=1; shift ;;
+    --sha) WANT_SHA=${2:?--sha <commit>}; shift 2 ;;
+    *) echo "usage: drill.sh [--rehearse] [--local] [--sha <commit>] [--from N]" >&2; exit 2 ;;
   esac
 done
+(( LOCAL && REHEARSE )) && { echo "--local and --rehearse: the rehearsal has no bucket at all" >&2; exit 2; }
 
+# --local: a local S3 (SeaweedFS, which enforces SSE-C over TLS) on a Docker network of
+# its own. The server reaches it as https://s3:8333, this script's client as
+# https://127.0.0.1:8333; both trust only the drill's own throwaway CA.
+S3IMAGE=chrislusf/seaweedfs:4.50
+S3NAME=drill-s3
+NET=cp-drill-net
+CERTS=$SCRATCH/s3
 if (( REHEARSE )); then
   NAME=drill-rehearsal VOL=cp-drill-rehearsal TAG=rehearsal RESULTS=$SCRATCH/REHEARSAL.md
   BACKUP_ARGS=(-e BACKUPS=off)
+elif (( LOCAL )); then
+  NAME=drill VOL=cp-drill TAG=drill-local RESULTS=$SCRATCH/RESULTS-local.md
+  BACKUP_ARGS=(--network "$NET" -v "$CERTS:/certs:ro" -e NODE_EXTRA_CA_CERTS=/certs/ca.pem -e SSL_CERT_FILE=/certs/ca.pem -e R2_ENDPOINT -e R2_BUCKET -e R2_ACCESS_KEY_ID -e R2_SECRET_ACCESS_KEY)
 else
   NAME=drill VOL=cp-drill TAG=drill RESULTS=$SCRATCH/RESULTS.md
   BACKUP_ARGS=(-e R2_ENDPOINT -e R2_BUCKET -e R2_ACCESS_KEY_ID -e R2_SECRET_ACCESS_KEY)
@@ -72,7 +93,7 @@ STEP=pre
 RUN_PID=0
 
 # ── results, failures, state ──────────────────────────────────────────────────
-redact() { sed -E 's/token=[^&[:space:]]+/token=REDACTED/g; s/v1:[A-Za-z0-9+\/=]{20,}/v1:REDACTED/g; s#[a-z0-9]{32}\.r2\.cloudflarestorage\.com#<account>.r2.cloudflarestorage.com#g'; }
+redact() { sed -E 's/token=[^&[:space:]]+/token=REDACTED/g; s/v1:[A-Za-z0-9+\/=]{20,}/v1:REDACTED/g; s/cp-recovery:[A-Za-z0-9+\/=]{20,}/cp-recovery:REDACTED/g; s#[a-z0-9]{32}\.r2\.cloudflarestorage\.com#<account>.r2.cloudflarestorage.com#g'; }
 note() { printf '%s\n' "$*" | redact | tee -a "$RESULTS" >&2; } # stderr: never swallowed by a $(…)
 pass() { note "- step $STEP **pass**: $*"; }
 finding() { note "- step $STEP FINDING: $*"; }
@@ -91,14 +112,19 @@ trap 'LAST_ERR="a signal (killed)"; exit 143' TERM INT HUP
 trap 'rc=$?; for j in $(jobs -p); do kill -INT "$j" 2>/dev/null; kill "$j" 2>/dev/null; done; if [[ $rc -ne 0 && ! -f $FAILED ]]; then note "- step $STEP **FAIL**: ${LAST_ERR:-a command} exited $rc. Log: $LOG"; [[ $STEP == pre ]] || note "  (resume after fixing: drill.sh --from $STEP)"; fi' EXIT
 save() { touch "$STATE"; chmod 600 "$STATE"; sed -i '' "/^$1=/d" "$STATE"; printf '%s=%q\n' "$1" "$2" >> "$STATE"; printf -v "$1" '%s' "$2"; }
 # The client: its stdout is the result line, or "expected …; saw …" with exit 1 (its stderr goes to a log).
+# --local: the client reaches the local S3 on the host's port, trusting the drill's own CA.
+client() {
+  if (( LOCAL )); then (cd "$SCRATCH" && R2_ENDPOINT=https://127.0.0.1:8333 NODE_EXTRA_CA_CERTS="$CERTS/ca.pem" "$BUN" "$CLIENT" "$@" 2>>"$LOGS/client-stderr.log")
+  else (cd "$SCRATCH" && "$BUN" "$CLIENT" "$@" 2>>"$LOGS/client-stderr.log"); fi
+}
 c() {
   local out
-  if out=$(cd "$SCRATCH" && "$BUN" "$CLIENT" "$@" 2>>"$LOGS/client-stderr.log"); then printf '%s\n' "$out"; else
+  if out=$(client "$@"); then printf '%s\n' "$out"; else
     : > "$FAILED"; note "- step $STEP **FAIL** (drill-client $1): $out. Log: $LOG"; note "  (resume after fixing: drill.sh --from $STEP)"; exit 1
   fi
 }
 cn() { local out; out=$(c "$@") || exit 1; note "  $out"; } # a client result, noted
-ctry() { (cd "$SCRATCH" && "$BUN" "$CLIENT" "$@" 2>>"$LOGS/client-stderr.log"); } # may fail: the caller decides
+ctry() { client "$@"; } # may fail: the caller decides
 now() { perl -MTime::HiRes=time -e 'printf "%.1f", time'; }
 
 # ── the container ─────────────────────────────────────────────────────────────
@@ -110,16 +136,34 @@ port_free() { # names a container holding the port (a rehearsal's left after a f
   local who; who=$(docker ps --filter publish=8080 --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
   fail "port 8080 free" "${who:+container $who(docker rm -f $who) }$(lsof -nP -iTCP:8080 -sTCP:LISTEN | tail -1 | awk '{print $1, $2}')"
 }
+CMD=serve # what start() runs: serve, or hold (the start-command override a restore uses on Railway)
 start() { # start <log> [docker args, e.g. -e RESTORE_ON_BOOT=1]
   LOG=$1; shift
   gone || fail "no $NAME container before a start (docker stop $NAME; docker rm $NAME first)" "one exists"
   port_free
   printf '=== drill start %s\n' "$(date '+%H:%M:%S')" >> "$LOG"
   docker run -d --name "$NAME" -p 127.0.0.1:8080:8080 -v "$VOL":/data \
-    -e HOSTED_DATA_ROOT=/data -e PUBLIC_ORIGIN=http://127.0.0.1:8080 -e MAIL=log -e HOSTED_KEKS \
-    "${BACKUP_ARGS[@]}" "$@" "$IMAGE" serve > /dev/null
+    -e HOSTED_DATA_ROOT=/data -e PUBLIC_ORIGIN=http://127.0.0.1:8080 -e MAIL=log -e HOSTED_RECOVERY_PUBKEY \
+    "${BACKUP_ARGS[@]}" "$@" "$IMAGE" "$CMD" > /dev/null
   docker logs -f "$NAME" >> "$LOG" 2>&1 &
   RUN_PID=$!
+}
+# THE RAILWAY RESTORE, step by step (RUNBOOK, Restore): the container started on `hold` (a
+# start-command override), `recover-keys` run inside it with the private key on stdin
+# (railway ssh), then the container stopped. Sets RK (its stdout) and RKC (its exit code).
+recover_in_hold() { # recover_in_hold <log> <private key file> [recover-keys args]
+  local log=$1 key=$2; shift 2
+  CMD=hold start "$log"
+  local until=$((SECONDS + 60))
+  until lg -q 'holding on port'; do
+    (( SECONDS < until )) && running || fail "hold to say \"holding on port\" within 60 s" "$(hosted_lines | tail -3 | tr '\n' ' ')"
+    sleep 0.5
+  done
+  [[ $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/readyz) == 200 ]] || fail "hold's /readyz 200 (the platform keeps the container)" "another status"
+  RKC=0
+  RK=$(docker exec -i "$NAME" node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys "$@" < "$key" 2>>"$LOGS/$STEP-recover-keys.stderr") || RKC=$?
+  printf '%s\n' "$RK" >> "$LOGS/$STEP-recover-keys.stdout"
+  docker stop -t 10 "$NAME" >/dev/null; end_follower; remove
 }
 # This container's part of $LOG: everything after the last start marker.
 logtext() { awk '/^=== drill start /{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' "$LOG"; }
@@ -193,7 +237,7 @@ ltx_diagnostic() {
 }
 wait_txid() { # wait_txid <prefix> <baseline> -> prints the new maxTXID line; on timeout, the diagnostic and FAIL
   local out
-  if out=$(cd "$SCRATCH" && "$BUN" "$CLIENT" r2-wait "$1" "$2" 60 2>>"$LOGS/client-stderr.log"); then printf '%s\n' "$out"; else
+  if out=$(client r2-wait "$1" "$2" 60); then printf '%s\n' "$out"; else
     ltx_diagnostic; fail "replication: maxTXID under $1 above $2 within 60 s" "$out"
   fi
 }
@@ -202,9 +246,12 @@ wait_txid() { # wait_txid <prefix> <baseline> -> prints the new maxTXID line; on
 STEP=pre
 [[ -d $REPO/hosted/node_modules/oauth4webapi && -d $REPO/hosted/node_modules/aws4fetch ]] || fail "hosted deps installed in this checkout (bun install --cwd hosted --frozen-lockfile)" "no hosted/node_modules/oauth4webapi or aws4fetch"
 [[ -x $BUN ]] || fail "bun at $BUN" "none"
-command -v gh >/dev/null || fail "gh (signed in) for the deployed commit" "no gh"
+(( LOCAL )) || [[ -n $WANT_SHA ]] || command -v gh >/dev/null || fail "gh (signed in) for the deployed commit" "no gh"
 docker info >/dev/null 2>&1 || fail "Docker running" "docker info failed"
-if (( ! REHEARSE )); then
+if (( LOCAL )); then
+  # The local S3's own names; its secret is made at step 0 and kept in the state (a resume reads it there).
+  export R2_ENDPOINT=https://s3:8333 R2_BUCKET=counterparts-drill R2_ACCESS_KEY_ID=drill-local
+elif (( ! REHEARSE )); then
   [[ -f $ENVFILE ]] || fail "$ENVFILE (R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY; chmod 600; docs/hosted/RUNBOOK.md, The drill)" "no such file"
   [[ $(stat -f %Lp "$ENVFILE") == 600 ]] || fail "$ENVFILE mode 600" "mode $(stat -f %Lp "$ENVFILE")"
   # KEY=VALUE lines, parsed rather than sourced: comments, blank lines and quotes allowed, nothing run.
@@ -226,14 +273,15 @@ if (( FROM == 0 )); then
     reached=$(sed -n 's/^REACHED=//p' "$STATE" 2>/dev/null || true)
     fail "no run in progress" "state from a run that passed step ${reached:-none}: drill.sh --from $(( ${reached:-0} + 1 )), or remove $STATE and $DRILL_STATE"
   fi
-  { echo; echo "# $( ((REHEARSE)) && echo Rehearsal || echo Drill ) $(date '+%Y-%m-%d %H:%M %Z')"; echo; echo "Scripts from checkout $(git -C "$REPO" rev-parse --short HEAD), container $NAME, volume $VOL. Logs: $LOGS"; echo; } >> "$RESULTS"
+  { echo; echo "# $( ((REHEARSE)) && echo Rehearsal || { ((LOCAL)) && echo "Drill (--local: a local S3 with SSE-C, no R2)" || echo Drill; } ) $(date '+%Y-%m-%d %H:%M %Z')"; echo; echo "Scripts from checkout $(git -C "$REPO" rev-parse --short HEAD), container $NAME, volume $VOL. Logs: $LOGS"; echo; } >> "$RESULTS"
 else
   [[ -f $STATE ]] || fail "a state file to resume from ($STATE)" "none: start from step 0"
   . "$STATE"
   [[ -n $SHA ]] || fail "the deployed commit in the state file" "none: start from step 0"
   IMAGE=counterparts-drill:${SHA:0:8}
   docker image inspect "$IMAGE" >/dev/null 2>&1 || fail "the image $IMAGE from step 0" "no such image: start from step 0"
-  export HOSTED_KEKS=$K1
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
+  if (( LOCAL )); then export R2_SECRET_ACCESS_KEY=$S3SECRET; fi
   note ""; note "## resumed at step $FROM, $(date '+%H:%M:%S') (last passed: ${REACHED:-none})"
   LOG=$(ls -t "$LOGS"/*.log 2>/dev/null | head -1 || echo "$LOGS/none.log")
   RUN_PID=0
@@ -247,13 +295,19 @@ step_0() { # preflight: deployed sha and its worktree, Docker, port, no leftover
   # deploying from the hosted-live branch): its newest deployment whose latest status is success.
   # The image is built from exactly that commit, whatever this checkout is on.
   local env="fabulous-recreation / production" deployed="" id state
-  for id in $(gh api "repos/$GH_REPO/deployments?environment=fabulous-recreation%20%2F%20production&per_page=10" --jq '.[].id'); do
-    state=$(gh api "repos/$GH_REPO/deployments/$id/statuses" --jq '.[0].state')
-    if [[ $state == success ]]; then deployed=$(gh api "repos/$GH_REPO/deployments/$id" --jq .sha); break; fi
-  done
-  [[ $deployed =~ ^[0-9a-f]{40}$ ]] || fail "the sha of $env's newest successful deployment" "${deployed:-none found}"
+  if [[ -n $WANT_SHA ]] || (( LOCAL )); then
+    # --sha, or --local's default: this checkout's HEAD (committed work only: the worktree is made at it).
+    deployed=$(git -C "$REPO" rev-parse "${WANT_SHA:-HEAD}^{commit}" 2>/dev/null || true)
+    env="${WANT_SHA:-HEAD} (not production's deployed commit)"
+  else
+    for id in $(gh api "repos/$GH_REPO/deployments?environment=fabulous-recreation%20%2F%20production&per_page=10" --jq '.[].id'); do
+      state=$(gh api "repos/$GH_REPO/deployments/$id/statuses" --jq '.[0].state')
+      if [[ $state == success ]]; then deployed=$(gh api "repos/$GH_REPO/deployments/$id" --jq .sha); break; fi
+    done
+  fi
+  [[ $deployed =~ ^[0-9a-f]{40}$ ]] || fail "the sha of $env" "${deployed:-none found}"
   SHA=$deployed IMAGE=counterparts-drill:${deployed:0:8}
-  git -C "$REPO" fetch -q origin
+  (( LOCAL )) || git -C "$REPO" fetch -q origin
   git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null || fail "commit $SHA in this checkout after git fetch" "not found"
   if [[ -e $WT ]]; then
     [[ $(git -C "$WT" rev-parse HEAD 2>/dev/null || true) == "$SHA" ]] || fail "the worktree $WT at $SHA (or remove it: git -C $REPO worktree remove --force $WT)" "$(git -C "$WT" rev-parse HEAD 2>/dev/null || echo "not a worktree")"
@@ -266,27 +320,58 @@ step_0() { # preflight: deployed sha and its worktree, Docker, port, no leftover
   port_free
   gone || fail "no container named $NAME" "one exists"
   ! docker volume inspect "$VOL" >/dev/null 2>&1 || fail "no volume $VOL" "it exists"
+  if (( LOCAL )); then local_s3; fi
   if (( ! REHEARSE )); then cn r2-empty; fi
   docker build -f "$WT/hosted/Dockerfile" -t "$IMAGE" "$WT" > "$LOG" 2>&1 || fail "the image builds" "docker build failed"
   local lsv; lsv=$(docker run --rm --entrypoint litestream "$IMAGE" version)
   local want; want=$(sed -n 's/^ARG LITESTREAM_VERSION=//p' "$WT/hosted/Dockerfile")
   [[ -n $want && $lsv == *"$want"* ]] || fail "Litestream ${want:-(no ARG LITESTREAM_VERSION in the Dockerfile)} in the image, as the Dockerfile pins" "$lsv"
-  local r1 r2 k
-  r1=$(openssl rand -base64 32) || fail "openssl rand to succeed" "it failed"
-  r2=$(openssl rand -base64 32) || fail "openssl rand to succeed" "it failed"
-  for k in "$r1" "$r2"; do
-    [[ $(printf '%s' "$k" | base64 -D | wc -c | tr -d ' ') == 32 ]] || fail "a throwaway key of 32 bytes" "$(printf '%s' "$k" | base64 -D | wc -c | tr -d ' ') bytes"
+  # Two throwaway recovery keypairs (WB1): P1, the drill's, and P2, a wrong one. The private keys
+  # go to 0600 files in the scratch dir (deleted at step 13) and reach a container on stdin only.
+  local made p
+  for p in 1 2; do
+    rm -f "$SCRATCH/p$p.key"
+    made=$(cd "$REPO" && "$BUN" hosted/src/main.ts recovery-keygen "$SCRATCH/p$p.key" 2>>"$LOGS/0-keygen.stderr") || fail "recovery-keygen to make P$p" "it failed ($LOGS/0-keygen.stderr)"
+    [[ $(stat -f %Lp "$SCRATCH/p$p.key") == 600 ]] || fail "P$p's private key file mode 600" "mode $(stat -f %Lp "$SCRATCH/p$p.key")"
+    save "PUB$p" "$(sed -n 's/^HOSTED_RECOVERY_PUBKEY=//p' <<<"$made")"
+    save "FP$p" "$(sed -n 's/^fingerprint //p' <<<"$made")"
   done
-  [[ $r1 != "$r2" ]] || fail "K1 and K2 different" "the same"
+  [[ $FP1 =~ ^[0-9a-f]{16}$ && $FP2 =~ ^[0-9a-f]{16}$ && $FP1 != "$FP2" ]] || fail "two recovery keypairs, different fingerprints" "$FP1 / $FP2"
   save SHA "$SHA"
-  save K1 "v1:$r1"
-  save K2 "v1:$r2" # the same label, other bytes: a mistyped key
   . "$STATE"
-  pass "$env's deployed sha $SHA, port 8080 free, no $NAME container or $VOL volume, image $(docker image inspect -f '{{.Id}}' "$IMAGE" | cut -c8-19) ($(docker image inspect -f '{{.Architecture}}' "$IMAGE")), litestream $lsv; throwaway K1 and K2 (v1:, 32 bytes each, different) made"
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
+  pass "$env: sha $SHA, port 8080 free, no $NAME container or $VOL volume, image $(docker image inspect -f '{{.Id}}' "$IMAGE" | cut -c8-19) ($(docker image inspect -f '{{.Architecture}}' "$IMAGE")), litestream $lsv; throwaway recovery keypairs P1 ($FP1) and P2 ($FP2, the wrong one) made"
 }
 
-step_1() { # serve under K1, two invites
-  export HOSTED_KEKS=$K1
+# --local's S3: a throwaway CA and certificate (s3 and 127.0.0.1), credentials made now, SeaweedFS on
+# its own network, the bucket made. Everything under $CERTS goes at step 13.
+local_s3() {
+  docker rm -f "$S3NAME" >/dev/null 2>&1 || true
+  docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
+  rm -rf "$CERTS"
+  (umask 022 && mkdir -p "$CERTS" && cd "$CERTS" \
+    && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout ca.key -out ca.pem -days 2 -subj /CN=counterparts-drill-ca 2>/dev/null \
+    && openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout s3.key -out s3.csr -subj /CN=s3 2>/dev/null \
+    && printf 'subjectAltName=DNS:s3,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n' > ext.cnf \
+    && openssl x509 -req -in s3.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out s3.pem -days 2 -extfile ext.cnf 2>/dev/null \
+    && rm -f ca.key s3.csr ca.srl ext.cnf) || fail "the local S3's certificate" "openssl failed"
+  save S3SECRET "$(openssl rand -hex 24)"
+  export R2_SECRET_ACCESS_KEY=$S3SECRET
+  (umask 022 && printf '{"identities":[{"name":"drill","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}\n' "$R2_ACCESS_KEY_ID" "$S3SECRET" > "$CERTS/s3.json")
+  docker run -d --name "$S3NAME" --network "$NET" --network-alias s3 -p 127.0.0.1:8333:8333 -v "$CERTS:/certs:ro" "$S3IMAGE" \
+    server -dir=/data -s3 -s3.port=8333 -s3.config=/certs/s3.json -s3.cert.file=/certs/s3.pem -s3.key.file=/certs/s3.key > /dev/null || fail "the local S3 ($S3IMAGE) starts" "docker run failed"
+  local i
+  for i in $(seq 1 60); do
+    if echo "s3.bucket.create -name $R2_BUCKET" | docker exec -i "$S3NAME" weed shell >/dev/null 2>&1 && ctry r2-list keys/ >/dev/null 2>&1; then
+      note "  local S3: $S3IMAGE on $NET, its own CA, bucket $R2_BUCKET"; return 0
+    fi
+    sleep 1
+  done
+  fail "the local S3 answering, its bucket made, within 60 s" "$(docker logs --tail 5 "$S3NAME" 2>&1 | tr '\n' ' ')"
+}
+
+step_1() { # serve sealing to P1, two invites
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
   serve "$LOGS/1-serve.log"
   note "  $(lg -m1 '\[hosted\] serving')"
   cn invite 1; cn invite 2
@@ -310,7 +395,7 @@ step_2() { # two sign-ups; 10 s before any /mcp; the sign-up's backup before the
   note "  store directories on the volume: $(docker exec "$NAME" sh -c 'ls /data/tenants 2>/dev/null | wc -l' | tr -d ' '), store databases: 0"
   if (( ! REHEARSE )); then
     local keys; keys=$(c r2-list keys/)
-    [[ $(grep -c . <<<"$keys") == 3 && $keys == *keys/control.wrapped* ]] || fail "keys/: control.wrapped + one per sign-up (3)" "$(tr '\n' ' ' <<<"$keys")"
+    [[ $(grep -c . <<<"$keys") == 3 && $keys == *keys/control.sealed* ]] || fail "keys/: control.sealed + one per sign-up (3)" "$(tr '\n' ' ' <<<"$keys")"
     local rose; rose=$(wait_txid control/accounts.sqlite/ "$ACC0")
     note "  control/accounts.sqlite maxTXID after the sign-ups: $rose, while no store database exists yet"
     local acc1 oa1; acc1=$(c r2-settle control/accounts.sqlite/); oa1=$(c r2-settle control/oauth.sqlite/)
@@ -329,8 +414,8 @@ step_3() { # user 1: OAuth, wake, remember A; the store id
   STORE1=$(sed -E 's#^/data/tenants/([^/]+)/store/.*#\1#' <<<"$db"); save STORE1 "$STORE1"
   if (( ! REHEARSE )); then
     local keys; keys=$(c r2-list keys/)
-    grep -qx "keys/$STORE1.wrapped" <<<"$keys" && [[ $STORE1 != control ]] || fail "keys/$STORE1.wrapped in the bucket, not control" "$(tr '\n' ' ' <<<"$keys")"
-    STORE2=$(grep -v -e "keys/$STORE1.wrapped" -e keys/control.wrapped <<<"$keys" | sed -E 's#^keys/(.*)\.wrapped$#\1#'); save STORE2 "$STORE2"
+    grep -qx "keys/$STORE1.sealed" <<<"$keys" && [[ $STORE1 != control ]] || fail "keys/$STORE1.sealed in the bucket, not control" "$(tr '\n' ' ' <<<"$keys")"
+    STORE2=$(grep -v -e "keys/$STORE1.sealed" -e keys/control.sealed <<<"$keys" | sed -E 's#^keys/(.*)\.sealed$#\1#'); save STORE2 "$STORE2"
     T0=$(c r2-settle "tenants/$STORE1/"); save T0 "$T0"
     note "  user 1's store ${STORE1:0:8}… (key object in the bucket; user 2's ${STORE2:0:8}…); tenants/ maxTXID before remember A (settled after wake): $T0"
   else
@@ -363,9 +448,11 @@ step_4() { # replication by TXID: the store, and both control databases (the gra
   pass "maxTXID rose: tenants/${STORE1:0:8}… $t1; control/accounts.sqlite $a; control/oauth.sqlite $o"
 }
 
-step_5() { # SSE-C: plain GETs refused, the plain key object not
+step_5() { # SSE-C: plain GETs refused, the plain key object not; every key object sealed to P1 (WB1)
   LOG=$LOGS/1-serve.log; need_running 1
-  local out; out=$(c ssec-check "$STORE1"); pass "$out"
+  local out sealed; out=$(c ssec-check "$STORE1"); sealed=$(c sealed-check "$STORE1" "$FP1")
+  lg -q "key objects sealed to recovery key $FP1" || fail "serve's line \"key objects sealed to recovery key $FP1\"" "$(hosted_lines | tail -4 | tr '\n' ' ')"
+  pass "$out; $sealed"
 }
 
 step_6() { # remember B, then stop at once (does B survive the stop?)
@@ -390,7 +477,7 @@ step_7() { # the volume is gone
 
 step_8() { # an empty volume beside a bucket with backups: refused without RESTORE_ON_BOOT
   fresh_volume
-  export HOSTED_KEKS=$K1
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
   local before after; before=$(c r2-snapshot)
   refused_start "$LOGS/8-refuse.log"
   [[ $RC == 1 ]] || fail "exit 1" "exit $RC"
@@ -401,27 +488,40 @@ step_8() { # an empty volume beside a bucket with backups: refused without RESTO
   pass "exit 1, refused; bucket unchanged ($after); volume empty"
 }
 
-step_9() { # RESTORE_ON_BOOT=1 under a wrong KEK (K2, same v1 label): refused, harmlessly
+step_9() { # RESTORE_ON_BOOT=1 with no private key, then recover-keys with the WRONG one (P2): both refused, harmlessly
   fresh_volume
   local before after; before=$(c r2-snapshot)
-  export HOSTED_KEKS=$K2
-  refused_start "$LOGS/9-wrong-key.log" -e RESTORE_ON_BOOT=1
-  export HOSTED_KEKS=$K1
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
+  refused_start "$LOGS/9-no-private-key.log" -e RESTORE_ON_BOOT=1
   [[ $RC == 1 ]] || fail "exit 1" "exit $RC"
-  lg -q "open with the KEK ring" || fail "the refusal \"… doesn't open with the KEK ring …\" (backup.ts:236)" "$(hosted_lines | tr '\n' ' ')"
-  ! lg -q '\[hosted\] serving' || fail "no serving under the wrong KEK" "it served"
-  ! lg -q 'restored the control databases' || fail "no control databases restored under the wrong KEK" "$(lg 'restored the control')"
+  lg -q "sealed to the recovery key, which the server never holds: run recover-keys" || fail "the refusal \"… sealed to the recovery key, which the server never holds: run recover-keys …\" (backup.ts, KEY_SEALED)" "$(hosted_lines | tr '\n' ' ')"
+  ! lg -q '\[hosted\] serving' || fail "no serving without the private key" "it served"
+  ! lg -q 'restored the control databases' || fail "no control databases restored without the private key" "$(lg 'restored the control')"
+  note "  RESTORE_ON_BOOT=1, exit $RC; refusal:"; hosted_lines | tee -a "$RESULTS"
+  after=$(c r2-snapshot); [[ $after == "$before" ]] || fail "the bucket unchanged ($before)" "$after"
+  recover_in_hold "$LOGS/9-wrong-private-key.log" "$SCRATCH/p2.key"
+  [[ $RKC == 1 ]] || fail "recover-keys with P2 to exit 1" "exit $RKC: $RK"
+  grep -q "isn't the recovery key the bucket's keys are sealed to ($FP1)" "$LOGS/$STEP-recover-keys.stderr" || fail "recover-keys with P2: \"… isn't the recovery key the bucket's keys are sealed to ($FP1)\"" "$(tail -2 "$LOGS/$STEP-recover-keys.stderr" | redact | tr '\n' ' ')"
+  note "  recover-keys with the wrong private key (P2, $FP2) in hold: exit $RKC; $(grep -o "this private key.*written" "$LOGS/$STEP-recover-keys.stderr" | head -1)"
   after=$(c r2-snapshot); [[ $after == "$before" ]] || fail "the bucket unchanged ($before)" "$after"
   local left; left=$(volume_ls)
   ! docker run --rm -v "$VOL":/data --entrypoint test "$IMAGE" -e /data/control/accounts.sqlite || fail "no accounts database on the volume" "$(tr '\n' ' ' <<<"$left")"
-  note "  exit $RC; refusal:"; hosted_lines | tee -a "$RESULTS"
+  ! docker run --rm -v "$VOL":/data --entrypoint test "$IMAGE" -e /data/keys/volume.kek || fail "no volume key made by either refusal" "$(tr '\n' ' ' <<<"$left")"
   note "  volume after: ${left:-empty}" ; docker volume rm "$VOL" >/dev/null
-  pass "refused (exit $RC), nothing restored, bucket unchanged; volume removed"
+  pass "refused both ways (no private key: exit 1; the wrong one: exit 1), nothing restored, no volume key made, bucket unchanged; volume removed"
 }
 
-step_10() { # RESTORE_ON_BOOT=1 under K1: everything back, the old token, then the refresh
+step_10() { # the Railway restore: hold, recover-keys with P1 (stdin), then RESTORE_ON_BOOT=1: everything back, the old token, then the refresh
   fresh_volume
-  export HOSTED_KEKS=$K1
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
+  local before; before=$(c r2-snapshot)
+  recover_in_hold "$LOGS/10-hold.log" "$SCRATCH/p1.key" --dry-run
+  [[ $RKC == 0 && $RK == *"3 keys open with it, and would be brought back"* ]] || fail "recover-keys --dry-run with P1: 3 keys open (control, user 1, user 2)" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  note "  recover-keys --dry-run with P1 in hold: $(sed -n 2p <<<"$RK")"
+  recover_in_hold "$LOGS/10-hold.log" "$SCRATCH/p1.key"
+  [[ $RKC == 0 && $RK == *"3 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 3 keys brought back" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  note "  recover-keys with P1 in hold (the private key on stdin): $(sed -n 2p <<<"$RK" | redact)"
+  [[ $(c r2-snapshot) == "$before" ]] || fail "the bucket unchanged by recover-keys" "it changed"
   serve "$LOGS/10-restore.log" -e RESTORE_ON_BOOT=1
   lg -q 'restored the control databases: 2 restored' || fail '"restored the control databases: 2 restored"' "$(hosted_lines | tr '\n' ' ')"
   lg -q 'RESTORE_ON_BOOT: 1 store databases restored' || fail '"RESTORE_ON_BOOT: 1 store databases restored"' "$(hosted_lines | tr '\n' ' ')"
@@ -453,7 +553,10 @@ step_12() { # a second cycle: stop, volume gone, restore, A B C
   stop_timed; note "  docker stop -t 60 took $STOP_S s"
   if lg -q 'sidecar.kill'; then finding "sidecar.kill in the log: the shutdown sync was cut short"; fi
   docker volume rm "$VOL" >/dev/null
-  export HOSTED_KEKS=$K1
+  export HOSTED_RECOVERY_PUBKEY=$PUB1
+  recover_in_hold "$LOGS/12-hold.log" "$SCRATCH/p1.key"
+  [[ $RKC == 0 && $RK == *"3 keys brought back from the bucket"* ]] || fail "recover-keys with P1: 3 keys brought back" "exit $RKC: $(redact <<<"$RK" | tr '\n' ' ')"
+  note "  recover-keys with P1 in hold: $(sed -n 2p <<<"$RK" | redact)"
   serve "$LOGS/12-restore.log" -e RESTORE_ON_BOOT=1
   lg -q 'restored the control databases: 2 restored' || fail '"restored the control databases: 2 restored"' "$(hosted_lines | tr '\n' ' ')"
   lg -q 'RESTORE_ON_BOOT: 1 store databases restored' || fail '"RESTORE_ON_BOOT: 1 store databases restored"' "$(hosted_lines | tr '\n' ' ')"
@@ -481,11 +584,17 @@ step_13() { # cleanup
   docker image rm "$IMAGE" >/dev/null; did+=("image $IMAGE removed")
   if [[ -e $WT ]]; then git -C "$REPO" worktree remove --force "$WT"; fi
   [[ ! -d $WT ]] || fail "worktree $WT removed" "it is still there"; did+=("worktree removed")
-  rm -P -f "$STATE" "$DRILL_STATE" 2>/dev/null || rm -f "$STATE" "$DRILL_STATE"
-  [[ ! -e $STATE && ! -e $DRILL_STATE ]] || fail "state files deleted" "they are still there"; did+=("state files deleted")
+  if (( LOCAL )); then
+    docker rm -f "$S3NAME" >/dev/null 2>&1 || true
+    docker network rm "$NET" >/dev/null 2>&1 || true
+    rm -rf "$CERTS"
+    [[ -z $(docker ps -aq -f "name=^/${S3NAME}$") && ! -e $CERTS ]] || fail "the local S3, its network and certificate removed" "something is left"; did+=("local S3, its network and certificate removed")
+  fi
+  rm -P -f "$STATE" "$DRILL_STATE" "$SCRATCH/p1.key" "$SCRATCH/p2.key" 2>/dev/null || rm -f "$STATE" "$DRILL_STATE" "$SCRATCH/p1.key" "$SCRATCH/p2.key"
+  [[ ! -e $STATE && ! -e $DRILL_STATE && ! -e $SCRATCH/p1.key && ! -e $SCRATCH/p2.key ]] || fail "state files and private keys deleted" "they are still there"; did+=("state files and the throwaway private keys deleted")
   local line="" d; for d in "${did[@]}"; do line+="${line:+, }$d"; done
   pass "$line (logs kept in $LOGS)"
-  note "  next: delete the drill token and the emptied bucket (docs/hosted/RUNBOOK.md, The drill, Cleanup)"
+  (( LOCAL )) || note "  next: delete the drill token and the emptied bucket (docs/hosted/RUNBOOK.md, The drill, Cleanup)"
 }
 
 for (( s = FROM; s <= LAST; s++ )); do
@@ -497,7 +606,7 @@ if (( REHEARSE )); then
   # A rehearsal cleans up after itself, so the drill finds port 8080 free and no state (a failed one stays, for --from).
   docker stop -t 60 "$NAME" >/dev/null; end_follower; remove
   docker volume rm -f "$VOL" >/dev/null
-  rm -f "$STATE" "$DRILL_STATE"
+  rm -f "$STATE" "$DRILL_STATE" "$SCRATCH/p1.key" "$SCRATCH/p2.key"
   note "- rehearsal done through step $LAST; container, volume $VOL and state removed (the image and the worktree stay for the drill)"
 fi
 exit 0
