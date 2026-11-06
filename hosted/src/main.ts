@@ -5,9 +5,18 @@
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT] [--expires DAYS]
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
- *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts rewrap   (server stopped; every DEK onto HOSTED_KEK_CURRENT)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
+ *
+ * Write-only backups (WB1; keys.ts, keyops.ts; docs/hosted/RUNBOOK.md, Write-only backups):
+ *
+ *   … main.ts recovery-keygen   (on Mike's Mac: a recovery keypair; the private key printed to the terminal once, no file)
+ *   … main.ts recovery-fingerprint [--key-file <path>]   (a private key's fingerprint, the key read from stdin, not shown)
+ *   … main.ts migrate-keys --recovery-fingerprint <fp> [--dry-run] [--abort-control-rekey]   (server stopped, HOSTED_KEKS still
+ *                                         set: the keys onto the volume KEK, the bucket's sealed, control re-keyed)
+ *   … main.ts recover-keys [--dry-run] [--key-file <path>] [--control-aside <label>] [--adopt-unproven]   (after a volume is lost:
+ *                                         the private key from stdin, not shown, or the file; never from the environment)
+ *   … main.ts hold   (a start-command override: answers /readyz and nothing else, so `railway ssh` reaches a stopped server)
  *
  * Everything comes from the environment, and nothing falls back to a default:
  *
@@ -22,8 +31,10 @@
  *   COOKIE_KEYS        comma-separated keys for the OAuth library's cookies, newest first, each 32+ characters
  *                      (optional); the first also seeds the forms' CSRF key, so open forms survive a restart.
  *                      Unset: both are random per process, and every open form expires on a restart
- *   HOSTED_KEKS        the KEK ring, version:base64 (keys.ts; the beta's KEK holder)
- *   HOSTED_KEK_CURRENT the version new wraps use
+ *   HOSTED_RECOVERY_PUBKEY  the recovery key's PUBLIC half (recovery-keygen prints it): every key object put in the
+ *                      bucket is sealed to it (WB1). Required with backups on. The private half never goes in the env
+ *   HOSTED_KEKS, HOSTED_KEK_CURRENT   the env KEK ring from before WB1, read only to open keys still under it, until
+ *                      migrate-keys has moved them onto the volume KEK (keys/volume.kek); then removed
  *   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   one bucket, objects only
  *   LITESTREAM_BIN     the sidecar binary (default: litestream on PATH)
  *   BACKUPS            "off" for a local run with no bucket
@@ -40,7 +51,8 @@
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { isAbsolute, join } from "node:path";
 
 import { withEmbedderDefault } from "../../src/adapters/config.js";
@@ -58,7 +70,8 @@ import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
-import { KeyStore, kekRingFromEnv } from "./keys.js";
+import { KEK_ENV, KeyStore, generateRecoveryKey, recoveryOpenerFromText, recoverySealerFromEnv, volumeWrapperFromEnv } from "./keys.js";
+import { SERVING_EVERY_MS, SERVING_MARK, migrateKeys, recoverKeys } from "./keyops.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
 
@@ -108,8 +121,11 @@ function mailerFrom(env: Record<string, string | undefined>): Mailer | string {
  */
 export function backupFromEnv(env: Record<string, string | undefined>, dataRoot: string): AppBackupOptions | null | { refusal: string } {
   if (env["BACKUPS"] === "off") return null;
-  const wrapper = kekRingFromEnv(env);
-  if ("refusal" in wrapper) return { refusal: `refused: ${wrapper.refusal} (or BACKUPS=off for a local run)` };
+  // The volume KEK (WB1): a file on the volume, made at the first wrap; HOSTED_KEKS only while keys are still under it.
+  const wrapper = volumeWrapperFromEnv(env, dataRoot);
+  if ("refusal" in wrapper) return { refusal: `refused: ${wrapper.refusal}` };
+  const sealer = recoverySealerFromEnv(env);
+  if ("refusal" in sealer) return { refusal: `refused: ${sealer.refusal} (or BACKUPS=off for a local run)` };
   const endpoint = env["R2_ENDPOINT"];
   const bucket = env["R2_BUCKET"];
   const accessKeyId = env["R2_ACCESS_KEY_ID"];
@@ -124,14 +140,19 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
     env: litestreamEnv(env, accessKeyId, secretAccessKey),
     onEvent: (name) => process.stderr.write(`[hosted] ${name}\n`),
   });
-  return { wrapper, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar };
+  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar };
 }
 
 const litestreamBinary = (env: Record<string, string | undefined>): string => env["LITESTREAM_BIN"] ?? "litestream";
 
-/** The Litestream child's whole environment: PATH and the R2 credentials, nothing else of the server's. */
+/**
+ * The Litestream child's whole environment: PATH and the R2 credentials, nothing
+ * else of the server's. And SSL_CERT_FILE when it is set (not a secret: the
+ * drill's local S3 has its own certificate; production never sets it).
+ */
 function litestreamEnv(env: Record<string, string | undefined>, accessKeyId: string, secretAccessKey: string): Record<string, string> {
-  return { PATH: env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: accessKeyId, LITESTREAM_SECRET_ACCESS_KEY: secretAccessKey };
+  const ca = env["SSL_CERT_FILE"];
+  return { PATH: env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: accessKeyId, LITESTREAM_SECRET_ACCESS_KEY: secretAccessKey, ...(ca === undefined || ca === "" ? {} : { SSL_CERT_FILE: ca }) };
 }
 
 /** `restore`'s runner, from the same environment as the sidecar's. */
@@ -162,7 +183,7 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
     if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
     // A store set to be deleted (R6) is left as it is (the #659 re-check): kept, it can be started over then.
     if (accounts.storeLocked(storeId)) throw new Error("that store is set to be deleted: start it over only if its person keeps it");
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
     if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
     // A deleted store is never started over (the #653 re-review, N3): the next start finishes its delete.
@@ -194,7 +215,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
   const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
@@ -286,6 +307,7 @@ const KEYLESS_WORDS: Record<KeylessReason, string> = {
   "keys-newer": "this volume's keys (keys/keys.sqlite) were made after the store was first opened, so an older key of it may exist. Tell the coordinator",
   "bucket-unreadable": "the bucket didn't answer one of the checks. The next restart tries again",
   locked: "its account is set to be deleted (a pending delete), and a store set to be erased is never given a new key. It is erased at its deadline; if its person keeps it, the next start checks it like any store that lived with no key",
+  sealed: "its key isn't on this volume (keys/keys.sqlite lost?), and the bucket has it sealed to the recovery key, which the server never holds. Stop the server and run recover-keys with the recovery private key (docs/hosted/RUNBOOK.md, Restore)",
 };
 
 /** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */
@@ -526,7 +548,7 @@ function emptyBucket(dataRoot: string, backup: AppBackupOptions, v: ControlVolum
   }
   if (existsSync(join(dataRoot, "control", "litestream.key")) || storeKeyFiles(dataRoot)) {
     // Never a NEW_BUCKET here (the #661 review): the stores' keys went with keys.sqlite and are in the old bucket only.
-    return { refusal: `refused: this volume has been backed up (a backup key file is here) but has lost keys/keys.sqlite, and ${where} has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong. Fix it and deploy again; the right bucket then asks for RESTORE_ON_BOOT=1 (with CONTROL_ASIDE=<new label> when control databases are here), which brings the keys and databases back. A new bucket can't take this volume: its stores' keys are only in the old one. If the old bucket is gone, tell the coordinator${runbook}` };
+    return { refusal: `refused: this volume has been backed up (a backup key file is here) but has lost keys/keys.sqlite, and ${where} has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong. Fix it and deploy again; the right bucket then needs recover-keys with the recovery private key (with --control-aside <new label> when control databases are here), then RESTORE_ON_BOOT=1, which bring the keys and databases back. A new bucket can't take this volume: its stores' keys are only in the old one. If the old bucket is gone, tell the coordinator${runbook}` };
   }
   if (vouched) return { note: `NEW_BUCKET=${value}: this volume ran without backups (BACKUPS=off) and starts on this bucket, which has no control key, on purpose. Its control databases and every store are backed up here from this start.${unset}`, firstBackup: true };
   return { refusal: `refused: this volume has people or stores but has never been backed up: it ran with BACKUPS=off. ${where[0]!.toUpperCase()}${where.slice(1)} has no control key. To turn backups on into this bucket, ${optIn}; this start then backs up the control databases and every store. If R2_BUCKET or R2_ENDPOINT is wrong, fix it instead${runbook}${mismatch}` };
@@ -535,9 +557,124 @@ function emptyBucket(dataRoot: string, backup: AppBackupOptions, v: ControlVolum
 /** The M2 refusal (the #653 review; store key files counted since the #661 review). */
 const BACKUPS_OFF_REFUSAL = "refused: BACKUPS=off on a volume that has been backed up (keys/keys.sqlite, control/litestream.key or a store's litestream.key is here). Name the bucket instead.";
 
+/**
+ * A secret for a command (WB1: the recovery private key): from `--key-file
+ * <path>`, or stdin. On a terminal it is read with the echo off, so a pasted key
+ * never shows; piped, the whole of stdin. Never from the environment, never
+ * printed or logged.
+ */
+async function readSecret(args: readonly string[], what: string): Promise<string> {
+  if (args.includes("--key-file")) {
+    const path = args[args.indexOf("--key-file") + 1];
+    if (path === undefined || path.startsWith("--")) throw new Error("--key-file needs a path");
+    return readFileSync(path, "utf8");
+  }
+  const stdin = process.stdin;
+  // Piped: read fd 0 to its end, synchronously (a stream already ended before
+  // anything listened would leave nothing to keep the process alive under bun).
+  if (stdin.isTTY !== true) return readFileSync(0, "utf8");
+  process.stderr.write(`${what} (paste it, then Enter; it isn't shown): `);
+  stdin.setRawMode(true);
+  stdin.resume();
+  return new Promise<string>((done, fail) => {
+    let text = "";
+    const onData = (d: Buffer | string): void => {
+      for (const ch of d.toString("utf8")) {
+        if (ch === "\r" || ch === "\n" || ch === "\u0004") {
+          stdin.off("data", onData);
+          stdin.setRawMode(false);
+          stdin.pause();
+          process.stderr.write("\n");
+          done(text);
+          return;
+        }
+        if (ch === "\u0003") {
+          stdin.off("data", onData);
+          stdin.setRawMode(false);
+          stdin.pause();
+          process.stderr.write("\n");
+          fail(new Error("cancelled"));
+          return;
+        }
+        if (ch === "\u007f" || ch === "\b") text = text.slice(0, -1);
+        else text += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+/**
+ * `hold` (WB1): a start-command override for a stopped server. It opens nothing
+ * on the volume and reads no key: it answers `/readyz` (so the platform keeps
+ * the container, and `railway ssh` reaches it for `recover-keys`) and `503` to
+ * everything else, until it is stopped.
+ */
+async function hold(env: Record<string, string | undefined>): Promise<void> {
+  const port = Number(env["PORT"] ?? "8080");
+  const server = createServer((req, res) => {
+    // /readyz for Railway's healthcheck, /healthz for the image's own (Dockerfile HEALTHCHECK).
+    const path = (req.url ?? "").split("?")[0];
+    if (path === "/readyz" || path === "/healthz") {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(`${JSON.stringify({ ready: true, holding: true })}\n`);
+      return;
+    }
+    res.writeHead(503, { "content-type": "text/plain; charset=utf-8", "retry-after": "300" }).end("Down for maintenance. Back soon.\n");
+  });
+  await new Promise<void>((r) => server.listen(port, "0.0.0.0", () => r()));
+  process.stderr.write(`[hosted] holding on port ${String(port)}: nothing is served and nothing on the volume is open. Clear the start-command override to serve again.\n`);
+  await new Promise<void>((resolveStop) => {
+    process.once("SIGINT", () => resolveStop());
+    process.once("SIGTERM", () => resolveStop());
+  });
+  await new Promise<void>((r) => server.close(() => r()));
+}
+
+/** The commands that need no volume, no bucket and no environment but their arguments (WB1's recovery key; `hold`). */
+async function keyCommand(command: string, rest: readonly string[], env: Record<string, string | undefined>): Promise<boolean> {
+  if (command === "recovery-keygen") {
+    // To the terminal only, no file (the #768 delta review: `rm -P` does nothing on APFS, and a Desktop is often
+    // synced and backed up). Shown once; nothing keeps it.
+    if (rest.length > 0) throw new Error("recovery-keygen takes no argument: it prints the new private key to this terminal once and writes no file");
+    const k = generateRecoveryKey();
+    process.stdout.write(
+      [
+        `HOSTED_RECOVERY_PUBKEY=${k.publicText}`,
+        `fingerprint ${k.fingerprint}`,
+        "",
+        "The PRIVATE key, shown this once and saved nowhere. Copy the line below to the password manager and to paper now,",
+        "check each copy with `recovery-fingerprint` (it must print the fingerprint above), write the fingerprint beside",
+        "both, then clear this terminal. It never goes into Railway, a chat, a commit or a log.",
+        "",
+        k.privateText,
+        "",
+      ].join("\n"),
+    );
+    return true;
+  }
+  if (command === "recovery-fingerprint") {
+    const opener = recoveryOpenerFromText(await readSecret(rest, "recovery private key"));
+    if ("refusal" in opener) {
+      process.stderr.write(`[hosted] refused: ${opener.refusal}\n`);
+      process.exitCode = 1;
+      return true;
+    }
+    process.stdout.write(`fingerprint ${opener.fingerprint}\n`);
+    const sealer = recoverySealerFromEnv(env);
+    if (!("refusal" in sealer)) process.stdout.write(sealer.fingerprint === opener.fingerprint ? "it is the key HOSTED_RECOVERY_PUBKEY names\n" : `NOT the key HOSTED_RECOVERY_PUBKEY names (${sealer.fingerprint})\n`);
+    return true;
+  }
+  if (command === "hold") {
+    await hold(env);
+    return true;
+  }
+  return false;
+}
+
 async function main(): Promise<void> {
   const env = process.env as Record<string, string | undefined>;
   const [command = "serve", ...rest] = process.argv.slice(2);
+  if (await keyCommand(command, rest, env)) return;
   const read = readEnv(env, command);
   if (!read.ok) {
     process.stderr.write(`[hosted] ${read.refusal}\n`);
@@ -556,7 +693,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${out.text}\n`);
     return;
   }
-  if (command === "invite" || command === "rewrap" || command === "start-over") {
+  if (command === "invite" || command === "migrate-keys" || command === "start-over") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
     // (the #653 review, L6), so it can never skip that check by accident.
@@ -617,8 +754,8 @@ async function main(): Promise<void> {
     process.stderr.write(`[hosted] the code expires ${new Date(until).toISOString()}\n`);
     return;
   }
-  if (command !== "serve" && command !== "rewrap" && command !== "restore") {
-    process.stderr.write("[hosted] commands: serve, invite, signups, rewrap, restore, start-over\n");
+  if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
+    process.stderr.write(`[hosted] commands: serve, invite, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }
@@ -636,25 +773,69 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  if (command === "rewrap") {
-    // Every wrapped DEK onto HOSTED_KEK_CURRENT (the ring holds the old version
-    // too), then EVERY live store's R2 object compared and re-written — not only
-    // the ones this run moved, so a rewrap that died between the two is repaired
-    // by running it again. Run with the server stopped; drop the old version
-    // from HOSTED_KEKS only after it prints (start-up refuses a key it can't open).
+  if (command === "migrate-keys") {
+    // WB1: the keys from HOSTED_KEKS onto the volume KEK, the bucket's key
+    // objects sealed to the recovery key, the old ones deleted (keyops.ts).
+    // Server stopped. Idempotent; --dry-run writes nothing.
     if (backup === null) {
-      process.stderr.write("[hosted] refused: rewrap needs the keys and the bucket (not BACKUPS=off).\n");
+      process.stderr.write("[hosted] refused: migrate-keys needs the keys and the bucket (not BACKUPS=off).\n");
       process.exitCode = 1;
       return;
     }
-    const keys = new KeyStore({ path: `${read.dataRoot}/keys/keys.sqlite`, wrapper: backup.wrapper });
-    const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
-    const backups = new Backups({ dataRoot: read.dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds() });
-    const moved = await keys.rewrap(backup.wrapper);
-    const put = await backups.syncKeyObjects();
-    keys.close();
-    accounts.close();
-    process.stdout.write(`rewrapped ${String(moved.length)} keys onto ${backup.wrapper.version}; ${String(put)} key objects re-written\n`);
+    // The control re-key runs a Litestream of its own, on the same binary and environment as the sidecar.
+    const litestream = { run: restoreRunner(env), sidecar: (configPath: string) => new LitestreamSidecar({ binary: litestreamBinary(env), configPath, env: litestreamEnv(env, env["R2_ACCESS_KEY_ID"] ?? "", env["R2_SECRET_ACCESS_KEY"] ?? ""), onEvent: (name) => process.stderr.write(`[hosted] re-key ${name}\n`) }) };
+    const fpAt = rest.indexOf("--recovery-fingerprint");
+    const recoveryFingerprint = fpAt < 0 ? undefined : rest[fpAt + 1];
+    const out = await migrateKeys(read.dataRoot, backup, { dryRun: rest.includes("--dry-run"), abortControlRekey: rest.includes("--abort-control-rekey"), litestream, ...(recoveryFingerprint === undefined ? {} : { recoveryFingerprint }) });
+    process.stdout.write(`${out.text}\n`);
+    if (out.left > 0) process.exitCode = 1;
+    return;
+  }
+  if (command === "recover-keys") {
+    // WB1: after a volume is lost, the bucket's sealed keys opened with the
+    // private key (stdin or --key-file, never the environment), wrapped here.
+    // Server stopped (`hold`, on Railway). Then RESTORE_ON_BOOT=1.
+    if (backup === null) {
+      process.stderr.write("[hosted] refused: recover-keys needs the bucket (not BACKUPS=off).\n");
+      process.exitCode = 1;
+      return;
+    }
+    const dryRun = rest.includes("--dry-run");
+    const gate = await emptyBucketGate(read.dataRoot, backup, env["NEW_BUCKET"]);
+    if (gate.refusal !== undefined) {
+      process.stderr.write(`[hosted] ${gate.refusal}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    // Control databases here without the control key aren't the bucket's: the
+    // key is never adopted beside them (the #653 review, H1). --control-aside
+    // moves them aside first, once per label, as CONTROL_ASIDE does at a start.
+    const foreign = foreignControlRefusal(read.dataRoot, await controlVolume(read.dataRoot, backup));
+    const label = rest.includes("--control-aside") ? rest[rest.indexOf("--control-aside") + 1] : undefined;
+    if (foreign !== null && !dryRun) {
+      if (label === undefined) {
+        process.stderr.write(`[hosted] ${foreign}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      const moved = controlAside(read.dataRoot, label);
+      if ("refusal" in moved) {
+        process.stderr.write(`[hosted] ${moved.refusal.replace("CONTROL_ASIDE", "--control-aside")}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stderr.write(`[hosted] ${moved.line.replace(/ Unset CONTROL_ASIDE now; it won't/, " It won't").replace(/^CONTROL_ASIDE=/, "--control-aside ")}\n`);
+    }
+    const text = await readSecret(rest, "recovery private key");
+    const opener = recoveryOpenerFromText(text);
+    if ("refusal" in opener) {
+      process.stderr.write(`[hosted] refused: ${opener.refusal}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const out = await recoverKeys(read.dataRoot, backup, opener, { dryRun, adoptUnproven: rest.includes("--adopt-unproven") });
+    process.stdout.write(`${out.text}\n`);
+    if (out.failed > 0) process.exitCode = 1;
     return;
   }
   if (command === "restore") {
@@ -751,12 +932,31 @@ async function main(): Promise<void> {
   if (report.asideSwept > 0) process.stderr.write(`[hosted] deleted ${String(report.asideSwept)} copies set aside more than a day ago (control.aside-*, *.pre-restore-*)\n`);
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
-  await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
-  process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
-  await new Promise<void>((resolveStop) => {
+  if (backup !== null) process.stderr.write(`[hosted] backups: keys on this volume (keys/volume.kek); key objects sealed to recovery key ${backup.sealer.fingerprint}\n`);
+  if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under ${KEK_ENV}: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
+  // The stop signals are ours BEFORE anyone can be told "serving" (the #768 CI flake): a SIGTERM that lands
+  // between the line and its listener would end the process by default, leaving its heartbeat behind.
+  const stopped = new Promise<void>((resolveStop) => {
     process.once("SIGINT", () => resolveStop());
     process.once("SIGTERM", () => resolveStop());
   });
+  await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));
+  // The running server's mark (keyops.ts#SERVING_MARK): migrate-keys and recover-keys refuse beside it.
+  const aliveMark = join(read.dataRoot, SERVING_MARK);
+  const beat = (): void => {
+    try {
+      writeFileSync(aliveMark, `${new Date().toISOString()}\n`, { mode: 0o600 });
+    } catch {
+      /* a mark, not a gate */
+    }
+  };
+  beat();
+  const alive = setInterval(beat, SERVING_EVERY_MS);
+  alive.unref?.();
+  process.stderr.write(`[hosted] serving ${read.origin} on port ${String(read.port)}${backup === null ? " (BACKUPS=off)" : ""}\n`);
+  await stopped;
+  clearInterval(alive);
+  rmSync(aliveMark, { force: true });
   await new Promise<void>((r) => app.server.close(() => r()));
   await app.close();
 }

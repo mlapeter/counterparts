@@ -378,7 +378,7 @@ async function listDetailed(r: R2, prefix: string, fetchFn: FetchFn = fetch): Pr
 
 /**
  * "Unchanged" = the same fingerprint: every key with its ETag and Size, and the sha256
- * of each plain keys/* body (an overwritten keys/control.wrapped changes it even where
+ * of each plain keys/* body (an overwritten keys/control.sealed changes it even where
  * a listing carries no ETag).
  */
 async function snapshot(r: R2, fetchFn: FetchFn = fetch): Promise<string> {
@@ -408,7 +408,7 @@ function containerKey(storeId: string): string {
 /**
  * SSE-C. Every replica object (tenants/, control/): a plain signed GET, no customer key,
  * answers one and the same 4xx (a thrown fetch, a 5xx, a 200 or a 404 fails). Positive
- * controls: the plain keys/control.wrapped answers 200, and one of the store's own
+ * controls: the plain keys/control.sealed answers 200, and one of the store's own
  * objects answers 200 WITH its key.
  */
 async function ssecCheck(r: R2, storeId: string, keyOf: (id: string) => string, fetchFn: FetchFn = fetch): Promise<string> {
@@ -434,8 +434,8 @@ async function ssecCheck(r: R2, storeId: string, keyOf: (id: string) => string, 
   const seen = [...tally].map(([t, n]) => `${t} ×${String(n)}`).join("; ");
   if (bad.length > 0) fail("every plain GET of a replica object refused with a 4xx (not 0, not 5xx, not 200, not 404)", `${bad.slice(0, 5).join("; ")} (all: ${seen})`);
   if (new Set([...tally.keys()].map((t) => t.split(" ")[0])).size !== 1) fail("one and the same 4xx for every replica object", seen);
-  const control = await get("keys/control.wrapped");
-  if (control.status !== 200) fail("plain GET of keys/control.wrapped: 200 (positive control)", `${String(control.status)} ${control.code}`);
+  const control = await get("keys/control.sealed");
+  if (control.status !== 200) fail("plain GET of keys/control.sealed: 200 (positive control)", `${String(control.status)} ${control.code}`);
   const own = keys.find((k) => k.startsWith(`tenants/${storeId}/`)) ?? fail(`an object under tenants/${storeId}/`, "none");
   const sse = keyOf(storeId);
   const withKey = await get(own, {
@@ -444,7 +444,26 @@ async function ssecCheck(r: R2, storeId: string, keyOf: (id: string) => string, 
     "x-amz-server-side-encryption-customer-key-md5": createHash("md5").update(Buffer.from(sse, "base64")).digest("base64"),
   });
   if (withKey.status !== 200) fail(`GET of ${own.split("/").slice(2).join("/")} WITH the store's SSE-C key: 200`, `${String(withKey.status)} ${withKey.code}`);
-  return `SSE-C: ${String(keys.length)} tenants/+control/ objects, plain GET answered ${seen}; keys/control.wrapped answered 200; the store's ${own.split("/").slice(2).join("/")} WITH its key answered 200`;
+  return `SSE-C: ${String(keys.length)} tenants/+control/ objects, plain GET answered ${seen}; keys/control.sealed answered 200; the store's ${own.split("/").slice(2).join("/")} WITH its key answered 200`;
+}
+
+/**
+ * WB1: every key object in the bucket is SEALED to the recovery key (`s1.<16 hex
+ * fingerprint>.…`, the fingerprint the one this run made), none is a KEK-wrapped
+ * `w1.` value or a `.wrapped` object, and none holds the store's SSE-C key.
+ */
+async function sealedCheck(r: R2, storeId: string, fingerprint: string, keyOf: (id: string) => string): Promise<string> {
+  if (!/^[0-9a-f]{16}$/.test(fingerprint)) fail("a recovery key fingerprint (16 hex)", fingerprint);
+  const names = await store(r).list("keys/");
+  if (names.length === 0) fail("key objects under keys/", "none");
+  const sse = keyOf(storeId);
+  for (const name of names) {
+    if (!name.endsWith(".sealed")) fail("every key object keys/<id>.sealed", name.replace(/[0-9a-f]{32}/, "<id>"));
+    const body = (await store(r).get(name)) ?? fail(`GET ${name}`, "none");
+    if (!body.startsWith(`s1.${fingerprint}.`)) fail(`${name.replace(/[0-9a-f]{32}/, "<id>")} sealed to recovery key ${fingerprint}`, body.slice(0, 20));
+    if (body.includes(sse) || body.includes(Buffer.from(sse, "base64").toString("base64url"))) fail("no key object holding the store's SSE-C key", name.replace(/[0-9a-f]{32}/, "<id>"));
+  }
+  return `sealed: ${String(names.length)} key objects, every one keys/<id>.sealed, sealed to recovery key ${fingerprint}; none holds the store's SSE-C key`;
 }
 
 /** The bucket helpers against the SSE-C stand-in from hosted/test/helpers.ts: no network, no credentials. */
@@ -471,7 +490,7 @@ async function smoke(): Promise<string> {
     await put("tenants/abc/0000/not-an-ltx-file", sse);
     await put("tenants/abcd/0000/00000000000000ff-00000000000000ff.ltx", sse); // another store whose id shares the prefix
     await put("control/accounts.sqlite/0000/0000000000000001-0000000000000002.ltx", sse);
-    await put("keys/control.wrapped");
+    await put("keys/control.sealed");
     eq("maxTXID across levels, one store", (await txid(r, "tenants/abc/")).toString(), "10");
     eq("maxTXID, control prefix", (await txid(r, "control/accounts.sqlite/")).toString(), "2");
     eq("wait sees a rise", (await waitTxid(r, "tenants/abc/", 3n, 5)).split(" ")[0]!, "10");
@@ -496,9 +515,9 @@ async function smoke(): Promise<string> {
     await failsWith("ssec-check fails on a 5xx", () => ssecCheck(r, "abc", key));
     s3.fault = null;
     const before = await snapshot(r);
-    await put("keys/control.wrapped", {}, "y"); // the same key, another body: an overwrite
+    await put("keys/control.sealed", {}, "y"); // the same key, another body: an overwrite
     const after = await snapshot(r);
-    eq("snapshot catches an overwritten keys/control.wrapped", String(before !== after && before.split(",")[0] === after.split(",")[0]), "true");
+    eq("snapshot catches an overwritten keys/control.sealed", String(before !== after && before.split(",")[0] === after.split(",")[0]), "true");
     await put("tenants/abc/0000/0000000000000004-0000000000000004.ltx"); // a replica object put WITHOUT SSE-C
     await failsWith("ssec-check fails on a plain replica object", () => ssecCheck(r, "abc", key));
     lines.push(await empty(r));
@@ -544,10 +563,12 @@ async function main(argv: string[]): Promise<string> {
       return snapshot(r2FromEnv());
     case "ssec-check":
       return ssecCheck(r2FromEnv(), a[0] ?? fail("ssec-check <storeId>", "none"), containerKey);
+    case "sealed-check":
+      return sealedCheck(r2FromEnv(), a[0] ?? fail("sealed-check <storeId> <fingerprint>", "none"), a[1] ?? fail("sealed-check <storeId> <fingerprint>", "no fingerprint"), containerKey);
     case "smoke":
       return smoke();
     default:
-      return fail("a command: invite signup oauth refresh wake remember recall token-age r2-list r2-txid r2-wait r2-settle r2-empty r2-snapshot ssec-check smoke", String(cmd));
+      return fail("a command: invite signup oauth refresh wake remember recall token-age r2-list r2-txid r2-wait r2-settle r2-empty r2-snapshot ssec-check sealed-check smoke", String(cmd));
   }
 }
 

@@ -17,9 +17,33 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
+import { RecoverySealer, generateRecoveryKey, recoveryOpenerFromText } from "../src/keys.js";
+import type { RecoveryOpener } from "../src/keys.js";
 
 // THE GUARD, armed here: Node has no test/preload.ts.
 process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
+
+/**
+ * A THROWAWAY RECOVERY KEYPAIR for this test process (WB1): made here, at
+ * import, held only in memory, never written anywhere. `publicText` is what
+ * `HOSTED_RECOVERY_PUBKEY` takes; `privateText` is what `recover-keys` reads.
+ */
+export interface TestRecovery {
+  readonly sealer: RecoverySealer;
+  readonly opener: RecoveryOpener;
+  readonly publicText: string;
+  readonly privateText: string;
+  readonly fingerprint: string;
+}
+
+export function testRecovery(): TestRecovery {
+  const k = generateRecoveryKey();
+  const opener = recoveryOpenerFromText(k.privateText);
+  if ("refusal" in opener) throw new Error(opener.refusal);
+  return { sealer: new RecoverySealer(Buffer.from(k.publicText, "base64")), opener, publicText: k.publicText, privateText: k.privateText, fingerprint: k.fingerprint };
+}
+
+export const RECOVERY: TestRecovery = testRecovery();
 
 export function tempRoot(label: string): { root: string; remove: () => void } {
   const root = realpathSync(mkdtempSync(join(tmpdir(), `counterparts-hosted-${label}-`)));

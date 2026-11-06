@@ -37,11 +37,12 @@ import { Accounts } from "../src/accounts.js";
 import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, WATCHED_REPLICA, keyObject, litestreamRunner, maxTxid, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import type { UploadsEvent } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
-import { EnvKeyWrapper, KeyStore, litestreamKey } from "../src/keys.js";
+import { EnvKeyWrapper, KeyStore, VolumeKeyWrapper, litestreamKey } from "../src/keys.js";
+import { recoverKeys } from "../src/keyops.js";
 import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag, uploadsLine } from "../src/main.js";
 import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
-import { MAIN, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
+import { MAIN, RECOVERY, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, testRecovery, tool } from "./helpers.js";
 import type { S3StandIn, Stored } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -223,6 +224,7 @@ async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOpti
 function backupOptions(s3: { base: string }, ring: Map<string, Buffer>, sidecar: LitestreamSidecar | null): AppBackupOptions {
   return {
     wrapper: new EnvKeyWrapper(ring, "v1"),
+    sealer: RECOVERY.sealer,
     objects: r2ObjectStore({ endpoint: s3.base, bucket: "bkt", accessKeyId: CREDS.LITESTREAM_ACCESS_KEY_ID, secretAccessKey: CREDS.LITESTREAM_SECRET_ACCESS_KEY }),
     bucket: "bkt",
     endpoint: s3.base,
@@ -269,25 +271,31 @@ describe("the restore drill, through the door", () => {
     assert.match(String(refused.refusal), /RESTORE_ON_BOOT=1/);
     assert.equal(existsSync(join(dataRoot, "control", "accounts.sqlite")), false);
 
-    // 4b. RESTORE_ON_BOOT under a mistyped KEK (the same label, other bytes): refused before anything is restored.
-    // It leaves keys/keys.sqlite behind, with no key in it, and nothing else (the 11-02 drill, step 9).
+    // 4b. RESTORE_ON_BOOT without the private key (WB1): the bucket's keys are sealed, and the server
+    // never holds what opens them. Refused before anything is restored; it leaves keys/keys.sqlite
+    // behind, with no key in it, and nothing else; the bucket unchanged.
     const bucketBefore = [...s3.objects.keys()].sort();
-    await assert.rejects(prepareVolume(dataRoot, backupOptions(s3, new Map([["v1", randomBytes(32)]]), null), run), /doesn't open with the KEK ring/);
+    await assert.rejects(prepareVolume(dataRoot, backupB, run), /recover-keys/);
     assert.deepEqual(readdirSync(dataRoot), ["keys"]);
-    assert.ok(existsSync(join(dataRoot, "keys", "keys.sqlite")));
     assert.equal(existsSync(join(dataRoot, "control")), false);
-    assert.deepEqual([...s3.objects.keys()].sort(), bucketBefore, "the bucket unchanged by the wrong-ring attempt");
+    assert.deepEqual([...s3.objects.keys()].sort(), bucketBefore, "the bucket unchanged");
+    // 4c. recover-keys with a private key that isn't the recovery key: refused, nothing written.
+    await assert.rejects(recoverKeys(dataRoot, backupB, testRecovery().opener), /isn't the recovery key/);
+    assert.equal(new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backupB.wrapper }).storeIds().length, 0);
 
-    // 5. RESTORE_ON_BOOT with the right KEK on that same volume: the leftover keys.sqlite is no obstacle.
+    // 5. recover-keys with the private key, then RESTORE_ON_BOOT: the leftover keys.sqlite is no obstacle.
+    const recovered = await recoverKeys(dataRoot, backupB, RECOVERY.opener);
+    assert.equal(recovered.failed, 0, recovered.text);
+    assert.match(recovered.text, /2 keys brought back/);
     const prepared = await prepareVolume(dataRoot, backupB, run);
     assert.match(String(prepared.restored), /^2 restored/);
     const b = await rig({ dataRoot, port: a.port, backup: backupB, start: false });
     const report = await b.app.start({ restore: run });
     assert.equal(report.restored, 1);
     assert.equal(report.needsRestore, 0);
-    // The bucket's key object is the one from before: adopted, never replaced.
+    // The bucket's key object is the one from before: brought back, never replaced.
     assert.equal(s3.objects.get(keyObject(who.storeId))!.body.toString("utf8"), keyBefore);
-    assert.equal(b.app.keys!.wrapped(who.storeId), keyBefore);
+    assert.deepEqual(await b.app.keys!.dek(who.storeId), RECOVERY.opener.open(keyBefore, who.storeId));
 
     // 6. The same token (the OAuth database came back), the same words.
     const session = String((await tool(`${b.origin}/mcp`, "wake", {}, bearer(who.access)))["session"]);
@@ -297,7 +305,7 @@ describe("the restore drill, through the door", () => {
     assert.equal((await fetch(`${b.origin}/readyz`)).status, 200);
   });
 
-  test("restore by hand: one store, refused over a file in place, refused with a ring that can't open its key; nothing to restore without a key object", async () => {
+  test("restore by hand: one store, refused over a file in place, refused while its key is only sealed in the bucket; nothing to restore without a key object", async () => {
     const s3 = await s3StandIn();
     const bin = standinBinary();
     const run = litestreamRunner(bin, litestreamEnv());
@@ -313,23 +321,25 @@ describe("the restore drill, through the door", () => {
 
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(backups.restore(who.storeId, run), /already in place/);
     // The store's dir lost; its key lost too (keys.sqlite is not replicated).
     rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
     keys.delete(who.storeId);
-    // A ring without the store's KEK can't adopt the bucket's key: refused, nothing written.
-    const strangers = new KeyStore({ path: join(tmp.root, "other-keys.sqlite"), wrapper: new EnvKeyWrapper(new Map([["v1", randomBytes(32)]]), "v1") });
-    closers.push(() => strangers.close());
-    const wrongRing = new Backups({ dataRoot, keys: strangers, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
-    await assert.rejects(wrongRing.restore(who.storeId, run), /doesn't open with the KEK ring/);
-    assert.equal(strangers.wrapped(who.storeId), null);
-    // The right ring: back.
-    assert.deepEqual(await backups.restore(who.storeId, run), { restored: 1, empty: 0, kept: 0 });
+    // Its key is in the bucket only sealed (WB1): the restore refuses, nothing written, until recover-keys.
+    await assert.rejects(backups.restore(who.storeId, run), /recover-keys/);
+    assert.equal(keys.wrapped(who.storeId), null);
+    keys.close();
+    const r = await recoverKeys(dataRoot, backupOptions(s3, ring, null), RECOVERY.opener);
+    assert.match(r.text, /1 keys brought back.*\n1 already here/);
+    const keys2 = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+    closers.push(() => keys2.close());
+    const backups2 = new Backups({ dataRoot, keys: keys2, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    assert.deepEqual(await backups2.restore(who.storeId, run), { restored: 1, empty: 0, kept: 0 });
     // A store the bucket never heard of: refused, and no key is made for it.
     const unknown = "0".repeat(32);
-    await assert.rejects(backups.restore(unknown, run), /no key object/);
-    assert.equal(keys.wrapped(unknown), null);
+    await assert.rejects(backups2.restore(unknown, run), /no key object/);
+    assert.equal(keys2.wrapped(unknown), null);
 
     const b = await rig({ dataRoot, port: a.port, backup: backupOptions(s3, ring, null) });
     const session = String((await tool(`${b.origin}/mcp`, "wake", {}, bearer(who.access)))["session"]);
@@ -337,7 +347,7 @@ describe("the restore drill, through the door", () => {
     assert.match(JSON.stringify(back.body), /spare key is under the blue pot/);
   });
 
-  test("restoreControl alone: the accounts and OAuth databases, under the control key adopted from the bucket", async () => {
+  test("restoreControl alone: the accounts and OAuth databases, under the control key recover-keys brought back from the bucket", async () => {
     const s3 = await s3StandIn();
     const bin = standinBinary();
     const ring = new Map([["v1", randomBytes(32)]]);
@@ -347,7 +357,11 @@ describe("the restore drill, through the door", () => {
     await replicated(s3.objects, ["control/accounts.sqlite/", "control/oauth.sqlite/"]);
     await a.close();
     rmSync(dataRoot, { recursive: true, force: true });
-    const r = await restoreControl(dataRoot, backupOptions(s3, ring, null), litestreamRunner(bin, litestreamEnv()));
+    // A new volume, a new volume key: the control key comes back under it.
+    const fresh = backupOptions(s3, new Map([["v1", randomBytes(32)]]), null);
+    await assert.rejects(restoreControl(dataRoot, fresh, litestreamRunner(bin, litestreamEnv())), /recover-keys/);
+    await recoverKeys(dataRoot, fresh, RECOVERY.opener);
+    const r = await restoreControl(dataRoot, fresh, litestreamRunner(bin, litestreamEnv()));
     assert.deepEqual(r, { restored: 2, empty: 0, kept: 0 });
     assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")) && existsSync(join(dataRoot, "control", "oauth.sqlite")));
   });
@@ -356,22 +370,32 @@ describe("the restore drill, through the door", () => {
 // ── the bucket's key is the store's key ──────────────────────────────────────
 
 describe("keys on a new volume", () => {
-  test("a start with keys.sqlite lost ADOPTS each bucket key object; it never mints a new key over one", async () => {
-    const s3 = await s3StandIn();
-    const ring = new Map([["v1", randomBytes(32)]]);
-    const dataRoot = join(tmp.root, "volume");
-    const a = (await rig({ dataRoot, backup: backupOptions(s3, ring, null) })) as Rig & { port: number; close: () => Promise<void> };
-    const who = await connect(a, "adopt@example.com");
-    const storeKey = a.app.keys!.wrapped(who.storeId)!;
-    const controlKey = a.app.keys!.wrapped(CONTROL_KEY_ID)!;
-    const keyFile = readFileSync(join(tenantDir(a.app.tenants.root, who.storeId), "litestream.key"), "utf8");
-    await a.close();
+  test("a start with keys.sqlite lost never mints a new key over a sealed one: the store waits (keyless, sealed); recover-keys brings every key back, the same keys", async () => {
+    const { s3, bin, ring, dataRoot, port, who } = await livedStore();
+    const before = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+    const storeDek = await before.dek(who.storeId);
+    const controlDek = await before.dek(CONTROL_KEY_ID);
+    before.close();
+    const storeObject = s3.objects.get(keyObject(who.storeId))!.body.toString("utf8");
+    const keyFile = readFileSync(join(tenantDir(join(dataRoot, "tenants"), who.storeId), "litestream.key"), "utf8");
     rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
     rmSync(join(tenantDir(join(dataRoot, "tenants"), who.storeId), "litestream.key"));
-    const b = await rig({ dataRoot, port: a.port, backup: backupOptions(s3, ring, null) });
-    assert.equal(b.app.keys!.wrapped(who.storeId), storeKey);
-    assert.equal(b.app.keys!.wrapped(CONTROL_KEY_ID), controlKey);
-    assert.equal(s3.objects.get(keyObject(who.storeId))!.body.toString("utf8"), storeKey);
+    // Without the private key the server can't open the bucket's copies, and never makes new keys over them.
+    const lost = createApp({ dataRoot, publicOrigin: "http://127.0.0.1", mailer: memoryMailer(), embedder: null, spawner: () => ({ pid: 1 }), backup: backupOptions(s3, ring, null) });
+    closers.push(() => lost.close());
+    await assert.rejects(lost.start(), /recover-keys/);
+    await lost.close();
+    assert.equal(s3.objects.get(keyObject(who.storeId))!.body.toString("utf8"), storeObject, "the bucket's key left alone");
+    // A new volume key (keys/ was lost with it); control/ set aside (H1) and restored under the recovered key.
+    const fresh = backupOptions(s3, new Map([["v1", randomBytes(32)]]), null);
+    assert.ok("line" in controlAside(dataRoot, "t"));
+    const r = await recoverKeys(dataRoot, fresh, RECOVERY.opener);
+    assert.equal(r.failed, 0, r.text);
+    assert.match(String((await prepareVolume(dataRoot, fresh, litestreamRunner(bin, litestreamEnv()))).restored), /^2 restored/);
+    const b = await rig({ dataRoot, port, backup: fresh });
+    assert.deepEqual(await b.app.keys!.dek(who.storeId), storeDek);
+    assert.deepEqual(await b.app.keys!.dek(CONTROL_KEY_ID), controlDek);
+    assert.equal(s3.objects.get(keyObject(who.storeId))!.body.toString("utf8"), storeObject);
     assert.equal(readFileSync(join(tenantDir(b.app.tenants.root, who.storeId), "litestream.key"), "utf8"), keyFile);
   });
 
@@ -382,8 +406,8 @@ describe("keys on a new volume", () => {
     const a = (await rig({ dataRoot, backup: backupOptions(s3, ring, null) })) as Rig & { port: number; close: () => Promise<void> };
     const who = await connect(a, "different@example.com");
     await a.close();
-    // Someone's other key for this store id, wrapped under the same ring.
-    const other = await new EnvKeyWrapper(ring, "v1").wrap(randomBytes(32), who.storeId);
+    // Someone's other key for this store id, sealed to the same recovery key.
+    const other = RECOVERY.sealer.seal(randomBytes(32), who.storeId);
     s3.objects.set(keyObject(who.storeId), { body: Buffer.from(other), keyMd5: null });
     const b = createApp({ dataRoot, publicOrigin: "http://127.0.0.1", mailer: memoryMailer(), embedder: null, spawner: () => ({ pid: 1 }), backup: backupOptions(s3, ring, null) });
     closers.push(() => b.close());
@@ -720,8 +744,9 @@ describe("restore, when things go wrong", () => {
       const p = await prepareVolume(dataRoot, backup, run);
       assert.match(String(p.refusal), /not the key that wrote the bucket's backups/);
     }
-    // After moving control/ aside, RESTORE_ON_BOOT restores both.
+    // After moving control/ aside, and the keys back with the private key (WB1), RESTORE_ON_BOOT restores both.
     rmSync(join(dataRoot, "control"), { recursive: true, force: true });
+    await recoverKeys(dataRoot, backup, RECOVERY.opener);
     assert.match(String((await prepareVolume(dataRoot, backup, litestreamRunner(bin, litestreamEnv()))).restored), /^2 restored/);
   });
 
@@ -747,7 +772,7 @@ describe("restore, when things go wrong", () => {
     mkdirSync(meta, { recursive: true });
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     const before = readFileSync(join(storeDir, "counterparts.sqlite"));
     assert.equal((await backups.restore(who.storeId, litestreamRunner(bin, litestreamEnv()), { force: true })).restored, 1);
     const { readdirSync } = await import("node:fs");
@@ -759,9 +784,13 @@ describe("restore, when things go wrong", () => {
   });
 
   test("a store that lived, whose key is gone here AND in the bucket, is never given a new key; the start goes on", async () => {
-    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const { s3, bin, ring, dataRoot, port, who } = await livedStore();
     rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
     s3.objects.delete(keyObject(who.storeId));
+    // control's key back (WB1), after control/ is set aside (H1) and restored; the store's key is nowhere.
+    assert.ok("line" in controlAside(dataRoot, "t"));
+    await recoverKeys(dataRoot, backupOptions(s3, ring, null), RECOVERY.opener);
+    assert.match(String((await prepareVolume(dataRoot, backupOptions(s3, ring, null), litestreamRunner(bin, litestreamEnv()))).restored), /^2 restored/);
     const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null), start: false });
     const report = await b.app.start();
     assert.equal(report.keyless, 1);
@@ -851,6 +880,8 @@ describe("#653 review: restores and deletes", () => {
     rmSync(dataRoot, { recursive: true, force: true });
     const run = litestreamRunner(bin, litestreamEnv());
     const backup = backupOptions(s3, ring, null);
+    const recovered = await recoverKeys(dataRoot, backup, RECOVERY.opener);
+    assert.match(recovered.text, /^1 keys brought back/m, "control's only: the deleted store's key object is gone");
     await prepareVolume(dataRoot, backup, run);
     const b = await rig({ dataRoot, port, backup, start: false });
     assert.equal(b.app.accounts.person(who.personId)!.state, "active", "the restored accounts database predates the delete");
@@ -929,7 +960,7 @@ describe("#653 review: restores and deletes", () => {
     closers.push(() => chmod(storeDir, 0o700));
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(backups.restore(who.storeId, thenStuck));
     assert.ok(existsSync(join(tenantDir(join(dataRoot, "tenants"), who.storeId), "restored.marker")));
   });
@@ -1102,13 +1133,16 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     const run = litestreamRunner(bin, litestreamEnv());
     const refusal = String((await prepareVolume(dataRoot, backup, run)).refusal);
     assert.match(refusal, /not the key that wrote the bucket's backups/);
-    assert.match(refusal, /CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
+    assert.match(refusal, /recover-keys --control-aside <new label>/);
     const before = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    // recover-keys refuses beside control databases that aren't the bucket's (H1), before writing anything.
+    await assert.rejects(recoverKeys(dataRoot, backup, RECOVERY.opener), /not the key that wrote/);
 
-    // Deploy 1, CONTROL_ASIDE=1 + RESTORE_ON_BOOT=1: what `serve` runs, in its order.
+    // Deploy 1, CONTROL_ASIDE=1 (what recover-keys --control-aside 1 runs first), the keys, RESTORE_ON_BOOT=1.
     assert.match(((await controlAsideAtStart(dataRoot, "1", backup)) as { line: string }).line, /moved control\/ to control\.aside-1/);
     assert.deepEqual(readFileSync(join(dataRoot, "control.aside-1", "accounts.sqlite")), before);
     assert.match(readFileSync(overrideGuard(dataRoot, "1"), "utf8"), /^moved \d{4}-/);
+    await recoverKeys(dataRoot, backup, RECOVERY.opener);
     assert.match(String((await prepareVolume(dataRoot, backup, run)).restored), /^2 restored/);
     const a = await rig({ dataRoot, port, backup, start: false });
     await a.app.start({ restore: run });
@@ -1246,6 +1280,7 @@ const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: strin
   PORT: String(o.port),
   MAIL: "log",
   HOSTED_KEKS: `v1:${o.ring.get("v1")!.toString("base64")}`,
+  HOSTED_RECOVERY_PUBKEY: RECOVERY.publicText,
   R2_ENDPOINT: o.s3.tlsBase!,
   R2_BUCKET: "bkt",
   R2_ACCESS_KEY_ID: CREDS.LITESTREAM_ACCESS_KEY_ID,
@@ -1255,11 +1290,29 @@ const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: strin
   ...extra,
 });
 
+/** The volume's keys as `serve` holds them (WB1): the volume KEK, and the HOSTED_KEKS ring serveEnv still passes for the keys made in this process. */
 const keysAt = (dataRoot: string, ring: Map<string, Buffer>): KeyStore => {
-  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new VolumeKeyWrapper(join(dataRoot, "keys"), new EnvKeyWrapper(ring, "v1")) });
   closers.push(() => keys.close());
   return keys;
 };
+
+/** A `main.ts` command as its own process, with `input` on its stdin (recover-keys reads the private key there). */
+// Asynchronous: the S3 stand-in answers from this process's event loop.
+const cli = (env: Record<string, string>, args: string[], input = ""): Promise<{ status: number | null; stdout: string; stderr: string }> =>
+  new Promise((done) => {
+    const child = spawn(process.execPath, [...scriptArgs(MAIN), ...args], { env, stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout!.on("data", (d: Buffer) => (stdout += d.toString("utf8")));
+    child.stderr!.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
+    const t = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    child.once("close", (status) => {
+      clearTimeout(t);
+      done({ status, stdout, stderr });
+    });
+    child.stdin!.end(input);
+  });
 
 describe("R5: a store that served with no key anywhere gets one at start-up, only when nothing can be buried", () => {
   const dropReplica = (s3: S3StandIn, id: string): void => {
@@ -1333,7 +1386,8 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     const keys = keysAt(dataRoot, ring);
     const wrapped = keys.wrapped(id);
     assert.notEqual(wrapped, null);
-    assert.equal(s3.objects.get(keyObject(id))!.body.toString("utf8"), wrapped, "the bucket's key object is the new key");
+    assert.deepEqual(RECOVERY.opener.open(s3.objects.get(keyObject(id))!.body.toString("utf8"), id), await keys.dek(id), "the bucket's key object is the new key");
+    const sealedOnce = s3.objects.get(keyObject(id))!.body.toString("utf8");
     const dek = await keys.dek(id);
     const sse = litestreamKey(dek);
     dek.fill(0);
@@ -1351,21 +1405,41 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     const out = await second.stop();
     assert.doesNotMatch(out, /backup\.key\.minted|backup\.keyless|stores that served with no key/);
     assert.equal(keys.wrapped(id), wrapped);
-    assert.equal(s3.objects.get(keyObject(id))!.body.toString("utf8"), wrapped);
+    assert.equal(s3.objects.get(keyObject(id))!.body.toString("utf8"), sealedOnce);
   });
 
-  test("(a, b) a key the bucket still has is adopted, never replaced by a new one", async () => {
+  test("(a, b) a key the bucket still has is never replaced by a new one: without the private key the store waits (sealed); recover-keys, through the CLI, brings it back", async () => {
     const lived = await livedStore({ tls: true });
     const id = lived.who.storeId;
     const bucketKey = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
     const keys0 = new KeyStore({ path: join(lived.dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(lived.ring, "v1") });
+    const dekBefore = await keys0.dek(id);
     keys0.delete(id);
     keys0.close();
     const run = await spawnServe(serveEnv(lived));
     assert.ok(run.up, run.stderr());
     const out = await run.stop();
-    assert.doesNotMatch(out, /backup\.key\.minted|backup\.keyless/);
-    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), bucketKey);
+    assert.doesNotMatch(out, /backup\.key\.minted/);
+    assert.match(out, keylessLine(id, "sealed"));
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.equal(lived.s3.objects.get(keyObject(id))!.body.toString("utf8"), bucketKey);
+    // The private key on stdin, never in the environment; the line names counts and the fingerprint, never a key.
+    const env = serveEnv(lived);
+    const wrong = await cli(env, ["recover-keys"], `${testRecovery().privateText}\n`);
+    assert.equal(wrong.status, 1, wrong.stderr + wrong.stdout);
+    assert.match(wrong.stderr, /isn't the recovery key/);
+    const dry = await cli(env, ["recover-keys", "--dry-run"], `${RECOVERY.privateText}\n`);
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /nothing written but the proof[\s\S]*1 keys would be brought back/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null, "a dry run writes nothing");
+    const done = await cli(env, ["recover-keys"], `${RECOVERY.privateText}\n`);
+    assert.equal(done.status, 0, done.stderr);
+    assert.match(done.stdout, /1 keys brought back[\s\S]*1 already here/, done.stderr);
+    assert.doesNotMatch(done.stdout + done.stderr, new RegExp(`${id}|${RECOVERY.privateText.split(":")[1]!.slice(0, 16).replace(/[+/]/g, ".")}`));
+    assert.deepEqual(await keysAt(lived.dataRoot, lived.ring).dek(id), dekBefore);
+    const again = await spawnServe(env);
+    assert.ok(again.up, again.stderr());
+    assert.doesNotMatch(await again.stop(), /backup\.key\.minted|backup\.keyless/);
     assert.equal(lived.s3.objects.get(keyObject(id))!.body.toString("utf8"), bucketKey);
   });
 
@@ -1427,10 +1501,10 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     const keys = keysAt(dataRoot, lived.ring);
     await keys.create(CONTROL_KEY_ID);
     const objects = backupOptions(lived.s3, lived.ring, null).objects;
-    await objects.put(keyObject(CONTROL_KEY_ID), keys.wrapped(CONTROL_KEY_ID)!);
+    await objects.put(keyObject(CONTROL_KEY_ID), await keys.sealed(CONTROL_KEY_ID, RECOVERY.sealer));
     await objects.put(tombstoneObject(other), "2026-10-27T00:00:00.000Z\n");
     const seen: [string, string][] = [];
-    const backups = new Backups({ dataRoot, keys, objects, bucket: "bkt", endpoint: lived.s3.base, sidecar: null, liveStores: () => [other], openedBefore: () => true, openedAt: () => Date.now() + 60_000, onKeyless: (s, outcome) => void seen.push([s, outcome]) });
+    const backups = new Backups({ dataRoot, keys, objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: lived.s3.base, sidecar: null, liveStores: () => [other], openedBefore: () => true, openedAt: () => Date.now() + 60_000, onKeyless: (s, outcome) => void seen.push([s, outcome]) });
     assert.deepEqual(await backups.ensureAll({ reload: false }), { keyless: 1, minted: 0 });
     assert.deepEqual(seen, [[other, "tombstone"]]);
     assert.equal(keys.wrapped(other), null);
@@ -1521,16 +1595,24 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.equal(refused.up, false);
     const said = await refused.stop();
     assert.match(said, /did not start: the bucket's control key is a different key from this volume's/);
-    assert.match(said, /rm -rf \/data\/keys on Railway\), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
-    // The way back: keys/ removed, one deploy with CONTROL_ASIDE + RESTORE_ON_BOOT.
+    assert.match(said, /rm -rf \/data\/keys on Railway\), then, with the server stopped, run recover-keys --control-aside <new label>/);
+    // The way back: keys/ removed, recover-keys --control-aside (the private key on stdin), one deploy with RESTORE_ON_BOOT.
     rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
-    const back = await spawnServe(serveEnv({ ...lived, bin }, { CONTROL_ASIDE: "1", RESTORE_ON_BOOT: "1" }));
+    const env = serveEnv({ ...lived, bin });
+    const plain = await cli(env, ["recover-keys"], `${RECOVERY.privateText}\n`);
+    assert.equal(plain.status, 1);
+    assert.match(plain.stderr, /not the key that wrote the bucket's backups/);
+    const keysBack = await cli(env, ["recover-keys", "--control-aside", "1"], `${RECOVERY.privateText}\n`);
+    assert.equal(keysBack.status, 0, keysBack.stderr);
+    assert.match(keysBack.stderr, /--control-aside 1: moved control\/ to control\.aside-1/);
+    assert.match(keysBack.stdout, /2 keys brought back/);
+    const back = await spawnServe({ ...env, RESTORE_ON_BOOT: "1" });
     assert.ok(back.up, back.stderr());
-    assert.match(back.stderr(), /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
     assert.match(back.stderr(), /restored the control databases: 2 restored/);
     assert.equal((await rpc(`http://127.0.0.1:${String(lived.port)}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
     await back.stop();
-    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), keyBefore, "the store's key is the bucket's, adopted");
+    assert.deepEqual(await keysAt(lived.dataRoot, lived.ring).dek(id), RECOVERY.opener.open(keyBefore, id), "the store's key is the bucket's");
+    assert.equal(lived.s3.objects.get(keyObject(id))!.body.toString("utf8"), keyBefore);
   });
 
   test("every keyless reason has its own words, by tag, never an id", () => {
@@ -1633,7 +1715,7 @@ describe("R7: a volume that lived refuses a bucket with no control key, unless N
       assert.equal(run.up, false);
       const said = await run.stop();
       assert.match(said, /\[hosted\] refused: this volume has been backed up \(a backup key file is here\) but has lost keys\/keys\.sqlite, and the bucket R2_ENDPOINT and R2_BUCKET name \("[^"]+"\) has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong\./);
-      assert.match(said, /the right bucket then asks for RESTORE_ON_BOOT=1 \(with CONTROL_ASIDE=<new label> when control databases are here\)/);
+      assert.match(said, /the right bucket then needs recover-keys with the recovery private key \(with --control-aside <new label> when control databases are here\), then RESTORE_ON_BOOT=1/);
       assert.match(said, /If the old bucket is gone, tell the coordinator/);
       assert.doesNotMatch(said, /NEW_BUCKET/, "never a paste-ready NEW_BUCKET for a volume whose keys are in the old bucket only");
       assert.equal(wrong.s3.objects.size, 0, "nothing reached the wrong bucket");
@@ -1643,14 +1725,16 @@ describe("R7: a volume that lived refuses a bucket with no control key, unless N
     const fixed = await spawnServe(serveEnv(lived));
     assert.equal(fixed.up, false);
     assert.match(await fixed.stop(), /refused: this volume has accounts\.sqlite and oauth\.sqlite but not the key that wrote the bucket's backups/);
-    const back = await spawnServe(serveEnv(lived, { CONTROL_ASIDE: "1", RESTORE_ON_BOOT: "1" }));
+    const keysBack = await cli(serveEnv(lived), ["recover-keys", "--control-aside", "1"], `${RECOVERY.privateText}\n`);
+    assert.equal(keysBack.status, 0, keysBack.stderr);
+    assert.match(keysBack.stderr, /--control-aside 1: moved control\/ to control\.aside-1/);
+    const back = await spawnServe(serveEnv(lived, { RESTORE_ON_BOOT: "1" }));
     assert.ok(back.up, back.stderr());
-    assert.match(back.stderr(), /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
     assert.match(back.stderr(), /restored the control databases: 2 restored/);
     assert.equal((await rpc(door(lived.port), "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
     const out = await back.stop();
     assert.doesNotMatch(out, /different key|backup\.keyless/);
-    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), keyBefore, "the store's key is the bucket's, adopted");
+    assert.deepEqual(await keysAt(lived.dataRoot, lived.ring).dek(id), RECOVERY.opener.open(keyBefore, id), "the store's key is the bucket's");
   });
 
   test("keys/ and control/ both gone, the stores' key files left (the #661 review): a lived, backed-up volume, refused beside a wrong empty bucket; BACKUPS=off is refused for invite too", async () => {
@@ -1686,8 +1770,8 @@ describe("R7: a volume that lived refuses a bucket with no control key, unless N
     assert.ok(run.up, run.stderr());
     assert.ok(run.stderr().includes(`[hosted] NEW_BUCKET=${value}: this volume was backed up to another bucket, and starts on this one, which has no control key, on purpose.`), run.stderr());
     await replicated(fresh.s3.objects, [keyObject(CONTROL_KEY_ID), keyObject(id), replicaPrefix(id), "control/accounts.sqlite/"]);
-    assert.equal(fresh.s3.objects.get(keyObject(CONTROL_KEY_ID))!.body.toString("utf8"), keys.wrapped(CONTROL_KEY_ID), "this volume's control key, not a new one");
-    assert.equal(fresh.s3.objects.get(keyObject(id))!.body.toString("utf8"), keys.wrapped(id));
+    assert.deepEqual(RECOVERY.opener.open(fresh.s3.objects.get(keyObject(CONTROL_KEY_ID))!.body.toString("utf8"), CONTROL_KEY_ID), await keys.dek(CONTROL_KEY_ID), "this volume's control key, not a new one");
+    assert.deepEqual(RECOVERY.opener.open(fresh.s3.objects.get(keyObject(id))!.body.toString("utf8"), id), await keys.dek(id));
     assert.equal((await rpc(door(lived.port), "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
     await run.stop();
     const next = await spawnServe(serveEnv(at));

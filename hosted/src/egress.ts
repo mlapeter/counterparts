@@ -16,6 +16,8 @@
  *
  * Nothing here logs a token, an address or a message body.
  */
+import { createHash } from "node:crypto";
+
 import { AwsClient } from "aws4fetch";
 
 export interface Mail {
@@ -62,6 +64,9 @@ export type CimdFetch = (input: string | URL, init?: RequestInit) => Promise<Res
 export const cimdFetch: CimdFetch = (input, init) => fetch(input, init);
 
 /** What the hosted server needs of an object store. Keys are `/`-separated paths, never starting with `/`. */
+/** `ObjectStore.readableWith`'s answer: it opens; the key doesn't open it; the token is refused (403); the object is gone. */
+export type SseCheck = "ok" | "wrong-key" | "denied" | "missing" | "other";
+
 export interface ObjectStore {
   put(key: string, body: string): Promise<void>;
   get(key: string): Promise<string | null>;
@@ -69,6 +74,13 @@ export interface ObjectStore {
   list(prefix: string): Promise<string[]>;
   /** Every object under `prefix`; returns how many were deleted. */
   deletePrefix(prefix: string): Promise<number>;
+  /**
+   * Does this object open under this SSE-C key (base64)? One ranged GET with the
+   * key's headers: true on 200/206, false when the store refuses the key (or the
+   * object is gone). WB1: `recover-keys` proves a sealed key against the store's
+   * own replica before adopting it. Absent: the store can't tell (a test's memory).
+   */
+  readableWith?(key: string, sseKeyBase64: string): Promise<SseCheck>;
 }
 
 export interface R2Options {
@@ -142,6 +154,28 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
       const keys = await store.list(prefix);
       for (const k of keys) await store.delete(k);
       return keys.length;
+    },
+    async readableWith(key, sseKeyBase64) {
+      const raw = Buffer.from(sseKeyBase64, "base64");
+      const res = await send(`${base}/${objectKey(key)}`, {
+        method: "GET",
+        headers: {
+          range: "bytes=0-0",
+          "x-amz-server-side-encryption-customer-algorithm": "AES256",
+          "x-amz-server-side-encryption-customer-key": sseKeyBase64,
+          "x-amz-server-side-encryption-customer-key-md5": createHash("md5").update(raw).digest("base64"),
+        },
+      });
+      const body = await res.text().catch(() => "");
+      // 200/206: it opens. 403: the token is refused (never "a wrong key": a bad or revoked token says nothing of the key).
+      // 404: the object is gone. A 400 that is the store's SSE-C refusal (R2 and S3 answer InvalidRequest / InvalidArgument,
+      // naming the customer key): the key doesn't open it. Any other 4xx (a 416, say) is "other": not a key's verdict.
+      if (res.status === 200 || res.status === 206) return "ok";
+      if (res.status === 403) return "denied";
+      if (res.status === 404) return "missing";
+      if (res.status === 400 && (/<Code>(InvalidRequest|InvalidArgument)<\/Code>/.test(body) || /SSE-C|customer[- ]?(provided )?key|encryption key/i.test(body))) return "wrong-key";
+      if (res.status >= 400 && res.status < 500) return "other";
+      throw new Error(`object store GET answered ${String(res.status)}`);
     },
   };
   return store;

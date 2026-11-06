@@ -516,3 +516,43 @@ included, so the wordmark is text. Button weight comes from markup the bodies al
 keep buttons primary; the delete form's red), so no page body changed. `bun hosted/test/preview-pages.ts <dir>`
 renders every variant through the real app to static files; `hosted/test/web.test.ts` pins the nonce and that the
 frame loads nothing.
+
+## 2026-11-06 — write-only backups (WB1)
+
+The bucket's key objects are sealed to an offline X25519 key, so the server can write them and never read them; the
+KEK moved onto the volume. The design question that took the time: the old code proved "the bucket's key is this
+volume's" by opening the bucket's object (and by comparing it, byte for byte, with the local wrapped value). A seal has
+a fresh ephemeral key every time, and the server can't open it, so each sealed value now carries a key id (an HKDF
+output of the DEK under its own label): equality without the key. That made the private key needed in exactly one
+place, a volume (or `keys.sqlite`) lost, and everything else stayed as it was: `ensureStore` refuses (`KeySealed`)
+where it used to adopt, and `recover-keys` is the only reader. The H1 rule (never adopt the control key beside control
+databases that may not be the bucket's) moved into `recover-keys`, with `--control-aside` reusing the one-shot guard.
+Railway has no way to give a crash-looping service stdin, hence `hold`: a start command that answers `/readyz` and
+nothing else, so `railway ssh` reaches the volume. A piped stdin read with `for await` under bun let the process exit
+0 with nothing done when the input ended before the read began; `readFileSync(0)` doesn't. MinIO's images are gone from
+Docker Hub (2025); SeaweedFS 4.50 enforces SSE-C over TLS and takes region `auto`, so the drill runs locally
+(`--local`). The migration changes no DEK: re-keying every store is a separate, bigger job (INTERFACE-GAPS §1).
+
+## 2026-11-06 — WB1's review fixes (#768)
+
+Three findings, one theme: the migration has to remove what an old environment can open, and a bucket anyone with the
+token can write is not a source of truth. **Control is re-keyed** (HIGH 1): `rewrap` only re-wraps the same bytes, so
+an old `HOSTED_KEKS` would have kept control's SSE-C key, every email and OAuth row past and future. A re-key needs
+the new snapshot proven before the old replicas go, so the new replicas live at a new base (`control/<key id>/`,
+recorded in keys.sqlite's `replica_bases`, found again by `recover-keys` from the replica itself), written by a
+Litestream of the re-key's own with the server stopped, proven by a restore whose rows equal the live file's (a row
+digest, not bytes: a restored file's pages needn't match). The switch is ordered for a crash: the bucket's sealed key
+first, then keys.sqlite in one write keeping `created_at` (R5's (f2) reads it), then the old replicas; a pending
+`control.next` row makes every start refuse until a run again finishes. **A sealed key is adopted only against its
+store's own replica** (M2): a ranged GET with the derived SSE-C key; a store with no replica is left, and gets a new
+key at its first open (nothing is under the old one). **`migrate-keys` needs a recorded proof** (M3) that the
+recovery private key opens this bucket's keys, from `recover-keys --dry-run`, which now opens every sealed key, the
+volume's own too.
+
+The delta review (79cf4dae) found the re-key's one unordered step: the key FILE. keys.sqlite switched before the file
+did, and nothing re-checked a file that existed, so a crash between them left Litestream shipping new control data
+under the old (env-openable) key. Now the old file goes before the switch, and every start rewrites any key file that
+isn't its key's (`syncKeyFiles`, before the sidecar starts), whatever window left it. The routine migration no
+longer asks for the private key on the server: `--recovery-fingerprint` names the key Mike checked on his Mac, and
+the server checks it is the key every object is sealed to. `serve` leaves `serving.heartbeat` while it runs, so
+`migrate-keys` and `recover-keys` refuse beside it.

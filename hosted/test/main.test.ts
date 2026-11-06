@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
 import { overrideGuard, readEnv } from "../src/main.js";
-import { tempRoot } from "./helpers.js";
+import { RECOVERY, tempRoot } from "./helpers.js";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
 
@@ -51,7 +51,7 @@ describe("the entry point", () => {
     for (const bad of ["true", "yes", "-1", "1.5", "12", " 2"]) assert.equal(hops(bad), false, bad);
     const noKek = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" }), encoding: "utf8", timeout: 30_000 });
     assert.equal(noKek.status, 1);
-    assert.match(noKek.stderr, /HOSTED_KEKS/);
+    assert.match(noKek.stderr, /HOSTED_RECOVERY_PUBKEY/);
     const noKey = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai", BACKUPS: "off" }), encoding: "utf8", timeout: 30_000 });
     assert.equal(noKey.status, 1);
     assert.match(noKey.stderr, /RESEND_API_KEY/);
@@ -138,7 +138,7 @@ describe("the entry point, the #653 review's refusals", () => {
     const env = baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" });
     const run = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite"], { env, encoding: "utf8", timeout: 30_000 });
     assert.equal(run.status, 1);
-    assert.match(run.stderr, /HOSTED_KEKS/);
+    assert.match(run.stderr, /HOSTED_RECOVERY_PUBKEY/);
     assert.doesNotMatch(run.stdout, /cpi_/);
   });
 
@@ -161,7 +161,7 @@ describe("the entry point, R3: CONTROL_ASIDE", () => {
     baseEnv({
       HOSTED_DATA_ROOT: dataRoot,
       PUBLIC_ORIGIN: "https://app.counterparts.ai",
-      HOSTED_KEKS: `v1:${Buffer.alloc(32, 7).toString("base64")}`,
+      HOSTED_RECOVERY_PUBKEY: RECOVERY.publicText,
       R2_ENDPOINT: "https://127.0.0.1:1",
       R2_BUCKET: "bkt",
       R2_ACCESS_KEY_ID: "test-generated-id",

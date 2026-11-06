@@ -7,23 +7,37 @@ Written 2026-10-26 (OL2b). The first deploy to Railway and R2 was 2026-10-29: se
 it, and the steps it checked say VERIFIED. A step that hasn't been run yet says so.
 
 Never paste a secret into a chat, a commit or an issue. Every value below goes into Railway's variables page, a
-password manager, or (the KEK only) its paper copy, and nowhere else.
+password manager, or (the recovery private key only) its paper copy, and nowhere else. **The recovery private key
+never goes into Railway** at all: not a variable, not a file, not a log.
+
+Since WB1 (2026-11-06, "Write-only backups" below) there is no KEK to make or keep: the server makes its own key on
+the volume, and what leaves for R2 is sealed to a recovery key whose private half only you hold.
 
 ---
 
 ## 1. Before you start (about 10 minutes, any time)
 
-1. **Generate the KEK** on your Mac:
+1. **Make the recovery keypair** on your Mac, from `~/counterparts` (bun, or Node 24 with
+   `--import ./src/adapters/node-hooks.mjs`):
 
    ```sh
-   openssl rand -base64 32
+   bun hosted/src/main.ts recovery-keygen
    ```
 
-   **Keep it offline in two places before you use it**: a password manager, as "Counterparts hosted KEK v1", and
-   a paper copy somewhere safe. **Without it, every backup is unreadable.** Railway's variable is the only copy
-   online, and it isn't a backup: losing the Railway account loses it. Do the same for every later version (v2, …)
-   before it goes into `HOSTED_KEKS`. Once it is in Railway, write its fingerprint beside both copies ("The drill",
-   steps 2-4).
+   It prints `HOSTED_RECOVERY_PUBKEY=…` (the public half, for Railway: public, fine in env), its `fingerprint`, and
+   the PRIVATE key (one line, `cp-recovery:…`) to the terminal, once. It writes no file (a file on a synced or
+   backed-up Desktop would be a third copy, and `rm -P` does nothing on macOS's disks).
+   **Keep the private key offline in two places before you use it**: a password manager, as "Counterparts hosted
+   recovery key", and a paper copy somewhere safe. **Without it, a lost volume can't be restored.** Then clear the
+   terminal: Cmd-K clears Terminal.app's and iTerm2's scrollback, but not tmux's or screen's history (run it outside
+   them), Warp maps Cmd-K to something else (use its "Clear blocks"), and iTerm2's session restore or a clipboard-history
+   app may keep a copy (turn them off for this, or clear them after). Clear before quitting Terminal.app, which can
+   restore a window's text. Check each copy (it reads the key from the prompt and doesn't show it; it must print the same
+   fingerprint), and write the fingerprint beside both:
+
+   ```sh
+   bun hosted/src/main.ts recovery-fingerprint
+   ```
 2. **Generate the cookie keys** (these sign the OAuth library's cookies):
 
    ```sh
@@ -78,8 +92,7 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    | `RESEND_API_KEY` | Resend's key |
    | `MAIL_FROM` | `Counterparts <memory@counterparts.ai>` |
    | `COOKIE_KEYS` | the cookie key from 1.2 |
-   | `HOSTED_KEKS` | `v1:` followed by the KEK from 1.1 (one line: `v1:AbC…=`) |
-   | `HOSTED_KEK_CURRENT` | `v1` |
+   | `HOSTED_RECOVERY_PUBKEY` | the public key 1.1 printed (public: it can seal, never open) |
    | `R2_ENDPOINT` | `https://<account id>.r2.cloudflarestorage.com` (no bucket, no path) |
    | `R2_BUCKET` | the bucket's name |
    | `R2_ACCESS_KEY_ID` | the R2 token's access key id |
@@ -89,13 +102,16 @@ password manager, or (the KEK only) its paper copy, and nowhere else.
    | `RAILWAY_DOCKERFILE_PATH` | `hosted/Dockerfile` (step 1) |
    | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `60`, so Litestream's last sync finishes before a redeploy kills the old container (unverified; check Railway's current name for it) |
 
-   Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`.
+   Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`. Don't set
+   `HOSTED_KEKS` (before WB1 the KEK lived here; a new server never needs it).
 
 ## 3. Cloudflare R2 (about 10 minutes)
 
 1. Create a bucket, e.g. `counterparts-hosted`. Use automatic location.
 2. **No bucket lock rules and no object lifecycle rules.** Above all, nothing on `keys/`. A delete has to be a
-   delete: a locked or retained `keys/<store>.wrapped` would keep a deleted person's key alive.
+   delete: a locked or retained `keys/<store>.sealed` would keep a deleted person's key alive. (R2 keeps no object
+   versions of its own, as of 2026-11-06, unverified on R2's current docs: check there is no versioning setting on
+   the bucket, and leave it off if there is.)
 3. Create an **API token**:
    - permission "Object Read & Write";
    - **scoped to this one bucket**;
@@ -158,7 +174,9 @@ the domain on Cloudflare.
      hops. Your IP alone would mean `1`; three addresses would mean `3`. If your IP isn't in the line at all, tell
      the coordinator before inviting anyone.
    - Then **delete `LOG_FORWARDED_FOR`** and redeploy.
-4. **The bucket**: after a minute, R2's object browser shows `keys/control.wrapped` and `control/accounts.sqlite/…`.
+4. **The bucket**: after a minute, R2's object browser shows `keys/control.sealed` (`keys/control.wrapped` before
+   WB1) and `control/accounts.sqlite/…`. The deploy log has `backups: keys on this volume (keys/volume.kek); key
+   objects sealed to recovery key <fingerprint>`: the fingerprint is the one beside your offline copies.
    VERIFIED 2026-10-29: the bucket showed `control/` and `keys/`.
 5. **Litestream's own words**: the log has Litestream's start lines (`level=INFO msg=litestream version=…`, then
    `msg="initialized db"` and `msg="replicating to" … bucket=… endpoint=…` for each database), and no repeated
@@ -217,31 +235,64 @@ What the bucket holds:
 
 - every store's database, under that store's own SSE-C key;
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
-- each store's wrapped key, once, at `keys/<storeId>.wrapped`.
+- each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the
+  server can write these and never read them back. (Before WB1: `keys/<storeId>.wrapped`, under `HOSTED_KEKS`.)
 
 What it never holds:
 
-- `keys/keys.sqlite`, which is rebuilt from the `keys/` objects;
+- `keys/keys.sqlite` and `keys/volume.kek`: a new volume gets a new volume key, and the keys come back from the
+  `keys/` objects with the recovery private key (`recover-keys`);
 - a store's `cache/` (its word index and vectors), which is rebuilt from the rows at the store's first open after
   a restore;
 - `journal/` and `spans/`, which are derived or conversation text, never backed up.
 
-**You need the KEK ring that wrapped the keys.** A restore with a ring that can't open a key object refuses. It
-writes nothing to the bucket, and leaves only an empty `keys/keys.sqlite` on the volume, which a retry with the right
-ring doesn't mind ("If a start refuses").
+**A restart never needs the private key**: the volume has every key. **Only a lost volume (or a lost `keys/`) does**,
+and only for one step, `recover-keys`, with the server stopped. Without it, a restore refuses (`… sealed to the
+recovery key, which the server never holds: run recover-keys …`), writes nothing to the bucket, and leaves only an
+empty `keys/keys.sqlite` on the volume, which `recover-keys` doesn't mind.
 
 ### The whole volume is gone (or it's a new volume, or a move to Fly)
 
-1. Attach the new, empty volume at `/data`, with the same variables, the same bucket and the same KEK.
-2. Add `RESTORE_ON_BOOT=1`. Raise the healthcheck timeout for this one deploy (Settings → Deploy → Healthcheck
-   Timeout, or `RAILWAY_HEALTHCHECK_TIMEOUT_SEC=1800`), because every restored store's cache is rebuilt before
-   the server listens. Then deploy.
-3. The log shows:
+The private key reaches the server one way: typed (pasted) into `recover-keys` through `railway ssh`, which reads it
+with the echo off and drops it when it is done. Never a variable, never a file on the volume.
+
+1. Attach the new, empty volume at `/data`, with the same variables and the same bucket.
+2. **Hold the server**: Settings → Deploy → Custom Start Command
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts hold`, and deploy. `hold` answers `/readyz` and
+   nothing else (everyone else gets "Down for maintenance"), opens nothing on the volume, and keeps the container up
+   so `railway ssh` reaches it. The log says `holding on port 8080 …`. (Unverified on Railway: that the deploy
+   passes its healthcheck on hold's `/readyz` and `railway ssh` reaches it. The local drill proves the commands.)
+3. `railway ssh`, then:
+
+   ```sh
+   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys --dry-run
+   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts recover-keys
+   ```
+
+   Each asks for the recovery private key (paste the `cp-recovery:…` line, Enter; it isn't shown). The dry run opens
+   every key and writes nothing (on a new volume; on a volume with keys it records the proof); the run prints
+   `recovery key <fingerprint>` (the one beside your copies), `N keys brought back from the bucket (each proven
+   against its replica)`, and `next: deploy with RESTORE_ON_BOOT=1`. A key is adopted only when every object of its
+   store's replica opens under it: one that doesn't is refused as `may be FORGED` (rotate the R2 token, tell the
+   coordinator). A store with no replica at all (signed up, never used) is left (`not adopted: no replica`) and gets
+   a new key at its first open; `--adopt-unproven` adopts such keys anyway, with a WARNING. **`more than one place in
+   the bucket holds control replicas (control/, control/<id>/)`** has an honest cause too: the volume was lost while
+   a control re-key (`migrate-keys`) was pending, or before a start dropped the old control replicas. A person then
+   decides which place is current: the one whose id is the key id in `keys/control.sealed` (the third `.`-separated
+   part of the object), and whose newest `.ltx` files are the latest. Delete the other prefix in R2's object browser
+   (only after the R2 token was rotated, if a leak is possible), and run `recover-keys` again. When unsure, tell the
+   coordinator before deleting anything. A wrong key refuses before anything is
+   written (`this private key (fingerprint …) isn't the recovery key the bucket's keys are sealed to (…)`). It is
+   safe to run again. Then `exit`.
+4. **Clear the start command**, add `RESTORE_ON_BOOT=1`, raise the healthcheck timeout for this one deploy
+   (Settings → Deploy → Healthcheck Timeout, or `RAILWAY_HEALTHCHECK_TIMEOUT_SEC=1800`), because every restored
+   store's cache is rebuilt before the server listens. Then deploy.
+5. The log shows:
    - `restored the control databases: 2 restored, 0 already here`;
    - each restored store's cache being rebuilt before `serving` (a large store takes a while);
    - `RESTORE_ON_BOOT: N store databases restored. Unset RESTORE_ON_BOOT now.`;
    - and, only if any failed, `N store restores FAILED`. Those stores wait, and everyone else is served.
-4. **Remove `RESTORE_ON_BOOT`** and the raised timeout, then redeploy.
+6. **Remove `RESTORE_ON_BOOT`** and the raised timeout, then redeploy.
 
 Without the flag, a server on an empty volume beside a bucket that has backups **refuses to start**, and says so. If
 it started, it would make empty databases and replicate them over the real ones. (A new server with a new, empty
@@ -294,30 +345,38 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
 - **"…but not the key that wrote the bucket's backups"**: this volume has a control database, but not the control
   key. Either something else made that database (an `invite` or a `BACKUPS=off` run on a lost volume), or only
   `keys/keys.sqlite` was lost and the control databases are fine. The server can't tell which, so both take the safe
-  path, which loses at most the last seconds not yet replicated. Set `RESTORE_ON_BOOT=1` and `CONTROL_ASIDE=1`
-  (variables, no start-command override) for one deploy, then unset both. `serve` moves `control/` to
-  `/data/control.aside-1` before anything opens it, and logs `CONTROL_ASIDE=1: moved control/ …`.
+  path, which loses at most the last seconds not yet replicated. Since WB1 the keys come back with the private key:
+  hold the server (Restore, step 2), `railway ssh`, run `… main.ts recover-keys --control-aside 1` (it moves
+  `control/` to `/data/control.aside-1` first, says `--control-aside 1: moved control/ …`, then asks for the private
+  key), clear the start command and deploy once with `RESTORE_ON_BOOT=1`, then unset it. Without `--control-aside`,
+  `recover-keys` refuses beside those databases: the control key is never adopted beside control databases that
+  may not be the bucket's.
+
+  (`CONTROL_ASIDE=<label>` as a variable still moves `control/` at a `serve`, but a `serve` can't bring the keys
+  back, so on its own it only turns this refusal into "… sealed to the recovery key … run recover-keys".)
 
   It moves `control/` only on a volume that refuses for this reason (the bucket has the control key, this volume
-  doesn't). On any other volume it logs `…isn't refusing for the control key…: nothing moved` and the start goes on,
-  so it can never set aside the only copy of the accounts. A bucket it can't read stops the start (`did not start`),
-  with nothing moved.
+  doesn't). On any other volume it logs `…isn't refusing for the control key…: nothing moved`, so it can never set
+  aside the only copy of the accounts. A bucket it can't read stops it (`did not start`), with nothing moved.
 
   It moves `control/` aside **once per label**, ever: it writes `/data/overrides/control-aside-1.used` (`claimed`,
-  then `moved` after the move), and nothing deletes that file. A crash-restart, or a `CONTROL_ASIDE=1` left set for
-  weeks, logs `…was used once already: nothing moved`. `…claimed but the move didn't finish` means the server stopped
-  between the two; `control/` is where it was. **To do it again on purpose, set a new label** (`CONTROL_ASIDE=2`,
-  then `3`, …). The used labels are in `/data/overrides/`.
-- **"did not start: a store's key object in the bucket doesn't open with the KEK ring: put the old version back in
-  the ring and run rewrap again"**, on a restore (`RESTORE_ON_BOOT=1`, a new or empty volume): usually a mistyped
-  KEK, not a rotation. **Compare fingerprints first**: fingerprint each version in `HOSTED_KEKS` and check it against
-  the key-check value beside the offline copies ("The drill", steps 2-4), and check the label (`v1:`). Nothing was
-  restored, and the bucket wasn't touched. The start leaves `keys/keys.sqlite` on the volume, with no key in it.
-  Leave it: fix `HOSTED_KEKS` and deploy again with `RESTORE_ON_BOOT=1` still set, and the restore goes on as on an
-  empty volume. No `rm -rf /data/keys` is needed (read from the code, and `ops.test.ts`'s drill does exactly that,
-  under a wrong ring and then the right one). The plural **"N wrapped store keys don't open with the KEK ring"** is
-  the other case: the keys in `keys/keys.sqlite`, at a start, after a version was dropped before its rewrap
-  finished ("Rotating the KEK").
+  then `moved` after the move), and nothing deletes that file. A re-run logs `…was used once already: nothing
+  moved`. `…claimed but the move didn't finish` means it stopped between the two; `control/` is where it was. **To
+  do it again on purpose, use a new label** (`2`, then `3`, …). The used labels are in `/data/overrides/`.
+- **"… sealed to the recovery key, which the server never holds: run recover-keys with the recovery private key
+  first"**, on a restore (`RESTORE_ON_BOOT=1`, a new or empty volume): the keys aren't on this volume yet. Nothing
+  was restored, and the bucket wasn't touched; the start leaves an empty `keys/keys.sqlite`, which is no obstacle.
+  Follow "The whole volume is gone" from step 2. The per-store **`backup.keyless … reason=sealed`** at a start is
+  the same thing for one store (its key lost from `keys.sqlite` while the bucket has it): `hold`, `recover-keys`,
+  serve again.
+- **"N wrapped store keys in keys/keys.sqlite don't open"**, at a start: `keys/volume.kek` is missing or isn't this
+  volume's, or (before `migrate-keys` finished) they are under `HOSTED_KEKS` and that variable was removed or
+  changed. Put `HOSTED_KEKS` back as it was and run `migrate-keys` ("Write-only backups"). A lost `volume.kek` beside
+  keys under it is never replaced by a new one: remove `keys/` (`rm -rf /data/keys`, in `hold`) and bring the keys
+  back with `recover-keys`.
+- **"this private key (fingerprint …) isn't the recovery key the bucket's keys are sealed to (…)"**, from
+  `recover-keys`: a mistyped or other copy. **Compare fingerprints first** (`recovery-fingerprint` on each copy,
+  against the one written beside them and the one serve logs). Nothing was written.
 - **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
   missing one alone.
 - **"…the bucket R2_ENDPOINT and R2_BUCKET name ("<host>/<bucket>") has no control key"** (R7): this volume has
@@ -328,8 +387,9 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
     most likely wrong. Fix it and redeploy; it starts as before.
   - **"…has been backed up (a backup key file is here) but has lost keys/keys.sqlite"**: `keys/keys.sqlite` is gone
     AND the bucket is most likely wrong. Fix it; that start then refuses with "…but not the key that wrote the
-    bucket's backups" (the first entry above): deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`,
-    then unset both (or "…no accounts database…": `RESTORE_ON_BOOT=1` alone). No `rm -rf /data/keys` is needed.
+    bucket's backups" (the first entry above): `recover-keys --control-aside <new label>` in `hold`, then one deploy
+    with `RESTORE_ON_BOOT=1` (or "…no accounts database…": `recover-keys`, then `RESTORE_ON_BOOT=1`). No
+    `rm -rf /data/keys` is needed.
     `NEW_BUCKET` doesn't count here: the stores' keys are only in the old bucket. If the old bucket is gone, tell the
     coordinator.
   - **"…has people or stores but has never been backed up: it ran with BACKUPS=off"**: you are turning backups on.
@@ -343,7 +403,7 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   **Only when the bucket is new on purpose** (a move to a new bucket, or turning backups on after `BACKUPS=off`), set
   `NEW_BUCKET` to what the line prints: `R2_ENDPOINT`'s host, a slash, `R2_BUCKET` (e.g.
   `NEW_BUCKET=<account id>.r2.cloudflarestorage.com/counterparts-hosted`), for one deploy. The log says
-  `NEW_BUCKET=…: …on purpose…`, and R2 then shows `keys/control.wrapped`. Unset it once it is serving. Left set, each
+  `NEW_BUCKET=…: …on purpose…`, and R2 then shows `keys/control.sealed`. Unset it once it is serving. Left set, each
   start logs `NEW_BUCKET is set, but … it changed nothing`; any other value doesn't count, so a later wrong
   `R2_BUCKET` or `R2_ENDPOINT` is refused again.
   - Turning backups on, the same start gives every store a key (`backup.key.minted storeTag=…`, one per store). A
@@ -363,7 +423,7 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
 - **`backup.key.minted storeTag=<tag>`** (not a refusal): a store served with no backup key, here or in the bucket,
   and the bucket held nothing of it. The start made it a key; it is backed up once that start is serving (the line
   comes before the key's upload, so a start that stops after it says `did not start: …`, and the next start finishes
-  the upload). Nothing to do. Within a minute, R2's object browser shows `keys/<id>.wrapped` and objects under `tenants/<id>/`.
+  the upload). Nothing to do. Within a minute, R2's object browser shows `keys/<id>.sealed` and objects under `tenants/<id>/`.
 - **`backup.keyless storeTag=<tag> reason=<reason>`**, with **"N stores that lived have no key here or in the
   bucket"** below it: the store serves, but isn't backed up, and no key was made, on purpose. By reason:
   - `no-database`: its database isn't on this volume. It also waits for a restore (`RESTORE_ON_BOOT=1`), or for
@@ -374,9 +434,11 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
 
     A start refused with **"the bucket's control key is a different key from this volume's"** has a control key here
     that some start against another bucket made (one before R7, or one on a volume with no one on it yet, after
-    `keys/keys.sqlite` was lost). The way back: remove `keys/` from the volume (`rm -rf /data/keys`, with a start-command override
-    if the service crash-loops), then deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, then
-    unset both.
+    `keys/keys.sqlite` was lost). The way back: hold the server (Restore, step 2), `railway ssh`, remove `keys/`
+    (`rm -rf /data/keys`), run `recover-keys --control-aside <new label>` with the private key, then clear the start
+    command and deploy once with `RESTORE_ON_BOOT=1`, then unset it.
+  - `sealed` (WB1): its key isn't on this volume, and the bucket has it sealed to the recovery key. Never minted
+    over. `hold`, `recover-keys`, serve again ("… sealed to the recovery key …" above).
   - `bucket-unreadable`: a check's request to the bucket failed. The next restart tries again.
   - `tombstone`: the bucket says it was deleted. A start finishes the delete.
   - `replica-in-bucket`: the bucket holds backup objects of it, under a key that is gone. A new key would bury them.
@@ -392,26 +454,32 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
   (`RESEND_API_KEY`, `MAIL_FROM`'s domain); sign-in links would be failing too. `storeTag=none` is possible: the
   account had no store left to name.
 
-### The drill with the real binary (again after each new KEK version, or a Litestream bump)
+### The drill with the real binary (again after a new recovery key, or a Litestream bump)
 
-The hermetic test (`hosted/test/ops.test.ts`) drives the restore through a stand-in Litestream. It proves our side:
-the key objects, the configuration, the arguments, the layout, the cache rebuild, and the words coming back
-through `/mcp`. It doesn't prove Litestream itself, R2 or SSE-C, and it doesn't prove that the offline copies of
-the KEK are production's. The drill proves those, in two halves.
+The hermetic tests (`hosted/test/ops.test.ts`, `hosted/test/wb1.test.ts`) drive the restore through a stand-in
+Litestream. They prove our side: the key objects, the configuration, the arguments, the layout, the cache rebuild,
+and the words coming back through `/mcp`. They don't prove Litestream itself, R2 or SSE-C, and they don't prove that
+the offline copies of the recovery key are production's. The drill proves those, in two halves.
 
-**Why two halves.** Until 2026-11-02 the drill typed the real KEK from each offline copy into a container on your
-Mac. That proved only that the two copies agree with each other, and it put the real KEK on the Mac. So now:
+**Why two halves.** The real private key never goes anywhere near a drill. So:
 
-- **The copies are proven by fingerprints.** You fingerprint each offline copy and Railway's `HOSTED_KEKS`, and all
-  three must match. A wrapped key opens only with the right key bytes and the right version label (`keys.ts`, the
-  label is in the AAD). Railway's own start-ups prove that its ring opens the bucket's keys: the running deploy
-  started after the last edit to `HOSTED_KEKS` and opens its stores. So copies whose bytes equal Railway's, under
-  the same label (`v1`), open the bucket too. (With one version in the ring, `HOSTED_KEK_CURRENT` can only be unset
-  or `v1`: any other value refuses at start-up, `keys.ts`.)
-- **The restore is proven with a throwaway KEK.** The script runs production's deployed image, the real Litestream
-  and a drill bucket on R2. The key material is made for the drill and thrown away after it.
+- **The copies are proven by fingerprints.** `recovery-fingerprint` on each offline copy must print the fingerprint
+  that production's own log prints at every start (`key objects sealed to recovery key <fingerprint>`), which is
+  `HOSTED_RECOVERY_PUBKEY`'s. A copy whose fingerprint matches is the private half of the key every key object is
+  sealed to (the fingerprint is SHA-256 over the public key, which the private key derives).
+- **The restore is proven with a throwaway recovery keypair.** The script runs the image, the real Litestream and a
+  drill bucket (on R2, or `--local`: a local S3 with SSE-C). The keypairs are made for the drill and thrown away
+  after it.
 
-**Your steps** (once per KEK version, and the bucket once per drill):
+**Your steps for the copies** (once per recovery key): `bun hosted/src/main.ts recovery-fingerprint` for each
+offline copy (the password manager's, then the paper's), pasting the key at the prompt (it isn't shown). Each must
+print the fingerprint written beside the copies and the one in Railway's deploy log. If one differs, fix that copy
+now, while the volume still holds every key.
+
+Before WB1 (until the migration below) the copies were KEK copies, proven the same way against `HOSTED_KEKS`; that
+history is in git (this file, 2026-11-02).
+
+**Your steps for the script with R2** (the bucket once per drill; `--local` needs none of this):
 
 1. **A drill bucket and its own token.** In Cloudflare R2, make a fresh, empty bucket `counterparts-drill` in the same
    account (defaults), and a token with Object Read & Write on **that bucket only**. Save it as
@@ -425,56 +493,44 @@ Mac. That proved only that the two copies agree with each other, and it put the 
    ```
 
    The script refuses any other bucket name.
-2. **Fingerprint each offline copy** (the password manager's, then the paper's). Run it twice for each. It prints
-   8 hex characters, or `NOT 32 BYTES`. It strips a leading `v1:`, and the key never shows on screen:
 
-   ```sh
-   read -rs -p "KEK: " K; echo; K="$K" node -e 'const s=process.env.K.trim().replace(/^v1:/,"");const b=Buffer.from(s,"base64");if(b.length!==32){console.log("NOT 32 BYTES ("+b.length+")");process.exit(1)}console.log(require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8))'; unset K
-   ```
-
-3. **Fingerprint Railway's copy**, the same computation on each version in `HOSTED_KEKS`. Run it on your Mac, from
-   `~/counterparts`, where Railway is linked. The variables go straight into `node`, and only the fingerprints are
-   printed:
-
-   ```sh
-   railway variables --kv | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=d.split("\n").find(x=>x.startsWith("HOSTED_KEKS="));if(!l){console.log("NO HOSTED_KEKS");return}for(const e of l.slice(12).split(",")){const i=e.indexOf(":");const b=Buffer.from(e.slice(i+1).trim(),"base64");console.log(e.slice(0,i).trim(),b.length===32?require("crypto").createHash("sha256").update(b).digest("hex").slice(0,8):"NOT 32 BYTES")}})'
-   ```
-
-   Expect one line per version (`v1 <8 hex>`), `v1` only today. Check that the running deploy started after the last
-   edit to `HOSTED_KEKS`, so the ring it proved is this one. A service that is serving with one version has
-   `HOSTED_KEK_CURRENT` unset or `v1`, since any other value refuses at start-up.
-4. **All three equal?** Then write the 8 hex beside both offline copies, as their **key-check value**. On the day
-   Railway is gone, it tells you a copy is the right one before anything is restored. If one differs, fix that copy
-   now, while Railway's still works.
-
-**The script** runs the other half. It needs Docker, `gh` signed in, and bun, from a checkout with hosted's
-dependencies. Run it as one background process (about five minutes):
+**The script** runs the other half. It needs Docker and bun (and `gh` signed in, for production's deployed commit),
+from a checkout with hosted's dependencies. Run it as one background process (about five minutes):
 
 ```sh
 bun install --cwd hosted --frozen-lockfile
 hosted/drill/drill.sh --rehearse     # optional first: steps 0-3 with BACKUPS=off, no bucket and no credentials
-hosted/drill/drill.sh                # the drill; after a failure, hosted/drill/drill.sh --from <step>
+hosted/drill/drill.sh                # the drill on R2, production's deployed image; after a failure, --from <step>
+hosted/drill/drill.sh --local        # the drill on a local S3 (SeaweedFS, SSE-C over TLS), this checkout's HEAD
+hosted/drill/drill.sh --sha <commit> # the drill on R2, the image built from that commit (a change before it deploys)
+hosted/drill/drill.sh --migration   # local too: the image from before WB1 under HOSTED_KEKS, then Mike's migration steps on the new one
 ```
 
+`--local` needs no Cloudflare account and no credentials: it starts `chrislusf/seaweedfs:4.50` on a Docker network of
+its own, with a throwaway CA, certificate and access key made for the run, and removes all of it at step 13. It
+proves everything the R2 drill does except R2 itself (the local S3 enforces SSE-C the same way: a plain GET of an
+SSE-C object answers 400).
+
 Everything it writes goes to `$COUNTERPARTS_DRILL_DIR` (default `$TMPDIR/counterparts-drill`), outside the
-repository: `RESULTS.md` (one line per step, pass or FAIL, and what it saw), the container logs, and a 0600 state
-file with the throwaway KEKs, deleted at the end. It never prints a key, a token or the R2 secret. Docker gets
-them by name (`-e NAME`). The steps, and what each proves:
+repository: `RESULTS.md` (`RESULTS-local.md` for `--local`; one line per step, pass or FAIL, and what it saw), the
+container logs, a 0600 state file, and the throwaway private keys (0600), deleted at the end. It never prints a
+key, a token or the R2 secret. Docker gets them by name (`-e NAME`); a private key reaches a container on stdin
+only. The steps, and what each proves:
 
 | Step | What it does | What it proves |
 | --- | --- | --- |
-| 0 | Reads production's deployed commit from GitHub's deployments, builds the image from a worktree at it, checks Litestream's version, empties the drill bucket, makes throwaway K1 and K2 (same `v1` label, other bytes) | the drill runs what production runs |
-| 1-2 | Serves under K1, two invites, two sign-ups through the emailed link; user 2 never connects | a store signed up and never opened doesn't upset Litestream (INTERFACE-GAPS §16) |
+| 0 | Reads production's deployed commit from GitHub's deployments (or `--sha`, or HEAD with `--local`), builds the image from a worktree at it, checks Litestream's version, empties the drill bucket, makes throwaway recovery keypairs P1 and P2 (`recovery-keygen`) | the drill runs what production runs |
+| 1-2 | Serves sealing to P1, two invites, two sign-ups through the emailed link; user 2 never connects | a store signed up and never opened doesn't upset Litestream (INTERFACE-GAPS §16) |
 | 3 | OAuth as claude.ai does it (DCR, PKCE, Allow), `wake`, `remember` A | the real door |
 | 4 | Waits for the store and both control databases to replicate, by TXID | Litestream replicates to R2 |
-| 5 | A plain GET of every replica object; the store's own object with its key | SSE-C: nothing readable without the key |
+| 5 | A plain GET of every replica object; the store's own object with its key; every key object | SSE-C: nothing readable without the key; every key object `keys/<id>.sealed`, sealed to P1, holding no SSE-C key |
 | 6 | `remember` B, then `docker stop` at once | the shutdown sync (step 10 tells whether B survived) |
 | 7-8 | Removes the volume; starts without `RESTORE_ON_BOOT` | an empty volume beside a bucket with backups refuses, the bucket unchanged |
-| 9 | `RESTORE_ON_BOOT=1` under K2 | a mistyped KEK refuses, the bucket unchanged |
-| 10 | `RESTORE_ON_BOOT=1` under K1; recall A and B with the token from before; refresh | everything comes back, the person stays connected, the never-opened store doesn't fail |
+| 9 | `RESTORE_ON_BOOT=1` with no private key; then `hold` and `recover-keys` with P2 (the wrong one) | without the private key nothing restores, with the wrong one nothing opens; no volume key made, the bucket unchanged |
+| 10 | `hold`, `recover-keys --dry-run` and `recover-keys` with P1 on stdin (as through `railway ssh`), then `RESTORE_ON_BOOT=1`; recall A and B with the token from before; refresh | the Railway restore works; everything comes back, the person stays connected, the never-opened store doesn't fail |
 | 11 | `remember` C, waits for it to replicate | replication goes on after a restore |
-| 12 | A second cycle: stop, volume gone, restore, recall A, B and C | a restored server restores again |
-| 13 | Cleanup: container, volume, bucket emptied, image, worktree, state | nothing of the drill is left but its logs |
+| 12 | A second cycle: stop, volume gone, `hold` + `recover-keys`, restore, recall A, B and C | a restored server restores again |
+| 13 | Cleanup: container, volume, bucket emptied, image, worktree, state, the throwaway private keys (and the local S3) | nothing of the drill is left but its logs |
 
 **Cleanup.** A rehearsal that passes removes its container, volume and state; one that fails leaves them for
 `--from`, and holds port 8080 until you clean it up:
@@ -482,41 +538,123 @@ them by name (`-e NAME`). The steps, and what each proves:
 Step 13 empties the bucket and removes everything local except the logs. Then you delete the drill
 token and the empty bucket in Cloudflare, and the logs directory when you're done reading it.
 
-**Run it again after each new KEK version, or a Litestream bump.** A new KEK version needs steps 2-4 again, for the
-new version: the offline-copy command strips only `v1:`, so a copy pasted with another label prints `NOT 32 BYTES`;
-paste it without the label. A Litestream bump needs the script.
+**Run it again after a new recovery key, or a Litestream bump.** A new recovery key needs the fingerprints again; a
+Litestream bump needs the script.
 
-**2026-11-02: both halves passed.** The fingerprints: at about 10:19, KEK v1 from the password manager, from the paper
+**2026-11-02 (before WB1, with KEK copies): both halves passed.** The fingerprints: at about 10:19, KEK v1 from the password manager, from the paper
 copy and from Railway's `HOSTED_KEKS` (a single `v1` entry) all matched, and the fingerprint is written beside both
 offline copies. The script: steps 0-13 passed (one resume at step 4 after a script bug), on the deployed image (3fe0aa75, Litestream 0.5.17, arm64). Both refusals left the
 bucket unchanged. B, written just before the stop, came back. The old token and the refresh both worked after
 the restore. Plain GETs answered `400 InvalidRequest` (×32).
 
+**2026-11-06 (WB1, `--local`): the script passed steps 0-13 in one run**, on the WB1 branch's image (19e5af6a,
+Litestream 0.5.17, arm64) against SeaweedFS 4.50 with SSE-C: every key object `keys/<id>.sealed` to P1, none holding
+an SSE-C key; `RESTORE_ON_BOOT=1` with no private key and `recover-keys` with P2 both refused, no volume key made, the
+bucket unchanged; `hold` + `recover-keys` with P1 brought back 3 keys (control and both stores), then
+`RESTORE_ON_BOOT=1` restored everything, B survived the stop, the old token and the refresh worked, and a second
+cycle restored A, B and C. Plain GETs answered `400 InvalidArgument` (×29). Not yet on R2 or Railway.
+
 Still open from the first deploy: Railway's drain time. On Railway, the old container gets a drain time before it
 is killed. Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=60` so the final sync can finish (unverified; check Railway's
 current name for it). The drill's `docker stop` took 0.6 s on the Mac, which says nothing about Railway.
 
-## Rotating the KEK
+## Write-only backups (WB1, 2026-11-06)
 
-1. Generate v2 as in 1.1, and record it in the two offline places first. Then set
-   `HOSTED_KEKS=v1:<old>,v2:<new>` and `HOSTED_KEK_CURRENT=v2`.
-2. Stop the service, then run `… main.ts rewrap` once. It prints
-   `rewrapped N keys onto v2; M key objects re-written`.
-   - **Unverified on Railway:** a one-off command with the service stopped. If there's no such thing, use the
-     start-command override above (`… main.ts rewrap`), deploy once, read the line, then clear the override.
-3. Start the service, and check `/readyz`.
-4. Only then drop `v1:` from `HOSTED_KEKS`, and redeploy. A ring that can't open a key refuses to start.
+**What changed.** Before WB1 the KEK sat in Railway's environment (`HOSTED_KEKS`) beside the R2 token, so a leak of
+the environment opened every backup. Now:
 
-## Moving the KEK to the Cloudflare key service (later; a gate before non-family users)
+- the KEK is on the volume (`/data/keys/volume.kek`, 0600), made by the server at its first key, never backed up;
+- every key object in the bucket (`keys/<id>.sealed`, each store's and the `control` key) is sealed to the recovery
+  key's PUBLIC half (`HOSTED_RECOVERY_PUBKEY`). The server can write them and never open them;
+- the private half is only in your two offline places. Only `recover-keys` uses it, after a volume is lost.
 
-1. **Before building it:** verify the reported Railway environment-variable breach (Mike's report, not verified).
-   If it's wrong, the key service is still better than an environment variable, but it is less urgent.
-2. When the key service holds the KEK, **export its key to the same two offline places**, recorded before the
-   rewrap onto it. Losing the Cloudflare account must not lose the memories.
-3. Rewrap onto it as in "Rotating the KEK", then fingerprint the exported copies against the key service's ("The
-   drill", steps 2-4).
-4. **With the key service down, a restart can't open any store until it's back** (the same shape as an R2 outage
-   blocking a start). A running server keeps serving. Accepted.
+What each leak gets now: **the environment** (the R2 token, the public key, everything else) and a copy of the
+bucket: no key, so no backup opens. **The bucket alone**: the same. **The volume**: everything (the live stores are
+plaintext on it, as before; with it, the bucket's history opens too). The memory backups are each under their
+store's own key; the control databases' backup (accounts, email, OAuth) is under the one `control` key, sealed the
+same way.
+
+### The migration (once, at the release that brings WB1, BEFORE THE FIRST STRANGER INVITE)
+
+These steps are written so the release sheet can copy them. **Run all of them before inviting anyone from outside
+the family**: the stores that exist at the migration keep their keys (below), and that is accepted only for those.
+
+1. **Make the recovery keypair** on your Mac, from `~/counterparts`: `bun hosted/src/main.ts recovery-keygen`. It
+   prints the public key, the fingerprint and the private key once, and writes no file. Put the `cp-recovery:…` line
+   in the password manager and on paper, then clear the terminal (section 1, step 1: Cmd-K, and what it doesn't clear). Check EACH copy with
+   `bun hosted/src/main.ts recovery-fingerprint` (paste it; it isn't shown): both must print the fingerprint keygen
+   printed. Write that fingerprint beside both copies. This is the proof the migration relies on: the private key
+   never goes near the server for it.
+2. **Set `HOSTED_RECOVERY_PUBKEY`** on Railway to the `HOSTED_RECOVERY_PUBKEY=` value it printed. Leave `HOSTED_KEKS`
+   as it is.
+3. **Deploy the release.** It serves as before, and seals every key object. The log says `N keys are still under
+   HOSTED_KEKS: stop the server and run migrate-keys` and `key objects sealed to recovery key <fingerprint>`: it must
+   be the fingerprint beside your copies.
+4. **Dry-run the migration** beside the running server: `railway ssh`, then
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --dry-run --recovery-fingerprint <fingerprint>`
+   (the one beside your copies). It must say `recovery key …: the one named`, `control would be re-keyed` and `a run
+   would finish the migration`. Anything else: stop, tell the coordinator. (`migrate-keys` refuses to run without
+   `--recovery-fingerprint` naming the key every object is sealed to: a key whose copies weren't checked would
+   otherwise leave no working copy of any key in the bucket. It also refuses beside a running server.)
+5. **Run it with the server stopped**: Settings → Deploy → Custom Start Command
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --recovery-fingerprint <fingerprint>`,
+   deploy once, read the log, then clear the start command. It prints the counts, `control re-keyed: …`, and ends
+   `done: nothing here or in the bucket needs HOSTED_KEKS now`. Railway restarting the command is harmless: a second
+   run does nothing and says `done` again. `NOT done` lists what needs a look (by store tag): keep `HOSTED_KEKS` and
+   tell the coordinator. A start after a run cut short refuses (`a control re-key (migrate-keys) was cut short`): run
+   step 5 again. **If it keeps failing with `the control re-key's new snapshot didn't prove`** (Litestream can't reach
+   the bucket, say), back out so the server serves again:
+   `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts migrate-keys --abort-control-rekey` as the start
+   command, deploy once, clear it (it keeps the old control key, deletes the new one and its replicas; nothing else
+   changes), and tell the coordinator; step 5 can be run again later. (Unverified on Railway: a start command that
+   exits, as `rewrap` was; `hold` + `railway ssh` + the same line is the other way. Litestream runs inside it for the
+   re-key, on the image's own binary.)
+6. **Remove `HOSTED_KEKS` and `HOSTED_KEK_CURRENT`** from Railway's variables, and redeploy. It serves, with no
+   `still under HOSTED_KEKS` line. A start that says `don't open … set HOSTED_KEKS back` means step 5 didn't finish:
+   put the variable back and run step 5 again.
+7. **Rotate the R2 token.** In Cloudflare, make a new token as in section 3, step 3 (Object Read & Write, this bucket
+   only), set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` on Railway to it, redeploy, check `/readyz` and the
+   `backup.uploads` lines, then delete the old token. The old one sat in the same environment as `HOSTED_KEKS`.
+8. **Keep the old KEK's two offline copies until no R2 object needs them**: after step 5 says `done`, R2's object
+   browser shows no `keys/*.wrapped` (only `keys/*.sealed`) and no `control/accounts.sqlite/` or
+   `control/oauth.sqlite/` (control's replicas are under `control/<key id>/` now). Then retire them (destroy the
+   paper copy, delete the password-manager entry).
+
+**What stays exposed, exactly.** The control key is re-keyed by step 5: a new control DEK, the accounts and OAuth
+databases replicated under it to `control/<key id>/` and proven by a restore, the old control replicas deleted. So an
+old `HOSTED_KEKS` (from Railway's variable history, or any leak before step 6) opens no control backup in any copy of
+the bucket taken after step 5, and nothing written after it. A copy of the bucket taken BEFORE step 5, with that old
+`HOSTED_KEKS`, still opens the control history up to then (accounts and OAuth rows as they were). The memory stores that exist at the migration (yours and the test accounts) keep their
+DEKs, so their backups, past and future, stay openable by an old `HOSTED_KEKS` together with a copy of their old
+`keys/<id>.wrapped` taken before step 5. That is accepted (DESIGN §5.4). Every store made after the release deploys
+has a key no environment ever held.
+
+**Before any recovery after a suspected leak, rotate the R2 token first** (step 7's way). That is the real defence.
+Anyone holding the token can write the bucket, so could put a sealed key of their own there. `recover-keys` adopts
+no key unless every object of the store's own replica opens under it (it says `may be FORGED` when one doesn't), and
+refuses control when more than one place under `control/` holds replicas (naming them). That catches a lone forged
+key object, a mixed replica and an accident. It does NOT catch someone who sealed a key of their own AND replaced a
+store's whole replica with one under it: they could have deleted the bucket too. A `403` from the bucket is said as
+such (`check the R2 token`), never as a forgery.
+
+### A new recovery key
+
+Make it as in section 1, step 1, record it offline first, set `HOSTED_RECOVERY_PUBKEY` to the new public key and
+redeploy: the start seals every key object to it again (`sealedState` "stale"), and the old private key opens none of
+them from then on. Keep the old one until that start says `key objects sealed to recovery key <the new fingerprint>`.
+
+### The volume key
+
+`keys/volume.kek` never leaves the volume and needs no copy: a lost volume brings its keys back from the bucket with
+the recovery key, under a new volume key. There is no command to rotate it (a leak of the volume is a leak of the
+stores themselves). A `volume.kek` lost while `keys/keys.sqlite` stays is never replaced over keys under it ("If a
+start refuses").
+
+### The Cloudflare key service (replaced by WB1)
+
+The plan was a key service on Cloudflare reachable only from Railway's fixed egress IP, before any non-family
+user. Railway's Hobby plan has no static outbound IP (checked 2026-11-06), so the key service, and an IP-locked R2
+token, would need Pro. WB1 meets the same goal (an environment leak opens no backup) without it.
 
 People who use the server hold no keys, so they can't lock themselves out. A key a person holds themselves would
 stay opt-in only, if it's ever built.
@@ -531,7 +669,7 @@ and keep it; "delete everything now" erases at once. Nothing here needs you:
   of its deadline (or at the next start, if it was down then), and retries until R2 lets it finish.
 - **A locked store is still backed up**, so a restore in the window brings it back locked (unless the control
   databases come back from before the delete: then it is `active` and connected again, its deadline lost, and from
-  before a keep it comes back pending: INTERFACE-GAPS §36), and a rewrap re-writes
+  before a keep it comes back pending: INTERFACE-GAPS §36), and a new recovery key re-seals
   its key object like any other.
 - **There is no operator undo or early erase.** The person does both from their account page (they sign in by email
   link as usual and see only that page). If someone can't reach their email and asks you to keep or erase it, tell

@@ -35,20 +35,23 @@ import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
 import { KeyStore, csrfKey } from "./keys.js";
-import type { KeyWrapper } from "./keys.js";
+import type { KeyWrapper, RecoverySealer } from "./keys.js";
 import type { SharedEmbedder } from "./tenants.js";
 import type { Spawner } from "../../src/adapters/spawn.js";
 
 /** Step 5's pieces. Absent in tests of steps 2–4 and in a local run with no bucket. */
 export interface AppBackupOptions {
+  /** The volume KEK (WB1; `keys.ts#VolumeKeyWrapper`), or a test's ring. */
   readonly wrapper: KeyWrapper;
+  /** What every key object put in the bucket is sealed to (WB1): the recovery key's public half. */
+  readonly sealer: RecoverySealer;
   readonly objects: ObjectStore;
   readonly bucket: string;
   readonly endpoint: string;
@@ -139,6 +142,8 @@ export interface StartReport {
   readonly leftovers: number;
   /** Copies set aside by a restore or by hand (`control.aside-*`, `*.pre-restore-*`) older than a day: deleted. */
   readonly asideSwept: number;
+  /** Keys in keys.sqlite still under HOSTED_KEKS, not the volume KEK (WB1): `migrate-keys` moves them. */
+  readonly legacyKeys: number;
 }
 
 export interface App {
@@ -187,6 +192,7 @@ export function createApp(opts: AppOptions): App {
           dataRoot: opts.dataRoot,
           keys,
           objects: opts.backup.objects,
+          sealer: opts.backup.sealer,
           bucket: opts.backup.bucket,
           endpoint: opts.backup.endpoint,
           sidecar: opts.backup.sidecar ?? null,
@@ -498,6 +504,7 @@ export function createApp(opts: AppOptions): App {
       : new UploadWatch({
           objects: opts.backup.objects,
           heartbeat: () => accounts.heartbeat(),
+          ...(backups === null ? {} : { prefix: () => backups.controlPrefix("accounts.sqlite") }),
           now: opts.now ?? Date.now,
           ...(opts.uploadsStaleMs === undefined ? {} : { staleAfterMs: opts.uploadsStaleMs }),
           ...(opts.onUploads === undefined ? {} : { onEvent: opts.onUploads }),
@@ -610,7 +617,7 @@ export function createApp(opts: AppOptions): App {
       let keyless = 0;
       let minted = 0;
       if (backups !== null) {
-        // Keys first (adopted from the bucket on a new volume; minted for a store
+        // Keys first (this volume's, or brought back by recover-keys; minted for a store
         // that served with none, when nothing can be buried), then restores
         // while no sidecar runs, then the sidecar on the whole configuration.
         ({ keyless, minted } = await backups.ensureAll({ reload: false }));
@@ -664,7 +671,8 @@ export function createApp(opts: AppOptions): App {
         retryTimer.unref?.();
       }
       started = true;
-      return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept };
+      const legacyKeys = keys?.notOnCurrent() ?? 0;
+      return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept, legacyKeys };
     },
     readiness,
     lookAtUploads: async () => {
@@ -693,7 +701,7 @@ export function createApp(opts: AppOptions): App {
 
 /** What decides whether this volume's control databases are the bucket's (`controlVolume`). */
 export interface ControlVolume {
-  /** The bucket has `keys/control.wrapped`: something has backed up control databases there. */
+  /** The bucket has the control key object (`keys/control.sealed`, or `.wrapped` from before WB1): something has backed up control databases there. */
   readonly bucketKey: boolean;
   /** This volume's `keys.sqlite` holds the control key: it is the volume that wrote them. */
   readonly localKey: boolean;
@@ -702,7 +710,7 @@ export interface ControlVolume {
 }
 
 export async function controlVolume(dataRoot: string, backup: AppBackupOptions): Promise<ControlVolume> {
-  const bucketKey = (await backup.objects.get(keyObject(CONTROL_KEY_ID))) !== null;
+  const bucketKey = (await backup.objects.get(keyObject(CONTROL_KEY_ID))) !== null || (await backup.objects.get(legacyKeyObject(CONTROL_KEY_ID))) !== null;
   const keysPath = join(dataRoot, "keys", "keys.sqlite");
   let localKey = false;
   if (existsSync(keysPath)) {
@@ -716,13 +724,15 @@ export async function controlVolume(dataRoot: string, backup: AppBackupOptions):
 /** The refusal for a volume with control databases that aren't the bucket's, or null. */
 export function foreignControlRefusal(dataRoot: string, v: ControlVolume): string | null {
   if (!v.bucketKey || v.localKey || v.present.length === 0) return null;
-  return `refused: this volume has ${v.present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).`;
+  return `refused: this volume has ${v.present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. With the server stopped, run recover-keys --control-aside <new label> with the recovery private key (it moves control/ aside first), then deploy once with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).`;
 }
 
 /**
  * THE CONTROL DATABASES, BACK FROM THE BUCKET (OL2b), before anything opens
- * them: `accounts.sqlite` and `oauth.sqlite`, under the `control` key adopted
- * from `keys/control.wrapped`. The entry point runs it for `restore control`,
+ * them: `accounts.sqlite` and `oauth.sqlite`, under the `control` key, which
+ * this volume holds (since WB1 `recover-keys` brings it back from its sealed copy
+ * after a volume is lost; a `.wrapped` one from before WB1 is still adopted while
+ * HOSTED_KEKS opens it). The entry point runs it for `restore control`,
  * `restore --all`, and at a RESTORE_ON_BOOT start.
  *
  * THE KEY IS ADOPTED ONLY WHEN NO CONTROL FILE HERE IS KEPT (the #653 review,
@@ -738,7 +748,7 @@ export async function restoreControl(dataRoot: string, backup: AppBackupOptions,
   }
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
-    const b = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });
+    const b = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });
     return await b.restore(CONTROL_KEY_ID, run, opts);
   } finally {
     keys.close();

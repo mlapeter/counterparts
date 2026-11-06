@@ -474,26 +474,46 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 - **KEK, behind one seam.** All wrapping and unwrapping goes through one `KeyWrapper` interface (`hosted/src/keys.ts`).
   - Each wrapped key records the KEK version it was wrapped under. Nothing else in `hosted/` touches the raw KEK, and a
     test pins that.
-  - **The beta holds the KEK in a Railway secret**: `HOSTED_KEKS` holds the ring of versions and `HOSTED_KEK_CURRENT`
-    names the one in use (`EnvKeyWrapper`). Losing the KEK means losing every backup, so every version is kept offline
-    in two places (a password manager and paper), recorded before the version is used. Each copy carries the
-    version's fingerprint (the first 8 hex of the SHA-256 of its 32 bytes), which must equal the fingerprint of
-    Railway's. The restore drill itself runs on a throwaway KEK (RUNBOOK, "The drill").
-  - **Later**, Mike moves it to our own small Cloudflare Worker key service, called only from Railway's fixed egress IP.
-    That is a second `KeyWrapper` and nothing else changes. Its key is exported to the same two offline places, so
-    losing the Cloudflare account doesn't lose the memories. With the key service down, a restart can't open stores
-    until it's back, like an R2 outage blocking a start. Accepted.
+  - **Until WB1 the beta held the KEK in a Railway secret** (`HOSTED_KEKS`, `EnvKeyWrapper`), beside the R2 token: a
+    leak of the environment opened every backup (G1 finding M1).
+  - ~~**Later**, Mike moves it to our own small Cloudflare Worker key service, called only from Railway's fixed egress
+    IP.~~ **Revisited 2026-11-06: replaced by WB1.** Railway's Hobby plan has no static outbound IP, so neither the key
+    service nor an IP-locked R2 token is available without Pro.
+  - **Since WB1 (write-only backups, 2026-11-06), the KEK is on the volume** (`VolumeKeyWrapper`, `keys/volume.kek`,
+    0600, made at the first wrap, never backed up), and **every key object in the bucket is sealed to an offline
+    recovery key**: an X25519 public key in env (`HOSTED_RECOVERY_PUBKEY`), sealed HPKE-style with node:crypto only
+    (an ephemeral X25519 key, HKDF-SHA256, AES-256-GCM; the store id, the recipient's fingerprint and the DEK's key id
+    as associated data). The server writes them and never reads them back: a restart reads the volume. Only after a
+    volume is lost does `recover-keys` open them, with the private key Mike pastes into it (stdin, through `railway
+    ssh` into a `hold` container); never env, never a file on the server, never a log. A sealed value carries a key
+    id (an HKDF output of the DEK under its own label) so the server can check "the bucket's key is this volume's"
+    without opening it.
+  - What each leak gets: **the environment** (the R2 token included) plus a copy of the bucket: no key, nothing
+    opens. **The volume**: the live stores, as before (they are plaintext there), and with the bucket the backups'
+    history too. The private key is kept offline in two places, each copy checked by its fingerprint against the one
+    every start logs. The restore drill runs on a throwaway keypair (RUNBOOK, "The drill").
   - People hold no keys online, so a person can't lock themselves out. A key a person holds would be opt-in only.
-- **Rewrap** (`main.ts rewrap`, `KeyStore.rewrap`) moves every wrapped DEK from KEK version N to N+1 and re-writes each
-  store's key object. One operation covers rotation and the move to Cloudflare.
+- **Migration** (`main.ts migrate-keys`, WB1): the keys under `HOSTED_KEKS` rewrapped under the volume KEK, every key
+  object sealed, **the control key re-keyed** (a new DEK, the control databases replicated under it to a new place,
+  proven by a restore, the old control replicas deleted; the #768 review's HIGH 1: otherwise an old `HOSTED_KEKS` would
+  open every person's email and OAuth rows, past and future), every old `keys/<id>.wrapped` deleted once proven
+  redundant; idempotent, with `--dry-run`, and refused until `recover-keys --dry-run` has proven the recovery private
+  key. Then `HOSTED_KEKS` leaves the environment and the R2 token is rotated.
+- **ACCEPTED (2026-11-06, the #768 review): the memory stores that exist at the migration are not re-keyed.** Mike's
+  store and the test accounts keep DEKs that the old environment's `HOSTED_KEKS` could unwrap (from a copy of their
+  old `keys/<id>.wrapped`), so their backups, past and future, stay exposed to whoever holds both. Why accepted:
+  re-keying a memory store means a fresh replica of every store (a Litestream re-snapshot each, and its old replicas
+  dropped) for stores that belong to Mike and his testers, who know; control, which holds strangers' rows, IS
+  re-keyed. **Condition: the migration runs before the first stranger invite**, so every stranger's store is made
+  after it, under a key no environment ever held.
 - **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
   with the store id as associated data.
   - It keys the store's Litestream SSE-C key, through HKDF with a purpose label.
-  - The control databases' backups use the DEK of a pseudo-store, `control`.
-- **The key backups: one write-once object per store.** A store's wrapped DEK never changes after sign-up, except by a
-  rewrap.
-  - It is backed up once, at sign-up, as its own R2 object `keys/<storeId>.wrapped`. A rewrap overwrites it.
-  - There is no `keys.sqlite` backup and there are no daily copies.
+  - The control databases' backups use the DEK of a pseudo-store, `control`: one key for every account's rows, sealed
+    like the stores' (the per-account claim holds for memory backups only).
+- **The key backups: one write-once object per store.** A store's DEK never changes after sign-up.
+  - It is backed up once, at sign-up, as its own R2 object `keys/<storeId>.sealed`. A new recovery key re-seals it.
+  - There is no `keys.sqlite` backup, no volume-KEK backup, and there are no daily copies.
   - R2 versioning and object lock stay **off** for `keys/` (a bucket setting, in §7.3).
 - **Delete, the default: locked at once, erased in 24 hours** (R6, `app.ts#scheduleDelete`). The states:
 
@@ -547,7 +567,8 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 
 **Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
 1. Railway's disk encryption confirmed in writing. **Met 2026-11-04** (SOC 3, see §5.1); snapshot retention still open.
-2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
+2. ~~**The Cloudflare key service in place.**~~ **Revisited 2026-11-06: replaced by WB1 (write-only backups, above):
+   Hobby has no static egress, and an env leak now opens no backup without it.** The original reason: Railway's environment variables were reportedly breached
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
    means every backup. Before building it, verify the reported breach: if it's wrong, the service is still better than
    an environment variable, but the urgency changes. Its key is exported to the two offline places.
@@ -579,7 +600,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 ## 6. Tables (control plane, `control/accounts.sqlite`)
 
 Plain SQLite through the same `node:sqlite` binding (`store/db.ts`'s `openDb`, WAL). It is Litestream-replicated like a
-store, under its own SSE-C key derived from the KEK.
+store, under its own SSE-C key derived from the `control` DEK (sealed to the recovery key in the bucket, §5.4).
 
 ```
 people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|pending-delete|deleted,
@@ -651,11 +672,12 @@ R2 bucket. A move is: restore from R2 into a Fly volume, change DNS. A runbook g
 
 ### 7.3 What Mike must do (prepared by the build, done by him)
 
-1. Railway: the project, the service, the volume, and the `HOSTED_KEKS` / `HOSTED_KEK_CURRENT` secrets (generate a
-   32-byte key, base64). Keep every KEK version offline in two places (a password manager and paper) before it is used.
+1. Railway: the project, the service, the volume, and `HOSTED_RECOVERY_PUBKEY` (WB1: `recovery-keygen`; the private key
+   offline in two places, a password manager and paper, before it is used; before WB1 it was the `HOSTED_KEKS` ring).
 2. Cloudflare R2: a bucket, and an API token scoped to that bucket's objects only. Versioning and object lock stay
    **off** (at least for `keys/`), so a delete is a delete.
-3. Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP (§5.4).
+3. ~~Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP
+   (§5.4).~~ Replaced by WB1 (2026-11-06, §5.4): `HOSTED_RECOVERY_PUBKEY` set, `migrate-keys` run, `HOSTED_KEKS` removed.
 4. Resend: verify the sending domain for the login emails.
 5. DNS: `app.counterparts.ai` to Railway, and the TLS certificate there.
 6. ~~Written confirmation of Railway's volume encryption~~ Met 2026-11-04 (SOC 3, §5.1).

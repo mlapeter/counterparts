@@ -32,7 +32,7 @@ import { StoreLocked, storeTag, tenantDir } from "../src/tenants.js";
 import { PAGE_STYLE } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
 import { REFUSED_ERROR } from "../../src/adapters/remote/http.js";
-import { rpc, tempRoot, tool } from "./helpers.js";
+import { RECOVERY, rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -153,6 +153,7 @@ async function rig(
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
     backup: {
       wrapper: o.wrapper ?? new EnvKeyWrapper(ring(), "v1"),
+      sealer: RECOVERY.sealer,
       objects: o.store ?? objects,
       bucket: "bkt",
       endpoint: "https://acct.r2.cloudflarestorage.com",
