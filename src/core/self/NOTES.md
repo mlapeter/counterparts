@@ -3072,5 +3072,10 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   `threadPlace` reads world as `out` there, Coming up counts it "in other folders", and the delivery holds it back
   unclaimed (`Counterpart#plainAway`), so its folder's first wake that day tells it whole. `isWorkMemory` is unchanged:
   world is still personal for Nearby and the craft lane; only where an owed item is shown moved.
+- **Fix round (the roadmap's calls):** a chat with no folder is told only personal reminders, and a telling counts
+  as "shown earlier" for a folder's work only when it was in that folder. A work reminder unsaid because its folder
+  had no session crosses once, two lived days past its last day (`Counterpart#plainCrossing`, its own latch).
+  "In other folders" names up to two plain titles when the line has room. Doctor: info, not amber, until the
+  crossing day has passed unsaid.
 - **Not built:** the four classes as code (mine, Mike's, world's, personal). Steps 1-2 need only personal against the
   rest, which `threadPlace` already says. The mapping is in the PR and the decisions fragment, for step 4.

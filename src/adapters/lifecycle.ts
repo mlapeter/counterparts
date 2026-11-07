@@ -971,14 +971,19 @@ export class Lifecycle implements HostLifecycle {
         if (!("on" in read)) read.on = this.writeUpFolders();
         return read.on;
       };
-      const all = this.counterpart.plainDueToday({ at: input.at, scope: input.scope, folders });
-      if (all.length === 0) return none;
+      const today = this.counterpart.plainDueToday({ at: input.at, scope: input.scope, folders });
+      // Another folder's work that went unsaid crosses once (SO1 step 3 fix round, `Counterpart#plainCrossing`).
+      const crossing = this.counterpart.plainCrossing({ at: input.at, livedSince: (day) => this.livedDaysSince(day, input.at as string) });
+      if (today.length === 0 && crossing.length === 0) return none;
       const on = folders();
-      const closed = on === undefined ? new Set<string>() : this.counterpart.plainHeldBack(all.map((r) => r.memoryId), on, input.scope);
+      const closed = on === undefined ? new Set<string>() : this.counterpart.plainHeldBack([...today, ...crossing].map((r) => r.memoryId), on, input.scope);
       // Another folder's work waits for its own folder (SO1 step 3, `Counterpart#plainAway`): the same reader Coming up reads.
-      const away = this.counterpart.plainAway(all.map((r) => r.memoryId), input.scope, this.chapterExports());
+      const away = this.counterpart.plainAway(today.map((r) => r.memoryId), input.scope, this.chapterExports());
       const held = new Set([...closed, ...away]);
-      const due = all.filter((r) => !held.has(r.memoryId));
+      const told = today.filter((r) => !held.has(r.memoryId));
+      // A late beat told here (its own folder, in its grace) is the telling: no crossing beside it.
+      const toldIds = new Set(told.map((r) => r.memoryId));
+      const due = [...told, ...crossing.filter((r) => !closed.has(r.memoryId) && !toldIds.has(r.memoryId))];
       return {
         context: due.map((r) => `${plainContextLine(r)}\n`).join(""),
         notices: due.map(plainLine),
@@ -988,6 +993,29 @@ export class Lifecycle implements HostLifecycle {
     } catch {
       return none;
     }
+  }
+
+  /**
+   * LIVED DAYS SINCE `day` (SO1 step 3 fix round): the calendar days after it, up
+   * to and including `at`, on which a person had a session — the registry's
+   * sessions with a person's entrypoint (a headless run and the night's runner
+   * aren't one), by the day each started and last spoke, in the store's zone.
+   * `at` counts: this delivery is a person's (`plainFor`'s callers ask only then).
+   * Never throws: a registry that won't read counts `at` alone.
+   */
+  private livedDaysSince(day: string, at: string): number {
+    const days = new Set<string>([at]);
+    try {
+      const zone = this.counterpart.store.zone();
+      for (const r of listSessions(this.counterpart.store.dir)) {
+        if (r.sessionId.startsWith(NIGHT_RUNNER_PREFIX)) continue;
+        if (r.entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(r.entrypoint)) continue;
+        for (const t of [r.startedAt, r.lastBoundaryAt]) if (t > 0) days.add(localDate(t, zone));
+      }
+    } catch {
+      /* `at` alone */
+    }
+    return [...days].filter((d) => d > day && d <= at).length;
   }
 
   /**
@@ -2152,9 +2180,11 @@ export function substanceOf(turns: readonly HostTurn[]): { turns: number; bytes:
  *
  * `what` is the memory's title or first line (`Counterpart.plainReminders`).
  */
-export function plainLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay" | "what" | "late">): string {
+export function plainLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay" | "what" | "late" | "crossFrom">): string {
   const max = TUNABLES.PLAIN_WHAT_MAX_CHARS;
   const what = r.what.length <= max ? r.what : `${r.what.slice(0, max - 1).trimEnd()}…`;
+  // Crossed from its folder, unsaid there (SO1 step 3 fix round): the folder named, and when it was due.
+  if (r.crossFrom !== undefined) return `${r.crossFrom}: ${what}, due ${r.precision === "day" ? readableDate(r.lastDay) : `by ${readableDate(r.lastDay)}`} (not said there: no session in that folder)`;
   if (r.late === true) return `This was for ${readableDate(r.lastDay)}: ${what}`;
   if (r.beat === "day") return `Today: ${what}`;
   if (r.beat === "last-day") return `Last day today: ${what}`;
@@ -2167,7 +2197,7 @@ export function plainLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay
  * memory so it can be looked up. One line, no newline — `what` is folded to
  * single spaces upstream — so `withoutPlain` can take it back out by line.
  */
-export function plainContextLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay" | "what" | "memoryId" | "late">): string {
+export function plainContextLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay" | "what" | "memoryId" | "late" | "crossFrom">): string {
   return `Plain reminder (they asked to be told) — ${plainLine(r)} [${r.memoryId}]`;
 }
 

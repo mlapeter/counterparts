@@ -389,7 +389,10 @@ true:
   **SO1 step 3 (2026-11-07):** a plain reminder too. Another folder's work (or one marked world) is
   said in its own folder and the folders joined to it, counted "in other folders" elsewhere and never
   "shown earlier" there; a personal one (me, us, owner) still crosses, folded once told. A reader with
-  no folder (claude.ai) still sees every plain reminder.
+  no folder (claude.ai) is told only the personal ones, and a telling counts as "shown earlier" for a
+  folder's work only when it was in that folder. "In other folders" names up to two of the other
+  folders' plain reminders due today ("garden: title"), when the line has room for them. One unsaid
+  past its last day crosses once (`Counterpart#plainCrossing`, prospective CONTRACT).
 
 - **WK2 (2026-10-30), behind `self.WAKE_SHAPE`, off by default:** a delivery names its handoffs in
   `core/counterpart-wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.

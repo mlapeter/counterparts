@@ -2527,12 +2527,16 @@ folder, from the host transcripts' wake text (`~/.claude/projects/*/*.jsonl`, th
 with their ids) joined to each id's `origin_scope` and `about` on a snapshot copy. Count by class as the 11-07 door read
 did (mine / Mike's / world's / personal). Expect ~0 outside personal. Also: every work plain reminder due on a day its
 own folder had a session was shown whole there (`adapter.plain.told` and the `prospective.plain` latch's session in that
-folder), and `counterparts doctor`'s plain-reminder line: a new "due on a day a session ran and not said" means a work
-reminder whose folder had no session that day (presence isn't per folder), which is this change working, not a miss.
+folder). Crossings: `prospective.plain.crossed` rows per day (each a work reminder that went unsaid because its
+folder had no session, told once elsewhere with its folder named), and whether each was a real deadline Mike wanted
+to hear about. Doctor: "due while its folder had no session" is info; "due where a session could say it, and not
+said" (amber) should only follow a crossing that didn't happen. And in claude.ai chats: only personal plain
+reminders told.
 
 **What would change it:** a personal item Mike wanted that stayed home (mark it owner), or a work reminder he needed in
-a folder it wasn't written in (join the folders as one project, or widen the rule). A doctor amber from folders not
-opened that day would argue for making the miss count read per folder.
+a folder it wasn't written in (join the folders as one project, or widen the rule). Crossings that are noise (stale
+items from a folder he's done with) would argue for a shorter lookback than 30 days, or a done-sweep of that folder;
+a deadline that still went unsaid would argue for crossing sooner than 2 lived days.
 
-**How to revert:** in `counterpart-wake-shape.ts` put `|| (c.plain && …)` back into `saysHere`, drop the `plainAway`
-call in `lifecycle.ts#plainFor`, and drop the `about === "world"` clause in `threadPlace`.
+**How to revert:** in `counterpart-wake-shape.ts` set `saysHere` back to `c.mine || c.plain`, drop the `plainAway` and
+`plainCrossing` calls in `lifecycle.ts#plainFor`, and drop the `about === "world"` clause in `threadPlace`.

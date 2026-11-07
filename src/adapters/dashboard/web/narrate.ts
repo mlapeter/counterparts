@@ -1059,6 +1059,8 @@ export const NARRATORS = {
             : "on the day";
     return notable(`I told you plainly about ${subject(t)} ${when}, as it was asked to be.`);
   },
+  // Crossed from its folder (SO1 step 3 fix round): unsaid there, told once elsewhere.
+  "prospective.plain.crossed": (t) => notable(`I told you about ${subject(t)} from its own folder, which had no session while it was due, so it wouldn't go unsaid.`),
 
   // ── the worker that did start ──────────────────────────────────────────────
   //
@@ -1298,6 +1300,7 @@ export const REF_KIND = {
   "prospective.fire": "memory",
   "prospective.fire.refused": "memory",
   "prospective.plain": "memory",
+  "prospective.plain.crossed": "memory",
   "adapter.checkout": "none",
   "adapter.wake.delivered": "none",
   "adapter.wake.injected": "none",

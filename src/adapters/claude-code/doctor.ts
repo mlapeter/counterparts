@@ -92,6 +92,7 @@ import type { AskReason } from "../../core/self/episodes.js";
 // dashboard's health panel so the three cannot disagree about what "silent"
 // means (constitution 16, the same rule this module already keeps for "healthy").
 import { STATE_MEANING, daysBetween, firedReport } from "../fired.js";
+import { PLAIN_CROSS_AFTER_LIVED_DAYS } from "../../core/prospective/index.js";
 // The one name the "no configuration was read" line needs, from the module that
 // owns it — so the sentence here and the refusal it replaced name the same var.
 import { CONFIG_ENV } from "../config-path.js";
@@ -1715,6 +1716,12 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
     report.heldBack === 0 || report.missedOccasion.length > 0
       ? ""
       : ` ${report.heldBack === 1 ? "1 plain reminder is" : `${String(report.heldBack)} plain reminders are`} held back, ${report.heldBack === 1 ? "its folder" : "their folders"} not on: said if turned on within a week of the day, and not after.`;
+  // DUE WHILE ITS FOLDER HAD NO SESSION (SO1 step 3 fix round): info, not a fault.
+  // It is said in its folder, or elsewhere once, two lived days past its day.
+  const homeless =
+    (report.homelessPlain ?? 0) === 0
+      ? ""
+      : ` ${report.homelessPlain === 1 ? "1 plain reminder was" : `${String(report.homelessPlain)} plain reminders were`} due while ${report.homelessPlain === 1 ? "its folder" : "their folders"} had no session: said there, or in the next session elsewhere ${String(PLAIN_CROSS_AFTER_LIVED_DAYS)} lived days after.`;
   // TOO NEW TO GRADE (2026-09-20, finding 2). On a store younger than a lived
   // day or two, "28 have never fired" is a true sentence that reads like a
   // broken install — nothing has fired because nothing has happened yet. One
@@ -1744,7 +1751,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
         "fired",
         "green",
         "Fired",
-        `${roll}. Nothing that fired last week has fallen silent this week.${held}`,
+        `${roll}. Nothing that fired last week has fallen silent this week.${held}${homeless}`,
         "",
         data,
       ),
@@ -1766,7 +1773,7 @@ function firedFindings(input: DoctorInput, store: Store): Finding[] {
       "fired",
       "amber",
       "Fired",
-      `${roll}. ${changed.join(". ")}${held === "" ? "" : `.${held}`}`,
+      `${roll}. ${changed.join(". ")}${held === "" ? "" : `.${held}`}${homeless === "" ? "" : `.${homeless}`}`,
       report.wentBlocked.length > 0
         ? `Run: counterparts mechanisms --all — ${STATE_MEANING.blocked}, and the reason on the row names what to fix.`
         : report.missedOccasion.length > 0

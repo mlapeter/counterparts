@@ -48,7 +48,7 @@ import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
-import { Prospective } from "./prospective/index.js";
+import { PLAIN_CROSS_AFTER_LIVED_DAYS, Prospective } from "./prospective/index.js";
 import type { PlainDue } from "./prospective/index.js";
 import {
   ASKED_KIND,
@@ -186,6 +186,7 @@ import {
   CRAFT_SINCE_KEY,
   isDirectoryScope,
   threadPlace,
+  folderName,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -3467,12 +3468,12 @@ export class Counterpart {
    * closed folder's: not offered, so not claimed, not latched, not spent, and its
    * own folder's first wake that day still tells it whole. Marked me, us or owner,
    * or with no folder: told everywhere, as before. A reader with no folder (a
-   * claude.ai chat) holds nothing back here: it has no folder of its own to wait
-   * for. A read. Never throws: a row that won't read is not held.
+   * claude.ai chat) is told only the personal ones (the roadmap's call, fix round
+   * of #780): no folder's work is its to be told. A read. Never throws: a row that
+   * won't read is not held.
    */
   plainAway(ids: readonly string[], scope: string | undefined, exportsFrom?: (scope: string) => boolean): ReadonlySet<string> {
     const away = new Set<string>();
-    if (scope === undefined || !isDirectoryScope(scope)) return away;
     try {
       const folders = new Set(this.threadReader(scope, exportsFrom).folders.map(projectFolder).filter((f) => f.length > 0));
       const rule = { craftTravels: this.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(this.store) };
@@ -3492,14 +3493,61 @@ export class Counterpart {
   }
 
   /**
+   * THE FALLBACK, SO A REAL DEADLINE CAN'T GO SILENT (SO1 step 3 fix round,
+   * 2026-11-07, the roadmap's call): another folder's work reminder (or one marked
+   * world) that went unsaid through its window, because its folder had no session,
+   * crosses ONCE, `PLAIN_CROSS_AFTER_LIVED_DAYS` lived days past its last day — a
+   * lived day is a calendar day the person had a session, which `livedSince` (the
+   * host's registry) counts, today included. Not a closed folder's (the caller's
+   * `plainHeldBack` still holds those), not one that already happened, not one
+   * marked done. `crossFrom` names its folder. A read; `claimPlainReminder` claims
+   * it, once across every folder. Never throws.
+   */
+  plainCrossing(input: { at: string; livedSince: (day: string) => number }): PlainReminder[] {
+    if (this.observer) return [];
+    const out: PlainReminder[] = [];
+    try {
+      const nowhere = new Set<string>();
+      for (const due of this.prospective.plainUnsaid({ at: input.at })) {
+        const row = this.store.row(due.memoryId);
+        if (row === undefined || row.status === "done") continue;
+        const facts = { about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false };
+        // Only what waits for a folder: a personal one was told wherever a session ran.
+        if (threadPlace(facts, nowhere) !== "out") continue;
+        if (input.livedSince(due.lastDay) < PLAIN_CROSS_AFTER_LIVED_DAYS) continue;
+        if (happenedAlready(this.store, due.memoryId, input.at, {}) !== null) continue;
+        let what = "";
+        try {
+          const doc = this.store.readProse(due.memoryId);
+          const title = doc.title?.trim() ?? "";
+          const line = doc.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+          what = (title.length > 0 ? title : line).replace(/\s+/g, " ").trim();
+        } catch {
+          continue;
+        }
+        if (what.length === 0) continue;
+        const folder = this.memoryFolder(row) ?? row.origin_scope ?? "";
+        out.push({ ...due, what, crossFrom: folderName(folder) });
+      }
+    } catch (err) {
+      this.emit("counterpart.prospective.plain.failed", undefined, { code: errCode(err) });
+    }
+    return out;
+  }
+
+  /**
    * Claim one plain beat: TRUE only when this call wrote the latch
    * (`Prospective.claimPlain`), so two processes racing for the same beat
    * cannot both show it. Show the line only on true. Never throws.
    */
-  claimPlainReminder(reminder: PlainDue, input: { at: string; day?: number; session?: string }): boolean {
+  claimPlainReminder(reminder: PlainDue & { readonly crossFrom?: string }, input: { at: string; day?: number; session?: string }): boolean {
     if (this.observer) return false;
     try {
       const day = input.day ?? this.store.livedDay();
+      // A crossing has its own latch, once across every folder, and is no beat.
+      if (reminder.crossFrom !== undefined) {
+        return this.prospective.claimCross(reminder, { at: input.at, day, ...(input.session === undefined ? {} : { session: input.session }) });
+      }
       // Asked BEFORE the claim, which is itself what would make it false.
       const first = this.prospective.occurrenceUndelivered(reminder.memoryId, reminder.windowKey);
       const claimed = this.prospective.claimPlain(reminder, {

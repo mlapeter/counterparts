@@ -80,6 +80,7 @@ import { BAND_TRANSITION_EVENT } from "../../core/sleep/index.js";
 import {
   PROSPECTIVE_FIRE_EVENT,
   PROSPECTIVE_PLAIN_EVENT,
+  PROSPECTIVE_PLAIN_CROSSED_EVENT,
   PROSPECTIVE_REFUSED_EVENT,
 } from "../../core/prospective/index.js";
 // The self page's two, from `self/` itself (2026-09-18, S1): a written page is
@@ -232,6 +233,7 @@ export type DurableEventName =
   | typeof PROSPECTIVE_FIRE_EVENT
   | typeof PROSPECTIVE_REFUSED_EVENT
   | typeof PROSPECTIVE_PLAIN_EVENT
+  | typeof PROSPECTIVE_PLAIN_CROSSED_EVENT
   | typeof JOURNAL_COPY_WRITTEN_EVENT
   | typeof JOURNAL_COPY_FAILED_EVENT
   | typeof STORE_EXPORT_EVENT
@@ -361,6 +363,8 @@ export const DURABLE_EVENTS = {
   "prospective.fire": "a future date arrived and the reminder was offered into the turn (which window, and how much of its budget is left)",
   "prospective.fire.refused": "a reminder was NOT offered (which brake held — one row per window per reason per day of use)",
   "prospective.plain": "a reminder its author marked plain was told to the person on its day (which window, which beat — its day, a month or range opening, or its last day — and the date; `late` when a day passed untold was told within its week after)",
+  // SO1 step 3 fix round (2026-11-07): another folder's work reminder unsaid past its day, told once wherever the person was.
+  "prospective.plain.crossed": "a plain reminder from another folder went unsaid past its day, because its folder had no session, and was told once in the session the person was in, with its folder named (which window, and the date)",
   // The journal's markdown copy and the hand export (2026-09-20, F6 and F7):
   // the two places the constitution's "prose the owner can view" is kept now
   // that every body is a column.

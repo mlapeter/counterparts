@@ -167,7 +167,16 @@ clothes. **Hold debts, lose deadlines.**
   **Another folder's is held back too** (SO1 step 3, 2026-11-07, `Counterpart#plainAway`): a reminder written in an open
   folder that isn't the reader's (nor joined to it as one project), work or marked world, waits for its own folder's
   first wake that day, unclaimed, so that wake tells it whole. Marked me, us or owner, or with no folder: told
-  everywhere. A reader with no folder (a claude.ai chat) holds nothing back for this.
+  everywhere. A reader with no folder (a claude.ai chat) is told only the personal ones.
+  **The fallback, so a real deadline can't go silent** (fix round of #780, `Counterpart#plainCrossing`): one held back
+  this way that went unsaid through its window (no beat told; a late beat counts only if told) crosses ONCE, in the next
+  session a person is in (`plainFor`'s callers ask only then), `PLAIN_CROSS_AFTER_LIVED_DAYS` (2) lived days past its
+  last day, with its folder named ("garden: title, due …"). A lived day is a calendar day a person had a session (the
+  host's registry). Its latch is its own row (`prospective.plain.crossed`, once per memory and window across every
+  folder), not a beat, so nothing reads it as told on its day. Not a closed folder's, not a repeating one, not one
+  marked done or that already happened, not one more than `PLAIN_CROSS_LOOKBACK_DAYS` (30) past its last day. Doctor
+  reads one due while its folder had no session as info, and as a miss only once the day it should have crossed has
+  passed with a session and it still wasn't said.
 
 ## 4. Drops / simplifies
 

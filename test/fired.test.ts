@@ -916,7 +916,7 @@ describe("one-time and occasion-driven mechanisms", () => {
     // Not `new` and not `waiting`: the occasion came and was not answered.
     expect(plain.state).toBe("never");
     expect(plain.occasionMissed).toBe(1);
-    expect(plain.note).toContain("1 plain reminder was due on a day a session ran and not said");
+    expect(plain.note).toContain("1 plain reminder was due where a session could say it, and not said");
     expect(r.missedOccasion).toHaveLength(1);
     expect(r.missedOccasion[0]).toContain("a reminder marked plain was said plainly on its day");
     // With the probes off the check is not made — it reads memories, as they
@@ -948,7 +948,7 @@ describe("one-time and occasion-driven mechanisms", () => {
   test("a personal reminder is told whatever its folder, so one not said is a miss beside the one held back", () => {
     const both = firedReport(closedDue(["work", "owner"]), TODAY, { folderOn: shutLedger });
     expect(pick(both, "prospective-plain").occasionMissed).toBe(1);
-    expect(pick(both, "prospective-plain").note).toContain("1 plain reminder was due on a day a session ran and not said; 1 held back");
+    expect(pick(both, "prospective-plain").note).toContain("1 plain reminder was due where a session could say it, and not said; 1 held back");
   });
 
   test("the same reminder SAID on its day is firing, and nothing is missed", () => {
