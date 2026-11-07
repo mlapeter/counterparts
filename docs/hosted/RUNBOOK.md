@@ -631,10 +631,13 @@ the family**: the stores that exist at the migration keep their keys (below), an
    `still under HOSTED_KEKS` line. A start that says `don't open … set HOSTED_KEKS back` means step 5 didn't finish:
    put the variable back and run step 5 again.
 7. **Rotate the R2 token.** In Cloudflare, make a new token as in section 3, step 3 (Object Read & Write, this bucket
-   only), set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` on Railway to it, redeploy, check `/readyz` and the
-   `backup.uploads` lines, then delete the old token. The old one sat in the same environment as `HOSTED_KEKS`.
-   (Production's migration, 2026-11-06: steps 1-6 done; **this step planned for 11-07, before the first stranger
-   invite**. What the old token allows until then is in DESIGN §5.4. At any sign of a leak, do it at once.)
+   only), set `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` on Railway to it, and deploy the staged change (Railway
+   holds variable edits until you press Deploy). Then delete the old token, and only after that read the deploy's log
+   (`railway logs <deployment id>`): the next Litestream `compaction complete` and `l0 retention enforced` lines with
+   no `level=ERROR` prove the new token (while both exist, a clean log can't tell them apart). `/readyz` is no proof
+   here: a fresh start has 30 minutes' grace, and `backup.uploads.*` lines appear only on stale and recovery. The old
+   one sat in the same environment as `HOSTED_KEKS`. (Production: steps 1-6 on 2026-11-06, this step done 2026-11-07
+   09:41 MST, before the first stranger invite; DESIGN §5.4. At any later sign of a leak, do it again at once.)
 8. **Keep the old KEK's two offline copies until no R2 object needs them**: after step 5 says `done`, R2's object
    browser shows no `keys/*.wrapped` (only `keys/*.sealed`) and no `control/accounts.sqlite/` or
    `control/oauth.sqlite/` (control's replicas are under `control/<key id>/` now). Then retire them (destroy the
