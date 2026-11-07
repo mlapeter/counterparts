@@ -858,19 +858,22 @@ export function reachCensus(store: Store): {
 }
 
 /**
- * MEMORIES IN AND OUT OVER A WINDOW (FD1 step 2): rows born on or after lived
- * day `sinceDay` (every row but a chapter, as the sleep census counts
- * "created"), and rows archived at or after `sinceAt` (the archive sets
- * `updated_at`): a prune, a merge, a revision's old words. Read-only.
+ * MEMORIES IN AND OUT OVER A WINDOW (FD1 step 2): of the population
+ * `reachCensus` calls live (not a chapter, not exempt from reach: no chapter
+ * copy, handoff, card or self page, whose churn is not memories coming and
+ * going), rows born on or after lived day `sinceDay`, and rows archived at or
+ * after `sinceAt` (the archive sets `updated_at`): a prune, a merge, a
+ * revision's old words. Only the window's rows are read. Read-only.
  */
 export function memoryFlow(store: Store, sinceDay: number, sinceAt: number): { born: number; archived: number } {
-  const born =
-    store["ops"].get<{ n: number }>("SELECT COUNT(*) AS n FROM memories WHERE birth_day >= ? AND type != 'episode'", sinceDay)?.n ?? 0;
-  const archived =
-    store["ops"].get<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM memories WHERE archived = 1 AND type != 'episode' AND COALESCE(updated_at, 0) >= ?",
+  const counted = (rows: MemoryRow[]): number => rows.filter((r) => !reachExempt(r)).length;
+  const born = counted(store["ops"].all<MemoryRow>("SELECT * FROM memories WHERE birth_day >= ? AND type != 'episode'", sinceDay));
+  const archived = counted(
+    store["ops"].all<MemoryRow>(
+      "SELECT * FROM memories WHERE archived = 1 AND type != 'episode' AND COALESCE(updated_at, 0) >= ?",
       sinceAt,
-    )?.n ?? 0;
+    ),
+  );
   return { born, archived };
 }
 

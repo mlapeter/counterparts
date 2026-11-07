@@ -117,7 +117,7 @@ function memoriesLine(store: Store, w: GrowthWindow): Finding {
         : `the prune's last pass reached every row (budget ${n(budget)})`;
   const x = c.exempt;
   const detail =
-    `${n(c.live)} live: ${n(c.inReach)} in reach, ${n(c.belowReach)} below reach, of them ${n(c.underFloor)} under the prune floor (they wait 14 lived days there, then the prune may take them)` +
+    `${n(c.live)} live: ${n(c.inReach)} in reach, ${n(c.belowReach)} below reach, of them ${n(c.underFloor)} under the prune floor (they wait ${String(PHYSICS_TUNABLES.D_FLOOR_DAYS)} lived days there, then the prune may take them)` +
     (c.unranked > 0 ? `; ${n(c.unranked)} not ranked yet` : "") +
     `. ${windowWords()}: ${n(flow.born)} born, ${n(flow.archived)} left (night: ${n(pruned)} pruned, ${n(merged)} merged, ${n(faded)} cards faded), ${pace(flow.born, flow.archived)}; ${pruneSaid}` +
     `. Not the prune's: journal ${n(x.journal)} (no exit, by contract), chapter copies ${n(x.chapterCopies)} (replaced when a chapter is re-minted), handoffs ${n(x.handoffs)} (cleared or expired), cards ${n(x.cards)} (fade, not before their calendar floor)` +
