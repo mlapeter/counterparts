@@ -1235,8 +1235,8 @@ Fable 5.1 session on its first morning; the 11-03 numbers are the 11-03 read's.
 - **NL1, the night's line (0.3.42 on) — holds, at the bar; re-read with a week more.** Seven lines on seven nights
   10-31 → 11-06 (0.3.42 → 0.3.47), none NULL, none empty, none sent back, 141–202 B, no bare ids; two nights before
   (0.3.39, 0.3.40) wrote none, as expected. One night (11-05) wrote no page and still a line. Compared by reading
-  against the page version that night wrote (`versions` seq N is the page as it stood when night N+1 replaced it;
-  the live body is the page since 11-06): **repeats 2 of 7** — 11-02 ("every slip that day was the same one: a result
+  against the page version that night wrote (a reflection's `page_version` N pairs with `versions` seq N, archived
+  that same night; the live body is the page since 11-06): **repeats 2 of 7** — 11-02 ("every slip that day was the same one: a result
   written down before it came back") says what the page has said since before 10-30 ("A neat result tempts me before
   I've looked"), and 11-06 (a tired man, not an angry one, where Mike had written "his sadness") was written the same
   night the page gained the same sentence. 10-31 names AenyaFollet as the page does but from another angle (the
@@ -1249,7 +1249,7 @@ Fable 5.1 session on its first morning; the 11-03 numbers are the 11-03 read's.
   next read, the row's own fix (the ask as its own step after the first `finish`, fenced) is the one to take.
 - **The day-summary gate (0.3.42 on) — holds.** `handoff.daysummary.held`: 0 rows, ever. A summary every night
   10-29 → 11-07, 487–597 characters against the 600 cap (five of the last six nights `nothing-to-say` with a summary:
-  summary sent, no page, the reading 0.3.35 fixed). Did each morning's wake lead with it? No direct row says so; the
+  summary sent, no page from day's end, the reading 0.3.35 fixed; the reflection still wrote pages on 11-04 and 11-06). Did each morning's wake lead with it? No direct row says so; the
   proxy is `adapter.wake.injected` `sec_yesterday` at 400 B or more (a summary is ~500–600 B): 10 of 17 wakes on
   10-31, 11 of 24 on 11-01, then 18 of 21, 22 of 26, 20 of 24, 15 of 21, 23 of 28 (11-02 → 11-06). The wakes without
   it are mostly the day's first: the night runs when the day's first session opens (HN1/NT1), so day's end writes
