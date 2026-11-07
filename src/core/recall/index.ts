@@ -421,7 +421,8 @@ export interface RecallDecision {
   /**
    * THE JOURNAL'S SHARE (FD1 step 5): journal rows (chapters, frozen copies,
    * chapter summaries) in the scored pool after the chapter fold, in the
-   * candidates the cut kept, and how many the cut kept in all — so the slot
+   * candidates the cut kept, and how many the cut kept in all (quiet pointers
+   * not counted, on either side) — so the slot
    * share is `kept / of`, read live rather than replayed. Counts only.
    */
   readonly journalCandidates: { readonly pool: number; readonly kept: number; readonly of: number };
@@ -756,7 +757,7 @@ export class Recall {
       storeSize: act.storeSize,
       semanticDegraded: act.semanticDegraded,
       journalAged: act.journalAged,
-      journalCandidates: { ...act.journal, of: act.candidates.length },
+      journalCandidates: act.journal,
     };
 
     if (act.candidates.length === 0) {
@@ -968,7 +969,7 @@ export class Recall {
             },
       dropped: act.dropped,
       journalAged: act.journalAged,
-      journalCandidates: { ...act.journal, of: act.candidates.length },
+      journalCandidates: act.journal,
       bytes: rendered.bytes,
       budgetBytes,
       sentinel: rendered.sentinel,

@@ -370,8 +370,9 @@ export interface ActivationResult {
   readonly journalAged: number;
   /** Journal rows (chapters, frozen copies and chapter summaries) among the
    *  scored pool after the chapter fold, and among the candidates the cut
-   *  kept (FD1 step 5): the journal's share of the slots, read live. */
-  readonly journal: { readonly pool: number; readonly kept: number };
+   *  kept, with the cut's size (`of`, quiet pointers not counted) (FD1 step
+   *  5): the journal's share of the slots, `kept / of`, read live. */
+  readonly journal: { readonly pool: number; readonly kept: number; readonly of: number };
   /** Memories a LEARNED pair reached this turn (R3), whether or not the cut
    *  kept them. Reported, not recorded (`capped`'s reason). */
   readonly learned: number;
@@ -1430,7 +1431,7 @@ export function activate(
   const topIds = new Set(top.map((c) => c.id));
   const kept = [...top, ...scored.filter((c) => c.stamp > 0 && !topIds.has(c.id))];
   const dropped = scored.length - kept.length;
-  const journal = { pool: scored.filter((c) => journalIds.has(c.id)).length, kept: kept.filter((c) => journalIds.has(c.id)).length };
+  const journal = { pool: scored.filter((c) => journalIds.has(c.id)).length, kept: kept.filter((c) => journalIds.has(c.id)).length, of: kept.length };
   // MOOD (recall G18): one batched read, and only when someone has a mood — and only
   // for CUED candidates. An uncued candidate is dark at hard gate (a) before
   // salience is ever read, so it is not even asked (the guarantee is the gate's;
