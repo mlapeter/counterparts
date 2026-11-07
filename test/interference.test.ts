@@ -148,6 +148,10 @@ describe("the subject: a version series", () => {
     expect(step("Waiting to cut 0.3.41 until the night reads clean")).toEqual([]);
     expect(step("0.3.41 cut tonight after the merges")).toEqual([]);
     expect(step("0.3.41 being cut from master")).toEqual(["0.3.41"]);
+    // Verb-first plans too (round 3 re-review): the when-still-to-come follows the token.
+    expect(step("cut 0.3.47 tomorrow")).toEqual([]);
+    expect(subjectKeys("released 0.3.47 next week", "done").versions.size).toBe(0);
+    expect(subjectKeys("released 0.3.50", "done").versions.get("0.3")).toBe(50);
     // A newer memory must say the thing was DONE: a step on the way is not.
     expect(subjectKeys("0.3.50 ready to publish", "done").versions.size).toBe(0);
     expect(subjectKeys("0.3.50 queued", "done").versions.size).toBe(0);
