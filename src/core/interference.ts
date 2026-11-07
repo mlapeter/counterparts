@@ -142,6 +142,8 @@ const before = (verbs: string, ready: boolean): RegExp =>
     "i",
   );
 /** What follows a token read verb-first: not a when-still-to-come. */
+/** `ready to publish 0.3.47 tonight` is a state now (ready), whatever follows: the later check does not apply. */
+const READY_HEAD = /ready to (?:publish|release|merge|ship|cut)(?:\s+(?:counterparts|version|v))?\s*@?\s*$/i;
 const LATER_AFTER_TOKEN = new RegExp(String.raw`^(?:-[\w]+)?${LATER}`, "i");
 const AFTER = { step: after(STEP), done: after(DONE), final: after(FINAL) } as const;
 const BEFORE = { step: before(STEP, true), done: before(DONE, false), final: before(FINAL, false) } as const;
@@ -168,7 +170,7 @@ export function subjectKeys(text: string, as: "any" | "step" | "done" = "step"):
   const reads = (set: "step" | "done" | "final", start: number, end: number): boolean => {
     const head = text.slice(0, start);
     // A verb-first plan ("cut 0.3.47 tomorrow", "released 0.3.47 next week") is no event either.
-    if (BEFORE[set].test(head)) return LATER_AFTER_TOKEN.test(text.slice(end));
+    if (BEFORE[set].test(head)) return READY_HEAD.test(head) || LATER_AFTER_TOKEN.test(text.slice(end));
     return AFTER[set].test(text.slice(end)) && !DETERMINER.test(head);
   };
   const versions = new Map<string, number>();
