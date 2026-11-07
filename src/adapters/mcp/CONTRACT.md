@@ -541,6 +541,12 @@ each over from the memory it revises unless one is sent (null: none); nothing mo
 old memory (`counterpart-deposit.ts#carryFacts`). **[A]** The descriptions ask the writer to
 resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
 from `eventDate` (a future date to be reminded on). Facts mode reads them (§6f).
+**[M]** A done one with a passed date (SO1 step 2, 2026-11-07, lightly held): `status: done`
+with an `eventDate` whose last day is before today, no `recurring` and no `updates`, keeps the
+date as `occurredOn` (one sent too and different is kept instead), and the eventDate is
+dropped and said in `facts.dropped` (`server-args.ts#doneDateAsOccurred`). A date today or
+ahead, a repeat and a revision are left as they were; `prospective/` keeps a done row with
+a passed date out of Coming up whichever way it was written.
 
 ## 6d'. Tags (2026-10-21, schema v14, wave 2 lane B)
 

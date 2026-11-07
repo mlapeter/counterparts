@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| A done memory is never overdue (SO1 step 2): `status: done` with its date behind it is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | 0.3.47, 2026-11-04 (HD1) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
@@ -121,6 +122,30 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## A done memory is never overdue (SO1 step 2)
+
+SO1 step 2 (2026-11-07, Mike's brief `~/counterparts-notes/2026-11-07-briefs/SO1-still-open.md`; a fix, no
+switch): `prospective/derive.ts` refuses `done` (status done, not repeating, every window's last day before the day
+asked), `Prospective#plainDue` skips the same late, and `mcp/server-args.ts#doneDateAsOccurred` turns a passed
+eventDate on a done write into `occurredOn`. On 11-07 Mike's Coming up carried "Scheduled Routine night test PASSED",
+"Handoff for 11-07 written" and "Chart essay live … ledger L-0032" as overdue.
+
+- **Done-but-dated in Coming up: should be 0.** On a few wakes after install, the Coming up lines (and `recall
+  "coming up"`): any whose memory has `status = 'done'`, `event_date` before that day and no `meta.recurring`. The
+  rows that were there on 11-07 are still in the store with their date (no migration): read them on a snapshot,
+  `SELECT id, title, event_date FROM memories WHERE status = 'done' AND event_date IS NOT NULL AND event_date < date('now') AND archived = 0`,
+  and check none shows.
+- **The overdue count.** The wake's "(N overdue, …)" against the 11-07 one: it should drop by about the done rows
+  above, and every overdue line left should be a real open item.
+- **Nothing real went missing.** A done one-off dated today still shows that day (by design); a done row carrying a
+  real future step under a past date would now be silent: look for any (a done whose body says "check on", "follow
+  up") among the rows above. One or more says the write's note should ask for a new memory for the next step.
+- **The write.** New rows since install with `status = 'done'` and `occurred_on` set and `event_date` NULL, against
+  any still landing with a past `event_date` (those came through `updates`, which the write leaves alone).
+
+Revert: drop the `done` arm in `derive.ts` and its `load()` field, the `plainDue` skip, and the
+`doneDateAsOccurred` calls in `server.ts` and `server-session-end.ts`.
 
 ## The tail after a compaction is owed (CT1)
 

@@ -35,7 +35,7 @@ import { isKnownSession } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { UseTier } from "../physics/index.js";
 import type { ProseDoc, ProspectiveInput, ProspectiveRow, Store } from "../store/index.js";
-import { RECURRING_META } from "../store/index.js";
+import { RECURRING_META, statusOf } from "../store/index.js";
 import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, occurrenceOnOrAfter } from "../time.js";
 import type { Recurrence } from "../time.js";
 import { derive } from "./derive.js";
@@ -893,6 +893,9 @@ export class Prospective {
       if (denied.has(id)) continue;
       const row = this.store.row(id);
       if (row === undefined || row.superseded_by !== null) continue;
+      // DONE, ITS DAY BEHIND IT (SO1 step 2, `derive.ts` "done"): nothing is owed late.
+      // A repeat's done closes one occurrence (`closeOccurrence`), so it is not read here.
+      if (dated.lateUntil !== undefined && !repeating.has(id) && statusOf(row.status ?? null) === "done") continue;
       let doc: ProseDoc;
       try {
         doc = this.store.read(id).doc;
@@ -1628,6 +1631,8 @@ export class Prospective {
         faded: s <= this.tunables.FADED_STRENGTH && read.physics.hold?.state !== "pending",
         // A live repeat is exempt from `faded` (review of #341, `derive.ts`).
         recurring: recurrenceOf(read.doc) !== null,
+        // Done, off the row (SO1 step 2): a past date then says when it happened (`derive.ts`).
+        done: statusOf(row.status ?? null) === "done",
       },
       doc: read.doc,
       dates: dates.filter((d) => (seen.has(d.date) ? false : (seen.add(d.date), true))),
