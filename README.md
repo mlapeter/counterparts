@@ -32,12 +32,12 @@ Code plugin: `/plugin marketplace add mlapeter/counterparts`, then
 `/plugin install counterparts@counterparts`, then restart Claude Code. The plugin sets
 itself up on its first session, with no terminal step; `/counterparts:doctor` checks it.
 
-With npm or bun, the first run asks two things, and you can skip either: your name, and whether to connect
-Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs the file up first),
-registers the memory tools, and adds one `deniedMcpServers` entry there so the hosted
-Counterparts Online connector never loads into Claude Code as a second memory. Hooks and
-settings from other tools are left alone. No API keys and no
-account. Then restart Claude Code and check it:
+With npm or bun, the first run asks two things, and you can skip either: your name, and
+whether to connect Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs
+the file up first), registers the memory tools, and adds one `deniedMcpServers` entry there
+so the hosted Counterparts Online connector never loads into Claude Code as a second memory.
+Hooks and settings from other tools are left alone. No API keys and no account. Then restart
+Claude Code and check it:
 
 ```
 counterparts doctor
