@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 4 closes and 10 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | A newer routine work event fades the older one (FD1 step 3): the night's `interfere` phase settles an unsalient, never-used `about: work` status note `changed` (×0.5) under a newer one naming a later version in the same series, in the same folder | the release after 2026-11-07 (FD1 step 3) | ~3 lived days after install (dated reminder set at merge): interference fades per night against age prunes per night (`sleep.cycle` `interfered` vs `pruned`), and anything wrongly faded; a dry run on the day-47 copy said 67 the first night, then a few a night | [below](#a-newer-routine-work-event-fades-the-older-one-fd1-step-3) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
@@ -122,6 +123,34 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The night closes open items itself (SO1 step 1)
+
+SO1 step 1 (2026-11-07, Mike's "yes": the night may close items itself; lightly held), `core/open-close.ts`, the
+cycle's `close` phase (`sleep/close.ts`). One rule, `release-supersedes`: an open item whose headline reads a
+version as a release step closes when a later memory in the same folder says a higher patch of that series was
+released or published. Never an `asked` item, a check, an item conditional on a version, or one the owner
+reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDone` under `recall "still open"`.
+
+- **Closes per night.** The `sleep.cycle` row carries `closed`; each close writes a `thread.night.closed` row naming
+  the item, the memory that showed it and the reason:
+
+  ```sql
+  SELECT day, json_extract(payload, '$.closed') AS closed FROM events
+  WHERE name = 'sleep.cycle' AND json_extract(payload, '$.reason') = 'ran' ORDER BY seq;
+  SELECT day, ref, json_extract(payload, '$.reason'), json_extract(payload, '$.shows') FROM events
+  WHERE name = 'thread.night.closed' ORDER BY seq;
+  ```
+
+  Expect the backlog first (the day-47 copy: 4), then 0-2 a night, on release days.
+- **Reopened.** `SELECT count(*) FROM events WHERE name = 'thread.night.reopened'`, by `$.by` (`reopen` or
+  `updates`). A reopen of a close is a wrong close: more than 1 in 20 says narrow the rule or switch it off.
+- **Still open total.** The shaped wake's Still open and `recall "still open"`'s total, before and after install;
+  and how many items carry `mayBeDone` (the `open.mayBeDone` meta row's `items`). Re-read on a snapshot copy with
+  `bun tools/night-close-eval.ts --source <copy> --seed N` (titles only).
+
+Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
+close is undone by the reflect tool's `reopen` with the item's id.
 
 ## A newer routine work event fades the older one (FD1 step 3)
 

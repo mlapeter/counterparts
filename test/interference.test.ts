@@ -227,7 +227,9 @@ describe("the night: a newer routine work event fades the older one", () => {
       feelings: [{ whose: "self", emotion: "relieved", strength: 0.6 }],
     });
     const aboutOwner = await remember(s, { text: "The owner asked whether 0.3.46 was published yet.", about: "owner" });
-    const openItem = await remember(s, { text: "0.3.46 ready: does the owner want it published tonight?", unresolved: true });
+    // Named as no release step, so the night's close sweep (SO1 step 1) leaves it
+    // open too: a closed one would be fair game for the second night's sweep.
+    const openItem = await remember(s, { text: "Does the owner want 0.3.46 out tonight, or after the till fix?", unresolved: true });
     const salient = await remember(s, { text: "0.3.46 merged the new till export, which the accountant depends on.", salience: 0.45 });
     const note = await remember(s, { text: "0.3.46 changed how the shelf count rounds, because half units confused the stocktake." });
     const otherPr = await remember(s, { text: "#760 merged: receipt footer wording." });

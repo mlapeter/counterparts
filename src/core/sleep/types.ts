@@ -19,6 +19,7 @@
 import { SELF_PAGE_ROLE_SPELLED, isChapterSummary } from "../store/operational.js";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
 import type { InterferedRecord } from "./interfere.js";
+import type { ClosedRecord } from "./close.js";
 import type {
   EventLogCensus,
   EventPruneReport,
@@ -233,6 +234,7 @@ export const PHASES = [
   "births",
   "tags",
   "interfere",
+  "close",
   "dedup",
   "versions",
   "briefing",
@@ -255,6 +257,7 @@ export type PhaseReason =
   | "no-births-fn"
   | "no-tags-fn"
   | "no-interfere-fn"
+  | "no-close-fn"
   | "no-durable-event-log"
   | "failed";
 
@@ -546,6 +549,12 @@ export interface CycleReport {
    * Not exits — each stays live, faded, and leaves later through the prune.
    */
   readonly interfered: readonly InterferedRecord[];
+  /**
+   * Open items the close phase closed this cycle (or, under observer, would
+   * have): ids, the memory that showed each done, the rule (2026-11-07, SO1
+   * step 1). Not exits: each stays live, its flag false.
+   */
+  readonly closed: readonly ClosedRecord[];
   /** Band crossings THIS cycle, by direction (guarantee 12's input). */
   readonly bandTransitions: readonly BandTransition[];
   /**

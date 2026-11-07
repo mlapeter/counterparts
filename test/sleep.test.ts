@@ -68,6 +68,7 @@ import type {
   BirthsFn,
   TagsFn,
   InterfereFn,
+  CloseFn,
   SleepEvent,
   SleepStore,
 } from "../src/core/sleep/index.js";
@@ -83,6 +84,8 @@ const NO_BIRTHS: BirthsFn = () => ({ memories: 0, offered: 0, born: [], refused:
 const NO_TAGS: TagsFn = () => ({ on: true, cardOffered: 0, cardTagged: 0, skippedForLimit: 0, stemMerged: 0, mergesPruned: 0 });
 /** The interference sweep, nothing to fade (FD1 step 3, 2026-11-07). */
 const NO_INTERFERE: InterfereFn = () => ({ on: true, examined: 0, faded: [], skipped: {}, skippedForLimit: 0 });
+/** The night's close sweep, nothing to close (SO1 step 1, 2026-11-07). */
+const NO_CLOSE: CloseFn = () => ({ on: true, examined: 0, closed: [], mayBeDone: [], skipped: {}, skippedForLimit: 0 });
 const ENV = "COUNTERPARTS_DATA_DIR";
 
 /** Store write events that move CONTENT. Meta/marker rows are bookkeeping. */
@@ -278,7 +281,7 @@ describe("phase order and completion markers", () => {
   test("every phase that ran advanced its marker to the cycle's day, and only forward", () => {
     const s = store();
     put(s);
-    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
+    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE, close: NO_CLOSE });
 
     for (const phase of PHASES) {
       const pr = phaseReport(report, phase);
@@ -1261,6 +1264,10 @@ describe("observer mode", () => {
         if (i.apply) throw new Error("an observer's interference must be a dry run");
         return NO_INTERFERE(i);
       },
+      close: (i) => {
+        if (i.apply) throw new Error("an observer's close sweep must be a dry run");
+        return NO_CLOSE(i);
+      },
     });
 
     // An instrument that attempted and caught a refusal would be relying on the
@@ -1296,13 +1303,13 @@ describe("idempotence under replay", () => {
     put(s, { body: "twinned", physics: { birthDay: 0, lastUsedDay: 0 } });
     put(s, { body: "twinned", physics: { birthDay: 1, lastUsedDay: 0 } });
 
-    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
+    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE, close: NO_CLOSE });
     expect(first.pruned.length).toBe(1);
     expect(first.merged.length).toBe(1);
 
     const before = snapshot(dir);
     const rowsBefore = contents(dir);
-    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
+    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE, close: NO_CLOSE });
     const after = snapshot(dir);
 
     // The cycle's lease (`sleep/lease.ts`, 2026-10-21) is taken and given back,
@@ -1443,6 +1450,7 @@ describe("structural guarantees", () => {
       "births",
       "tags",
       "interfere",
+      "close",
       "dedup",
       "versions",
       "briefing",

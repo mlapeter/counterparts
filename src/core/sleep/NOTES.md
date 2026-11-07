@@ -1193,3 +1193,14 @@ store's nights stay quiet in the log-sweep tests).
   29.1 ms with those 67 pairs added (1,357 settled-over memories before). Reading the whole body instead of the
   headline made one note naming 0.3.50 in its last line the "newer state" of a dozen
   unrelated ones; the headline rule (title, or the first 120 characters) is the fix.
+
+## The close phase (SO1 step 1, 2026-11-07)
+
+- On a copy of the owner's store (lived day 47, 338 flagged open, the 10:32 snapshot), applied: 4 closes, 10 "may
+  be done", ~85 ms. The guards held the rest: `no-subject` 169 (no version read as a step), `asked` 124, `a-check`
+  37, `conditional` 4. Against the roadmap's hand sweep of the same morning (32 items it judged done): 0 closed, 3
+  listed as may be done. Their evidence is mostly outside the store (git, STANDUP, report files), which a
+  store-only rule can't see; the 4 closes are items the sweep didn't list. The model's `closeNow` stays the general
+  close.
+- A closed item without `settlesWhen` is no longer an open item to the interference sweep, so a later night can fade
+  it under the release; the reflect tool's `reopen` undoes that fade too (`open-close.ts#reopenNightClosed`).
