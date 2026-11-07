@@ -1193,3 +1193,19 @@ store's nights stay quiet in the log-sweep tests).
   29.1 ms with those 67 pairs added (1,357 settled-over memories before). Reading the whole body instead of the
   headline made one note naming 0.3.50 in its last line the "newer state" of a dozen
   unrelated ones; the headline rule (title, or the first 120 characters) is the fix.
+
+## The close phase (SO1 step 1, 2026-11-07)
+
+- On a copy of the owner's store (lived day 47, the 10:32 snapshot; 338 flagged open, 248 open as the wake reads
+  them), applied: 2 closes, 4 "may be done", ~80 ms (after the review of #782's narrowing too). The guards held the
+  rest: `asked` 98, `no-subject` 106, `not-open` 90 (flagged but already settled over under a successor, so in no
+  lane: the phase reads open as `openThread` does), `a-check` 30, `a-problem` 7, `not-a-release-step` 3,
+  `conditional` 2. Against the roadmap's hand sweep of the
+  same morning (32 items it judged done): 0 closed, 3 listed as may be done. Their evidence is mostly outside the
+  store (commits, STANDUP, report files), which a store-only rule can't see; the 2 closes are items the sweep
+  didn't list. The model's `closeNow` stays the general close.
+- Evidence for a close is an authored `about: work` row (`Store#workEventRows`) written `status: done`. A release
+  memory left unmarked (12 genuine releases on the copy are) or not `about: work` is never evidence: recall lost,
+  never a wrong close. Both closes on the copy rest on done rows.
+- A closed item without `settlesWhen` is no longer an open item to the interference sweep, so a later night can fade
+  it under the release; the reflect tool's `reopen` undoes that fade too (`open-close.ts#reopenNightClosed`).

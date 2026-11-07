@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
 | Old chapters leave ambient recall (FD1 step 5): a chapter or frozen full copy whose latest chapter is 14+ lived days old (`LAST_HERE_LIFE_DAYS`) is no ambient footnote candidate, counted `journalAged`; `recall.decision` carries `journalCandidates`, `mcp.recall` carries `elapsedMs` | the release after 2026-11-07 (FD1 step 5) | ~1 week after install (dated reminder set at merge): chapter footnote ratings by age (<7, 7–13, 14+), `journalAged` per turn, the journal's share of the cut, meaning-mode `elapsedMs`. 7–13-day chapters still under ~0.3 and the slots going to better footnotes says move N to 7 | [below](#old-chapters-leave-ambient-recall-fd1-step-5) |
 | A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
@@ -125,6 +126,34 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The night closes open items itself (SO1 step 1)
+
+SO1 step 1 (2026-11-07, Mike's "yes": the night may close items itself; lightly held), `core/open-close.ts`, the
+cycle's `close` phase (`sleep/close.ts`). One rule, `release-supersedes`: an open item whose headline reads a
+version as a release step closes when a later memory in the same folder says a higher patch of that series was
+released or published. Never an `asked` item, a check, an item conditional on a version, or one the owner
+reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDone` under `recall "still open"`.
+
+- **Closes per night.** The `sleep.cycle` row carries `closed`; each close writes a `thread.night.closed` row naming
+  the item, the memory that showed it and the reason:
+
+  ```sql
+  SELECT day, json_extract(payload, '$.closed') AS closed FROM events
+  WHERE name = 'sleep.cycle' AND json_extract(payload, '$.reason') = 'ran' ORDER BY seq;
+  SELECT day, ref, json_extract(payload, '$.reason'), json_extract(payload, '$.shows') FROM events
+  WHERE name = 'thread.night.closed' ORDER BY seq;
+  ```
+
+  Expect the backlog first (the day-47 copy: 2), then 0-2 a night, on release days.
+- **Reopened.** `SELECT count(*) FROM events WHERE name = 'thread.night.reopened'`, by `$.by` (`reopen` or
+  `updates`). A reopen of a close is a wrong close: more than 1 in 20 says narrow the rule or switch it off.
+- **Still open total.** The shaped wake's Still open and `recall "still open"`'s total, before and after install;
+  and how many items carry `mayBeDone` (the `open.mayBeDone` meta row's `items`). Re-read on a snapshot copy with
+  `bun tools/night-close-eval.ts --source <copy> --seed N` (titles only).
+
+Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
+close is undone by the reflect tool's `reopen` with the item's id.
 
 ## Growth exits (FD1 step 2)
 

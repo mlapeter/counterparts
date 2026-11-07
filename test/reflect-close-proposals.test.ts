@@ -106,7 +106,7 @@ describe("stale open threads, proposed closed", () => {
     expect(begun.bundle.staleOpen.length).toBe(REFLECT_TUNABLES.STALE_OPEN);
   });
 
-  test("finish proposes only listed ids, closes nothing, and the share asks", () => {
+  test("finish proposes only listed ids, closes nothing, and asks nobody (SO1 step 1: listed as may be done)", () => {
     const c = brain();
     const w = world(c);
     const begun = c.reflections.begin({ session: SESSION });
@@ -122,15 +122,15 @@ describe("stale open threads, proposed closed", () => {
     expect(done.outcome.close.refused).toEqual([{ id: w.fresh, reason: "not-offered" }]);
     // Nothing closed by the proposal.
     expect(openFlag(c, w.stale)).toBe(true);
-    // The share is offered even on a night that cites nothing, and asks.
-    expect(done.outcome.share.offered).toBe(true);
+    // No share for it, no question, no "close" step in the hand-back: it is listed under recall "still open".
+    expect(done.outcome.share.offered).toBe(false);
     const row = c.store.reflection(begun.bundle.reflection);
-    expect(row?.share ?? "").toContain(w.stale);
-    expect(row?.share ?? "").toContain("Shall I close it?");
-    expect(done.outcome.handBack).toContain('phase "close"');
+    expect(row?.share ?? "").not.toContain("Shall I close");
+    expect(done.outcome.handBack).not.toContain('phase "close"');
+    expect(JSON.parse(row?.detail ?? "{}")["closeProposed"]).toEqual([w.stale]);
   });
 
-  test("a second finish keeps one question, not two", () => {
+  test("a second finish adds to what it proposed, still asking nothing", () => {
     const c = brain();
     const w = world(c);
     const begun = c.reflections.begin({ session: SESSION });
@@ -141,11 +141,10 @@ describe("stale open threads, proposed closed", () => {
     if (!again.ok) throw new Error(again.reason);
     expect(again.outcome.close.proposed).toEqual([w.stale, w.staleToo]);
     const share = c.store.reflection(id)?.share ?? "";
-    expect(share.match(/Shall I close/g)?.length).toBe(1);
-    expect(share).toContain(w.staleToo);
+    expect(share).not.toContain("Shall I close");
   });
 
-  test("close closes only proposed ids; again says already; the carried line tells the session how", () => {
+  test("close (the owner's word, unasked) closes only proposed ids; again says already; the carried line no longer asks", () => {
     const c = brain();
     const w = world(c);
     const begun = c.reflections.begin({ session: SESSION });
@@ -154,8 +153,7 @@ describe("stale open threads, proposed closed", () => {
     c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", close: [w.stale] });
 
     const carried = c.reflections.carryLine({ session: "s-next", reflection: id });
-    expect(carried ?? "").toContain('phase "close"');
-    expect(carried ?? "").toContain(w.stale);
+    expect(carried ?? "").not.toContain('phase "close"');
 
     const out = c.reflections.close({ reflection: id, session: "s-next", ids: [w.stale, w.staleToo] });
     if (!out.ok) throw new Error(out.reason);
@@ -303,7 +301,7 @@ describe("stale open threads, closed when plainly done", () => {
     expect(done.outcome.retry ?? "").toContain("why-required");
   });
 
-  test("the unsure ones are still asked, beside what was closed", () => {
+  test("the unsure ones are listed, not asked, beside what was closed", () => {
     const c = brain();
     const w = world(c);
     const begun = c.reflections.begin({ session: SESSION });
@@ -323,18 +321,17 @@ describe("stale open threads, closed when plainly done", () => {
     expect(openFlag(c, w.staleToo)).toBe(true);
     const share = c.store.reflection(id)?.share ?? "";
     expect(share).toContain("I closed one open thread");
-    expect(share).toContain("Shall I close it?");
-    expect(share.indexOf("I closed")).toBeLessThan(share.indexOf("Shall I close"));
+    expect(share).not.toContain("Shall I close");
     expect(done.outcome.handBack).toContain('phase "reopen"');
-    expect(done.outcome.handBack).toContain('phase "close"');
+    expect(done.outcome.handBack).not.toContain('phase "close"');
     // A second finish says the lines once; one already asked is not closed instead.
     const again = c.reflections.finish({ reflection: id, session: SESSION, closeNow: [{ id: w.staleToo, why: "Moved on the 3rd." }] });
     if (!again.ok) throw new Error(again.reason);
-    expect(again.outcome.close.refused).toEqual([{ id: w.staleToo, reason: "already-asked" }]);
+    expect(again.outcome.close.refused).toEqual([{ id: w.staleToo, reason: "already-listed" }]);
     expect(openFlag(c, w.staleToo)).toBe(true);
     const after = c.store.reflection(id)?.share ?? "";
     expect(after.match(/I closed/g)?.length).toBe(1);
-    expect(after.match(/Shall I close/g)?.length).toBe(1);
+    expect(after).not.toContain("Shall I close");
   });
 
   test("asked and closed together keep to STALE_OPEN a night", () => {
@@ -368,7 +365,7 @@ describe("stale open threads, closed when plainly done", () => {
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
     const id = begun.bundle.reflection;
-    c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", close: [w.staleToo] });
+    c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: w.staleToo, why: "Moved on the 3rd." }] });
     expect(c.reflections.told({ reflection: id, session: "s-next" }).ok).toBe(true);
     const again = c.reflections.finish({ reflection: id, session: SESSION, closeNow: [{ id: w.stale, why: "Signed." }] });
     if (!again.ok) throw new Error(again.reason);
@@ -406,14 +403,14 @@ describe("stale open threads, closed when plainly done", () => {
     // The next night shows it as reopened: closing it again is refused, asking is not.
     const shown = next.bundle.staleOpen.find((x) => x.id === w.stale);
     expect(shown?.reopened).toBe(true);
-    expect(next.instructions).toContain("ask, never close");
+    expect(next.instructions).toContain("list it, never close");
     const done = c.reflections.finish({ reflection: next.bundle.reflection, session: "s-night-2", entry: "Again.", closeNow: [{ id: w.stale, why: "Signed." }] });
     if (!done.ok) throw new Error(done.reason);
     expect(done.outcome.close.closed).toEqual([]);
     expect(done.outcome.close.proposed).toEqual([w.stale]);
-    expect(done.outcome.close.notes ?? []).toEqual([`${w.stale}: asked instead of closed (reopened-by-owner).`]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${w.stale}: listed as may be done instead of closed (reopened-by-owner).`]);
     expect(openFlag(c, w.stale)).toBe(true);
-    expect(c.store.reflection(next.bundle.reflection)?.share ?? "").toContain("Shall I close it?");
+    expect(c.store.reflection(next.bundle.reflection)?.share ?? "").not.toContain("Shall I close");
   });
 
   // Mike, 2026-10-20 09:38: "i think its ok for nightly run to close threads
@@ -489,6 +486,23 @@ describe("stale open threads, closed when plainly done", () => {
  * writes — the row that says a self-close lands before the flag flips.
  */
 describe("self-closes, the awkward states", () => {
+  test("a question to the owner sent in closeNow is listed as may be done, never closed (SO1 step 1)", () => {
+    const c = brain();
+    nextDay(c);
+    const asked = mem(c, "Open: does the owner want the tarball signed?", { meta: { unresolved: true }, status: "asked" });
+    for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(begun.bundle.staleOpen.map((x) => x.id)).toContain(asked);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: asked, why: "It was signed last week." }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed).toEqual([]);
+    expect(done.outcome.close.proposed).toEqual([asked]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${asked}: listed as may be done instead of closed (asked-of-the-owner).`]);
+    expect(openFlag(c, asked)).toBe(true);
+    expect(c.store.reflection(begun.bundle.reflection)?.share ?? "").not.toContain("Shall I close");
+  });
+
   test("an id sent in both close and closeNow is asked, not closed", () => {
     const c = brain();
     const w = world(c);

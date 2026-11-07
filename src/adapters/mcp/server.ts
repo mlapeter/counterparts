@@ -131,6 +131,7 @@ import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
 import { NOTHING_CLOSED } from "../../core/dream/slices.js";
+import { mayBeDoneOf } from "../../core/open-close.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
@@ -3096,6 +3097,11 @@ export class McpServer {
     const shown = items.slice((at - 1) * STILL_OPEN_PAGE, at * STILL_OPEN_PAGE);
     this.emit("mcp.recall.stillopen", undefined, { total: items.length, page: at, shown: shown.length, parked, routed });
     const touched = (n: number): string => (n === 0 ? "this lived day" : n === 1 ? "1 lived day ago" : `${String(n)} lived days ago`);
+    // MAY BE DONE (2026-11-07, SO1 step 1): what the night saw but would not
+    // close, and what the reflection thought looks done but wasn't sure of —
+    // listed beside the item, never asked (`open-close.ts#mayBeDoneOf`).
+    const maybe = mayBeDoneOf(this.counterpart.store);
+    const maybeShown = shown.filter((i) => maybe.has(i.id)).length;
     // THE PARKED, LISTED AND MARKED (P2, 2026-10-28): after every carried
     // item, the open threads nobody touched in `OPEN_CARRY_DAYS` lived days —
     // in no lane of the wake, not closed. Said once here, `parked: true` on each.
@@ -3122,6 +3128,10 @@ export class McpServer {
           ...(i.date === undefined ? {} : { date: i.date }),
           ...(i.settlesWhen === undefined ? {} : { settlesWhen: i.settlesWhen }),
           ...(i.parked === true ? { parked: true } : {}),
+          ...((): Record<string, unknown> => {
+            const m = maybe.get(i.id);
+            return m === undefined ? {} : { mayBeDone: m.shows === undefined ? m.why : `${m.why} (${m.shows})` };
+          })(),
         })),
         // "COMING UP", BY TITLE (WK1, 2026-10-30): the wake lists what is due
         // today and the oldest overdue and counts the rest, naming this
@@ -3142,6 +3152,9 @@ export class McpServer {
             ? "Nothing is still open."
             : `${carried === 0 ? `Nothing open is carried in the wake's "Still open" now.` : `What "Still open" carries, in the wake's order: what is live first, newest touched first.`}${at < pages ? ` More on page ${String(at + 1)} (page: ${String(at + 1)}).` : ""} Recall an id to read it whole. A lived day is a day the memory was in use.`) +
           parkedNote +
+          (maybeShown === 0
+            ? ""
+            : ` ${maybeShown === 1 ? "One is" : `${String(maybeShown)} are`} marked mayBeDone: the night thought it may be done but wasn't sure enough to close it, and the memory in brackets is why. If it is done, close it (a write that updates it with unresolved: false); nobody is asked. A question to the owner (status asked) closes only on the owner's answer, never on this mark.`) +
           (comingUp.length === 0 || at !== 1
             ? ""
             : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true; the longest past its date first), then by date.`),
