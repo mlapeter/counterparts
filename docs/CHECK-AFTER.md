@@ -108,6 +108,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | K1: the wake's project line writes `self.project.line`, one row per wake in a project's folder (shown, why not, bytes, ids) | 0.3.41, 10-30 (#680) | ~2 weeks after the release (~2026-11-13): how often it shows, why not when not, and ratings of what it showed; then keep or retire the line | "Due ~2 weeks after the 10-29 knobs" below |
 | K1 finding: the beliefs slot shows one belief because 4 of 6 held are about me or us (the self subject is never offered) and the fifth is under the 0.3 floor; no change | 10-29 | when 3+ beliefs about other people pass the 0.3 floor, with the beliefs slot's own read: did they show, and how were they rated? | "Due ~2 weeks after the 10-29 knobs" below; `src/core/recall/NOTES.md` |
 | R3S: a stop-list for learned cue words (`associate.CUE_STOP_LIST`: path fragments, hex ids, acknowledgements): they learn nothing from now on, and pairs they learned before are ignored when read, rows untouched | 0.3.45, 11-01 (#706), not on its own as first planned: it ships with #710, #712 and #714, so its effect is read by replay | ~7 lived days after install: new pairs a week, the stop-listed share of cue deltas (`cueStopped`), footnote noise against the 11-01 read | "Due ~7 lived days after the cue stop-list" below; `docs/IMPROVEMENTS.md` |
+| Each item shows where it can be acted on (SO1 step 3): another folder's work plain reminder is said in its own folder (and joined ones), not told or shown whole elsewhere; personal ones (me, us, owner) still cross; an open thread marked world stays in its folder | the release after 2026-11-07 (SO1 step 3) | **~3 lived days after install** (dated reminder set at merge): items shown outside their folder per day, by class; should be ~0 apart from personal ones | [below](#each-item-shows-where-it-can-be-acted-on-so1-step-3) |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -2513,3 +2514,25 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a steady rate of `landed: false` means writers are holding the lock past 5 seconds, which is its own fix. Twins that sleep doesn't fold mean the kill window isn't as small as it reads. A `notLanded` on a nightly write-up with nothing saved after it means that last-part case needs a resend.
 
 **How to revert:** `counterpart-deposit.ts#deposit` back to `submitProposal` before the mint. That restores the loss.
+
+## Each item shows where it can be acted on (SO1 step 3)
+
+SO1 step 3 (2026-11-07, decided with Mike; a fix, no switch): `core/counterpart-wake-shape.ts` (Coming up),
+`Counterpart#plainAway` (the lines above the wake and the terminal line, at a start and at a prompt),
+`self/work.ts#threadPlace` (world stays home). Why: the door read of 11-07 found plain reminders due today crossing
+folders whole, 16/34/33/3/16 mine-class items a day across 11-02..11-06, and one about-world thread in every folder.
+
+**Check, ~3 lived days after install:** for each of those days, the distinct item × folder pairs shown outside their
+folder, from the host transcripts' wake text (`~/.claude/projects/*/*.jsonl`, the `Due today ·` and `Still open:` lines
+with their ids) joined to each id's `origin_scope` and `about` on a snapshot copy. Count by class as the 11-07 door read
+did (mine / Mike's / world's / personal). Expect ~0 outside personal. Also: every work plain reminder due on a day its
+own folder had a session was shown whole there (`adapter.plain.told` and the `prospective.plain` latch's session in that
+folder), and `counterparts doctor`'s plain-reminder line: a new "due on a day a session ran and not said" means a work
+reminder whose folder had no session that day (presence isn't per folder), which is this change working, not a miss.
+
+**What would change it:** a personal item Mike wanted that stayed home (mark it owner), or a work reminder he needed in
+a folder it wasn't written in (join the folders as one project, or widen the rule). A doctor amber from folders not
+opened that day would argue for making the miss count read per folder.
+
+**How to revert:** in `counterpart-wake-shape.ts` put `|| (c.plain && …)` back into `saysHere`, drop the `plainAway`
+call in `lifecycle.ts#plainFor`, and drop the `about === "world"` clause in `threadPlace`.

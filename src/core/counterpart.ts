@@ -185,6 +185,7 @@ import {
   craftBornDay,
   CRAFT_SINCE_KEY,
   isDirectoryScope,
+  threadPlace,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -3454,6 +3455,40 @@ export class Counterpart {
       }
     }
     return held;
+  }
+
+  /**
+   * WHICH OF THESE PLAIN REMINDERS ARE ANOTHER FOLDER'S, NOT THIS READER'S TO BE
+   * TOLD (SO1 step 3, 2026-11-07, with Mike: what reached motelier was plain
+   * things to do from other folders). A reminder written in another folder —
+   * work, or marked world — is said in its own folder (and the folders joined to
+   * it as one project), as Coming up's place reads it (`self/work.ts#threadPlace`,
+   * the reader's folders as Still open's, `threadReader`). Held back like a
+   * closed folder's: not offered, so not claimed, not latched, not spent, and its
+   * own folder's first wake that day still tells it whole. Marked me, us or owner,
+   * or with no folder: told everywhere, as before. A reader with no folder (a
+   * claude.ai chat) holds nothing back here: it has no folder of its own to wait
+   * for. A read. Never throws: a row that won't read is not held.
+   */
+  plainAway(ids: readonly string[], scope: string | undefined, exportsFrom?: (scope: string) => boolean): ReadonlySet<string> {
+    const away = new Set<string>();
+    if (scope === undefined || !isDirectoryScope(scope)) return away;
+    try {
+      const folders = new Set(this.threadReader(scope, exportsFrom).folders.map(projectFolder).filter((f) => f.length > 0));
+      const rule = { craftTravels: this.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(this.store) };
+      for (const id of ids) {
+        try {
+          const row = this.store.row(id);
+          if (row === undefined) continue;
+          if (threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false }, folders, rule) === "out") away.add(id);
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      return away;
+    }
+    return away;
   }
 
   /**

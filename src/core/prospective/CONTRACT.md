@@ -164,6 +164,10 @@ clothes. **Hold debts, lose deadlines.**
   **A closed folder's work is held back from the lines above a wake** (2026-10-30, `Counterpart#plainHeldBack`): not
   offered to the delivery, so nothing claims it, and not handed over as a quiet cue either. Told after its folder turns
   on: on its day, or as its late beat inside the grace. No folder, or marked me, us, owner or world: told, whatever the folder.
+  **Another folder's is held back too** (SO1 step 3, 2026-11-07, `Counterpart#plainAway`): a reminder written in an open
+  folder that isn't the reader's (nor joined to it as one project), work or marked world, waits for its own folder's
+  first wake that day, unclaimed, so that wake tells it whole. Marked me, us or owner, or with no folder: told
+  everywhere. A reader with no folder (a claude.ai chat) holds nothing back for this.
 
 ## 4. Drops / simplifies
 

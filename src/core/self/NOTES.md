@@ -3060,3 +3060,17 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   every store that already existed keeps its own word or off. The harness's `NEW_INSTALL_META` mirrors it, held equal by
   `test/harness-week.test.ts`, so a `week` run is shaped with no `--set`. `WAKE_SHAPE_KEY` moved to `self/tunables.ts` (re-
   exported from the composer) so onboarding reads it from a leaf.
+
+## 2026-11-07 — each item shows where it can be acted on (SO1 step 3)
+
+- **What reached motelier.** Plain reminders to do things, from other folders: Coming up let every plain reminder due
+  today through (`todayAll`'s `|| c.plain`), the lines above the wake told it, and whichever folder woke first that day
+  got it whole and wrote the told latch, so its own folder only saw "N due today, shown earlier". Still open's folder
+  filter held for work rows; what leaked through it was `about: world`, which `threadPlace` read as personal.
+- **The rule now.** A plain reminder and an open thread cross folders only when marked me, us or owner (or with no
+  folder). Another folder's work, or one marked world, is said in its own folder and the folders joined to it:
+  `threadPlace` reads world as `out` there, Coming up counts it "in other folders", and the delivery holds it back
+  unclaimed (`Counterpart#plainAway`), so its folder's first wake that day tells it whole. `isWorkMemory` is unchanged:
+  world is still personal for Nearby and the craft lane; only where an owed item is shown moved.
+- **Not built:** the four classes as code (mine, Mike's, world's, personal). Steps 1-2 need only personal against the
+  rest, which `threadPlace` already says. The mapping is in the PR and the decisions fragment, for step 4.

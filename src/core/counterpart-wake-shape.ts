@@ -57,7 +57,7 @@ import { byteLength } from "./self/identity.js";
 import { readSentinel, settledOver } from "./self/index.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
-import { craftSince, isWorkMemory, projectFolder, threadPlace } from "./self/work.js";
+import { craftSince, isDirectoryScope, isWorkMemory, projectFolder, threadPlace } from "./self/work.js";
 import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import type { Kind } from "./types.js";
@@ -436,10 +436,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // agent's hand-back with nobody reading, isn't a wake anyone saw. A latch that
   // names no session, or one the registry doesn't hold, doesn't count either.
   // Never on a compaction: that session's model just lost what it was shown. A
-  // dated item that isn't plain has no such record and shows as before.
+  // dated item that isn't plain has no such record and shows as before. Only
+  // what this reader would show counts (SO1 step 3): another folder's work,
+  // told in its own folder, isn't "shown earlier" here, it's in other folders.
+  // A reader with no folder (a claude.ai chat) has no folder of its own to wait
+  // for: every plain reminder is said there, as before (`Counterpart#plainAway`).
+  const homeless = !isDirectoryScope(here?.scope ?? null);
+  const saysHere = (c: Cue): boolean => c.mine || (c.plain && homeless);
   const seenToday = new Set(sessions.filter((s) => s.headless !== true && localDate(s.startedAt, zone) === at).map((s) => s.session));
   const byToday = (session: string | null): boolean => session !== null && seenToday.has(session);
-  const shownEarlier = new Set(here?.source === "compact" ? [] : cues.filter((c) => c.plain && safe(() => cp.prospective.plainToldOn(c.id, at, byToday), false)).map((c) => c.id));
+  const shownEarlier = new Set(here?.source === "compact" ? [] : cues.filter((c) => c.plain && saysHere(c) && safe(() => cp.prospective.plainToldOn(c.id, at, byToday), false)).map((c) => c.id));
   const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom)), { items: [], parked: 0 });
@@ -606,15 +612,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
 
   const comingSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const live = cues.filter((c) => !claim.has(c.id) || c.plain);
-    // Another folder's dated work isn't due here (FS1): it's counted "in other folders", as the `coming up` door lists it. A plain reminder keeps its own rule.
-    const todayAll = live.filter((c) => c.today && (c.mine || c.plain));
+    // Another folder's dated work isn't due here (FS1): it's counted "in other folders", as the `coming up` door lists it.
+    // A plain reminder too (SO1 step 3, 2026-11-07): another folder's work is said in its own folder, not here; a personal one (me, us, owner) is `mine` everywhere.
+    const todayAll = live.filter((c) => c.today && saysHere(c));
     const ranked = [...todayAll].sort(dueOrder);
     const plain = ranked.filter((c) => c.plain && !shownEarlier.has(c.id));
     const folded = live.filter((c) => shownEarlier.has(c.id)).length;
     const rest = ranked.filter((c) => !c.plain);
     const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
-    const other = live.filter((c) => !c.mine && !(c.today && c.plain));
+    const other = live.filter((c) => !saysHere(c));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
     const dueLine = (c: Cue): string => `- Due today · ${c.plain ? c.body : c.title}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]`;
     const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
@@ -721,7 +728,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const used = (s: Record<SectionKey, Sec>): number => ORDER.reduce((n, k) => n + byteLength(s[k].text), 0);
   const left = room - byteLength(self.text);
 
-  const plainBytes = cues.filter((c) => c.plain && !shownEarlier.has(c.id)).reduce((n, c) => n + byteLength(`- Due today · ${c.body}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]\n`), byteLength("Coming up:\n\n"));
+  const plainBytes = cues.filter((c) => c.plain && saysHere(c) && !shownEarlier.has(c.id)).reduce((n, c) => n + byteLength(`- Due today · ${c.body}${c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`} [${c.id}]\n`), byteLength("Coming up:\n\n"));
   const summaryBytes = summary === null ? 0 : byteLength(`Yesterday, in day's end's words: ${flatten(summary)}\n\n`);
   const budgets: Budgets = { ...SHAPE.ROOM, coming: Math.max(SHAPE.ROOM.coming, plainBytes + SHAPE.COMING_PAST_PLAIN), yesterday: Math.max(SHAPE.ROOM.yesterday, summaryBytes) };
   let sec = compose(budgets);

@@ -386,6 +386,10 @@ true:
   it, has the same last part (`last-here.ts#placeWords`). Until then every line printed the path.
   In the shaped wake's Coming up, another folder's dated work (not a plain reminder) is no longer
   "Due today": it is counted "in other folders", as the `coming up` door already listed it.
+  **SO1 step 3 (2026-11-07):** a plain reminder too. Another folder's work (or one marked world) is
+  said in its own folder and the folders joined to it, counted "in other folders" elsewhere and never
+  "shown earlier" there; a personal one (me, us, owner) still crosses, folded once told. A reader with
+  no folder (claude.ai) still sees every plain reminder.
 
 - **WK2 (2026-10-30), behind `self.WAKE_SHAPE`, off by default:** a delivery names its handoffs in
   `core/counterpart-wake-shape.ts` instead of `standsLadder`: the newest's header and lead, what came since, older ones one per seat.

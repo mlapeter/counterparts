@@ -367,7 +367,8 @@ export interface PlainLines {
   /** The records behind them, in the same order — claimed only at delivery. */
   readonly due: PlainReminder[];
   /**
-   * What is due and this reader is not told, a closed folder's work (`plainFor`):
+   * What is due and this reader is not told, a closed folder's work or another
+   * folder's (`plainFor`):
    * memory ids, so a turn doesn't hand over as a quiet cue what it held back.
    */
   readonly held?: readonly string[];
@@ -954,7 +955,8 @@ export class Lifecycle implements HostLifecycle {
    * means no calendar, and so nothing; the headless nightly run is told nothing
    * (`SessionInput.nightRun`). A closed folder's work is held back, whichever road
    * the wake takes (2026-10-30, `Counterpart#plainHeldBack`): not in these lines,
-   * not claimed, not spent. The setting is read only when something is due: with
+   * not claimed, not spent. So is another folder's work, which is told in its own
+   * folder (SO1 step 3, 2026-11-07, `Counterpart#plainAway`). The setting is read only when something is due: with
    * no configuration named every folder is on, and one that won't read closes
    * every folder (`writeUpFolders`). Never throws.
    */
@@ -972,7 +974,10 @@ export class Lifecycle implements HostLifecycle {
       const all = this.counterpart.plainDueToday({ at: input.at, scope: input.scope, folders });
       if (all.length === 0) return none;
       const on = folders();
-      const held = on === undefined ? new Set<string>() : this.counterpart.plainHeldBack(all.map((r) => r.memoryId), on, input.scope);
+      const closed = on === undefined ? new Set<string>() : this.counterpart.plainHeldBack(all.map((r) => r.memoryId), on, input.scope);
+      // Another folder's work waits for its own folder (SO1 step 3, `Counterpart#plainAway`): the same reader Coming up reads.
+      const away = this.counterpart.plainAway(all.map((r) => r.memoryId), input.scope, this.chapterExports());
+      const held = new Set([...closed, ...away]);
       const due = all.filter((r) => !held.has(r.memoryId));
       return {
         context: due.map((r) => `${plainContextLine(r)}\n`).join(""),
