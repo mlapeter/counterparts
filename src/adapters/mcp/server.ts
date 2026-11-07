@@ -3098,7 +3098,7 @@ export class McpServer {
           parkedNote +
           (maybeShown === 0
             ? ""
-            : ` ${maybeShown === 1 ? "One is" : `${String(maybeShown)} are`} marked mayBeDone: the night thought it may be done but wasn't sure enough to close it, and the memory in brackets is why. If it is done, close it (a write that updates it with unresolved: false); nobody is asked.`) +
+            : ` ${maybeShown === 1 ? "One is" : `${String(maybeShown)} are`} marked mayBeDone: the night thought it may be done but wasn't sure enough to close it, and the memory in brackets is why. If it is done, close it (a write that updates it with unresolved: false); nobody is asked. A question to the owner (status asked) closes only on the owner's answer, never on this mark.`) +
           (comingUp.length === 0 || at !== 1
             ? ""
             : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true; the longest past its date first), then by date.`),

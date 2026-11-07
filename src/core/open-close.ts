@@ -56,6 +56,7 @@ import { INTERFERENCE_SOURCE, headline, sameSubject, subjectKeys } from "./inter
 import { undo } from "./reconsolidation.js";
 import type { SubjectKeys } from "./interference.js";
 import { settlesWhenOf } from "./types.js";
+import { openThread } from "./self/identity.js";
 import type { Store, WorkEventRow } from "./store/index.js";
 
 /** The rule every night close records. */
@@ -224,7 +225,9 @@ export function openCloseSweep(store: Store, input: OpenCloseInput): OpenCloseOu
   let skippedForLimit = 0;
   for (const id of store.openThreadIds()) {
     const row = store.row(id);
-    if (row === undefined || row.archived !== 0 || row.type !== "memory" || row.source === "dreamed" || row.band === "identity") {
+    // Open as the wake reads it (`self/identity.ts#openThread`): one already
+    // settled over under a successor is not an open item, whatever its flag.
+    if (row === undefined || !openThread(store, id)) {
       skip("not-open");
       continue;
     }
