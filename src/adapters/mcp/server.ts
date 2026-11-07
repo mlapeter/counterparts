@@ -297,6 +297,7 @@ import {
   readAbout,
   readTraits,
   readWriteFacts,
+  doneDateAsOccurred,
   readTags,
   reminderEcho,
   ownPlumbingEcho,
@@ -1896,8 +1897,15 @@ export class McpServer {
     // THE REMINDER DATE AND HOW IT COMES BACK (2026-09-26) — checked before
     // anything is captured, so an unreadable one is a refusal that says which
     // shapes ARE readable rather than a note that lands without its date.
-    const dated = readReminder(args);
-    if ("refused" in dated) return this.refuse("remember", dated.refused, { detail: dated.detail });
+    const datedRead = readReminder(args);
+    if ("refused" in datedRead) return this.refuse("remember", datedRead.refused, { detail: datedRead.detail });
+    // v12: when it happened, who said it, what kind — never a refusal: what
+    // cannot be read is dropped and said beside the memory that landed. Read
+    // here, beside the date, since a done with a passed date keeps it as
+    // occurredOn instead (SO1 step 2).
+    const doneAt = doneDateAsOccurred(args, datedRead, readWriteFacts(args, this.today()), this.today());
+    const dated = doneAt.dated;
+    const facts = doneAt.facts;
     // Unbound, the note is filed under the session this server's host is
     // running here, found by its process (2026-10-01, `hostSession`), and
     // under nobody only when that is not exact.
@@ -1937,9 +1945,6 @@ export class McpServer {
     if ("refused" in about) return this.refuse("remember", "about-malformed", { detail: about.refused });
     const traits = readTraits(args["traits"]);
     if ("refused" in traits) return this.refuse("remember", "traits-malformed", { detail: traits.refused });
-    // v12: when it happened, who said it, what kind — never a refusal: what
-    // cannot be read is dropped and said beside the memory that landed.
-    const facts = readWriteFacts(args, this.today());
     // v14, lane B: its tags, loose first the same way.
     const tags = readTags(args);
     let deposit: DepositResult;

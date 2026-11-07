@@ -35,7 +35,7 @@ import { isKnownSession } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { UseTier } from "../physics/index.js";
 import type { ProseDoc, ProspectiveInput, ProspectiveRow, Store } from "../store/index.js";
-import { RECURRING_META } from "../store/index.js";
+import { RECURRING_META, statusOf } from "../store/index.js";
 import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, occurrenceOnOrAfter } from "../time.js";
 import type { Recurrence } from "../time.js";
 import { derive } from "./derive.js";
@@ -904,6 +904,10 @@ export class Prospective {
       if (precision === null || precision === "year") continue;
       const w = windowFor(dated.eventDate, precision, this.tunables, id);
       if (w === null) continue;
+      // DONE, ITS DATE TODAY OR BEHIND IT (SO1 step 2, `derive.ts` "done"): it
+      // happened, so nothing is told, on its day or late. A repeat's done closes
+      // one occurrence (`closeOccurrence`), so a repeat is not read here.
+      if (!repeating.has(id) && w.lastDay <= at && statusOf(row.status ?? null) === "done") continue;
       // CLOSED AS DONE (2026-10-20, `closeOccurrence`): nothing left to tell.
       // Only that writer references a plain window before its last beat
       // (`actedOn` waits for the telling), so this skips nothing else.
@@ -1628,6 +1632,8 @@ export class Prospective {
         faded: s <= this.tunables.FADED_STRENGTH && read.physics.hold?.state !== "pending",
         // A live repeat is exempt from `faded` (review of #341, `derive.ts`).
         recurring: recurrenceOf(read.doc) !== null,
+        // Done, off the row (SO1 step 2): a past date then says when it happened (`derive.ts`).
+        done: statusOf(row.status ?? null) === "done",
       },
       doc: read.doc,
       dates: dates.filter((d) => (seen.has(d.date) ? false : (seen.add(d.date), true))),
