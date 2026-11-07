@@ -1188,8 +1188,8 @@ store's nights stay quiet in the log-sweep tests).
   `CycleReport.interfered` (and `interfered` on the `sleep.cycle` row, beside `pruned`) is
   how a read of the nights tells the two apart (FD1's condition: the age-based wave lands
   the same days).
-- A dry run on a copy of the owner's store (lived day 47), after the review of #777: 71 fade
-  the first night, observer and applied alike, ~120 ms; `settledOver` p50 28.5 → 28.9 ms with
-  those 71 pairs added (1,357 settled-over memories before). Reading the whole body instead of the
+- A dry run on a copy of the owner's store (lived day 47), after round 3 of the review of
+  #777: 67 fade the first night, observer and applied alike, ~70 ms; `settledOver` p50 27.7 →
+  29.1 ms with those 67 pairs added (1,357 settled-over memories before). Reading the whole body instead of the
   headline made one note naming 0.3.50 in its last line the "newer state" of a dozen
   unrelated ones; the headline rule (title, or the first 120 characters) is the fix.

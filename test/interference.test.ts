@@ -116,46 +116,51 @@ function cycleRows(w: World): Record<string, unknown>[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the subject: a version series, or a pull request", () => {
-  test("versions are read by series with the highest patch; pull requests by number", () => {
+describe("the subject: a version series", () => {
+  test("versions are read by series with the highest patch", () => {
     const k = subjectKeys("0.3.46 ready to publish; 0.3.47 queued after it, PR #744 and pull/772, v1.2.0 for the plugin", "any");
     expect([...k.versions]).toEqual([
       ["0.3", 47],
       ["1.2", 0],
     ]);
-    expect([...k.pulls].sort()).toEqual([744, 772]);
   });
 
-  test("dates, addresses, longer dotted runs and one-digit numbers are not subjects", () => {
+  test("dates, addresses and longer dotted runs are not subjects", () => {
     const k = subjectKeys("met on 2026-11-07 at 10.0.0.12, version 1.2.3.4, step #3, colour #fff, chapter 4.1", "any");
     expect(k.versions.size).toBe(0);
-    expect(k.pulls.size).toBe(0);
   });
 
-  test("a token is the subject only with a status verb beside it (review of #777)", () => {
-    const step = (t: string): string[] => {
-      const k = subjectKeys(t, "step");
-      return [...[...k.versions].map(([s, p]) => `${s}.${p}`), ...[...k.pulls].map((n) => `#${n}`)];
-    };
+  test("a version is the subject only with a status verb beside it (reviews of #777)", () => {
+    const step = (t: string): string[] => [...subjectKeys(t, "step").versions].map(([s, p]) => `${s}.${p}`);
     expect(step("0.3.46 released 10-16")).toEqual(["0.3.46"]);
     expect(step("0.3.46 fully released 11-04")).toEqual(["0.3.46"]);
     expect(step("counterparts@0.3.14 published (binaries live)")).toEqual(["0.3.14"]);
-    expect(step("PR #741 opened for review")).toEqual(["#741"]);
-    expect(step("Merged #741 after review")).toEqual(["#741"]);
     expect(step("ready to publish 0.3.47 tonight")).toEqual(["0.3.47"]);
     expect(step("0.3.47 after-publish steps: tag pushed")).toEqual(["0.3.47"]);
     expect(step("0.3.39 cut 10-28: sheet written")).toEqual(["0.3.39"]);
-    // The wrong pairs the review found, in shape: a verb elsewhere, a dotted event name, a noun phrase.
+    // The wrong pairs the reviews found, in shape: a verb elsewhere, a dotted event name, a noun phrase.
     expect(step("Release branch scan failed on a token: false positive, not in the 0.3.44 tarball")).toEqual([]);
     expect(step("Sidebar mapping misses memory.merged and band rises (0.3.29)")).toEqual([]);
     expect(step("Docker running for the phone seat during the 0.3.46 cut")).toEqual([]);
-    expect(step("Closed: #666 review findings")).toEqual([]);
+    // A plan is not an event (round 3): "cut tomorrow", "will cut", "to cut".
+    expect(step("All of today merged; 0.3.41 cut tomorrow")).toEqual([]);
+    expect(step("We will cut 0.3.41 in the morning")).toEqual([]);
+    expect(step("Waiting to cut 0.3.41 until the night reads clean")).toEqual([]);
+    expect(step("0.3.41 cut tonight after the merges")).toEqual([]);
+    expect(step("0.3.41 being cut from master")).toEqual(["0.3.41"]);
     // A newer memory must say the thing was DONE: a step on the way is not.
     expect(subjectKeys("0.3.50 ready to publish", "done").versions.size).toBe(0);
     expect(subjectKeys("0.3.50 queued", "done").versions.size).toBe(0);
     expect(subjectKeys("0.3.50 cut", "done").versions.size).toBe(0);
     expect(subjectKeys("0.3.50 released to npm", "done").versions.get("0.3")).toBe(50);
     expect(subjectKeys("Real drill on 0.3.50 passed", "done").versions.size).toBe(0);
+  });
+
+  test("no pull-request rule: a same-PR duplicate and a slash list pair nothing (round 3)", () => {
+    expect(sameSubject(subjectKeys("#593 merged, 0.3.33 content complete"), subjectKeys("#593 merged e9876779", "done"))).toBeNull();
+    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged", "done"))).toBeNull();
+    expect(sameSubject(subjectKeys("#593/#594 merged"), subjectKeys("#594 merged into master", "done"))).toBeNull();
+    expect(subjectKeys("#741 merged", "step").versions.size).toBe(0);
   });
 
   test("the subject is read in the headline: the title, or the first words, never a version named in passing below", () => {
@@ -166,7 +171,6 @@ describe("the subject: a version series, or a pull request", () => {
     // A token the cut would straddle is left out whole, never read as a shorter one.
     const pad = "x".repeat(114);
     expect(subjectKeys(headline({ title: null, body: `${pad} 0.3.46 ready and more words after it` })).versions.size).toBe(0);
-    expect(subjectKeys(headline({ title: null, body: `${"y".repeat(117)} #741 merged, then more after it` })).pulls.size).toBe(0);
   });
 
   test("the nearest later state holds: the fewest patches on, then the newest written", () => {
@@ -176,15 +180,26 @@ describe("the subject: a version series, or a pull request", () => {
     expect(sameSubject(subjectKeys("0.3.46 tagged and 1.2.0 tagged"), subjectKeys("0.3.50 released and 1.2.1 released", "done"))).toEqual({ rule: "version", key: "1.2.0→1.2.1", gap: 1 });
   });
 
-  test("a newer version in the same series is the later state; an older one, another series or another PR is not", () => {
+  test("the same version is a later state only as a real advance: a step before final, then final (round 3)", () => {
+    // cut / packed / ready / tagged → released / published: an advance.
+    for (const step of ["0.3.46 cut 10-28", "0.3.46 packed and tagged", "0.3.46 ready to publish", "0.3.46 tagged"]) {
+      expect(sameSubject(subjectKeys(step), subjectKeys("0.3.46 fully released", "done"))?.gap).toBe(0);
+    }
+    // Both final: a duplicate, not a later state.
+    expect(sameSubject(subjectKeys("0.3.46 fully released 11-04"), subjectKeys("0.3.46 released, Mike installed it", "done"))).toBeNull();
+    expect(sameSubject(subjectKeys("counterparts@0.3.43 published 11-01"), subjectKeys("Mike published and installed 0.3.43", "done"))).toBeNull();
+    // A newer that is only tagged or merged at the same version is not final.
+    expect(sameSubject(subjectKeys("0.3.46 cut"), subjectKeys("0.3.46 tagged", "done"))).toBeNull();
+    // A higher version still moves on from a final one.
+    expect(sameSubject(subjectKeys("0.3.46 fully released"), subjectKeys("0.3.47 released", "done"))?.gap).toBe(1);
+  });
+
+  test("a newer version in the same series is the later state; an older one or another series is not", () => {
     const old = subjectKeys("0.3.46 ready to publish");
     expect(sameSubject(old, subjectKeys("0.3.50 released", "done"))).toEqual({ rule: "version", key: "0.3.46→0.3.50", gap: 4 });
-    expect(sameSubject(old, subjectKeys("0.3.46 released", "done"))?.rule).toBe("version");
     expect(sameSubject(old, subjectKeys("0.3.45 released", "done"))).toBeNull();
     // Another series errs safe: 0.4.0 does not fade 0.3.x.
     expect(sameSubject(old, subjectKeys("0.4.0 released", "done"))).toBeNull();
-    expect(sameSubject(subjectKeys("#760 merged"), subjectKeys("#772 merged", "done"))).toBeNull();
-    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged", "done"))).toEqual({ rule: "pull", key: "#741", gap: 0 });
   });
 });
 
@@ -228,28 +243,27 @@ describe("the night: a newer routine work event fades the older one", () => {
     expect(report.cycle.order).toEqual([...PHASES]);
     const phase = report.cycle.phases.find((p) => p.phase === "interfere");
     expect(phase?.status).toBe("ran");
-    expect(phase?.changed).toBe(3);
-    expect(report.cycle.interfered.map((f) => f.over).sort()).toEqual([after, pr, ready].sort());
+    expect(phase?.changed).toBe(2);
+    // No pull-request rule (round 3 of the review): "#741 merged" leaves "PR #741 opened" as it is.
+    expect(report.cycle.interfered.map((f) => f.over).sort()).toEqual([after, ready].sort());
 
     // The olders: cut once, as an `updates` revision cuts, under the newest one.
     for (const id of [ready, after]) expect(fadeOf(w, id)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
-    expect(fadeOf(w, pr)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
     expect(pairs(w).sort((a, b) => (a.over < b.over ? -1 : 1))).toEqual(
       [
         { over: ready, holds: released, state: "settled" },
         { over: after, holds: released, state: "settled" },
-        { over: pr, holds: merged, state: "settled" },
       ].sort((a, b) => (a.over < b.over ? -1 : 1)),
     );
-    // Still live and recallable: a fade, not an exit.
-    for (const id of [ready, after, pr]) expect(w.c.store.row(id)?.archived).toBe(0);
+    // Still live: a fade, not an exit.
+    for (const id of [ready, after]) expect(w.c.store.row(id)?.archived).toBe(0);
 
     // Each fade records its own reason and the newer memory.
     const settled = w.c.store
       .eventLog({ name: CONTRADICTION_SETTLED_EVENT })
       .map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>)
       .filter((p) => p["source"] === INTERFERENCE_SOURCE);
-    expect(settled.length).toBe(3);
+    expect(settled.length).toBe(2);
     for (const p of settled) {
       expect(p["reason"]).toBe(INTERFERENCE_REASON);
       expect(p["how"]).toBe("changed");
@@ -261,11 +275,11 @@ describe("the night: a newer routine work event fades the older one", () => {
 
     // Counted apart from the prune on the night's durable row.
     const row = cycleRows(w).at(-1) ?? {};
-    expect(row["interfered"]).toBe(3);
+    expect(row["interfered"]).toBe(2);
     expect(row["pruned"]).toBe(0);
 
     // The protected kinds and the other subjects keep their curve.
-    for (const id of [owner, felt, aboutOwner, openItem, salient, note, otherPr, elsewhere, used, released, merged]) {
+    for (const id of [pr, owner, felt, aboutOwner, openItem, salient, note, otherPr, elsewhere, used, released, merged]) {
       expect(fadeOf(w, id)).toBe(1);
     }
     const skipped = phase?.skipped ?? {};
@@ -280,7 +294,7 @@ describe("the night: a newer routine work event fades the older one", () => {
     w.toDay(4);
     const again = await w.c.sessionEnd({ date: w.today(), budgetBytes: BUDGET, session: S });
     expect(again.cycle.phases.find((p) => p.phase === "interfere")?.changed).toBe(0);
-    for (const id of [ready, after, pr]) expect(fadeOf(w, id)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
+    for (const id of [ready, after]) expect(fadeOf(w, id)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
     expect(cycleRows(w).at(-1)?.["interfered"]).toBe(0);
   });
 

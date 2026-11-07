@@ -9,12 +9,13 @@
  *
  * **The route: subject tokens, through the one door.** No model and no
  * vectors. The subject is what a status event names exactly — a release in a
- * version series (`0.3.46`, series `0.3`) or a pull request (`#772`) — in the
+ * version series (`0.3.46`, series `0.3`) — in the
  * same folder, read in each memory's HEADLINE (its title, or its first words:
  * `headline`), never a version named in passing further down. Each night
  * (`sleep/interfere.ts`, a phase of the cycle) an
  * older memory that names the same series at a version no higher than a newer
- * one's, or the same pull request, and was written on an EARLIER lived day,
+ * one's (the same version only as a real advance: a step before final, then
+ * final), and was written on an EARLIER lived day,
  * is settled `changed` under the nearest such memory (fewest patches on, then
  * the newest written) through
  * `reconsolidation.ts#supersede`, source `interference`, reason
@@ -40,8 +41,8 @@
  * not said by the owner, with no feeling (none recorded, no emotional
  * salience), unsalient (`sal` at most `SAL_MAX`), never really used (uses
  * under `W_USEFUL`: one open, quote, or rating of 2 or 3 is past it), reading
- * as a status event AT its subject (a status verb beside the version or pull
- * request in its headline: `subjectKeys`), never faded before (`fade` 1), not
+ * as a status event AT its subject (a status verb beside the version in its
+ * headline, never a plan: `subjectKeys`), never faded before (`fade` 1), not
  * the faded side of a pair nor under an open question (holding a pair is no
  * reason: a chain's middle link fades in its turn), and never in an
  * interference pair the owner undid. Anything the owner said, anything felt,
@@ -51,13 +52,11 @@
  * deployed, tagged, installed, landed, closed), for an equal version too.
  *
  * Measured on a copy of the owner's store (lived day 47, 5,798 live authored
- * work rows), after the review of #777: 71 fade the first night, observer and
- * applied alike (68 by version, 3 by pull request), ~120 ms; 20 sampled pairs
- * hand-checked by title, 19 plainly right and one borderline (a release note
- * carrying a finding beside it). The guards held the rest (most: `not-done`
- * 1,628, `no-subject` 1,446, `salient` 827, `owner-said` 464, `not-an-event`
- * 358). A different series errs safe: 0.4.0 does not fade 0.3.x. A `#12`
- * in prose can pair, rarely, when a status verb stands beside it.
+ * work rows), after round 3 of the review of #777: 67 fade the first night,
+ * observer and applied alike, all by version, ~70 ms; `settledOver` p50 27.7
+ * → 29.1 ms with them added. The guards held the rest (most: `no-subject`
+ * 1,783, `not-done` 1,628, `salient` 827, `owner-said` 464, `not-an-event`
+ * 140). A different series errs safe: 0.4.0 does not fade 0.3.x.
  *
  * Counted apart from the prune (the roadmap's condition): the cycle's durable
  * `sleep.cycle` row carries `interfered` beside `pruned`, each fade writes a
@@ -104,84 +103,101 @@ export const INTERFERENCE_TUNABLES = {
 };
 
 /**
- * A STATUS EVENT, NAMED AT ITS SUBJECT (2026-11-07, the review of #777): a
- * version or pull request counts as the memory's subject only when a status
- * verb stands right beside it in the headline — "0.3.46 released", "#741
- * merged", "PR #741 opened", "ready to publish 0.3.47", "installed 0.3.43" —
- * with at most two small words between ("0.3.46 fully released"). A verb
- * elsewhere in the line ("Release branch scan … 0.3.44"), a dotted event name
- * ("memory.merged"), and a noun phrase ("during the 0.3.46 cut") name no
- * event. Two verb sets: what an OLDER memory may be (any step on the way: ready,
- * queued, opened, packed, cut, after-publish), and what a NEWER one must be
- * to stand over it — the thing done (released, published, merged, shipped,
- * deployed, tagged, installed, landed, closed), for an equal version too.
+ * A STATUS EVENT, NAMED AT ITS SUBJECT (2026-11-07, the reviews of #777): a
+ * version counts as the memory's subject only when a status verb stands right
+ * beside it in the headline — "0.3.46 released", "ready to publish 0.3.47",
+ * "installed 0.3.43" — with at most two small words between ("0.3.46 fully
+ * released"). A verb elsewhere in the line ("Release branch scan … 0.3.44"),
+ * a dotted event name ("memory.merged"), a noun phrase ("during the 0.3.46
+ * cut") and a plan ("0.3.41 cut tomorrow", "will cut 0.3.47", "to cut
+ * 0.3.47") name no event. Three verb sets: what an OLDER memory may be (any
+ * step on the way: ready, queued, packed, cut, tagged, after-publish, …);
+ * what a NEWER one must be to stand over it (the thing done); and, for the
+ * SAME version, the FINAL states (released, published, shipped, deployed,
+ * installed, landed) — an equal version is a later state only when the older
+ * was a step before them and the newer is one of them; both final is a
+ * duplicate, not a later state.
+ *
+ * No pull-request rule (round 3 of the review): on the owner's copy all three
+ * same-PR fades were wrong ("merged" under "merged", and a slash list's verb
+ * credited to its last number). A later rule could take a PR's not-done →
+ * done advance (opened → merged) once it can be read reliably.
  */
 const FILLER = String.raw`(?:is|was|has|have|been|now|fully|finally|all|just|also|then|got|being|and|officially)`;
-const DONE = String.raw`released|published|merged|deployed|shipped|tagged|installed|landed|closed`;
-const STEP = String.raw`${DONE}|ready|queued|opened|pushed|approved|reviewed|built|packed|cut|after-publish`;
-/** After the token: `0.3.46 released`, `#741 is merged`, `0.3.47-dev tagged`. */
+const FINAL = String.raw`released|published|shipped|deployed|installed|landed`;
+const DONE = String.raw`${FINAL}|merged|tagged`;
+const STEP = String.raw`${DONE}|ready|queued|pushed|approved|reviewed|built|packed|cut|after-publish`;
+/** A plan, not an event: the verb followed by when it is still to come. */
+const LATER = String.raw`(?!\s+(?:tomorrow|tonight|next|later|soon|on\s+(?:mon|tues|wednes|thurs|fri|satur|sun)day|after\s+(?:the|this)))`;
+/** …or preceded by what makes it one: `will cut`, `to cut`, `plan to ship`. */
+const PLANNED = String.raw`(?<!\b(?:will|to|shall|would|should|could|can|must|gonna|going\s+to|plan\s+to|about\s+to|then)\s+)`;
+const NOT_PLANNED_AFTER = String.raw`(?<!\b(?:to|will|shall|would|should|could|can|must)\s+)`;
+/** After the token: `0.3.46 released`, `0.3.47-dev is tagged`. */
 const after = (verbs: string): RegExp =>
-  new RegExp(String.raw`^(?:-[\w]+)?\s*[:,]?(?:\s+${FILLER}){0,2}\s+(?:${verbs})(?![\w.@/-])`, "i");
-/** Before the token: `released 0.3.50`, `merged #741`, `ready to publish 0.3.47`, `installed counterparts@0.3.14`. */
-const before = (verbs: string): RegExp =>
-  new RegExp(String.raw`(?<![\w.@/-])(?:${verbs}|ready to (?:publish|release|merge|ship|cut))(?:\s+(?:counterparts|version|v))?\s*@?\s*$`, "i");
-const AFTER_STEP = after(STEP);
-const AFTER_DONE = after(DONE);
-const BEFORE_STEP = before(STEP);
-const BEFORE_DONE = before(DONE);
+  new RegExp(String.raw`^(?:-[\w]+)?\s*[:,]?(?:\s+${FILLER}){0,2}\s+${NOT_PLANNED_AFTER}(?:${verbs})(?![\w.@/-])${LATER}`, "i");
+/** Before the token: `released 0.3.50`, `ready to publish 0.3.47`, `installed counterparts@0.3.14`. */
+const before = (verbs: string, ready: boolean): RegExp =>
+  new RegExp(
+    String.raw`(?<![\w.@/-])${PLANNED}(?:${verbs}${ready ? "|ready to (?:publish|release|merge|ship|cut)" : ""})(?:\s+(?:counterparts|version|v))?\s*@?\s*$`,
+    "i",
+  );
+const AFTER = { step: after(STEP), done: after(DONE), final: after(FINAL) } as const;
+const BEFORE = { step: before(STEP, true), done: before(DONE, false), final: before(FINAL, false) } as const;
 /** A noun phrase in front of the token: `the 0.3.46 cut`, `during 0.3.46`. Never an event read forward. */
 const DETERMINER = /(?:^|[^\w])(?:the|a|an|this|that|its|during|of|in|for|on|from|since|until|before|with)\s+(?:counterparts@)?$/i;
 
 /** A version, `major.minor.patch`, not part of a longer dotted run (an address, a date). */
 const VERSION = /(?<![\w.])v?(\d{1,3})\.(\d{1,3})\.(\d{1,4})(?![\w]|\.\d)/g;
 
-/** A pull request or issue number: `#772`, `PR 772`, `pull/772`. Two digits or more. */
-const PULL = /(?:(?<![\w&])#|\bPR\s*#?|\bpull\/)(\d{2,6})\b/gi;
-
-/** What a memory names exactly: each version series' highest patch, and its pull requests. */
+/** What a memory names exactly: each version series' highest patch, and whether that patch's event is FINAL. */
 export interface SubjectKeys {
   readonly versions: ReadonlyMap<string, number>;
-  readonly pulls: ReadonlySet<number>;
+  /** For each series in `versions`: true when a final verb (released, published, …) stands beside its highest patch. */
+  readonly final: ReadonlyMap<string, boolean>;
 }
 
 /**
- * The subject tokens in a headline. `as`: `any` reads every token (the raw
+ * The subject tokens in a headline. `as`: `any` reads every version (the raw
  * read); `step` only those a status verb of any step stands beside (what an
  * older memory is about); `done` only those the thing-done verbs stand beside
  * (what a newer memory must say). Pure.
  */
 export function subjectKeys(text: string, as: "any" | "step" | "done" = "step"): SubjectKeys {
-  const event = (start: number, end: number): boolean => {
-    if (as === "any") return true;
+  const reads = (set: "step" | "done" | "final", start: number, end: number): boolean => {
     const head = text.slice(0, start);
-    const tail = text.slice(end);
-    const [a, b] = as === "done" ? [AFTER_DONE, BEFORE_DONE] : [AFTER_STEP, BEFORE_STEP];
-    if (b.test(head)) return true;
-    return a.test(tail) && !DETERMINER.test(head);
+    if (BEFORE[set].test(head)) return true;
+    return AFTER[set].test(text.slice(end)) && !DETERMINER.test(head);
   };
   const versions = new Map<string, number>();
+  const final = new Map<string, boolean>();
   for (const m of text.matchAll(VERSION)) {
-    if (!event(m.index, m.index + m[0].length)) continue;
+    const start = m.index;
+    const end = start + m[0].length;
+    if (as !== "any" && !reads(as, start, end)) continue;
     const series = `${Number(m[1])}.${Number(m[2])}`;
     const patch = Number(m[3]);
-    versions.set(series, Math.max(versions.get(series) ?? -1, patch));
+    const isFinal = as !== "any" && reads("final", start, end);
+    const had = versions.get(series);
+    if (had === undefined || patch > had) {
+      versions.set(series, patch);
+      final.set(series, isFinal);
+    } else if (patch === had && isFinal) final.set(series, true);
   }
-  const pulls = new Set<number>();
-  for (const m of text.matchAll(PULL)) if (event(m.index, m.index + m[0].length)) pulls.add(Number(m[1]));
-  return { versions, pulls };
+  return { versions, final };
 }
 
 /**
- * Which rule makes `newer` the later state of `older`'s subject, or null, and
- * how far on it is (`gap`: patches ahead, 0 for the same version or pull
- * request), so the sweep can name the NEAREST later state. Pure.
+ * Which version makes `newer` the later state of `older`'s subject, or null,
+ * and how far on it is (`gap`: patches ahead), so the sweep can name the
+ * NEAREST later state. The same version (gap 0) only as a real advance: the
+ * older a step before final, the newer final. Pure.
  */
-export function sameSubject(older: SubjectKeys, newer: SubjectKeys): { rule: "version" | "pull"; key: string; gap: number } | null {
-  let best: { rule: "version" | "pull"; key: string; gap: number } | null = null;
-  for (const n of older.pulls) if (newer.pulls.has(n)) return { rule: "pull", key: `#${n}`, gap: 0 };
+export function sameSubject(older: SubjectKeys, newer: SubjectKeys): { rule: "version"; key: string; gap: number } | null {
+  let best: { rule: "version"; key: string; gap: number } | null = null;
   for (const [series, patch] of older.versions) {
     const theirs = newer.versions.get(series);
     if (theirs === undefined || theirs < patch) continue;
+    if (theirs === patch && (older.final.get(series) === true || newer.final.get(series) !== true)) continue;
     if (best === null || theirs - patch < best.gap) best = { rule: "version", key: `${series}.${patch}→${series}.${theirs}`, gap: theirs - patch };
   }
   return best;
@@ -209,7 +225,7 @@ export type InterferenceSkip =
 export interface InterferenceFade {
   readonly over: string;
   readonly holds: string;
-  readonly rule: "version" | "pull";
+  readonly rule: "version";
   readonly key: string;
 }
 
@@ -236,7 +252,7 @@ export interface InterferenceOutcome {
 /**
  * WHAT A MEMORY IS ABOUT, IN ITS OWN HEADLINE (2026-11-07): its title, or the
  * first `HEADLINE_CHARS` of its words when it has none. A status event names
- * its release or pull request there ("0.3.25 released 10-16", "#655 merged");
+ * its release there ("0.3.25 released 10-16");
  * a version named in passing further down a note (a finding that mentions the
  * build it was seen on) is not its subject. Read on a copy of the owner's
  * store (day 47): reading the whole body, 0.3.50 named in one note's last
@@ -332,7 +348,7 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
   if (!INTERFERENCE_TUNABLES.ON) return { on: false, examined: 0, faded: [], skipped, skippedForLimit: 0 };
   const rows = store.workEventRows();
   // The newer side, by folder and subject: what each memory says was DONE to
-  // a version or pull request, beside it in its headline.
+  // a version, beside it in its headline.
   const keysOf = new Map<string, SubjectKeys>();
   const doneOf = new Map<string, SubjectKeys>();
   const index = new Map<string, WorkEventRow[]>();
@@ -343,7 +359,7 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
     if (r.status !== null && r.status !== "done") continue;
     const done = subjectKeys(h, "done");
     doneOf.set(r.id, done);
-    const at = [...[...done.versions.keys()].map((s) => `v:${s}`), ...[...done.pulls].map((n) => `pr:${n}`)];
+    const at = [...done.versions.keys()].map((s) => `v:${s}`);
     for (const k of at) {
       const list = index.get(slot(r.scope, k)) ?? [];
       list.push(r);
@@ -364,17 +380,17 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
       continue;
     }
     const keys = keysOf.get(r.id) as SubjectKeys;
-    if (keys.versions.size === 0 && keys.pulls.size === 0) {
+    if (keys.versions.size === 0) {
       const raw = subjectKeys(headline(r), "any");
-      skip(raw.versions.size === 0 && raw.pulls.size === 0 ? "no-subject" : "not-an-event");
+      skip(raw.versions.size === 0 ? "no-subject" : "not-an-event");
       continue;
     }
     examined += 1;
     // The NEAREST later state, written on a later lived day: the fewest patches
-    // on (the same version or pull request first), then the newest written.
-    let best: { row: WorkEventRow; rule: "version" | "pull"; key: string; gap: number } | null = null;
+    // on (the same version first, as a real advance), then the newest written.
+    let best: { row: WorkEventRow; rule: "version"; key: string; gap: number } | null = null;
     const seen = new Set<string>();
-    for (const k of [...[...keys.versions.keys()].map((s) => `v:${s}`), ...[...keys.pulls].map((n) => `pr:${n}`)]) {
+    for (const k of [...keys.versions.keys()].map((s) => `v:${s}`)) {
       for (const n of index.get(slot(r.scope, k)) ?? []) {
         if (seen.has(n.id) || n.id === r.id || n.birthDay <= r.birthDay) continue;
         seen.add(n.id);

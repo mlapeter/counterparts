@@ -67,7 +67,7 @@ alone.
   under observer it counts and writes nothing.)* *(2026-11-07, FD1 step 3: an `interfere`
   phase runs right after `tags`, every lived day — `interference.ts#interferenceSweep`
   handed in as `interfere.ts#InterfereFn`: an older routine work memory a newer one in the
-  same folder reads as the later state of (same version series, same pull request) is
+  same folder reads as the later state of (a later version in the same series, said released or published) is
   settled `changed` under it through the one door, at most `BUDGETS.interfere` a night.
   It archives nothing: the faded memory leaves later, through the prune, under the same
   14-lived-day wait. The cycle's `interfered` list, and the `sleep.cycle` row's count of
