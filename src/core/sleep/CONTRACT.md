@@ -71,7 +71,13 @@ alone.
   settled `changed` under it through the one door, at most `BUDGETS.interfere` a night.
   It archives nothing: the faded memory leaves later, through the prune, under the same
   14-lived-day wait. The cycle's `interfered` list, and the `sleep.cycle` row's count of
-  it beside `pruned`, keep the two apart. Under observer it counts and writes nothing.)*
+  it beside `pruned`, keep the two apart. Under observer it counts and writes nothing.)* *(2026-11-07, SO1
+  step 1: a `close` phase runs right after `interfere`, every lived day —
+  `open-close.ts#openCloseSweep` handed in as `close.ts#CloseFn`: an open item whose headline
+  reads a release step closes when a later memory in its folder says a higher patch of the
+  same series was released (`closeThread`'s write, a `thread.night.closed` row each), at most
+  `BUDGETS.close` a night, and the "may be done" list is replaced. It archives nothing. The
+  `sleep.cycle` row counts `closed`. Under observer it counts and writes nothing.)*
 - **Degrade, don't abort** — index rebuild, embedding refresh, horizon computation, backup,
   and every prune each fail without failing the cycle. [v1 §5 G6]
 - **The claim is truncated only after results are applied AND persisted.** [v1 §5 G7, E6]

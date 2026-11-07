@@ -21,6 +21,7 @@ import type { WakeTrigger } from "./self/index.js";
 import { runCycle, cyclePartial } from "./sleep/index.js";
 import { nightTagWork, TUNABLES as SCHEMAS_TUNABLES } from "./schemas/index.js";
 import { interferenceSweep } from "./interference.js";
+import { openCloseSweep } from "./open-close.js";
 import type { CycleReport, CyclePartial } from "./sleep/index.js";
 import { boundedIds, isKnownSession } from "./types.js";
 import type {
@@ -202,6 +203,9 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
       // A newer routine work event fades the older one (2026-11-07, FD1 step
       // 3), through the one door, counted apart from the prune.
       interfere: (i) => interferenceSweep(cp.store, i),
+      // The night closes an open item a later release shows done (2026-11-07,
+      // SO1 step 1), and lists what it won't close as "may be done".
+      close: (i) => openCloseSweep(cp.store, i),
       date,
       ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => cp["relay"]("sleep", e),
@@ -881,6 +885,9 @@ export function recordSleepCycle(
         // `pruned` so a read of the nights tells the two apart: these stay
         // live, faded, and leave later as age prunes.
         interfered: known ? report.interfered.length : null,
+        // OPEN ITEMS THE NIGHT CLOSED (2026-11-07, SO1 step 1): the night's
+        // close count, beside the reopen rows (`thread.night.reopened`).
+        closed: known ? report.closed.length : null,
         bandUp: known ? report.bandTransitions.filter((t) => t.direction === "up").length : null,
         bandDown: known
           ? report.bandTransitions.filter((t) => t.direction === "down").length

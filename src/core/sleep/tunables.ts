@@ -85,6 +85,13 @@ export const TUNABLES = {
      * events are a few dozen.
      */
     interfere: 200,
+    /**
+     * Open items the night closes a night at most (2026-11-07, SO1 step 1).
+     * CAL, chosen not measured: a store's first night takes its backlog of
+     * release steps at once (a handful on the owner's copy); a night's own
+     * are one or two.
+     */
+    close: 50,
     dedup: 1_000,
     versions: 1,
     briefing: 1,
@@ -120,6 +127,8 @@ export const TUNABLES = {
     tags: 1,
     /** Every lived day: one read of the live work memories. */
     interfere: 1,
+    /** Every lived day: one read of the open items and the work memories. */
+    close: 1,
     dedup: 1,
     versions: 1,
     briefing: 1,

@@ -57,9 +57,10 @@ import { byteLength } from "./self/identity.js";
 import { readSentinel, settledOver } from "./self/index.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
-import { craftSince, isWorkMemory, projectFolder, threadPlace } from "./self/work.js";
+import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } from "./self/work.js";
 import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
+import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
@@ -486,6 +487,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // And only with something in "Since, here" to read in its place (review of #734).
   const stepDown = newestAt !== null && now - newestAt >= SHAPE.HANDOFF_STEP_DOWN_MS && sinceSessions > 0 && sinceAged.length > 0;
   const night = safe(() => nightWords(cp, at, here, scope), null);
+  // WHAT THE NIGHT CLOSED ITSELF (2026-11-07, SO1 step 1): the newest
+  // night's closes, from yesterday's or today's lived day, as one line under
+  // "Last night" — only items this folder's Still open would carry (its own,
+  // a joined folder's, a personal one), never another folder's work.
+  const closedLine = safe(() => nightClosedLine(cp, day, folders, rule), null);
   const installed = here?.installed ?? null;
   const news = safe(() => sinceLastNight(cp, at, here, { ours: new Set(hereFolders), skip: cueIds }), { items: [] as NewsItem[], since: 0, night: false });
 
@@ -717,11 +723,23 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   };
 
   const nightSec = (b: number): Sec => {
-    if (night === null) return { text: "", ids: [], items: 0 };
-    const withLine = night.own === null ? null : blockOf([night.line, night.own]);
-    if (withLine !== null && byteLength(withLine) <= b) return { text: withLine, ids: [], items: 0 };
-    const alone = blockOf([night.line]);
-    return byteLength(alone) <= b ? { text: alone, ids: [], items: 0 } : { text: "", ids: [], items: 0 };
+    const closed = closedLine === null ? [] : [closedLine];
+    if (night === null) {
+      const only = closed.length === 0 ? null : blockOf(closed);
+      return only !== null && byteLength(only) <= b ? { text: only, ids: [], items: 0 } : { text: "", ids: [], items: 0 };
+    }
+    // Widest first: the line, the night's own words, what it closed; then without the own words; then the line alone.
+    const forms = [
+      ...(night.own === null ? [] : [[night.line, night.own, ...closed]]),
+      ...(closed.length === 0 ? [] : [[night.line, ...closed]]),
+      ...(night.own === null ? [] : [[night.line, night.own]]),
+      [night.line],
+    ];
+    for (const f of forms) {
+      const text = blockOf(f);
+      if (byteLength(text) <= b) return { text, ids: [], items: 0 };
+    }
+    return { text: "", ids: [], items: 0 };
   };
 
   const fn: Readonly<Record<SectionKey, (b: number, claim: ReadonlySet<string>) => Sec>> = {
@@ -1033,6 +1051,30 @@ export function readElsewhere(cp: Counterpart, at: string, here: WakeHere | unde
     ...facts.list.map((e) => ({ place: e.place, id: e.id, title: e.title, age: e.title === null ? null : ageWords(e.fact, now), live: e.live })),
     ...facts.quiet.map((place) => ({ place, id: null, title: null, age: null, live: false })),
   ];
+}
+
+/**
+ * "Closed by the night (2): 0.3.46 ready for Mike to publish — 0.3.47
+ * released [mem_…]; … Not done? …" (2026-11-07, SO1 step 1): the newest
+ * night's closes (`open-close.ts#lastNightCloses`) from lived day `day - 1`
+ * on, kept to what this reader's Still open would carry (`threadPlace` not
+ * `out`), at most `OPEN_CLOSE_TUNABLES.MORNING_SHOWN` by title. Null when none.
+ */
+function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<string>, rule: WorkRule): string | null {
+  const store = cp.store;
+  const mine = lastNightCloses(store, Math.max(0, day - 1)).filter((x) => {
+    const r = store.row(x.id);
+    return r !== undefined && threadPlace({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false }, folders, rule) !== "out";
+  });
+  if (mine.length === 0) return null;
+  const max = OPEN_CLOSE_TUNABLES.MORNING_TITLE_CHARS;
+  const clip = (t: string): string => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
+  const named = mine.slice(0, OPEN_CLOSE_TUNABLES.MORNING_SHOWN).map((x) => {
+    const r = store.row(x.id);
+    return `${clip(flatten(r === undefined ? x.id : titleOfRow(r)))} — ${x.why} [${x.id}]`;
+  });
+  const more = mine.length - named.length;
+  return `Closed by the night (${String(mine.length)}): ${named.join("; ")}${more > 0 ? `; +${String(more)} more` : ""}. One not done? The reflect tool's phase "reopen", reopen: [its id], puts it back.`;
 }
 
 /** "Last night", by title and door: the night's own words on what ran, no ids; and the night's own line, when it left one a reader here may read. */
