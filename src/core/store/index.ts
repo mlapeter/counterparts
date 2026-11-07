@@ -304,6 +304,7 @@ export * from "./render.js";
 export * from "./feelings.js";
 export * from "./traits.js";
 export type { Db, Statement, WalFold } from "./db.js";
+export type { WorkEventRow } from "./reads-memories.js";
 export type {
   ContradictionRow,
   SettleRow,
@@ -2749,6 +2750,12 @@ export class Store {
    */
   foldsCiting(id: string): string[] {
     return historyReads.foldsCiting(this, id);
+  }
+
+  /** The OLDER memory of every pair of one `source`, withdrawn ones included (the interference sweep's one-cut rule, FD1 step 3). */
+  contradictionOlders(source: string): string[] {
+    if (!this.hasTable("contradictions")) return [];
+    return this.ops.all<{ a: string }>("SELECT a FROM contradictions WHERE source = ?", source).map((r) => r.a);
   }
 
   /** Has any pair EVER named these two memories, withdrawn ones included (a slot the dream said was two things)? */
@@ -5523,6 +5530,11 @@ export class Store {
   /** Every memory a later one replaced, with what replaced it (`reads-memories.ts#supersededPairs`). */
   supersededPairs(): { id: string; by: string }[] {
     return memoryReads.supersededPairs(this);
+  }
+
+  /** The live work memories sessions wrote in a folder, oldest first: what the night's interference sweep reads (`reads-memories.ts#workEventRows`, FD1 step 3). */
+  workEventRows(): memoryReads.WorkEventRow[] {
+    return memoryReads.workEventRows(this);
   }
 
   memoryTitlesByScopeSince(
