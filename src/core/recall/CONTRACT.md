@@ -353,7 +353,7 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    first in `TRIM_ORDER`, goes before them), never the loud tier. The
    named id is resolved to the memory that holds now (`headOf`), and held to what the turn
    could show at all (`activate.ts#recallableRow`, the candidates' own test: not removed,
-   archived, superseded, below reach, the self page, a handoff, a card or a belief) and would
+   archived, superseded, below reach, an aged chapter, the self page, a handoff, a card or a belief) and would
    not show again (this turn or this session already showed it, this session wrote it,
    another project's under `RECALL_BY_PROJECT`, closed by the host's folder setting (FI1,
    2026-10-30: `Turn.namedClosed`, the night fence's rule asked of the one row, its own folder's
@@ -370,7 +370,14 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    `NOTES.md` §29.)* *(2026-10-29, PP1: see-also lines are the quiet tier's too, with their own
    cap, `SEE_ALSO_MAX`, beside `MAX_FOOTNOTES`; a candidate the footnote cap turned away
    (`capped`) may still ride along on a named id, so a turn's quiet tier holds at most
-   `MAX_FOOTNOTES` + `LINK_POINTERS_MAX` + `SEE_ALSO_MAX` lines.)*
+   `MAX_FOOTNOTES` + `LINK_POINTERS_MAX` + `SEE_ALSO_MAX` lines.)* *(2026-11-07, FD1 step 5:
+   nor does an ambient turn offer an AGED CHAPTER, a chapter or frozen full copy whose latest
+   chapter is `LAST_HERE_LIFE_DAYS` (14) or more lived days old, dated from the episode's last
+   engine heading (`activate.ts#journalAged`). An age test only: it reads no strength row
+   and writes none, so sleep §15 stands, and facts, meaning, reads by id, the wake and the
+   dream are untouched. Counted on `recall.decision` as `journalAged`, beside
+   `journalCandidates` (the journal's share of the pool and the cut). Chapter summaries fade
+   as memories and are not aged here. Tests: `journal-aged.test.ts`.)*
 7. **[M]** Ambiguous handles fire at reduced weight AND train nothing — both halves, with a
    test that greps for the consumer, not the comment (scar §2.6). *(2026-10-29, PP1: a
    candidate an ambiguous handle reached that then rides along as see-also is shown because a

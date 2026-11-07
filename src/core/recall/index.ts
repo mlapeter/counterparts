@@ -411,6 +411,20 @@ export interface RecallDecision {
   readonly spread: SpreadStats | null;
   /** Scored candidates the candidate cut left out (never a silent cut). */
   readonly dropped: number;
+  /**
+   * AGED CHAPTERS (FD1 step 5, 2026-11-07): chapters and frozen full copies
+   * this ambient turn left out because their latest chapter is
+   * `LAST_HERE_LIFE_DAYS` or more lived days old (`activate.ts#journalAged`).
+   * A named skip, counted like below-reach. 0 on a turn that read nothing.
+   */
+  readonly journalAged: number;
+  /**
+   * THE JOURNAL'S SHARE (FD1 step 5): journal rows (chapters, frozen copies,
+   * chapter summaries) in the scored pool after the chapter fold, in the
+   * candidates the cut kept, and how many the cut kept in all — so the slot
+   * share is `kept / of`, read live rather than replayed. Counts only.
+   */
+  readonly journalCandidates: { readonly pool: number; readonly kept: number; readonly of: number };
   readonly bytes: number;
   readonly budgetBytes: number;
   readonly sentinel: string | null;
@@ -661,6 +675,8 @@ export class Recall {
         beliefs: null,
         spread: null,
         dropped: 0,
+        journalAged: 0,
+        journalCandidates: { pool: 0, kept: 0, of: 0 },
         bytes: 0,
         budgetBytes,
         sentinel: null,
@@ -739,6 +755,8 @@ export class Recall {
       carriedCueCount: carriedIn.length,
       storeSize: act.storeSize,
       semanticDegraded: act.semanticDegraded,
+      journalAged: act.journalAged,
+      journalCandidates: { ...act.journal, of: act.candidates.length },
     };
 
     if (act.candidates.length === 0) {
@@ -949,6 +967,8 @@ export class Recall {
               pointersUnanchored: verdicts.filter((v) => v.via === "link" && v.verdict === "dark-uncued").length,
             },
       dropped: act.dropped,
+      journalAged: act.journalAged,
+      journalCandidates: { ...act.journal, of: act.candidates.length },
       bytes: rendered.bytes,
       budgetBytes,
       sentinel: rendered.sentinel,
