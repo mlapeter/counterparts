@@ -451,6 +451,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     await releasedAndProven(o);
     // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
     const oldReplicas = underControlDefault(o.s3);
+    assert.ok(oldReplicas.length >= 2, "the two seeded replicas are there before the re-key");
     const run = litestreamRunner(standin(o.s3.ca!), { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: CREDS.id, LITESTREAM_SECRET_ACCESS_KEY: CREDS.secret });
     const sidecar = (configPath: string): LitestreamSidecar => new LitestreamSidecar({ binary: standin(o.s3.ca!), configPath, env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: CREDS.id, LITESTREAM_SECRET_ACCESS_KEY: CREDS.secret }, killAfterMs: 10_000 });
     // The stand-in's restore runs under the test's https certificate: its R2 endpoint is the https one.
@@ -551,6 +552,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     await releasedAndProven(o);
     // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
     const oldReplicas = underControlDefault(o.s3);
+    assert.ok(oldReplicas.length >= 2, "the two seeded replicas are there before the re-key");
     const { backup, litestream } = rekeyRig(o);
     const original = KeyStore.prototype.promote;
     KeyStore.prototype.promote = async function (this: KeyStore, ...args: Parameters<KeyStore["promote"]>): Promise<void> {
@@ -599,6 +601,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     await releasedAndProven(o);
     // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
     const oldReplicas = underControlDefault(o.s3);
+    assert.ok(oldReplicas.length >= 2, "the two seeded replicas are there before the re-key");
     const { backup, litestream } = rekeyRig(o);
     const failing: typeof litestream.run = async () => ({ code: 1, stderr: "standin: no replica" });
     await assert.rejects(migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream: { ...litestream, run: failing, proveMs: 1500 } }), /didn't prove/);

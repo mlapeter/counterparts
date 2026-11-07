@@ -969,21 +969,33 @@ async function main(): Promise<void> {
  * callback nor 'drain' waits for it there; the callback of the write itself does.
  */
 function trackWrites(s: NodeJS.WriteStream): () => Promise<void> {
-  let all: Promise<unknown> = Promise.resolve();
+  // A count, not a chain: `serve` writes a line per call for its whole life, and a
+  // chained promise per write would grow without end (review of #784).
+  let pending = 0;
+  let waiting: Array<() => void> = [];
+  const settle = (): void => {
+    pending -= 1;
+    if (pending > 0) return;
+    const ready = waiting;
+    waiting = [];
+    for (const r of ready) r();
+  };
   const write = s.write.bind(s) as (...args: unknown[]) => boolean;
   s.write = ((...args: unknown[]): boolean => {
     const cb = typeof args.at(-1) === "function" ? (args.pop() as (err?: Error | null) => void) : undefined;
-    let ok = true;
-    const flushed = new Promise<void>((resolve) => {
-      ok = write(...args, (err?: Error | null) => {
-        resolve();
+    pending += 1;
+    try {
+      return write(...args, (err?: Error | null) => {
+        settle();
         cb?.(err);
       });
-    });
-    all = Promise.all([all, flushed]);
-    return ok;
+    } catch (e) {
+      // A write that throws (a bad chunk) never calls back: count it settled, and let the caller see the throw.
+      settle();
+      throw e;
+    }
   }) as typeof s.write;
-  return () => all.then(() => undefined);
+  return () => (pending === 0 ? Promise.resolve() : new Promise<void>((r) => waiting.push(r)));
 }
 
 /** `process.exit`, once stdout and stderr have flushed (or after 5 s: a reader gone away never holds the exit). */
