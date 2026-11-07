@@ -57,10 +57,10 @@ import { byteLength } from "./self/identity.js";
 import { readSentinel, settledOver } from "./self/index.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
-import { craftSince, isWorkMemory, projectFolder, threadPlace } from "./self/work.js";
+import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } from "./self/work.js";
 import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
-import { lastNightCloses } from "./open-close.js";
+import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
@@ -1030,18 +1030,18 @@ export function readElsewhere(cp: Counterpart, at: string, here: WakeHere | unde
  * released [mem_…]; … Not done? …" (2026-11-07, SO1 step 1): the newest
  * night's closes (`open-close.ts#lastNightCloses`) from lived day `day - 1`
  * on, kept to what this reader's Still open would carry (`threadPlace` not
- * `out`), at most `NIGHT_CLOSED_SHOWN` by title. Null when none.
+ * `out`), at most `OPEN_CLOSE_TUNABLES.MORNING_SHOWN` by title. Null when none.
  */
-const NIGHT_CLOSED_SHOWN = 5;
-function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<string>, rule: Parameters<typeof threadPlace>[2]): string | null {
+function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<string>, rule: WorkRule): string | null {
   const store = cp.store;
   const mine = lastNightCloses(store, Math.max(0, day - 1)).filter((x) => {
     const r = store.row(x.id);
     return r !== undefined && threadPlace({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false }, folders, rule) !== "out";
   });
   if (mine.length === 0) return null;
-  const clip = (t: string): string => (t.length > 70 ? `${t.slice(0, 69)}…` : t);
-  const named = mine.slice(0, NIGHT_CLOSED_SHOWN).map((x) => {
+  const max = OPEN_CLOSE_TUNABLES.MORNING_TITLE_CHARS;
+  const clip = (t: string): string => (t.length > max ? `${t.slice(0, max - 1)}…` : t);
+  const named = mine.slice(0, OPEN_CLOSE_TUNABLES.MORNING_SHOWN).map((x) => {
     const r = store.row(x.id);
     return `${clip(flatten(r === undefined ? x.id : titleOfRow(r)))} — ${x.why} [${x.id}]`;
   });

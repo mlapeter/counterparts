@@ -90,6 +90,10 @@ export const OPEN_CLOSE_TUNABLES = {
   MAY_BE_DONE_MAX: 200 as number,
   /** Reflection proposals older than this many lived days are not listed. CAL. */
   PROPOSED_DAYS: 7 as number,
+  /** The morning line names at most this many closes, then "+N more". CAL. */
+  MORNING_SHOWN: 5 as number,
+  /** A title in the morning line is clipped to this many characters. CAL. */
+  MORNING_TITLE_CHARS: 70 as number,
 };
 
 /** Who closed it, beside the flag (`threadClosedBy`) when the night did. */
