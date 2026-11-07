@@ -1799,3 +1799,40 @@ candidates. A seed has its own bar (ROADMAP 11-03): its floor and absolute bar s
 stricter ones from before this fix, so the lower lived floor never lets a loosely matched seed into a turn no lived
 memory answers ("what pet do we have?" footnoted two seeds on a young store until then; an empty footnote beats
 noise). "Fill what's left" means room, not a lower bar. Pinned in `test/told.test.ts` through the hook.
+
+## FD1 step 5 — old chapters leave ambient recall (2026-11-07, roadmap seat with Mike's ruling, lightly held)
+
+Mike's ruling: keep the journal forever, and stop old chapters costing. The read
+(`~/counterparts-notes/2026-11-07-briefs/FD1-step5-journal-read.md`) found the cost was slots, not ms: chapters and
+frozen copies are reach-exempt, so they never fade out of the ambient pool, and they held 12% of the cut's slots.
+On 83 turns in a week the only footnotes were chapters. Live ratings by age were 0.88 under 7 days, 0.29 at 7–13 and
+0.00 at 14+. Journal rows add about 12 ms a turn, the old half about 2.
+
+**What changed.** `recallableRow` gets a second ambient-only skip beside below-reach: `"journal-aged"` for a chapter,
+or a frozen full copy, whose latest chapter is `LAST_HERE_LIFE_DAYS` (14, the handoff's fortnight, imported) or more
+lived days old. The date is the lived day in the episode's last engine heading (`latestChapter`), with the birth day
+as a fallback for a body with no heading. Birth is the wrong date because an episode keeps growing. `updated_at` is
+ms with no cheap way to a lived day, and other writes bump it. An append that opens no new chapter keeps the old
+heading's day; that's the same chapter going on, usually in one session. A frozen copy is dated from its chapter, so
+the pair ages together and the fold isn't split. Summaries already fade, so they're left alone: one whose chapter
+has aged out now stands as itself, as a copy whose chapter wasn't reached always did. The skip is a post-filter. It
+frees the cut's slots and stops the zero-rated footnotes, but the postings still cost their ms in the two top-K
+reads. Pushing it into `searchIndex` / `nearestTo` would save both, and is the next step only if ms ever matters.
+`REACH_WHERE` isn't the mechanism, because sleep §15 keeps journal rows out of the ranking table.
+
+**Ambient only, checked.** `activate` is the only caller with `ambient` true (no caller sets `includeBelowReach`,
+and `feeling` is unset on every hook turn), plus `seeAlso`, which is ambient too. Facts (`facts.ts`) and meaning
+(`meaning.ts`) never call `activate`. Reads by id go through `deliberate.ts`. The wake is SQL-bounded by the same 14
+days (`chaptersBySession`), and the dream's `namesToKeep` passes `ambient: false`. Pinned in
+`test/journal-aged.test.ts` through the real hook: footnoted at 5 days, gone at 14, a new chapter still footnoted,
+facts, meaning and an id read still find the old one, and the physics row is unchanged with no ranking row written.
+
+**On the record.** `recall.decision` carries `journalAged` (the count) and `journalCandidates {pool, kept, of}`:
+journal rows (chapters, copies, summaries) in the scored pool after the fold, in the cut's candidates, and the cut's
+size, so the slot share reads live. `mcp.recall` carries `elapsedMs` on every path: a question's mode answer without
+the embedding, or an address's read, on the server's clock.
+
+**Not built.** Candidate-first selection for meaning mode, which reads and parses every episode on each ask (about
+0.23 ms each, 104 ms at 323 episodes in the replay). It waits for ~1,000 chapters or a meaning ask past 200 ms,
+which `mcp.recall`'s `elapsedMs` now shows. N moves to 7 if the 7–13-day chapter ratings stay under ~0.3 and the
+freed slots go to better footnotes (`docs/CHECK-AFTER.md`).

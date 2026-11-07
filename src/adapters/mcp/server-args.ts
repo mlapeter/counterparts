@@ -55,6 +55,9 @@ export interface RecallRowFields {
    * bar can be calibrated on live use. Ids and numbers only.
    */
   readonly dreams?: readonly { readonly id: string; readonly why: string; readonly score: number | null }[];
+  /** How long the recall took, ms (FD1 step 5, 2026-11-07): a question's mode
+   *  answer (embedding left out), or an address's read. */
+  readonly elapsedMs?: number;
 }
 
 /**

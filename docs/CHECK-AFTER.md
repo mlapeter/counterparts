@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Old chapters leave ambient recall (FD1 step 5): a chapter or frozen full copy whose latest chapter is 14+ lived days old (`LAST_HERE_LIFE_DAYS`) is no ambient footnote candidate, counted `journalAged`; `recall.decision` carries `journalCandidates`, `mcp.recall` carries `elapsedMs` | the release after 2026-11-07 (FD1 step 5) | ~1 week after install (dated reminder set at merge): chapter footnote ratings by age (<7, 7–13, 14+), `journalAged` per turn, the journal's share of the cut, meaning-mode `elapsedMs`. 7–13-day chapters still under ~0.3 and the slots going to better footnotes says move N to 7 | [below](#old-chapters-leave-ambient-recall-fd1-step-5) |
 | A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
 | A newer routine work event fades the older one (FD1 step 3): the night's `interfere` phase settles an unsalient, never-used `about: work` status note `changed` (×0.5) under a newer one naming a later version in the same series, in the same folder | the release after 2026-11-07 (FD1 step 3) | ~3 lived days after install (dated reminder set at merge): interference fades per night against age prunes per night (`sleep.cycle` `interfered` vs `pruned`), and anything wrongly faded; a dry run on the day-47 copy said 67 the first night, then a few a night | [below](#a-newer-routine-work-event-fades-the-older-one-fd1-step-3) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
@@ -123,6 +124,30 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Old chapters leave ambient recall (FD1 step 5)
+
+FD1 step 5 (2026-11-07, decided by the roadmap seat with Mike's ruling: keep the journal forever, old chapters stop
+costing; lightly held), `recall/activate.ts#journalAged` (`recall/NOTES.md`, "FD1 step 5"). The 11-07 read: chapter
+footnotes rated 0.88 under 7 days, 0.29 at 7–13 (n=14) and 0.00 at 14+ (n=3), against 1.20 / 0.90 / 0.77 for other
+memories; journal rows took 12% of the cut's slots, and 83 turns in a week showed nothing but chapters. Ambient now
+leaves out a chapter or frozen copy whose last chapter is 14+ lived days old. Facts, meaning, reads by id, the wake
+and the dream are unchanged.
+
+- **Ratings by age.** Chapter footnote ratings (footnote lane) bucketed by the chapter's age on the turn, <7, 7–13
+  and 14+ (the last should be empty now), against the read's numbers. Join `recall.rated` to the footnote's
+  `recall.decision` row, and date the chapter by its last heading's lived day.
+- **The skip and the share.** `journalAged` per ambient turn (median, p90, by build), and `journalCandidates`:
+  `kept / of` against the read's 11.9% and `pool` against its 78. Turns whose only footnotes were chapters, against
+  83 a week.
+- **What took the slots.** Ratings of the non-journal footnotes on turns with `journalAged` > 0, against those
+  without: better footnotes, or just fewer?
+- **Meaning mode's time.** `mcp.recall` rows with `mode: "meaning"`: `elapsedMs` median and max, beside the live
+  episode count (323 on 11-07). Candidate-first selection waits for ~1,000 chapters or an ask past 200 ms.
+
+**What would change it:** if 7–13-day chapters stay under ~0.3 and the freed slots go to better footnotes, move N to
+7 (one line in `journalAged`; it stops reusing `LAST_HERE_LIFE_DAYS`). An old chapter Mike missed in a footnote says
+lengthen it. **How to revert:** drop the `journal-aged` line in `recallableRow`; the counts stay at 0.
 
 ## A done memory is never overdue (SO1 step 2)
 

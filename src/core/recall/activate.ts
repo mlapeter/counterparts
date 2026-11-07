@@ -68,6 +68,7 @@ import type { PrimeActivation, PrimeSourceKind } from "./prime.js";
 import type { CandidateVerdict, Verdict } from "./gate.js";
 import { headOf } from "./standing.js";
 import { isTold } from "../told.js";
+import { LAST_HERE_LIFE_DAYS, latestChapter } from "../handoff/last-here.js";
 
 export interface Candidate {
   readonly id: string;
@@ -362,6 +363,16 @@ export interface ActivationResult {
   /** Rows the exact recheck found BELOW REACH and left out (2026-10-10) —
    *  candidates and would-be pointers. Reported, not recorded. */
   readonly belowReach: number;
+  /** Chapters and frozen full copies an AMBIENT turn left out because their
+   *  latest chapter is `LAST_HERE_LIFE_DAYS` or more lived days old
+   *  (`journalAged`, FD1 step 5, 2026-11-07) — candidates and would-be
+   *  pointers. On the `recall.decision` row as `journalAged`. */
+  readonly journalAged: number;
+  /** Journal rows (chapters, frozen copies and chapter summaries) among the
+   *  scored pool after the chapter fold, and among the candidates the cut
+   *  kept, with the cut's size (`of`, quiet pointers not counted) (FD1 step
+   *  5): the journal's share of the slots, `kept / of`, read live. */
+  readonly journal: { readonly pool: number; readonly kept: number; readonly of: number };
   /** Memories a LEARNED pair reached this turn (R3), whether or not the cut
    *  kept them. Reported, not recorded (`capped`'s reason). */
   readonly learned: number;
@@ -527,16 +538,16 @@ export function gatedSal(p: MemoryPhysics, selfFelt: boolean): number {
 /**
  * The row, when this id is live memory that may be recalled at all: not
  * denied (removed), not archived, not superseded, not the self page, a
- * handoff, an entity card or a belief, and (ambient) not BELOW REACH —
- * `"below-reach"` says that one, so the turn can count it. One test for a
- * candidate, a link-only pointer and a memory a shown one names
- * (see-also, 2026-10-29). Reads only.
+ * handoff, an entity card or a belief, and (ambient) not BELOW REACH and not
+ * an AGED JOURNAL row — `"below-reach"` and `"journal-aged"` say those, so the
+ * turn can count each. One test for a candidate, a link-only pointer and a
+ * memory a shown one names (see-also, 2026-10-29). Reads only.
  */
 export function recallableRow(
   store: Store,
   id: string,
   opts: { readonly denied: ReadonlySet<string>; readonly ambient: boolean; readonly day: number },
-): ReturnType<Store["row"]> | "below-reach" {
+): ReturnType<Store["row"]> | RecallSkip {
   if (opts.denied.has(id)) return undefined;
   const row = store.row(id);
   // Archive is a state, not a deletion: it keeps its id and simply never
@@ -566,7 +577,38 @@ export function recallableRow(
   // pass stale at most; this is the day's own number. Ambient only; never a
   // chapter, a chapter's copy or an entity card (`reachExempt`).
   if (opts.ambient && !reachExempt(row) && belowReach(rowToPhysics(row), opts.day)) return "below-reach";
+  // AN AGED CHAPTER (FD1 step 5, 2026-11-07, Mike's ruling: keep the journal
+  // forever, old chapters stop costing). Reach-exempt rows never fade, so the
+  // journal's share of an ambient turn's fixed slots only grew, and chapter
+  // footnotes past a week were rated about 0. Ambient only, an age test and
+  // nothing else: no strength, ranking or physics row is read or written
+  // (sleep §15 stands), and facts, meaning, reads by id, the wake and the
+  // dream never come through here with `ambient` set.
+  if (opts.ambient && journalAged(store, row, opts.day)) return "journal-aged";
   return row;
+}
+
+/** Why `recallableRow` left an ambient row out, by name, so the turn can count it. */
+export type RecallSkip = "below-reach" | "journal-aged";
+
+/**
+ * A CHAPTER OR A FROZEN FULL COPY WHOSE LATEST CHAPTER IS `LAST_HERE_LIFE_DAYS`
+ * (the handoff's fortnight, 14) OR MORE LIVED DAYS OLD (FD1 step 5,
+ * 2026-11-07; decided by the roadmap seat with Mike, lightly held — the
+ * CHECK-AFTER row may move it to 7). Dated from the episode's LAST write, the
+ * lived day its last engine heading names (`latestChapter`), not its birth:
+ * an episode keeps growing. A body with no heading falls back to its birth
+ * day. A frozen copy is dated from its chapter, so the pair ages together;
+ * from its own body when the chapter is gone. A chapter SUMMARY is not this
+ * (it fades like any memory), nor is any other reach-exempt row. Reads only.
+ */
+export function journalAged(store: Store, row: NonNullable<ReturnType<Store["row"]>>, day: number): boolean {
+  let dated: NonNullable<ReturnType<Store["row"]>>;
+  if (row.type === "episode") dated = row;
+  else if (row.type === "memory" && reachExempt(row) && row.origin_ref !== null) dated = store.row(row.origin_ref) ?? row;
+  else return false;
+  const last = latestChapter(dated.body).day ?? dated.birth_day;
+  return Number.isFinite(last) && day - last >= LAST_HERE_LIFE_DAYS;
 }
 
 export function activate(
@@ -583,6 +625,7 @@ export function activate(
   const ambient = input.includeBelowReach !== true && input.feeling === undefined;
   const reachFilter = ambient ? { minStrength: PHYSICS.REACH } : {};
   let belowReachCount = 0;
+  let journalAgedCount = 0;
 
   // ── the token channel: one index probe per distinct cue token ────────────
   // Words are grouped by INDEX TERM (v7 cache, 2026-10-19, an experiment —
@@ -918,6 +961,10 @@ export function activate(
       belowReachCount += 1;
       return undefined;
     }
+    if (r === "journal-aged") {
+      journalAgedCount += 1;
+      return undefined;
+    }
     if (isTold(r)) toldSeen.add(id);
     return r;
   };
@@ -1041,6 +1088,8 @@ export function activate(
   let skipped = 0;
   /** A journal copy (copy id -> its chapter's id), read off box 2's own columns. */
   const copyOf = new Map<string, string>();
+  /** Journal rows read into the pool (chapters, copies, summaries), for the slot share. */
+  const journalIds = new Set<string>();
   for (const id of ids) {
     const row = recallable(id);
     if (row === undefined) {
@@ -1049,6 +1098,7 @@ export function activate(
     }
     const chapter = journalCopyOf(row);
     if (chapter !== null) copyOf.set(id, chapter);
+    if (chapter !== null || row.type === "episode") journalIds.add(id);
     const physics = rowToPhysics(row);
     const cue = cueScore.get(id) ?? 0;
     const temporal = temporalScore.get(id) ?? 0;
@@ -1381,6 +1431,7 @@ export function activate(
   const topIds = new Set(top.map((c) => c.id));
   const kept = [...top, ...scored.filter((c) => c.stamp > 0 && !topIds.has(c.id))];
   const dropped = scored.length - kept.length;
+  const journal = { pool: scored.filter((c) => journalIds.has(c.id)).length, kept: kept.filter((c) => journalIds.has(c.id)).length, of: kept.length };
   // MOOD (recall G18): one batched read, and only when someone has a mood — and only
   // for CUED candidates. An uncued candidate is dark at hard gate (a) before
   // salience is ever read, so it is not even asked (the guarantee is the gate's;
@@ -1547,6 +1598,8 @@ export function activate(
     collapsed,
     folded: reachedFold,
     belowReach: belowReachCount,
+    journalAged: journalAgedCount,
+    journal,
     learned: learnedReached.size,
     prime:
       primeRun === null
@@ -1754,7 +1807,7 @@ export function seeAlso(input: SeeAlsoInput): SeeAlso[] {
         if (prior !== undefined && HELD.has(prior.verdict)) continue;
         denied ??= new Set(store.deniedIds());
         const row = recallableRow(store, id, { denied, ambient: true, day: input.day });
-        if (row === undefined || row === "below-reach") continue;
+        if (row === undefined || typeof row === "string") continue;
         // Last, because it reads the setting's file: only of what it would bring.
         if (input.closed?.(id) === true) continue;
         const cand = input.candidates.get(id);

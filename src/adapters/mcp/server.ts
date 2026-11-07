@@ -2678,6 +2678,9 @@ export class McpServer {
     // registry scan. Unbound, it is the very session the old
     // `this.session ?? this.hostSession()` found, so the recall is unchanged.
     const key = this.seenKey();
+    // HOW LONG THE ANSWER TOOK (FD1 step 5, 2026-11-07): the recall itself,
+    // on the server's clock, onto `mcp.recall` as `elapsedMs`.
+    const startedAt = this.nowFn();
     const result = deliberateRecall(
       this.counterpart,
       {
@@ -2687,6 +2690,7 @@ export class McpServer {
       },
       { sessionId: this.session ?? key, closed: this.nightClosed() },
     );
+    const elapsedMs = Math.max(0, this.nowFn() - startedAt);
     if (manual !== null && result.reason === "handle-unknown") return this.manualTool(manual);
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
@@ -2715,6 +2719,7 @@ export class McpServer {
       chars: payload["chars"] as number,
       truncated: payload["truncated"] === true,
       droppedForBudget: 0,
+      elapsedMs,
     });
     // Only what was DELIVERED (review of #316): an id left `waiting` was not shown.
     const deliveredIds = ((payload["memories"] as { id?: unknown }[] | undefined) ?? []).map((m) => m.id).filter((x): x is string => typeof x === "string");
@@ -2728,6 +2733,7 @@ export class McpServer {
         expanded: result.path === "handle" ? result.memories.length : 0,
         blockedBy: addressBlocked(result),
         ...(Array.isArray(payload["nights"]) && payload["nights"].length > 0 ? { nights: payload["nights"].length } : {}),
+        elapsedMs,
       },
       askedIds.length,
       question,
@@ -3117,6 +3123,12 @@ export class McpServer {
     let ids: readonly string[];
     let body: Record<string, unknown>;
     let row: RecallRowFields;
+    // HOW LONG THE MODE TOOK (FD1 step 5, 2026-11-07): the mode's own answer,
+    // embedding left out (its round-trip is the embedder's, not the journal's),
+    // so meaning mode's linear cost in episodes can be watched. On `mcp.recall`
+    // as `elapsedMs`; candidate-first selection waits for ~1,000 chapters or a
+    // 200 ms ask (the FD1 step 5 read).
+    const startedAt = this.nowFn();
     if (mode === "facts") {
       const r = factsRecall(ctx, question, { page });
       answer = renderFacts(r);
@@ -3168,6 +3180,7 @@ export class McpServer {
         counts: { ...r.counts },
       };
     }
+    row = { ...row, elapsedMs: Math.max(0, this.nowFn() - startedAt) };
     const payload: Record<string, unknown> = {
       path: "question",
       mode,
@@ -3229,6 +3242,7 @@ export class McpServer {
       chars: shippedChars,
       truncated: false,
       droppedForBudget: 0,
+      elapsedMs: row.elapsedMs ?? 0,
     });
     // On the durable row (review of #663, to calibrate the bar on live use):
     // each dream that came, why, and its meaning score.
@@ -3432,6 +3446,9 @@ export class McpServer {
         ...(row.page === undefined ? {} : { page: row.page }),
         ...(row.time === undefined ? {} : { time: row.time }),
         ...(row.counts === undefined ? {} : { counts: row.counts }),
+        // How long the recall took, ms (FD1 step 5): the mode's answer for a
+        // question, the address read for an id or handle.
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
         considered: row.considered,
         storeSize: row.storeSize,
         chars: payload["chars"] ?? 0,
