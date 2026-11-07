@@ -4,18 +4,23 @@
 
 You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer,
 on macOS or Linux; Windows not yet supported. Bun on macOS is the setup in daily use; Node
-and Linux pass a smoke test and an install run but have no daily user yet. With Node, install with `npm install -g counterparts@latest` instead of the
-`bun add` line below; the rest is the same.
+and Linux pass a smoke test and an install run but have no daily user yet.
 
 ```
-curl -fsSL https://bun.sh/install | bash     # if you don't have bun
-# then open a new terminal
-bun add -g counterparts
+npm install -g counterparts@latest
 counterparts --version
 ```
 
-If `counterparts --version` says `command not found`, add bun's bin folder to your PATH:
-`export PATH="$HOME/.bun/bin:$PATH"` in your shell profile.
+Keep the `@latest`: a bare `npm install` can fetch an older version. With bun instead:
+`bun add -g counterparts`; the rest is the same. Whichever runtime runs the setup is the one
+Claude Code's hooks and memory tools are wired to.
+
+If `counterparts --version` says `command not found`, your global bin folder isn't on your
+PATH: for npm, add the folder `npm prefix -g` prints, plus `/bin`; for bun, add
+`export PATH="$HOME/.bun/bin:$PATH"` to your shell profile.
+
+Or install it as a Claude Code plugin: `/plugin marketplace add mlapeter/counterparts`, then
+`/plugin install counterparts@counterparts`, then restart Claude Code.
 
 ## Set it up
 
@@ -114,11 +119,11 @@ command opens an encrypted export yet: the README written beside it gives the fo
 Close your Claude Code sessions, then:
 
 ```
-bun add -g counterparts@latest
+npm install -g counterparts@latest
 ```
 
-With Node, the same step is `npm install -g counterparts@latest`. Keep the `@latest`: a
-bare `npm install` can fetch an older version.
+With bun, the same step is `bun add -g counterparts@latest`. Keep the `@latest`: a bare
+`npm install` can fetch an older version.
 
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
