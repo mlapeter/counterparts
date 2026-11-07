@@ -20,3 +20,7 @@
 - Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the cut is `CHANGED_FADE` (×0.5), at most 200 a night
   (`BUDGETS.interfere`), and the prune is untouched (`D_FLOOR_DAYS` stays 14). The `sleep.cycle` row counts
   `interfered` beside `pruned`, so a CHECK-AFTER read tells a fade from an age exit.
+- Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the memory an older one is settled under is its
+  NEAREST later state (the same version or pull request first, then the fewest patches on, then the newest
+  written), not the newest match. Why: on the copy, "newest" put every 0.3.x release note under one 0.3.50 drill
+  note, so recall's "earlier → now" pointer named an unrelated memory; the fade is the same either way.

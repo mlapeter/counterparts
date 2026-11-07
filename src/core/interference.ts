@@ -15,7 +15,8 @@
  * (`sleep/interfere.ts`, a phase of the cycle) an
  * older memory that names the same series at a version no higher than a newer
  * one's, or the same pull request, and was written on an EARLIER lived day,
- * is settled `changed` under the newest such memory through
+ * is settled `changed` under the nearest such memory (fewest patches on, then
+ * the newest written) through
  * `reconsolidation.ts#supersede`, source `interference`, reason
  * `superseded-by-newer`: its fade multiplier takes `CHANGED_FADE` (×0.5,
  * what an `updates` revision gives), it stays recallable, labelled earlier,
@@ -62,24 +63,25 @@ export const INTERFERENCE_SOURCE = "interference";
 /** The reason every interference fade records, on the event and the trail. */
 export const INTERFERENCE_REASON = "superseded-by-newer";
 
-/** Working defaults, held lightly (2026-11-07). Read at use, never copied at load. */
+/**
+ * Working defaults, held lightly (2026-11-07). Read at use, never copied at
+ * load. (Not in the harness's `--set` list: that reads only the package's
+ * public seams, and this file is not one; `physics.CHANGED_FADE` is.) The cut
+ * itself is `physics.CHANGED_FADE` (×0.5), the fade a write's `updates` gives
+ * the memory it revises: one number for every `changed`.
+ */
 export const INTERFERENCE_TUNABLES = {
   /** The switch. Off: the phase runs and counts `switched-off`. */
-  ON: true,
-  /**
-   * The cut, `changed`'s (`physics.CHANGED_FADE`, ×0.5) unless set: the same
-   * fade a write's `updates` gives the memory it revises. CAL.
-   */
-  FACTOR: null as number | null,
+  ON: true as boolean,
   /**
    * The most salience an older memory may carry and still fade: at or under
    * `DEFAULT_CLAIM_PERSONAL` (0.4). A defaulted work event is 0.20, other
    * unclaimed work 0.25; a writer who claimed more than 0.4 said it mattered. CAL.
    */
-  SAL_MAX: 0.4,
+  SAL_MAX: 0.4 as number,
   /** A memory with no title is read by this many characters of its words: about a title's worth. CAL. */
-  HEADLINE_CHARS: 120,
-} as const;
+  HEADLINE_CHARS: 120 as number,
+};
 
 /**
  * A STATUS EVENT'S WORDS (2026-11-07, lightly held): the older memory must
@@ -114,14 +116,20 @@ export function subjectKeys(text: string): SubjectKeys {
   return { versions, pulls };
 }
 
-/** Which rule makes `newer` the later state of `older`'s subject, or null. Pure. */
-export function sameSubject(older: SubjectKeys, newer: SubjectKeys): { rule: "version" | "pull"; key: string } | null {
+/**
+ * Which rule makes `newer` the later state of `older`'s subject, or null, and
+ * how far on it is (`gap`: patches ahead, 0 for the same version or pull
+ * request), so the sweep can name the NEAREST later state. Pure.
+ */
+export function sameSubject(older: SubjectKeys, newer: SubjectKeys): { rule: "version" | "pull"; key: string; gap: number } | null {
+  let best: { rule: "version" | "pull"; key: string; gap: number } | null = null;
+  for (const n of older.pulls) if (newer.pulls.has(n)) return { rule: "pull", key: `#${n}`, gap: 0 };
   for (const [series, patch] of older.versions) {
     const theirs = newer.versions.get(series);
-    if (theirs !== undefined && theirs >= patch) return { rule: "version", key: `${series}.${patch}→${series}.${theirs}` };
+    if (theirs === undefined || theirs < patch) continue;
+    if (best === null || theirs - patch < best.gap) best = { rule: "version", key: `${series}.${patch}→${series}.${theirs}`, gap: theirs - patch };
   }
-  for (const n of older.pulls) if (newer.pulls.has(n)) return { rule: "pull", key: `#${n}` };
-  return null;
+  return best;
 }
 
 /** Why an older memory keeps its slow curve, one word each (the phase's `skipped`). */
@@ -181,7 +189,12 @@ export interface InterferenceOutcome {
 export function headline(r: { readonly title: string | null; readonly body: string }): string {
   const t = r.title?.trim() ?? "";
   if (t.length > 0) return t;
-  return r.body.slice(0, INTERFERENCE_TUNABLES.HEADLINE_CHARS);
+  const max = INTERFERENCE_TUNABLES.HEADLINE_CHARS;
+  if (r.body.length <= max) return r.body;
+  // Cut at a space, never inside a word: `…0.3.4|6` must not read as 0.3.4, nor `#74|1` as #74.
+  const cut = r.body.slice(0, max + 1);
+  const at = cut.search(/\s\S*$/);
+  return at > 0 ? cut.slice(0, at) : "";
 }
 
 /** The guard on the OLDER memory that needs no second read, or null when it may fade. */
@@ -257,8 +270,9 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
       continue;
     }
     examined += 1;
-    // The newest memory, written on a later lived day, that this one's subject has moved on to.
-    let best: { row: WorkEventRow; rule: "version" | "pull"; key: string } | null = null;
+    // The NEAREST later state, written on a later lived day: the fewest patches
+    // on (the same version or pull request first), then the newest written.
+    let best: { row: WorkEventRow; rule: "version" | "pull"; key: string; gap: number } | null = null;
     const seen = new Set<string>();
     for (const k of [...[...keys.versions.keys()].map((s) => `v:${s}`), ...[...keys.pulls].map((n) => `pr:${n}`)]) {
       for (const n of index.get(slot(r.scope, k)) ?? []) {
@@ -266,7 +280,11 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
         seen.add(n.id);
         const same = sameSubject(keys, keysOf.get(n.id) as SubjectKeys);
         if (same === null) continue;
-        if (best === null || n.createdAt > best.row.createdAt || (n.createdAt === best.row.createdAt && n.id > best.row.id)) best = { row: n, ...same };
+        const nearer =
+          best === null ||
+          same.gap < best.gap ||
+          (same.gap === best.gap && (n.createdAt > best.row.createdAt || (n.createdAt === best.row.createdAt && n.id > best.row.id)));
+        if (nearer) best = { row: n, ...same };
       }
     }
     if (best === null) {
@@ -302,7 +320,6 @@ export function interferenceSweep(store: Store, input: InterferenceInput): Inter
       reason: INTERFERENCE_REASON,
       day: input.day,
       closeFlags: false,
-      ...(INTERFERENCE_TUNABLES.FACTOR === null ? {} : { factor: INTERFERENCE_TUNABLES.FACTOR }),
     });
     if (!out.ok) {
       skip("refused");

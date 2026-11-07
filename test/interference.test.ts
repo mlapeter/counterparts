@@ -137,16 +137,27 @@ describe("the subject: a version series, or a pull request", () => {
     const long = `${"The till drawer sticks when the shop is cold and the spring has to be eased by hand. ".repeat(3)}0.3.50 released.`;
     expect(subjectKeys(headline({ title: null, body: long })).versions.size).toBe(0);
     expect(subjectKeys(headline({ title: "  ", body: "0.3.46 ready to publish: sheet written." })).versions.get("0.3")).toBe(46);
+    // A token the cut would straddle is left out whole, never read as a shorter one.
+    const pad = "x".repeat(114);
+    expect(subjectKeys(headline({ title: null, body: `${pad} 0.3.46 ready and more words after it` })).versions.size).toBe(0);
+    expect(subjectKeys(headline({ title: null, body: `${"y".repeat(117)} #741 merged, then more after it` })).pulls.size).toBe(0);
+  });
+
+  test("the nearest later state holds: the fewest patches on, then the newest written", () => {
+    const old = subjectKeys("0.3.46 ready to publish");
+    expect(sameSubject(old, subjectKeys("0.3.47 released"))?.gap).toBe(1);
+    expect(sameSubject(old, subjectKeys("0.3.46 released"))?.gap).toBe(0);
+    expect(sameSubject(subjectKeys("0.3.46 and 1.2.0 tagged"), subjectKeys("0.3.50 and 1.2.1 released"))).toEqual({ rule: "version", key: "1.2.0→1.2.1", gap: 1 });
   });
 
   test("a newer version in the same series is the later state; an older one, another series or another PR is not", () => {
     const old = subjectKeys("0.3.46 ready to publish");
-    expect(sameSubject(old, subjectKeys("0.3.50 released"))).toEqual({ rule: "version", key: "0.3.46→0.3.50" });
+    expect(sameSubject(old, subjectKeys("0.3.50 released"))).toEqual({ rule: "version", key: "0.3.46→0.3.50", gap: 4 });
     expect(sameSubject(old, subjectKeys("0.3.46 released"))?.rule).toBe("version");
     expect(sameSubject(old, subjectKeys("0.3.45 hotfix"))).toBeNull();
     expect(sameSubject(old, subjectKeys("0.4.0 released"))).toBeNull();
     expect(sameSubject(subjectKeys("#760 merged"), subjectKeys("#772 merged"))).toBeNull();
-    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged"))).toEqual({ rule: "pull", key: "#741" });
+    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged"))).toEqual({ rule: "pull", key: "#741", gap: 0 });
   });
 });
 
