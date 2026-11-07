@@ -352,7 +352,17 @@ and their records; the next session's briefing, written last; a per-cycle summar
     existed, documented this window, and had no caller anywhere in `src/` — every unlatched
     row ever written was still there, and the dashboard's "I keep events for N lived days;
     older ones are swept" described a sweep that never ran. Owner ruling the same day: wire
-    it into sleep.*
+    it into sleep.* **The per-turn rows go sooner (FD1 step 2, 2026-11-07, lightly held):**
+    the names in `SHORT_RETENTION_NAMES` (`recall.decision`, `recall.credit`,
+    `recall.rated`) keep `SHORT_RETENTION_DAYS` = 30 lived days, never more than
+    `retentionDays`; every other unlatched row keeps `retentionDays`. Inside the same
+    transaction and BEFORE the delete, each lived day of them past the short cutoff is rolled
+    into one latched `events.rolled` row (counts by name, no ids), so a day the cap leaves
+    half-swept already has its whole count. Every reader on a turn or a night reads at most
+    14 lived days of these names; the all-history counts (`counterparts mechanisms`,
+    CHECK-AFTER's "since install") read the roll-ups for the rest. A pass that deleted or
+    rolled anything leaves one durable `sleep.log.swept` row, which doctor's `Growth: event
+    log` line reads.
 
 ## 6. Scars honored
 

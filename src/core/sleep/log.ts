@@ -94,7 +94,7 @@ export function runLogSweep(ctx: PhaseCtx): LogSweepResult {
   out.changed = report.pruned;
   out.skippedForBudget = report.remaining;
   out.budgetExhausted = report.remaining > 0;
-  ctx.event(LOG_SWEEP_EVENT, undefined, {
+  const swept = {
     day: ctx.day,
     count: report.pruned,
     eligible: report.eligible,
@@ -103,7 +103,23 @@ export function runLogSweep(ctx: PhaseCtx): LogSweepResult {
     budget: ctx.budget,
     cutoffDay: report.cutoffDay,
     retentionDays: report.retentionDays,
-  });
+    shortCutoffDay: report.shortCutoffDay,
+    shortRetentionDays: report.shortRetentionDays,
+    rolled: report.rolled,
+  };
+  ctx.event(LOG_SWEEP_EVENT, undefined, swept);
+  // DURABLE TOO (FD1 step 2): one row a lived day, so doctor's Growth line for
+  // the log can say what left beside what came in. Unlatched: it ages out at
+  // the long window like any row; a pass that deleted and rolled nothing
+  // writes none, so a clean window stays a no-op. A failed write costs only
+  // the reading.
+  if (report.pruned > 0 || report.rolled > 0) {
+    try {
+      store.appendEvent?.({ name: LOG_SWEEP_EVENT, day: ctx.day, payload: swept });
+    } catch {
+      /* the sweep stands; only its record is missing */
+    }
+  }
   return {
     ...out,
     eligible: report.eligible,

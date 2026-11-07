@@ -366,6 +366,8 @@ export const EVENT_NODE = {
   // to "who did this" is the phase that ran, and the run is the whole of sleep.
   "sleep.cycle": "sleep",
   "sleep.cycle.held": "sleep",
+  "sleep.log.swept": "sleep",
+  "events.rolled": "sleep",
   // The wake render's record. It is `self/`'s composition and `sleep/`'s order,
   // but what the row DESCRIBES is the bundle — what rendered, what was trimmed —
   // so it lights the node the owner will actually read it against.

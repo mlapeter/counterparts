@@ -73,6 +73,9 @@ import {
   CONFIDENTIAL_RETIRED_IDS,
   CONFIDENTIAL_RETIRED_KEY,
   DEFAULT_RETENTION_DAYS,
+  EVENTS_ROLLED_EVENT,
+  SHORT_RETENTION_DAYS,
+  SHORT_RETENTION_NAMES,
   RECURRING_META,
   SCHEMA_VERSION,
   SUBJECT_KINDS,
@@ -358,6 +361,9 @@ export {
 export {
   ADDED_COLUMNS,
   DEFAULT_RETENTION_DAYS,
+  EVENTS_ROLLED_EVENT,
+  SHORT_RETENTION_DAYS,
+  SHORT_RETENTION_NAMES,
   isPreRowsDatabase,
   OBSERVER_READ_FLOOR,
   pendingMigration,
@@ -3926,19 +3932,18 @@ export class Store {
     const limit = opts.limit === undefined ? null : Math.max(0, Math.floor(opts.limit));
     const report = this.mutate("pruneEvents", () => {
       const cutoffDay = this.livedDay() - this.retentionDays;
-      const eligible =
-        this.ops.get<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM events WHERE day < ? AND dedup_key IS NULL",
-          cutoffDay,
-        )?.n ?? 0;
+      // FD1 step 2: the per-turn names go at the shorter window, rolled up first.
+      const window = historyReads.eventWindow(this);
+      const rolled = this.rollUpShortEvents(window.shortCutoffDay);
+      const eligible = this.ops.get<{ n: number }>(`SELECT COUNT(*) AS n FROM events WHERE ${window.sql}`, ...window.args)?.n ?? 0;
       if (limit === null) {
-        this.ops.run("DELETE FROM events WHERE day < ? AND dedup_key IS NULL", cutoffDay);
+        this.ops.run(`DELETE FROM events WHERE ${window.sql}`, ...window.args);
       } else {
         this.ops.run(
           `DELETE FROM events WHERE seq IN (
-             SELECT seq FROM events WHERE day < ? AND dedup_key IS NULL
+             SELECT seq FROM events WHERE ${window.sql}
              ORDER BY seq ASC LIMIT ?)`,
-          cutoffDay,
+          ...window.args,
           limit,
         );
       }
@@ -3950,6 +3955,9 @@ export class Store {
         limit,
         cutoffDay,
         retentionDays: this.retentionDays,
+        shortCutoffDay: window.shortCutoffDay,
+        shortRetentionDays: window.shortRetentionDays,
+        rolled,
       };
     });
     this.emit("store.events.pruned", undefined, {
@@ -3959,8 +3967,53 @@ export class Store {
       limit: report.limit,
       cutoffDay: report.cutoffDay,
       retentionDays: report.retentionDays,
+      shortCutoffDay: report.shortCutoffDay,
+      rolled: report.rolled,
     });
     return report;
+  }
+
+  /**
+   * THE DAILY ROLL-UP (FD1 step 2), inside `pruneEvents`' transaction and
+   * BEFORE its delete: for every lived day before `shortCutoffDay` that still
+   * holds unlatched rows of `SHORT_RETENTION_NAMES` and has no roll-up yet, one
+   * `events.rolled` row latched `events.rolled.<day>`, payload `{ day, counts:
+   * { name: n } }` — counts only, never an id. Written before the first row of
+   * that day is deleted, so a day the capped delete leaves half-swept already
+   * has its full count; the latch keeps a later pass from writing a smaller
+   * one. Latched rows are never swept, so this is ~1 row per lived day, kept
+   * (by design: it is what all-history counts read). Returns the rows written.
+   */
+  private rollUpShortEvents(shortCutoffDay: number): number {
+    if (SHORT_RETENTION_NAMES.length === 0) return 0;
+    const marks = SHORT_RETENTION_NAMES.map(() => "?").join(", ");
+    const rows = this.ops.all<{ day: number; name: string; n: number }>(
+      `SELECT day, name, COUNT(*) AS n FROM events
+        WHERE name IN (${marks}) AND dedup_key IS NULL AND day < ?
+          AND NOT EXISTS (SELECT 1 FROM events r WHERE r.dedup_key = '${EVENTS_ROLLED_EVENT}.' || events.day)
+        GROUP BY day, name ORDER BY day, name`,
+      ...SHORT_RETENTION_NAMES,
+      shortCutoffDay,
+    );
+    const byDay = new Map<number, Record<string, number>>();
+    for (const r of rows) {
+      const counts = byDay.get(r.day) ?? {};
+      counts[r.name] = r.n;
+      byDay.set(r.day, counts);
+    }
+    let written = 0;
+    for (const [day, counts] of byDay) {
+      this.ops.run(
+        `INSERT OR IGNORE INTO events (at, day, name, ref, dedup_key, payload) VALUES (?, ?, ?, NULL, ?, ?)`,
+        this.nowFn(),
+        day,
+        EVENTS_ROLLED_EVENT,
+        `${EVENTS_ROLLED_EVENT}.${String(day)}`,
+        JSON.stringify(withBuild({ day, counts })),
+      );
+      written += this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+    }
+    return written;
   }
 
   /**
@@ -3970,6 +4023,31 @@ export class Store {
    */
   eventLogCensus(): EventLogCensus {
     return historyReads.eventLogCensus(this);
+  }
+
+  /** The moment lived day `day` began, as the log saw it (FD1 step 2; `reads-history.ts`). READ-ONLY. */
+  livedDayStartAt(day: number): number | null {
+    return historyReads.livedDayStartAt(this, day);
+  }
+
+  /** The growing association tables counted: edges, cue pairs (FD1 step 2; `reads-history.ts`). READ-ONLY. */
+  growthCounts(sinceAt: number): ReturnType<typeof historyReads.growthCounts> {
+    return historyReads.growthCounts(this, sinceAt);
+  }
+
+  /** The event log's bytes on disk, exact where SQLite has `dbstat` (FD1 step 2; `reads-history.ts`). READ-ONLY. */
+  eventLogBytes(): { bytes: number; exact: boolean } {
+    return historyReads.eventLogBytes(this);
+  }
+
+  /** The live memories against the curve: in reach, below, under the floor (FD1 step 2; `reads-memories.ts`). READ-ONLY. */
+  reachCensus(): ReturnType<typeof memoryReads.reachCensus> {
+    return memoryReads.reachCensus(this);
+  }
+
+  /** Memories born and archived over a window (FD1 step 2; `reads-memories.ts`). READ-ONLY. */
+  memoryFlow(sinceDay: number, sinceAt: number): ReturnType<typeof memoryReads.memoryFlow> {
+    return memoryReads.memoryFlow(this, sinceDay, sinceAt);
   }
 
   // ── box 3: the ranking cache (SEAMS item J) ────────────────────────────────

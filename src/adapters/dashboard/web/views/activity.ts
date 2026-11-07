@@ -10,6 +10,7 @@ import { DURABLE_EVENTS, DURABLE_EVENT_NAMES } from "../../registries.js";
 import type { DurableEventName } from "../../registries.js";
 import type { DashboardSource } from "../../source.js";
 import type { EventRow } from "../../../../core/store/index.js";
+import { SHORT_RETENTION_DAYS } from "../../../../core/store/index.js";
 import { payloadOf } from "../../../mechanism-evidence.js";
 import { FLOW_NODES, eventsOfNode } from "../flow.js";
 import { laneOf } from "../lanes.js";
@@ -72,7 +73,7 @@ export function activityView(
     lastSeq,
     retentionDays: store.retentionDays,
     bound:
-      `I keep events for ${store.retentionDays} days of use; older ones are swept unless a replay latch holds them. ` +
+      `I keep events for ${store.retentionDays} days of use (the per-turn ones for ${Math.min(SHORT_RETENTION_DAYS, store.retentionDays)}, counted a day at a time before they go); older ones are swept unless a replay latch holds them. ` +
       "This is what I still have, not everything that ever happened.",
     absent: events.length === 0 ? (everLived ? NONE : NEVER) : null,
     vocabulary: DURABLE_EVENT_NAMES.map((name) => {

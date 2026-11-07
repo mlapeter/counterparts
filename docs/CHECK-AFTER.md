@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | 0.3.47, 2026-11-04 (HD1) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
@@ -121,6 +122,43 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Growth exits (FD1 step 2)
+
+**What we're trying.** Every growing table names its exit and gets one doctor line saying how full it is, what came in
+and what left over the last 7 lived days. The per-turn event rows (`recall.decision`, `recall.credit`,
+`recall.rated`, most of the log) keep 30 lived days instead of 90. Each lived day of them is counted into one latched
+`events.rolled` row (counts by name, no ids) before it goes. Brief: `~/counterparts-notes/2026-11-07-briefs/FD1-fading-and-growth.md` §2.
+
+**Why.** Mike, 11-07: wherever something grows, fade more. On lived day 47 `events` was 66.5 MB of a 121 MB store, and
+nothing had aged out yet.
+
+**When.** ~3 lived days after install. The first night past lived day 30 takes the backlog at most 5,000 rows a night, so
+Mike's store (installed around lived day 48) clears days 0–17 over the first few nights.
+
+**What to look at.** `counterparts doctor --json`, the `growth-events` finding: `bytes`, `rows`, `count:recall.decision`,
+`count:recall.credit`, `count:recall.rated`, `count:events.rolled`, `swept`, `lastRemaining`. On a read-only open:
+
+```sql
+SELECT name, COUNT(*), MIN(day), MAX(day) FROM events
+ WHERE name IN ('recall.decision','recall.credit','recall.rated','events.rolled','sleep.log.swept') GROUP BY name;
+SELECT day, json_extract(payload,'$.count'), json_extract(payload,'$.remaining'), json_extract(payload,'$.rolled')
+  FROM events WHERE name = 'sleep.log.swept' ORDER BY seq DESC LIMIT 7;
+```
+
+Also write down the first numbers from `growth-memories` (live, in reach, under floor, pruned per night, prune lap
+nights), `growth-cues`, `growth-queue` and the Association line's `edgesRecent`/`edgesSwept`, as the baseline for steps 3
+and 4.
+
+**Expected.** The per-turn rows' oldest day reaches lived day − 30 within a few nights. One `events.rolled` per lived day
+it swept. The file shrinks only after a `VACUUM` (SQLite reuses the pages; the bytes on `growth-events` fall first).
+
+**What would change it.** A reader that came up blank for want of an older row (a mechanism going `never`, a CHECK-AFTER
+read that needed ids): move that name back to 90, or roll more into the summary. A backlog that doesn't clear: raise
+`BUDGETS.log`.
+
+**Revert.** Empty `SHORT_RETENTION_NAMES` in `src/core/store/operational.ts`. Rows already swept stay gone. Their counts
+are in `events.rolled`.
 
 ## The tail after a compaction is owed (CT1)
 

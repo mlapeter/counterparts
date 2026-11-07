@@ -11,6 +11,7 @@ import type {
 } from "./operational.js";
 import type { DreamShownRow, EventLogFilter, EventCount, EventLogCensus, RankingRow } from "./shapes.js";
 import type { Store } from "./index.js";
+import { SHORT_RETENTION_DAYS, SHORT_RETENTION_NAMES } from "./operational.js";
 
 export function coreEvents(store: Store, filter: { memoryId?: string; action?: string; sinceAt?: number; limit?: number } = {}): CoreEventRow[] {
   const where: string[] = [];
@@ -206,8 +207,40 @@ export function eventCounts(store: Store, filter: { sinceDay?: number; sinceAt?:
   }));
 }
 
+/**
+ * THE SWEEP'S WINDOW AS ONE PREDICATE (FD1 step 2), so the delete, its count
+ * and the census can never disagree: an unlatched row is past the window when
+ * it is one of `SHORT_RETENTION_NAMES` older than the short cutoff, or any
+ * other name older than `retentionDays`. The short window is never longer
+ * than the store's own.
+ */
+export function eventWindow(store: Store): {
+  sql: string;
+  args: (string | number)[];
+  cutoffDay: number;
+  shortCutoffDay: number;
+  shortRetentionDays: number;
+} {
+  const day = store.livedDay();
+  const cutoffDay = day - store.retentionDays;
+  const shortRetentionDays = Math.min(SHORT_RETENTION_DAYS, store.retentionDays);
+  const shortCutoffDay = day - shortRetentionDays;
+  if (SHORT_RETENTION_NAMES.length === 0) {
+    return { sql: "dedup_key IS NULL AND day < ?", args: [cutoffDay], cutoffDay, shortCutoffDay, shortRetentionDays };
+  }
+  const marks = SHORT_RETENTION_NAMES.map(() => "?").join(", ");
+  return {
+    sql: `dedup_key IS NULL AND ((name IN (${marks}) AND day < ?) OR (name NOT IN (${marks}) AND day < ?))`,
+    args: [...SHORT_RETENTION_NAMES, shortCutoffDay, ...SHORT_RETENTION_NAMES, cutoffDay],
+    cutoffDay,
+    shortCutoffDay,
+    shortRetentionDays,
+  };
+}
+
 export function eventLogCensus(store: Store): EventLogCensus {
-  const cutoffDay = store.livedDay() - store.retentionDays;
+  const window = eventWindow(store);
+  const cutoffDay = window.cutoffDay;
   const totals = store["ops"].get<{
     total: number;
     latched: number;
@@ -222,12 +255,12 @@ export function eventLogCensus(store: Store): EventLogCensus {
               MAX(day) AS newest_day
          FROM events`,
   );
-  const past = store["ops"].get<{ eligible: number; latched: number }>(
-    `SELECT COUNT(*) - COUNT(dedup_key) AS eligible,
-              COUNT(dedup_key) AS latched
-         FROM events WHERE day < ?`,
+  const latchedPast = store["ops"].get<{ latched: number }>(
+    "SELECT COUNT(dedup_key) AS latched FROM events WHERE day < ?",
     cutoffDay,
   );
+  const eligible = store["ops"].get<{ n: number }>(`SELECT COUNT(*) AS n FROM events WHERE ${window.sql}`, ...window.args);
+  const past = { eligible: eligible?.n ?? 0, latched: latchedPast?.latched ?? 0 };
   return {
     rows: totals?.total ?? 0,
     latched: totals?.latched ?? 0,
@@ -236,9 +269,64 @@ export function eventLogCensus(store: Store): EventLogCensus {
     newestDay: totals?.newest_day ?? null,
     cutoffDay,
     retentionDays: store.retentionDays,
-    eligible: past?.eligible ?? 0,
-    latchedPastCutoff: past?.latched ?? 0,
+    eligible: past.eligible,
+    latchedPastCutoff: past.latched,
+    shortCutoffDay: window.shortCutoffDay,
+    shortRetentionDays: window.shortRetentionDays,
   };
+}
+
+/**
+ * THE MOMENT A LIVED DAY BEGAN, as the log saw it (FD1 step 2): the earliest
+ * `at` among rows written on lived day `day` or later, or null when the log
+ * holds none. Tables whose rows carry a wall-clock `created_at` (edges, cue
+ * pairs) and the archive's `updated_at` are counted "in the last N lived days"
+ * from it, so every growth window runs on the store's one lived clock.
+ */
+export function livedDayStartAt(store: Store, day: number): number | null {
+  return store["ops"].get<{ at: number | null }>("SELECT MIN(at) AS at FROM events WHERE day >= ?", day)?.at ?? null;
+}
+
+/**
+ * THE GROWING ASSOCIATION TABLES COUNTED (FD1 step 2, 2026-11-07): rows held,
+ * and rows first written at or after `sinceAt`, for the tables that carry a
+ * `created_at` (`edges` since v7, `cue_edges` since v15; a row with none
+ * counts as old). `cues` is null on a store without the table. Read-only.
+ */
+export function growthCounts(store: Store, sinceAt: number): {
+  edges: { rows: number; recent: number };
+  cues: { rows: number; recent: number } | null;
+} {
+  const ops = store["ops"];
+  const count = (table: string): { rows: number; recent: number } => {
+    const r = ops.get<{ rows: number; recent: number | null }>(
+      `SELECT COUNT(*) AS rows, SUM(CASE WHEN COALESCE(created_at, 0) >= ? THEN 1 ELSE 0 END) AS recent FROM ${table}`,
+      sinceAt,
+    );
+    return { rows: r?.rows ?? 0, recent: r?.recent ?? 0 };
+  };
+  const hasCues = ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cue_edges'")?.n === 1;
+  return { edges: count("edges"), cues: hasCues ? count("cue_edges") : null };
+}
+
+/**
+ * THE EVENT LOG'S SIZE ON DISK (FD1 step 2): the pages of `events` and its
+ * indexes from SQLite's `dbstat` when this build of SQLite has it (`exact`),
+ * else the columns' lengths plus a fixed cost per row (an estimate). Read-only.
+ */
+export function eventLogBytes(store: Store): { bytes: number; exact: boolean } {
+  const ops = store["ops"];
+  try {
+    const b = ops.get<{ b: number | null }>(
+      "SELECT SUM(pgsize) AS b FROM dbstat WHERE name IN ('events', 'events_dedup', 'events_name', 'events_day')",
+    );
+    return { bytes: b?.b ?? 0, exact: true };
+  } catch {
+    const b = ops.get<{ b: number | null }>(
+      "SELECT SUM(LENGTH(name) + COALESCE(LENGTH(ref), 0) + COALESCE(LENGTH(dedup_key), 0) + COALESCE(LENGTH(payload), 0) + 40) AS b FROM events",
+    );
+    return { bytes: b?.b ?? 0, exact: false };
+  }
 }
 
 export function gateRecords(store: Store, sessionId: string, kind?: string): GateSessionRow[] {

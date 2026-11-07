@@ -169,6 +169,7 @@ import type { HostReading, DesktopReading } from "./doctor-host.js";
 import { owedFolders, readOwed, crashWriteUpFindings, nightHeldFindings, overdueWords } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
 import { worstFirst } from "./doctor-report.js";
+import { growthFindings } from "./doctor-growth.js";
 import { feedbackLoopFindings } from "./doctor-feedback.js";
 import { starterNotes } from "../../core/told.js";
 
@@ -3215,6 +3216,8 @@ export function associationFindings(store: Store): Finding[] {
   let contiguityExcluded = 0;
   let contiguityLost = 0;
   let contiguityFailed = 0;
+  let edgesSwept = 0;
+  let edgesRecent = 0;
   const census = { total: 0, conducting: 0, gist: 0, dream: 0, hebbian: 0 };
   try {
     const rows = store.eventLog({ name: "recall.decision", sinceDay: since, order: "desc", limit: ASSOCIATION_ROWS });
@@ -3245,6 +3248,8 @@ export function associationFindings(store: Store): Finding[] {
     // at the nodes it touched, those nodes scaled back — from their own
     // `associate.flush` rows (review of #281, findings 2 and 9).
     for (const row of store.eventLog({ name: "associate.flush", sinceDay: since, order: "desc", limit: ASSOCIATION_ROWS })) {
+      // FD1 step 2: the edges' exit, the flush's sweep (faded under the floor, or an end gone for good).
+      edgesSwept += num(payloadOf(row), "swept") ?? 0;
       const c = payloadOf(row)["contiguity"];
       if (c === null || typeof c !== "object") continue;
       const cr = c as Record<string, unknown>;
@@ -3265,6 +3270,8 @@ export function associationFindings(store: Store): Finding[] {
         if (c.action === "link" && c.ref2 !== null) dreamPairs.add(pairKey(c.ref, c.ref2));
       }
     }
+    const sinceAt = store.livedDayStartAt(since);
+    if (sinceAt !== null) edgesRecent = store.growthCounts(sinceAt).edges.recent;
     for (const e of store.allEdges()) {
       census.total += 1;
       if (!isDead({ src: e.src, dst: e.dst, weight: e.weight, lastDay: e.last_day }, day, ASSOCIATE_TUNABLES)) census.conducting += 1;
@@ -3285,7 +3292,7 @@ export function associationFindings(store: Store): Finding[] {
       "association",
       "green",
       "Association",
-      `${spreadSaid}. Edges: ${String(census.total)} rows, ${String(census.conducting)} conducting — ${String(census.hebbian)} learned from use or contiguity, ${String(census.dream)} dream links, ${String(census.gist)} gist ties (derived: a row touching a dream's gist is a gist tie, a pair a dream linked is a dream link, the rest were learned from use or from memories made next to each other)` +
+      `${spreadSaid}. Edges: ${String(census.total)} rows, ${String(census.conducting)} conducting — ${String(census.hebbian)} learned from use or contiguity, ${String(census.dream)} dream links, ${String(census.gist)} gist ties (derived: a row touching a dream's gist is a gist tie, a pair a dream linked is a dream link, the rest were learned from use or from memories made next to each other); this window ${String(edgesRecent)} new, ${String(edgesSwept)} swept (an unused edge fades over ${String(ASSOCIATE_TUNABLES.S_EDGE)} lived days; a memory holds at most ${String(ASSOCIATE_TUNABLES.MAX_EDGES_PER_NODE)})` +
         `. Temporal contiguity buffered ${String(contiguityPairs)} ${contiguityPairs === 1 ? "pair" : "pairs"} of neighbouring memories at the boundaries, ${String(contiguityLanded)} landed as links; it pushed out ${String(contiguityEvictedOther)} other ${contiguityEvictedOther === 1 ? "link" : "links"} and scaled back ${String(contiguityScaled)} ${contiguityScaled === 1 ? "memory's" : "memories'"} links at full memories; ${String(contiguityExcluded)} ${contiguityExcluded === 1 ? "memory" : "memories"} the nightly run wrote left out` +
         (contiguityFailed > 0 ? `; the pass failed at ${String(contiguityFailed)} ${contiguityFailed === 1 ? "boundary" : "boundaries"}` : "") +
         (contiguityLost > 0 ? `; ${String(contiguityLost)} planned ${contiguityLost === 1 ? "pair was" : "pairs were"} lost before a flush recorded them` : "") +
@@ -3314,6 +3321,8 @@ export function associationFindings(store: Store): Finding[] {
         hebbian: census.hebbian,
         dreamLinks: census.dream,
         gistTies: census.gist,
+        edgesRecent,
+        edgesSwept,
         floor: unread,
       },
     ),
@@ -3666,6 +3675,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["association", () => associationFindings(store)],
     // The feedback loop (2026-10-19, an experiment): ratings as use, co-use links, habituation.
     ["feedback-loop", () => feedbackLoopFindings(store)],
+    // FD1 step 2 (2026-11-07): every growing table, how full, in against out.
+    // Not in the session-start reading: the memories line walks every live row.
+    ...(input.budgetMs !== undefined ? [] : [["growth", (): Finding[] => growthFindings(store)] as const]),
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

@@ -645,6 +645,15 @@ export const MECHANISMS: readonly Mechanism[] = [
     covers: ["sleep.cycle.held"],
   },
   {
+    // FD1 step 2 (2026-11-07): the log's exit. Per-turn rows go at the short
+    // window, each lived day of them counted into one kept row first.
+    id: "log-sweep",
+    label: "old event rows let go, the per-turn ones counted a day at a time first",
+    module: "sleep/log.ts, store/",
+    evidence: { kind: "event", names: ["sleep.log.swept"] },
+    covers: ["events.rolled"],
+  },
+  {
     id: "decay",
     label: "memories weaken with time and drop to a lower band",
     module: "physics/, sleep/decay.ts",

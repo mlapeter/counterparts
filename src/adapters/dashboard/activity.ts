@@ -18,6 +18,7 @@
  * without saying that would be quietly claiming six things ever happened.
  */
 import { localClock } from "../../core/time.js";
+import { SHORT_RETENTION_DAYS } from "../../core/store/index.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
 import { NEVER, NONE, heading, indent, plural, stack, subheading, table, truncate } from "./layout.js";
@@ -64,7 +65,7 @@ export function renderActivity(src: DashboardSource, opts: ActivityOptions = {})
   const atLeast = opts.ref !== undefined && all.length >= FEED_CEILING;
 
   const bound =
-    `I keep events for ${plural(store.retentionDays, "day of use", "days of use")}; older ones are swept unless ` +
+    `I keep events for ${plural(store.retentionDays, "day of use", "days of use")} (the per-turn ones for ${plural(Math.min(SHORT_RETENTION_DAYS, store.retentionDays), "day", "days")}, counted a day at a time before they go); older ones are swept unless ` +
     "a replay latch holds them. This is what I still have, not everything that ever happened.";
 
   if (shown.length === 0) {
