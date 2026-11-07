@@ -232,7 +232,8 @@ function annotate(title: string, hints: { readOnly: boolean; destructive?: boole
  * object per feeling, spelled on the feelings wheel (`core/feelings-wheel.ts`).
  * Since emotion part A (2026-09-26) they weigh: the strongest one, or
  * `emotional` if that is stronger, raises the memory and slows its fading
- * (physics §5.10), and a recent one sets the mood recall matches (recall G18).
+ * (physics §5.10), and a recent one sets the mood recall matches (recall G18;
+ * off since 2026-10-10, both mood weights 0).
  * Since the wheel v2 (2026-09-30, v11): seven cores, the writer's core is kept
  * whatever the word, and `strength` and `valence` default from the word.
  */
