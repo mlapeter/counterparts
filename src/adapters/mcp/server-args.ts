@@ -508,12 +508,13 @@ export function readWriteFacts(rec: Record<string, unknown>, today: string): Fac
 /**
  * A DONE MEMORY IS NEVER OVERDUE (SO1 step 2, 2026-11-07, lightly held): a
  * `remember` or `session_end` entry with `status: "done"` and an `eventDate`
- * already passed (its last day before `today`) says when the thing HAPPENED,
+ * today or already passed (its last day on or before `today`: a done dated
+ * today has happened, coordinator 11-07) says when the thing HAPPENED,
  * so the date is kept as `occurredOn`, not as a reminder. When `occurredOn`
  * was sent too and differs, it is kept and the eventDate is dropped. Either
  * way it is dropped and said beside the memory, in the three fields' `dropped`.
  *
- * Left alone: a date today or ahead (a done with a future date is ambiguous),
+ * Left alone: a date ending after today (a done with a future date is ambiguous),
  * a repeat (`recurring` sent: a done closes one occurrence), and a revision
  * (`updates` sent: its target may repeat, and the deposit's own close decides
  * it; the read side keeps a done one-off with a past date out of Coming up
@@ -530,12 +531,13 @@ export function doneDateAsOccurred(
   const { eventDate, remind: _remind, ...rest } = dated.fields;
   if (typeof eventDate !== "string" || isRecurrence(rest.recurring)) return { dated, facts };
   const read = parseCalendarDate(eventDate);
-  if (read === null || read.last >= today) return { dated, facts };
+  if (read === null || read.last > today) return { dated, facts };
   const given = facts.sent.occurredOn;
   const keepGiven = typeof given === "string" && given !== read.text;
+  const when = read.last !== today ? "has already passed" : read.first === today ? "is today" : "ends today";
   const note = keepGiven
-    ? `eventDate "${read.text}" has already passed and this memory is done, so it is not a reminder; occurredOn "${given}" was sent too, so that was kept and the eventDate dropped.`
-    : `eventDate "${read.text}" has already passed and this memory is done, so the date was kept as occurredOn (when it happened), not as a reminder: it won't come up as due or overdue.`;
+    ? `eventDate "${read.text}" ${when} and this memory is done, so it is not a reminder; occurredOn "${given}" was sent too, so that was kept and the eventDate dropped.`
+    : `eventDate "${read.text}" ${when} and this memory is done, so the date was kept as occurredOn (when it happened), not as a reminder: it won't come up as due or overdue.`;
   return {
     dated: { fields: rest, remindIgnored: false },
     facts: {

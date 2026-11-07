@@ -893,9 +893,6 @@ export class Prospective {
       if (denied.has(id)) continue;
       const row = this.store.row(id);
       if (row === undefined || row.superseded_by !== null) continue;
-      // DONE, ITS DAY BEHIND IT (SO1 step 2, `derive.ts` "done"): nothing is owed late.
-      // A repeat's done closes one occurrence (`closeOccurrence`), so it is not read here.
-      if (dated.lateUntil !== undefined && !repeating.has(id) && statusOf(row.status ?? null) === "done") continue;
       let doc: ProseDoc;
       try {
         doc = this.store.read(id).doc;
@@ -907,6 +904,10 @@ export class Prospective {
       if (precision === null || precision === "year") continue;
       const w = windowFor(dated.eventDate, precision, this.tunables, id);
       if (w === null) continue;
+      // DONE, ITS DATE TODAY OR BEHIND IT (SO1 step 2, `derive.ts` "done"): it
+      // happened, so nothing is told, on its day or late. A repeat's done closes
+      // one occurrence (`closeOccurrence`), so a repeat is not read here.
+      if (!repeating.has(id) && w.lastDay <= at && statusOf(row.status ?? null) === "done") continue;
       // CLOSED AS DONE (2026-10-20, `closeOccurrence`): nothing left to tell.
       // Only that writer references a plain window before its last beat
       // (`actedOn` waits for the telling), so this skips nothing else.

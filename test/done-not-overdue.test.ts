@@ -182,15 +182,40 @@ describe("the write: a done with a passed date keeps it as when it happened", ()
     expect(await wake(a, "s-next")).not.toContain("Handoff for 11-06 written");
   });
 
-  test("a future date with done is left alone (ambiguous, not this step)", async () => {
+  test("the same day: done + today's date is stored as occurredOn, and that day's wake doesn't list it as due today", async () => {
     const a = adapter();
     const s = server(a);
     dayOf(a, "2026-11-07");
-    const body = await remember(s, { title: "Deploy done, check logs", text: "The deploy is done; the logs get a look on the 10th.", eventDate: "2026-11-10", status: "done" });
-    expect(body["reminder"]).toMatchObject({ eventDate: "2026-11-10" });
+    const open = await remember(s, { title: "Call the kiln tech", text: "Call the kiln tech about the thermocouple today.", eventDate: "2026-11-07" });
+    const body = await remember(s, { title: "Handoff for 11-07 written", text: "Wrote the handoff for the 11-07 session and left it in the notes folder.", eventDate: "2026-11-07", status: "done" });
+    const id = body["id"] as string;
+    expect(facts(body)["occurredOn"]).toBe("2026-11-07");
+    expect(droppedNote(body, "eventDate")).toContain('"2026-11-07" is today');
+    expect(droppedNote(body, "eventDate")).toContain("kept as occurredOn");
+    expect(body["reminder"]).toBeUndefined();
+    const row = a.counterpart.store.row(id);
+    expect(row?.event_date ?? null).toBeNull();
+    expect(row?.occurred_on).toBe("2026-11-07");
+
+    dayOf(a, "2026-11-07", 15);
+    const up = a.counterpart.comingUp({ scope: SCOPE });
+    expect(up.today.map((x) => x.id)).toContain(open["id"] as string);
+    expect([...up.today, ...up.overdue, ...up.later].map((x) => x.id)).not.toContain(id);
+    const text = await wake(a, "s-same-day");
+    expect(text).toContain("Call the kiln tech about the thermocouple");
+    expect(text).not.toContain("Handoff for 11-07 written");
+    expect(text).not.toContain("Wrote the handoff");
+  });
+
+  test("a date tomorrow with done is left alone (ambiguous, not this step)", async () => {
+    const a = adapter();
+    const s = server(a);
+    dayOf(a, "2026-11-07");
+    const body = await remember(s, { title: "Deploy done, check logs", text: "The deploy is done; the logs get a look tomorrow.", eventDate: "2026-11-08", status: "done" });
+    expect(body["reminder"]).toMatchObject({ eventDate: "2026-11-08" });
     expect(droppedNote(body, "eventDate")).toBe("");
     const row = a.counterpart.store.row(body["id"] as string);
-    expect(row?.event_date).toBe("2026-11-10");
+    expect(row?.event_date).toBe("2026-11-08");
     expect(row?.occurred_on ?? null).toBeNull();
   });
 });
@@ -204,9 +229,12 @@ describe("the read: a done row with a passed date (written before this) is no re
     const meta = { [CUE_MODE_META]: "plain" };
     const done = store.put({ type: "memory", kind: "fact", title: "Chart essay live", body: "The chart essay went live; ledger L-0032.", learnedOn: "2026-11-04", eventDate: "2026-11-05", status: "done", salience, meta, origin: { scope: SCOPE } });
     const open = store.put({ type: "memory", kind: "fact", title: "Pay the glaze supplier", body: "Pay the glaze supplier's invoice.", learnedOn: "2026-11-04", eventDate: "2026-11-05", salience, meta, origin: { scope: SCOPE } });
-    // On its day neither is past: both arrive (a done dated today is left as it was).
+    // The day before, both still arrive (a done dated tomorrow is left alone).
+    expect(a.counterpart.prospective.horizon({ at: "2026-11-04" }).items.map((i) => i.memoryId).sort()).toEqual([done, open].sort());
+    // On its day the done one has happened: it doesn't arrive, nor is it told plainly; the open one is both.
     dayOf(a, "2026-11-05");
-    expect(a.counterpart.prospective.horizon({ at: "2026-11-05" }).items.map((i) => i.memoryId).sort()).toEqual([done, open].sort());
+    expect(a.counterpart.prospective.horizon({ at: "2026-11-05" }).items.map((i) => i.memoryId)).toEqual([open]);
+    expect(a.counterpart.prospective.plainDue({ at: "2026-11-05" }).map((d) => d.memoryId)).toEqual([open]);
 
     dayOf(a, "2026-11-07");
     const arriving = a.counterpart.prospective.horizon({ at: "2026-11-07" }).items.map((i) => i.memoryId);

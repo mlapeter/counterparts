@@ -61,8 +61,8 @@ export type DeriveReason =
   | "faded"
   /** Every derived window is behind us — the property expiring by itself. */
   | "window-passed"
-  /** Marked done (`status: done`), not repeating, and its date wholly behind
-   *  the day asked about (SO1 step 2, 2026-11-07): the date says when it
+  /** Marked done (`status: done`), not repeating, and its date ending on or
+   *  before the day asked about (SO1 step 2, 2026-11-07): the date says when it
    *  HAPPENED, never a reminder, so it neither arrives nor reads as overdue. */
   | "done";
 
@@ -132,12 +132,13 @@ export interface DerivableMemory {
   readonly recurring?: boolean;
   /**
    * Its status is `done` (v12 `memories.status`; SO1 step 2, 2026-11-07,
-   * lightly held). With a date wholly behind the day asked about, the date is
+   * lightly held). With a date ending on or before the day asked about (a done
+   * dated today has happened, coordinator 11-07), the date is
    * when it happened, not a reminder: refused `done` (Mike's store on 11-07:
    * "Handoff for 11-07 written" and "Night test PASSED" read as overdue in
    * Coming up). A repeat is exempt: a done there closes one occurrence
    * (`Prospective#closeOccurrence`), never the reminder. A done with a date
-   * still ahead is left alone (ambiguous). Read at derive time off the row, so
+   * after the day asked (tomorrow on) is left alone (ambiguous). Read at derive time off the row, so
    * rows written before this need no migration. Absent or false: not done.
    */
   readonly done?: boolean;
@@ -250,9 +251,9 @@ export function derive(
   } else if (windows.every((w) => w.phase === "passed")) {
     blockedBy.push("window-passed");
   }
-  // Done and behind us (SO1 step 2): its date is when it happened. `lastDay`,
-  // so a month or a range still running on `at` is left alone.
-  if (memory.done === true && memory.recurring !== true && windows.length > 0 && windows.every((w) => w.lastDay < at)) {
+  // Done, its date today or behind us (SO1 step 2): its date is when it happened.
+  // `lastDay`, so a month or a range still running past `at` is left alone.
+  if (memory.done === true && memory.recurring !== true && windows.length > 0 && windows.every((w) => w.lastDay <= at)) {
     blockedBy.push("done");
   }
 

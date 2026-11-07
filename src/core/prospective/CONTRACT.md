@@ -116,12 +116,13 @@ clothes. **Hold debts, lose deadlines.**
   which now gates only a date a caller extracted. *(Since 2026-10-10 decay IS exempted
   before arrival — G10 below is reversed: physics holds a pending date, and `faded` refuses
   only after the window.)* Archived, skill and journal still refuse.
-  **A done memory with its date behind it is refused `done`** (SO1 step 2, 2026-11-07,
-  lightly held): `status: done`, not repeating, and every window's last day before the day
-  asked about. Its date says when it happened, so it neither arrives (cue, wake lane,
-  Coming up) nor counts overdue, and `plainDue` owes it nothing late. Read off the row at
-  derive time, so older rows need no migration. A repeat is exempt (a done there closes
-  one occurrence, `closeOccurrence`); a done whose date is today or ahead is left alone.
+  **A done memory dated today or earlier is refused `done`** (SO1 step 2, 2026-11-07,
+  lightly held): `status: done`, not repeating, and every window's last day on or before
+  the day asked about (a done dated today has happened, coordinator 11-07). Its date says
+  when it happened, so it neither arrives (cue, wake lane, Coming up, due today) nor counts
+  overdue, and `plainDue` tells it neither on its day nor late. Read off the row at derive
+  time, so older rows need no migration. A repeat is exempt (a done there closes one
+  occurrence, `closeOccurrence`); a done whose date ends after today is left alone.
 - **Precision is carried by the date's own format**, never rounded, and the ramp differs by
   precision — a stated month *means* early month more than the 29th. [v1] §12 G4. Since
   2026-09-26 there are four shapes (`core/time.ts`): a day, a month, a year (no window), and
