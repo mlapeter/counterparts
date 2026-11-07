@@ -2,7 +2,7 @@
 
 ## Install
 
-You need [bun](https://bun.sh) 1.3 or newer, or [Node](https://nodejs.org) 22.15 or newer,
+You need [Node](https://nodejs.org) 22.15 or newer, or [bun](https://bun.sh) 1.3 or newer,
 on macOS or Linux; Windows not yet supported. Bun on macOS is the setup in daily use; Node
 and Linux pass a smoke test and an install run but have no daily user yet.
 
@@ -20,7 +20,9 @@ PATH: for npm, add the folder `npm prefix -g` prints, plus `/bin`; for bun, add
 `export PATH="$HOME/.bun/bin:$PATH"` to your shell profile.
 
 Or install it as a Claude Code plugin: `/plugin marketplace add mlapeter/counterparts`, then
-`/plugin install counterparts@counterparts`, then restart Claude Code.
+`/plugin install counterparts@counterparts`, then restart Claude Code. The plugin sets
+itself up on its first session and puts no `counterparts` command on your PATH:
+`/counterparts:doctor` checks it, and the rest of this page is for the npm or bun install.
 
 ## Set it up
 

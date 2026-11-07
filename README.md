@@ -29,9 +29,10 @@ counterparts
 With bun instead: `bun add -g counterparts`, then `counterparts`. Whichever runtime runs the
 setup is the one Claude Code's hooks and memory tools are wired to. Or install it as a Claude
 Code plugin: `/plugin marketplace add mlapeter/counterparts`, then
-`/plugin install counterparts@counterparts`, then restart Claude Code.
+`/plugin install counterparts@counterparts`, then restart Claude Code. The plugin sets
+itself up on its first session, with no terminal step; `/counterparts:doctor` checks it.
 
-The first run asks two things, and you can skip either: your name, and whether to connect
+With npm or bun, the first run asks two things, and you can skip either: your name, and whether to connect
 Claude Code. Connecting adds hooks to `~/.claude/settings.json` (it backs the file up first),
 registers the memory tools, and adds one `deniedMcpServers` entry there so the hosted
 Counterparts Online connector never loads into Claude Code as a second memory. Hooks and
