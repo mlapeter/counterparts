@@ -304,6 +304,7 @@ export * from "./render.js";
 export * from "./feelings.js";
 export * from "./traits.js";
 export type { Db, Statement, WalFold } from "./db.js";
+export type { WorkEventRow } from "./reads-memories.js";
 export type {
   ContradictionRow,
   SettleRow,
@@ -5523,6 +5524,11 @@ export class Store {
   /** Every memory a later one replaced, with what replaced it (`reads-memories.ts#supersededPairs`). */
   supersededPairs(): { id: string; by: string }[] {
     return memoryReads.supersededPairs(this);
+  }
+
+  /** The live work memories sessions wrote in a folder, oldest first: what the night's interference sweep reads (`reads-memories.ts#workEventRows`, FD1 step 3). */
+  workEventRows(): memoryReads.WorkEventRow[] {
+    return memoryReads.workEventRows(this);
   }
 
   memoryTitlesByScopeSince(

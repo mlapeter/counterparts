@@ -64,7 +64,14 @@ alone.
   And the `births` phase first merges the twin cards, once per store
   (`Schemas#mergeTwinCards`, behind `schemas.TWINS_MERGE`, recorded in
   `schemas.twins.merged`), before the tally, so a name with two cards reads as held once;
-  under observer it counts and writes nothing.)*
+  under observer it counts and writes nothing.)* *(2026-11-07, FD1 step 3: an `interfere`
+  phase runs right after `tags`, every lived day — `interference.ts#interferenceSweep`
+  handed in as `interfere.ts#InterfereFn`: an older routine work memory a newer one in the
+  same folder reads as the later state of (same version series, same pull request) is
+  settled `changed` under it through the one door, at most `BUDGETS.interfere` a night.
+  It archives nothing: the faded memory leaves later, through the prune, under the same
+  14-lived-day wait. The cycle's `interfered` list, and the `sleep.cycle` row's count of
+  it beside `pruned`, keep the two apart. Under observer it counts and writes nothing.)*
 - **Degrade, don't abort** — index rebuild, embedding refresh, horizon computation, backup,
   and every prune each fail without failing the cycle. [v1 §5 G6]
 - **The claim is truncated only after results are applied AND persisted.** [v1 §5 G7, E6]

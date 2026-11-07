@@ -20,6 +20,7 @@ import {
 import type { WakeTrigger } from "./self/index.js";
 import { runCycle, cyclePartial } from "./sleep/index.js";
 import { nightTagWork, TUNABLES as SCHEMAS_TUNABLES } from "./schemas/index.js";
+import { interferenceSweep } from "./interference.js";
 import type { CycleReport, CyclePartial } from "./sleep/index.js";
 import { boundedIds, isKnownSession } from "./types.js";
 import type {
@@ -198,6 +199,9 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
       // The night's tag work with no model (wave 2 lane B): card names as
       // tags, stem merges, dead merges let go — behind `TAGS_NIGHT`.
       tags: (t) => nightTagWork(cp.store, t),
+      // A newer routine work event fades the older one (2026-11-07, FD1 step
+      // 3), through the one door, counted apart from the prune.
+      interfere: (i) => interferenceSweep(cp.store, i),
       date,
       ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => cp["relay"]("sleep", e),
@@ -873,6 +877,10 @@ export function recordSleepCycle(
         pruned: known ? report.pruned.length : null,
         merged: known ? report.merged.length : null,
         faded: known ? report.faded.length : null,
+        // FADED UNDER A NEWER WORK EVENT (2026-11-07, FD1 step 3), beside
+        // `pruned` so a read of the nights tells the two apart: these stay
+        // live, faded, and leave later as age prunes.
+        interfered: known ? report.interfered.length : null,
         bandUp: known ? report.bandTransitions.filter((t) => t.direction === "up").length : null,
         bandDown: known
           ? report.bandTransitions.filter((t) => t.direction === "down").length

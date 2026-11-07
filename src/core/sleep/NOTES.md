@@ -1174,3 +1174,21 @@ Mike's store the shadow approximates on, it doesn't replay it. A held member is 
 unpromoted strength (a promoted row reads 1), so the reach gate and the cap's order read as on
 would. A sleep with no candidate at all and nothing promoted writes no summary row (an empty
 store's nights stay quiet in the log-sweep tests).
+
+## 2026-11-07 — the `interfere` phase (FD1 step 3)
+
+- After `tags`, every lived day. The work is `interference.ts`' (`interferenceSweep`, through
+  `reconsolidation.ts#supersede`); this module owns the cadence and the budget
+  (`BUDGETS.interfere`, 200 fades a night, CAL). A missing fn is `no-interfere-fn`;
+  `INTERFERENCE_TUNABLES.ON` off is a run that did nothing, counted `switched-off`. The
+  guards that kept a memory's curve land in the phase's `skipped` map, so the durable
+  `sleep.cycle` row says which guard held how many.
+- Not an exit: nothing is archived here. A faded memory reaches the floor sooner and leaves
+  through the prune under the unchanged `D_FLOOR_DAYS` wait, counted then as an age prune.
+  `CycleReport.interfered` (and `interfered` on the `sleep.cycle` row, beside `pruned`) is
+  how a read of the nights tells the two apart (FD1's condition: the age-based wave lands
+  the same days).
+- A dry run on a copy of the owner's store (lived day 47): 124 would fade the first night,
+  ~150 ms for the read and the sweep together. Reading the whole body instead of the
+  headline made one note naming 0.3.50 in its last line the "newer state" of a dozen
+  unrelated ones; the headline rule (title, or the first 120 characters) is the fix.
