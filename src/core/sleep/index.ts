@@ -121,6 +121,8 @@ export { runBirths } from "./births.js";
 export type { BirthsFn, BirthsInput, BirthsResult, BirthsSweepOutcome } from "./births.js";
 export { runTags } from "./tags.js";
 export type { TagsFn, TagsInput, TagsSweepOutcome } from "./tags.js";
+export { runInterfere } from "./interfere.js";
+export type { InterfereFn, InterfereInput, InterfereResult, InterfereSweepOutcome, InterferedRecord } from "./interfere.js";
 
 export { runBriefing } from "./briefing.js";
 export type { BriefingContext, BriefingOutcome, BriefingResult, RenderFn } from "./briefing.js";

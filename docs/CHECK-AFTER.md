@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
+| A newer routine work event fades the older one (FD1 step 3): the night's `interfere` phase settles an unsalient, never-used `about: work` status note `changed` (×0.5) under a newer one naming a later version in the same series, in the same folder | the release after 2026-11-07 (FD1 step 3) | ~3 lived days after install (dated reminder set at merge): interference fades per night against age prunes per night (`sleep.cycle` `interfered` vs `pruned`), and anything wrongly faded; a dry run on the day-47 copy said 67 the first night, then a few a night | [below](#a-newer-routine-work-event-fades-the-older-one-fd1-step-3) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | 0.3.47, 2026-11-04 (HD1) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
@@ -148,6 +149,51 @@ day asked: a done dated today has happened), `Prospective#plainDue` skips the sa
 
 Revert: drop the `done` arm in `derive.ts` and its `load()` field, the `plainDue` skip, and the
 `doneDateAsOccurred` calls in `server.ts` and `server-session-end.ts`.
+
+## A newer routine work event fades the older one (FD1 step 3)
+
+FD1 step 3 (2026-11-07, from the Fable fresh-eyes review and Mike's ruling mem_dc74aa500871, lightly held),
+`core/interference.ts`, the cycle's `interfere` phase (`sleep/interfere.ts`). Each night an older `about: work`
+memory in a folder that names the same version series at a version no higher than a newer one's (`0.3.46` under
+`0.3.50`; the same version only as a step before final, then final), in its headline (title, or first 120 characters; the newer's
+headline a status event too), written on an earlier lived day, is settled `changed` under the
+newest such memory through the one door: fade ×0.5 (`CHANGED_FADE`, what an `updates` revision gives), still live,
+labelled earlier, undoable. Only a `fact`, `done` or unmarked, episodic, unprotected, not core, not a belief, no
+date, not an open item, not said by the owner, no feeling, salience at most 0.4, uses under 0.75, reading as a
+status event at its subject (a status verb beside the token), never faded before, not the faded side of a pair; the newer must say it was done (released, published, merged, …). A settled-over memory leaves the wake's lines and cues and folds into its holder in facts, so a wrong pair hides a memory, not just halves it. At most `BUDGETS.interfere` (200) a night. The age prune
+is unchanged (`D_FLOOR_DAYS` 14): a faded memory still waits under the floor, and leaves as an age prune.
+
+- **Per night, the two apart.** The `sleep.cycle` row carries `interfered` beside `pruned`:
+
+  ```sql
+  SELECT day, json_extract(payload, '$.interfered') AS interfered, json_extract(payload, '$.pruned') AS pruned
+  FROM events WHERE name = 'sleep.cycle' AND json_extract(payload, '$.reason') = 'ran' ORDER BY seq;
+  ```
+
+  Each fade also writes a `contradiction.settled` row with `source` `interference` and `reason`
+  `superseded-by-newer`; its trail row (`contradiction_settles.why`) names the newer memory and the rule
+  (`superseded-by-newer: mem_… (0.3.46→0.3.50)`). Expect the backlog first (a dry run on the day-47 copy: 67, under the 200 budget), then a
+  few to a few dozen a night. Age prunes rise later as the faded rows reach the floor.
+- **Anything wrongly faded.** On a snapshot, read 20 of the faded pairs (older and newer side by side): is the
+  older really an earlier state of the same thing (a release step before the release), or a design note, a bug, a
+  decision that happens to name a version? More than 1 in 20 of the second kind says switch to the plain fade (`INTERFERENCE_TUNABLES.SETTLE = false`), or drop
+  the version arm to "same version only". Also read the phase's `skipped` map on the `sleep.cycle` row: the guards
+  holding the most (`not-an-event`, `salient`, `used`, `owner-said`, `felt`) say what kept its curve.
+- **Nothing protected faded.** No faded row with `said_by = 'owner'`, a feeling, `about` other than `work`, or
+  `meta.unresolved`:
+
+  ```sql
+  SELECT m.id, m.said_by, m.about FROM contradictions c JOIN memories m ON m.id = c.a
+  WHERE c.source = 'interference' AND (m.said_by = 'owner' OR m.about != 'work' OR m.meta LIKE '%"unresolved":true%'
+    OR EXISTS (SELECT 1 FROM feelings f WHERE f.memory_id = m.id));
+  ```
+
+- **Still open unchanged.** The wake's Still open count before and after install is the same (this never
+  closes an open item; the review's item 3 does that later).
+
+Revert: `INTERFERENCE_TUNABLES.ON = false` (`core/interference.ts`), the phase then runs and counts
+`switched-off`. Each fade made so far can be undone like any settle (`counterparts settle --undo <pair>`), and an
+undone one is never faded again.
 
 ## The tail after a compaction is owed (CT1)
 
