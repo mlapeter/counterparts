@@ -517,9 +517,11 @@ lightly held; `core/close-hint.ts`). A stored `remember` or `session_end` entry 
 with `mayClose: [{id, title, folder, settlesWhen?, note?}]` and `mayCloseHint` when open
 items from ANY folder share its subject: the same version series at or past the item's
 (`interference.ts#subjectKeys`/`sameSubject`), the same pull request with a done verb
-beside it (`prKeys`), or a version or PR the item's `settlesWhen` names. Read in each
-memory's headline. Open only (unresolved, not parked, not settled over); at most three,
-nearest first; none for an entry about owner/us/me or a plan. One asked of the owner
+beside it (`prKeys`; items in the writer's own project only), or a version or PR the item's
+`settlesWhen` names. Read in each memory's headline. Open only (unresolved, not parked, not
+settled over, not protected), never a check or follow-up, never one in a folder the folder
+setting has off, paused or observer; at most three, nearest first; none for an entry about
+owner/us/me or a plan. One asked of the owner
 carries `note: "asked of <name>: close only if this is <name>'s answer"`. Nothing is
 closed here: the writing model decides. Counted: `open.close-hint.shown` (ref the entry:
 ids, ms) and, for a close of a listed id through `updates` within seven lived days,

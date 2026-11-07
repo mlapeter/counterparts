@@ -28,6 +28,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { MAY_CLOSE_HINT } from "../src/adapters/mcp/server-words.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { recordSession } from "../src/adapters/sessions.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { CLOSE_HINT_CLOSED_EVENT, CLOSE_HINT_SHOWN_EVENT, closeHints } from "../src/core/close-hint.js";
 import { prKeys } from "../src/core/interference.js";
 
@@ -60,9 +61,9 @@ function brain(): Counterpart {
   return c;
 }
 
-function as(c: Counterpart, session: string, scope: string): McpServer {
+function as(c: Counterpart, session: string, scope: string, scopesFile?: string): McpServer {
   recordSession(dir, { sessionId: session, scope, phase: "start" });
-  return new McpServer({ counterpart: c, session, scope, registryDir: dir, now });
+  return new McpServer({ counterpart: c, session, scope, registryDir: dir, now, ...(scopesFile === undefined ? {} : { scopesFile }) });
 }
 
 async function remember(s: McpServer, args: Record<string, unknown>): Promise<{ id: string; result: Record<string, unknown> }> {
@@ -145,16 +146,31 @@ describe("2. an unrelated write lists nothing", () => {
 });
 
 describe("3. a pull request", () => {
-  test("'#760 merged' lists an item naming #760, and not one naming #76", async () => {
+  test("'#760 merged' lists an item naming #760 in the writer's own project, and not one naming #76", async () => {
     const c = brain();
     const a = as(c, "s-alpha", A);
+    const a2 = as(c, "s-alpha-2", A);
     const b = as(c, "s-beta", B);
     const item = await open(a, "Confirm #760's help-block edit with Mike");
     await open(a, "Review #76 before Friday");
-    const r = await remember(b, { text: "#760 merged after review.", kind: "fact" });
+    const r = await remember(a2, { text: "#760 merged after review.", kind: "fact" });
     expect(listed(r.result).map((h) => h.id)).toEqual([item]);
-    const verbFirst = await remember(b, { text: "Merged PR #760 (help block).", kind: "fact" });
+    const verbFirst = await remember(a2, { text: "Merged PR #760 (help block).", kind: "fact" });
     expect(listed(verbFirst.result).map((h) => h.id)).toEqual([item]);
+    // A PR number belongs to one repository: another project's #760 is another PR.
+    const elsewhere = await remember(b, { text: "#760 merged in the other repo.", kind: "fact" });
+    expect("mayClose" in elsewhere.result).toBe(false);
+  });
+
+  test("a check or follow-up is never listed: a merge doesn't settle a read", async () => {
+    const c = brain();
+    const a = as(c, "s-alpha", A);
+    const a2 = as(c, "s-alpha-2", A);
+    await open(a, "CHECK-AFTER #770: read the first night after install");
+    await open(a, "Experiment check: does #770 change the wake length", { settlesWhen: "re-read after #770 merged" });
+    await open(a, "0.3.46 check ~11-09: the night's interference count", { settlesWhen: "Check due 11-09" });
+    const r = await remember(a2, { text: "#770 merged, 0.3.47 released to npm today.", kind: "fact" });
+    expect("mayClose" in r.result).toBe(false);
   });
 
   test("prKeys reads the verb beside the number only", () => {
@@ -193,6 +209,25 @@ describe("5. the cap", () => {
     const ids = listed(r.result).map((h) => h.id);
     expect(ids).toEqual([near[3] ?? "", near[2] ?? "", near[1] ?? ""]);
     expect(ids).not.toContain(far);
+  });
+});
+
+describe("5b. the folder setting", () => {
+  test("an item in a folder set off or paused is never listed in another folder's result", async () => {
+    const c = brain();
+    const a = as(c, "s-alpha", A);
+    const item = await open(a, "0.3.46 ready to publish", { settlesWhen: "0.3.46 published" });
+    const file = join(dir, "scopes.json");
+    for (const mode of ["off", "paused"] as const) {
+      writeScopes(file, setScope(null, A, mode, { at: "2026-09-01" }));
+      const b = as(c, `s-beta-${mode}`, B, file);
+      const r = await remember(b, { text: `0.3.47 published to npm (${mode} run).`, kind: "fact" });
+      expect("mayClose" in r.result).toBe(false);
+    }
+    writeScopes(file, setScope(null, A, "on", { at: "2026-09-01" }));
+    const b = as(c, "s-beta-on", B, file);
+    const r = await remember(b, { text: "0.3.47 published to npm (on run).", kind: "fact" });
+    expect(listed(r.result).map((h) => h.id)).toEqual([item]);
   });
 });
 

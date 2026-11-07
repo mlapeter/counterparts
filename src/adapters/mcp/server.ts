@@ -56,6 +56,7 @@
  */
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
 import { closeHints, mayCloseSubject, noteCloseHintsShown } from "../../core/close-hint.js";
+import type { OpenItemHead } from "../../core/close-hint.js";
 import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
@@ -130,7 +131,8 @@ import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
-import { NOTHING_CLOSED } from "../../core/dream/slices.js";
+import { NOTHING_CLOSED, memoryClosedTo } from "../../core/dream/slices.js";
+import { projectFolders } from "../../core/self/work.js";
 import { mayBeDoneOf } from "../../core/open-close.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
@@ -2515,6 +2517,10 @@ export class McpServer {
       ...siblings,
     ].filter((x): x is string => typeof x === "string");
     const t = this.counterpart.self.tunables;
+    const on = this.folderOn();
+    const store = this.counterpart.store;
+    const here = (this.scope ?? "").trim();
+    const projects = new Set(here === "" ? [] : projectFolders(store, here, t.PROJECTS_TRAVEL, on));
     const hints = closeHints(
       this.counterpart.store,
       {
@@ -2524,7 +2530,16 @@ export class McpServer {
         about: row.about ?? null,
         status: typeof sentStatus === "string" ? sentStatus : (row.status ?? null),
       },
-      { day: this.counterpart.store.livedDay(), carryDays: t.OPEN_CARRY_DAYS, glimpses: t.OPEN_CARRY_GLIMPSE_TOUCH, exclude },
+      {
+        day: store.livedDay(),
+        carryDays: t.OPEN_CARRY_DAYS,
+        glimpses: t.OPEN_CARRY_GLIMPSE_TOUCH,
+        exclude,
+        projectFolders: projects,
+        // The folder setting (review of #783): an item in a folder that is off,
+        // paused or observer never has its title pushed into another's result.
+        ...(on === undefined ? {} : { closed: (r: OpenItemHead) => memoryClosedTo(store, r, on, this.scope ?? undefined) }),
+      },
     );
     if (hints.length === 0) return {};
     const ms = performance.now() - started;

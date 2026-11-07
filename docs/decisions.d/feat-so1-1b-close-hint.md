@@ -24,6 +24,16 @@
   through `updates` within 7 lived days (`CLOSE_HINT_TUNABLES.CLOSE_WINDOW_DAYS`).
 - The cost, on the write path: a write whose headline names nothing done (nearly every
   write) is checked on its own words and reads nothing. One that does reads every open
-  item's head once (one indexed query), then the parked and settled-over checks for the
-  few that matched. Measured on a hermetic store with 150 open items in three folders:
-  about 1 ms when it lists (p50 ~1.0-1.2 ms), about 0.5 ms when it matches nothing.
+  item's head once (`INDEXED BY memories_open`), then the parked check (one row's touch
+  read, only for an item with no `settlesWhen` that isn't asked) and the settled-over
+  walk, nearest first, only until three are listed. Measured on a copy of the owner's
+  store (11-07, 338 open items): ~1.6 ms p50 in the read whether it lists or not, ~2 ms
+  p50 through `remember` (max 2.3). Before the review's fixes it was ~18 ms with hints:
+  the planner took `memories_birth`, and the touch read walked every open item.
+- After the review of #783 (a dry run on the 11-07 copy: 3 of 19 plainly irrelevant, 2
+  weak): the PR rule matches only items in the writer's own project folders (the join
+  Still open reads), since a PR number belongs to one repository; checks and follow-ups
+  are never listed (title or `settlesWhen` with CHECK-AFTER, "Check due", "Check ~",
+  "Experiment check", "re-read": a merge doesn't settle a read); protected rows are left
+  out (their close would be refused); and an item in a folder the folder setting has off,
+  paused or observer is never listed in another folder's result.

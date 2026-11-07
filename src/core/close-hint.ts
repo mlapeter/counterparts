@@ -19,12 +19,15 @@
  *     merged — read with every version in it, since it is a trigger stated
  *     on purpose;
  *   - `pr`: the entry says `#N merged` (a done verb beside the number,
- *     `prKeys`), and the item's headline names `#N`.
+ *     `prKeys`), and the item's headline names `#N` — an item in the
+ *     writer's own project only, since a PR number belongs to one repository.
  *
  * **What is listed:** open items only — flagged `unresolved`, not parked
  * (`self/identity.ts#carriesOpen`), not settled over (`recall/standing.ts#headOf`),
  * never the entry itself or what it updates — at most `SHOWN`, nearest first
- * (fewest patches on, then the newest item). Nothing for an entry about the
+ * (fewest patches on, then the newest item). Never a check or a follow-up
+ * (`CHECK_ITEM`), a protected row (its close would be refused), nor one whose
+ * folder the folder setting has off, paused or observer. Nothing for an entry about the
  * owner, us or me, nor for a plan (`planned`, `proposed`, `asked`): neither is
  * evidence something got done. An item `asked` is listed with a note that only
  * the owner's answer closes it.
@@ -102,7 +105,30 @@ export interface CloseHintOptions {
   readonly glimpses: boolean;
   /** Ids never listed: what the write updates, a dump's siblings, what it closed. */
   readonly exclude?: readonly string[];
+  /**
+   * The writer's project folders (`self/work.ts#projectFolders`, the join
+   * Still open reads): a pull-request number belongs to one repository, so the
+   * `pr` rule matches only an item written in one of these. Absent: no `pr`
+   * matches (fail closed).
+   */
+  readonly projectFolders?: ReadonlySet<string>;
+  /**
+   * The folder setting's fence (`dream/slices.ts#memoryClosedTo`): true for
+   * an item whose folder is off, paused or observer, whose title must not
+   * reach another folder's result. Absent: none closed.
+   */
+  readonly closed?: (row: OpenItemHead) => boolean;
 }
+
+/** One row of `Store#openItemHeads`. */
+export type OpenItemHead = ReturnType<Store["openItemHeads"]>[number];
+
+/**
+ * A CHECK OR A FOLLOW-UP, NOT A DEBT A DONE SETTLES (review of #783): a
+ * CHECK-AFTER read, a dated check, an experiment's check, a re-read. A merge
+ * or a release is when such a read comes due, never its answer.
+ */
+const CHECK_ITEM = /CHECK-AFTER|\bcheck due\b|\bcheck ~|\bexperiment check\b|\bre-read\b/i;
 
 const TITLE_CHARS = 90;
 
@@ -161,6 +187,8 @@ export function closeHints(store: Store, entry: CloseHintEntry, opts: CloseHintO
       const raw = meta[SETTLES_WHEN_META_KEY];
       const settles = typeof raw === "string" && raw.trim() !== "" ? raw.trim() : null;
       const itemHead = headline({ title: r.title, body: r.body });
+      if (CHECK_ITEM.test(itemHead) || (settles !== null && CHECK_ITEM.test(settles))) continue;
+      const ownProject = r.scope !== null && opts.projectFolders?.has(projectFolder(r.scope)) === true;
       let match: { rule: CloseHintRule; key: string; gap: number } | null = null;
       const take = (m: { rule: CloseHintRule; key: string; gap: number }): void => {
         if (match === null || m.gap < match.gap) match = m;
@@ -173,11 +201,12 @@ export function closeHints(store: Store, entry: CloseHintEntry, opts: CloseHintO
           if (s !== null) take({ rule: "settles-when", key: s.key, gap: s.gap });
         }
       }
-      if (prs.size > 0) {
+      if (prs.size > 0 && ownProject) {
         for (const n of prKeys(itemHead, "any")) if (prs.has(n)) take({ rule: "pr", key: `#${String(n)}`, gap: 0 });
         if (settles !== null) for (const n of prKeys(settles, "any")) if (prs.has(n)) take({ rule: "settles-when", key: `#${String(n)}`, gap: 0 });
       }
       if (match === null) continue;
+      if (opts.closed?.(r) === true) continue;
       const m = match as { rule: CloseHintRule; key: string; gap: number };
       const folder = r.scope === null ? "" : projectFolder(r.scope);
       found.push({
@@ -196,13 +225,17 @@ export function closeHints(store: Store, entry: CloseHintEntry, opts: CloseHintO
     }
     if (found.length === 0) return [];
     found.sort((a, b) => a.gap - b.gap || b.createdAt - a.createdAt || (a.hint.id < b.hint.id ? 1 : -1));
-    // The parked and the settled over, read only for what matched.
-    const touches = new Map(store.openThreadTouches({ glimpses: opts.glimpses, at: store.today() }).map((f) => [f.id, f] as const));
+    // The parked and the settled over, read one at a time, nearest first, only
+    // until the list is full (review of #783: a touch read costs ~0.5 ms a row
+    // on a real store). An item asked or naming what settles it is never
+    // parked (`carriesOpen`), so it needs no touch read at all.
     const out: CloseHint[] = [];
     for (const f of found) {
       if (out.length >= CLOSE_HINT_TUNABLES.SHOWN) break;
-      const t = touches.get(f.hint.id);
-      if (t !== undefined && !carriesOpen(t, opts.day, opts.carryDays)) continue;
+      if (f.hint.asked !== true && f.hint.settlesWhen === undefined) {
+        const t = store.openThreadTouches({ glimpses: opts.glimpses, at: store.today(), ids: [f.hint.id] })[0];
+        if (t !== undefined && !carriesOpen(t, opts.day, opts.carryDays)) continue;
+      }
       if (headOf(store, f.hint.id) !== null) continue;
       out.push(f.hint);
     }
