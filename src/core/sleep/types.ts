@@ -18,6 +18,7 @@
 
 import { SELF_PAGE_ROLE_SPELLED, isChapterSummary } from "../store/operational.js";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
+import type { InterferedRecord } from "./interfere.js";
 import type {
   EventLogCensus,
   EventPruneReport,
@@ -233,6 +234,7 @@ export const PHASES = [
   "fade",
   "births",
   "tags",
+  "interfere",
   "dedup",
   "versions",
   "briefing",
@@ -254,6 +256,7 @@ export type PhaseReason =
   | "no-fade-fn"
   | "no-births-fn"
   | "no-tags-fn"
+  | "no-interfere-fn"
   | "no-durable-event-log"
   | "failed";
 
@@ -539,6 +542,12 @@ export interface CycleReport {
   readonly merged: readonly MergeRecord[];
   /** Entity cards the fade phase archived this cycle (or, under observer, would have). Ids only. */
   readonly faded: readonly string[];
+  /**
+   * Routine work memories the interference phase faded under a newer one this
+   * cycle (or, under observer, would have): ids only (2026-11-07, FD1 step 3).
+   * Not exits — each stays live, faded, and leaves later through the prune.
+   */
+  readonly interfered: readonly InterferedRecord[];
   /** Band crossings THIS cycle, by direction (guarantee 12's input). */
   readonly bandTransitions: readonly BandTransition[];
   /**

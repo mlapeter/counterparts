@@ -772,7 +772,7 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
    `feelings` (schema v7), each with its own `strength`; since emotion part A the
    strongest of those and `emotional` is the memory's intensity, which lifts its height
    and slows its decay (physics §5.10), and a recent one sets the mood recall matches
-   (recall G18). A lone `emotional` score was already kept on the row by `mint.ts`; the
+   (recall G18; off since 2026-10-10, both mood weights 0). A lone `emotional` score was already kept on the row by `mint.ts`; the
    battery now reads it the same way (`bridge.ts#dimensionsFrom` pads a missing
    dimension with 0 instead of dropping all three). The stated-emotion gate still
    supplies no number, and still must not.

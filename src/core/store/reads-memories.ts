@@ -414,6 +414,103 @@ export function supersededPairs(store: Store): { id: string; by: string }[] {
     .map((r) => ({ id: r.id, by: r.by }));
 }
 
+/** One live work memory as the interference sweep reads it (`workEventRows`). Columns only. */
+export interface WorkEventRow {
+  readonly id: string;
+  readonly title: string | null;
+  /** The first 121 characters of the words, no more: the headline's room. */
+  readonly body: string;
+  readonly scope: string;
+  readonly kind: string;
+  readonly band: string;
+  readonly birthDay: number;
+  readonly createdAt: number;
+  readonly status: string | null;
+  readonly saidBy: string | null;
+  readonly uses: number;
+  readonly protected: boolean;
+  readonly promoted: boolean;
+  readonly eventDate: string | null;
+  readonly meta: string;
+  readonly novelty: number | null;
+  readonly relevance: number;
+  readonly emotional: number;
+  readonly predictive: number;
+  readonly claimed: number | null;
+  readonly belief: boolean;
+  /** The fade multiplier a settle (or an earlier night) set; 1 when none. */
+  readonly fade: number;
+}
+
+/**
+ * THE LIVE WORK MEMORIES A SESSION WROTE IN A FOLDER (2026-11-07, FD1 step 3):
+ * `about = 'work'`, `source = 'authored'`, a folder, words, not archived or
+ * replaced — what the night's interference sweep reads (`interference.ts`),
+ * oldest first. One read of columns, and of the words only their first 121
+ * characters (the headline's room, `interference.ts#headline`); the sweep's
+ * guards judge each row.
+ */
+export function workEventRows(store: Store): WorkEventRow[] {
+  const v14 = store.hasColumn("memories", "birth_route");
+  return store["ops"]
+    .all<{
+      id: string;
+      title: string | null;
+      body: string;
+      origin_scope: string;
+      kind: string;
+      band: string;
+      birth_day: number;
+      created_at: number | null;
+      status: string | null;
+      said_by: string | null;
+      uses: number;
+      protected: number;
+      promoted_identity: number;
+      event_date: string | null;
+      meta: string;
+      novelty: number | null;
+      relevance: number;
+      emotional: number;
+      predictive: number;
+      claimed: number | null;
+      birth_route: string | null;
+      fade: number | null;
+    }>(
+      `SELECT id, title, substr(body, 1, 121) AS body, origin_scope, kind, band, birth_day, created_at, status, said_by, uses,
+              protected, promoted_identity, event_date, meta, novelty, relevance, emotional, predictive, claimed, fade,
+              ${v14 ? "birth_route" : "NULL AS birth_route"}
+         FROM memories
+        WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND about = 'work'
+          AND source = 'authored' AND origin_scope IS NOT NULL AND origin_scope != '' AND body != ''
+        ORDER BY birth_day, created_at, id`,
+    )
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      scope: r.origin_scope,
+      kind: r.kind,
+      band: r.band,
+      birthDay: r.birth_day,
+      createdAt: r.created_at ?? 0,
+      status: r.status,
+      saidBy: r.said_by,
+      uses: r.uses,
+      protected: r.protected === 1,
+      promoted: r.promoted_identity === 1,
+      eventDate: r.event_date,
+      meta: r.meta,
+      novelty: r.novelty,
+      relevance: r.relevance,
+      emotional: r.emotional,
+      predictive: r.predictive,
+      claimed: r.claimed,
+      belief: r.birth_route !== null,
+      fade: typeof r.fade === "number" && r.fade > 0 && r.fade < 1 ? r.fade : 1,
+    }));
+}
+
 /**
  * `remember/own-plumbing.ts#OWN_PLUMBING_META_KEY` (TC1), spelled here as the
  * store imports no module above it; a test holds the spellings equal.
