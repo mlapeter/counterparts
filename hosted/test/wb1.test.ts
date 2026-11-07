@@ -230,7 +230,7 @@ describe("WB1: a leak of the environment opens nothing in the bucket", () => {
 // ── a restart ────────────────────────────────────────────────────────────────
 
 describe("WB1: a restart with the volume intact needs no private key", () => {
-  test("serve, with no HOSTED_KEKS and no private key anywhere, opens every store's key from the volume, twice; the bucket is untouched; keys/volume.kek is 0600", async () => {
+  test("serve, with no HOSTED_KEKS and no private key anywhere, opens every store's key from the volume, twice; no key object in the bucket is touched; keys/volume.kek is 0600", async () => {
     const s3 = await bucket();
     const { dataRoot, stores } = await livedVolume(s3, volumeBackup(s3, join(tmp.root, "volume")));
     const kek = join(dataRoot, "keys", VOLUME_KEK_FILE);
@@ -243,7 +243,11 @@ describe("WB1: a restart with the volume intact needs no private key", () => {
       assert.equal(kekVersionOf(keys.wrapped(id)!), "vol1");
     }
     keys.close();
-    const before = new Map([...s3.objects].map(([k, v]) => [k, v.body.toString("utf8")]));
+    // Key objects only: the sidecar may upload a replica while it runs, and whether it gets one in before
+    // the stop is timing (a slow runner does, a fast one doesn't), not what this test is about.
+    const keyObjects = (): Map<string, string> => new Map([...s3.objects].filter(([k]) => k.startsWith("keys/")).map(([k, v]) => [k, v.body.toString("utf8")]));
+    const before = keyObjects();
+    assert.ok(before.size > 0);
     const port = await freePort();
     for (let i = 0; i < 2; i += 1) {
       const run = await spawnServe(envOf(s3, dataRoot, port));
@@ -252,7 +256,7 @@ describe("WB1: a restart with the volume intact needs no private key", () => {
       assert.match(out, new RegExp(`key objects sealed to recovery key ${RECOVERY.fingerprint}`));
       assert.doesNotMatch(out, /backup\.keyless|backup\.key\.minted|HOSTED_KEKS|recover-keys/);
     }
-    assert.deepEqual(new Map([...s3.objects].map(([k, v]) => [k, v.body.toString("utf8")])), before, "a restart writes no key object");
+    assert.deepEqual(keyObjects(), before, "a restart writes no key object");
     const after = keysOf(dataRoot);
     for (const [id, dek] of deks) assert.deepEqual(await after.dek(id), dek);
   });
@@ -445,6 +449,8 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
   test("a re-key cut short, twice (before its new snapshot proved; after the bucket had the new key, before the volume did): each time the start refuses, naming migrate-keys, and nothing is lost; the run again finishes, reusing the new key", async () => {
     const o = await oldShape();
     await releasedAndProven(o);
+    // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
+    const oldReplicas = underControlDefault(o.s3);
     const run = litestreamRunner(standin(o.s3.ca!), { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: CREDS.id, LITESTREAM_SECRET_ACCESS_KEY: CREDS.secret });
     const sidecar = (configPath: string): LitestreamSidecar => new LitestreamSidecar({ binary: standin(o.s3.ca!), configPath, env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", LITESTREAM_ACCESS_KEY_ID: CREDS.id, LITESTREAM_SECRET_ACCESS_KEY: CREDS.secret }, killAfterMs: 10_000 });
     // The stand-in's restore runs under the test's https certificate: its R2 endpoint is the https one.
@@ -459,7 +465,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.deepEqual(await keys.dek(CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID), "control still the old key");
     keys.close();
     assert.equal(bodyOf(o.s3, keyObject(CONTROL_KEY_ID)), oldControlSealed, "the bucket's control key untouched");
-    assert.equal(underControlDefault(o.s3).length, 2, "the old control replicas kept");
+    assert.deepEqual(underControlDefault(o.s3), oldReplicas, "the old control replicas kept");
     const refused = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
     assert.equal(refused.up, false);
     assert.match(await refused.stop(), /a control re-key \(migrate-keys\) was cut short[^\n]*run migrate-keys again/);
@@ -543,6 +549,8 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
   test("a crash right after the switch, before the new key file (the delta review's HIGH): no control key file is left at all, the next start writes it from the NEW key and drops the old replicas; a key file of the old key is rewritten too; nothing in the bucket is under the old control key", async () => {
     const o = await oldShape();
     await releasedAndProven(o);
+    // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
+    const oldReplicas = underControlDefault(o.s3);
     const { backup, litestream } = rekeyRig(o);
     const original = KeyStore.prototype.promote;
     KeyStore.prototype.promote = async function (this: KeyStore, ...args: Parameters<KeyStore["promote"]>): Promise<void> {
@@ -561,7 +569,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.notDeepEqual(fresh, o.deks.get(CONTROL_KEY_ID));
     assert.equal(keys.wrapped("control.next"), null);
     keys.close();
-    assert.equal(underControlDefault(o.s3).length, 2, "the old replicas, not yet dropped");
+    assert.deepEqual(underControlDefault(o.s3), oldReplicas, "the old replicas, not yet dropped");
     const oldMd5 = createHash("md5").update(Buffer.from(litestreamKey(o.deks.get(CONTROL_KEY_ID)!), "base64")).digest("base64");
     const started = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
     assert.ok(started.up, started.stderr());
@@ -589,6 +597,8 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
   test("--abort-control-rekey backs out of a re-key that won't prove: the old control key kept and sealed again, the new key and its replicas gone, the start no longer refused; a later run re-keys", async () => {
     const o = await oldShape();
     await releasedAndProven(o);
+    // What the release's sidecar left at the old place: the seeded objects, plus an upload if it got one in before its stop.
+    const oldReplicas = underControlDefault(o.s3);
     const { backup, litestream } = rekeyRig(o);
     const failing: typeof litestream.run = async () => ({ code: 1, stderr: "standin: no replica" });
     await assert.rejects(migrateKeys(o.dataRoot, backup, { recoveryFingerprint: RECOVERY.fingerprint, litestream: { ...litestream, run: failing, proveMs: 1500 } }), /didn't prove/);
@@ -610,7 +620,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     keys.close();
     assert.deepEqual(RECOVERY.opener.open(bodyOf(o.s3, keyObject(CONTROL_KEY_ID))!, CONTROL_KEY_ID), o.deks.get(CONTROL_KEY_ID), "the bucket's control key is the old one");
     assert.ok(![...o.s3.objects.keys()].some((k) => k.startsWith(pendingBase)), "the new base's objects gone");
-    assert.equal(underControlDefault(o.s3).length, 2, "the old replicas kept");
+    assert.deepEqual(underControlDefault(o.s3), oldReplicas, "the old replicas kept");
     const served = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }));
     assert.ok(served.up, served.stderr());
     await served.stop();
