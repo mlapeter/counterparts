@@ -298,6 +298,7 @@ import {
   readAbout,
   readTraits,
   readWriteFacts,
+  doneDateAsOccurred,
   readTags,
   reminderEcho,
   ownPlumbingEcho,
@@ -1897,8 +1898,15 @@ export class McpServer {
     // THE REMINDER DATE AND HOW IT COMES BACK (2026-09-26) — checked before
     // anything is captured, so an unreadable one is a refusal that says which
     // shapes ARE readable rather than a note that lands without its date.
-    const dated = readReminder(args);
-    if ("refused" in dated) return this.refuse("remember", dated.refused, { detail: dated.detail });
+    const datedRead = readReminder(args);
+    if ("refused" in datedRead) return this.refuse("remember", datedRead.refused, { detail: datedRead.detail });
+    // v12: when it happened, who said it, what kind — never a refusal: what
+    // cannot be read is dropped and said beside the memory that landed. Read
+    // here, beside the date, since a done with a passed date keeps it as
+    // occurredOn instead (SO1 step 2).
+    const doneAt = doneDateAsOccurred(args, datedRead, readWriteFacts(args, this.today()), this.today());
+    const dated = doneAt.dated;
+    const facts = doneAt.facts;
     // Unbound, the note is filed under the session this server's host is
     // running here, found by its process (2026-10-01, `hostSession`), and
     // under nobody only when that is not exact.
@@ -1938,9 +1946,6 @@ export class McpServer {
     if ("refused" in about) return this.refuse("remember", "about-malformed", { detail: about.refused });
     const traits = readTraits(args["traits"]);
     if ("refused" in traits) return this.refuse("remember", "traits-malformed", { detail: traits.refused });
-    // v12: when it happened, who said it, what kind — never a refusal: what
-    // cannot be read is dropped and said beside the memory that landed.
-    const facts = readWriteFacts(args, this.today());
     // v14, lane B: its tags, loose first the same way.
     const tags = readTags(args);
     let deposit: DepositResult;
@@ -2674,6 +2679,9 @@ export class McpServer {
     // registry scan. Unbound, it is the very session the old
     // `this.session ?? this.hostSession()` found, so the recall is unchanged.
     const key = this.seenKey();
+    // HOW LONG THE ANSWER TOOK (FD1 step 5, 2026-11-07): the recall itself,
+    // on the server's clock, onto `mcp.recall` as `elapsedMs`.
+    const startedAt = this.nowFn();
     const result = deliberateRecall(
       this.counterpart,
       {
@@ -2683,6 +2691,7 @@ export class McpServer {
       },
       { sessionId: this.session ?? key, closed: this.nightClosed() },
     );
+    const elapsedMs = Math.max(0, this.nowFn() - startedAt);
     if (manual !== null && result.reason === "handle-unknown") return this.manualTool(manual);
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
@@ -2711,6 +2720,7 @@ export class McpServer {
       chars: payload["chars"] as number,
       truncated: payload["truncated"] === true,
       droppedForBudget: 0,
+      elapsedMs,
     });
     // Only what was DELIVERED (review of #316): an id left `waiting` was not shown.
     const deliveredIds = ((payload["memories"] as { id?: unknown }[] | undefined) ?? []).map((m) => m.id).filter((x): x is string => typeof x === "string");
@@ -2724,6 +2734,7 @@ export class McpServer {
         expanded: result.path === "handle" ? result.memories.length : 0,
         blockedBy: addressBlocked(result),
         ...(Array.isArray(payload["nights"]) && payload["nights"].length > 0 ? { nights: payload["nights"].length } : {}),
+        elapsedMs,
       },
       askedIds.length,
       question,
@@ -3125,6 +3136,12 @@ export class McpServer {
     let ids: readonly string[];
     let body: Record<string, unknown>;
     let row: RecallRowFields;
+    // HOW LONG THE MODE TOOK (FD1 step 5, 2026-11-07): the mode's own answer,
+    // embedding left out (its round-trip is the embedder's, not the journal's),
+    // so meaning mode's linear cost in episodes can be watched. On `mcp.recall`
+    // as `elapsedMs`; candidate-first selection waits for ~1,000 chapters or a
+    // 200 ms ask (the FD1 step 5 read).
+    const startedAt = this.nowFn();
     if (mode === "facts") {
       const r = factsRecall(ctx, question, { page });
       answer = renderFacts(r);
@@ -3176,6 +3193,7 @@ export class McpServer {
         counts: { ...r.counts },
       };
     }
+    row = { ...row, elapsedMs: Math.max(0, this.nowFn() - startedAt) };
     const payload: Record<string, unknown> = {
       path: "question",
       mode,
@@ -3237,6 +3255,7 @@ export class McpServer {
       chars: shippedChars,
       truncated: false,
       droppedForBudget: 0,
+      elapsedMs: row.elapsedMs ?? 0,
     });
     // On the durable row (review of #663, to calibrate the bar on live use):
     // each dream that came, why, and its meaning score.
@@ -3440,6 +3459,9 @@ export class McpServer {
         ...(row.page === undefined ? {} : { page: row.page }),
         ...(row.time === undefined ? {} : { time: row.time }),
         ...(row.counts === undefined ? {} : { counts: row.counts }),
+        // How long the recall took, ms (FD1 step 5): the mode's answer for a
+        // question, the address read for an id or handle.
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
         considered: row.considered,
         storeSize: row.storeSize,
         chars: payload["chars"] ?? 0,
