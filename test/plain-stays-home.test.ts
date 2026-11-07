@@ -258,9 +258,11 @@ describe("SO1 step 3 fix round: a work reminder unsaid in its silent folder cros
   });
 
   test("a month item crosses past its last day; a personal one never does (it was told wherever a session ran)", () => {
-    const { c, today } = brain();
-    const lastDay = addDays(`${today.slice(0, 7)}-01`, -1);
-    const lastMonth = lastDay.slice(0, 7);
+    const { c } = brain();
+    // Pinned: `plainCrossing` reads the day it is asked about, not the clock.
+    const today = "2026-11-07";
+    const lastDay = "2026-10-31";
+    const lastMonth = "2026-10";
     const id = memory(c, "Hmonth: un-pause the crons.", { title: "Hmonth crons", scope: GARDEN, eventDate: lastMonth, learnedOn: `${lastMonth}-01`, meta: { remind: "plain" } });
     const mine = memory(c, "Hmine: renew the library card.", { title: "Hmine card", scope: GARDEN, about: "owner", eventDate: lastMonth, learnedOn: `${lastMonth}-01`, meta: { remind: "plain" } });
     const lived = (d: string): number => (d === lastDay ? 2 : 0);
