@@ -3711,7 +3711,11 @@ export class McpServer {
     // The first meeting's marker rides in the wake's head tag (2026-10-20,
     // ONE TAG), as a Claude Code session start carries it.
     const woke = lc.composeWake(input, this.lifecycleOpts.config?.injectionBudgetBytes, () => [lc.onboardingMarker(input)]);
-    const plain = lc.plainFor(input);
+    // A wake tool call can be a routine's or a hosted run's with nobody there: an
+    // unsaid folder's reminder crosses (SO1 step 3) only when the host says a person
+    // is (`CLAUDE_CODE_SESSION_ATTENDED`, what the session start's `interactive` reads).
+    const attended = ["1", "true"].includes((this.env["CLAUDE_CODE_SESSION_ATTENDED"] ?? "").trim().toLowerCase());
+    const plain = lc.plainFor(input, { cross: attended && !night });
     const told = lc.claimPlain(input, plain.due);
     const spawn = lc.spawnWorker(input);
     // NO CORE DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): the ask relayed in a

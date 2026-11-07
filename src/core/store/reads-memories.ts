@@ -244,11 +244,14 @@ export function planCandidates(store: Store, input: {
     .map((r) => r.id);
 }
 
-export function datedMemories(store: Store, from: string, to: string, opts: { archived?: boolean } = {}): DatedMemory[] {
+export function datedMemories(store: Store, from: string, to: string, opts: { archived?: boolean; since?: string } = {}): DatedMemory[] {
+  // `since` (round 3 of #780): a lexical floor on the stored date, for a caller
+  // that knows nothing older can overlap its window. Absent: every dated row.
   const rows = store["ops"].all<{ id: string; event_date: string }>(
     `SELECT id, event_date FROM memories
-        WHERE event_date IS NOT NULL AND event_date <= ?${opts.archived === true ? "" : " AND archived = 0"}`,
+        WHERE event_date IS NOT NULL AND event_date <= ?${opts.since === undefined ? "" : " AND event_date >= ?"}${opts.archived === true ? "" : " AND archived = 0"}`,
     `${to}~`,
+    ...(opts.since === undefined ? [] : [opts.since]),
   );
   return rows
     .filter((r) => calendarOverlaps(r.event_date, from, to))

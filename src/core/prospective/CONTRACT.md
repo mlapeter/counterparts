@@ -171,6 +171,23 @@ clothes. **Hold debts, lose deadlines.**
   **A closed folder's work is held back from the lines above a wake** (2026-10-30, `Counterpart#plainHeldBack`): not
   offered to the delivery, so nothing claims it, and not handed over as a quiet cue either. Told after its folder turns
   on: on its day, or as its late beat inside the grace. No folder, or marked me, us, owner or world: told, whatever the folder.
+  **Another folder's is held back too** (SO1 step 3, 2026-11-07, `Counterpart#plainAway`): a reminder written in an open
+  folder that isn't the reader's (nor joined to it as one project), work or marked world, waits for its own folder's
+  first wake that day, unclaimed, so that wake tells it whole. Marked me, us or owner, or with no folder: told
+  everywhere. A reader with no folder (a claude.ai chat) is told only the personal ones.
+  **The fallback, so a real deadline can't go silent** (fix round of #780, `Counterpart#plainCrossing`): one held back
+  this way that went unsaid through its window (no beat told; a late beat counts only if told) crosses ONCE,
+  `PLAIN_CROSS_AFTER_LIVED_DAYS` (2) lived days past its last day, with its folder named ("garden: title, due …").
+  Only at a person's session start, or a wake tool call the host says a person is at (`CLAUDE_CODE_SESSION_ATTENDED`),
+  in a folder: never per prompt, never into a chat with no folder. A lived day is a calendar day a session start's
+  presence row (`adapter.wake.injected`, interactive) names, the one source doctor reads too (`adapters/presence.ts`).
+  Its latch is its own row (`prospective.plain.crossed`, once per memory and window across every folder), not a beat;
+  once crossed, its own folder's late beat doesn't say it again. Not a closed folder's, not a repeating one, not one
+  marked done or that already happened, not one of my own checks (CHECK-AFTER, "Check due", "Check ~", "Experiment
+  check" in its title or settles-when: those wait for their folder), not one more than `PLAIN_CROSS_LOOKBACK_DAYS` (30)
+  past its last day. A day with nothing unsaid is memoised (`prospective.cross.none`), so later starts that day cost one
+  meta read. Doctor reads one due while its folder had no session as info, and as a miss only once the day it should
+  have crossed has passed with a session and it still wasn't said.
 
 ## 4. Drops / simplifies
 

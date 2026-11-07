@@ -48,7 +48,12 @@ import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
-import { Prospective } from "./prospective/index.js";
+import { PLAIN_CROSS_AFTER_LIVED_DAYS, Prospective } from "./prospective/index.js";
+
+/** The meta key a day with nothing unsaid to cross is memoised under (`Counterpart#plainCrossing`, round 3 of #780). */
+export const PLAIN_CROSS_NONE_KEY = "prospective.cross.none";
+/** One of my own checks (SO1 step 3's "mine" class): it waits for its folder, never crosses. */
+const MY_CHECK = /CHECK-AFTER|\bCheck due\b|\bCheck ~|\bExperiment check\b/i;
 import type { PlainDue } from "./prospective/index.js";
 import {
   ASKED_KIND,
@@ -185,6 +190,8 @@ import {
   craftBornDay,
   CRAFT_SINCE_KEY,
   isDirectoryScope,
+  threadPlace,
+  folderName,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -237,6 +244,7 @@ import type {
 import { TUNABLES as PHYSICS, band as bandOf, fadeOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
+import { settlesWhenOf } from "./types.js";
 import { isKnownSession, livedOn } from "./types.js";
 import {
   SELF_BRIEFING_EVENT,
@@ -3457,14 +3465,120 @@ export class Counterpart {
   }
 
   /**
+   * WHICH OF THESE PLAIN REMINDERS ARE ANOTHER FOLDER'S, NOT THIS READER'S TO BE
+   * TOLD (SO1 step 3, 2026-11-07, with Mike: what reached motelier was plain
+   * things to do from other folders). A reminder written in another folder —
+   * work, or marked world — is said in its own folder (and the folders joined to
+   * it as one project), as Coming up's place reads it (`self/work.ts#threadPlace`,
+   * the reader's folders as Still open's, `threadReader`). Held back like a
+   * closed folder's: not offered, so not claimed, not latched, not spent, and its
+   * own folder's first wake that day still tells it whole. Marked me, us or owner,
+   * or with no folder: told everywhere, as before. A reader with no folder (a
+   * claude.ai chat) is told only the personal ones (the roadmap's call, fix round
+   * of #780): no folder's work is its to be told. A read. Never throws: a row that
+   * won't read is not held.
+   */
+  plainAway(ids: readonly string[], scope: string | undefined, exportsFrom?: (scope: string) => boolean): ReadonlySet<string> {
+    const away = new Set<string>();
+    try {
+      const folders = new Set(this.threadReader(scope, exportsFrom).folders.map(projectFolder).filter((f) => f.length > 0));
+      const rule = { craftTravels: this.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(this.store) };
+      for (const id of ids) {
+        try {
+          const row = this.store.row(id);
+          if (row === undefined) continue;
+          if (threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false }, folders, rule) === "out") away.add(id);
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      return away;
+    }
+    return away;
+  }
+
+  /**
+   * THE FALLBACK, SO A REAL DEADLINE CAN'T GO SILENT (SO1 step 3 fix round,
+   * 2026-11-07, the roadmap's call): another folder's work reminder (or one marked
+   * world) that went unsaid through its window, because its folder had no session,
+   * crosses ONCE, `PLAIN_CROSS_AFTER_LIVED_DAYS` lived days past its last day. A
+   * lived day is a calendar day a person had a session: `lived` gives those days, read
+   * once, and only when something is unsaid, from the log's presence rows (round 3: the registry prunes
+   * after a week), and today counts. Not a closed folder's (the caller's
+   * `plainHeldBack` still holds those), not one that already happened, not one
+   * marked done, and not one of my own checks (CHECK-AFTER, "Check due", "Check ~",
+   * "Experiment check" in its title or settles-when: those wait for their folder).
+   * `crossFrom` names its folder. A read; `claimPlainReminder` claims it, once
+   * across every folder.
+   *
+   * MEMOISED PER STORE PER DAY (round 3): a day with nothing unsaid is written
+   * down (`PLAIN_CROSS_NONE_KEY`) and every later ask that day costs one meta
+   * read. What could make one unsaid later the same day — a reminder written
+   * today for a day already past — was written after its day, which never counts.
+   * Never throws.
+   */
+  plainCrossing(input: { at: string; lived: () => ReadonlySet<string> }): PlainReminder[] {
+    if (this.observer) return [];
+    const out: PlainReminder[] = [];
+    try {
+      if (this.store.getMeta(PLAIN_CROSS_NONE_KEY) === input.at) return out;
+      const unsaid = this.prospective.plainUnsaid({ at: input.at });
+      if (unsaid.length === 0) {
+        try {
+          this.store.setMeta(PLAIN_CROSS_NONE_KEY, input.at);
+        } catch {
+          /* a memo, nothing more */
+        }
+        return out;
+      }
+      const lived = new Set([...input.lived(), input.at]);
+      const livedSince = (day: string): number => [...lived].filter((d) => d > day && d <= input.at).length;
+      const nowhere = new Set<string>();
+      for (const due of unsaid) {
+        const row = this.store.row(due.memoryId);
+        if (row === undefined || row.status === "done") continue;
+        const facts = { about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope ?? null, journal: false };
+        // Only what waits for a folder: a personal one was told wherever a session ran.
+        if (threadPlace(facts, nowhere) !== "out") continue;
+        if (livedSince(due.lastDay) < PLAIN_CROSS_AFTER_LIVED_DAYS) continue;
+        let title = "";
+        let what = "";
+        let settles = "";
+        try {
+          const doc = this.store.readProse(due.memoryId);
+          title = doc.title?.trim() ?? "";
+          const line = doc.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+          what = (title.length > 0 ? title : line).replace(/\s+/g, " ").trim();
+          settles = settlesWhenOf(doc.meta) ?? "";
+        } catch {
+          continue;
+        }
+        if (what.length === 0) continue;
+        if (MY_CHECK.test(title) || MY_CHECK.test(settles)) continue;
+        if (happenedAlready(this.store, due.memoryId, input.at, {}) !== null) continue;
+        const folder = this.memoryFolder(row) ?? row.origin_scope ?? "";
+        out.push({ ...due, what, crossFrom: folderName(folder) });
+      }
+    } catch (err) {
+      this.emit("counterpart.prospective.plain.failed", undefined, { code: errCode(err) });
+    }
+    return out;
+  }
+
+  /**
    * Claim one plain beat: TRUE only when this call wrote the latch
    * (`Prospective.claimPlain`), so two processes racing for the same beat
    * cannot both show it. Show the line only on true. Never throws.
    */
-  claimPlainReminder(reminder: PlainDue, input: { at: string; day?: number; session?: string }): boolean {
+  claimPlainReminder(reminder: PlainDue & { readonly crossFrom?: string }, input: { at: string; day?: number; session?: string }): boolean {
     if (this.observer) return false;
     try {
       const day = input.day ?? this.store.livedDay();
+      // A crossing has its own latch, once across every folder, and is no beat.
+      if (reminder.crossFrom !== undefined) {
+        return this.prospective.claimCross(reminder, { at: input.at, day, ...(input.session === undefined ? {} : { session: input.session }) });
+      }
       // Asked BEFORE the claim, which is itself what would make it false.
       const first = this.prospective.occurrenceUndelivered(reminder.memoryId, reminder.windowKey);
       const claimed = this.prospective.claimPlain(reminder, {
