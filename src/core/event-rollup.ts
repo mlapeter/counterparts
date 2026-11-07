@@ -24,13 +24,13 @@
  * - `sessions`: the session refs the day's `recall.decision` rows named — the
  *   flow tab's "N sessions seen". A session id names a conversation, not a
  *   memory: the owner's removal of a memory has nothing to take from it.
+ * - `probe` and `ratings`: `probe-oq4`'s two reports over the day's rows
+ *   (`recall/probe.ts`), without the per-session list; the console merges them
+ *   with the report over the rows still held (`mergeProbe`, `mergeRatings`).
  *
  * NOT COUNTED, said: a per-turn row written later with a lived day already
  * summarised (only a catch-up writing into the past could) is skipped by the
  * all-time readers with the rest of that day's held rows, and goes uncounted.
- * - `probe` and `ratings`: `probe-oq4`'s two reports over the day's rows
- *   (`recall/probe.ts`), without the per-session list; the console merges them
- *   with the report over the rows still held (`mergeProbe`, `mergeRatings`).
  *
  * Pure: no store, no clock. A leaf the store imports.
  */
