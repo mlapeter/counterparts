@@ -61,6 +61,7 @@ import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } f
 import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
+import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS } from "./prospective/index.js";
 import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
@@ -163,8 +164,6 @@ export interface Cue {
   readonly personal: boolean;
 }
 
-/** How long another folder's plain reminder's title may run in Coming up's "in other folders" (SO1 step 3 fix round). */
-const SO1_TITLE_CHARS = 48;
 const NO_FOLDERS: ReadonlySet<string> = new Set();
 
 /** The folders a reader counts as here, as "Still open" reads them. */
@@ -655,8 +654,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     // most two, "folder: title", then "and N more", only when the line still fits.
     const otherPlain = other.filter((c) => c.plain && c.today);
     const among = [here?.scope ?? "", ...otherPlain.flatMap((c) => (c.folder === null ? [] : [c.folder]))];
-    const short = (t: string): string => (t.length <= SO1_TITLE_CHARS ? t : `${t.slice(0, SO1_TITLE_CHARS - 1).trimEnd()}…`);
-    const namedOther = otherPlain.length === 0 ? "" : ` (${[...otherPlain.slice(0, 2).map((c) => `${c.folder === null ? "elsewhere" : placeWords(c.folder, among)}: ${short(flatten(c.title))}`), ...(otherPlain.length > 2 ? [`and ${String(otherPlain.length - 2)} more`] : [])].join("; ")})`;
+    const short = (t: string): string => (t.length <= PLAIN_OTHER_TITLE_CHARS ? t : `${t.slice(0, PLAIN_OTHER_TITLE_CHARS - 1).trimEnd()}…`);
+    const namedOther = otherPlain.length === 0 ? "" : ` (${[...otherPlain.slice(0, PLAIN_OTHER_NAMED).map((c) => `${c.folder === null ? "elsewhere" : placeWords(c.folder, among)}: ${short(flatten(c.title))}`), ...(otherPlain.length > PLAIN_OTHER_NAMED ? [`and ${String(otherPlain.length - PLAIN_OTHER_NAMED)} more`] : [])].join("; ")})`;
     const render = (shown: readonly { c: Cue; line: string }[], named = false): string[] => {
       const ids = new Set(shown.map((s) => s.c.id));
       const hiddenToday = todayAll.filter((c) => !ids.has(c.id) && !shownEarlier.has(c.id)).length;

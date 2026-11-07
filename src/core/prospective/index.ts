@@ -111,6 +111,10 @@ export const PLAIN_CROSS_AFTER_LIVED_DAYS = 2;
 export const PLAIN_CROSS_LOOKBACK_DAYS = 30;
 /** How far before the lookback a range may start and still be read (the dated read's floor). */
 export const PLAIN_CROSS_RANGE_REACH_DAYS = 92;
+/** Coming up's "in other folders" names at most this many other folders' plain reminders by title (SO1 step 3). CAL. */
+export const PLAIN_OTHER_NAMED = 2;
+/** …each title clipped to this many characters. CAL. */
+export const PLAIN_OTHER_TITLE_CHARS = 48;
 
 /**
  * PLAIN OR QUIET (owner decision 2026-09-25/26, a working default). The author
