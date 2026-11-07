@@ -71,7 +71,8 @@ import {
 } from "../core/prospective/index.js";
 import { addDays, daysBetween as calendarDaysBetween, localDate, parseCalendarDate } from "../core/time.js";
 import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
-import { rowToPhysics } from "../core/store/index.js";
+import { SHORT_RETENTION_NAMES, rowToPhysics } from "../core/store/index.js";
+import type { NameSpan, RolledDay } from "../core/event-rollup.js";
 import { emotionalIntensity } from "../core/physics/index.js";
 import { reminderHeldBack } from "../core/dream/slices.js";
 import type { FolderOn } from "../core/dream/slices.js";
@@ -643,6 +644,15 @@ export const MECHANISMS: readonly Mechanism[] = [
     // A boundary that found another cycle holding the store (`sleep/lease.ts`,
     // 2026-10-21): the same mechanism standing aside, not a mechanism of its own.
     covers: ["sleep.cycle.held"],
+  },
+  {
+    // FD1 step 2 (2026-11-07): the log's exit. Per-turn rows go at the short
+    // window, each lived day of them counted into one kept row first.
+    id: "log-sweep",
+    label: "old event rows let go, the per-turn ones counted a day at a time first",
+    module: "sleep/log.ts, store/",
+    evidence: { kind: "event", names: ["sleep.log.swept"] },
+    covers: ["events.rolled"],
   },
   {
     id: "decay",
@@ -1808,8 +1818,22 @@ function emptyTally(): NameTally {
 function readLog(store: ReadOnlyStore, w: Window): LogRead {
   const byName = new Map<string, NameTally>();
   const age: PassState = { oldest: null, presence: [], attended: new Map() };
+  // THE DAILY SUMMARIES FIRST (FD1 step 2, roadmap ruling R2): the per-turn
+  // rows the sweep let go are counted from their day's `events.rolled` row, so
+  // a total and a last-fired date never shrink with the sweep. A rolled day's
+  // rows still held (a capped sweep half-way through it) are in its summary
+  // already, and skipped below.
+  let rolledDays: ReadonlySet<number> = new Set();
+  try {
+    const rolled = store.rolledDays();
+    rolledDays = rolled.days;
+    for (const day of rolled.rows) tallyRolled(byName, day, w, age);
+  } catch {
+    // A store that cannot read its summaries is read off its rows alone.
+  }
+  const skip = (row: EventRow): boolean => rolledDays.has(row.day) && SHORT_RETENTION_NAMES.includes(row.name) && row.dedup_key === null;
   const first = store.eventLog({ limit: EVENT_CEILING });
-  for (const row of first) tallyRow(byName, row, w, age);
+  for (const row of first) if (!skip(row)) tallyRow(byName, row, w, age);
   if (first.length < EVENT_CEILING) {
     return { byName, truncated: false, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
   }
@@ -1821,7 +1845,7 @@ function readLog(store: ReadOnlyStore, w: Window): LogRead {
     limit: EVENT_CEILING,
   });
   for (const row of recent) {
-    if (row.seq <= lastSeq) continue;
+    if (row.seq <= lastSeq || skip(row)) continue;
     tallyRow(byName, row, w, age);
   }
   return { byName, truncated: true, oldestDate: age.oldest, presence: age.presence, attended: age.attended };
@@ -1874,17 +1898,40 @@ function countInto(
   key: string,
   date: string,
   w: Window,
+  n = 1,
 ): NameTally {
   let t = byName.get(key);
   if (t === undefined) {
     t = emptyTally();
     byName.set(key, t);
   }
-  t.total += 1;
+  t.total += n;
   if (t.lastDate === null || date > t.lastDate) t.lastDate = date;
-  if (date >= w.from && date <= w.to) t.inWindow += 1;
-  else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += 1;
+  if (date >= w.from && date <= w.to) t.inWindow += n;
+  else if (date >= w.previousFrom && date <= w.previousTo) t.inPreviousWindow += n;
   return t;
+}
+
+/**
+ * ONE DAILY SUMMARY, TALLIED (FD1 step 2): each name's count on the last
+ * calendar date its rows carried, and the filtered counts (`positive`) the
+ * same way. A summary's rows are older than any window this reads, so the
+ * windows see none of them; the totals, the last-fired dates and the store's
+ * oldest date do.
+ */
+function tallyRolled(byName: Map<string, NameTally>, day: RolledDay, w: Window, age: PassState): void {
+  const spanDate = (s: NameSpan, which: "first" | "last"): string =>
+    (which === "first" ? s.firstDate : s.lastDate) ?? localDate(which === "first" ? s.firstAt : s.lastAt, w.zone);
+  for (const [name, span] of Object.entries(day.spans)) {
+    if (typeof span?.n !== "number") continue;
+    const first = spanDate(span, "first");
+    if (age.oldest === null || first < age.oldest) age.oldest = first;
+    countInto(byName, name, spanDate(span, "last"), w, span.n);
+  }
+  for (const [key, span] of Object.entries(day.positive)) {
+    if (typeof span?.n !== "number") continue;
+    countInto(byName, key, spanDate(span, "last"), w, span.n);
+  }
 }
 
 /** The CALENDAR date a row is about: its own field, else the wall clock it was

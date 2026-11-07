@@ -615,6 +615,24 @@ export const NARRATORS = {
    * was already running on this store. Calm: it is the ordinary case of a
    * session's two closing hooks, and the other cycle's own row says what ran.
    */
+  /** FD1 step 2 (2026-11-07): the log sweep's own record, and a day's roll-up. Calm: forgetting telemetry on purpose. */
+  "sleep.log.swept": (t) => {
+    const count = n(t, "count") ?? 0;
+    const rolled = n(t, "rolled") ?? 0;
+    return calm(
+      `I let ${num(count, 0)} old event row${count === 1 ? "" : "s"} go` +
+        (rolled > 0 ? `, after counting ${rolled} day${rolled === 1 ? "" : "s"} of per-turn rows` : "") +
+        ".",
+    );
+  },
+  "events.rolled": (t) => {
+    const counts = t.p["counts"];
+    const total =
+      counts !== null && typeof counts === "object"
+        ? Object.values(counts as Record<string, unknown>).reduce<number>((s, v) => s + (typeof v === "number" ? v : 0), 0)
+        : 0;
+    return calm(`I counted a day's per-turn rows (${num(total, 0)}) before letting them go.`);
+  },
   "sleep.cycle.held": (t) => {
     if (String(t.p["reason"] ?? "") === "lease-lost") {
       return calm("My sleep stalled partway and another took over; that one finishes the night.");
@@ -1338,6 +1356,8 @@ export const REF_KIND = {
   // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
   "sleep.cycle": "none",
   "sleep.cycle.held": "none",
+  "sleep.log.swept": "none",
+  "events.rolled": "none",
   "self.briefing": "none",
   // The revision points at the PAGE's own row, which is a real id in the store
   // and resolves like any other; a refusal wrote nothing, so it points at

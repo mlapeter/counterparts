@@ -2417,7 +2417,14 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
       budget: 5_000,
       cutoffDay: 1,
       retentionDays: 2,
+      // FD1 step 2: the per-turn names' window (never longer than the store's) and the day it rolled up.
+      shortCutoffDay: 1,
+      shortRetentionDays: 2,
+      rolled: 1,
+      recallTurns: 0,
     });
+    // And the record is durable (FD1 step 2): doctor's Growth line reads it.
+    expect(s.eventLog({ name: "sleep.log.swept" }).length).toBe(1);
   });
 
   test("the per-pass cap holds: the OLDEST rows go first, the rest are reported, and tomorrow takes the next cap's worth", () => {
@@ -2446,15 +2453,17 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
     expect(s.eventLog({ name: "recall.decision" }).length).toBe(7);
 
     // Tomorrow takes the next three.
+    // (Plus last night's durable `sleep.log.swept` row, FD1 step 2: at a
+    // window of 0 it is past it too, so five wait, not four.)
     const second = runCycle({ store: s, date: date(2), budgets: { log: 3 } });
     expect(phaseReport(second, "log").changed).toBe(3);
-    expect(phaseReport(second, "log").skippedForBudget).toBe(4);
+    expect(phaseReport(second, "log").skippedForBudget).toBe(5);
     expect(s.eventLog({ name: "recall.decision" }).map((r) => r.seq)).toEqual(seqs.slice(6));
 
     // A zero cap is a cap: the phase ran, counted, and deleted nothing.
     const held = runCycle({ store: s, date: date(3), budgets: { log: 0 } });
     expect(phaseReport(held, "log").status).toBe("ran-nothing-found");
-    expect(phaseReport(held, "log").skippedForBudget).toBe(4);
+    expect(phaseReport(held, "log").skippedForBudget).toBe(6); // four decisions and the two sweep records
     expect(s.eventLog({ name: "recall.decision" }).length).toBe(4);
   });
 
@@ -2474,6 +2483,9 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
       limit: 5_000,
       cutoffDay: 1,
       retentionDays: 1,
+      shortCutoffDay: 1,
+      shortRetentionDays: 1,
+      rolled: 0,
     });
     expect(s.pruneEvents().pruned).toBe(0);
     expect(s.eventLogCensus().rows).toBe(held);
@@ -2527,19 +2539,20 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
     expect(DEFAULT_RETENTION_DAYS).toBeGreaterThanOrEqual(90);
     const s = store();
     expect(s.retentionDays).toBe(DEFAULT_RETENTION_DAYS);
-    s.appendEvent({ name: "recall.decision", day: 0, ref: "born-day-0" });
+    // A name the short window (FD1 step 2, `SHORT_RETENTION_NAMES`) does not take.
+    s.appendEvent({ name: "adapter.recall", day: 0, ref: "born-day-0" });
     for (let i = 1; i <= DEFAULT_RETENTION_DAYS - 1; i++) s.advanceClock(date(i));
     expect(s.livedDay()).toBe(DEFAULT_RETENTION_DAYS - 1);
 
     // The cycle lands on lived day 90: cutoff 0, and `day < 0` matches nothing.
     const ninety = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS) });
     expect(phaseReport(ninety, "log").status).toBe("ran-nothing-found");
-    expect(s.eventLog({ name: "recall.decision" }).length).toBe(1);
+    expect(s.eventLog({ name: "adapter.recall" }).length).toBe(1);
 
     // Lived day 91: cutoff 1, and the day-0 row is past the window.
     const ninetyOne = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS + 1) });
     expect(phaseReport(ninetyOne, "log").changed).toBe(1);
-    expect(s.eventLog({ name: "recall.decision" })).toEqual([]);
+    expect(s.eventLog({ name: "adapter.recall" })).toEqual([]);
   });
 });
 

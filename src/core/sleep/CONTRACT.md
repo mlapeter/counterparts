@@ -359,7 +359,28 @@ and their records; the next session's briefing, written last; a per-cycle summar
     existed, documented this window, and had no caller anywhere in `src/` — every unlatched
     row ever written was still there, and the dashboard's "I keep events for N lived days;
     older ones are swept" described a sweep that never ran. Owner ruling the same day: wire
-    it into sleep.*
+    it into sleep.* **The per-turn rows go sooner (FD1 step 2, 2026-11-07, lightly held):**
+    the names in `SHORT_RETENTION_NAMES` (`recall.decision`, `recall.credit`,
+    `recall.rated`) keep `SHORT_RETENTION_DAYS` = 30 lived days, never more than
+    `retentionDays`; every other unlatched row keeps `retentionDays`. Inside the same
+    transaction and BEFORE the delete, each lived day of them past the short cutoff is rolled
+    into one latched `events.rolled` row (`core/event-rollup.ts`: counts and spans by name,
+    the filtered counts `fired.ts` reads, the memory ids credited for use, the session refs,
+    and `probe-oq4`'s two reports over the day), so a day the cap leaves half-swept already
+    has its whole summary. Every reader on a turn or a night reads at most 14 lived days of
+    these names. The all-time readers read the summaries beside the rows still held, and
+    skip a rolled day's held rows: the dashboard's per-name counts (`eventCountsAllTime`),
+    `counterparts mechanisms`' total and last fired, `probe-oq4` (`mergeProbe`,
+    `mergeRatings`), the memory card's days used and the flow tab's sessions seen. A
+    CHECK-AFTER query written in SQL against the rows sees 30 lived days; the release
+    sheet's copy before install keeps the rest (`docs/RELEASING.md` §5.1). No removed id
+    stays in a summary: the roll-up leaves out every id on the deny-list when it writes,
+    and the owner's removal takes the id out of summaries already written. A per-turn row
+    written later with a lived day already summarised (only a catch-up into the past
+    could) is skipped with that day's held rows and goes uncounted. `recall_turns` goes on the same short
+    window (`Store.pruneRecallTurns`, after the log). A pass that deleted or rolled anything
+    leaves one durable `sleep.log.swept` row, which doctor's `Growth: event log` line
+    reads.
 
 ## 6. Scars honored
 

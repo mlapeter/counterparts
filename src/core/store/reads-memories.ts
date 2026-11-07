@@ -900,6 +900,85 @@ export function belowReachCount(store: Store): number {
   return n;
 }
 
+/**
+ * WHERE THE LIVE MEMORIES STAND AGAINST THE CURVE (FD1 step 2, 2026-11-07):
+ * the population `belowReachCount` reads (live, not a chapter, not exempt from
+ * reach), as the last decay pass ranked it (box 3), split three ways: within
+ * reach, below reach, and of those under the prune floor (`PHI_PRUNE`, where
+ * the night's prune may take a memory after its wait). The identity band
+ * counts as within reach, as it does for `belowReachCount`. A row with no
+ * ranking yet (born since the last pass) is `unranked`. One pass; read-only.
+ */
+export function reachCensus(store: Store): {
+  live: number;
+  inReach: number;
+  belowReach: number;
+  underFloor: number;
+  unranked: number;
+  /** Live rows the prune never examines, by what they are (each has its own exit, or none). */
+  exempt: { journal: number; chapterCopies: number; handoffs: number; cards: number; selfPage: number };
+} {
+  const ranking = store.rankingAll();
+  const exempt = { journal: 0, chapterCopies: 0, handoffs: 0, cards: 0, selfPage: 0 };
+  const out = { live: 0, inReach: 0, belowReach: 0, underFloor: 0, unranked: 0, exempt };
+  for (const r of store["ops"].all<MemoryRow>("SELECT * FROM memories WHERE archived = 0")) {
+    if (r.type === "episode") {
+      exempt.journal += 1;
+      continue;
+    }
+    if (reachExempt(r)) {
+      if (r.type === "memory") {
+        exempt.chapterCopies += 1;
+      } else {
+        let role: unknown = null;
+        try {
+          role = (JSON.parse(r.meta) as { role?: unknown } | null)?.role ?? null;
+        } catch {
+          role = null;
+        }
+        if (role === "handoff") exempt.handoffs += 1;
+        else if (role === "entity") exempt.cards += 1;
+        else exempt.selfPage += 1;
+      }
+      continue;
+    }
+    out.live += 1;
+    const rk = ranking.get(r.id);
+    if (rk === undefined) out.unranked += 1;
+    else if (rk.band === "identity" || rk.strength >= PHYSICS_TUNABLES.REACH) out.inReach += 1;
+    else {
+      out.belowReach += 1;
+      if (rk.strength < PHYSICS_TUNABLES.PHI_PRUNE) out.underFloor += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * MEMORIES IN AND OUT OVER A WINDOW (FD1 step 2): of the population
+ * `reachCensus` calls live (not a chapter, not exempt from reach: no chapter
+ * copy, handoff, card or self page, whose churn is not memories coming and
+ * going), rows born on or after lived day `sinceDay`, and rows archived at or
+ * after `sinceAt` (the archive sets `updated_at`): a prune, a merge, a
+ * revision's old words. Only the window's rows are read. Read-only.
+ *
+ * A BIAS, said (review of #776): an archived row has no archive moment of its
+ * own, so "left" reads `updated_at`, and a later write to an already-archived
+ * row (an owner's operation on it) counts it as leaving again. Rare; a column
+ * would fix it and waits for the next batched format change.
+ */
+export function memoryFlow(store: Store, sinceDay: number, sinceAt: number): { born: number; archived: number } {
+  const counted = (rows: MemoryRow[]): number => rows.filter((r) => !reachExempt(r)).length;
+  const born = counted(store["ops"].all<MemoryRow>("SELECT * FROM memories WHERE birth_day >= ? AND type != 'episode'", sinceDay));
+  const archived = counted(
+    store["ops"].all<MemoryRow>(
+      "SELECT * FROM memories WHERE archived = 1 AND type != 'episode' AND COALESCE(updated_at, 0) >= ?",
+      sinceAt,
+    ),
+  );
+  return { born, archived };
+}
+
 export function returnCounts(store: Store, filter: { sinceAt?: number; sinceDay?: number } = {}): {
     awake: number;
     dream: number;
