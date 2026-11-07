@@ -961,12 +961,59 @@ async function main(): Promise<void> {
   await app.close();
 }
 
+/**
+ * Every write to `s` from here on, as one promise that settles once they have all left
+ * the process (a write's own callback). Under bun a `process.exit` right after a write to
+ * a pipe can drop it — migrate-keys' report went missing that way now and then in CI
+ * (11-07), and a write of a megabyte is cut every time — and neither an empty write's
+ * callback nor 'drain' waits for it there; the callback of the write itself does.
+ */
+function trackWrites(s: NodeJS.WriteStream): () => Promise<void> {
+  // A count, not a chain: `serve` writes a line per call for its whole life, and a
+  // chained promise per write would grow without end (review of #784).
+  let pending = 0;
+  let waiting: Array<() => void> = [];
+  const settle = (): void => {
+    pending -= 1;
+    if (pending > 0) return;
+    const ready = waiting;
+    waiting = [];
+    for (const r of ready) r();
+  };
+  const write = s.write.bind(s) as (...args: unknown[]) => boolean;
+  s.write = ((...args: unknown[]): boolean => {
+    const cb = typeof args.at(-1) === "function" ? (args.pop() as (err?: Error | null) => void) : undefined;
+    pending += 1;
+    try {
+      return write(...args, (err?: Error | null) => {
+        settle();
+        cb?.(err);
+      });
+    } catch (e) {
+      // A write that throws (a bad chunk) never calls back: count it settled, and let the caller see the throw.
+      settle();
+      throw e;
+    }
+  }) as typeof s.write;
+  return () => (pending === 0 ? Promise.resolve() : new Promise<void>((r) => waiting.push(r)));
+}
+
+/** `process.exit`, once stdout and stderr have flushed (or after 5 s: a reader gone away never holds the exit). */
+function exitFlushed(code: number, flushed: Array<() => Promise<void>>): void {
+  const late = setTimeout(() => process.exit(code), 5000);
+  void Promise.all(flushed.map((f) => f())).then(() => {
+    clearTimeout(late);
+    process.exit(code);
+  });
+}
+
 if (isEntryPoint(process.argv[1], import.meta.url)) {
+  const flushed = [trackWrites(process.stdout), trackWrites(process.stderr)];
   void main().then(
-    () => process.exit(process.exitCode === 1 ? 1 : 0),
+    () => exitFlushed(process.exitCode === 1 ? 1 : 0, flushed),
     (err: unknown) => {
       process.stderr.write(`[hosted] did not start: ${err instanceof Error ? err.message : String(err)}\n`);
-      process.exit(1);
+      exitFlushed(1, flushed);
     },
   );
 }
