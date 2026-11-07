@@ -65,9 +65,10 @@ const paths = bundlePaths(plan);
  *  keeps 100, its own bundle and nowhere near the limit, so it only catches a
  *  trace that suddenly pulls in far more than hooks/sidebar/. Directory was
  *  back at 510 on 2026-10-29; joining the dashboard's stylesheets (2026-10-30)
- *  took it to 487. */
+ *  took it to 487. Core reached 481 on 2026-11-07 (SO1 step 1b's `core/close-hint.ts`
+ *  after the FD1 and SO1 modules); its margin moved to 490, still 22 under the limit. */
 const FILE_MARGIN = 510;
-const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: FILE_MARGIN, core: 480, sidebar: 100 };
+const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: FILE_MARGIN, core: 490, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
   const margin = MARGINS[flavor] ?? FILE_MARGIN;
   if (count > margin) {
