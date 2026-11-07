@@ -1864,7 +1864,7 @@ const REFLECT: ToolSpec = {
       close: {
         type: "array",
         items: { type: "string" },
-        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that look done but you are not sure of — asked in the share, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
+        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that look done but you are not sure of — nothing closes and nobody is asked: they are listed as \"may be done\" under recall \"still open\". `close`: proposed ids the owner says are done.",
       },
       closeNow: {
         type: "array",
