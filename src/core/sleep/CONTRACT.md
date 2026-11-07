@@ -366,8 +366,11 @@ and their records; the next session's briefing, written last; a per-cycle summar
     `counterparts mechanisms`' total and last fired, `probe-oq4` (`mergeProbe`,
     `mergeRatings`), the memory card's days used and the flow tab's sessions seen. A
     CHECK-AFTER query written in SQL against the rows sees 30 lived days; the release
-    sheet's copy before install keeps the rest (`docs/RELEASING.md` §5.1). The owner's
-    removal takes a removed id out of the summaries. `recall_turns` goes on the same short
+    sheet's copy before install keeps the rest (`docs/RELEASING.md` §5.1). No removed id
+    stays in a summary: the roll-up leaves out every id on the deny-list when it writes,
+    and the owner's removal takes the id out of summaries already written. A per-turn row
+    written later with a lived day already summarised (only a catch-up into the past
+    could) is skipped with that day's held rows and goes uncounted. `recall_turns` goes on the same short
     window (`Store.pruneRecallTurns`, after the log). A pass that deleted or rolled anything
     leaves one durable `sleep.log.swept` row, which doctor's `Growth: event log` line
     reads.

@@ -4018,6 +4018,10 @@ export class Store {
       shortCutoffDay,
     );
     let written = 0;
+    // A REMOVED OR HELD ID NEVER ENTERS A SUMMARY (review of #776): summaries are
+    // kept at any age, the rows they replace were not, so the deny-list is
+    // read once here and every id on it is left out of `used`.
+    const denied = days.length === 0 ? new Set<string>() : new Set(this.deniedIds());
     for (const { day } of days) {
       const rows = this.ops.all<RollupRow>(
         `SELECT name, day, at, ref, payload FROM events WHERE day = ? AND dedup_key IS NULL AND name IN (${marks}) ORDER BY seq`,
@@ -4034,7 +4038,7 @@ export class Store {
         day,
         EVENTS_ROLLED_EVENT,
         `${EVENTS_ROLLED_EVENT}.${String(day)}`,
-        JSON.stringify(withBuild({ ...summarizeDay(day, rows, lookups) })),
+        JSON.stringify(withBuild({ ...summarizeDay(day, rows, lookups, denied) })),
       );
       written += this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
     }

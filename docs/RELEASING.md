@@ -307,8 +307,8 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    **A copy before the install, when the release lets event rows go sooner (FD1 step 2,
    2026-11-07).** From the release that carries FD1 step 2 on, the per-turn rows
    (`recall.decision`, `recall.credit`, `recall.rated`) are deleted after 30 lived days
-   instead of 90. Each day of them is kept as counts in `events.rolled`, but their ids and
-   payload fields are gone for good. So the sheet's first line for that release, and for any
+   instead of 90. Each day of them is kept as a summary in `events.rolled` (counts, the ids
+   credited for use, the session refs), but the rows and their payload fields are gone for good. So the sheet's first line for that release, and for any
    later one that shortens a window, is a read-only copy of the store, taken before the
    install line:
    `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.

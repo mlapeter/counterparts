@@ -363,6 +363,25 @@ describe("all-time counts don't shrink when the sweep lets the per-turn rows go 
   });
 });
 
+describe("a removed memory never enters a summary (review of #776, the remove-then-roll order)", () => {
+  test("removed while its credit rows are still held: the next sweep's summary leaves the id out", () => {
+    const s = store();
+    const gone = s.put({ type: "memory", kind: "fact", body: "a memory the owner removes before the sweep" });
+    const kept = s.put({ type: "memory", kind: "fact", body: "a memory that stays" });
+    s.appendEvent({ name: "recall.credit", day: 0, ref: "sess-a", payload: { session: "sess-a", day: 0, ids: [gone, kept] } });
+    s.appendRemovalRecord({ memoryId: gone, stage: "requested", actor: "owner", reason: "test" });
+    s.appendRemovalRecord({ memoryId: gone, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(s, gone);
+    for (let i = 1; i <= SHORT_RETENTION_DAYS + 2; i++) s.advanceClock(date(i));
+    expect(s.pruneEvents().rolled).toBe(1);
+    const payload = s.eventLog({ name: EVENTS_ROLLED_EVENT })[0]?.payload ?? "";
+    expect(payload).not.toContain(gone);
+    const p = JSON.parse(payload) as { counts: Record<string, number>; used: Record<string, number[]> };
+    expect(p.used).toEqual({ [kept]: [0] });
+    expect(p.counts).toEqual({ "recall.credit": 1 });
+  });
+});
+
 describe("recall_turns has an exit (roadmap ruling R1)", () => {
   test("turns older than the short window go with the night's log sweep; recent ones stay", () => {
     const s = store();

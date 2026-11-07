@@ -270,9 +270,12 @@ export const DEFAULT_RETENTION_DAYS = 90;
  * since the last night). So they keep `SHORT_RETENTION_DAYS` lived days (or the
  * store's own `retentionDays`, when that is shorter); every other unlatched row
  * keeps `retentionDays`. Before a day's rows of these names go, the sweep rolls
- * them into one latched `events.rolled` row for that lived day (counts by name,
- * never ids), so all-history counts (`counterparts mechanisms`, a CHECK-AFTER
- * "since install") keep a number. Undo: an empty list.
+ * them into one latched `events.rolled` row for that lived day
+ * (`core/event-rollup.ts`: counts by name, the ids credited for use with any
+ * removed id left out, the session refs, probe-oq4's two reports), so the
+ * all-time readers (the dashboard's counts, `counterparts mechanisms`,
+ * `probe-oq4`, days used, sessions seen) keep their numbers. A CHECK-AFTER SQL
+ * read against the rows sees 30 lived days. Undo: an empty list.
  */
 export const SHORT_RETENTION_DAYS = 30;
 export const SHORT_RETENTION_NAMES: readonly string[] = ["recall.decision", "recall.credit", "recall.rated"];

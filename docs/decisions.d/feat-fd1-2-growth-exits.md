@@ -18,7 +18,10 @@
   plus the rows still held, never from the held rows alone. So each summary also keeps the
   ids credited for use, the session refs and `probe-oq4`'s two reports for its day.
   Approximate in one place: a session whose rows straddle a rolled lived day and a held one
-  is counted on both sides in `probe-oq4`.
+  is counted on both sides in `probe-oq4`. No removed or held id is ever written into a summary (the deny-list is
+  read at roll time), and the owner's removal scrubs summaries already written. A memory
+  held and then released before the sweep loses those use days from its card: privacy
+  first. A per-turn row written later onto a day already summarised goes uncounted.
 - Decided by the FD1 step 2 builder, 2026-11-07, lightly held: the Growth lines are always
   green, and none is in the session-start reading. Why: a ratio isn't a fault (guards loose
   first), and the memories line walks every live row.

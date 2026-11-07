@@ -128,14 +128,16 @@ effect on archives folds into the late-October forgetting check). Details: `~/co
 **What we're trying.** Every growing table names its exit and gets one doctor line saying how full it is, what came in
 and what left over the last 7 lived days. The per-turn event rows (`recall.decision`, `recall.credit`,
 `recall.rated`, most of the log) keep 30 lived days instead of 90. Each lived day of them is counted into one latched
-`events.rolled` row (counts by name, no ids) before it goes. Brief: `~/counterparts-notes/2026-11-07-briefs/FD1-fading-and-growth.md` §2.
+`events.rolled` row before it goes: counts by name, the memory ids credited for use (a removed id left out), the
+session refs and `probe-oq4`'s two reports for the day, never a memory's words. Brief: `~/counterparts-notes/2026-11-07-briefs/FD1-fading-and-growth.md` §2.
 
 **Why.** Mike, 11-07: wherever something grows, fade more. On lived day 47 `events` was 66.5 MB of a 121 MB store, and
 nothing had aged out yet.
 
 **Before the install: take a read-only copy of the store.** Once it's installed, per-turn rows
-older than 30 lived days go, and only their counts stay (`events.rolled`); their ids and payload fields don't come
-back. The sheet carries the step (`docs/RELEASING.md` §5.1):
+older than 30 lived days go and only their day's summary stays (`events.rolled`): counts, the ids credited for
+use and the session refs, but not the rows, so a SQL read of the rows themselves (their payload fields, footnote
+ids, ratings by id) can't reach them. The sheet carries the step (`docs/RELEASING.md` §5.1):
 `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
 These reads run on that copy from then on: **MOD #3** ("`recall.decision` events since the .18 install", the
 "No settled-over memory outranks its head" section) and the **H14 replay** (ratings 10-26 to 10-31, "Due ~14 lived

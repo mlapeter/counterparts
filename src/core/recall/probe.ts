@@ -754,7 +754,9 @@ export function renderRatings(report: RatingReport): string[] {
 // `events.rolled` row (`core/event-rollup.ts`). The console reads those beside
 // the report over the rows still held, merged here: counts are summed by
 // calendar date and lane, and every ratio is recomputed from the sums. The
-// per-session list is not kept (it carries session ids). APPROXIMATE in one
+// per-session rows of the report are not kept (the summary's own `sessions`
+// keeps only the session refs, for "sessions seen"; a per-session table of
+// footnotes and expansions is more than the summary carries). APPROXIMATE in one
 // place, said so: a session whose rows straddle a rolled lived day and a held
 // one is counted on both sides, and a footnote expanded across that line is
 // not matched to its expansion.

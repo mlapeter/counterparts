@@ -14,10 +14,20 @@
  *   the filtered mechanisms `fired.ts` counts (`recall.decision#moodMatched`).
  *   `test/fd1-growth.test.ts` keeps the two lists in step.
  * - `used`: the memory ids `recall.credit` credited, with the lived days — the
- *   memory card's "days used". Ids of memories, as the rows themselves held;
- *   the owner's removal takes a removed id out (`owner-op-seam.ts`).
+ *   memory card's "days used". Ids of memories, as the rows themselves held.
+ *   Kept at any age, so a removed id never stays in one: the roll-up leaves
+ *   out every id on the deny-list when it writes (`denied`), and the owner's
+ *   removal takes the id out of summaries already written (`owner-op-seam.ts`).
+ *   A summary holds no memory's words, title or body.
+ * - The day's counts include the rows about a removed memory, as the log's
+ *   own counts did; a count is not about any one memory.
  * - `sessions`: the session refs the day's `recall.decision` rows named — the
- *   flow tab's "N sessions seen".
+ *   flow tab's "N sessions seen". A session id names a conversation, not a
+ *   memory: the owner's removal of a memory has nothing to take from it.
+ *
+ * NOT COUNTED, said: a per-turn row written later with a lived day already
+ * summarised (only a catch-up writing into the past could) is skipped by the
+ * all-time readers with the rest of that day's held rows, and goes uncounted.
  * - `probe` and `ratings`: `probe-oq4`'s two reports over the day's rows
  *   (`recall/probe.ts`), without the per-session list; the console merges them
  *   with the report over the rows still held (`mergeProbe`, `mergeRatings`).
@@ -93,7 +103,13 @@ function widen(m: Map<string, { n: number; firstAt: number; lastAt: number; firs
  * its `mcp.recall` rows (the ratings report reads them; they are not rolled
  * and keep their own window).
  */
-export function summarizeDay(day: number, rows: readonly RollupRow[], lookups: readonly RollupRow[] = []): RolledDay {
+export function summarizeDay(
+  day: number,
+  rows: readonly RollupRow[],
+  lookups: readonly RollupRow[] = [],
+  /** Ids the owner removed (or holds): never written into `used`, whatever the rows still say. */
+  denied: ReadonlySet<string> = new Set(),
+): RolledDay {
   const spans = new Map<string, { n: number; firstAt: number; lastAt: number; firstDate: string | null; lastDate: string | null }>();
   const positive = new Map<string, { n: number; firstAt: number; lastAt: number; firstDate: string | null; lastDate: string | null }>();
   const used = new Map<string, Set<number>>();
@@ -110,7 +126,7 @@ export function summarizeDay(day: number, rows: readonly RollupRow[], lookups: r
     if (r.name === "recall.credit" && Array.isArray(p["ids"])) {
       const d = typeof p["day"] === "number" ? p["day"] : r.day;
       for (const id of p["ids"] as unknown[]) {
-        if (typeof id !== "string") continue;
+        if (typeof id !== "string" || denied.has(id)) continue;
         const days = used.get(id) ?? new Set<number>();
         days.add(d);
         used.set(id, days);
