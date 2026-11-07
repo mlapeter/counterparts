@@ -22,5 +22,8 @@
 - Counted as two event names, no store-format change: `open.close-hint.shown` per entry
   that listed any (ids, ms) and `open.close-hint.closed` when a listed id is closed
   through `updates` within 7 lived days (`CLOSE_HINT_TUNABLES.CLOSE_WINDOW_DAYS`).
-- Measured on a hermetic store with 150 open items in three folders: about 1 ms per write
-  (p50 ~1.0 ms, max ~1.4 ms), one indexed read of open items' heads.
+- The cost, on the write path: a write whose headline names nothing done (nearly every
+  write) is checked on its own words and reads nothing. One that does reads every open
+  item's head once (one indexed query), then the parked and settled-over checks for the
+  few that matched. Measured on a hermetic store with 150 open items in three folders:
+  about 1 ms when it lists (p50 ~1.0-1.2 ms), about 0.5 ms when it matches nothing.

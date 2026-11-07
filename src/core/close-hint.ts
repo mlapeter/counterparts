@@ -123,6 +123,17 @@ function reaches(named: SubjectKeys, done: SubjectKeys): { key: string; gap: num
 }
 
 /**
+ * WHETHER A WRITE COULD LIST ANY, from the words as sent, before any store
+ * read: its headline says a version or a pull request was done. False for
+ * nearly every write, which then costs nothing. Pure.
+ */
+export function mayCloseSubject(title: unknown, text: unknown): boolean {
+  if (!CLOSE_HINT_TUNABLES.ON || typeof text !== "string") return false;
+  const head = headline({ title: typeof title === "string" ? title : null, body: text });
+  return subjectKeys(head, "done").versions.size > 0 || prKeys(head, "done").size > 0;
+}
+
+/**
  * The open items `entry` looks like it settles, nearest first, at most
  * `SHOWN`. Empty when nothing matches, the switch is off, or the entry is
  * personal or a plan. Reads only; never throws.

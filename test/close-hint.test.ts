@@ -28,7 +28,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { MAY_CLOSE_HINT } from "../src/adapters/mcp/server-words.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { recordSession } from "../src/adapters/sessions.js";
-import { CLOSE_HINT_CLOSED_EVENT, CLOSE_HINT_SHOWN_EVENT } from "../src/core/close-hint.js";
+import { CLOSE_HINT_CLOSED_EVENT, CLOSE_HINT_SHOWN_EVENT, closeHints } from "../src/core/close-hint.js";
 import { prKeys } from "../src/core/interference.js";
 
 const BASE = Date.parse("2026-09-01T12:00:00Z");
@@ -137,7 +137,7 @@ describe("2. an unrelated write lists nothing", () => {
     const r = await remember(b, { text: "The kiln class moved to Tuesdays in the north studio.", kind: "fact" });
     expect("mayClose" in r.result).toBe(false);
     expect("mayCloseHint" in r.result).toBe(false);
-    // A plan names the version but says nothing was done.
+    // Names the version, but no done verb beside it.
     const plan = await remember(b, { text: "Will publish 0.3.47 tomorrow.", kind: "fact" });
     expect("mayClose" in plan.result).toBe(false);
     expect(c.store.eventLog({ name: CLOSE_HINT_SHOWN_EVENT }).length).toBe(0);
@@ -204,7 +204,8 @@ describe("6. personal entries and plans", () => {
     await open(a, "0.3.46 ready to publish", { settlesWhen: "0.3.46 published" });
     const owner = await remember(b, { text: "0.3.47 published: Mike was glad it finally went out.", kind: "fact", about: "owner" });
     expect("mayClose" in owner.result).toBe(false);
-    const planned = await remember(b, { text: "0.3.47 published next week.", kind: "fact", status: "planned" });
+    // Text that would match on its own: only the status keeps it out.
+    const planned = await remember(b, { text: "0.3.47 published, planned for Friday's window.", kind: "fact", status: "planned" });
     expect("mayClose" in planned.result).toBe(false);
   });
 });
@@ -226,6 +227,15 @@ describe("7. the cost", () => {
       const last = c.store.eventLog({ name: CLOSE_HINT_SHOWN_EVENT, order: "desc", limit: 1 })[0];
       ms.push((JSON.parse(last?.payload ?? "{}") as { ms: number }).ms);
     }
+    // A done write that matches nothing pays the full read and lists nothing.
+    const none: number[] = [];
+    for (let k = 0; k < 5; k++) {
+      const t0 = performance.now();
+      closeHints(c.store, { id: "mem_none", title: null, body: `0.9.${String(k)} released elsewhere.`, about: null, status: null }, { day: c.store.livedDay(), carryDays: 14, glimpses: false });
+      none.push(performance.now() - t0);
+    }
+    none.sort((x, y) => x - y);
+    console.log(`close hint, done write matching nothing over 150 open items: p50 ${none[2]?.toFixed(2) ?? "?"} ms`);
     ms.sort((x, y) => x - y);
     console.log(`close hint over 150 open items: p50 ${String(ms[2])} ms, max ${String(ms[4])} ms`);
     expect(ms[2]).toBeLessThan(50);

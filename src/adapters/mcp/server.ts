@@ -55,7 +55,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
-import { closeHints, noteCloseHintsShown } from "../../core/close-hint.js";
+import { closeHints, mayCloseSubject, noteCloseHintsShown } from "../../core/close-hint.js";
 import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
@@ -1999,7 +1999,7 @@ export class McpServer {
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...this.slotOf(deposit),
       ...this.stillDatedNear(deposit, dated, facts.sent.status, [], session),
-      ...this.mayCloseOf(deposit, facts.sent.status, []),
+      ...this.mayCloseOf(deposit, { title: args["title"], text, status: facts.sent.status }, []),
       ...this.answersReminder(deposit, facts.sent, neighbours),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
@@ -2497,9 +2497,12 @@ export class McpServer {
    * note that only their answer closes it. Each entry that listed any is
    * counted (`noteCloseHintsShown`, with what the read cost). Empty when none.
    */
-  private mayCloseOf(deposit: DepositResult, sentStatus: unknown, siblings: readonly string[]): Record<string, unknown> {
+  private mayCloseOf(deposit: DepositResult, sent: { readonly title: unknown; readonly text: unknown; readonly status: unknown }, siblings: readonly string[]): Record<string, unknown> {
     if (!deposit.deposited || deposit.memoryId === null) return {};
     const started = performance.now();
+    // Nearly every write names nothing done: no store read at all for it.
+    if (!mayCloseSubject(sent.title, sent.text)) return {};
+    const sentStatus = sent.status;
     const row = this.counterpart.store.row(deposit.memoryId);
     if (row === undefined) return {};
     const exclude = [
