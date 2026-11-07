@@ -1920,17 +1920,17 @@ function countInto(
  * oldest date do.
  */
 function tallyRolled(byName: Map<string, NameTally>, day: RolledDay, w: Window, age: PassState): void {
-  const dateOf = (s: NameSpan, which: "first" | "last"): string =>
+  const spanDate = (s: NameSpan, which: "first" | "last"): string =>
     (which === "first" ? s.firstDate : s.lastDate) ?? localDate(which === "first" ? s.firstAt : s.lastAt, w.zone);
   for (const [name, span] of Object.entries(day.spans)) {
     if (typeof span?.n !== "number") continue;
-    const first = dateOf(span, "first");
+    const first = spanDate(span, "first");
     if (age.oldest === null || first < age.oldest) age.oldest = first;
-    countInto(byName, name, dateOf(span, "last"), w, span.n);
+    countInto(byName, name, spanDate(span, "last"), w, span.n);
   }
   for (const [key, span] of Object.entries(day.positive)) {
     if (typeof span?.n !== "number") continue;
-    countInto(byName, key, dateOf(span, "last"), w, span.n);
+    countInto(byName, key, spanDate(span, "last"), w, span.n);
   }
 }
 
