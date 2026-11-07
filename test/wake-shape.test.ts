@@ -1255,6 +1255,8 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     expect(coming2).toContain(`- Due today · Rfold gate hinge: bring the long ladder round to the east wall. [${n}]`);
     for (const id of [a, b]) expect(w2.wake).not.toContain(id);
     expect(w2.wake).not.toContain("Rfold ladder");
+    // Named in the other-folders count, never its words.
+    expect(w2.wake).not.toContain("Rfold bakery oven: bring the long ladder");
     // The new one is told above the wake and to the person; the folded ones aren't told again.
     expect(w2.person).toContain("Rfold gate hinge");
     expect(w2.person).not.toContain("Rfold ladder");

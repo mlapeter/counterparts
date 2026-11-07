@@ -109,6 +109,8 @@ export const PROSPECTIVE_PLAIN_CROSSED_EVENT = "prospective.plain.crossed";
 export const PLAIN_CROSS_AFTER_LIVED_DAYS = 2;
 /** How long after its last day an unsaid reminder may still cross; past it, it is gone (and doctor's to count). */
 export const PLAIN_CROSS_LOOKBACK_DAYS = 30;
+/** How far before the lookback a range may start and still be read (the dated read's floor). */
+export const PLAIN_CROSS_RANGE_REACH_DAYS = 92;
 
 /**
  * PLAIN OR QUIET (owner decision 2026-09-25/26, a working default). The author
@@ -835,44 +837,6 @@ export class Prospective {
   // ── plain items: the one exception to "a cue, not a command" ──────────────
 
   /**
-   * PLAIN items due to be told today, not yet told (owner decision 2026-09-25/26,
-   * a working default — CONTRACT §3 names it as the deliberate exception to "no
-   * bypass lane"). A person who said "don't let me forget to pay taxes before Oct
-   * 15th!" asked to be told, and a footnote the model may or may not raise is not
-   * telling them.
-   *
-   * SPARING, by construction — at most two beats per window, each once ever:
-   *
-   *   - a DAY item on its day (`day`);
-   *   - a MONTH or RANGE item the first day it is open and seen (`opens`), and
-   *     again on the last day it names (`last-day`) — the deadline end of
-   *     "before the 15th". Seen first ON its last day, it gets that beat only.
-   *
-   * Only the stated span counts — no lead days: "on the day" is what was
-   * asked. A YEAR has no day it could mean, so it is never told (the same
-   * structural exclusion as a window, §12 G3).
-   *
-   * ONE LATE BEAT, AND ONLY FOR A DAY (2026-10-11, review 07 C4; decided by
-   * the group-5 builder, lightly held). A day item whose day passed with
-   * nothing told — no session that day, or none with room for the line — is
-   * told once at the first session inside its grace (`GRACE_DAYS`; for a
-   * repeat, its occurrence's own grace), marked `late` so the host says which
-   * day it was for. It shares the day's latch, so it is never told twice, and
-   * after the grace it is never told at all. A memory written after its day
-   * was never missed, so it gets no late beat (nor one with no written date:
-   * fail closed, §12 G3). A month or a range keeps its two beats and no late
-   * one: its span already gave it two chances.
-   *
-   * It does NOT run the eligibility predicate. The salience floor is the tact
-   * principle's gate on UNASKED surfacing; this is asked-for, and an ordinary
-   * note sits at the authored default (0.25) under a 0.6 floor, so gating here
-   * would make a plain reminder dead for most notes. What still refuses: an
-   * archived, superseded, removed or journal row, and an observer.
-   *
-   * A read — `claimPlain` is the write, and the caller shows a line only for a
-   * claim that landed. Records only; the words are the adapter's.
-   */
-  /**
    * PLAIN REMINDERS WHOSE WINDOW CLOSED UNSAID (SO1 step 3 fix round): one-off
    * dated rows (not repeating), marked plain, whose last day is before `at` and no
    * more than `PLAIN_CROSS_LOOKBACK_DAYS` behind it, written by their last day, with
@@ -882,14 +846,30 @@ export class Prospective {
   plainUnsaid(input: { at: string }): PlainDue[] {
     if (this.observer || !isDay(input.at)) return [];
     const at = input.at;
+    const from = addDays(at, -PLAIN_CROSS_LOOKBACK_DAYS);
     const out: PlainDue[] = [];
     try {
-      const denied = new Set(this.store.deniedIds());
-      const repeating = new Set(this.store.recurringMemories().map((r) => r.id));
-      for (const d of this.store.datedMemories(addDays(at, -PLAIN_CROSS_LOOKBACK_DAYS), addDays(at, -1))) {
-        if (denied.has(d.id) || repeating.has(d.id)) continue;
+      // Bounded (round 3 of #780): only dates that can still be in the lookback —
+      // a range may start before it, so the floor sits a season earlier.
+      const dated = this.store.datedMemories(from, addDays(at, -1), { since: addDays(from, -PLAIN_CROSS_RANGE_REACH_DAYS).slice(0, 7) });
+      if (dated.length === 0) return out;
+      let denied: ReadonlySet<string> | null = null;
+      let repeating: ReadonlySet<string> | null = null;
+      for (const d of dated) {
+        // The date alone first: most rows end here, with no read.
+        const precision = precisionOf(d.eventDate);
+        if (precision === null || precision === "year") continue;
+        const w = windowFor(d.eventDate, precision, this.tunables, d.id);
+        if (w === null || w.lastDay >= at || w.lastDay < from) continue;
         const row = this.store.row(d.id);
         if (row === undefined || row.superseded_by !== null || row.archived === 1) continue;
+        if (!(row.meta ?? "").includes('"plain"')) continue;
+        denied ??= new Set(this.store.deniedIds());
+        repeating ??= new Set(this.store.recurringMemories().map((r) => r.id));
+        if (denied.has(d.id) || repeating.has(d.id)) continue;
+        if ((["day", "opens", "last-day"] as const).some((beat) => this.plainTold(d.id, w.key, beat))) continue;
+        if (this.plainCrossed(d.id, w.key)) continue;
+        if (this.firingRowsFor(d.id).get(w.key)?.state === "suppressed") continue;
         let doc: ProseDoc;
         try {
           doc = this.store.read(d.id).doc;
@@ -897,15 +877,8 @@ export class Prospective {
           continue;
         }
         if (doc.type === "episode" || cueModeOf(doc) !== "plain") continue;
-        const precision = precisionOf(d.eventDate);
-        if (precision === null || precision === "year") continue;
-        const w = windowFor(d.eventDate, precision, this.tunables, d.id);
-        if (w === null || w.lastDay >= at || w.lastDay < addDays(at, -PLAIN_CROSS_LOOKBACK_DAYS)) continue;
         const written = doc.learnedOn.slice(0, 10);
         if (!isDay(written) || written > w.lastDay) continue;
-        if (this.firingRowsFor(d.id).get(w.key)?.state === "suppressed") continue;
-        if ((["day", "opens", "last-day"] as const).some((beat) => this.plainTold(d.id, w.key, beat))) continue;
-        if (this.plainCrossed(d.id, w.key)) continue;
         const beat: PlainBeat = w.precision === "day" ? "day" : "last-day";
         out.push({ memoryId: d.id, windowKey: w.key, eventDate: w.eventDate, precision: w.precision, beat, firstDay: w.firstDay, lastDay: w.lastDay, late: true });
       }
@@ -948,6 +921,44 @@ export class Prospective {
     }
   }
 
+  /**
+   * PLAIN items due to be told today, not yet told (owner decision 2026-09-25/26,
+   * a working default — CONTRACT §3 names it as the deliberate exception to "no
+   * bypass lane"). A person who said "don't let me forget to pay taxes before Oct
+   * 15th!" asked to be told, and a footnote the model may or may not raise is not
+   * telling them.
+   *
+   * SPARING, by construction — at most two beats per window, each once ever:
+   *
+   *   - a DAY item on its day (`day`);
+   *   - a MONTH or RANGE item the first day it is open and seen (`opens`), and
+   *     again on the last day it names (`last-day`) — the deadline end of
+   *     "before the 15th". Seen first ON its last day, it gets that beat only.
+   *
+   * Only the stated span counts — no lead days: "on the day" is what was
+   * asked. A YEAR has no day it could mean, so it is never told (the same
+   * structural exclusion as a window, §12 G3).
+   *
+   * ONE LATE BEAT, AND ONLY FOR A DAY (2026-10-11, review 07 C4; decided by
+   * the group-5 builder, lightly held). A day item whose day passed with
+   * nothing told — no session that day, or none with room for the line — is
+   * told once at the first session inside its grace (`GRACE_DAYS`; for a
+   * repeat, its occurrence's own grace), marked `late` so the host says which
+   * day it was for. It shares the day's latch, so it is never told twice, and
+   * after the grace it is never told at all. A memory written after its day
+   * was never missed, so it gets no late beat (nor one with no written date:
+   * fail closed, §12 G3). A month or a range keeps its two beats and no late
+   * one: its span already gave it two chances.
+   *
+   * It does NOT run the eligibility predicate. The salience floor is the tact
+   * principle's gate on UNASKED surfacing; this is asked-for, and an ordinary
+   * note sits at the authored default (0.25) under a 0.6 floor, so gating here
+   * would make a plain reminder dead for most notes. What still refuses: an
+   * archived, superseded, removed or journal row, and an observer.
+   *
+   * A read — `claimPlain` is the write, and the caller shows a line only for a
+   * claim that landed. Records only; the words are the adapter's.
+   */
   plainDue(input: { at: string }): PlainDue[] {
     if (this.observer || !isDay(input.at)) return [];
     const at = input.at;
@@ -1005,6 +1016,8 @@ export class Prospective {
         const written = doc.learnedOn.slice(0, 10);
         if (w.precision !== "day" || at <= w.lastDay || at > (dated.lateUntil as string)) continue;
         if (!isDay(written) || written > w.eventDate) continue;
+        // Already crossed to another folder (SO1 step 3): said once, overall.
+        if (this.plainCrossed(id, w.key)) continue;
       } else if (at < w.firstDay || at > w.lastDay) continue;
       const beat: PlainBeat =
         w.precision === "day" ? "day" : at === w.lastDay ? "last-day" : "opens";

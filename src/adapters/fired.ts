@@ -75,6 +75,8 @@ import { rowToPhysics } from "../core/store/index.js";
 import { emotionalIntensity } from "../core/physics/index.js";
 import { reminderHeldBack } from "../core/dream/slices.js";
 import { PLAIN_CROSS_AFTER_LIVED_DAYS, PROSPECTIVE_PLAIN_CROSSED_EVENT } from "../core/prospective/index.js";
+import { readPresence } from "./presence.js";
+import type { Presence } from "./presence.js";
 import { projectFolder, threadPlace } from "../core/self/work.js";
 import type { Kind } from "../core/types.js";
 import type { FolderOn } from "../core/dream/slices.js";
@@ -2110,8 +2112,10 @@ function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Windo
  * clause ("due while its folder had no session"), counted in neither number. It
  * crosses once `PLAIN_CROSS_AFTER_LIVED_DAYS` lived days have passed its last day
  * (`prospective.plain.crossed`), which reads as said; still unsaid once a session
- * ran on the day it should have crossed, it is a miss. A presence row naming no
- * session could have been its folder's, so it counts as one (the old reading).
+ * ran on the day it should have crossed, it is a miss. Both read the session
+ * starts' presence rows (`presence.ts#readPresence`), as the crossing does; a row
+ * that names no folder (written before the field) could have been its folder's,
+ * so it counts as one.
  */
 function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: FolderOn): OccasionReading {
   const lastDay = daysBefore(w.to, 1);
@@ -2124,8 +2128,8 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
   let missed = 0;
   let held = 0;
   let homeless = 0;
-  // The folders each present day's people sessions were in ("" for a row naming no session).
-  let folders: ReadonlyMap<string, ReadonlySet<string>> | null = null;
+  // When a person was there and in which folder: the presence rows the crossing reads too (`presence.ts`).
+  let wakes: Presence | null = null;
   for (const dated of store.datedMemories(w.from, lastDay)) {
     if (denied.has(dated.id)) continue;
     const row = store.row(dated.id);
@@ -2172,13 +2176,16 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
     const home = row.origin_scope === null ? "" : projectFolder(row.origin_scope);
     const waits = home.length > 0 && threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal: false }, new Set()) === "out";
     if (untold && waits) {
-      folders ??= presentFolders(store, log);
+      wakes ??= readPresence(store, w.from, w.to);
+      const seen = wakes;
       const spanDays: string[] = [];
       for (let day = span.first > w.from ? span.first : w.from; day <= lastDay && day <= span.last; day = addDays(day, 1)) spanDays.push(day);
-      const atHome = spanDays.some((d) => [...(folders?.get(d) ?? [])].some((f) => f === "" || f === home));
+      // A row naming no folder (one written before the field), or a day a person was there with no
+      // session start that day (a session carried past midnight), could have been its folder's.
+      const atHome = spanDays.some((d) => (present?.has(d) === true && !seen.folders.has(d)) || [...(seen.folders.get(d) ?? [])].some((f) => f === "" || f === home));
       if (!atHome) {
         // Lived days past its last day, up to yesterday: the day it should have crossed has come and gone?
-        const after = [...(present?.keys() ?? [])].filter((d) => d > span.last && d <= lastDay).length;
+        const after = [...seen.lived].filter((d) => d > span.last && d <= lastDay).length;
         if (after < PLAIN_CROSS_AFTER_LIVED_DAYS) {
           homeless += 1;
           continue;
@@ -2205,29 +2212,6 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
   };
 }
 
-/** Each present day's people sessions, by the folder each was in (`projectFolder`), "" for a row naming no session or one the registry can't place. */
-function presentFolders(store: ReadOnlyStore, log: LogRead): Map<string, Set<string>> {
-  const out = new Map<string, Set<string>>();
-  const where = new Map<string, string>();
-  for (const p of log.presence) {
-    if (p.session !== null && log.attended.get(p.session) === false) continue;
-    let f = "";
-    if (p.session !== null) {
-      const known = where.get(p.session);
-      if (known !== undefined) f = known;
-      else {
-        const r = readSession(store.dir, p.session);
-        if (r !== null && r !== undefined && r.entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(r.entrypoint)) continue;
-        f = r?.scope === undefined ? "" : projectFolder(r.scope);
-        where.set(p.session, f);
-      }
-    }
-    let set = out.get(p.date);
-    if (set === undefined) out.set(p.date, (set = new Set()));
-    set.add(f);
-  }
-  return out;
-}
 
 /**
  * THE DAYS A PERSON COULD HAVE BEEN TOLD SOMETHING, each with its newest such

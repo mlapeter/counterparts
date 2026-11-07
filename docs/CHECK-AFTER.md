@@ -2531,7 +2531,7 @@ folder). Crossings: `prospective.plain.crossed` rows per day (each a work remind
 folder had no session, told once elsewhere with its folder named), and whether each was a real deadline Mike wanted
 to hear about. Doctor: "due while its folder had no session" is info; "due where a session could say it, and not
 said" (amber) should only follow a crossing that didn't happen. And in claude.ai chats: only personal plain
-reminders told.
+reminders told. Cost: `bun tools/bench/plain-cross.ts` on a snapshot copy; a prompt runs no crossing read.
 
 **What would change it:** a personal item Mike wanted that stayed home (mark it owner), or a work reminder he needed in
 a folder it wasn't written in (join the folders as one project, or widen the rule). Crossings that are noise (stale

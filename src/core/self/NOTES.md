@@ -3076,6 +3076,8 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   as "shown earlier" for a folder's work only when it was in that folder. A work reminder unsaid because its folder
   had no session crosses once, two lived days past its last day (`Counterpart#plainCrossing`, its own latch).
   "In other folders" names up to two plain titles when the line has room. Doctor: info, not amber, until the
-  crossing day has passed unsaid.
+  crossing day has passed unsaid. Round 3: the crossing reads only at a session start (or an attended wake tool),
+  memoised per day, from the session starts' presence rows (`adapters/presence.ts`), which doctor reads too; checks
+  never cross, and a crossed one gets no late beat at home. Bench: `bun tools/bench/plain-cross.ts`.
 - **Not built:** the four classes as code (mine, Mike's, world's, personal). Steps 1-2 need only personal against the
   rest, which `threadPlace` already says. The mapping is in the PR and the decisions fragment, for step 4.

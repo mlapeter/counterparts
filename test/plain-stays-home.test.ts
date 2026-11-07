@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import { run } from "../src/adapters/cli/commands.js";
 import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
-import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
+import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -221,56 +221,108 @@ describe("SO1 step 3 fix round: a chat with no folder is told only personal remi
   });
 });
 
+/** A person's session start on `date` in `folder`, as the log's presence row (`adapter.wake.injected`) says it. */
+function startedOn(c: Counterpart, date: string, session: string, folder: string, interactive = true): void {
+  c.store.appendEvent({ name: "adapter.wake.injected", day: c.store.livedDay(), payload: { date, session, interactive, folder } });
+}
+
 describe("SO1 step 3 fix round: a work reminder unsaid in its silent folder crosses once", () => {
-  test("two lived days past its day: told once in the bakery with its folder named; not in a headless session; not again, anywhere", () => {
+  test("two lived days past its day: not at a prompt, not headless; told once at the bakery's start with its folder named; not again anywhere; no late beat at home after", () => {
     const { c, today } = brain();
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
     const id = memory(c, "Hcross: send the seed invoice to the allotment board.", { title: "Hcross invoice", scope: GARDEN, eventDate: addDays(today, -3), learnedOn: addDays(today, -9), meta: { remind: "plain" } });
     // Too soon: due yesterday, one lived day (today) past it.
     const soon = memory(c, "Hsoon: oil the gate.", { title: "Hsoon gate", scope: GARDEN, eventDate: addDays(today, -1), learnedOn: addDays(today, -9), meta: { remind: "plain" } });
+    // One of my own checks: waits for its folder.
+    const check = memory(c, "Check due ~: the wake's room after the trims.", { title: "Check due ~ the wake's room", scope: GARDEN, eventDate: addDays(today, -3), learnedOn: addDays(today, -9), meta: { remind: "plain" } });
+    // The person started a session in the bakery two days ago (the presence row); the garden had none.
+    startedOn(c, addDays(today, -2), S(10), BAKERY);
     c.close();
-    // The person was in the bakery two days ago; the garden had no session at all.
-    recordSession(storeDir, { sessionId: S(10), scope: BAKERY, phase: "start", at: Date.now() - 2 * DAY });
 
+    const prompt = hook(S(1), BAKERY, "UserPromptSubmit");
+    expect(prompt.model).not.toContain("Hcross");
+    expect(prompt.person).not.toContain("Hcross");
     const headless = hook(S(1), BAKERY, "SessionStart", "sdk-cli");
     expect(headless.model).not.toContain("Hcross");
     expect(crossed(id)).toBe(0);
 
     const b = hook(S(2), BAKERY);
     expect(b.person).toContain("garden: Hcross invoice, due ");
-    expect(b.above).toContain("garden: Hcross invoice, due ");
+    expect(b.person).toContain("(not said yet: no session there while it was due)");
     expect(b.above).toContain(`[${id}]`);
     expect(b.person).not.toContain("Hsoon");
-    expect(crossed(id)).toBe(1);
-    expect(crossed(soon)).toBe(0);
+    expect(b.person).not.toContain("Check due");
+    expect([crossed(id), crossed(soon), crossed(check)]).toEqual([1, 0, 0]);
     // A crossing is no telling on its day: the beat latch stays unwritten.
     expect(latches(id)).toBe(0);
 
-    // Once, across every folder.
+    // Once, across every folder; and its own folder's late beat (inside its grace) doesn't say it again.
     expect(hook(S(3), BAKERY).person).not.toContain("Hcross");
     expect(hook(S(4), SHED).person).not.toContain("Hcross");
-    expect(crossed(id)).toBe(1);
+    const home = hook(S(5), GARDEN);
+    expect(home.person).not.toContain("Hcross");
+    expect(home.above).not.toContain("Hcross");
+    // The check, in its own folder, is told there as its late beat.
+    expect(home.person).toContain("Check due ~ the wake's room");
+    expect([crossed(id), latches(id)]).toEqual([1, 0]);
 
     // And the next day: nothing left to cross.
     const next = brain();
-    next.at(Date.now() + DAY);
-    expect(next.c.plainCrossing({ at: addDays(today, 1), livedSince: () => 9 }).map((r) => r.memoryId)).not.toContain(id);
+    next.at(Date.now() + 86_400_000);
+    expect(next.c.plainCrossing({ at: addDays(today, 1), lived: () => new Set([addDays(today, -2), today]) }).map((r) => r.memoryId)).not.toContain(id);
+  });
+
+  test("lived days are the log's presence rows: a registry record with no session-start row doesn't count, an unattended start doesn't either", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const id = memory(c, "Hlived: renew the allotment lease.", { title: "Hlived lease", scope: GARDEN, eventDate: addDays(today, -3), learnedOn: addDays(today, -9), meta: { remind: "plain" } });
+    startedOn(c, addDays(today, -2), S(11), BAKERY, false);
+    c.close();
+    recordSession(storeDir, { sessionId: S(12), scope: BAKERY, phase: "start", at: Date.now() - 2 * DAY });
+    expect(hook(S(2), BAKERY).person).not.toContain("Hlived");
+    expect(crossed(id)).toBe(0);
+    const again = brain();
+    startedOn(again.c, addDays(today, -2), S(13), BAKERY);
+    again.c.close();
+    expect(hook(S(3), BAKERY).person).toContain("garden: Hlived lease, due ");
+    expect(crossed(id)).toBe(1);
+  });
+
+  test("a wake tool call crosses only when the host says a person is there, and never into a chat with no folder", async () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
+    const id = memory(c, "Htool: file the water-rate form.", { title: "Htool form", scope: GARDEN, eventDate: addDays(today, -3), learnedOn: addDays(today, -9), meta: { remind: "plain" } });
+    startedOn(c, addDays(today, -2), S(14), BAKERY);
+    const config = { injectionBudgetBytes: BUDGET };
+    const wake = async (o: { scope?: string; attended?: boolean; host?: string }): Promise<string> => {
+      const s = new McpServer({ counterpart: c, ...(o.host === undefined ? {} : { host: o.host }), ...(o.scope === undefined ? {} : { scope: o.scope }), registryDir: storeDir, env: o.attended === true ? { CLAUDE_CODE_SESSION_ATTENDED: "1" } : {}, lifecycle: { spawner: () => ({ pid: 1 }), config }, manifestVersion: () => null } as never);
+      return JSON.stringify((await s.call("wake", {})).structuredContent);
+    };
+    // A routine's wake in the bakery, nobody said to be there: not claimed.
+    const routine = await wake({ host: DESKTOP_HOST, scope: BAKERY });
+    expect(routine).toContain("counterparts:wake ");
+    expect(routine).not.toContain("garden: Htool");
+    expect(crossed(id)).toBe(0);
+    // claude.ai, attended, with no folder: rule (a), not there either.
+    expect(await wake({ host: CLAUDE_AI_HOST, attended: true })).not.toContain("Htool");
+    expect(crossed(id)).toBe(0);
+    // Attended, in a folder: crosses.
+    expect(await wake({ host: DESKTOP_HOST, scope: BAKERY, attended: true })).toContain("garden: Htool form, due ");
+    expect(crossed(id)).toBe(1);
   });
 
   test("a month item crosses past its last day; a personal one never does (it was told wherever a session ran)", () => {
     const { c } = brain();
     // Pinned: `plainCrossing` reads the day it is asked about, not the clock.
     const today = "2026-11-07";
-    const lastDay = "2026-10-31";
     const lastMonth = "2026-10";
     const id = memory(c, "Hmonth: un-pause the crons.", { title: "Hmonth crons", scope: GARDEN, eventDate: lastMonth, learnedOn: `${lastMonth}-01`, meta: { remind: "plain" } });
     const mine = memory(c, "Hmine: renew the library card.", { title: "Hmine card", scope: GARDEN, about: "owner", eventDate: lastMonth, learnedOn: `${lastMonth}-01`, meta: { remind: "plain" } });
-    const lived = (d: string): number => (d === lastDay ? 2 : 0);
-    const out = c.plainCrossing({ at: today, livedSince: lived });
+    const out = c.plainCrossing({ at: today, lived: () => new Set(["2026-11-01"]) });
     expect(out.find((r) => r.memoryId === id)?.crossFrom).toBe("garden");
     expect(out.map((r) => r.memoryId)).not.toContain(mine);
-    // One lived day past it: not yet.
-    expect(c.plainCrossing({ at: today, livedSince: () => 1 }).map((r) => r.memoryId)).not.toContain(id);
+    // One lived day past it (today alone): not yet.
+    expect(c.plainCrossing({ at: today, lived: () => new Set() }).map((r) => r.memoryId)).not.toContain(id);
   });
 });
 
@@ -282,9 +334,9 @@ describe("SO1 step 3 fix round: doctor reads a silent folder as info, a missed c
     await run(["doctor", `--config=${config}`], { io: { out: (l) => out.push(l), err: () => undefined }, env: { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, home: join(root, "home") });
     return out.join("\n");
   }
-  /** A person's session in the bakery on `date`, as the log's presence reads it. */
+  /** A person's session in the bakery on `date`: its start's presence row and a prompt's. */
   function bakeryOn(c: Counterpart, date: string, n: number): void {
-    recordSession(storeDir, { sessionId: S(n), scope: BAKERY, phase: "start", at: Date.parse(`${date}T12:00:00Z`) });
+    startedOn(c, date, S(n), BAKERY);
     c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { date, reason: "rendered", session: S(n) } });
   }
   function seeded(now: number): { c: Counterpart; at(t: number): void; today: string } {
@@ -321,7 +373,7 @@ describe("SO1 step 3 fix round: doctor reads a silent folder as info, a missed c
     const missed = await doctor();
     expect(missed).toContain("1 plain reminder was due where a session could say it, and not said");
     expect(missed).toContain("did not fire");
-    const r = c.plainCrossing({ at: today, livedSince: () => 3 }).find((x) => x.memoryId === late);
+    const r = c.plainCrossing({ at: today, lived: () => new Set([addDays(today, -3), addDays(today, -2)]) }).find((x) => x.memoryId === late);
     expect(r).toBeDefined();
     expect(c.claimPlainReminder(r as NonNullable<typeof r>, { at: today })).toBe(true);
     c.close();

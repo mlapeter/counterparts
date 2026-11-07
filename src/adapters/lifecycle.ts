@@ -69,6 +69,9 @@ import { calendarDate } from "../core/self/index.js";
 import { ONE_TAG, markerFields, storeMarker } from "./store-id.js";
 import { ahaDue, ahaLine, markAha, meetPending, meetState, noteOffered, offerDue, offerLine, onboardingMarker, settleOffer } from "../core/onboarding.js";
 import { localClock, localDate, readableDate } from "../core/time.js";
+import { PLAIN_CROSS_LOOKBACK_DAYS } from "../core/prospective/index.js";
+import { crossingWindow, readPresence } from "./presence.js";
+import { isDirectoryScope } from "../core/self/work.js";
 
 import { CONFIG_FILE_EVENT } from "./config-path.js";
 import { capabilities, TUNABLES } from "./config.js";
@@ -960,7 +963,7 @@ export class Lifecycle implements HostLifecycle {
    * no configuration named every folder is on, and one that won't read closes
    * every folder (`writeUpFolders`). Never throws.
    */
-  plainFor(input: SessionInput): PlainLines {
+  plainFor(input: SessionInput, opts: { readonly cross?: boolean } = {}): PlainLines {
     const none = { context: "", notices: [], due: [] };
     if (input.at === undefined || input.nightRun === true) return none;
     try {
@@ -972,8 +975,20 @@ export class Lifecycle implements HostLifecycle {
         return read.on;
       };
       const today = this.counterpart.plainDueToday({ at: input.at, scope: input.scope, folders });
-      // Another folder's work that went unsaid crosses once (SO1 step 3 fix round, `Counterpart#plainCrossing`).
-      const crossing = this.counterpart.plainCrossing({ at: input.at, livedSince: (day) => this.livedDaysSince(day, input.at as string) });
+      // Another folder's work that went unsaid crosses once (SO1 step 3 fix round, `Counterpart#plainCrossing`):
+      // only where the caller says a person is starting (a session start, a wake the host says is attended),
+      // never per prompt (round 3: its cost), and never into a reader with no folder (rule a).
+      const at = input.at;
+      const crossing =
+        opts.cross === true && isDirectoryScope(input.scope)
+          ? this.counterpart.plainCrossing({
+              at,
+              lived: () => {
+                const w = crossingWindow(at, PLAIN_CROSS_LOOKBACK_DAYS);
+                return readPresence(this.counterpart.store, w.from, w.to).lived;
+              },
+            })
+          : [];
       if (today.length === 0 && crossing.length === 0) return none;
       const on = folders();
       const closed = on === undefined ? new Set<string>() : this.counterpart.plainHeldBack([...today, ...crossing].map((r) => r.memoryId), on, input.scope);
@@ -993,29 +1008,6 @@ export class Lifecycle implements HostLifecycle {
     } catch {
       return none;
     }
-  }
-
-  /**
-   * LIVED DAYS SINCE `day` (SO1 step 3 fix round): the calendar days after it, up
-   * to and including `at`, on which a person had a session — the registry's
-   * sessions with a person's entrypoint (a headless run and the night's runner
-   * aren't one), by the day each started and last spoke, in the store's zone.
-   * `at` counts: this delivery is a person's (`plainFor`'s callers ask only then).
-   * Never throws: a registry that won't read counts `at` alone.
-   */
-  private livedDaysSince(day: string, at: string): number {
-    const days = new Set<string>([at]);
-    try {
-      const zone = this.counterpart.store.zone();
-      for (const r of listSessions(this.counterpart.store.dir)) {
-        if (r.sessionId.startsWith(NIGHT_RUNNER_PREFIX)) continue;
-        if (r.entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(r.entrypoint)) continue;
-        for (const t of [r.startedAt, r.lastBoundaryAt]) if (t > 0) days.add(localDate(t, zone));
-      }
-    } catch {
-      /* `at` alone */
-    }
-    return [...days].filter((d) => d > day && d <= at).length;
   }
 
   /**
@@ -2184,7 +2176,7 @@ export function plainLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay
   const max = TUNABLES.PLAIN_WHAT_MAX_CHARS;
   const what = r.what.length <= max ? r.what : `${r.what.slice(0, max - 1).trimEnd()}…`;
   // Crossed from its folder, unsaid there (SO1 step 3 fix round): the folder named, and when it was due.
-  if (r.crossFrom !== undefined) return `${r.crossFrom}: ${what}, due ${r.precision === "day" ? readableDate(r.lastDay) : `by ${readableDate(r.lastDay)}`} (not said there: no session in that folder)`;
+  if (r.crossFrom !== undefined) return `${r.crossFrom}: ${what}, due ${r.precision === "day" ? readableDate(r.lastDay) : `by ${readableDate(r.lastDay)}`} (not said yet: no session there while it was due)`;
   if (r.late === true) return `This was for ${readableDate(r.lastDay)}: ${what}`;
   if (r.beat === "day") return `Today: ${what}`;
   if (r.beat === "last-day") return `Last day today: ${what}`;

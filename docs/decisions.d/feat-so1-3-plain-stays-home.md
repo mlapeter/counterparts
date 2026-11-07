@@ -16,8 +16,16 @@
   folder had no session crosses ONCE, in the next session a person is in, 2 lived days past its last day, with its
   folder named. Live cases it covers: deadfront's 11-16 founder note (no writes there since 10-09), hearddd-v2's
   2027-03 month item, sitting-duck's 2027-03-01..10 range. Builder's calls, lightly held:
-  - a lived day is a calendar day a person had a session, from the host's registry (headless entrypoints and the
-    night's runner don't count), today included;
+  - a lived day is a calendar day a person's session start wrote its presence row (`adapter.wake.injected`,
+    interactive), today included. Round 3, the roadmap's ruling: one source for the crossing and doctor, not the
+    session registry, which prunes a week after a session ends. The wake row now also names its folder (a JSON
+    field, no store-format change), so doctor's "was its folder there" stops reading the registry;
+  - it runs only at a person's session start, or a wake tool call the host says a person is at, in a folder; never
+    per prompt (round 3: it cost ~8.7 ms a prompt on Mike's store), never into a chat with no folder. A day with
+    nothing unsaid is memoised in meta (`prospective.cross.none`), and the dated read is bounded to the lookback;
+  - once crossed, its own folder's late beat doesn't say it again;
+  - my own checks (CHECK-AFTER, "Check due", "Check ~", "Experiment check" in the title or settles-when) never
+    cross: they wait for their folder;
   - its latch is its own row, `prospective.plain.crossed`, not a beat, so the fold and the beat readers don't treat
     it as told on its day;
   - a late beat told in its own folder is the telling (no crossing beside it);
