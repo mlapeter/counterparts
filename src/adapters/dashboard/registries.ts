@@ -19,6 +19,8 @@
  *     array so this workaround can be deleted.
  *   - `PHASES` is `sleep/`'s own exported tuple, imported, never restated.
  */
+import { LOG_SWEEP_EVENT } from "../../core/sleep/log.js";
+import { EVENTS_ROLLED_EVENT } from "../../core/store/operational.js";
 import { TUNABLES as PHYSICS } from "../../core/physics/index.js";
 import type { PromotionCrossing, PruneRecord } from "../../core/physics/index.js";
 import { PHASES } from "../../core/sleep/index.js";
@@ -184,6 +186,8 @@ export type DurableEventName =
   | typeof SWEEP_WAKE_EVENT
   | typeof SLEEP_CYCLE_EVENT
   | typeof SLEEP_CYCLE_HELD_EVENT
+  | typeof LOG_SWEEP_EVENT
+  | typeof EVENTS_ROLLED_EVENT
   | typeof SELF_BRIEFING_EVENT
   | typeof SELF_PAGE_REVISED_EVENT
   | typeof SELF_PAGE_REFUSED_EVENT
@@ -318,6 +322,9 @@ export const DURABLE_EVENTS = {
   // cycle run today, did every phase succeed, what did the wake trim" could not
   // be answered from the store at all.
   "sleep.cycle": "the consolidation cycle ran (every phase by name, with its status, and the run's counts)",
+  // FD1 step 2 (2026-11-07): the log sweep's own record, and its daily roll-up.
+  "sleep.log.swept": "the nightly log sweep deleted event rows past their window (how many, how many wait, the days it rolled up)",
+  "events.rolled": "one lived day's per-turn rows summed before the sweep let them go: counts by name, the memories credited for use and the sessions (no memory's words), kept",
   "sleep.cycle.held": "a boundary's cycle stood aside for another holding the store, at the start (its flush ran, no phase did) or part-way when its lease was taken over (the holder's pid, how long it had held)",
   "self.briefing": "the wake briefing was re-rendered (what rendered per lane, which ids each kept, how many the trim dropped and, but for a refresh, which)",
   // The page's two (2026-09-18, S1). The refusal has a row of its own because a

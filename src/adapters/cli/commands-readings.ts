@@ -4,7 +4,7 @@ import { isDay, localDate, localTime, resolveZone, todayIn } from "../../core/ti
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { BOUNDARY_EVENT, MCP_RECALL_EVENT, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT, RECALL_RATED_EVENT } from "../../core/counterpart.js";
-import { PROBE_ROW_CEILING, probeOQ4, probeRatings, renderProbe, renderRatings } from "../../core/recall/probe.js";
+import { PROBE_ROW_CEILING, mergeProbe, mergeRatings, probeOQ4, probeRatings, renderProbe, renderRatings } from "../../core/recall/probe.js";
 // `band` is imported rather than mirrored: the dashboard computes the live
 // band with this exact function, and two implementations of "which band is this
 // row in today" is how the two surfaces disagreed in the first place.
@@ -17,6 +17,7 @@ import { isJournal } from "../../core/sleep/index.js";
 // `export.ts` make, and filed as INTERFACE-GAPS §5. `verify`'s census needs the
 // number of vectors box 3 holds, and `Store` exposes no read for it.
 import { journalModeOf } from "../../core/store/db.js";
+import type { EventRow } from "../../core/store/index.js";
 import {
   LAYOUT,
   REQUIRE_EXPLICIT_DIR_ENV,
@@ -117,17 +118,25 @@ export function probeCommand(dir: string, io: Io, namedDir: boolean): number {
     // Explicit ceiling, read NEWEST first and turned back to oldest first: an
     // ascending read with a limit drops the newest rows — the side of the
     // table the probe exists to read.
+    // THE DAILY SUMMARIES (FD1 step 2, roadmap ruling R2): the per-turn rows
+    // the sweep let go were read by these same two reports before they went,
+    // and those reports are merged with the ones over the rows still held. A
+    // rolled day's rows still held are in its summary, so they are skipped.
+    const rolled = store.rolledDays();
+    const held = (r: EventRow): boolean => !rolled.days.has(r.day);
     const decisions = store.eventLog({ name: RECALL_DECISION_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse();
     const credits = store.eventLog({ name: RECALL_CREDIT_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse();
-    const rows = [...decisions, ...credits].map((r) => ({ name: r.name, day: r.day, payload: r.payload }));
-    for (const line of renderProbe(probeOQ4(rows))) io.out(line);
+    const rows = [...decisions, ...credits].filter(held).map((r) => ({ name: r.name, day: r.day, payload: r.payload }));
+    const rolledProbes = rolled.rows.flatMap((d) => (d.probe === null ? [] : [{ ...d.probe, sessions: [] }]));
+    for (const line of renderProbe(mergeProbe([probeOQ4(rows), ...rolledProbes]))) io.out(line);
     // THE RATINGS (2026-10-14; Mike's call; counted as use since 2026-10-19): what sessions
     // scored of what they were shown, beside the hit rate above.
-    const ratings = store.eventLog({ name: RECALL_RATED_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse();
-    const lookups = store.eventLog({ name: MCP_RECALL_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse();
+    const ratings = store.eventLog({ name: RECALL_RATED_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse().filter(held);
+    const lookups = store.eventLog({ name: MCP_RECALL_EVENT, order: "desc", limit: PROBE_ROW_CEILING }).reverse().filter(held);
     io.out("");
     const rated = [...rows, ...[...ratings, ...lookups].map((r) => ({ name: r.name, day: r.day, payload: r.payload }))];
-    for (const line of renderRatings(probeRatings(rated))) io.out(line);
+    const rolledRatings = rolled.rows.flatMap((d) => (d.ratings === null ? [] : [d.ratings]));
+    for (const line of renderRatings(mergeRatings([probeRatings(rated), ...rolledRatings]))) io.out(line);
     for (const [name, got] of [
       [RECALL_DECISION_EVENT, decisions.length],
       [RECALL_CREDIT_EVENT, credits.length],

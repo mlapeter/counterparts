@@ -18,6 +18,7 @@
 
 import { SELF_PAGE_ROLE_SPELLED, isChapterSummary } from "../store/operational.js";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
+import type { InterferedRecord } from "./interfere.js";
 import type {
   EventLogCensus,
   EventPruneReport,
@@ -158,6 +159,8 @@ export interface SleepStore {
    * and it never crosses the write seam.
    */
   pruneEvents?(opts?: { limit?: number }): EventPruneReport;
+  /** FD1 step 2: recall turns past the per-turn rows' short window, deleted; the count. */
+  pruneRecallTurns?(): number;
   eventLogCensus?(): EventLogCensus;
   /**
    * The CORE's history (schema v8, 2026-09-26), OPTIONAL like the log. Where
@@ -231,6 +234,7 @@ export const PHASES = [
   "fade",
   "births",
   "tags",
+  "interfere",
   "dedup",
   "versions",
   "briefing",
@@ -252,6 +256,7 @@ export type PhaseReason =
   | "no-fade-fn"
   | "no-births-fn"
   | "no-tags-fn"
+  | "no-interfere-fn"
   | "no-durable-event-log"
   | "failed";
 
@@ -537,6 +542,12 @@ export interface CycleReport {
   readonly merged: readonly MergeRecord[];
   /** Entity cards the fade phase archived this cycle (or, under observer, would have). Ids only. */
   readonly faded: readonly string[];
+  /**
+   * Routine work memories the interference phase faded under a newer one this
+   * cycle (or, under observer, would have): ids only (2026-11-07, FD1 step 3).
+   * Not exits — each stays live, faded, and leaves later through the prune.
+   */
+  readonly interfered: readonly InterferedRecord[];
   /** Band crossings THIS cycle, by direction (guarantee 12's input). */
   readonly bandTransitions: readonly BandTransition[];
   /**

@@ -41,6 +41,8 @@ import { runBirths } from "./births.js";
 import type { BirthsFn } from "./births.js";
 import { runTags } from "./tags.js";
 import type { TagsFn } from "./tags.js";
+import { runInterfere } from "./interfere.js";
+import type { InterfereFn, InterferedRecord } from "./interfere.js";
 import type { DedupCandidateSource } from "./dedup.js";
 import { runLogSweep } from "./log.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
@@ -100,6 +102,12 @@ export interface SleepOptions {
    * Absent ⇒ the tags phase reports `no-tags-fn`, and nothing is tagged.
    */
   tags?: TagsFn;
+  /**
+   * The interference sweep (2026-11-07, FD1 step 3: `interference.ts`),
+   * injected like `tags`. Absent ⇒ the interfere phase reports
+   * `no-interfere-fn`, and nothing fades under a newer memory.
+   */
+  interfere?: InterfereFn;
   /** Injected ranking cache. Absent ⇒ the box-3 SQLite one, opened lazily. */
   strengthCache?: StrengthCache;
   /** Extra dedup candidates (embeddings). Isolated: a throw degrades to lexical. */
@@ -159,6 +167,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
   const pruned: PrunedRecord[] = [];
   const merged: MergeRecord[] = [];
   const faded: string[] = [];
+  const interfered: InterferedRecord[] = [];
   const bandTransitions: BandTransition[] = [];
 
   // ONE CYCLE AT A TIME, PER STORE (`lease.ts`, 2026-10-21). Taken before
@@ -183,6 +192,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       pruned: [...pruned],
       merged: [...merged],
       faded: [...faded],
+      interfered: [...interfered],
       bandTransitions: [...bandTransitions],
       symmetry: [],
       census: census(store, day, pruned, merged, faded),
@@ -415,6 +425,16 @@ export function runCycle(opts: SleepOptions): CycleReport {
       () => (opts.tags === undefined ? "no-tags-fn" : null),
     );
 
+    // ── phase 4e: interference (a newer work event fades the older one) ───
+    runPhase(
+      "interfere",
+      (ctx) => runInterfere(ctx, opts.interfere),
+      (r) => {
+        interfered.push(...r.interfered);
+      },
+      () => (opts.interfere === undefined ? "no-interfere-fn" : null),
+    );
+
     // ── phase 5: dedup ────────────────────────────────────────────────────
     runPhase(
       "dedup",
@@ -519,6 +539,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       pruned,
       merged,
       faded,
+      interfered,
       bandTransitions,
       symmetry,
       census: census(store, day, pruned, merged, faded),
@@ -531,6 +552,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       pruned: pruned.length,
       merged: merged.length,
       faded: faded.length,
+      interfered: interfered.length,
       bandUp: bandTransitions.filter((t) => t.direction === "up").length,
       bandDown: bandTransitions.filter((t) => t.direction === "down").length,
       failed: reports.filter((p) => p.status === "failed").length,

@@ -87,6 +87,8 @@ export const LANES = {
   // A boundary that left the sleep to a cycle already running: housekeeping,
   // like a check that found nothing due.
   "sleep.cycle.held": "flow",
+  "sleep.log.swept": "flow",
+  "events.rolled": "flow",
   "prospective.fire": "home",
   "prospective.plain": "home",
   "prospective.plain.crossed": "home",

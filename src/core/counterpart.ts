@@ -4738,7 +4738,7 @@ export class Counterpart {
     };
     let failure: string | null = null;
     const linked: string[] = [];
-    const cueOut: { deltas: number; rows: number; dropped: number; stopped?: number } = { deltas: 0, rows: 0, dropped: 0 };
+    const cueOut: { deltas: number; rows: number; dropped: number; stopped?: number; swept?: number } = { deltas: 0, rows: 0, dropped: 0 };
     for (const claim of claims) {
       out.passes += claim.passes;
       out.pairs += claim.deltas.length;
@@ -4789,7 +4789,11 @@ export class Counterpart {
         }
         // R3S: what the stop-list dropped, only while it holds a word.
         if (cueReport?.stopped !== undefined) cueOut.stopped = (cueOut.stopped ?? 0) + cueReport.stopped;
-        if (cueReport !== null && cueReport.reason === "flushed") cueOut.rows += cueReport.rows;
+        if (cueReport !== null && cueReport.reason === "flushed") {
+          cueOut.rows += cueReport.rows;
+          // FD1 step 2: the pairs the flush's sweep let go, for doctor's Growth line.
+          if (cueReport.swept > 0) cueOut.swept = (cueOut.swept ?? 0) + cueReport.swept;
+        }
         else {
           cueOut.dropped += claim.cues.length;
           // A busy flush left them buffered; this process ends soon, and the claim goes: drop them, counted.
@@ -4840,6 +4844,7 @@ export class Counterpart {
       // CUE LEARNING (R3): word-to-memory deltas carried, pair rows written, deltas lost.
       ...(cueOut.deltas === 0 ? {} : { cueDeltas: cueOut.deltas, cueRows: cueOut.rows, cueDropped: cueOut.dropped }),
       ...(cueOut.stopped === undefined ? {} : { cueStopped: cueOut.stopped }),
+      ...(cueOut.swept === undefined ? {} : { cueSwept: cueOut.swept }),
       ...rowIds(linked),
       // The APPLYING session (2026-10-11): the boundary whose worker carried
       // these claims. A claim may hold lines several sessions credited.

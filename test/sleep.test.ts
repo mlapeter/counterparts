@@ -67,6 +67,7 @@ import type {
   FadeFn,
   BirthsFn,
   TagsFn,
+  InterfereFn,
   SleepEvent,
   SleepStore,
 } from "../src/core/sleep/index.js";
@@ -80,6 +81,8 @@ const NO_FADE: FadeFn = () => ({ examined: 0, faded: [], blocked: {}, anchored: 
 const NO_BIRTHS: BirthsFn = () => ({ memories: 0, offered: 0, born: [], refused: {}, skippedForLimit: 0 });
 /** The tags phase's work, nothing to do (wave 2 lane B, 2026-10-21). */
 const NO_TAGS: TagsFn = () => ({ on: true, cardOffered: 0, cardTagged: 0, skippedForLimit: 0, stemMerged: 0, mergesPruned: 0 });
+/** The interference sweep, nothing to fade (FD1 step 3, 2026-11-07). */
+const NO_INTERFERE: InterfereFn = () => ({ on: true, examined: 0, faded: [], skipped: {}, skippedForLimit: 0 });
 const ENV = "COUNTERPARTS_DATA_DIR";
 
 /** Store write events that move CONTENT. Meta/marker rows are bookkeeping. */
@@ -275,7 +278,7 @@ describe("phase order and completion markers", () => {
   test("every phase that ran advanced its marker to the cycle's day, and only forward", () => {
     const s = store();
     put(s);
-    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
+    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
 
     for (const phase of PHASES) {
       const pr = phaseReport(report, phase);
@@ -1254,6 +1257,10 @@ describe("observer mode", () => {
         if (t.apply) throw new Error("an observer's tags must be a dry run");
         return NO_TAGS(t);
       },
+      interfere: (i) => {
+        if (i.apply) throw new Error("an observer's interference must be a dry run");
+        return NO_INTERFERE(i);
+      },
     });
 
     // An instrument that attempted and caught a refusal would be relying on the
@@ -1289,13 +1296,13 @@ describe("idempotence under replay", () => {
     put(s, { body: "twinned", physics: { birthDay: 0, lastUsedDay: 0 } });
     put(s, { body: "twinned", physics: { birthDay: 1, lastUsedDay: 0 } });
 
-    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
+    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
     expect(first.pruned.length).toBe(1);
     expect(first.merged.length).toBe(1);
 
     const before = snapshot(dir);
     const rowsBefore = contents(dir);
-    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
+    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS, interfere: NO_INTERFERE });
     const after = snapshot(dir);
 
     // The cycle's lease (`sleep/lease.ts`, 2026-10-21) is taken and given back,
@@ -1435,6 +1442,7 @@ describe("structural guarantees", () => {
       "fade",
       "births",
       "tags",
+      "interfere",
       "dedup",
       "versions",
       "briefing",
@@ -2409,7 +2417,14 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
       budget: 5_000,
       cutoffDay: 1,
       retentionDays: 2,
+      // FD1 step 2: the per-turn names' window (never longer than the store's) and the day it rolled up.
+      shortCutoffDay: 1,
+      shortRetentionDays: 2,
+      rolled: 1,
+      recallTurns: 0,
     });
+    // And the record is durable (FD1 step 2): doctor's Growth line reads it.
+    expect(s.eventLog({ name: "sleep.log.swept" }).length).toBe(1);
   });
 
   test("the per-pass cap holds: the OLDEST rows go first, the rest are reported, and tomorrow takes the next cap's worth", () => {
@@ -2438,15 +2453,17 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
     expect(s.eventLog({ name: "recall.decision" }).length).toBe(7);
 
     // Tomorrow takes the next three.
+    // (Plus last night's durable `sleep.log.swept` row, FD1 step 2: at a
+    // window of 0 it is past it too, so five wait, not four.)
     const second = runCycle({ store: s, date: date(2), budgets: { log: 3 } });
     expect(phaseReport(second, "log").changed).toBe(3);
-    expect(phaseReport(second, "log").skippedForBudget).toBe(4);
+    expect(phaseReport(second, "log").skippedForBudget).toBe(5);
     expect(s.eventLog({ name: "recall.decision" }).map((r) => r.seq)).toEqual(seqs.slice(6));
 
     // A zero cap is a cap: the phase ran, counted, and deleted nothing.
     const held = runCycle({ store: s, date: date(3), budgets: { log: 0 } });
     expect(phaseReport(held, "log").status).toBe("ran-nothing-found");
-    expect(phaseReport(held, "log").skippedForBudget).toBe(4);
+    expect(phaseReport(held, "log").skippedForBudget).toBe(6); // four decisions and the two sweep records
     expect(s.eventLog({ name: "recall.decision" }).length).toBe(4);
   });
 
@@ -2466,6 +2483,9 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
       limit: 5_000,
       cutoffDay: 1,
       retentionDays: 1,
+      shortCutoffDay: 1,
+      shortRetentionDays: 1,
+      rolled: 0,
     });
     expect(s.pruneEvents().pruned).toBe(0);
     expect(s.eventLogCensus().rows).toBe(held);
@@ -2519,19 +2539,20 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
     expect(DEFAULT_RETENTION_DAYS).toBeGreaterThanOrEqual(90);
     const s = store();
     expect(s.retentionDays).toBe(DEFAULT_RETENTION_DAYS);
-    s.appendEvent({ name: "recall.decision", day: 0, ref: "born-day-0" });
+    // A name the short window (FD1 step 2, `SHORT_RETENTION_NAMES`) does not take.
+    s.appendEvent({ name: "adapter.recall", day: 0, ref: "born-day-0" });
     for (let i = 1; i <= DEFAULT_RETENTION_DAYS - 1; i++) s.advanceClock(date(i));
     expect(s.livedDay()).toBe(DEFAULT_RETENTION_DAYS - 1);
 
     // The cycle lands on lived day 90: cutoff 0, and `day < 0` matches nothing.
     const ninety = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS) });
     expect(phaseReport(ninety, "log").status).toBe("ran-nothing-found");
-    expect(s.eventLog({ name: "recall.decision" }).length).toBe(1);
+    expect(s.eventLog({ name: "adapter.recall" }).length).toBe(1);
 
     // Lived day 91: cutoff 1, and the day-0 row is past the window.
     const ninetyOne = runCycle({ store: s, date: date(DEFAULT_RETENTION_DAYS + 1) });
     expect(phaseReport(ninetyOne, "log").changed).toBe(1);
-    expect(s.eventLog({ name: "recall.decision" })).toEqual([]);
+    expect(s.eventLog({ name: "adapter.recall" })).toEqual([]);
   });
 });
 
