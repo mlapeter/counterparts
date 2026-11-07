@@ -1971,6 +1971,8 @@ describe("observer mode is enforced at the store seam", () => {
     setFolderProject: ["/work", "sch_x", "owner"],
     clearFolderProject: ["/work"],
     recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
+    // FD1 step 2 (2026-11-07): the per-turn table's sweep.
+    pruneRecallTurns: [],
     // v15 (2026-10-24, R3 cue learning).
     writeCueEdges: [[{ token: "ping", memoryId: "mem_000000000000", weight: 0.5, lastDay: 0, source: "use" }]],
     sweepCueEdges: [{ staleOnOrBefore: 0 }, () => false],

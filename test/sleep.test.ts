@@ -2413,6 +2413,7 @@ describe("the log sweep — bounded retention on the durable event log (G16)", (
       shortCutoffDay: 1,
       shortRetentionDays: 2,
       rolled: 1,
+      recallTurns: 0,
     });
     // And the record is durable (FD1 step 2): doctor's Growth line reads it.
     expect(s.eventLog({ name: "sleep.log.swept" }).length).toBe(1);

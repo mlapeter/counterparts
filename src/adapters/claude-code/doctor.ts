@@ -3271,7 +3271,7 @@ export function associationFindings(store: Store): Finding[] {
       }
     }
     const sinceAt = store.livedDayStartAt(since);
-    if (sinceAt !== null) edgesRecent = store.growthCounts(sinceAt).edges.recent;
+    if (sinceAt !== null) edgesRecent = store.edgeGrowth(sinceAt).recent;
     for (const e of store.allEdges()) {
       census.total += 1;
       if (!isDead({ src: e.src, dst: e.dst, weight: e.weight, lastDay: e.last_day }, day, ASSOCIATE_TUNABLES)) census.conducting += 1;

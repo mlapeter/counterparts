@@ -168,6 +168,8 @@ import {
   TERMS_META_KEY,
 } from "./cache.js";
 import { STEMMER_VERSION } from "./stem.js";
+import { summarizeDay } from "../event-rollup.js";
+import type { RollupRow, RolledDay } from "../event-rollup.js";
 import type { EmbedderIdentity, EmbedderVerdict, Hit, LengthNorm, VectorRefusal } from "./cache.js";
 import {
   occurredOnOf,
@@ -530,6 +532,8 @@ export const WRITE_METHODS = [
   "rewriteGateValues",
   "appendEvent",
   "pruneEvents",
+  // FD1 step 2: the per-turn table's sweep, beside the log's.
+  "pruneRecallTurns",
   "setRanking",
   "pruneSupersededVersions",
   "appendRemovalRecord",
@@ -3908,6 +3912,21 @@ export class Store {
     return historyReads.eventCounts(this, filter);
   }
 
+  /**
+   * EVERY NAME'S ALL-TIME COUNT (FD1 step 2): the rows held plus the daily
+   * summaries of the per-turn rows the sweep let go (`reads-history.ts`). What
+   * a count shown as all-time reads; `eventCounts` stays the rows held.
+   * READ-ONLY.
+   */
+  eventCountsAllTime(): EventCount[] {
+    return historyReads.eventCountsAllTime(this);
+  }
+
+  /** The daily summaries, parsed, oldest first, and the lived days they cover (FD1 step 2). READ-ONLY. */
+  rolledDays(): ReturnType<typeof historyReads.rolledDays> {
+    return historyReads.rolledDays(this);
+  }
+
   /** Every event name the log holds, sorted. `eventCounts()` without the counts. */
   eventNames(): string[] {
     return this.ops.all<{ name: string }>("SELECT DISTINCT name FROM events ORDER BY name").map((r) => r.name);
@@ -3977,39 +3996,45 @@ export class Store {
    * THE DAILY ROLL-UP (FD1 step 2), inside `pruneEvents`' transaction and
    * BEFORE its delete: for every lived day before `shortCutoffDay` that still
    * holds unlatched rows of `SHORT_RETENTION_NAMES` and has no roll-up yet, one
-   * `events.rolled` row latched `events.rolled.<day>`, payload `{ day, counts:
-   * { name: n } }` — counts only, never an id. Written before the first row of
-   * that day is deleted, so a day the capped delete leaves half-swept already
-   * has its full count; the latch keeps a later pass from writing a smaller
-   * one. Latched rows are never swept, so this is ~1 row per lived day, kept
-   * (by design: it is what all-history counts read). Returns the rows written.
+   * `events.rolled` row latched `events.rolled.<day>`, its payload the day's
+   * summary (`core/event-rollup.ts#summarizeDay`: counts, spans, the filtered
+   * counts, the ids credited for use, probe-oq4's two reports). Written before
+   * the first row of that day is deleted, so a day the capped delete leaves
+   * half-swept already has its whole summary; the latch keeps a later pass
+   * from writing a smaller one, and the all-time readers skip a rolled day's
+   * remaining rows (`reads-history.ts#rolledDays`). Latched rows are never
+   * swept: ~1 row per lived day, kept by design. One day read at a time.
+   * Returns the rows written.
    */
   private rollUpShortEvents(shortCutoffDay: number): number {
     if (SHORT_RETENTION_NAMES.length === 0) return 0;
     const marks = SHORT_RETENTION_NAMES.map(() => "?").join(", ");
-    const rows = this.ops.all<{ day: number; name: string; n: number }>(
-      `SELECT day, name, COUNT(*) AS n FROM events
+    const days = this.ops.all<{ day: number }>(
+      `SELECT DISTINCT day FROM events
         WHERE name IN (${marks}) AND dedup_key IS NULL AND day < ?
           AND NOT EXISTS (SELECT 1 FROM events r WHERE r.dedup_key = '${EVENTS_ROLLED_EVENT}.' || events.day)
-        GROUP BY day, name ORDER BY day, name`,
+        ORDER BY day`,
       ...SHORT_RETENTION_NAMES,
       shortCutoffDay,
     );
-    const byDay = new Map<number, Record<string, number>>();
-    for (const r of rows) {
-      const counts = byDay.get(r.day) ?? {};
-      counts[r.name] = r.n;
-      byDay.set(r.day, counts);
-    }
     let written = 0;
-    for (const [day, counts] of byDay) {
+    for (const { day } of days) {
+      const rows = this.ops.all<RollupRow>(
+        `SELECT name, day, at, ref, payload FROM events WHERE day = ? AND dedup_key IS NULL AND name IN (${marks}) ORDER BY seq`,
+        day,
+        ...SHORT_RETENTION_NAMES,
+      );
+      const lookups = this.ops.all<RollupRow>(
+        "SELECT name, day, at, payload FROM events WHERE day = ? AND name = 'mcp.recall' ORDER BY seq",
+        day,
+      );
       this.ops.run(
         `INSERT OR IGNORE INTO events (at, day, name, ref, dedup_key, payload) VALUES (?, ?, ?, NULL, ?, ?)`,
         this.nowFn(),
         day,
         EVENTS_ROLLED_EVENT,
         `${EVENTS_ROLLED_EVENT}.${String(day)}`,
-        JSON.stringify(withBuild({ day, counts })),
+        JSON.stringify(withBuild({ ...summarizeDay(day, rows, lookups) })),
       );
       written += this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
     }
@@ -4033,6 +4058,11 @@ export class Store {
   /** The growing association tables counted: edges, cue pairs (FD1 step 2; `reads-history.ts`). READ-ONLY. */
   growthCounts(sinceAt: number): ReturnType<typeof historyReads.growthCounts> {
     return historyReads.growthCounts(this, sinceAt);
+  }
+
+  /** The edges' half of `growthCounts` alone (FD1 step 2; the Association line). READ-ONLY. */
+  edgeGrowth(sinceAt: number): { rows: number; recent: number } {
+    return historyReads.edgeGrowth(this, sinceAt);
   }
 
   /** The event log's bytes on disk, exact where SQLite has `dbstat` (FD1 step 2; `reads-history.ts`). READ-ONLY. */
@@ -5286,6 +5316,22 @@ export class Store {
   /** Recorded recall turns, oldest first — one session's, or every one since a lived day. */
   recallTurns(opts?: { sessionId?: string; sinceDay?: number }): RecallTurnRow[] {
     return wave2.recallTurns(this, opts);
+  }
+
+  /**
+   * THE PER-TURN TABLE'S EXIT (FD1 step 2, roadmap ruling R1): recall turns
+   * older than the per-turn rows' short window (`SHORT_RETENTION_DAYS`, never
+   * longer than `retentionDays`) go, with the same cutoff as the log's
+   * per-turn rows. Its readers (`recallTurns`: lane 1's shown-against-
+   * candidates check; the owner's removal, which edits `shown`) read recent
+   * turns only. Returns the rows deleted; 0 on a store without the table.
+   */
+  pruneRecallTurns(): number {
+    return this.mutate("pruneRecallTurns", () => {
+      if (this.ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'recall_turns'")?.n !== 1) return 0;
+      this.ops.run("DELETE FROM recall_turns WHERE day < ?", historyReads.eventWindow(this).shortCutoffDay);
+      return this.ops.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+    });
   }
 
   // ── v15: cue edges (2026-10-24, R3 cue learning — an experiment) ─────────

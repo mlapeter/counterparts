@@ -90,6 +90,14 @@ export function runLogSweep(ctx: PhaseCtx): LogSweepResult {
   }
 
   const report = store.pruneEvents({ limit: ctx.budget });
+  // The per-turn table goes on the same short window (FD1 step 2, R1). Not
+  // capped: one indexed delete, and its rows are a turn's ids and a count.
+  let recallTurns = 0;
+  try {
+    recallTurns = store.pruneRecallTurns?.() ?? 0;
+  } catch {
+    /* the log's sweep stands; the turns wait for tomorrow */
+  }
   out.examined = report.eligible + keptLatched;
   out.changed = report.pruned;
   out.skippedForBudget = report.remaining;
@@ -106,6 +114,7 @@ export function runLogSweep(ctx: PhaseCtx): LogSweepResult {
     shortCutoffDay: report.shortCutoffDay,
     shortRetentionDays: report.shortRetentionDays,
     rolled: report.rolled,
+    recallTurns,
   };
   ctx.event(LOG_SWEEP_EVENT, undefined, swept);
   // DURABLE TOO (FD1 step 2): one row a lived day, so doctor's Growth line for
@@ -113,7 +122,7 @@ export function runLogSweep(ctx: PhaseCtx): LogSweepResult {
   // the long window like any row; a pass that deleted and rolled nothing
   // writes none, so a clean window stays a no-op. A failed write costs only
   // the reading.
-  if (report.pruned > 0 || report.rolled > 0) {
+  if (report.pruned > 0 || report.rolled > 0 || recallTurns > 0) {
     try {
       store.appendEvent?.({ name: LOG_SWEEP_EVENT, day: ctx.day, payload: swept });
     } catch {

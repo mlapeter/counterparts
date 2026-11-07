@@ -864,6 +864,11 @@ export function reachCensus(store: Store): {
  * going), rows born on or after lived day `sinceDay`, and rows archived at or
  * after `sinceAt` (the archive sets `updated_at`): a prune, a merge, a
  * revision's old words. Only the window's rows are read. Read-only.
+ *
+ * A BIAS, said (review of #776): an archived row has no archive moment of its
+ * own, so "left" reads `updated_at`, and a later write to an already-archived
+ * row (an owner's operation on it) counts it as leaving again. Rare; a column
+ * would fix it and waits for the next batched format change.
  */
 export function memoryFlow(store: Store, sinceDay: number, sinceAt: number): { born: number; archived: number } {
   const counted = (rows: MemoryRow[]): number => rows.filter((r) => !reachExempt(r)).length;

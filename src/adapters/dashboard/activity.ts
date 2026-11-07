@@ -18,7 +18,7 @@
  * without saying that would be quietly claiming six things ever happened.
  */
 import { localClock } from "../../core/time.js";
-import { SHORT_RETENTION_DAYS } from "../../core/store/index.js";
+import { EVENTS_ROLLED_EVENT, SHORT_RETENTION_DAYS } from "../../core/store/index.js";
 import { PLAIN } from "./ansi.js";
 import type { Style } from "./ansi.js";
 import { NEVER, NONE, heading, indent, plural, stack, subheading, table, truncate } from "./layout.js";
@@ -51,7 +51,8 @@ export function renderActivity(src: DashboardSource, opts: ActivityOptions = {})
   // Newest first is what "lately" means, and it has to be asked of the store:
   // an ascending read with a limit is the OLDEST rows, so past the ceiling the
   // feed printed last month as lately.
-  const all = store.eventLog(filter);
+  // The daily summaries (FD1 step 2) are the log's own bookkeeping: counted, not narrated.
+  const all = store.eventLog(filter).filter((r) => r.name !== EVENTS_ROLLED_EVENT);
   const shown = all.slice(0, limit);
   // How many the log holds, counted in SQL where it can be; a `ref` filter has
   // no grouped count, so its read is the count and a full one says "at least".
@@ -104,7 +105,8 @@ export function renderActivity(src: DashboardSource, opts: ActivityOptions = {})
 function vocabulary(src: DashboardSource, style: Style): string {
   // One grouped query for every name (INTERFACE-GAPS §5), exact rather than
   // capped at a read ceiling; a name with no rows is absent from it.
-  const counts = new Map(src.store.eventCounts().map((c) => [c.name, c.count]));
+  // All-time (FD1 step 2): the rows held plus the per-turn rows' daily summaries.
+  const counts = new Map(src.store.eventCountsAllTime().map((c) => [c.name, c.count]));
   const rows = DURABLE_EVENT_NAMES.map((name) => {
     const count = counts.get(name) ?? 0;
     return [

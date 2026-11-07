@@ -303,6 +303,19 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    `npm publish <full path to the release folder>/counterparts-<version>.tgz --otp=CODE`, and
    the install line, `bun add -g counterparts@<version> && counterparts --version`.
    After publishing, check npm's `dist.integrity` against the tarball's sha512.
+
+   **A copy before the install, when the release lets event rows go sooner (FD1 step 2,
+   2026-11-07).** From the release that carries FD1 step 2 on, the per-turn rows
+   (`recall.decision`, `recall.credit`, `recall.rated`) are deleted after 30 lived days
+   instead of 90. Each day of them is kept as counts in `events.rolled`, but their ids and
+   payload fields are gone for good. So the sheet's first line for that release, and for any
+   later one that shortens a window, is a read-only copy of the store, taken before the
+   install line:
+   `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
+   The reads that need it, by name: MOD #3 in `docs/CHECK-AFTER.md` ("`recall.decision`
+   events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
+   lived days after the longer habituation window"). Both run on that copy afterwards, never
+   on the live store.
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh

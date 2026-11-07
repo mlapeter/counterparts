@@ -37,7 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
+| Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
 | Delete one memory from chat (HD1): `remember`'s `remove` holds it 24 h (hidden everywhere the deny-list is read), undo with `remove.undo`; the erase is the console's removal run by the worker (local) or hosted's ten-minute timer, as `self` | 0.3.47, 2026-11-04 (HD1) | ~2 weeks after release (dated reminder set at merge): holds placed, undone, erased; any erase that failed or ran late | [below](#due-2-weeks-after-chat-delete-hd1) |
@@ -133,6 +133,15 @@ and what left over the last 7 lived days. The per-turn event rows (`recall.decis
 **Why.** Mike, 11-07: wherever something grows, fade more. On lived day 47 `events` was 66.5 MB of a 121 MB store, and
 nothing had aged out yet.
 
+**Before the install: take a read-only copy of the store.** Once it's installed, per-turn rows
+older than 30 lived days go, and only their counts stay (`events.rolled`); their ids and payload fields don't come
+back. The sheet carries the step (`docs/RELEASING.md` §5.1):
+`sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
+These reads run on that copy from then on: **MOD #3** ("`recall.decision` events since the .18 install", the
+"No settled-over memory outranks its head" section) and the **H14 replay** (ratings 10-26 to 10-31, "Due ~14 lived
+days after the longer habituation window"). `probe-oq4`, `counterparts mechanisms`, the dashboard's counts and the
+memory card's "days used" keep their all-time numbers from the summaries and need no copy.
+
 **When.** ~3 lived days after install. The first night past lived day 30 takes the backlog at most 5,000 rows a night, so
 Mike's store (installed around lived day 48) clears days 0–17 over the first few nights.
 
@@ -146,7 +155,8 @@ SELECT day, json_extract(payload,'$.count'), json_extract(payload,'$.remaining')
   FROM events WHERE name = 'sleep.log.swept' ORDER BY seq DESC LIMIT 7;
 ```
 
-Also write down the first numbers from `growth-memories` (live, in reach, under floor, pruned per night, prune lap
+`recall_turns` goes on the same 30-lived-day window (`sleep.log.swept`'s `recallTurns`). Nothing writes it today, so
+expect 0. Also write down the first numbers from `growth-memories` (live, in reach, under floor, pruned per night, prune lap
 nights), `growth-cues`, `growth-queue` and the Association line's `edgesRecent`/`edgesSwept`, as the baseline for steps 3
 and 4.
 

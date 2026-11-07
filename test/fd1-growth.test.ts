@@ -21,6 +21,13 @@ import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { pace } from "../src/adapters/claude-code/doctor-growth.js";
 import type { Finding } from "../src/adapters/claude-code/index.js";
 import { run } from "../src/adapters/cli/index.js";
+import { firedReport } from "../src/adapters/fired.js";
+import { sourceOf } from "../src/adapters/dashboard/source.js";
+import { memoryDetail } from "../src/adapters/dashboard/web/views/memory.js";
+import { activityView } from "../src/adapters/dashboard/web/views/activity.js";
+import { flowView } from "../src/adapters/dashboard/web/views/flow-view.js";
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
+import { ROLLED_POSITIVE } from "../src/core/event-rollup.js";
 
 let root: string;
 let dir: string;
@@ -265,4 +272,106 @@ describe("the real path: nights through Counterpart.sessionEnd, then `counterpar
     expect(ev?.data["shortRetentionDays"]).toBe(30);
     expect(json.findings.some((x) => x.key === "growth-memories")).toBe(true);
   }, 60_000);
+});
+
+describe("all-time counts don't shrink when the sweep lets the per-turn rows go (roadmap ruling R2)", () => {
+  test("dashboard counts, mechanisms' total and last fired, probe-oq4, days used and sessions seen: the same before, half-way and after", async () => {
+    const c = Counterpart.open({ dir });
+    opened.push(c);
+    const mem = c.store.put({ type: "memory", kind: "fact", body: "a memory credited for use" });
+    // Five early lived days of per-turn rows, each with its calendar date and session.
+    for (let d = 0; d < 5; d++) {
+      const on = date(d);
+      const session = `sess-${String(d)}`;
+      for (let t = 0; t < 3; t++) {
+        c.store.appendEvent({
+          name: "recall.decision",
+          day: d,
+          ref: session,
+          payload: { session, date: on, footnotes: [{ id: mem }], surfaced: [], ...(t === 0 ? { moodMatched: 1 } : {}) },
+        });
+      }
+      c.store.appendEvent({
+        name: "recall.credit",
+        day: d,
+        ref: session,
+        payload: { session, date: on, day: d, ids: d % 2 === 0 ? [mem] : [], expandedIds: d % 2 === 0 ? [mem] : [] },
+      });
+      c.store.appendEvent({ name: "recall.rated", day: d, ref: session, payload: { session, date: on, ratings: [{ id: mem, score: 2, lane: "footnotes" }] } });
+      if (d < 4) c.store.advanceClock(date(d + 1));
+    }
+    for (let i = 5; i <= SHORT_RETENTION_DAYS + 6; i++) c.store.advanceClock(date(i));
+    expect(c.store.livedDay()).toBeGreaterThan(SHORT_RETENTION_DAYS + 4);
+
+    const today = date(SHORT_RETENTION_DAYS + 6);
+    const ids = ["recall-decision", "credit", "rated", "mood-match"];
+    // Every reading through an observer, as the dashboard and the console open the store.
+    const reading = async (): Promise<unknown> => {
+      const o = Counterpart.open({ dir, observer: true });
+      try {
+        const src = sourceOf(o);
+        const counts = Object.fromEntries(
+          o.store.eventCountsAllTime().filter((x) => SHORT_RETENTION_NAMES.includes(x.name)).map((x) => [x.name, x.count]),
+        );
+        const fired = firedReport(o.store, today).rows.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.total, r.lastFired]);
+        const out: string[] = [];
+        await run(["probe-oq4", "--dir", dir], { io: { out: (l) => out.push(l), err: () => {} }, env: {} });
+        const useDays = memoryDetail(src, mem).useDays;
+        const vocabulary = activityView(src).vocabulary.filter((v) => SHORT_RETENTION_NAMES.includes(v.name)).map((v) => [v.name, v.count]);
+        const sessionsSeen = flowView(src).nodes.find((n) => n.key === "session")?.state;
+        return { counts, fired, probe: out, useDays, vocabulary, sessionsSeen };
+      } finally {
+        o.close();
+      }
+    };
+    const before = (await reading()) as { counts: Record<string, number>; useDays: number[]; fired: unknown[][] };
+    expect(before.counts).toEqual({ "recall.credit": 5, "recall.decision": 15, "recall.rated": 5 });
+    expect(before.useDays).toEqual([0, 2, 4]);
+    expect(before.fired.find((f) => f[0] === "mood-match")?.[1]).toBe(5);
+    expect((before as unknown as { probe: string[] }).probe.join("\n")).toContain("rows: 15 recall.decision, 5 recall.credit");
+    expect((before as unknown as { sessionsSeen: string }).sessionsSeen).toBe("5 sessions seen");
+
+    // Half-way: a cap smaller than the backlog leaves rolled days partly held.
+    const half = c.store.pruneEvents({ limit: 7 });
+    expect(half.rolled).toBe(5);
+    expect(half.remaining).toBeGreaterThan(0);
+    expect(await reading()).toEqual(before);
+
+    c.store.pruneEvents();
+    expect(c.store.eventLog({ name: "recall.decision" })).toEqual([]);
+    expect(await reading()).toEqual(before);
+  }, 60_000);
+
+  test("the summary's filtered fields cover the filtered mechanisms (fired.ts `positive`)", () => {
+    // `mood-match` is the one filtered mechanism on a per-turn name today.
+    expect(ROLLED_POSITIVE["recall.decision"]).toContain("moodMatched");
+  });
+
+  test("the owner's removal takes a removed memory's id out of the daily summaries", () => {
+    const s = store();
+    const mem = s.put({ type: "memory", kind: "fact", body: "a memory the owner removes" });
+    s.appendEvent({ name: "recall.credit", day: 0, payload: { session: "s", ids: [mem] } });
+    for (let i = 1; i <= SHORT_RETENTION_DAYS + 1; i++) s.advanceClock(date(i));
+    s.pruneEvents();
+    expect(s.eventLog({ name: EVENTS_ROLLED_EVENT })[0]?.payload ?? "").toContain(mem);
+    s.appendRemovalRecord({ memoryId: mem, stage: "requested", actor: "owner", reason: "test" });
+    s.appendRemovalRecord({ memoryId: mem, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(s, mem);
+    const after = s.eventLog({ name: EVENTS_ROLLED_EVENT })[0]?.payload ?? "";
+    expect(after).not.toContain(mem);
+    expect((JSON.parse(after) as { counts: Record<string, number> }).counts).toEqual({ "recall.credit": 1 });
+  });
+});
+
+describe("recall_turns has an exit (roadmap ruling R1)", () => {
+  test("turns older than the short window go with the night's log sweep; recent ones stay", () => {
+    const s = store();
+    s.recordRecallTurn({ sessionId: "old", turn: 1, day: 0, candidates: 10, shown: ["mem_a"] });
+    for (let i = 1; i <= SHORT_RETENTION_DAYS + 1; i++) s.advanceClock(date(i));
+    s.recordRecallTurn({ sessionId: "new", turn: 1, day: s.livedDay(), candidates: 4, shown: [] });
+    runCycle({ store: s, date: date(SHORT_RETENTION_DAYS + 2) });
+    expect(s.recallTurns().map((t) => t.session_id)).toEqual(["new"]);
+    const swept = s.eventLog({ name: "sleep.log.swept" }).map((r) => JSON.parse(r.payload ?? "{}") as { recallTurns?: number });
+    expect(swept.some((p) => p.recallTurns === 1)).toBe(true);
+  });
 });

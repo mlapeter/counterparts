@@ -11,7 +11,9 @@ import type {
 } from "./operational.js";
 import type { DreamShownRow, EventLogFilter, EventCount, EventLogCensus, RankingRow } from "./shapes.js";
 import type { Store } from "./index.js";
-import { SHORT_RETENTION_DAYS, SHORT_RETENTION_NAMES } from "./operational.js";
+import { EVENTS_ROLLED_EVENT, SHORT_RETENTION_DAYS, SHORT_RETENTION_NAMES } from "./operational.js";
+import { rolledOf } from "../event-rollup.js";
+import type { RolledDay } from "../event-rollup.js";
 
 export function coreEvents(store: Store, filter: { memoryId?: string; action?: string; sinceAt?: number; limit?: number } = {}): CoreEventRow[] {
   const where: string[] = [];
@@ -238,6 +240,73 @@ export function eventWindow(store: Store): {
   };
 }
 
+/**
+ * THE DAILY SUMMARIES (FD1 step 2): every `events.rolled` row, parsed, oldest
+ * first, with its own seq. A rolled day's per-turn rows that are still held
+ * (a capped sweep leaves a day half-deleted) are ALREADY in its summary: an
+ * all-time reader counts the summary and skips those rows (`days`).
+ */
+export function rolledDays(store: Store): { rows: (RolledDay & { seq: number; at: number })[]; days: Set<number> } {
+  const out: (RolledDay & { seq: number; at: number })[] = [];
+  for (const r of store["ops"].all<{ seq: number; at: number; day: number; payload: string | null }>(
+    "SELECT seq, at, day, payload FROM events WHERE name = ? ORDER BY day, seq",
+    EVENTS_ROLLED_EVENT,
+  )) {
+    const rolled = rolledOf(r.payload, r.day);
+    if (rolled !== null) out.push({ ...rolled, seq: r.seq, at: r.at });
+  }
+  return { rows: out, days: new Set(out.map((r) => r.day)) };
+}
+
+/**
+ * EVERY NAME'S ALL-TIME COUNT (FD1 step 2, roadmap ruling R2): the rows held,
+ * plus each daily summary's counts, minus the held per-turn rows of a day a
+ * summary already counts. So a count shown as all-time never shrinks when the
+ * sweep lets the rows go. Newest fields come from the held rows, or from the
+ * summaries for a name that has none held. Read-only.
+ */
+export function eventCountsAllTime(store: Store): EventCount[] {
+  const live = eventCounts(store);
+  const rolled = rolledDays(store);
+  if (rolled.rows.length === 0) return live;
+  const byName = new Map(live.map((c) => [c.name, { ...c }]));
+  const days = [...rolled.days];
+  const dayMarks = days.map(() => "?").join(", ");
+  const nameMarks = SHORT_RETENTION_NAMES.map(() => "?").join(", ");
+  if (SHORT_RETENTION_NAMES.length > 0) {
+    for (const r of store["ops"].all<{ name: string; n: number }>(
+      `SELECT name, COUNT(*) AS n FROM events WHERE dedup_key IS NULL AND name IN (${nameMarks}) AND day IN (${dayMarks}) GROUP BY name`,
+      ...SHORT_RETENTION_NAMES,
+      ...days,
+    )) {
+      const c = byName.get(r.name);
+      if (c !== undefined) c.count -= r.n;
+    }
+  }
+  // A name with nothing held outside the rolled days takes its newest from the summaries.
+  const fromRolled = new Set([...byName.values()].filter((c) => c.count <= 0).map((c) => c.name));
+  for (const day of rolled.rows) {
+    for (const [name, n] of Object.entries(day.counts)) {
+      if (typeof n !== "number") continue;
+      const lastAt = day.spans[name]?.lastAt ?? day.at;
+      const c = byName.get(name);
+      if (c === undefined) {
+        byName.set(name, { name, count: n, newestAt: lastAt, newestDay: day.day, newestSeq: day.seq });
+        fromRolled.add(name);
+        continue;
+      }
+      if (fromRolled.has(name)) {
+        // Oldest first, so the last summary read is the newest.
+        c.newestAt = lastAt;
+        c.newestDay = day.day;
+        c.newestSeq = day.seq;
+      }
+      c.count += n;
+    }
+  }
+  return [...byName.values()].filter((c) => c.count > 0).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
 export function eventLogCensus(store: Store): EventLogCensus {
   const window = eventWindow(store);
   const cutoffDay = window.cutoffDay;
@@ -292,21 +361,30 @@ export function livedDayStartAt(store: Store, day: number): number | null {
  * and rows first written at or after `sinceAt`, for the tables that carry a
  * `created_at` (`edges` since v7, `cue_edges` since v15; a row with none
  * counts as old). `cues` is null on a store without the table. Read-only.
+ *
+ * A BIAS, said (review of #776): `recent` counts the rows that are still
+ * there, so a pair or edge born and swept inside the window is counted as
+ * swept but not as new, and "new" reads a little low against "swept".
  */
+function tableGrowth(store: Store, table: "edges" | "cue_edges", sinceAt: number): { rows: number; recent: number } {
+  const r = store["ops"].get<{ rows: number; recent: number | null }>(
+    `SELECT COUNT(*) AS rows, SUM(CASE WHEN COALESCE(created_at, 0) >= ? THEN 1 ELSE 0 END) AS recent FROM ${table}`,
+    sinceAt,
+  );
+  return { rows: r?.rows ?? 0, recent: r?.recent ?? 0 };
+}
+
 export function growthCounts(store: Store, sinceAt: number): {
   edges: { rows: number; recent: number };
   cues: { rows: number; recent: number } | null;
 } {
-  const ops = store["ops"];
-  const count = (table: string): { rows: number; recent: number } => {
-    const r = ops.get<{ rows: number; recent: number | null }>(
-      `SELECT COUNT(*) AS rows, SUM(CASE WHEN COALESCE(created_at, 0) >= ? THEN 1 ELSE 0 END) AS recent FROM ${table}`,
-      sinceAt,
-    );
-    return { rows: r?.rows ?? 0, recent: r?.recent ?? 0 };
-  };
-  const hasCues = ops.get<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cue_edges'")?.n === 1;
-  return { edges: count("edges"), cues: hasCues ? count("cue_edges") : null };
+  const hasCues = store["ops"].get<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cue_edges'")?.n === 1;
+  return { edges: tableGrowth(store, "edges", sinceAt), cues: hasCues ? tableGrowth(store, "cue_edges", sinceAt) : null };
+}
+
+/** The `edges` half of `growthCounts` alone (the Association line, which runs at session start). */
+export function edgeGrowth(store: Store, sinceAt: number): { rows: number; recent: number } {
+  return tableGrowth(store, "edges", sinceAt);
 }
 
 /**
