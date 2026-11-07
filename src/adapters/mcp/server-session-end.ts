@@ -370,6 +370,7 @@ export async function depositEntries(
       ...(neighbours.length === 0 ? {} : { neighbours }),
       ...server["slotOf"](result),
       ...server["stillDatedNear"](result, dated, facts.sent.status, batch, session),
+      ...server["mayCloseOf"](result, { title: draft["title"], text: draft["content"], status: facts.sent.status }, batch),
       ...server["answersReminder"](result, facts.sent, neighbours),
     });
   }

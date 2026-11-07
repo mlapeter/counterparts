@@ -5696,7 +5696,7 @@ export class Store {
    *  dated, `asked`, or names what would settle it (2026-10-22; `settles`
    *  P2 2026-10-28; `reads-memories.ts#openThreadTouches`): what the parking
    *  rule reads (`self/identity.ts#openCarry`). */
-  openThreadTouches(opts: { glimpses?: boolean; at?: string } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
+  openThreadTouches(opts: { glimpses?: boolean; at?: string; ids?: readonly string[] } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
     return memoryReads.openThreadTouches(this, opts);
   }
 
@@ -5705,6 +5705,13 @@ export class Store {
    *  the end-of-session ask names. */
   openThreadsOfSession(session: string, limit: number): { id: string; title: string }[] {
     return memoryReads.openThreadsOfSession(this, session, limit);
+  }
+
+  /** Every open item's title, headline words, meta, folder and status, in one read
+   *  (2026-11-07, SO1 step 1b; `reads-memories.ts#openItemHeads`): what a write's
+   *  close hint matches against. READ-ONLY. */
+  openItemHeads(bodyChars: number): ReturnType<typeof memoryReads.openItemHeads> {
+    return memoryReads.openItemHeads(this, bodyChars);
   }
 
   /** The same rows for ONE session, in write order — the neighbours a newly

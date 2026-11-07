@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
+| A write lists the open items it may settle (SO1 step 1b): a stored `remember` or `session_end` entry that says a version or PR was done lists up to 3 open items from any folder with the same version series, the same PR (own project only) or a `settlesWhen` it reaches (`mayClose`); the model closes or leaves them | the release after 2026-11-07 (SO1 step 1b) | ~7 lived days after install (dated reminder set at merge): `open.close-hint.shown` rows and distinct ids listed against `open.close-hint.closed` rows (and how many with `daysAfter` 0), p50/max ms, a hand-read of 10 listed titles for plainly irrelevant ones; baseline on the 11-07 copy: 3 of 19 irrelevant plus 2 weak, before the fix round | [below](#a-write-lists-the-open-items-it-may-settle-so1-step-1b) |
 | Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
 | Old chapters leave ambient recall (FD1 step 5): a chapter or frozen full copy whose latest chapter is 14+ lived days old (`LAST_HERE_LIFE_DAYS`) is no ambient footnote candidate, counted `journalAged`; `recall.decision` carries `journalCandidates`, `mcp.recall` carries `elapsedMs` | the release after 2026-11-07 (FD1 step 5) | ~1 week after install (dated reminder set at merge): chapter footnote ratings by age (<7, 7–13, 14+), `journalAged` per turn, the journal's share of the cut, meaning-mode `elapsedMs`. 7–13-day chapters still under ~0.3 and the slots going to better footnotes says move N to 7 | [below](#old-chapters-leave-ambient-recall-fd1-step-5) |
 | A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
@@ -155,6 +156,39 @@ reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDo
 
 Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
 close is undone by the reflect tool's `reopen` with the item's id.
+
+## A write lists the open items it may settle (SO1 step 1b)
+
+SO1 step 1b (2026-11-07, roadmap with Mike; lightly held), `core/close-hint.ts`, `McpServer#mayCloseOf`. A stored
+`remember` or `session_end` entry whose headline says a version or a PR was done comes back with `mayClose` (at most
+3, nearest first): open items from any folder with the same version series at or past theirs, the same PR (`#N`
+beside a done verb; items in the writer's own project only), or a `settlesWhen` the entry reaches. Never a check or
+follow-up (CHECK-AFTER, "Check due", "Check ~", "Experiment check", "re-read"), a protected, parked or settled-over
+item, one in a folder that is off, paused or observer, or anything beside an entry about owner/us/me or a plan. The
+model decides; nothing closes on its own.
+
+- **Hints shown against closes made.** Each entry that listed any writes `open.close-hint.shown` (ref the entry,
+  payload `ids`, `rules`, `ms`); a close of a listed id through `updates` + `unresolved: false` within 7 lived days
+  writes `open.close-hint.closed` (ref the item, `daysAfter`). The night's own closes (SO1 step 1) don't count:
+
+  ```sql
+  SELECT count(*) AS entries FROM events WHERE name = 'open.close-hint.shown';
+  SELECT count(DISTINCT j.value) AS ids_listed FROM events e, json_each(json_extract(e.payload, '$.ids')) j
+  WHERE e.name = 'open.close-hint.shown';
+  SELECT count(*) AS closes, sum(json_extract(payload, '$.daysAfter') = 0) AS same_day
+  FROM events WHERE name = 'open.close-hint.closed';
+  ```
+
+  A close of a hinted id is not proof the hint caused it (a hand sweep counts too). Same-day closes (`daysAfter` 0)
+  stand in for "caused by the hint".
+- **Cost.** p50 and max of `$.ms` on the shown rows (the hint's own read, on the write path). The 11-07 copy (338
+  open items): ~1.6 ms in the read, ~2 ms through `remember`. Above ~10 ms p50 is worth a look.
+- **Relevance.** Hand-read 10 listed titles beside the entry that listed them (`ref`): how many are plainly
+  irrelevant, how many weak. Baseline on the 11-07 copy, before the fix round (PR numbers from any project, checks
+  and protected rows listed): 3 of 19 plainly irrelevant plus 2 weak. Worse than that says tighten the rules or cap
+  at 2; mostly closed says keep.
+
+Revert: `CLOSE_HINT_TUNABLES.ON = false` (`core/close-hint.ts`): no list, nothing counted.
 
 ## Growth exits (FD1 step 2)
 

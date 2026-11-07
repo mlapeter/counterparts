@@ -308,6 +308,19 @@ export const STILL_DATED_SHOWN = 5;
 export const STILL_DATED_HINT =
   "These nearby memories still hold a date. If one is the same obligation as the one you just closed, close it too now: remember with updates: its id and eventDate: null (or status: done). If it is something else, leave it.";
 
+/**
+ * Beside a write whose subject an open item from any folder names (SO1 step
+ * 1b, 2026-11-07, `McpServer#mayCloseOf`, `core/close-hint.ts`).
+ */
+export const MAY_CLOSE_HINT =
+  "These open items look settled by what you just wrote. If one is, close it with updates: its id and unresolved: false; leave it if not.";
+
+/** The note on a listed item that was asked of the owner (SO1 step 1b). */
+export function mayCloseAskedNote(owner: string | null): string {
+  const who = owner === null || owner.trim() === "" ? "the owner" : owner.trim();
+  return `asked of ${who}: close only if this is ${who}'s answer`;
+}
+
 /** Beside a "done" or owner-said write that lands close to a reminder due now (`McpServer#answersReminder`, 2026-10-20). */
 export const ANSWERS_HINT =
   "This looks like it answers the reminder in `answers`, which is due now. If it does, close it: remember with updates: its id, status: done, and a short text (\"Done for this week\"). A repeating one closes for this time only and comes back on its next date; eventDate: null would end it. If it is something else, leave it.";

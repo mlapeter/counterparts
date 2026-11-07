@@ -639,8 +639,11 @@ function openTouchedSql(glimpses: boolean): string {
  */
 export function openThreadTouches(
   store: Store,
-  opts: { glimpses?: boolean; at?: string } = {},
+  opts: { glimpses?: boolean; at?: string; ids?: readonly string[] } = {},
 ): { id: string; touchedDay: number; dated: boolean; asked: boolean; settles: boolean }[] {
+  // Only these ids, when given (SO1 step 1b: a write's few matches, not every open item).
+  const only = opts.ids === undefined ? null : [...new Set(opts.ids)];
+  if (only !== null && only.length === 0) return [];
   const settles = `CASE WHEN json_valid(m.meta) AND json_type(m.meta, '$.${SETTLES_WHEN_META_KEY}') = 'text'
                          AND TRIM(json_extract(m.meta, '$.${SETTLES_WHEN_META_KEY}')) <> '' THEN 1 ELSE 0 END`;
   const at = opts.at !== undefined && isDay(opts.at) ? opts.at : null;
@@ -654,8 +657,9 @@ export function openThreadTouches(
       `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${openTouchedSql(opts.glimpses === true)} AS touched,
               ${settles} AS settles, CASE WHEN m.meta LIKE '%"${RECURRING_META}":"%' THEN 1 ELSE 0 END AS recurring
          FROM memories m
-        WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
+        WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'${only === null ? "" : ` AND m.id IN (${only.map(() => "?").join(", ")})`}
         ORDER BY m.birth_day, m.id`,
+      ...(only ?? []),
     )
     .map((r) => ({
       id: r.id,
@@ -663,6 +667,72 @@ export function openThreadTouches(
       dated: r.event_date !== null && (r.recurring === 1 || !behind(r.event_date)),
       asked: r.status === "asked",
       settles: r.settles === 1,
+    }));
+}
+
+/**
+ * EVERY OPEN ITEM'S HEAD, IN ONE READ (2026-11-07, SO1 step 1b): what a
+ * write's close hint (`core/close-hint.ts`) matches a new memory against —
+ * the title, the first `bodyChars` of the words (a headline's worth), the
+ * meta (the flag and `settlesWhen`), the folder that wrote it and its
+ * status. Live, ordinary memories flagged `unresolved` only (the
+ * `memories_open` index's own clause), never the night's own writing, a
+ * starter memory, an identity element or a protected row (its close would
+ * be refused). Newest first. The caller confirms the flag on the parsed meta.
+ */
+export function openItemHeads(
+  store: Store,
+  bodyChars: number,
+): {
+  id: string;
+  type: string;
+  title: string | null;
+  body: string;
+  meta: string;
+  scope: string | null;
+  origin_scope: string | null;
+  origin_ref: string | null;
+  source: string | null;
+  status: string | null;
+  createdAt: number;
+}[] {
+  // `memories_open` by name (review of #783): the planner otherwise took
+  // `memories_birth` and walked every live row.
+  return store["ops"]
+    .all<{
+      id: string;
+      type: string;
+      title: string | null;
+      body: string;
+      meta: string | null;
+      origin_scope: string | null;
+      origin_ref: string | null;
+      source: string | null;
+      status: string | null;
+      created_at: number | null;
+    }>(
+      `SELECT m.id AS id, m.type AS type, m.title AS title, substr(m.body, 1, ?) AS body, m.meta AS meta,
+              m.origin_scope AS origin_scope, m.origin_ref AS origin_ref, m.source AS source,
+              m.status AS status, m.created_at AS created_at
+         FROM memories m INDEXED BY memories_open
+        WHERE m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
+          AND m.type = 'memory' AND m.superseded_by IS NULL AND m.band <> 'identity' AND m.protected = 0
+          AND COALESCE(m.source, '') <> 'told' AND NOT ${NIGHTLY_SQL}
+        ORDER BY COALESCE(m.created_at, 0) DESC, m.id DESC`,
+      Math.max(1, Math.floor(bodyChars)),
+    )
+    .map((r) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      body: r.body,
+      meta: r.meta ?? "{}",
+      scope: r.origin_scope,
+      origin_scope: r.origin_scope,
+      origin_ref: r.origin_ref,
+      source: r.source,
+      status: r.status,
+      createdAt: r.created_at ?? 0,
     }));
 }
 

@@ -25,6 +25,7 @@ import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
+import { noteCloseHintTaken } from "./close-hint.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -801,6 +802,9 @@ export function closeThread(cp: Counterpart, p: Proposal, successor: string): { 
   } catch (err) {
     cp["emit"]("counterpart.thread.close.failed", target, { successor, error: errCode(err) });
   }
+  // A close that followed a write's close hint is counted (SO1 step 1b,
+  // `close-hint.ts`): hints shown against closes made. Answered, not carried on.
+  if (closed && p.unresolved !== true && !cp.observer) noteCloseHintTaken(cp.store, target, successor);
   cp["emit"]("counterpart.thread.closed", target, { successor, closed, carried: p.unresolved });
   return { from: target, closed };
 }
