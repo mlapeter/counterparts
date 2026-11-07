@@ -355,7 +355,7 @@ export const CARRIED_BY_TEXT =
 const FEELINGS_PROPERTY = {
   type: "array",
   description:
-    "Optional: the feelings in this moment, one object each — mixed feelings are several, and yours and the owner's go side by side. The strongest feeling on a memory holds it higher and slows its fading; memories that felt the way someone feels now come to mind more easily.",
+    "Optional: the feelings in this moment, one object each — mixed feelings are several, and yours and the owner's go side by side. The strongest feeling on a memory holds it higher and slows its fading.",
   items: {
     type: "object",
     properties: {
