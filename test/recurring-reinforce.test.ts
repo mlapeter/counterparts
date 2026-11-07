@@ -337,7 +337,8 @@ describe("what is not a repeat is not credited", () => {
       expect(body["stored"]).toBe(true);
       return body["id"] as string;
     };
-    const old = await note({ text: "Take the blue pill with breakfast every morning, the small round one.", eventDate: "2026-10-10", remind: "plain", recurring: "daily" });
+    // The owner's (SO1 step 3): this reader names no folder, and a folder's work isn't told there.
+    const old = await note({ text: "Take the blue pill with breakfast every morning, the small round one.", eventDate: "2026-10-10", remind: "plain", recurring: "daily", about: "owner" });
     await evening(a, "2026-10-09");
     let date = "2026-10-09";
     const day = async (): Promise<{ said: string | null; cycle: CycleReport }> => {

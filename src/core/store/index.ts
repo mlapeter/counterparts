@@ -4824,7 +4824,7 @@ export class Store {
    * accounting, where a dated memory archived before its window is the `faded`
    * exit and has to be found to be counted.
    */
-  datedMemories(from: string, to: string, opts?: { archived?: boolean }): DatedMemory[] {
+  datedMemories(from: string, to: string, opts?: { archived?: boolean; since?: string }): DatedMemory[] {
     return memoryReads.datedMemories(this, from, to, opts);
   }
 

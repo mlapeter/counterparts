@@ -75,6 +75,11 @@ import { SHORT_RETENTION_NAMES, rowToPhysics } from "../core/store/index.js";
 import type { NameSpan, RolledDay } from "../core/event-rollup.js";
 import { emotionalIntensity } from "../core/physics/index.js";
 import { reminderHeldBack } from "../core/dream/slices.js";
+import { PLAIN_CROSS_AFTER_LIVED_DAYS, PROSPECTIVE_PLAIN_CROSSED_EVENT } from "../core/prospective/index.js";
+import { readPresence } from "./presence.js";
+import type { Presence } from "./presence.js";
+import { projectFolder, threadPlace } from "../core/self/work.js";
+import type { Kind } from "../core/types.js";
 import type { FolderOn } from "../core/dream/slices.js";
 import { chapterMoments } from "../core/self/episodes.js";
 import type { DurableEventName } from "./dashboard/registries.js";
@@ -1069,7 +1074,8 @@ export const MECHANISMS: readonly Mechanism[] = [
     label: "a reminder marked plain was said plainly on its day",
     module: "prospective/, lifecycle.ts",
     cadence: { kind: "occasion", when: "a reminder marked plain falls due on a day a session runs", check: "plain-due" },
-    evidence: { kind: "event", names: ["prospective.plain"] },
+    // A crossing (SO1 step 3 fix round) is the same mechanism saying it late, elsewhere.
+    evidence: { kind: "event", names: ["prospective.plain", "prospective.plain.crossed"] },
     since: "2026-09-26",
   },
 
@@ -1306,6 +1312,8 @@ export interface FiredReport {
    * isn't known.
    */
   readonly heldBack: number;
+  /** Plain reminders due while their folder had no session, waiting to cross (SO1 step 3): info. */
+  readonly homelessPlain: number;
   /** The store's own clock — the number of days it has actually LIVED. */
   readonly livedDay: number;
   /** Calendar days between the oldest row this pass read and today, or null
@@ -1402,6 +1410,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
   const notRead: string[] = [];
   const missedOccasion: string[] = [];
   let heldBack = 0;
+  let homelessPlain = 0;
   for (const m of MECHANISMS) {
     if (m.evidence.kind === "probe" && probed === null) {
       notRead.push(m.id);
@@ -1415,6 +1424,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     rows.push(row);
     if (occasion !== null && occasion.missed > 0) missedOccasion.push(`${row.label} (${occasion.says})`);
     heldBack += occasion?.held ?? 0;
+    homelessPlain += occasion?.homeless ?? 0;
   }
 
   const counts = Object.fromEntries(FIRED_STATES.map((s) => [s, 0])) as Record<FiredState, number>;
@@ -1455,6 +1465,7 @@ export function firedReport(store: ReadOnlyStore, today: string, opts: FiredOpti
     // than twice.
     missedOccasion,
     heldBack,
+    homelessPlain,
     wentQuiet: rows
       .filter((r) => r.state === "quiet" && r.firedInPreviousWindow > 0 && r.occasionMissed === 0)
       // A row whose table keeps only LIVED days was compared on the lived clock,
@@ -2092,6 +2103,8 @@ export interface OccasionReading {
   readonly says: string;
   /** Not said because its folder is closed, and so not in `missed`. */
   readonly held?: number;
+  /** Another folder's work, due while its folder had no session and not yet past its crossing (SO1 step 3): info, not in `missed`. */
+  readonly homeless?: number;
 }
 
 /** The checks, by `OccasionCheckId`. Each is a READ, and each may fail. */
@@ -2140,6 +2153,16 @@ function readOccasion(m: Mechanism, store: ReadOnlyStore, log: LogRead, w: Windo
  * One not said because its folder is closed (`on`, `reminderHeldBack`) is no miss:
  * the line says how many are waiting, and it counts in neither number. Read at
  * today's setting: a folder turned on since reads as what it now is, due and unsaid.
+ *
+ * ANOTHER FOLDER'S WORK (SO1 step 3 fix round, 2026-11-07) is said only in its own
+ * folder, so one due while its folder had no session is no miss either: an INFO
+ * clause ("due while its folder had no session"), counted in neither number. It
+ * crosses once `PLAIN_CROSS_AFTER_LIVED_DAYS` lived days have passed its last day
+ * (`prospective.plain.crossed`), which reads as said; still unsaid once a session
+ * ran on the day it should have crossed, it is a miss. Both read the session
+ * starts' presence rows (`presence.ts#readPresence`), as the crossing does; a row
+ * that names no folder (written before the field) could have been its folder's,
+ * so it counts as one.
  */
 function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: FolderOn): OccasionReading {
   const lastDay = daysBefore(w.to, 1);
@@ -2151,6 +2174,9 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
   let due = 0;
   let missed = 0;
   let held = 0;
+  let homeless = 0;
+  // When a person was there and in which folder: the presence rows the crossing reads too (`presence.ts`).
+  let wakes: Presence | null = null;
   for (const dated of store.datedMemories(w.from, lastDay)) {
     if (denied.has(dated.id)) continue;
     const row = store.row(dated.id);
@@ -2189,21 +2215,50 @@ function plainDueReading(store: ReadOnlyStore, log: LogRead, w: Window, on?: Fol
       held += 1;
       continue;
     }
+    if (untold && lineage.some((id) => store.eventLog({ name: PROSPECTIVE_PLAIN_CROSSED_EVENT, ref: id, order: "desc", limit: 50 }).some((e) => e.dedup_key === `${PROSPECTIVE_PLAIN_CROSSED_EVENT}:${id}:${key}`))) {
+      // Crossed from its folder: said.
+      due += 1;
+      continue;
+    }
+    const home = row.origin_scope === null ? "" : projectFolder(row.origin_scope);
+    const waits = home.length > 0 && threadPlace({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal: false }, new Set()) === "out";
+    if (untold && waits) {
+      wakes ??= readPresence(store, w.from, w.to);
+      const seen = wakes;
+      const spanDays: string[] = [];
+      for (let day = span.first > w.from ? span.first : w.from; day <= lastDay && day <= span.last; day = addDays(day, 1)) spanDays.push(day);
+      // A row naming no folder (one written before the field), or a day a person was there with no
+      // session start that day (a session carried past midnight), could have been its folder's.
+      const atHome = spanDays.some((d) => (present?.has(d) === true && !seen.folders.has(d)) || [...(seen.folders.get(d) ?? [])].some((f) => f === "" || f === home));
+      if (!atHome) {
+        // Lived days past its last day, up to yesterday: the day it should have crossed has come and gone?
+        const after = [...seen.lived].filter((d) => d > span.last && d <= lastDay).length;
+        if (after < PLAIN_CROSS_AFTER_LIVED_DAYS) {
+          homeless += 1;
+          continue;
+        }
+      }
+    }
     due += 1;
     if (untold) missed += 1;
   }
-  const waiting = held === 0 ? "" : `${due === 0 ? "" : "; "}${String(held)} held back, ${held === 1 ? "its folder" : "their folders"} not on`;
-  const heldCount = held === 0 ? {} : { held };
-  if (due === 0) return held === 0 ? none : { missed: 0, says: waiting, held };
+  const clauses = [
+    held === 0 ? "" : `${String(held)} held back, ${held === 1 ? "its folder" : "their folders"} not on`,
+    homeless === 0 ? "" : `${String(homeless)} due while ${homeless === 1 ? "its folder" : "their folders"} had no session (said elsewhere once ${String(PLAIN_CROSS_AFTER_LIVED_DAYS)} lived days pass)`,
+  ].filter((c) => c.length > 0);
+  const waiting = clauses.length === 0 ? "" : `${due === 0 ? "" : "; "}${clauses.join("; ")}`;
+  const heldCount = { ...(held === 0 ? {} : { held }), ...(homeless === 0 ? {} : { homeless }) };
+  if (due === 0) return held === 0 && homeless === 0 ? none : { missed: 0, says: waiting, ...heldCount };
   if (missed === 0) {
     return { missed: 0, says: `${String(due)} fell due this week, and ${due === 1 ? "it was" : "each was"} said${waiting}`, ...heldCount };
   }
   return {
     missed,
-    says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due on a day a session ran and not said${waiting}`,
+    says: `${String(missed)} plain ${missed === 1 ? "reminder was" : "reminders were"} due where a session could say it, and not said${waiting}`,
     ...heldCount,
   };
 }
+
 
 /**
  * THE DAYS A PERSON COULD HAVE BEEN TOLD SOMETHING, each with its newest such

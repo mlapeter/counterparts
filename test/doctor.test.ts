@@ -1321,7 +1321,7 @@ describe("doctor — the reading", () => {
       const f = by(doctorFindings(input({ store: s })), "fired");
       expect(f.severity).toBe("amber");
       expect(f.detail).toContain("Its occasion came this week and it did not fire: a reminder marked plain was said plainly on its day");
-      expect(f.detail).toContain("1 plain reminder was due on a day a session ran and not said");
+      expect(f.detail).toContain("1 plain reminder was due where a session could say it, and not said");
       expect(f.fix).toContain("what was due and not said");
       expect(f.fix).not.toContain("wiring fault");
     });

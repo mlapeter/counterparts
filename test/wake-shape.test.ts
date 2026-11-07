@@ -702,8 +702,8 @@ describe("a closed folder's plain reminder", () => {
     return row.n;
   }
 
-  /** The cast: a work reminder from every closed stance, an unmarked one, and those that are told. */
-  function cast(c: Counterpart, today: string): { held: Record<string, string>; told: Record<string, string> } {
+  /** The cast: a work reminder from every closed stance, an unmarked one, another open folder's work (said there, SO1 step 3), and those that are told. */
+  function cast(c: Counterpart, today: string): { held: Record<string, string>; told: Record<string, string>; there: string } {
     const VAULT = join(root, "vault");
     const DRAWER = join(VAULT, "drawer");
     const WATCH = join(root, "watch");
@@ -721,9 +721,9 @@ describe("a closed folder's plain reminder", () => {
         paused: plainIn("zqshut paused", REST),
         unmarked,
       },
+      there: plainIn("Away there", THERE),
       told: {
         here: plainIn("Told here", HERE),
-        there: plainIn("Told there", THERE),
         owner: plainIn("Told owner", VAULT, "owner"),
         // No folder at all: nothing to close.
         none: c.store.put({ type: "memory", kind: "fact", body: "Told nowhere, in words.", title: "Told nowhere", eventDate: today, about: "owner", meta: { remind: "plain" }, salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, origin: { session: OTHER } }),
@@ -736,17 +736,21 @@ describe("a closed folder's plain reminder", () => {
       const { c, today } = brain({ on: shape === "on" });
       c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
       c.rebrief({ budgetBytes: BUDGET, at: today });
-      const { held, told } = cast(c, today);
+      const { held, told, there } = cast(c, today);
       c.close();
       const start = said("SessionStart");
       expect(above(start.model)).not.toContain("zqshut");
       expect(start.person).not.toContain("zqshut");
-      for (const t of ["Told here", "Told there", "Told owner", "Told nowhere"]) {
+      for (const t of ["Told here", "Told owner", "Told nowhere"]) {
         expect(start.person).toContain(t);
         expect(above(start.model)).toContain(t);
       }
       for (const id of Object.values(told)) expect(latches(id)).toBe(1);
       for (const id of Object.values(held)) expect(latches(id)).toBe(0);
+      // Another open folder's work waits for its own folder (SO1 step 3): not told here, not spent.
+      expect(start.person).not.toContain("Away there");
+      expect(above(start.model)).not.toContain("Away there");
+      expect(latches(there)).toBe(0);
       // A prompt: no line, no quiet cue in its place, and no fire of it spent.
       const prompt = said("UserPromptSubmit");
       expect(prompt.person).not.toContain("zqshut");
@@ -801,14 +805,16 @@ describe("a closed folder's plain reminder", () => {
     expect(said("SessionStart", OWN).person).not.toContain("zqshut");
     for (const id of [due, late, past]) expect(latches(id)).toBe(0);
     scopes({ [HERE]: "on", [SHUT]: "on" });
-    const back = said("SessionStart", OTHER);
+    // Said in its own folder (SO1 step 3): another folder's wake doesn't tell it.
+    expect(said("SessionStart", OTHER).person).not.toContain("zqshut");
+    const back = said("SessionStart", "eeee5555-0000-4000-8000-000000000005", SHUT);
     expect(back.person).toContain("Today: zqshut today");
     expect(back.person).toContain(": zqshut late");
     expect(back.person).toContain("This was for ");
     expect(back.person).not.toContain("zqshut past");
     expect([latches(due), latches(late), latches(past)]).toEqual([1, 1, 0]);
     // Once.
-    expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006").person).not.toContain("zqshut");
+    expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006", SHUT).person).not.toContain("zqshut");
   });
 
   test("doctor says one is held back, by count and with no word of it; a setting that won't read reads as a miss", async () => {
@@ -839,21 +845,23 @@ describe("a closed folder's plain reminder", () => {
     writeFileSync(join(conf, "scopes.json"), "{ not json");
     const broken = await doctor();
     expect(broken).not.toContain("held back");
-    expect(broken).toContain("1 plain reminder was due on a day a session ran and not said");
+    expect(broken).toContain("1 plain reminder was due where a session could say it, and not said");
   });
 
-  test("a store that never wrote a setting, and a folder nobody listed in one, are on: another folder's work is told", () => {
+  test("a store that never wrote a setting, and a folder nobody listed in one, are on: a folder's work is told there", () => {
     const { c, today } = brain();
     const never = memory(c, "Told with no setting, in words.", { title: "Told with no setting", eventDate: today, scope: THERE, meta: { remind: "plain" } });
     c.close();
     expect(existsSync(join(conf, "scopes.json"))).toBe(false);
-    expect(said("SessionStart").person).toContain("Told with no setting");
+    expect(said("SessionStart", READER, THERE).person).toContain("Told with no setting");
     expect(latches(never)).toBe(1);
     const again = brain();
-    const unlisted = memory(again.c, "Told, unlisted, in words.", { title: "Told, unlisted", eventDate: today, scope: join(root, "attic"), meta: { remind: "plain" } });
+    const ATTIC = join(root, "attic");
+    mkdirSync(ATTIC, { recursive: true });
+    const unlisted = memory(again.c, "Told, unlisted, in words.", { title: "Told, unlisted", eventDate: today, scope: ATTIC, meta: { remind: "plain" } });
     again.c.close();
     scopes({ [HERE]: "on", [SHUT]: "off" });
-    expect(said("SessionStart", OWN).person).toContain("Told, unlisted");
+    expect(said("SessionStart", OWN, ATTIC).person).toContain("Told, unlisted");
     expect(latches(unlisted)).toBe(1);
   });
 
@@ -871,7 +879,9 @@ describe("a closed folder's plain reminder", () => {
     expect(latches(work)).toBe(0);
     expect(latches(owner)).toBe(start.person.includes("Told owner") ? 1 : 0);
     writeFileSync(file, good);
-    expect(said("SessionStart", OWN).person).toContain("zqshut broken");
+    // Fixed: told in its own folder (SO1 step 3), not in this one.
+    expect(said("SessionStart", OWN).person).not.toContain("zqshut broken");
+    expect(said("SessionStart", "ffff6666-0000-4000-8000-000000000006", THERE).person).toContain("zqshut broken");
     expect(latches(work)).toBe(1);
   });
 
@@ -881,11 +891,17 @@ describe("a closed folder's plain reminder", () => {
     const id = memory(c, "zqshut plain, in words.", { title: "zqshut plain", eventDate: today, scope: SHUT, meta: { remind: "plain" } });
     const config = join(conf, "claude-code.json");
     writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
-    const server = (): McpServer => new McpServer({ counterpart: c, host: DESKTOP_HOST, scope: HERE, registryDir: storeDir, env: {}, scopesFile: join(conf, "scopes.json"), lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET }, configPath: config }, manifestVersion: () => null } as never);
+    const server = (scope = HERE): McpServer => new McpServer({ counterpart: c, host: DESKTOP_HOST, scope, registryDir: storeDir, env: {}, scopesFile: join(conf, "scopes.json"), lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: BUDGET }, configPath: config }, manifestVersion: () => null } as never);
     expect(JSON.stringify((await server().call("wake", {})).structuredContent)).not.toContain("zqshut");
     expect(latches(id)).toBe(0);
     scopes({ [HERE]: "on", [SHUT]: "on" });
-    expect(JSON.stringify((await server().call("wake", {})).structuredContent)).toContain("Today: zqshut plain");
+    // On, it is another folder's work: said in its own folder's wake (SO1 step 3), named here only in the count.
+    const away = JSON.stringify((await server().call("wake", {})).structuredContent);
+    expect(away).not.toContain("Today: zqshut");
+    expect(away).not.toContain(id);
+    expect(away).toContain("1 in other folders (ledger: zqshut plain)");
+    expect(latches(id)).toBe(0);
+    expect(JSON.stringify((await server(SHUT).call("wake", {})).structuredContent)).toContain("Today: zqshut plain");
     expect(latches(id)).toBe(1);
   });
 });
@@ -1210,11 +1226,11 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
   const plainHere = (c: Counterpart, title: string, today: string, scope = HERE): string => memory(c, `${title}: bring the long ladder round to the east wall.`, { title, eventDate: today, scope, meta: { remind: "plain" } });
 
   for (const zone of ["UTC", "Pacific/Kiritimati"]) {
-  test(`${zone}: wake 1 whole; wake 2 folds what was shown and shows a new one whole; wake 3 folds all three`, () => {
+  test(`${zone}: wake 1 whole; wake 2 folds what was shown and shows a new one whole; the other folder's own wake shows its one whole, then folds it`, () => {
     const { c } = brain();
     const today = localDate(Date.now(), zone);
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
-    // One of this folder's own and one of another folder's: "one line everywhere".
+    // One of this folder's own and one of another folder's, which waits for its own folder (SO1 step 3).
     const a = plainHere(c, "Rfold ladder", today);
     const b = plainHere(c, "Rfold bakery oven", today, THERE);
     c.close();
@@ -1222,9 +1238,11 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     const w1 = start(OWN, HERE, { zone });
     const coming1 = section(w1.wake, "Coming up:");
     expect(coming1).toContain(`- Due today · Rfold ladder: bring the long ladder round to the east wall. [${a}]`);
-    expect(coming1).toContain(`[${b}]`);
+    expect(coming1).not.toContain(`[${b}]`);
+    expect(coming1).toContain(`(1 in other folders (bakery: Rfold bakery oven); recall "coming up")`);
     expect(coming1).not.toContain("shown earlier");
     expect(w1.person).toContain("Rfold ladder");
+    expect(w1.person).not.toContain("Rfold bakery oven");
 
     // A new one due today, written after wake 1.
     const again = brain();
@@ -1233,19 +1251,27 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
 
     const w2 = start(READER, HERE, { zone });
     const coming2 = section(w2.wake, "Coming up:");
-    expect(coming2.split("\n")).toContain(`(2 due today, shown earlier; recall "coming up")`);
+    expect(coming2.split("\n")).toContain(`(1 due today, shown earlier; 1 in other folders (bakery: Rfold bakery oven); recall "coming up")`);
     expect(coming2).toContain(`- Due today · Rfold gate hinge: bring the long ladder round to the east wall. [${n}]`);
     for (const id of [a, b]) expect(w2.wake).not.toContain(id);
     expect(w2.wake).not.toContain("Rfold ladder");
-    expect(w2.wake).not.toContain("Rfold bakery oven");
+    // Named in the other-folders count, never its words.
+    expect(w2.wake).not.toContain("Rfold bakery oven: bring the long ladder");
     // The new one is told above the wake and to the person; the folded ones aren't told again.
     expect(w2.person).toContain("Rfold gate hinge");
     expect(w2.person).not.toContain("Rfold ladder");
 
-    // In the reminder's own folder too, and in another folder: one line.
+    // The bakery's own folder, waking after: its reminder whole and told, never folded as
+    // "shown earlier"; the garden's two are in other folders, not shown earlier here.
     const w3 = start("dddd4444-0000-4000-8000-000000000004", THERE, { zone });
-    expect(section(w3.wake, "Coming up:")).toBe(`Coming up:\n(3 due today, shown earlier; recall "coming up")`);
-    expect(w3.person).not.toContain("Rfold");
+    const coming3 = section(w3.wake, "Coming up:");
+    expect(coming3).toStartWith(`Coming up:\n- Due today · Rfold bakery oven: bring the long ladder round to the east wall. [${b}]\n(2 in other folders (garden: Rfold `);
+    for (const t of ["garden: Rfold ladder", "garden: Rfold gate hinge"]) expect(coming3).toContain(t);
+    expect(w3.person).toContain("Rfold bakery oven");
+    expect(w3.person).not.toContain("Rfold ladder");
+    // A second wake in the bakery folds it.
+    const w4 = start("eeee5555-0000-4000-8000-000000000005", THERE, { zone });
+    expect(section(w4.wake, "Coming up:")).toStartWith(`Coming up:\n(1 due today, shown earlier; 2 in other folders (garden: Rfold `);
 
     // The door still lists them whole.
     const after = brain();

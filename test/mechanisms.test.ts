@@ -226,7 +226,7 @@ describe("counterparts mechanisms", () => {
     }
     const short = await console_(["mechanisms"]);
     const line = lineFor(short.out, "Prospective");
-    expect(line).toContain("1 plain reminder due on a day a session ran and not said");
+    expect(line).toContain("1 plain reminder due where a session could say it, and not said");
     expect(line).not.toContain("nothing due");
     // The full report names it before the groups, and has the two new groups.
     const all = (await console_(["mechanisms", "--all"])).out.join("\n");

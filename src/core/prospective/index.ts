@@ -96,6 +96,27 @@ export const PROSPECTIVE_REFUSED_EVENT = "prospective.fire.refused";
 export const PROSPECTIVE_PLAIN_EVENT = "prospective.plain";
 
 /**
+ * A PLAIN REMINDER THAT CROSSED (SO1 step 3 fix round, 2026-11-07): another
+ * folder's work reminder that went unsaid past its last day, because its folder
+ * had no session, told once in whichever session the person was in. One row per
+ * memory and window, latched by `dedupKey`, so it crosses once across every
+ * folder. Its own name, not a `prospective.plain` beat: it is no telling on the
+ * day, so no fold ("shown earlier") and no beat reads it as one.
+ */
+export const PROSPECTIVE_PLAIN_CROSSED_EVENT = "prospective.plain.crossed";
+
+/** Lived days (days a person had a session) past its last day before an unsaid work reminder crosses. */
+export const PLAIN_CROSS_AFTER_LIVED_DAYS = 2;
+/** How long after its last day an unsaid reminder may still cross; past it, it is gone (and doctor's to count). */
+export const PLAIN_CROSS_LOOKBACK_DAYS = 30;
+/** How far before the lookback a range may start and still be read (the dated read's floor). */
+export const PLAIN_CROSS_RANGE_REACH_DAYS = 92;
+/** Coming up's "in other folders" names at most this many other folders' plain reminders by title (SO1 step 3). CAL. */
+export const PLAIN_OTHER_NAMED = 2;
+/** …each title clipped to this many characters. CAL. */
+export const PLAIN_OTHER_TITLE_CHARS = 48;
+
+/**
  * PLAIN OR QUIET (owner decision 2026-09-25/26, a working default). The author
  * of a dated memory says which, on the same `note` / `session_end` entry that
  * carries the date, and it lives in the memory's `meta` bag under this key — no
@@ -820,6 +841,91 @@ export class Prospective {
   // ── plain items: the one exception to "a cue, not a command" ──────────────
 
   /**
+   * PLAIN REMINDERS WHOSE WINDOW CLOSED UNSAID (SO1 step 3 fix round): one-off
+   * dated rows (not repeating), marked plain, whose last day is before `at` and no
+   * more than `PLAIN_CROSS_LOOKBACK_DAYS` behind it, written by their last day, with
+   * no beat of the window told (a late beat counts only if it was told) and not yet
+   * crossed. A read; which may cross, and when, is the caller's. Never throws.
+   */
+  plainUnsaid(input: { at: string }): PlainDue[] {
+    if (this.observer || !isDay(input.at)) return [];
+    const at = input.at;
+    const from = addDays(at, -PLAIN_CROSS_LOOKBACK_DAYS);
+    const out: PlainDue[] = [];
+    try {
+      // Bounded (round 3 of #780): only dates that can still be in the lookback —
+      // a range may start before it, so the floor sits a season earlier.
+      const dated = this.store.datedMemories(from, addDays(at, -1), { since: addDays(from, -PLAIN_CROSS_RANGE_REACH_DAYS).slice(0, 7) });
+      if (dated.length === 0) return out;
+      let denied: ReadonlySet<string> | null = null;
+      let repeating: ReadonlySet<string> | null = null;
+      for (const d of dated) {
+        // The date alone first: most rows end here, with no read.
+        const precision = precisionOf(d.eventDate);
+        if (precision === null || precision === "year") continue;
+        const w = windowFor(d.eventDate, precision, this.tunables, d.id);
+        if (w === null || w.lastDay >= at || w.lastDay < from) continue;
+        const row = this.store.row(d.id);
+        if (row === undefined || row.superseded_by !== null || row.archived === 1) continue;
+        if (!(row.meta ?? "").includes('"plain"')) continue;
+        denied ??= new Set(this.store.deniedIds());
+        repeating ??= new Set(this.store.recurringMemories().map((r) => r.id));
+        if (denied.has(d.id) || repeating.has(d.id)) continue;
+        if ((["day", "opens", "last-day"] as const).some((beat) => this.plainTold(d.id, w.key, beat))) continue;
+        if (this.plainCrossed(d.id, w.key)) continue;
+        if (this.firingRowsFor(d.id).get(w.key)?.state === "suppressed") continue;
+        let doc: ProseDoc;
+        try {
+          doc = this.store.read(d.id).doc;
+        } catch {
+          continue;
+        }
+        if (doc.type === "episode" || cueModeOf(doc) !== "plain") continue;
+        const written = doc.learnedOn.slice(0, 10);
+        if (!isDay(written) || written > w.lastDay) continue;
+        const beat: PlainBeat = w.precision === "day" ? "day" : "last-day";
+        out.push({ memoryId: d.id, windowKey: w.key, eventDate: w.eventDate, precision: w.precision, beat, firstDay: w.firstDay, lastDay: w.lastDay, late: true });
+      }
+    } catch {
+      return out;
+    }
+    return out;
+  }
+
+  /** Has this window's reminder already crossed (`claimCross`)? A read. */
+  plainCrossed(memoryId: string, windowKey: string): boolean {
+    for (const id of this.lineage(memoryId)) {
+      for (const e of this.store.eventLog({ name: PROSPECTIVE_PLAIN_CROSSED_EVENT, ref: id, order: "desc", limit: 50 })) {
+        if (e.dedup_key === `${PROSPECTIVE_PLAIN_CROSSED_EVENT}:${id}:${windowKey}`) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Mark a window's reminder as crossed: TRUE only when this call wrote the latch, as `claimPlain`. */
+  claimCross(due: PlainDue, opts: { at: string; day?: number; session?: string }): boolean {
+    if (this.observer) return false;
+    try {
+      const seq = this.store.appendEvent({
+        name: PROSPECTIVE_PLAIN_CROSSED_EVENT,
+        day: opts.day ?? this.store.livedDay(),
+        ref: due.memoryId,
+        payload: {
+          window: due.windowKey,
+          precision: due.precision,
+          date: opts.at,
+          ...(isKnownSession(opts.session) ? { session: opts.session } : {}),
+        },
+        dedupKey: `${PROSPECTIVE_PLAIN_CROSSED_EVENT}:${due.memoryId}:${due.windowKey}`,
+      });
+      if (seq > 0) this.emit(PROSPECTIVE_PLAIN_CROSSED_EVENT, due.memoryId, { window: due.windowKey });
+      return seq > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * PLAIN items due to be told today, not yet told (owner decision 2026-09-25/26,
    * a working default — CONTRACT §3 names it as the deliberate exception to "no
    * bypass lane"). A person who said "don't let me forget to pay taxes before Oct
@@ -918,6 +1024,8 @@ export class Prospective {
         const written = doc.learnedOn.slice(0, 10);
         if (w.precision !== "day" || at <= w.lastDay || at > (dated.lateUntil as string)) continue;
         if (!isDay(written) || written > w.eventDate) continue;
+        // Already crossed to another folder (SO1 step 3): said once, overall.
+        if (this.plainCrossed(id, w.key)) continue;
       } else if (at < w.firstDay || at > w.lastDay) continue;
       const beat: PlainBeat =
         w.precision === "day" ? "day" : at === w.lastDay ? "last-day" : "opens";
