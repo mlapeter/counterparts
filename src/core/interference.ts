@@ -191,6 +191,40 @@ export function subjectKeys(text: string, as: "any" | "step" | "done" = "step"):
   return { versions, final };
 }
 
+/** A pull-request number, `#760`, not part of a word, a colour or a longer number. */
+const PR = /(?<![\w&#])#(\d{1,6})(?!\d)/g;
+/** After the number: `#760 merged`, `PR #760 is merged`. */
+const PR_AFTER = new RegExp(
+  String.raw`^(?:'s)?\s*[:,]?(?:\s+${FILLER}){0,2}\s+${NOT_PLANNED_AFTER}(?:${DONE}|closed)(?![\w.@/-])${LATER}`,
+  "i",
+);
+/** Before it: `merged #760`, `merged PR #760`. */
+const PR_BEFORE = new RegExp(String.raw`(?<![\w.@/-])${PLANNED}(?:${DONE}|closed)(?:\s+(?:pr|pull request))?\s*$`, "i");
+
+/**
+ * THE PULL REQUESTS A HEADLINE NAMES (2026-11-07, SO1 step 1b, for a write's
+ * close hint only): `done` — those a thing-done verb stands right beside
+ * (`#760 merged`, `merged PR #760`, read as the versions are: no plan, no
+ * noun phrase); `any` — every `#N` named. The sweep above takes no PR rule
+ * (round 3 of #777's review): a fade there is the store's call and was wrong
+ * on all three same-PR pairs. A hint is only a list the writing model judges,
+ * so the loose read is fine there. Pure.
+ */
+export function prKeys(text: string, as: "any" | "done" = "done"): ReadonlySet<number> {
+  const out = new Set<number>();
+  for (const m of text.matchAll(PR)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (as === "done") {
+      const head = text.slice(0, start);
+      const ok = PR_BEFORE.test(head) || (PR_AFTER.test(text.slice(end)) && !DETERMINER.test(head));
+      if (!ok) continue;
+    }
+    out.add(Number(m[1]));
+  }
+  return out;
+}
+
 /**
  * Which version makes `newer` the later state of `older`'s subject, or null,
  * and how far on it is (`gap`: patches ahead), so the sweep can name the

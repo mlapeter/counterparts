@@ -55,6 +55,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
+import { closeHints, noteCloseHintsShown } from "../../core/close-hint.js";
 import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
@@ -273,6 +274,8 @@ import {
   memoryHomeWords,
   RECALL_MODE_WORDS,
   STILL_DATED_HINT,
+  MAY_CLOSE_HINT,
+  mayCloseAskedNote,
   ANSWERS_HINT,
   STILL_DATED_SHOWN,
   TITLE_ASKED_NOTE,
@@ -1996,6 +1999,7 @@ export class McpServer {
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...this.slotOf(deposit),
       ...this.stillDatedNear(deposit, dated, facts.sent.status, [], session),
+      ...this.mayCloseOf(deposit, facts.sent.status, []),
       ...this.answersReminder(deposit, facts.sent, neighbours),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
@@ -2482,6 +2486,55 @@ export class McpServer {
     if (out.length === 0) return {};
     this.markSeen(out.map((n) => n.id));
     return { stillDated: out, stillDatedHint: STILL_DATED_HINT };
+  }
+
+  /**
+   * OPEN ITEMS THIS WRITE LOOKS LIKE IT SETTLES (2026-11-07, SO1 step 1b,
+   * `core/close-hint.ts`): from any folder, by the same version series, the
+   * same pull request, or what the item's `settlesWhen` names — at most three,
+   * nearest first, each with its folder, and `MAY_CLOSE_HINT`. The writing
+   * model decides; nothing is closed here. One asked of the owner carries a
+   * note that only their answer closes it. Each entry that listed any is
+   * counted (`noteCloseHintsShown`, with what the read cost). Empty when none.
+   */
+  private mayCloseOf(deposit: DepositResult, sentStatus: unknown, siblings: readonly string[]): Record<string, unknown> {
+    if (!deposit.deposited || deposit.memoryId === null) return {};
+    const started = performance.now();
+    const row = this.counterpart.store.row(deposit.memoryId);
+    if (row === undefined) return {};
+    const exclude = [
+      deposit.mint?.updates,
+      deposit.revision?.targetId,
+      deposit.reminder?.from,
+      ...(deposit.reminder?.alsoClosed ?? []),
+      deposit.thread?.from,
+      ...siblings,
+    ].filter((x): x is string => typeof x === "string");
+    const t = this.counterpart.self.tunables;
+    const hints = closeHints(
+      this.counterpart.store,
+      {
+        id: deposit.memoryId,
+        title: row.title,
+        body: row.body,
+        about: row.about ?? null,
+        status: typeof sentStatus === "string" ? sentStatus : (row.status ?? null),
+      },
+      { day: this.counterpart.store.livedDay(), carryDays: t.OPEN_CARRY_DAYS, glimpses: t.OPEN_CARRY_GLIMPSE_TOUCH, exclude },
+    );
+    if (hints.length === 0) return {};
+    const ms = performance.now() - started;
+    if (!this.counterpart.observer) this.telemetry(() => void noteCloseHintsShown(this.counterpart.store, deposit.memoryId as string, hints, ms));
+    this.markSeen(hints.map((h) => h.id));
+    const asked = hints.some((h) => h.asked === true) ? mayCloseAskedNote(this.counterpart.ownerDisplayName()) : null;
+    const mayClose = hints.map((h) => ({
+      id: h.id,
+      title: h.title,
+      ...(h.folder === undefined ? {} : { folder: h.folder }),
+      ...(h.settlesWhen === undefined ? {} : { settlesWhen: h.settlesWhen }),
+      ...(h.asked === true && asked !== null ? { note: asked } : {}),
+    }));
+    return { mayClose, mayCloseHint: MAY_CLOSE_HINT };
   }
 
   /**

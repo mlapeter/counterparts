@@ -673,6 +673,34 @@ export function openThreadTouches(
  * touched first (`openTouchedSql`), at most `limit`. Title, else its first
  * line. The caller decides which are threads (`self/identity.ts#openThread`).
  */
+/**
+ * EVERY OPEN ITEM'S HEAD, IN ONE READ (2026-11-07, SO1 step 1b): what a
+ * write's close hint (`core/close-hint.ts`) matches a new memory against —
+ * the title, the first `bodyChars` of the words (a headline's worth), the
+ * meta (the flag and `settlesWhen`), the folder that wrote it and its
+ * status. Live, ordinary memories flagged `unresolved` only (the
+ * `memories_open` index's own clause), never the night's own writing, a
+ * starter memory or an identity element. Newest first. The caller confirms
+ * the flag on the parsed meta.
+ */
+export function openItemHeads(
+  store: Store,
+  bodyChars: number,
+): { id: string; title: string | null; body: string; meta: string; scope: string | null; status: string | null; createdAt: number }[] {
+  return store["ops"]
+    .all<{ id: string; title: string | null; body: string; meta: string | null; origin_scope: string | null; status: string | null; created_at: number | null }>(
+      `SELECT m.id AS id, m.title AS title, substr(m.body, 1, ?) AS body, m.meta AS meta,
+              m.origin_scope AS origin_scope, m.status AS status, m.created_at AS created_at
+         FROM memories m
+        WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
+          AND m.superseded_by IS NULL AND m.band <> 'identity'
+          AND COALESCE(m.source, '') <> 'told' AND NOT ${NIGHTLY_SQL}
+        ORDER BY COALESCE(m.created_at, 0) DESC, m.id DESC`,
+      Math.max(1, Math.floor(bodyChars)),
+    )
+    .map((r) => ({ id: r.id, title: r.title, body: r.body, meta: r.meta ?? "{}", scope: r.origin_scope, status: r.status, createdAt: r.created_at ?? 0 }));
+}
+
 export function openThreadsOfSession(store: Store, session: string, limit: number): { id: string; title: string }[] {
   if (session.length === 0 || !(limit > 0)) return [];
   return store["ops"]

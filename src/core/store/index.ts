@@ -5707,6 +5707,13 @@ export class Store {
     return memoryReads.openThreadsOfSession(this, session, limit);
   }
 
+  /** Every open item's title, headline words, meta, folder and status, in one read
+   *  (2026-11-07, SO1 step 1b; `reads-memories.ts#openItemHeads`): what a write's
+   *  close hint matches against. READ-ONLY. */
+  openItemHeads(bodyChars: number): ReturnType<typeof memoryReads.openItemHeads> {
+    return memoryReads.openItemHeads(this, bodyChars);
+  }
+
   /** The same rows for ONE session, in write order — the neighbours a newly
    *  written memory sits beside (2026-09-28). The nightly run's rows are left
    *  out, so a note made after the dream sits next to the note made before
