@@ -484,6 +484,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       setFolderProject: ["/work", "sch_x", "owner"],
       clearFolderProject: ["/work"],
       recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
+      pruneRecallTurns: [],
       // v15 (2026-10-24, R3 cue learning).
       writeCueEdges: [[{ token: "ping", memoryId: seedId, weight: 0.5, lastDay: 0, source: "use" }]],
       sweepCueEdges: [{ staleOnOrBefore: 0 }, () => false],

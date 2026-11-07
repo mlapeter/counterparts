@@ -87,6 +87,8 @@ export const LANES = {
   // A boundary that left the sleep to a cycle already running: housekeeping,
   // like a check that found nothing due.
   "sleep.cycle.held": "flow",
+  "sleep.log.swept": "flow",
+  "events.rolled": "flow",
   "prospective.fire": "home",
   "prospective.plain": "home",
   // Dreaming and the core (2026-09-26): a dream that wrote its journal, what

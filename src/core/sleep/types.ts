@@ -160,6 +160,8 @@ export interface SleepStore {
    * and it never crosses the write seam.
    */
   pruneEvents?(opts?: { limit?: number }): EventPruneReport;
+  /** FD1 step 2: recall turns past the per-turn rows' short window, deleted; the count. */
+  pruneRecallTurns?(): number;
   eventLogCensus?(): EventLogCensus;
   /**
    * The CORE's history (schema v8, 2026-09-26), OPTIONAL like the log. Where

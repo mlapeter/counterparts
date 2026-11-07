@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
+| Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
 | Old chapters leave ambient recall (FD1 step 5): a chapter or frozen full copy whose latest chapter is 14+ lived days old (`LAST_HERE_LIFE_DAYS`) is no ambient footnote candidate, counted `journalAged`; `recall.decision` carries `journalCandidates`, `mcp.recall` carries `elapsedMs` | the release after 2026-11-07 (FD1 step 5) | ~1 week after install (dated reminder set at merge): chapter footnote ratings by age (<7, 7–13, 14+), `journalAged` per turn, the journal's share of the cut, meaning-mode `elapsedMs`. 7–13-day chapters still under ~0.3 and the slots going to better footnotes says move N to 7 | [below](#old-chapters-leave-ambient-recall-fd1-step-5) |
 | A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
 | A newer routine work event fades the older one (FD1 step 3): the night's `interfere` phase settles an unsalient, never-used `about: work` status note `changed` (×0.5) under a newer one naming a later version in the same series, in the same folder | the release after 2026-11-07 (FD1 step 3) | ~3 lived days after install (dated reminder set at merge): interference fades per night against age prunes per night (`sleep.cycle` `interfered` vs `pruned`), and anything wrongly faded; a dry run on the day-47 copy said 67 the first night, then a few a night | [below](#a-newer-routine-work-event-fades-the-older-one-fd1-step-3) |
@@ -153,6 +154,55 @@ reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDo
 
 Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
 close is undone by the reflect tool's `reopen` with the item's id.
+
+## Growth exits (FD1 step 2)
+
+**What we're trying.** Every growing table names its exit and gets one doctor line saying how full it is, what came in
+and what left over the last 7 lived days. The per-turn event rows (`recall.decision`, `recall.credit`,
+`recall.rated`, most of the log) keep 30 lived days instead of 90. Each lived day of them is counted into one latched
+`events.rolled` row before it goes: counts by name, the memory ids credited for use (a removed id left out), the
+session refs and `probe-oq4`'s two reports for the day, never a memory's words. Brief: `~/counterparts-notes/2026-11-07-briefs/FD1-fading-and-growth.md` §2.
+
+**Why.** Mike, 11-07: wherever something grows, fade more. On lived day 47 `events` was 66.5 MB of a 121 MB store, and
+nothing had aged out yet.
+
+**Before the install: take a read-only copy of the store.** Once it's installed, per-turn rows
+older than 30 lived days go and only their day's summary stays (`events.rolled`): counts, the ids credited for
+use and the session refs, but not the rows, so a SQL read of the rows themselves (their payload fields, footnote
+ids, ratings by id) can't reach them. The sheet carries the step (`docs/RELEASING.md` §5.1):
+`sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
+These reads run on that copy from then on: **MOD #3** ("`recall.decision` events since the .18 install", the
+"No settled-over memory outranks its head" section) and the **H14 replay** (ratings 10-26 to 10-31, "Due ~14 lived
+days after the longer habituation window"). `probe-oq4`, `counterparts mechanisms`, the dashboard's counts and the
+memory card's "days used" keep their all-time numbers from the summaries and need no copy.
+
+**When.** ~3 lived days after install. The first night past lived day 30 takes the backlog at most 5,000 rows a night, so
+Mike's store (installed around lived day 48) clears days 0–17 over the first few nights.
+
+**What to look at.** `counterparts doctor --json`, the `growth-events` finding: `bytes`, `rows`, `count:recall.decision`,
+`count:recall.credit`, `count:recall.rated`, `count:events.rolled`, `swept`, `lastRemaining`. On a read-only open:
+
+```sql
+SELECT name, COUNT(*), MIN(day), MAX(day) FROM events
+ WHERE name IN ('recall.decision','recall.credit','recall.rated','events.rolled','sleep.log.swept') GROUP BY name;
+SELECT day, json_extract(payload,'$.count'), json_extract(payload,'$.remaining'), json_extract(payload,'$.rolled')
+  FROM events WHERE name = 'sleep.log.swept' ORDER BY seq DESC LIMIT 7;
+```
+
+`recall_turns` goes on the same 30-lived-day window (`sleep.log.swept`'s `recallTurns`). Nothing writes it today, so
+expect 0. Also write down the first numbers from `growth-memories` (live, in reach, under floor, pruned per night, prune lap
+nights), `growth-cues`, `growth-queue` and the Association line's `edgesRecent`/`edgesSwept`, as the baseline for steps 3
+and 4.
+
+**Expected.** The per-turn rows' oldest day reaches lived day − 30 within a few nights. One `events.rolled` per lived day
+it swept. The file shrinks only after a `VACUUM` (SQLite reuses the pages; the bytes on `growth-events` fall first).
+
+**What would change it.** A reader that came up blank for want of an older row (a mechanism going `never`, a CHECK-AFTER
+read that needed ids): move that name back to 90, or roll more into the summary. A backlog that doesn't clear: raise
+`BUDGETS.log`.
+
+**Revert.** Empty `SHORT_RETENTION_NAMES` in `src/core/store/operational.ts`. Rows already swept stay gone. Their counts
+are in `events.rolled`.
 
 ## Old chapters leave ambient recall (FD1 step 5)
 
