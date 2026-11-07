@@ -944,6 +944,12 @@ export const RECALL_DECISION_FIELDS = [
   // subjects named offered, which beliefs were shown, and their bytes; null
   // when the slot did not run (off, or a quiet turn). Added the way `primed` was.
   "beliefs",
+  // FD1 step 5 (2026-11-07): chapters and frozen copies an ambient turn left
+  // out as `LAST_HERE_LIFE_DAYS` or more lived days old (a named skip, like
+  // below-reach), and the journal's share of the pool and of the cut's slots.
+  // Added the way `echoSkipped` was; `tools/parallel`'s hash moves with it.
+  "journalAged",
+  "journalCandidates",
 ] as const;
 
 export type SurfaceSetField = (typeof RECALL_DECISION_FIELDS)[number];
@@ -1110,6 +1116,9 @@ export function recallDecisionRecord(
     primed: d.primed,
     // THE BELIEFS SLOT (lane E): null when it did not run.
     beliefs: d.beliefs,
+    // AGED CHAPTERS AND THE JOURNAL'S SHARE (FD1 step 5): counts only.
+    journalAged: d.journalAged,
+    journalCandidates: d.journalCandidates,
   } satisfies Record<SurfaceSetField, unknown>;
   return surfaceSet;
 }

@@ -38,6 +38,8 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
+| Old chapters leave ambient recall (FD1 step 5): a chapter or frozen full copy whose latest chapter is 14+ lived days old (`LAST_HERE_LIFE_DAYS`) is no ambient footnote candidate, counted `journalAged`; `recall.decision` carries `journalCandidates`, `mcp.recall` carries `elapsedMs` | the release after 2026-11-07 (FD1 step 5) | ~1 week after install (dated reminder set at merge): chapter footnote ratings by age (<7, 7–13, 14+), `journalAged` per turn, the journal's share of the cut, meaning-mode `elapsedMs`. 7–13-day chapters still under ~0.3 and the slots going to better footnotes says move N to 7 | [below](#old-chapters-leave-ambient-recall-fd1-step-5) |
+| A done memory is never overdue (SO1 step 2): `status: done` dated today or earlier is refused `done` by `prospective/`, so it leaves Coming up and the overdue count; `remember`/`session_end` store such a date as `occurredOn` | the release after 2026-11-07 (SO1 step 2) | ~3 lived days after install (dated reminder set at merge): the wake's overdue count, done-but-dated items in Coming up (should be 0), and whether any real reminder went missing | [below](#a-done-memory-is-never-overdue-so1-step-2) |
 | A newer routine work event fades the older one (FD1 step 3): the night's `interfere` phase settles an unsalient, never-used `about: work` status note `changed` (×0.5) under a newer one naming a later version in the same series, in the same folder | the release after 2026-11-07 (FD1 step 3) | ~3 lived days after install (dated reminder set at merge): interference fades per night against age prunes per night (`sleep.cycle` `interfered` vs `pruned`), and anything wrongly faded; a dry run on the day-47 copy said 67 the first night, then a few a night | [below](#a-newer-routine-work-event-fades-the-older-one-fd1-step-3) |
 | The tail after a compaction is owed (CT1): what a session says after a compaction its record came before counts as unrecorded (the earliest such compaction), so even one line after a compaction is written up at night | 0.3.47, 2026-11-04 (CT1) | ~1 week after release (dated reminder set at merge): owed sessions with `compactionTail` > 0 on Mike's store, the write-ups they cost a night, and on the first live nights whether those tails were the person's own words or only task notifications / injected context (pieces carry no source tag: read the text on a snapshot); mostly plumbing says count the floor from the person's words | [below](#the-tail-after-a-compaction-is-owed-ct1) |
 | Folder attribution (FS1): a dream files a work merge or gist under its sources' majority folder (a tie: the newest source's), a personal one under their shared folder or none; another folder's dated work is counted "in other folders", not "Due today"; folders are named by their name, by path only when two share one | 0.3.47, 2026-11-04 (FS1) | **no date**: the next developer week (tier 2), or a week of Mike's shaped wakes after release | [below](#folder-attribution-fs1) |
@@ -172,6 +174,56 @@ read that needed ids): move that name back to 90, or roll more into the summary.
 
 **Revert.** Empty `SHORT_RETENTION_NAMES` in `src/core/store/operational.ts`. Rows already swept stay gone. Their counts
 are in `events.rolled`.
+
+## Old chapters leave ambient recall (FD1 step 5)
+
+FD1 step 5 (2026-11-07, decided by the roadmap seat with Mike's ruling: keep the journal forever, old chapters stop
+costing; lightly held), `recall/activate.ts#journalAged` (`recall/NOTES.md`, "FD1 step 5"). The 11-07 read: chapter
+footnotes rated 0.88 under 7 days, 0.29 at 7–13 (n=14) and 0.00 at 14+ (n=3), against 1.20 / 0.90 / 0.77 for other
+memories; journal rows took 12% of the cut's slots, and 83 turns in a week showed nothing but chapters. Ambient now
+leaves out a chapter or frozen copy whose last chapter is 14+ lived days old. Facts, meaning, reads by id, the wake
+and the dream are unchanged.
+
+- **Ratings by age.** Chapter footnote ratings (footnote lane) bucketed by the chapter's age on the turn, <7, 7–13
+  and 14+ (the last should be empty now), against the read's numbers. Join `recall.rated` to the footnote's
+  `recall.decision` row, and date the chapter by its last heading's lived day.
+- **The skip and the share.** `journalAged` per ambient turn (median, p90, by build), and `journalCandidates`:
+  `kept / of` against the read's 11.9% and `pool` against its 78. Turns whose only footnotes were chapters, against
+  83 a week.
+- **What took the slots.** Ratings of the non-journal footnotes on turns with `journalAged` > 0, against those
+  without: better footnotes, or just fewer?
+- **Meaning mode's time.** `mcp.recall` rows with `mode: "meaning"`: `elapsedMs` median and max, beside the live
+  episode count (323 on 11-07). Candidate-first selection waits for ~1,000 chapters or an ask past 200 ms.
+
+**What would change it:** if 7–13-day chapters stay under ~0.3 and the freed slots go to better footnotes, move N to
+7 (one line in `journalAged`; it stops reusing `LAST_HERE_LIFE_DAYS`). An old chapter Mike missed in a footnote says
+lengthen it. **How to revert:** drop the `journal-aged` line in `recallableRow`; the counts stay at 0.
+
+## A done memory is never overdue (SO1 step 2)
+
+SO1 step 2 (2026-11-07, Mike's brief `~/counterparts-notes/2026-11-07-briefs/SO1-still-open.md`; a fix, no
+switch): `prospective/derive.ts` refuses `done` (status done, not repeating, every window's last day on or before the
+day asked: a done dated today has happened), `Prospective#plainDue` skips the same, and
+`mcp/server-args.ts#doneDateAsOccurred` turns an eventDate of today or earlier on a done write into `occurredOn`. On 11-07 Mike's Coming up carried "Scheduled Routine night test PASSED",
+"Handoff for 11-07 written" and "Chart essay live … ledger L-0032" as overdue.
+
+- **Done-but-dated in Coming up: should be 0.** On a few wakes after install, the Coming up lines (and `recall
+  "coming up"`): any whose memory has `status = 'done'`, `event_date` on or before that day and no `meta.recurring`
+  (due today included). The rows that were there on 11-07 are still in the store with their date (no migration):
+  read them on a snapshot,
+  `SELECT id, title, event_date FROM memories WHERE status = 'done' AND event_date IS NOT NULL AND event_date <= date('now', 'localtime') AND archived = 0`,
+  and check none shows.
+- **The overdue count.** The wake's "(N overdue, …)" against the 11-07 one: it should drop by about the done rows
+  above, and every overdue line left should be a real open item.
+- **Nothing real went missing.** A done one-off dated today no longer shows as due that day, and one dated tomorrow
+  still does (by design); a done row carrying a real step still to do under today's or a past date would now be silent: look for any (a done whose body says "check on", "follow
+  up") among the rows above. One or more says the write's note should ask for a new memory for the next step.
+- **The write.** New rows since install with `status = 'done'` and `occurred_on` set and `event_date` NULL, against
+  any still landing with an `event_date` of that day or earlier (those came through `updates`, which the write
+  leaves alone).
+
+Revert: drop the `done` arm in `derive.ts` and its `load()` field, the `plainDue` skip, and the
+`doneDateAsOccurred` calls in `server.ts` and `server-session-end.ts`.
 
 ## A newer routine work event fades the older one (FD1 step 3)
 
