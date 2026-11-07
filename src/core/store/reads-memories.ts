@@ -418,6 +418,7 @@ export function supersededPairs(store: Store): { id: string; by: string }[] {
 export interface WorkEventRow {
   readonly id: string;
   readonly title: string | null;
+  /** The first 121 characters of the words, no more: the headline's room. */
   readonly body: string;
   readonly scope: string;
   readonly kind: string;
@@ -437,13 +438,17 @@ export interface WorkEventRow {
   readonly predictive: number;
   readonly claimed: number | null;
   readonly belief: boolean;
+  /** The fade multiplier a settle (or an earlier night) set; 1 when none. */
+  readonly fade: number;
 }
 
 /**
  * THE LIVE WORK MEMORIES A SESSION WROTE IN A FOLDER (2026-11-07, FD1 step 3):
  * `about = 'work'`, `source = 'authored'`, a folder, words, not archived or
  * replaced — what the night's interference sweep reads (`interference.ts`),
- * oldest first. One read of columns; the sweep's guards judge each row.
+ * oldest first. One read of columns, and of the words only their first 121
+ * characters (the headline's room, `interference.ts#headline`); the sweep's
+ * guards judge each row.
  */
 export function workEventRows(store: Store): WorkEventRow[] {
   const v14 = store.hasColumn("memories", "birth_route");
@@ -470,9 +475,10 @@ export function workEventRows(store: Store): WorkEventRow[] {
       predictive: number;
       claimed: number | null;
       birth_route: string | null;
+      fade: number | null;
     }>(
-      `SELECT id, title, body, origin_scope, kind, band, birth_day, created_at, status, said_by, uses,
-              protected, promoted_identity, event_date, meta, novelty, relevance, emotional, predictive, claimed,
+      `SELECT id, title, substr(body, 1, 121) AS body, origin_scope, kind, band, birth_day, created_at, status, said_by, uses,
+              protected, promoted_identity, event_date, meta, novelty, relevance, emotional, predictive, claimed, fade,
               ${v14 ? "birth_route" : "NULL AS birth_route"}
          FROM memories
         WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND about = 'work'
@@ -501,6 +507,7 @@ export function workEventRows(store: Store): WorkEventRow[] {
       predictive: r.predictive,
       claimed: r.claimed,
       belief: r.birth_route !== null,
+      fade: typeof r.fade === "number" && r.fade > 0 && r.fade < 1 ? r.fade : 1,
     }));
 }
 

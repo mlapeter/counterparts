@@ -15,7 +15,9 @@
   protected or core, not a belief, no `event_date`, not an open item (`unresolved` / `settlesWhen`), `said_by` not
   `owner` (unmarked counts as not the owner's, as `defaultClaimFor` reads it), no feeling (`emotional` 0, no
   feelings row), `sal` ≤ 0.4, `uses` < `W_USEFUL` (0.75: one open, quote or rating of 2–3 is past it), reads as a
-  status event (`STATUS_WORDS`), and in no pair already (a pair the owner undid is never faded again). Why: the
+  status event AT its subject (a status verb beside the version or PR in the headline), never faded before, not
+  the faded side of a pair nor under an open question (a pair the owner undid is never faded again). The newer
+  must say the thing was DONE at that subject (released, published, merged, …), equal version too (review of #777). Why: the
   brief's "unsalient, never-really-used" made checkable; 0.4 is `DEFAULT_CLAIM_PERSONAL`, above every work default.
 - Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the cut is `CHANGED_FADE` (×0.5), at most 200 a night
   (`BUDGETS.interfere`), and the prune is untouched (`D_FLOOR_DAYS` stays 14). The `sleep.cycle` row counts

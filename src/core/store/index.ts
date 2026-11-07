@@ -2752,6 +2752,12 @@ export class Store {
     return historyReads.foldsCiting(this, id);
   }
 
+  /** The OLDER memory of every pair of one `source`, withdrawn ones included (the interference sweep's one-cut rule, FD1 step 3). */
+  contradictionOlders(source: string): string[] {
+    if (!this.hasTable("contradictions")) return [];
+    return this.ops.all<{ a: string }>("SELECT a FROM contradictions WHERE source = ?", source).map((r) => r.a);
+  }
+
   /** Has any pair EVER named these two memories, withdrawn ones included (a slot the dream said was two things)? */
   contradictionEverBetween(x: string, y: string): boolean {
     if (!this.hasTable("contradictions")) return false;

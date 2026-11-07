@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { INTERFERENCE_REASON, INTERFERENCE_SOURCE, headline, interferenceSweep, sameSubject, subjectKeys } from "../src/core/interference.js";
+import { INTERFERENCE_EVENT, INTERFERENCE_REASON, INTERFERENCE_SOURCE, INTERFERENCE_TUNABLES, headline, interferenceSweep, sameSubject, subjectKeys } from "../src/core/interference.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import { CONTRADICTION_SETTLED_EVENT, undo } from "../src/core/reconsolidation.js";
 import { SLEEP_CYCLE_EVENT } from "../src/core/counterpart-events.js";
@@ -118,7 +118,7 @@ function cycleRows(w: World): Record<string, unknown>[] {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the subject: a version series, or a pull request", () => {
   test("versions are read by series with the highest patch; pull requests by number", () => {
-    const k = subjectKeys("0.3.46 ready to publish; 0.3.47 queued after it, PR #744 and pull/772, v1.2.0 for the plugin");
+    const k = subjectKeys("0.3.46 ready to publish; 0.3.47 queued after it, PR #744 and pull/772, v1.2.0 for the plugin", "any");
     expect([...k.versions]).toEqual([
       ["0.3", 47],
       ["1.2", 0],
@@ -127,9 +127,35 @@ describe("the subject: a version series, or a pull request", () => {
   });
 
   test("dates, addresses, longer dotted runs and one-digit numbers are not subjects", () => {
-    const k = subjectKeys("met on 2026-11-07 at 10.0.0.12, version 1.2.3.4, step #3, colour #fff, chapter 4.1");
+    const k = subjectKeys("met on 2026-11-07 at 10.0.0.12, version 1.2.3.4, step #3, colour #fff, chapter 4.1", "any");
     expect(k.versions.size).toBe(0);
     expect(k.pulls.size).toBe(0);
+  });
+
+  test("a token is the subject only with a status verb beside it (review of #777)", () => {
+    const step = (t: string): string[] => {
+      const k = subjectKeys(t, "step");
+      return [...[...k.versions].map(([s, p]) => `${s}.${p}`), ...[...k.pulls].map((n) => `#${n}`)];
+    };
+    expect(step("0.3.46 released 10-16")).toEqual(["0.3.46"]);
+    expect(step("0.3.46 fully released 11-04")).toEqual(["0.3.46"]);
+    expect(step("counterparts@0.3.14 published (binaries live)")).toEqual(["0.3.14"]);
+    expect(step("PR #741 opened for review")).toEqual(["#741"]);
+    expect(step("Merged #741 after review")).toEqual(["#741"]);
+    expect(step("ready to publish 0.3.47 tonight")).toEqual(["0.3.47"]);
+    expect(step("0.3.47 after-publish steps: tag pushed")).toEqual(["0.3.47"]);
+    expect(step("0.3.39 cut 10-28: sheet written")).toEqual(["0.3.39"]);
+    // The wrong pairs the review found, in shape: a verb elsewhere, a dotted event name, a noun phrase.
+    expect(step("Release branch scan failed on a token: false positive, not in the 0.3.44 tarball")).toEqual([]);
+    expect(step("Sidebar mapping misses memory.merged and band rises (0.3.29)")).toEqual([]);
+    expect(step("Docker running for the phone seat during the 0.3.46 cut")).toEqual([]);
+    expect(step("Closed: #666 review findings")).toEqual([]);
+    // A newer memory must say the thing was DONE: a step on the way is not.
+    expect(subjectKeys("0.3.50 ready to publish", "done").versions.size).toBe(0);
+    expect(subjectKeys("0.3.50 queued", "done").versions.size).toBe(0);
+    expect(subjectKeys("0.3.50 cut", "done").versions.size).toBe(0);
+    expect(subjectKeys("0.3.50 released to npm", "done").versions.get("0.3")).toBe(50);
+    expect(subjectKeys("Real drill on 0.3.50 passed", "done").versions.size).toBe(0);
   });
 
   test("the subject is read in the headline: the title, or the first words, never a version named in passing below", () => {
@@ -145,19 +171,20 @@ describe("the subject: a version series, or a pull request", () => {
 
   test("the nearest later state holds: the fewest patches on, then the newest written", () => {
     const old = subjectKeys("0.3.46 ready to publish");
-    expect(sameSubject(old, subjectKeys("0.3.47 released"))?.gap).toBe(1);
-    expect(sameSubject(old, subjectKeys("0.3.46 released"))?.gap).toBe(0);
-    expect(sameSubject(subjectKeys("0.3.46 and 1.2.0 tagged"), subjectKeys("0.3.50 and 1.2.1 released"))).toEqual({ rule: "version", key: "1.2.0→1.2.1", gap: 1 });
+    expect(sameSubject(old, subjectKeys("0.3.47 released", "done"))?.gap).toBe(1);
+    expect(sameSubject(old, subjectKeys("0.3.46 released", "done"))?.gap).toBe(0);
+    expect(sameSubject(subjectKeys("0.3.46 tagged and 1.2.0 tagged"), subjectKeys("0.3.50 released and 1.2.1 released", "done"))).toEqual({ rule: "version", key: "1.2.0→1.2.1", gap: 1 });
   });
 
   test("a newer version in the same series is the later state; an older one, another series or another PR is not", () => {
     const old = subjectKeys("0.3.46 ready to publish");
-    expect(sameSubject(old, subjectKeys("0.3.50 released"))).toEqual({ rule: "version", key: "0.3.46→0.3.50", gap: 4 });
-    expect(sameSubject(old, subjectKeys("0.3.46 released"))?.rule).toBe("version");
-    expect(sameSubject(old, subjectKeys("0.3.45 hotfix"))).toBeNull();
-    expect(sameSubject(old, subjectKeys("0.4.0 released"))).toBeNull();
-    expect(sameSubject(subjectKeys("#760 merged"), subjectKeys("#772 merged"))).toBeNull();
-    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged"))).toEqual({ rule: "pull", key: "#741", gap: 0 });
+    expect(sameSubject(old, subjectKeys("0.3.50 released", "done"))).toEqual({ rule: "version", key: "0.3.46→0.3.50", gap: 4 });
+    expect(sameSubject(old, subjectKeys("0.3.46 released", "done"))?.rule).toBe("version");
+    expect(sameSubject(old, subjectKeys("0.3.45 released", "done"))).toBeNull();
+    // Another series errs safe: 0.4.0 does not fade 0.3.x.
+    expect(sameSubject(old, subjectKeys("0.4.0 released", "done"))).toBeNull();
+    expect(sameSubject(subjectKeys("#760 merged"), subjectKeys("#772 merged", "done"))).toBeNull();
+    expect(sameSubject(subjectKeys("PR #741 opened for review"), subjectKeys("#741 merged", "done"))).toEqual({ rule: "pull", key: "#741", gap: 0 });
   });
 });
 
@@ -185,7 +212,7 @@ describe("the night: a newer routine work event fades the older one", () => {
     const salient = await remember(s, { text: "0.3.46 merged the new till export, which the accountant depends on.", salience: 0.45 });
     const note = await remember(s, { text: "0.3.46 changed how the shelf count rounds, because half units confused the stocktake." });
     const otherPr = await remember(s, { text: "#760 merged: receipt footer wording." });
-    const elsewhere = await remember(w.tools(ELSEWHERE), { text: "0.3.46 of the oven timer tagged and ready to install in the bakery." });
+    const elsewhere = await remember(w.tools(ELSEWHERE), { text: "0.3.46 tagged and ready to install in the bakery: the oven timer." });
     const used = await remember(s, { text: "0.3.46 install steps verified on the spare till; ready to publish." });
     w.toDay(2);
     // A real use on a later day: one full use is past "never really used".
@@ -255,6 +282,75 @@ describe("the night: a newer routine work event fades the older one", () => {
     expect(again.cycle.phases.find((p) => p.phase === "interfere")?.changed).toBe(0);
     for (const id of [ready, after, pr]) expect(fadeOf(w, id)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
     expect(cycleRows(w).at(-1)?.["interfered"]).toBe(0);
+  });
+
+  test("a chain keeps fading, night after night: the one that held a fade fades in its turn (review of #777)", async () => {
+    const w = world();
+    const s = w.tools();
+    const night = async (): Promise<string[]> => {
+      const r = await w.c.sessionEnd({ date: w.today(), budgetBytes: BUDGET, session: S });
+      return r.cycle.interfered.map((f) => f.over);
+    };
+    const ids: string[] = [];
+    for (let d = 1; d <= 4; d += 1) {
+      w.toDay(d);
+      ids.push(await remember(s, { text: `0.3.${String(45 + d)} released to npm; the shop till updated.`, status: "done" }));
+      const faded = await night();
+      // Each night the one before tonight's release fades, under it.
+      expect(faded).toEqual(d === 1 ? [] : [ids[d - 2] as string]);
+    }
+    w.toDay(5);
+    const last = await remember(s, { text: "0.3.50 released to npm; the shop till updated.", status: "done" });
+    expect(await night()).toEqual([ids[3] as string]);
+    for (const id of ids) expect(fadeOf(w, id)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
+    expect(fadeOf(w, last)).toBe(1);
+    // Each one sits under the release right after it.
+    const under = new Map(pairs(w).map((p) => [p.over, p.holds]));
+    expect(ids.map((id) => under.get(id))).toEqual([ids[1], ids[2], ids[3], last]);
+  });
+
+  test("a backlog chain: observer and applied count the same, and the next release fades the last one", async () => {
+    const w = world();
+    const s = w.tools();
+    const ids: string[] = [];
+    for (let d = 1; d <= 4; d += 1) {
+      w.toDay(d);
+      ids.push(await remember(s, { text: `0.3.${String(45 + d)} released to npm; the shop till updated.`, status: "done" }));
+    }
+    const dry = interferenceSweep(w.c.store, { day: 4, apply: false, budget: 100 });
+    const wet = interferenceSweep(w.c.store, { day: 4, apply: true, budget: 100 });
+    expect(dry.faded.length).toBe(3);
+    expect(wet.faded.length).toBe(3);
+    w.toDay(5);
+    await remember(s, { text: "0.3.50 released to npm; the shop till updated.", status: "done" });
+    expect(interferenceSweep(w.c.store, { day: 5, apply: true, budget: 100 }).faded.map((f) => f.over)).toEqual([ids[3] as string]);
+  });
+
+  test("the plain-fade path (SETTLE off): the same cut and reason on a memory.interfered row, no pair, nothing settled over", async () => {
+    const w = world();
+    const s = w.tools();
+    w.toDay(1);
+    const old = await remember(s, { text: "0.3.46 ready to publish: tarball built and the sheet written.", status: "done" });
+    w.toDay(2);
+    const newer = await remember(s, { text: "0.3.47 released to npm; the shop till updated.", status: "done" });
+    INTERFERENCE_TUNABLES.SETTLE = false;
+    try {
+      const r = await w.c.sessionEnd({ date: w.today(), budgetBytes: BUDGET, session: S });
+      expect(r.cycle.interfered.map((f) => f.over)).toEqual([old]);
+    } finally {
+      INTERFERENCE_TUNABLES.SETTLE = true;
+    }
+    expect(fadeOf(w, old)).toBeCloseTo(PHYSICS.CHANGED_FADE, 9);
+    expect(pairs(w)).toEqual([]);
+    const rows = w.c.store.eventLog({ name: INTERFERENCE_EVENT }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>);
+    expect(rows.length).toBe(1);
+    expect(rows[0]).toMatchObject({ over: old, holds: newer, reason: INTERFERENCE_REASON, rule: "version", key: "0.3.46→0.3.47", fadeAfter: PHYSICS.CHANGED_FADE });
+    expect(cycleRows(w).at(-1)?.["interfered"]).toBe(1);
+    // One cut, ever: the next night leaves it.
+    w.toDay(3);
+    await remember(s, { text: "0.3.48 released to npm; the shop till updated.", status: "done" });
+    const again = interferenceSweep(w.c.store, { day: 3, apply: false, budget: 10 });
+    expect(again.faded.map((f) => f.over)).not.toContain(old);
   });
 
   test("the owner's undo stands: an undone fade is never made again, even by a newer release", async () => {
