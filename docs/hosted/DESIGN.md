@@ -509,7 +509,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 - **Done 2026-11-07, before the first stranger invite: the R2 token rotated (RUNBOOK, Write-only backups, step 7).**
   Mike made a new token (Object Read & Write, `counterparts-hosted` only, no IP filter: Hobby has no static egress),
   set it on Railway and deployed (09:21 MST), then deleted the old one (`counterparts-hosted-railway`, made 10-29).
-  Litestream's first compaction and L0 deletes after the old token's deletion (09:41) landed with no error. Until then,
+  After the old token's deletion, Litestream's next compaction and L0 deletes (09:41) landed with no error. Until then,
   whoever held a copy of the pre-WB1 environment (the old `HOSTED_KEKS` beside the old token) could have written the
   bucket, and writes reach the LIVE service: deleting objects, a tombstone (`deleted/<storeId>`) that makes the next
   start finish a delete, or a planted sealed key that makes the server refuse a store. No sign it ever leaked. The

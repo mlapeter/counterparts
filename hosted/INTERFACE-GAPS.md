@@ -8,11 +8,9 @@
      day, retention unknown; Mike is asking Railway (DESIGN §5.1);
    - ~~the Cloudflare Worker key service~~ **replaced by WB1 (write-only backups, 2026-11-06; Hobby has no static
      egress)**: the KEK is on the volume, every key object in R2 is sealed to an offline recovery key, so one leak of
-     Railway's environment (the R2 token included) opens no backup. **Owed to finish it, Mike's steps** (RUNBOOK,
-     "Write-only backups"): the recovery keypair made and kept offline, `HOSTED_RECOVERY_PUBKEY` set, the release
-     deployed, `migrate-keys --recovery-fingerprint <fp>` run (it re-keys control), `HOSTED_KEKS` removed, the
-     R2 token rotated (all done by 2026-11-07; what's left:) the old KEK copies retired once no `keys/*.wrapped` is left; all BEFORE THE FIRST STRANGER
-     INVITE (DESIGN §5.4, accepted).
+     Railway's environment (the R2 token included) opens no backup. **Owed to finish it, Mike's step** (RUNBOOK,
+     "Write-only backups", step 8): the old KEK copies retired once no `keys/*.wrapped` is left. Steps 1-7 are done
+     (1-6 on 2026-11-06, the R2 token rotated 2026-11-07, before the first stranger invite; DESIGN §5.4).
      The R2 drill (item 5) again on the deployed image after that;
    - lockout: the recovery private key held offline in two places before use, both copies proven by
      `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
