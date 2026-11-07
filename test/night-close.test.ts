@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { MAY_BE_DONE_META, NIGHT_CLOSE_EVENT, NIGHT_CLOSE_RULE, NIGHT_REOPEN_EVENT, nightClosedOf } from "../src/core/open-close.js";
+import { MAY_BE_DONE_META, NIGHT_CLOSE_EVENT, NIGHT_CLOSE_RULE, NIGHT_REOPEN_EVENT, lastNightCloses, nightClosedOf, openCloseSweep } from "../src/core/open-close.js";
 import { INTERFERENCE_SOURCE } from "../src/core/interference.js";
 import { PHASES } from "../src/core/sleep/index.js";
 import { WAKE_SHAPE_KEY } from "../src/core/self/tunables.js";
@@ -64,9 +64,11 @@ interface World {
   wake(scope: string, session: string): string;
 }
 
+let stores = 0;
 function world(): World {
   let now = Date.parse("2026-11-01T09:00:00Z");
-  const c = Counterpart.open({ dir: join(root, "store"), budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+  stores += 1;
+  const c = Counterpart.open({ dir: join(root, `store-${String(stores)}`), budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
   open.push(c);
   const today = (): string => new Date(now).toISOString().slice(0, 10);
   c.store.advanceClock(today());
@@ -130,9 +132,9 @@ async function releaseWeek(w: World): Promise<Week> {
   w.toDay(1);
   const ready = await remember(s, { text: "0.3.46 ready for the owner to publish: tarball built, sheet written.", unresolved: true, settlesWhen: "the owner publishes 0.3.46" });
   const after = await remember(s, { text: "0.3.47 after-publish steps: tag pushed, release notes to the site.", unresolved: true });
-  const ended = await s.call("session_end", { session: S, memories: [{ content: "0.3.48 cut from the release branch; waiting on the owner's publish.", about: "work", unresolved: true, status: "planned" }] });
+  const ended = await s.call("session_end", { session: S, memories: [{ content: "0.3.48 ready to publish from the release branch; waiting on the owner.", about: "work", unresolved: true, status: "planned" }] });
   expect(ended.isError ?? false).toBe(false);
-  const cut = idOf(w, "0.3.48 cut from the release branch");
+  const cut = idOf(w, "0.3.48 ready to publish from the release branch");
   // Wrong shapes, never closed by a release.
   const pinned = await remember(s, { text: "0.3.49 pinned at a commit; the release agent is on it.", unresolved: true });
   const asked = await remember(s, { text: "0.3.46 ready: should it go out tonight or wait for the till fix?", unresolved: true, status: "asked" });
@@ -146,7 +148,7 @@ async function releaseWeek(w: World): Promise<Week> {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the night closes what a later release shows done", () => {
-  test("a release closes the older ready / after-publish / cut items in its series and folder, each recorded with its reason and evidence", async () => {
+  test("a release closes the older ready / after-publish / ready-to-publish items in its series and folder, each recorded with its reason and evidence", async () => {
     const w = world();
     const m = await releaseWeek(w);
     const report = await w.night();
@@ -270,5 +272,89 @@ describe("a touch reopens it, recorded", () => {
     const r = await s.call("recall", { handle: m.ready });
     expect(r.isError ?? false).toBe(false);
     expect(isOpen(w, m.ready)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE REVIEW OF #782'S ATTACK CASES (adopted): what must never close.
+/** Items written on day 1, evidence on day 3, then the sweep as a dry run: which items it would close. */
+async function wouldClose(items: readonly string[], evidence: readonly { text: string; status?: string }[]): Promise<string[]> {
+  const w = world();
+  const s = w.tools();
+  w.toDay(1);
+  const ids = new Map<string, string>();
+  for (const t of items) ids.set(await remember(s, { text: t, unresolved: true }), t);
+  w.toDay(3);
+  for (const e of evidence) await remember(s, { text: e.text, ...(e.status === undefined ? {} : { status: e.status }) });
+  const out = openCloseSweep(w.c.store, { day: w.c.store.livedDay(), apply: false, budget: 100 });
+  return out.closed.map((x) => ids.get(x.id) ?? x.id);
+}
+
+describe("the rule's edges (review of #782)", () => {
+  test("a bug-shaped item naming a step version never closes, whatever the verb", async () => {
+    const closed = await wouldClose(
+      [
+        "0.3.46 cut breaks the wake on node 22",
+        "0.3.46 built but the Linux tests fail",
+        "0.3.46 installed twice duplicates the hooks",
+        "0.3.46 merged PR left the dashboard blank",
+        "0.3.46 packed tarball is missing the README",
+        "0.3.46 ready but the migration drops tags; fix before any release",
+        "0.3.46 pushed with a typo in the changelog",
+      ],
+      [{ text: "0.3.50 released to npm today.", status: "done" }],
+    );
+    expect(closed).toEqual([]);
+  });
+
+  test("only a release written done is evidence: plans, questions, goals and conditions are not", async () => {
+    for (const ev of [
+      "Plan: 0.3.50 released by Friday, Mike's call.",
+      "0.3.50 released? Not yet, waiting on 2FA.",
+      "Goal for the week: 0.3.50 shipped and the site updated.",
+      "If 0.3.50 landed cleanly we can drop the pin.",
+      "Recap of the old plan from 10-20: 0.3.50 published after the sweep.",
+      "0.3.50 released to staging only; npm still waits.",
+    ]) {
+      expect(await wouldClose(["0.3.46 ready for the owner to publish"], [{ text: ev }])).toEqual([]);
+    }
+    // The same words, written done, are.
+    expect(await wouldClose(["0.3.46 ready for the owner to publish"], [{ text: "0.3.50 released to npm today.", status: "done" }])).toEqual(["0.3.46 ready for the owner to publish"]);
+  });
+
+  test("another product's version in the same folder is another series", async () => {
+    expect(await wouldClose(["site 0.3.46 ready for review"], [{ text: "counterparts 0.3.50 released to npm this morning.", status: "done" }])).toEqual([]);
+    expect(await wouldClose(["bun 1.2.3 ready to test on CI"], [{ text: "node 1.2.9 released upstream this morning.", status: "done" }])).toEqual([]);
+    // The folder's own name, or none, on either side is the same product.
+    expect(await wouldClose(["0.3.46 ready to publish for the shop"], [{ text: "counterparts 0.3.50 published to npm today.", status: "done" }])).toEqual(["0.3.46 ready to publish for the shop"]);
+  });
+
+  test("only ready / ready to publish / after-publish / publish items: a cut, tagged or queued one is not a debt a release pays", async () => {
+    const closed = await wouldClose(
+      ["0.3.46 cut from the release branch", "0.3.46 tagged on master", "0.3.46 queued behind the drill", "0.3.46 after-publish steps", "Ready to publish 0.3.47 tonight"],
+      [{ text: "0.3.50 released to npm today.", status: "done" }],
+    );
+    expect(closed.sort()).toEqual(["0.3.46 after-publish steps", "Ready to publish 0.3.47 tonight"]);
+  });
+});
+
+describe("reopen's loose ends (review of #782)", () => {
+  test("reopen clears the night's record, and the morning line no longer names the item", async () => {
+    const w = world();
+    const m = await releaseWeek(w);
+    await w.night();
+    expect(lastNightCloses(w.c.store, 0).map((x) => x.id)).toContain(m.ready);
+    const r = await w.tools().call("reflect", { phase: "reopen", reopen: [m.ready] });
+    expect(r.isError ?? false).toBe(false);
+    expect(nightClosedOf(w.c.store.readProse(m.ready).meta)).toBeNull();
+    expect(lastNightCloses(w.c.store, 0).map((x) => x.id)).not.toContain(m.ready);
+    // A second reopen says it is already open.
+    const again = await w.tools().call("reflect", { phase: "reopen", reopen: [m.ready] });
+    expect(again.isError ?? false).toBe(false);
+    expect(isOpen(w, m.ready)).toBe(true);
+    // A thread carried on by a write leaves the morning line too.
+    await remember(w.tools(), { text: "0.3.47 after-publish steps: the site part still owed.", unresolved: true, updates: m.after });
+    expect(nightClosedOf(w.c.store.readProse(m.after).meta)).toBeNull();
+    expect(lastNightCloses(w.c.store, 0).map((x) => x.id)).not.toContain(m.after);
   });
 });

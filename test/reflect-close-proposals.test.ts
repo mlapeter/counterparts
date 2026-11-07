@@ -327,7 +327,7 @@ describe("stale open threads, closed when plainly done", () => {
     // A second finish says the lines once; one already asked is not closed instead.
     const again = c.reflections.finish({ reflection: id, session: SESSION, closeNow: [{ id: w.staleToo, why: "Moved on the 3rd." }] });
     if (!again.ok) throw new Error(again.reason);
-    expect(again.outcome.close.refused).toEqual([{ id: w.staleToo, reason: "already-asked" }]);
+    expect(again.outcome.close.refused).toEqual([{ id: w.staleToo, reason: "already-listed" }]);
     expect(openFlag(c, w.staleToo)).toBe(true);
     const after = c.store.reflection(id)?.share ?? "";
     expect(after.match(/I closed/g)?.length).toBe(1);
@@ -486,6 +486,23 @@ describe("stale open threads, closed when plainly done", () => {
  * writes — the row that says a self-close lands before the flag flips.
  */
 describe("self-closes, the awkward states", () => {
+  test("a question to the owner sent in closeNow is listed as may be done, never closed (SO1 step 1)", () => {
+    const c = brain();
+    nextDay(c);
+    const asked = mem(c, "Open: does the owner want the tarball signed?", { meta: { unresolved: true }, status: "asked" });
+    for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(begun.bundle.staleOpen.map((x) => x.id)).toContain(asked);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: asked, why: "It was signed last week." }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed).toEqual([]);
+    expect(done.outcome.close.proposed).toEqual([asked]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${asked}: listed as may be done instead of closed (asked-of-the-owner).`]);
+    expect(openFlag(c, asked)).toBe(true);
+    expect(c.store.reflection(begun.bundle.reflection)?.share ?? "").not.toContain("Shall I close");
+  });
+
   test("an id sent in both close and closeNow is asked, not closed", () => {
     const c = brain();
     const w = world(c);

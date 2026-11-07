@@ -10,21 +10,27 @@
  * **The one rule (`release-supersedes`).** A release memory — "X.Y.Z
  * released" / "published" (a FINAL verb beside the version in its headline,
  * `interference.ts#subjectKeys`) — closes every open item in the same folder
- * whose headline names an earlier patch of the same series as a step on the
- * way (ready, cut, queued, packed, after-publish, …): "0.3.46 ready for Mike
- * to publish" and "0.3.47 after-publish steps" close under "0.3.50
- * released". Strictly an earlier patch (W < Z): the same version's release
+ * whose headline names an earlier patch of the same series as a release step
+ * still owed — ready, ready to publish, after-publish, publish, right beside
+ * the version (never cut, built, packed, merged, tagged: a bug report names
+ * those too) — "0.3.46 ready for Mike to publish" and "0.3.47 after-publish
+ * steps" close under "0.3.50 released". The release must be WRITTEN `done`
+ * (an unmarked "Plan: 0.3.50 released by Friday" is no release), of the same
+ * product (the word before the version: "site 0.3.46" is not "counterparts
+ * 0.3.50"), and strictly an earlier patch (W < Z): the same version's release
  * does not close its own after-publish steps. Written strictly later (its
- * moment, else its lived day). The same subject reading the interference
- * sweep uses (`subjectKeys` / `sameSubject`: a verb right beside the
- * version, never a plan, never a noun phrase), so "Check ~7 lived days after
- * 0.3.45" or "fix aimed at 0.3.30" name no release step and never close.
+ * moment, else its lived day). The release is read as the interference sweep
+ * reads it (`subjectKeys`: a final verb right beside the version, never a
+ * plan), so "Check ~7 lived days after 0.3.45" or "fix aimed at 0.3.30" never
+ * close.
  *
  * **What this rule never closes.** A question to the owner (`status:
  * asked`): only his answer closes one — a write that `updates` it and says it
  * is answered, or the reflection on what he said — and similarity is not his
  * answer; one that may be settled is listed as "may be done". An item the
- * owner reopened (`threadReopenedBy`). A check (CHECK-AFTER, "Check due", a
+ * owner reopened (`threadReopenedBy`). A problem ("0.3.46 cut breaks the
+ * wake", "… fix before any release": broke, fail, bug, missing, crash,
+ * regress, wrong, fix). A check (CHECK-AFTER, "Check due", a
  * re-read): a release is when a check comes due, not its answer. An item that
  * is conditional on a release ("after 0.3.45", "once 0.3.47 ships"). One the
  * item itself already reads as final ("0.3.47 published but …": what it owes
@@ -52,7 +58,7 @@
  * night; listed by `recall "still open"` beside the item, never in the wake.
  */
 import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "./mint.js";
-import { INTERFERENCE_SOURCE, headline, sameSubject, subjectKeys } from "./interference.js";
+import { INTERFERENCE_SOURCE, headline, subjectKeys } from "./interference.js";
 import { undo } from "./reconsolidation.js";
 import type { SubjectKeys } from "./interference.js";
 import { settlesWhenOf } from "./types.js";
@@ -123,7 +129,8 @@ export type OpenCloseSkip =
   | "a-check"
   | "conditional"
   | "no-subject"
-  | "final-already"
+  | "not-a-release-step"
+  | "a-problem"
   | "no-later-release"
   | "refused";
 
@@ -150,6 +157,64 @@ export interface OpenCloseOutcome {
 const A_CHECK = /\bcheck(?:ed|s)?\b|CHECK-AFTER|\bre-?read\b|\bre-?check\b/i;
 /** The version as a condition, not a subject: `after 0.3.45`, `once 0.3.47 ships`, `until 0.3.48`. */
 const CONDITIONAL = /\b(?:after|once|when|until|post|before|since|by|in|into|for|aimed\s+at|ride|rides|riding)\s+(?:counterparts@|v)?\d{1,3}\.\d{1,3}\.\d{1,4}(?![\w.])/i;
+/**
+ * A PROBLEM, NOT A STEP (review of #782): an item about something wrong with
+ * a build ("0.3.46 cut breaks the wake", "0.3.46 ready but the migration drops
+ * tags; fix before any release") is a debt a later release doesn't pay.
+ */
+const A_PROBLEM = /\b(?:break|breaks|breaking|broke|broken|fail|fails|failed|failing|failure|bug|bugs|buggy|missing|crash|crashes|crashed|regress\w*|wrong|fix|fixes|fixed|fixing)\b/i;
+/** A version, `major.minor.patch`, not part of a longer dotted run (as `interference.ts` reads one). */
+const VERSION = /(?<![\w.])v?(\d{1,3})\.(\d{1,3})\.(\d{1,4})(?![\w]|\.\d)/g;
+/**
+ * WHAT AN ITEM MAY BE (review of #782, the brief's words): a release step
+ * still owed — ready, ready to publish, after-publish, publish — beside the
+ * version. Never cut, built, packed, pushed, merged, approved, reviewed,
+ * queued or tagged: those name a state a bug report also names.
+ */
+const ITEM_AFTER = /^(?:-[\w]+)?\s*[:,]?(?:\s+(?:is|now|all|fully|being|just|also|still))*\s+(?:ready|after-publish|to\s+publish|publish)(?![\w-])/i;
+const ITEM_BEFORE = /(?<![\w.@/-])(?:ready\s+to\s+(?:publish|release)|to\s+publish|publish|publishing)(?:\s+(?:counterparts|version|v))?\s*@?\s*$/i;
+/** The word right before a version that is no product name: verbs, fillers, determiners, the default names. */
+const NOT_A_PRODUCT = /^(?:v|version|release|releases|counterparts|npm|the|a|an|of|for|to|and|or|is|was|now|fully|finally|just|then|also|has|been|being|after|ready|publish|published|released|shipped|deployed|installed|landed|tagged|merged|cut|built|packed|queued|pushed|mike|i|we)$/i;
+
+/**
+ * WHICH PRODUCT A VERSION IS (review of #782): the word right before it —
+ * "site 0.3.46", "counterparts@0.3.50" — or null for the folder's own (no
+ * word, a verb, a filler, a date). Two different products' "0.3.x" are two
+ * series. Pure.
+ */
+function productBefore(text: string, start: number): string | null {
+  const m = /([A-Za-z][\w-]*)[@\s]*$/.exec(text.slice(Math.max(0, start - 40), start));
+  if (m === null) return null;
+  const w = (m[1] ?? "").toLowerCase();
+  return NOT_A_PRODUCT.test(w) ? null : w;
+}
+
+/** An item's release steps: each series' LOWEST owed patch and its product, read beside the version. Pure. */
+function itemSteps(head: string): Map<string, { patch: number; product: string | null }> {
+  const out = new Map<string, { patch: number; product: string | null }>();
+  for (const m of head.matchAll(VERSION)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (!ITEM_AFTER.test(head.slice(end)) && !ITEM_BEFORE.test(head.slice(0, start))) continue;
+    const series = `${Number(m[1])}.${Number(m[2])}`;
+    const patch = Number(m[3]);
+    const had = out.get(series);
+    if (had === undefined || patch < had.patch) out.set(series, { patch, product: productBefore(head, start) });
+  }
+  return out;
+}
+
+/** The product before each released version in an evidence headline, per series. */
+function releaseProducts(head: string, released: ReadonlyMap<string, number>): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const m of head.matchAll(VERSION)) {
+    const series = `${Number(m[1])}.${Number(m[2])}`;
+    if (released.get(series) !== Number(m[3]) || out.has(series)) continue;
+    out.set(series, productBefore(head, m.index));
+  }
+  return out;
+}
+
 /** A PR number: `#739`, `PR #41`. */
 const PR = /(?<![\w&])#(\d{2,6})\b/g;
 
@@ -188,6 +253,10 @@ interface Evidence {
   readonly head: string;
   readonly at: number;
   readonly released: ReadonlyMap<string, number>;
+  /** The product named before each released version (null: the folder's own). */
+  readonly products: ReadonlyMap<string, string | null>;
+  /** Written `done`: only such a memory is evidence for a close (review of #782); an unmarked one may only list. */
+  readonly done: boolean;
 }
 
 /**
@@ -207,11 +276,14 @@ export function openCloseSweep(store: Store, input: OpenCloseInput): OpenCloseOu
   const slot = (scope: string): string => (T.SAME_FOLDER ? scope : "*");
 
   // The later side: live authored work memories, done or unmarked, by folder.
+  // Only a `done` one closes ("Plan: 0.3.50 released by Friday", "0.3.50
+  // released? Not yet" are unmarked); an unmarked one may only list.
   const evidence = new Map<string, Evidence[]>();
   for (const r of store.workEventRows()) {
     if (r.status !== null && r.status !== "done") continue;
     const head = headline(r);
-    const ev: Evidence = { row: r, head, at: r.createdAt, released: releasesOf(subjectKeys(head, "done")) };
+    const released = releasesOf(subjectKeys(head, "done"));
+    const ev: Evidence = { row: r, head, at: r.createdAt, released, products: releaseProducts(head, released), done: r.status === "done" };
     const list = evidence.get(slot(r.scope)) ?? [];
     list.push(ev);
     evidence.set(slot(r.scope), list);
@@ -301,24 +373,27 @@ export function openCloseSweep(store: Store, input: OpenCloseInput): OpenCloseOu
       notClosed("conditional");
       continue;
     }
-    const keys = subjectKeys(head, "step");
-    if (keys.versions.size === 0) {
-      notClosed("no-subject");
+    if (A_PROBLEM.test(head)) {
+      notClosed("a-problem");
       continue;
     }
-    if ([...keys.versions.keys()].every((s) => keys.final.get(s) === true)) {
-      notClosed("final-already");
+    const steps = itemSteps(head);
+    if (steps.size === 0) {
+      notClosed(subjectKeys(head, "any").versions.size === 0 ? "no-subject" : "not-a-release-step");
       continue;
     }
-    // The NEAREST later release: the fewest patches on, then the earliest written.
+    // The NEAREST later release, written done, of the same product: the fewest
+    // patches on (strictly more: W < Z), then the earliest written.
     let best: { e: Evidence; key: string; gap: number } | null = null;
     for (const e of later) {
-      if (e.released.size === 0) continue;
-      const same = sameSubject(keys, { versions: e.released, final: new Map([...e.released.keys()].map((s) => [s, true])) });
-      if (same === null || same.gap < 1) continue;
-      const series = same.key.split("→")[0]?.split(".").slice(0, 2).join(".") ?? "";
-      if (keys.final.get(series) === true) continue;
-      if (best === null || same.gap < best.gap || (same.gap === best.gap && e.at < best.e.at)) best = { e, key: same.key, gap: same.gap };
+      if (!e.done || e.released.size === 0) continue;
+      for (const [series, step] of steps) {
+        const theirs = e.released.get(series);
+        if (theirs === undefined || theirs <= step.patch) continue;
+        if ((e.products.get(series) ?? null) !== step.product) continue;
+        const gap = theirs - step.patch;
+        if (best === null || gap < best.gap || (gap === best.gap && e.at < best.e.at)) best = { e, key: `${series}.${String(step.patch)}→${series}.${String(theirs)}`, gap };
+      }
     }
     if (best === null) {
       notClosed("no-later-release");
@@ -385,8 +460,13 @@ export function reopenNightClosed(store: Store, id: string, via: { readonly by: 
   const closedBy = nightClosedOf(meta);
   if (closedBy === null) return false;
   let undone = 0;
+  if (!via.restoreFlag) {
+    // The thread went on on a successor: this row stays closed, but no longer as the night's close.
+    store.revise(id, { meta: { [THREAD_CLOSED_BY_META_KEY]: null, [THREAD_REOPENED_BY_META_KEY]: `night:${String(closedBy.day)}` }, reason: "thread-reopened" });
+  }
   if (via.restoreFlag) {
-    store.revise(id, { meta: { [UNRESOLVED_META_KEY]: true, [THREAD_REOPENED_BY_META_KEY]: `night:${String(closedBy.day)}` }, reason: "thread-reopened" });
+    // The night's record leaves with the close (review of #782): a later close or reopen is never mistaken for this one.
+    store.revise(id, { meta: { [UNRESOLVED_META_KEY]: true, [THREAD_REOPENED_BY_META_KEY]: `night:${String(closedBy.day)}`, [THREAD_CLOSED_BY_META_KEY]: null }, reason: "thread-reopened" });
     // A closed item a later night's interference sweep faded under a newer
     // work event (`interference.ts`) is settled over, so out of Still open
     // whatever its flag says: that fade is undone too, and the sweep's
@@ -463,7 +543,17 @@ export function mayBeDoneOf(store: Store): Map<string, MayBeDone> {
   return out;
 }
 
-/** The closes of the newest night that closed anything, at or after lived day `sinceDay`, oldest first. */
+/** True when a memory was reopened after the night closed it (its `threadReopenedBy` names a night). */
+export function reopenedFromNight(meta: Readonly<Record<string, unknown>>): boolean {
+  const v = meta[THREAD_REOPENED_BY_META_KEY];
+  return typeof v === "string" && v.startsWith("night:");
+}
+
+/**
+ * The closes of the newest night that closed anything, at or after lived day
+ * `sinceDay`, oldest first — only the ones that still stand as that night's
+ * close (review of #782: one reopened since is not said again).
+ */
 export function lastNightCloses(store: Store, sinceDay: number): NightClose[] {
   try {
     const rows = store.eventLog({ name: NIGHT_CLOSE_EVENT, sinceDay, order: "desc", limit: 200 });
@@ -476,6 +566,8 @@ export function lastNightCloses(store: Store, sinceDay: number): NightClose[] {
         try {
           const p = JSON.parse(e.payload ?? "{}") as Record<string, unknown>;
           if (typeof p["id"] !== "string") return [];
+          const by = nightClosedOf(store.readProse(p["id"]).meta);
+          if (by === null || by.day !== e.day) return [];
           return [{ id: p["id"], shows: typeof p["shows"] === "string" ? p["shows"] : "", rule: typeof p["rule"] === "string" ? p["rule"] : NIGHT_CLOSE_RULE, key: typeof p["key"] === "string" ? p["key"] : "", why: typeof p["reason"] === "string" ? p["reason"] : "" }];
         } catch {
           return [];

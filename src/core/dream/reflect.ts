@@ -112,7 +112,7 @@ import { joinHow, joinProposalOf, joinSentence, pairKey, proposeJoin } from "./p
 import type { JoinProposal } from "./project-ask.js";
 import type { CoreAsk, CoreDecided } from "./core-ask.js";
 import { settlesWhenOf, THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
-import { nightClosedOf, reopenNightClosed } from "../open-close.js";
+import { nightClosedOf, reopenNightClosed, reopenedFromNight } from "../open-close.js";
 import type { SettleOutcome } from "../reconsolidation.js";
 import { isTold } from "../told.js";
 
@@ -1940,7 +1940,7 @@ export class Reflections {
         continue;
       }
       if (proposed.includes(cid)) {
-        closeRefused.push({ id: cid, reason: "already-asked" });
+        closeRefused.push({ id: cid, reason: "already-listed" });
         continue;
       }
       if (!offeredStale.has(cid)) {
@@ -2975,7 +2975,7 @@ export class Reflections {
       // CLOSED BY THE NIGHT ITSELF (2026-11-07, SO1 step 1): no reflection
       // row to confirm against; the memory's own `threadClosedBy` says so.
       // The same checks; recorded as a `thread.night.reopened` row.
-      if (only === null && r !== undefined && nightClosedOf(meta) !== null) {
+      if (only === null && r !== undefined && (nightClosedOf(meta) !== null || reopenedFromNight(meta))) {
         if (meta[UNRESOLVED_META_KEY] === true) {
           already.push(id);
           continue;
@@ -2986,7 +2986,8 @@ export class Reflections {
           continue;
         }
         try {
-          if (reopenNightClosed(this.store, id, { by: "reopen", session: input.session, restoreFlag: true })) reopened.push(id);
+          if (nightClosedOf(meta) === null) already.push(id);
+          else if (reopenNightClosed(this.store, id, { by: "reopen", session: input.session, restoreFlag: true })) reopened.push(id);
           else refused.push({ id, reason: notMine });
         } catch (err) {
           refused.push({ id, reason: `failed: ${String((err as Error).message ?? err).slice(0, 120)}` });

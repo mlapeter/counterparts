@@ -1025,7 +1025,6 @@ export function readElsewhere(cp: Counterpart, at: string, here: WakeHere | unde
   ];
 }
 
-/** "Last night", by title and door: the night's own words on what ran, no ids; and the night's own line, when it left one a reader here may read. */
 /**
  * "Closed by the night (2): 0.3.46 ready for Mike to publish — 0.3.47
  * released [mem_…]; … Not done? …" (2026-11-07, SO1 step 1): the newest
@@ -1050,6 +1049,7 @@ function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<stri
   return `Closed by the night (${String(mine.length)}): ${named.join("; ")}${more > 0 ? `; +${String(more)} more` : ""}. One not done? The reflect tool's phase "reopen", reopen: [its id], puts it back.`;
 }
 
+/** "Last night", by title and door: the night's own words on what ran, no ids; and the night's own line, when it left one a reader here may read. */
 function nightWords(cp: Counterpart, at: string, here: WakeHere | undefined, scope: string): { line: string; own: string | null } | null {
   const store = cp.store;
   const readable = (s: string | null): boolean => {
