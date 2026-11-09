@@ -236,7 +236,7 @@ const PROSE_AFTER = "(?![\\p{L}\\p{N}_])";
 /** is / was, in five languages (and a typo), as a whole word. */
 const PROSE_VERB = "(?:is|iz|was|es|est|ist|war|é|era)(?![\\p{L}\\p{N}])";
 /** A word of the clause before the connector: never the connector itself. */
-const PROSE_WORD = `(?!${PROSE_VERB})[^\\s.,;:!?"'\`“”‘’|]{1,40}`;
+const PROSE_WORD = `(?!${PROSE_VERB})[^\\s.,;:!?"'\`“”‘’|[\\]]{1,40}`;
 /** "for the wifi", "to my laptop", "for wifi at moms house": a preposition and up to four words, on one line. */
 const PROSE_FOR = `[ \\t]+(?:for|to|on|of|at|in|with|from)[ \\t]+(?:${PROSE_WORD}[ \\t]+){0,3}${PROSE_WORD}`;
 /** "I use", "we set", "I gave you" (and then, optionally, "for gmail"). */
@@ -363,7 +363,20 @@ function secretShaped(token: string): boolean {
 
 /** Code, not a value: brackets, an assignment, a call, a dotted reference (`flags["x"]`, `f.color`, `passRecord(input)`). */
 function codeShaped(token: string): boolean {
-  return /[[\](){}<>=;]/.test(token) || /^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(token) || CODE_REFERENCE.test(token);
+  return /[[\](){}<>=;]/.test(token) || (/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(token) && !/\.\d+$/.test(token)) || CODE_REFERENCE.test(token);
+}
+
+/**
+ * "I changed my netflix password to <value> yesterday": the anchor read " to <value> …" as a
+ * "for the router" clause and the value as its last word, so nothing was taken. When that
+ * reading finds no value, try the other one: `to` straight after the name, after a word that
+ * changes it, is the connector.
+ */
+function changedTo(text: string, nameEnd: number, name: string): [number, number] | null {
+  const to = /^[ \t]+to[ \t]+/.exec(text.slice(nameEnd, nameEnd + 16));
+  const before = text.slice(Math.max(0, nameEnd - name.length - 48), nameEnd - name.length);
+  if (to === null || !/\b(?:change|changed|changing|set|reset|update|updated|switched)\b[^\n.]*$/i.test(before)) return null;
+  return proseValue(text, nameEnd + to[0].length, name, to[0].replace(/[ \t]+$/, ""), " ");
 }
 
 /** Markup and sentence punctuation around a token: `**none.**`, `(hunter2)`, `hunter2!!`. */
@@ -463,6 +476,8 @@ function proseValue(text: string, start: number, name: string, connector: string
   const one: [number, number] = [vstart + lead, vstart + lead + first.length];
   const next = clean(tokens[1] ?? "");
 
+  // A value on the next line is one token alone there ("the pin\n1234 Main St" is an address).
+  if (crossLine && (tokens.length !== 1 || skipped > 0)) return null;
   if (digitsOnly) {
     const digits = /^\d{4,12}[#*]?$/.test(first) && !(/^pin/.test(lower) && /[#*]$/.test(first));
     if (!digits && !(combo && /^\d{1,4}(?:[-–]\d{1,4}){2,5}$/.test(first))) return null;
@@ -470,7 +485,6 @@ function proseValue(text: string, start: number, name: string, connector: string
     if (/^(?:19|20)\d\d$/.test(first) && /^\p{Ll}+$/u.test(next) && !/^(?:for|to|on|at|in|is|was|and|or)$/.test(next)) return null;
     return one;
   }
-  if (crossLine && (tokens.length !== 1 || skipped > 0)) return null;
   if (bare && !/\d/.test(first)) return null;
   if (weak && !secretShaped(first)) return null;
 
@@ -842,7 +856,8 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
       "giu",
     ),
     value: 0,
-    extent: (m, text) => proseValue(text, m.index + m[0].length, m[1] ?? "", m[2] ?? "", m[3] ?? ""),
+    extent: (m, text) =>
+      proseValue(text, m.index + m[0].length, m[1] ?? "", m[2] ?? "", m[3] ?? "") ?? changedTo(text, m.index + (m[1] ?? "").length, m[1] ?? ""),
     propagate: true,
     propagateIf: secretShaped,
     why: "A password, passcode, passphrase, seed phrase, PIN or door code named in a sentence.",

@@ -43,6 +43,12 @@ const MUST_REDACT: readonly (readonly [string, string])[] = [
   ["mon mot de passe est tournesol42", "tournesol42"],
   ["minha senha é girassol42", "girassol42"],
   ["the password is hunter2 in the docs example, which is a meme", "hunter2"],
+  // Third check (#788): "to <value> <more words>" read as a "for the router" clause first.
+  ["I changed my netflix password to sunflowerRiver88 yesterday", "sunflowerRiver88"],
+  ["i set my apple id password to Kestrel*Moon5 just now", "Kestrel*Moon5"],
+  ["we updated the router password to Tangerine44 after the outage last week", "Tangerine44"],
+  ["she reset her bank password to Orchid&Rain7 on monday morning", "Orchid&Rain7"],
+  ["my pw is Quill.Saddle.Fern.12", "Quill.Saddle.Fern.12"],
 ];
 
 /** Sentences and code that carry no password: left exactly as they were. */
@@ -83,6 +89,8 @@ const MUST_NOT_REDACT: readonly string[] = [
   "what is the password?",
   "the password is at least 12 characters",
   "I set a new password for the router",
+  "the pin\n1234 Main St",
+  "I changed my password to something stronger yesterday",
   // Found by running the fix round's family over this repository's own code and notes.
   "Counting a score of at least 0.5 as a pass: 128K 74.1%, 1M 73.3%",
   "Third adversarial pass: 0 BLOCKER, 2 nits",
