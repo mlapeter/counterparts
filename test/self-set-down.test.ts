@@ -53,7 +53,7 @@ afterEach(() => {
 const sc = (r: ToolResult): Record<string, unknown> => r.structuredContent;
 
 function open(at: () => number = Date.now): Counterpart {
-  return Counterpart.open({ dir, identity: { name: "Mike" }, now: at });
+  return Counterpart.open({ dir, identity: { name: "Mike" }, now: at, timeZone: "UTC" });
 }
 
 // ── the diff, on hand-built pages: the reviewer's samples ───────────────────
@@ -435,6 +435,25 @@ describe("a night that rewrites the page", () => {
       // This morning's wake, a while after the night began: the newest night set nothing down, so the 11-08 night's lines are not told again.
       const w = c.wake(BUDGET, { date: new Date(now).toISOString().slice(0, 10) }, { scope: "/proj", session: "s-morning" });
       expect(w.text).not.toContain("Set down from my page");
+    } finally {
+      c.close();
+    }
+  });
+
+  test("a page held past its room and kept at the run's end still names what it set down", () => {
+    const c = open();
+    try {
+      c.revisePage(PAGE, { reason: "first", by: "owner" });
+      const room = SELF_TUNABLES.PAGE_ROOM_BYTES;
+      const long = WRITER_PAGE.replace("## How I work", `## How I work\n\n${"Small things, one after another, every day. ".repeat(Math.ceil(room / 40))}`);
+      const held = c.revisePage(long, { by: "writer", reason: "the night", session: SESSION, setDown: WRITER_NAMED });
+      expect(held.reason).toBe("past-room");
+      expect(readSetDowns(c.store)).toEqual([]);
+      const kept = c.self.keepHeldPage();
+      expect(kept?.written).toBe(true);
+      const rows = readSetDowns(c.store);
+      expect(rows.find((r) => r.line.startsWith("Records drift"))).toMatchObject({ named: true, why: "no longer lived", by: "writer" });
+      expect(rows.find((r) => r.line.startsWith("Shape"))).toMatchObject({ named: false, why: UNNAMED_WHY });
     } finally {
       c.close();
     }
