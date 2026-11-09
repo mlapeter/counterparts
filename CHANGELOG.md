@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.3.51 — 2026-11-09
+
+**Memory that fades on purpose as it grows: old per-turn records roll up, older release notes give way to newer ones, finished things stop being overdue, and the night closes items itself.** What you'll notice: the morning's "Last night" can say in one line which open items the night closed; doctor has new Growth lines saying what is filling up and whether it leaves as fast; fewer overdue and still-open items at wake. One thing goes for good: the per-turn recall records (`recall.decision`, `recall.credit`, `recall.rated`) are now kept 30 lived days instead of 90, and on the first night after updating, the ones older than that are rolled up into one summary row per day (counts, the memories credited, the sessions) and deleted. If you want them, copy your store before updating. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.50 needs no store restore: `counterparts disconnect`, 0.3.50's install, then `counterparts connect` (the rows already rolled up stay gone).
+
+- **Old routine work notes fade faster once a newer one moves on.** When a newer work memory in the same folder
+  says a later version in the same series was released or published ("0.3.50 released"), the night fades the
+  older status note ("0.3.46 ready to publish", "0.3.47 after-publish steps") the way a revision does: it
+  stays findable by id and in facts (folded under the newer one), labelled earlier, drops out of the wake's
+  lines, and can be undone. Only routine notes nobody used: anything the owner said,
+  anything felt, anything about the owner, us or me, and open items keep their slow fade.
+- **A done memory is never overdue.** A memory marked `status: done` whose date is today
+  or already passed now reads that date as when it happened: it leaves Coming up (due
+  today included), the overdue count and the plain-reminder line, older memories
+  included. Writing one through `remember` or `session_end` stores the date as
+  `occurredOn` and says so beside the memory. A repeating reminder is unchanged: a done
+  there still closes only this time.
+- **Old chapters stop turning up as footnotes.** A journal chapter whose last entry is two weeks
+  (14 lived days) old or more is no longer offered beside a prompt, so its slot goes to another
+  memory. It's all still kept: asking (facts or meaning), opening it by id, the wake and the
+  night read it as before.
+- **Doctor says what is growing and whether it leaves as fast.** Five new lines, `Growth:
+  memories`, `event log`, `cue pairs` and `dream queue`, plus new and swept edges on the
+  `Association` line: how full each is, what came in and what left over the last 7 lived
+  days, and which is faster. The memories line also says how many nights the prune takes to
+  get round the store, and counts the kinds it never takes (the journal, chapter copies,
+  handoffs, cards) apart.
+- **The per-turn event rows are kept 30 lived days, not 90.** `recall.decision`,
+  `recall.credit` and `recall.rated` make up most of the event log. Each day of them is
+  summed into one kept row before it goes. The all-time numbers read those sums beside
+  the rows still kept, so they don't shrink: the dashboard's counts, `counterparts
+  mechanisms`, `probe-oq4`, a memory's days used and the sessions seen. Everything else in
+  the log keeps 90 lived days. The table of what each recall turn showed goes after 30 too.
+- **The night closes done release steps itself, and stops asking.** When a work memory in a folder says a release
+  happened ("0.3.50 released"), the night closes the open items in that folder that were earlier steps of the same
+  series ("0.3.46 ready to publish", "0.3.47 after-publish steps", "0.3.48 cut"). Each close is recorded with its
+  reason and the memory that showed it, and the next wake says what closed in one line under "Last night". A
+  question to the owner is never closed this way. What only might be done (a pinned build whose series moved on, a
+  PR a later memory says merged, or what the night's reflection wasn't sure of) is no longer asked about in the
+  morning share: `recall "still open"` marks it `mayBeDone`. Say one isn't done and it reopens (the reflect tool's
+  `reopen`, or a write that updates it and says it's still open).
+- **A reminder to do something in one folder is said in that folder.** A plain reminder written as another folder's
+  work no longer shows whole in this folder's wake, above it, or in the terminal line: it waits for its own folder
+  (and any folder joined to it as one project), whose first wake that day says it whole, even when another folder
+  woke first. Elsewhere, "in other folders" names it by folder and title (up to two, when there's room) and
+  `recall "coming up"` lists it. Reminders about you, us or me still show in every folder, once, then fold to
+  "shown earlier". A claude.ai chat, which has no folder, is told only those personal ones.
+- **A deadline in a folder you didn't open still reaches you.** A folder's reminder that went unsaid because no
+  session ran there is said once, two days you used Counterparts after its day, in whatever session you're in,
+  with its folder named ("garden: send the invoice, due Wed 4 Nov 2026"). It never interrupts a prompt, and
+  checks you set for yourself wait for their folder.
+- **Doctor tells a quiet folder from a missed reminder.** A reminder due while its folder had no session is an info
+  line, not a warning; it's a warning only if it still wasn't said after that one crossing.
+- **An open thread marked "world" stays in its folder.** Something the world owes (a reply, a dated check) is in the
+  Still open of the folder it was written in, not every folder's. So is a dated item marked world.
+- **A write names the open items it looks like it settles, from any folder.** When a
+  memory you write through `remember` or `session_end` says something was done ("0.3.47
+  published", "#760 merged"), the result lists up to three open items whose subject it
+  matches, wherever they were written, with their folder, and asks you to close any that
+  really are settled (`updates` + `unresolved: false`). Nothing is closed on its own. An
+  item that was a question to the owner says that only their answer closes it.
+- **The remember tool no longer promises mood-matched recall.** Its feelings text said a
+  memory's mood would help find it again; mood has carried no weight in recall since October,
+  so the promise is gone.
+- **Hosted: a command-line step exits only after its output is written.** Under bun, the
+  operator's commands (`migrate-keys` and the rest) could exit before what they printed
+  reached a pipe, a Railway log included; they now wait for it (five seconds at most).
+
 ## 0.3.50 — 2026-11-06
 
 **Write-only backups for hosted: a leaked environment can no longer open a backup.** This release changes only hosted Counterparts (app.counterparts.ai). Its backup keys used to be openable with a key kept in the server's environment; now the server keeps that key on its own disk and puts each backup key in the bucket sealed to a recovery key whose private half is kept offline, so the server can write those keys and never read them back. For every store made from now on, the environment and a copy of the bucket together open nothing. The stores that already existed before the operator's one-time migration keep their keys, so a copy of the bucket taken before it, together with the old environment key, still opens their backups; that is accepted for those stores only, and is why the migration runs before anyone outside the family is invited. The npm package, Claude Code and Claude Desktop behave exactly as in 0.3.49. No store-format change (store v15, cache v7), no migration on your machine. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.49 needs no store restore: `counterparts disconnect`, 0.3.49's install, then `counterparts connect`.
