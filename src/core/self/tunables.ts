@@ -684,9 +684,7 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_READ: 200,
   /** How many days before its day a dated item can be done (the shop launched one day early); an earlier done row is another visit of the same name (review of #734). */
   HAPPENED_EARLY_DAYS: 1,
-  /** A handoff whose lead waits on the owner, with nothing on it since, this old sinks below a fresher one (WK3): a day lets the owner answer overnight; the case behind it led three sessions at 47 hours. */
-  WAITING_SINK_MS: 24 * 60 * 60_000,
-  /** A lead at the top of this many other sessions' wakes, unrevised and with no signal since, sinks whatever its words say (review of #792: the third session read it still). */
+  /** A lead that waits on the owner, at the top of this many wakes since its last revision with no reply since, sinks below the others until revised (review 3 of #792; the case behind it led three sessions). One that doesn't wait on the owner never sinks by count. */
   LEAD_SHOWN_SINK: 2,
   /** Sessions kept per handoff in that record: past the threshold, a few more say nothing new. */
   LEAD_SHOWN_KEPT: 8,

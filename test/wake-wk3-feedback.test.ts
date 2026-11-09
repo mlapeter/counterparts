@@ -315,6 +315,11 @@ describe("3. overdue items are said", () => {
 });
 
 describe("4. stale handoffs sink", () => {
+  /** Two other sessions' wakes here first: what a lead has to have led before it can sink (`LEAD_SHOWN_SINK`). */
+  const ledTwice = (): void => {
+    for (const s of ["dddd4444-0000-4000-8000-000000000004", "eeee5555-0000-4000-8000-000000000005"]) hook(s);
+  };
+
   test("a handoff whose lead waits on the owner with nothing since ranks below a fresher one", () => {
     const w = brain();
     const { c } = w;
@@ -329,6 +334,9 @@ describe("4. stale handoffs sink", () => {
     w.at(NOW - 40 * HOUR + 2 * MIN);
     memory(c, "The test tiles for the spring glaze sit on rack two.", { title: "Glaze test tiles on rack two", session: OWN });
     c.close();
+    // Waiting on the owner, but it sinks only once it has led two wakes unanswered.
+    expect(section(hook("dddd4444-0000-4000-8000-000000000004"), "Where this folder stands:").split("\n")[1]).toContain("GLAZE");
+    hook("eeee5555-0000-4000-8000-000000000005");
     const wake = hook();
     intact(wake);
     expect(wake).not.toContain("Glaze test tiles on rack two");
@@ -341,7 +349,7 @@ describe("4. stale handoffs sink", () => {
     expect(stands).toContain(`- GLAZE: waiting on Wren to pick the spring glaze [${asked}].`);
   });
 
-  test("a lead already at the top of two other sessions' wakes sinks below the other, whatever its words", () => {
+  test("a lead that waits on nobody never sinks by count, however many wakes it led", () => {
     const w = brain();
     const { c } = w;
     c.revisePage(PAGE, { reason: "first", by: "owner" });
@@ -351,21 +359,43 @@ describe("4. stale handoffs sink", () => {
     c.writeHandoff("ROAD: grade the lane by the barn before the gravel comes.", { scope: HERE, session: OWN });
     c.close();
     const lead = (s: string): string => section(hook(s), "Where this folder stands:").split("\n")[1] ?? "";
-    expect(lead("dddd4444-0000-4000-8000-000000000004")).toContain("ROAD");
-    expect(lead("eeee5555-0000-4000-8000-000000000005")).toContain("ROAD");
-    const third = lead(READER);
-    expect(third).toContain("SHELF");
-    expect(third).toContain("1 newer one waiting on an answer, below");
+    for (const n of [1, 2, 3, 4, 5]) {
+      const line = lead(`dddd4444-0000-4000-8000-00000000000${String(n)}`);
+      expect(line).toContain("ROAD");
+      expect(line).toContain("newest of 2");
+      expect(line).not.toContain("waiting on an answer");
+    }
   });
 
-  test("a lead stepped down to its pointer line counts too: by session 3 it sinks", () => {
+  test("a sunk lead stays sunk until revised, even once the other has led as often (no taking turns)", () => {
     const w = brain();
     const { c } = w;
     c.revisePage(PAGE, { reason: "first", by: "owner" });
     w.at(NOW - 40 * HOUR);
     c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
     w.at(NOW - 30 * HOUR);
-    c.writeHandoff("ROAD: grade the lane by the barn before the gravel comes.", { scope: HERE, session: OWN });
+    c.writeHandoff("GATE: hang the new gate, but ask for his first on the width.", { scope: HERE, session: OWN });
+    c.close();
+    const lead = (s: string): string => section(hook(s), "Where this folder stands:").split("\n")[1] ?? "";
+    expect(lead("dddd4444-0000-4000-8000-000000000001")).toContain("GATE");
+    expect(lead("dddd4444-0000-4000-8000-000000000002")).toContain("GATE");
+    for (const n of [3, 4, 5, 6, 7]) expect(lead(`dddd4444-0000-4000-8000-00000000000${String(n)}`)).toContain("SHELF");
+    // Revised: it leads again, its count starting over.
+    const again = brain();
+    again.at(NOW);
+    again.c.writeHandoff("GATE: hang the new gate at the width we settled; posts are set.", { scope: HERE, session: OWN });
+    again.c.close();
+    expect(lead("dddd4444-0000-4000-8000-000000000008")).toContain("GATE");
+  });
+
+  test("a waiting lead stepped down to its pointer line counts too: by session 3 it sinks", () => {
+    const w = brain();
+    const { c } = w;
+    c.revisePage(PAGE, { reason: "first", by: "owner" });
+    w.at(NOW - 40 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 30 * HOUR);
+    c.writeHandoff("ROAD: grade the lane by the barn before the gravel comes.\nThe width is his call.", { scope: HERE, session: OWN });
     // A session here since that left work: the lead steps down to one line.
     w.at(NOW - 5 * HOUR);
     memory(c, "The seed order went in for the spring beds.", { title: "Seed order placed", session: "ffff6666-0000-4000-8000-000000000006" });
@@ -390,10 +420,11 @@ describe("4. stale handoffs sink", () => {
     w.at(NOW - 30 * HOUR);
     c.writeHandoff("GATE: the new posts are cut and stacked by the shed.\nNext: hang the gate, but ask for his first on the width.", { scope: HERE, session: OWN });
     c.close();
+    ledTwice();
     expect(section(hook(), "Where this folder stands:").split("\n")[1]).toContain("SHELF");
   });
 
-  test("words with no name wait on the owner too: \"ask for his\" sinks after a day", () => {
+  test("words with no name wait on the owner too: \"ask for his\" sinks once it has led twice", () => {
     const w = brain();
     const { c } = w;
     c.revisePage(PAGE, { reason: "first", by: "owner" });
@@ -402,6 +433,7 @@ describe("4. stale handoffs sink", () => {
     w.at(NOW - 30 * HOUR);
     c.writeHandoff("FENCE: the new posts, but ask for his first on the gate width.", { scope: HERE, session: OWN });
     c.close();
+    ledTwice();
     expect(section(hook(), "Where this folder stands:").split("\n")[1]).toContain("SHELF");
   });
 
@@ -418,6 +450,7 @@ describe("4. stale handoffs sink", () => {
     w.at(NOW - 3 * HOUR);
     memory(c, "Wren leaned towards the celadon for the spring glaze, a final word tomorrow.", { title: "Spring glaze: Wren leaning celadon", session: READER.replace("cccc", "ffff") });
     c.close();
+    ledTwice();
     const stands = section(hook(), "Where this folder stands:");
     expect(stands.indexOf("GLAZE")).toBeLessThan(stands.indexOf("SHELF"));
     expect(stands).toContain("newest of 2");

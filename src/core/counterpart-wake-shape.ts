@@ -1017,7 +1017,7 @@ function sessionsSince(
 /** The meta key recording which sessions' wakes each live handoff led (review of #792): `{ [id]: { version, sessions } }`. */
 export const HANDOFF_LED_KEY = "wake.handoff.led";
 
-type LedRecord = Record<string, { readonly version: number; readonly sessions: readonly string[]; readonly scope?: string }>;
+type LedRecord = Record<string, { readonly version: number; readonly sessions: readonly string[]; readonly scope?: string; readonly last?: number }>;
 
 function ledRecord(store: Counterpart["store"]): LedRecord {
   try {
@@ -1039,7 +1039,7 @@ function noteLed(cp: Counterpart, h: Handoff, session: string | null, live: read
     for (const [id, r] of Object.entries(was)) if (id !== h.id && (keep.has(id) || (r.scope !== undefined && r.scope !== h.scope))) out[id] = r;
     const mine = was[h.id];
     const sessions = mine === undefined || mine.version !== h.version ? [] : mine.sessions.filter((x) => x !== session);
-    out[h.id] = { version: h.version, sessions: [...sessions, session].slice(-SHAPE.LEAD_SHOWN_KEPT), scope: h.scope };
+    out[h.id] = { version: h.version, sessions: [...sessions, session].slice(-SHAPE.LEAD_SHOWN_KEPT), scope: h.scope, last: cp["nowFn"]() as number };
     cp.store.setMeta(HANDOFF_LED_KEY, JSON.stringify(out));
   } catch {
     /* a lead not recorded only sinks later */
@@ -1091,11 +1091,12 @@ export function waitsOnOwner(store: Counterpart["store"], h: Pick<Handoff, "body
  *   - Not listed: one past `HANDOFF_LISTED_MS` that nothing written since
  *     refers to by its id (a newer handoff, or a memory written in one of this
  *     reader's folders). The newest always is: the folder's last word.
- *   - Sinks below the rest, newest first among them: one past
- *     `WAITING_SINK_MS` whose lead waits on the owner (`waitsOnOwner`) with no
- *     signal since — no memory written here after it, by another session,
- *     whose title says the lead again (`titleInLead`) or that names the asked
- *     memory. A fresher handoff leads instead; alone, it still leads.
+ *   - Sinks below the rest, newest first among them, until it is revised: one
+ *     whose lead waits on the owner (`waitsOnOwner`) and that has led
+ *     `LEAD_SHOWN_SINK` wakes since its last revision, with no reply since: no
+ *     memory written here after it, by another session, whose title says the
+ *     lead again (`titleInLead`) or that names a memory still `asked`. A
+ *     handoff that doesn't wait on the owner never sinks. Alone, it still leads.
  *
  * Never throws: what can't be read keeps the order it came in.
  */
@@ -1139,22 +1140,21 @@ function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonl
   } catch {
     owner = null;
   }
-  // LED TOO OFTEN (review of #792): a lead already at the top of `LEAD_SHOWN_SINK`
-  // other sessions' wakes, unrevised, sinks a step whatever its
-  // words say; the waiting words are the second signal.
+  // SUNK (review 3 of #792): a lead that waits on the owner AND has led at least
+  // `LEAD_SHOWN_SINK` wakes since its last revision (the record's version), with
+  // no reply since. Nothing else sinks by count. It stays sunk until revised,
+  // whatever else is left, so two stale leads never take turns.
   const led = ledRecord(cp.store);
-  const ledTooOften = (h: Handoff): boolean => {
+  const ledEnough = (h: Handoff): boolean => {
     const r = led[h.id];
-    return r !== undefined && r.version === h.version && r.sessions.filter((x) => x !== reader).length >= SHAPE.LEAD_SHOWN_SINK;
+    return r !== undefined && r.version === h.version && r.sessions.length >= SHAPE.LEAD_SHOWN_SINK;
   };
-  // Each stale mark sinks it a step, newest first within a step: fresh; led too often
-  // OR waiting on the owner; both (review 2 of #792: two waiting leads, the one
-  // already led twice gives way to the other).
-  // Led too often counts whatever was written beside it: only a revision of the
-  // handoff resets it (its version). The waiting words count with no signal since.
-  const steps = (h: Handoff): number => Number(ledTooOften(h)) + Number(!signal(h) && now - at(h) >= SHAPE.WAITING_SINK_MS && waitsOnOwner(cp.store, h, owner));
-  const step = new Map(listed.map((h) => [h.id, steps(h)] as const));
-  return [...listed].sort((x, y) => (step.get(x.id) ?? 0) - (step.get(y.id) ?? 0));
+  const sunk = new Set(listed.filter((h) => ledEnough(h) && !signal(h) && waitsOnOwner(cp.store, h, owner)).map((h) => h.id));
+  // Sunk ones by when each last led, latest first: the one that sank first stays at
+  // the bottom when every handoff has sunk (review 3 of #792: no tie flip-flop).
+  const lastLed = (h: Handoff): number => led[h.id]?.last ?? 0;
+  const down = listed.filter((h) => sunk.has(h.id)).sort((x, y) => lastLed(y) - lastLed(x));
+  return [...listed.filter((h) => !sunk.has(h.id)), ...down];
 }
 
 /** Up to `OLDER_SHOWN` of the older handoffs, one per seat, not the lead's, newest of each. */

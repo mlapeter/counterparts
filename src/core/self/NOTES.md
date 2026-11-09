@@ -3166,4 +3166,9 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   so of two waiting leads, the one already led twice gives way. "Signal since" counts only an id still marked
   `asked`: later rows that only cite a lead's other ids (night recaps) were reading as answers. The record keeps
   other folders' entries; the first build pruned them.
+- **Round 3: only a wait sinks.** Round 2 sank any lead shown twice, whatever its words. On the real store that sank
+  a lead that waited on nobody, and the older one then led under a false "1 newer one waiting on an answer". With
+  two stale marks each, the tie also went back to the newest. Now a lead sinks only if it waits on the owner AND has
+  led `LEAD_SHOWN_SINK` wakes since its last revision. It then stays sunk until it is revised, so nothing takes
+  turns. The age rule (`WAITING_SINK_MS`) is gone: the count is the clock.
 

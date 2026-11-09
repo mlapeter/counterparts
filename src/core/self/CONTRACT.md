@@ -842,8 +842,9 @@ clause at Coming up's door, "N (more) overdue (oldest MM-DD)", never folded into
 another folder's are counted as overdue inside its count, never listed; the one pass keeps
 that door when it must take the section down. **[A]** A handoff whose lead
 item waits on the owner (`counterpart-wake-shape.ts#waitsOnOwner`: an `asked` memory it names,
-or waiting words with the owner's name), past `WAITING_SINK_MS` with no signal since, sinks
-below the others, and the lead says "N newer one(s) waiting on an answer, below" (its closing
+or waiting words over the whole lead) that has led `LEAD_SHOWN_SINK` wakes since its last
+revision, with no reply since, sinks below the others until revised (a lead that doesn't wait
+on the owner never sinks by count), and the lead says "N newer one(s) waiting on an answer, below" (its closing
 batch is not news under the new lead); a handoff
 past `HANDOFF_LISTED_MS` that nothing written since names by id is not listed (the newest
 always is; `recall "handoffs"` lists them all). **[A]** Every Elsewhere line carries its age;
