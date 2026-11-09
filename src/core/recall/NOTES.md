@@ -1884,7 +1884,9 @@ gets the build's steps from a clock of its own.
 `arrivals` through `compose` and `record` are outside `elapsedMs`; the rest tile it, so their sum is about
 `elapsedMs`. The `recall.decision` row's own write can't be inside its row, and neither can `spendArrivals` after it.
 A quiet turn carries the steps it ran (no `gate` when nothing was a candidate). The beliefs-only render on a quiet
-turn (`beliefsOnly`) runs after the snapshot and is in no step, as it was in no `elapsedMs`.
+turn (`beliefsOnly`) runs after `rest` is lapped, so it lands in `record`, as it was in no `elapsedMs`. Every step is
+recorded on every turn it ran, not only the ones over ~5 ms: the set stays the same from turn to turn, so a p50 per
+step means the same thing on every day. `build()` alone returns the build's steps; `record` is added in `recall()`.
 
 **Not separable yet.** `cue` holds tokenizing, `docFrequency` and the per-cue `search` together; `rank` holds the
 `recallable` row reads, the denied set and the chapter fold. If either grows, the next cut is inside it.
