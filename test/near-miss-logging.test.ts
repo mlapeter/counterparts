@@ -191,7 +191,8 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
         expect(k in rowOn).toBe(true);
         expect(k in rowOff).toBe(false);
       }
-      expect(without(rowOn, [...NEW_KEYS, "elapsedMs"])).toEqual(without(rowOff, ["elapsedMs"]));
+      // `steps` is timing, like `elapsedMs` (LT2): never equal across two runs.
+      expect(without(rowOn, [...NEW_KEYS, "elapsedMs", "steps"])).toEqual(without(rowOff, ["elapsedMs", "steps"]));
     }
     // Something was stopped on the counting side, and said so.
     const stopped = dOn.reduce((n, r) => n + (r["capped"] as number) + ((r["nearMiss"] as { count: number }).count) + (r["budgetTrimmed"] as number), 0);
