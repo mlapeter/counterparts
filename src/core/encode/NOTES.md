@@ -202,6 +202,61 @@ line 13: decisions are defaults).
     - **Left**: a 40-character RELATIVE path beside a key id (`src/…`, review N2) is still
       redacted — over-redaction, the safe direction.
 
+21. **A password named in a sentence is its own family, `password`** (SX1, 2026-11-09; rebuilt in
+    the fix round of #788). A reviewer said a password in a sentence and it was kept word for
+    word, in the memory and in the raw buffer: every family above wants a shape, or a name with
+    `:` / `=` straight after it. The sentence stays: "my wifi password is [REDACTED:password]".
+    - **Anchor, then extent.** The first build put the value in the regex, and an adversarial
+      review measured it: 26 of 53 phrasings leaked (a multi-word passphrase, "password for the
+      router: <value>", "changed my password to <value>", "password? it's <value>") and 28 of 97
+      ordinary sentences were cut ("is sent over TLS", "is case-sensitive", "is argon2id",
+      "Password - Show"). A regex cannot say "a lowercase word with more of the clause after it
+      is the sentence" clearly. Now `re` finds only an ANCHOR (a name, an optional short clause,
+      a connector) and `SecretPattern.extent` reads what follows, in code (`proseValue`):
+      a quoted run that closes on the line within 64 characters; a passphrase or a run of
+      Capitalised words to the end of its clause; a short clause after a colon; otherwise one
+      token. After the fix: 4 of 53 kept, 2 of 97 cut, every row in
+      `test/secrets-prose-password.test.ts`.
+    - **The costs are not symmetric.** A missed password is stored (on a server, for a hosted
+      person); a false positive costs one word of a sentence about passwords. Where the choice
+      is between them, this takes the word ("the password is important" is cut).
+    - **Names**: password (and three typos), passwd, passcode, passphrase, pass code, PIN (code,
+      number), pw, a door / gate / alarm / lock … code, a wifi key, a pass followed by a colon where a field starts
+      (not "first pass: 74%"), and contraseña, mot de passe, mdp, Passwort, Kennwort, senha.
+      Not `pwd` (the working directory), not `code` or `key` alone.
+    - **Connectors**: is / was (es, est, ist, war, é, era, and "iz") with up to three adverbs,
+      "set to", "the word"; `'s`; a colon after a clause; `->`; a spaced dash; `?` (and "? it's");
+      `to` after change / set / reset; or none. A weak connector (none, a dash, an arrow, `?`,
+      `pass:`, a value on the next line) takes only a value that looks like a secret on its own
+      (a digit, or a symbol among letters). Three more anchors, same family: "it's <value>" and
+      "set it to <value>" with a password named on the same line, and "<value> is my password".
+    - **The guard** (`isProseWord`, `describes`): grammar words, a short list of what a password
+      IS (required, wrong, weak, …), irregular participles (sent, written, kept, overwritten, …),
+      endings (-ly -ed -ing -able -ible -less -ful -ous -ive -ic), a hyphenated word whose last
+      part is one of those ("case-sensitive", "base64-encoded"), algorithms (bcrypt, sha256,
+      argon2id, utf-8), paths, URLs, placeholders, and code (brackets, a call, a dotted
+      reference). A PIN or door code is 4–12 digits, and a year with a noun after it is not one.
+    - **Never across a line**, except one secret-looking token alone on the next line; a stray
+      apostrophe does not open a quoted run.
+    - **Linear.** Every newline search and lookbehind is bounded: a lookbehind before `pass` ran
+      at every position of a long run of spaces (43 s at 200 KB) until it moved after the word,
+      and the scaling shapes are in the test.
+    - **`:` and `=` straight after a name stay the catch-all's**, which has the code guards.
+      `pw` and `passcode` joined its password names, and `passcode` the PIN pattern.
+    - **The raw buffer crosses the same scan** (`remember/spans.ts`, injected by `Counterpart`).
+    - **Second review, fresh sentences** (20 of 70 kept, 11 of 88 cut; now 5 of 70 and 2 of 88,
+      both of those the catch-all's on master too; `test/secrets-prose-password-review2.test.ts`).
+      The causes: a Windows `\r` stayed on the last word and hid it from every list (the line is
+      now cut at `\r\n`); a passphrase or colon took a whole describing clause (now only a run that
+      reads as one: two to eight words, no function word, three not describing a password; a seed
+      or recovery phrase runs whole); measurements and versions ("1200ms", "12/15", "v2.1") and
+      password-manager names (1Password, LastPass, …) are words; "it's <value>" needs the name in
+      its own clause, not 80 characters away; `pwd` counts in a possessive or "the pwd for" frame;
+      an emoji or `**` before a value is stepped over; lock combinations and dashed codes are
+      digits; an aside (", if you need it," / "(case sensitive)") may sit before the verb; a
+      table cell or a comma may connect. A plain-word value is no longer carried to its other
+      copies ("my password is" a weekday took every copy of the weekday): only a secret-shaped one.
+
 ## Calibration status (scar §2.8, guarantee 13)
 
 Every threshold in `tunables.ts` carries the v1 measurement it inherits and a

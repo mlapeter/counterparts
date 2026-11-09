@@ -302,7 +302,9 @@ describe("HD1 on local: remember's remove over MCP stdio, the wake and footnotes
     const { sweepHeldRemovals } = await import("../src/adapters/cli/removal.js");
     const { holdForRemoval } = await import("../src/core/removal-hold.js");
     const scope = "/Users/test/project-a";
-    const body = "ZQHOLD the locker combination is 12-34-56";
+    // Not a secret: since SX1 the raw buffer redacts a lock combination as it is captured, and this
+    // memory is put straight into the store, past the gate, so a combination would no longer match.
+    const body = "ZQHOLD the spare locker is the blue one by the stairs";
     const cp = Counterpart.open({ dir: store });
     try {
       cp.captureJot({ session: "a", scope, text: body });

@@ -115,7 +115,7 @@ import type {
   Turn as CapturedTurn,
   UpdatesResolution,
 } from "./remember/index.js";
-import { redactSecrets } from "./encode/index.js";
+import { redactSecrets, scanSecrets } from "./encode/index.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "./schemas/tunables.js";
 import { similarity as textSimilarity } from "./remember/updates.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
@@ -680,6 +680,9 @@ export class Counterpart {
       day: () => this.store.livedDay(),
       now: this.nowFn,
       onEvent: (e) => this.relay("remember", e),
+      // The raw buffer crosses the same secrets scan a memory does (SX1), before
+      // anything is hashed or written: a turn at Stop, a note's own line.
+      redact: (text) => scanSecrets(text, "raw"),
     });
 
     // DREAMING. Every word a dream writes is REDACTED of credentials before it

@@ -906,3 +906,18 @@ it led Coming up in all 7 later wakes, in every folder. Two halves again:
   entry's `content`); `session_end`'s Do NOT is the short "Do NOT save refused calls unless the person raised it.",
   so the sentence saying `saidBy` is a field (the gate's exemption) ends inside the 2,048 cut on every host
   (`test/description-cut.test.ts`). The rest of that claim's line was already past the cut before TC1.
+
+## 2026-11-09 — the raw buffer crosses the secrets scan (SX1)
+
+- A password said in a sentence was kept word for word in `buffer.jsonl`, `assistant.jsonl` and a note's line in
+  `jots.jsonl`: nothing gated the buffer, by design ("`remember/` never gates"). Now `BufferOptions.redact` is the
+  same scan the memory's gate runs (`encode/secrets.ts#scanSecrets`), INJECTED by `Counterpart` the way the battery
+  is (INTERFACE-GAPS #2), and `capture` and `jot` run it on the text before it is hashed or written. The span's hash
+  is the redacted text's, so dedup, a note's `ownSpanHash` and the coverage marks all agree on one text.
+- A buffer constructed without it (the CLI's strike and coverage readers, tests) appends as before; none of those
+  appends. `remember.span.redacted` (ring only) counts by family per stream; never the value.
+- A scan that throws is not a reason to write the text as it came: at Stop it reaches `capture`'s outermost
+  swallow (the cursor stays, the next boundary re-reads), and a note returns `IO_FAILED`.
+- Lines already on disk are not rewritten (no migration): they leave under raw retention as before, and the sweep
+  already reads them through `redactSecrets` (`counterpart-sweep.ts`), so an old line cannot carry a password into a
+  memory that way.
