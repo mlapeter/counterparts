@@ -15,7 +15,9 @@
 #     the branch has since moved on from;
 #   - the artifact holds one tarball, named for the commit's version, SHA256 names
 #     that file and matches it, and the release job's log printed the same hash;
-#   - COMMIT is the sha asked for, and the tarball's version is that commit's.
+#   - COMMIT is the sha asked for, and the tarball's version is that commit's;
+#   - windows.yml's release run on the commit (W1) finished green, with its
+#     windows (node 22.15.0), windows (node 24) and wsl (ubuntu 24.04) jobs.
 # Any mismatch exits 1 and writes nothing.
 set -euo pipefail
 
@@ -52,6 +54,23 @@ while IFS=$'\t' read -r _ JOB_RESULT JOB_NAME; do
 done <<<"$JOBS"
 for WANTED_JOB in "typecheck" "suite (" "node smoke (" "hosted (" "release (pack" "release (install loop"; do
   grep -qF -- "$(printf '\t')$WANTED_JOB" <<<"$JOBS" || stop "the run has no job called '$WANTED_JOB...', so it isn't the whole check: $URL"
+done
+
+# Windows through the front door (W1, 2026-11-09) is a workflow of its own,
+# windows.yml, which also runs on a push to release/*: its newest release run on
+# this commit has to have finished green, every job passing and the whole list there.
+WIN=$(gh api "repos/$REPO/actions/workflows/windows.yml/runs?head_sha=$SHA&per_page=100" --jq \
+  '[.workflow_runs[] | select(((.head_branch // "") | startswith("release/")) and (.event == "push" or .event == "workflow_dispatch"))] | sort_by(.created_at) | last | if . == null then "" else "\(.id) \(.status) \(.conclusion) \(.html_url)" end')
+[ -n "$WIN" ] || stop "no release run of windows.yml on $SHA; it runs on a push to release/<version>"
+read -r WIN_ID WIN_STATUS WIN_CONCLUSION WIN_URL <<<"$WIN"
+[ "$WIN_STATUS" = "completed" ] || stop "the Windows run hasn't finished ($WIN_STATUS): $WIN_URL"
+[ "$WIN_CONCLUSION" = "success" ] || stop "the Windows run didn't pass ($WIN_CONCLUSION): $WIN_URL"
+WIN_JOBS=$(gh api "repos/$REPO/actions/runs/$WIN_ID/jobs?per_page=100" --jq '.jobs[] | "\(.id)\t\(.conclusion)\t\(.name)"')
+while IFS=$'\t' read -r _ JOB_RESULT JOB_NAME; do
+  [ "$JOB_RESULT" = "success" ] || stop "a Windows job didn't pass, though the run says it did: '$JOB_NAME' ($JOB_RESULT): $WIN_URL"
+done <<<"$WIN_JOBS"
+for WANTED_JOB in "windows (node 22.15.0)" "windows (node 24)" "wsl (ubuntu 24.04)"; do
+  grep -qF -- "$(printf '\t')$WANTED_JOB" <<<"$WIN_JOBS" || stop "the Windows run has no job called '$WANTED_JOB', so it isn't the whole check: $WIN_URL"
 done
 
 HEAD=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq '.object.sha') ||

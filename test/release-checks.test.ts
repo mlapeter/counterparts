@@ -212,6 +212,15 @@ describe("fetching the tested tarball", () => {
     { id: 89, conclusion: "success", name: "release (install loop, macOS)" },
   ];
 
+  /** windows.yml's release run on the commit (W1) and its jobs. */
+  const WIN_RUN = { ...run(), id: 78, html_url: "https://example.test/run/78" };
+  const WIN_JOBS = [
+    { id: 91, conclusion: "success", name: "pack" },
+    { id: 92, conclusion: "success", name: "windows (node 22.15.0)" },
+    { id: 93, conclusion: "success", name: "windows (node 24)" },
+    { id: 94, conclusion: "success", name: "wsl (ubuntu 24.04)" },
+  ];
+
   /**
    * A stand-in `gh` serving what the API would send, with the script's own `--jq`
    * filters run on it through jq; `tweak` breaks what a test wants broken.
@@ -230,6 +239,8 @@ describe("fetching the tested tarball", () => {
       secondTarball?: boolean;
       sha256Names?: string;
       relativeFolder?: boolean;
+      winRuns?: readonly Run[];
+      winJobs?: readonly (typeof WIN_JOBS)[number][];
     } = {},
   ) {
     const dir = join(WORK, `fetch${++serial}`);
@@ -250,6 +261,8 @@ describe("fetching the tested tarball", () => {
     writeFileSync(join(dir, "repo-package.json"), `{\n  "version": "${tweak.repoVersion ?? "9.9.9"}"\n}\n`);
     writeFileSync(join(dir, "runs.json"), JSON.stringify({ workflow_runs: tweak.runs ?? [...DECOYS, run()] }));
     writeFileSync(join(dir, "jobs.json"), JSON.stringify({ jobs: tweak.jobs ?? JOBS }));
+    writeFileSync(join(dir, "win-runs.json"), JSON.stringify({ workflow_runs: tweak.winRuns ?? [WIN_RUN] }));
+    writeFileSync(join(dir, "win-jobs.json"), JSON.stringify({ jobs: tweak.winJobs ?? WIN_JOBS }));
     const head = tweak.branchHead === undefined ? SHA : tweak.branchHead;
     writeFileSync(join(dir, "ref.json"), JSON.stringify({ object: { sha: head } }));
     const gh = `#!/bin/bash
@@ -261,6 +274,8 @@ case "$*" in
   *"workflows/tests.yml/runs"*) answer "${join(dir, "runs.json")}" ;;
   *"run download"*) ${tweak.noArtifact ? "exit 1" : `cp -R "${artifact}" "\${@: -1}"`} ;;
   *"/runs/77/jobs"*) answer "${join(dir, "jobs.json")}" ;;
+  *"workflows/windows.yml/runs"*) answer "${join(dir, "win-runs.json")}" ;;
+  *"/runs/78/jobs"*) answer "${join(dir, "win-jobs.json")}" ;;
   *"git/ref/heads/release/9.9.9"*) ${head === null ? "exit 1" : `answer "${join(dir, "ref.json")}"`} ;;
   *"/jobs/88/logs"*) cat "${join(dir, "log")}" ;;
   *"contents/package.json"*) cat "${join(dir, "repo-package.json")}" ;;
@@ -308,6 +323,10 @@ esac
     ["a failed job under a green run (continue-on-error)", { jobs: withJob("release (install loop, macOS)", "failure") }, "'release (install loop, macOS)' (failure)"],
     ["a skipped job under a green run", { jobs: withJob("suite (ubuntu-latest, America/Denver)", "skipped") }, "(skipped)"],
     ["a run missing a job the workflow should have", { jobs: JOBS.filter((j) => !j.name.startsWith("suite")) }, "no job called 'suite ("],
+    ["no Windows release run on the commit", { winRuns: [] }, "no release run of windows.yml"],
+    ["a Windows run that didn't pass", { winRuns: [{ ...WIN_RUN, conclusion: "failure" }] }, "the Windows run didn't pass"],
+    ["a failed Windows job under a green run", { winJobs: WIN_JOBS.map((j) => (j.name === "wsl (ubuntu 24.04)" ? { ...j, conclusion: "failure" } : j)) }, "'wsl (ubuntu 24.04)' (failure)"],
+    ["a Windows run missing a job", { winJobs: WIN_JOBS.filter((j) => j.name !== "windows (node 24)") }, "no job called 'windows (node 24)'"],
     ["a branch that has moved on", { branchHead: "d".repeat(40) }, "has moved on"],
     ["a branch that's gone", { branchHead: null }, "is gone"],
     ["two tarballs in the artifact", { secondTarball: true }, "one tarball"],

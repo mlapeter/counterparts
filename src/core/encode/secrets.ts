@@ -345,8 +345,8 @@ function describes(word: string): boolean {
  * `{pw}`, `%s`), or no letter or digit at all (`****`). The trade: a password
  * that is itself one of those words ("my password is fabulous") is kept.
  */
-function isProseWord(token: string): boolean {
-  const core = token.replace(/^[([{'"“‘]+|[)\]}!'"”’]+$/g, "");
+function isProseWord(word: string): boolean {
+  const core = word.replace(/^[([{'"“‘]+|[)\]}!'"”’]+$/g, "");
   if (core.length < 4) return true;
   if (PLAIN_WORDS.test(core) || PROSE_GRAMMAR.has(core.toLowerCase())) return true;
   if (describes(core) || PROSE_PRODUCT.test(core) || PROSE_MEASURE.test(core)) return true;
@@ -356,14 +356,14 @@ function isProseWord(token: string): boolean {
 }
 
 /** Looks like a secret on its own: a digit, or a symbol among letters ("Ocelot!99", "Kx7#mPq2"). A path's `/` and `.` are not symbols here. */
-function secretShaped(token: string): boolean {
-  const t = token.replace(/^[*_([{'"“‘`]+/u, "").replace(/[.,;:?!*_)\]}'"”’`|]+$/u, "");
+function secretShaped(word: string): boolean {
+  const t = word.replace(/^[*_([{'"“‘`]+/u, "").replace(/[.,;:?!*_)\]}'"”’`|]+$/u, "");
   return /\d/.test(t) || (/\p{L}/u.test(t) && /[^\p{L}\p{N}\-_.'’/\\]/u.test(t));
 }
 
 /** Code, not a value: brackets, an assignment, a call, a dotted reference (`flags["x"]`, `f.color`, `passRecord(input)`). */
-function codeShaped(token: string): boolean {
-  return /[[\](){}<>=;]/.test(token) || (/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(token) && !/\.\d+$/.test(token)) || CODE_REFERENCE.test(token);
+function codeShaped(word: string): boolean {
+  return /[[\](){}<>=;]/.test(word) || (/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(word) && !/\.\d+$/.test(word)) || CODE_REFERENCE.test(word);
 }
 
 /**
@@ -379,10 +379,10 @@ function changedTo(text: string, nameEnd: number, name: string): [number, number
   return proseValue(text, nameEnd + to[0].length, name, to[0].replace(/[ \t]+$/, ""), " ");
 }
 
-/** Markup and sentence punctuation around a token: `**none.**`, `(hunter2)`, `hunter2!!`. */
+/** Markup and sentence punctuation around a word: `**none.**`, `(hunter2)`, `hunter2!!`. */
 const TOKEN_LEAD = /^[*_([{'"“‘`]+/u;
 const TOKEN_TRAIL = /[.,;:?!*_)\]}'"”’`|]+$/u;
-const clean = (token: string): string => token.replace(TOKEN_LEAD, "").replace(TOKEN_TRAIL, "");
+const clean = (word: string): string => word.replace(TOKEN_LEAD, "").replace(TOKEN_TRAIL, "");
 
 /**
  * DOES THIS RUN OF WORDS READ AS A PASSPHRASE? Two to eight words with no function
@@ -557,8 +557,8 @@ function shapedToken(text: string, start: number): [number, number] | null {
   if (text.startsWith(REDACTION_MARK, start)) return null;
   const m = /^[^\s"'`“”]{4,64}/u.exec(text.slice(start, start + 65));
   if (m === null) return null;
-  const token = m[0].replace(/[.,;:?)\]}]+$/, "");
-  return token.length >= 4 && secretShaped(token) && !isProseWord(token) && !codeShaped(token) ? [start, start + token.length] : null;
+  const candidate = m[0].replace(/[.,;:?)\]}]+$/, "");
+  return candidate.length >= 4 && secretShaped(candidate) && !isProseWord(candidate) && !codeShaped(candidate) ? [start, start + candidate.length] : null;
 }
 
 // The same lever exists one class later in `url-path-token`: an unbounded
