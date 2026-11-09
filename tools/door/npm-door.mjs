@@ -304,6 +304,9 @@ function mcpRound(requests) {
 {
   const out = await mcpRound([
     { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "remember", arguments: { text: "The kitchen's espresso machine is a Rancilio Silvia, bought in 2019." } } },
+    // Two more, so the next day has enough new for a night (dream MIN_NEW is 3).
+    { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "remember", arguments: { text: "Door Test's bicycle is a green Surly Cross-Check, ridden to work on Fridays." } } },
+    { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "remember", arguments: { text: "The garden's tomatoes are Sungold, planted along the south fence in May." } } },
   ]);
   if (/"id":2/.test(out) && !/"isError":true/.test(out)) ok("mcp: remember landed");
   else no("mcp: remember", out);
@@ -351,15 +354,15 @@ function mcpRound(requests) {
 
 // ── the night, on a CI runner whose clock may be moved ───────────────────────
 // The night starts with the first session of a LATER day. With
-// `--advance-clock` (CI only: it moves a runner's or WSL's system clock, which
-// is nobody's machine) the clock goes forward a day, a new session
+// `--advance-clock` (CI's Windows job only: it moves the runner's system clock,
+// which is nobody's machine) the clock goes forward a day, a new session
 // starts, and the night must start in the background and get as far as
 // starting `claude -p` — which, with no Claude login on the runner, ends there.
 // Only on CI (`CI=true`): never a person's own clock, whatever flag is passed.
-const CAN_MOVE_CLOCK = process.env.CI === "true" && (WIN || process.getuid?.() === 0);
+// Not in WSL: its clock follows the host's and a `date -s` there did not hold.
+const CAN_MOVE_CLOCK = process.env.CI === "true" && WIN;
 if (process.argv.includes("--advance-clock") && CAN_MOVE_CLOCK) {
-  // PowerShell on Windows; `date -s` as root elsewhere (WSL's own clock).
-  const moved = WIN ? shell("powershell", "Set-Date (Get-Date).AddDays(1) | Out-Null") : shell("sh", "date -s @$(( $(date +%s) + 86400 )) >/dev/null");
+  const moved = shell("powershell", "Set-Date (Get-Date).AddDays(1) | Out-Null");
   if (moved.code !== 0) no("could not move the clock forward", moved.err);
   else {
     try {
@@ -384,6 +387,10 @@ if (process.argv.includes("--advance-clock") && CAN_MOVE_CLOCK) {
         await new Promise((res) => setTimeout(res, 1000));
       }
       show("the nightly process's log", lines.join("\n") || "(nothing)");
+      {
+        const text = existsSync(logDir) ? readdirSync(logDir).map((f) => readFileSync(join(logDir, f), "utf8")).join("\n") : "";
+        show("the hooks' night and dream lines", text.split("\n").filter((l) => /night|dream/i.test(l) && !l.includes('"proc":"nightly"')).slice(-15).join("\n") || "(nothing)");
+      }
       if (lines.length > 0) ok("the night started in the background");
       else no("no nightly process logged anything");
       if (lines.some((l) => /ENOENT|EINVAL|spawn\.failed/.test(l))) no("the night could not start claude", lines.filter((l) => /ENOENT|EINVAL|spawn/.test(l)).join("\n"));
@@ -391,8 +398,7 @@ if (process.argv.includes("--advance-clock") && CAN_MOVE_CLOCK) {
       const n = shell(TERMINAL, "counterparts night", { timeout: 60_000 });
       show(`counterparts night, the next day (exit ${n.code})`, `${n.out}${n.err}`);
     } finally {
-      if (WIN) shell("powershell", "Set-Date (Get-Date).AddDays(-1) | Out-Null");
-      else shell("sh", "date -s @$(( $(date +%s) - 86400 )) >/dev/null");
+      shell("powershell", "Set-Date (Get-Date).AddDays(-1) | Out-Null");
     }
   }
 }

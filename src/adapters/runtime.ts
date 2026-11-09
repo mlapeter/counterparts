@@ -341,8 +341,14 @@ export function whichOnPath(
   const key = (wanted: string): string | undefined =>
     env[wanted] ?? (win ? Object.entries(env).find(([k]) => k.toUpperCase() === wanted)?.[1] : undefined);
   const dirs = (key("PATH") ?? "").split(win ? ";" : ":").filter((d) => d.length > 0);
+  // On win32 only the PATHEXT spellings, unless the name carries its own: npm
+  // puts an extensionless sh script beside every `x.cmd` (for Git Bash), and
+  // Windows can't start that file (CI 11-09: `claude` was found as it and
+  // read as missing).
   const exts = win
-    ? ["", ...(key("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((e) => e.length > 0).map((e) => e.toLowerCase())]
+    ? /\.[A-Za-z0-9]+$/.test(name)
+      ? [""]
+      : (key("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((e) => e.length > 0).map((e) => e.toLowerCase())
     : [""];
   for (const d of dirs) {
     for (const ext of exts) {

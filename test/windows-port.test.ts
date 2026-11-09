@@ -57,6 +57,9 @@ describe("what a host is told to run on win32", () => {
     const exists = disk("C:\\Program Files\\nodejs\\node.exe");
     expect(whichOnPath("node", WIN_ENV, "win32", exists)).toBe("C:\\Program Files\\nodejs\\node.exe");
     expect(whichOnPath("node", WIN_ENV, "linux", exists)).toBeNull();
+    // npm's extensionless sh script beside `claude.cmd` is not what Windows starts (CI 11-09).
+    const npm = "C:\\Users\\me\\AppData\\Roaming\\npm";
+    expect(whichOnPath("claude", WIN_ENV, "win32", disk(`${npm}\\claude`, `${npm}\\claude.cmd`))).toBe(`${npm}\\claude.cmd`);
   });
   test("node by name when PATH finds this very node; its / path when not; POSIX untouched", () => {
     expect(hostExe(NODE, "win32", WIN_ENV, disk(NODE))).toBe("node");
