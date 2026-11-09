@@ -758,9 +758,10 @@ describe("the line has a small room of its own, and the page keeps its own", () 
   test("at 9,000 with a ~5.9 KB page, four handoffs and another active folder, the line prints within its cap — the page's lines and the due reminder intact", () => {
     const m = ownerMorning();
     // No other folder yet: no line, and nothing reserved — the wake is
-    // exactly what it is with no host to ask.
+    // exactly what it is with no host to ask. (The host's one head field, the
+    // session it names since WK3, is given to both.)
     const quiet = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET);
-    const alone = m.c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B });
+    const alone = m.c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B, headFields: [`session=${B}`] });
     expect(quiet.text.split("\n").some((l) => l.startsWith("Today, elsewhere: "))).toBe(false);
     expect(quiet.text).toBe(alone.text);
     // Another folder at work this morning.

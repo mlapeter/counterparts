@@ -1303,8 +1303,10 @@ describe("the npm install's hook and server never take themselves for the plugin
       expect(plain[0]).toContain("Now: <now>");
       const inherited: string[] = [];
       for (const event of HOST_EVENTS) {
-        const r = npmHook(event, npmEnv({ CLAUDE_PLUGIN_ROOT: OTHER_COPY(), CLAUDE_PLUGIN_DATA: join(home, "plugin-data") }), "npm-test-inherited");
-        inherited.push(steady(JSON.stringify(r).replaceAll("npm-test-inherited", "<session>")));
+        // The same length as the first arm's id: the wake's head names its
+        // session (`session=…`, WK3), so the id counts in its `bytes=`.
+        const r = npmHook(event, npmEnv({ CLAUDE_PLUGIN_ROOT: OTHER_COPY(), CLAUDE_PLUGIN_DATA: join(home, "plugin-data") }), "npm-test-inher");
+        inherited.push(steady(JSON.stringify(r).replaceAll("npm-test-inher", "<session>")));
       }
       expect(inherited).toEqual(plain);
     },

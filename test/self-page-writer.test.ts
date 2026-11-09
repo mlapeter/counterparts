@@ -646,21 +646,25 @@ describe("session mode: the writer in the nightly run", () => {
     seeder.rebrief({ budgetBytes: BUDGET_BYTES });
     seeder.close();
 
+    // The wake's head names its own session (`session=…`, WK3), so the two
+    // arms differ by their ids and nothing else: the ids are the same length
+    // (so `bytes=` still compares exactly) and are set aside in the text.
     const offAdapter = adapter({ pageWriter: { mode: "off" } });
     const off = offAdapter.sessionStart(hook("sess_off"));
     offAdapter.counterpart.close();
 
     const onAdapter = adapter({ pageWriter: { mode: "session" } });
-    const on = onAdapter.sessionStart(hook("sess_on"));
+    const on = onAdapter.sessionStart(hook("sess_on1"));
 
-    expect(on.injection).toBe(off.injection);
+    const own = (text: string | null | undefined, id: string): string | undefined => text?.replaceAll(`session=${id} `, "session=<session> ");
+    expect(own(on.injection, "sess_on1")).toBe(own(off.injection, "sess_off"));
     expect(on.bytes).toBe(off.bytes);
     expect(on.sentinel).toBe(off.sentinel);
     expect(off.ask).toBeNull();
     expect(on.ask).toBeNull();
     // The writer moved into the nightly run: nothing is claimed at session start.
     expect(pageWriterRuns(onAdapter.counterpart.store)).toEqual([]);
-    expect(readSession(dir, "sess_on")?.pageWriterFor).toBeUndefined();
+    expect(readSession(dir, "sess_on1")?.pageWriterFor).toBeUndefined();
   });
 
   test("the first-launch scope question has the ask field to itself", () => {
