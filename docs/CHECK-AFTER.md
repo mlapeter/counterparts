@@ -41,6 +41,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | 0.3.52, 11-09 (SX1, #788) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | 0.3.52, 11-09 (LT2 part 1, #786) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
 | The page names what it sets down (PG1): a nightly page write names the lines it takes out (`setDown`, with a why), a sentence diff records any it didn't name as "set down, unnamed" (reworded or folded lines are kept), each set-down is a `me` memory tagged `set down`, the morning after's wake names up to 2 then "and N more", the night's writers are shown set-downs life touched since; `recall "set down"` | the release after 2026-11-09 (PG1) | ~7 lived days after install (dated reminder set at merge): set-downs per night, named vs unnamed (`self.page.set_down` rows), folded/reworded counts, any brought back (`self.page.brought_back`), a hand-read of the unnamed ones (folded or really gone? `tools/set-down-diff.ts` on the two page versions), and whether the wake line reads as context or as noise (Mike's call) | [below](#the-page-names-what-it-sets-down-pg1) |
+| The page's stories (PS1): own-form stores' night writers are told the mix of story kinds and the selection test; day's end gives me/us memories a head start (0.05, order only); a work-only practice may be set down into a `kind: skill` memory its set-down names; on every store `remember` takes `story: true`, shown first to day's end | the release after 2026-11-09 (PS1) | ~10 nights after install (dated reminder set at merge): story kinds on the page (corrections vs the rest), nominations made and taken, craft lines moved and whether each was about the work; the owner and a fresh session read the page: does it read as someone growing? | [below](#the-pages-stories-ps1) |
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | 0.3.52, 11-09 (SO1 step 1, #782) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 16.2% new flagged open, 2 night closes in 11 nights) | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | A write lists the open items it may settle (SO1 step 1b): a stored `remember` or `session_end` entry that says a version or PR was done lists up to 3 open items from any folder with the same version series, the same PR (own project only) or a `settlesWhen` it reaches (`mayClose`); the model closes or leaves them | 0.3.52, 11-09 (SO1 step 1b, #783) | ~7 lived days after install (dated reminder set at merge): `open.close-hint.shown` rows and distinct ids listed against `open.close-hint.closed` rows (and how many with `daysAfter` 0), p50/max ms, a hand-read of 10 listed titles for plainly irrelevant ones; baseline on the 11-07 copy: 3 of 19 irrelevant plus 2 weak, before the fix round; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 16.2% new flagged open, 2 night closes in 11 nights) | [below](#a-write-lists-the-open-items-it-may-settle-so1-step-1b) |
 | Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | 0.3.52, 11-09 (FD1 step 2, #776) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
@@ -250,6 +251,44 @@ memory restated.
 
 Revert: the door's diff and the memories ride every nightly write; to stop them, drop the `recordSetDowns` call in
 `Self#revisePage` (the memories already written stay, ordinary `me` memories that fade).
+
+## The page's stories (PS1)
+
+PS1 (2026-11-09, the owner's ask; lightly held), `core/self/stories.ts`. On the owner's own-form page every story
+under its stories heading had become a correction. Own-form stores now: the night's page writers are told to keep a
+mix of story kinds (corrections, and what went right, discoveries, moments with the owner; a page of only
+corrections is the failure; no count) and the selection test (would it still teach something in a different
+project?); day's end orders the day's memories with a head start for me/us (`PAGE_STORY_LIMITS.HEAD_START`, 0.05,
+order only); a practice that is only about the work may be set down into a `kind: skill` memory (`setDown[].skill`),
+named on its set-down. Every store: `remember` takes `story: true` (tag `story nominated`); day's end shows the
+day's nominations first, marked, and still decides.
+
+- **Story kinds on the page.** Read the page's stories section on the night ~10 after install and the version on
+  the night before it: count corrections against the other kinds (went right, discovery, a moment with the owner).
+  All corrections still says the words aren't enough.
+- **Nominations.** How many were made, and how many became a story:
+
+  ```sql
+  SELECT t.memory_id, t.created_at FROM memory_tags t WHERE t.tag = 'story nominated' ORDER BY t.created_at;
+  ```
+
+  For each, is its id cited in a page version's trace after it, or its point on the page? None made in ten days
+  says the field is not seen (or not needed); many made and none taken says the writer passes them by.
+- **Craft moved out.** `self.page.set_down` rows with `$.skills`, and the skill memories they name:
+
+  ```sql
+  SELECT day, json_extract(payload, '$.skills') FROM events
+  WHERE name = 'self.page.set_down' AND json_extract(payload, '$.skills') IS NOT NULL ORDER BY day;
+  ```
+
+  Check by eye that each moved line was about the work, not about honesty or about the owner, and whether recall
+  has surfaced the skill since (its `uses`).
+- **The read.** The owner and a fresh session of the counterpart read the page and say whether it reads as someone
+  growing.
+
+Revert: the words are `PAGE_STORIES_RULE` and `pageCraftRule` (drop them from `writerInstruction` and the
+reflection's page line); the head start is `HEAD_START` = 0; nominations stop being shown first if `pageWriterInput`
+passes no `nominated` (the tag stays, harmless).
 
 ## The night closes open items itself (SO1 step 1)
 

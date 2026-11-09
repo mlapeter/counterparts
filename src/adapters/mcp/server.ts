@@ -258,6 +258,7 @@ import { canonicalToolName, toolDefinitions, toolSpec } from "./tools.js";
 import { MANUAL_HANDLE, MANUAL_PATH, findSection, installedManual, manualAsk, manualIndexText } from "./manual.js";
 import { DELETED_HANDLE, heldList, heldWakeLine, holdForRemoval, releaseHold, removalRefusal } from "../../core/removal-hold.js";
 import { SET_DOWN_HANDLE, lineOnPage, preparePage, readSetDowns } from "../../core/self/set-down.js";
+import { nominateStory } from "../../core/self/stories.js";
 import { SET_DOWN_LIMITS } from "../../core/self/tunables.js";
 import { REMOVAL_HOLD_MS } from "../../core/store/index.js";
 import type { ManualAsk } from "./manual.js";
@@ -1991,6 +1992,7 @@ export class McpServer {
       // A BELIEF IN THE MOMENT (lane C3), after the feelings: a vivid one is read off them.
       ...this.recordBelief(deposit, args["belief"]),
       ...this.recordTraits(deposit, traits.inputs, model),
+      ...this.recordStory(deposit, args["story"]),
       ...reminderEcho(deposit, dated, this.today()),
       ...titleEcho(deposit, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(deposit, dated, args["title"], text),
@@ -4617,6 +4619,18 @@ export class McpServer {
     } catch (err) {
       return { feelings: { stored: 0, reason: "threw", detail: String((err as Error).message ?? err) } };
     }
+  }
+
+  /**
+   * A STORY NOMINATION (PS1, 2026-11-09, `self/stories.ts`): `story: true`
+   * tags the memory just written, and the night's writer sees it first. Said
+   * back only when one was asked for; anything but `true` is no nomination.
+   */
+  private recordStory(deposit: DepositResult, story: unknown): Record<string, unknown> {
+    if (story !== true) return {};
+    if (deposit.memoryId === null) return { story: { nominated: false, reason: "memory-not-stored" } };
+    nominateStory(this.counterpart.store, deposit.memoryId);
+    return { story: { nominated: true, note: "Nominated as a story for your page: the night's writer sees it first and still decides." } };
   }
 
   /**

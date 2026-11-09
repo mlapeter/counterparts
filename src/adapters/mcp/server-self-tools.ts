@@ -395,7 +395,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
   // …and the answer names them short, as the reflection knows them (review of #602).
   const asShort = <T>(v: T): T => (aliases === null ? v : (JSON.parse(aliases.inText(JSON.stringify(v))) as T));
   const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-  const part = (v: unknown): { text?: string; cites?: string[]; short?: string; claims?: { text: string; cites: string[] }[]; setDown?: { line: string; why: string }[] } | null => {
+  const part = (v: unknown): { text?: string; cites?: string[]; short?: string; claims?: { text: string; cites: string[] }[]; setDown?: { line: string; why: string; skill?: string }[] } | null => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
     const r = v as Record<string, unknown>;
     return {

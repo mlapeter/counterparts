@@ -824,6 +824,15 @@ writer named or that are clearly gone (`SET_DOWN_LIMITS.GONE_SHARE`, clause, anc
 checks); the rest are quiet "maybe reworded" memories. **[A]** A record that fails never
 costs the page. A session's or the owner's own edit is not read.
 
+**The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
+store's nightly page writers are told to keep a mix of story kinds and the selection test
+(`stories.ts`); words only, nothing checks a story. **[M]** Day's end orders the day's memories
+by strength plus a head start for me/us (own-form only, `PAGE_STORY_LIMITS.HEAD_START`): the
+order moves, the physics do not. **[M]** A memory tagged `story nominated` (`remember`'s
+`story: true`, every store) is shown first and marked, at most `NOMINATED_FIRST` a day; the
+writer still decides, and nothing keeps an untaken one. **[M]** A named set-down with `skill`
+becomes a `kind: skill` memory, and the set-down's facts and body name it.
+
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and — until 2026-10-15, when nothing regrows any more — the regrow

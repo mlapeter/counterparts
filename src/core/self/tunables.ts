@@ -739,6 +739,29 @@ export const SET_DOWN_LIMITS = {
   LISTED: 50,
 } as const;
 
+/**
+ * THE PAGE'S STORIES (PS1, 2026-11-09, `stories.ts`; lightly held): the
+ * numbers behind what day's end is shown when it may write a story.
+ */
+export const PAGE_STORY_LIMITS = {
+  /**
+   * A HEAD START, NOT A FILTER: added to the strength of a memory marked
+   * about me or us when day's end orders the day's memories (own-form stores
+   * only), so a work-heavy day does not crowd them out of its dozen. Only the
+   * order moves; the memory's physics is untouched. Measured on the owner's
+   * real days (review of #791, 19 days): a day's strengths do NOT sit close
+   * (median ~0.2, the 12th strongest ~0.6; me/us median 0.49 vs work 0.19).
+   * Me/us in the shown dozen: 5.2/12 with none, 7.6/12 at 0.05 (1 day all
+   * me/us), 9.5/12 at 0.15 (5 days all me/us). So 0.05: a nudge, not a takeover.
+   * CAL; read the page's story kinds ~10 nights after install.
+   */
+  HEAD_START: 0.05,
+  /** Memories nominated as a story during the day shown first to day's end, at most this many (the rest take their ordinary place). */
+  NOMINATED_FIRST: 5,
+  /** A skill memory a set-down practice moves into: its words at most this many characters (cut at a word, "…"). */
+  SKILL_CHARS: 600,
+} as const;
+
 export function withTunables(overrides: Partial<SelfTunables>): SelfTunables {
   return { ...SELF_TUNABLES, ...overrides };
 }
