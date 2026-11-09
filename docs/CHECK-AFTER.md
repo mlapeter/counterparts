@@ -37,6 +37,10 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | the release after 2026-11-09 (W1) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
+| A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | the release after 2026-11-09 (SX1) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
+| Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
+| The wake as its reader read it (WK3): "shown earlier" only for a telling in this session's context, else the items by title and id (up to 5); the night's own line drops sentences the page or day's end already tell, and is a clause the second morning running; overdue is its own count with its oldest date; a handoff whose lead waits on the owner with nothing since sinks, and one past a week nothing refers to isn't listed; Elsewhere lines say when and what; "Last said" quotes a whole first sentence; "under way" never over a journaled dream; the head names the session | the release after 2026-11-09 (WK3) | ~7 lived days after install (dated reminder set at merge): a week of wakes read by a fresh session against the brief's six points (`~/counterparts-notes/2026-11-09-briefs/WK3-wake-feedback.md`), and the delivered size against ~8.6 KB | [below](#the-wake-as-its-reader-read-it-wk3) |
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | 0.3.52, 11-09 (W1, #787) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | 0.3.52, 11-09 (SX1, #788) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | 0.3.52, 11-09 (LT2 part 1, #786) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
@@ -207,6 +211,30 @@ the build and `record` after it, outside `elapsedMs`; the rest tile the build.
 
 That read briefs the fix for whichever step grows. Revert: `recall.STEP_TIMING=false` (the key leaves the row;
 nothing else moves).
+
+## The wake as its reader read it (WK3)
+
+WK3 (2026-11-09, from a counterpart's own feedback on five mornings of its wake; Mike agreed the same day; lightly
+held), `core/counterpart-wake-shape.ts`, `dream/night-line.ts`, `handoff/last-exchange.ts`, `adapters/lifecycle.ts`.
+Only the shaped wake (`self.WAKE_SHAPE`) changes, but for "Last said", the night line and the head's session field,
+which every road carries.
+
+- **The read.** A fresh session, given the week's wakes (`adapter.wake.injected` rows say when; the text is in the
+  host's transcripts), checks each point: does any "shown earlier" appear outside a re-delivery to the same session?
+  Is any moment told twice in one wake (page, day's end, the night's own line)? The same own line two mornings at
+  full weight? Overdue items behind the door with no count? A handoff leading whose lead waits on Mike with nothing
+  since? A listed handoff older than a week? An Elsewhere line without an age or a what? A "Last said" cut without
+  "…"? "under way" after the dream journaled? A wake without `session=` in its head?
+- **Size.** The brief's ~8.6 KB: `adapter.wake.injected`'s bytes by day, before and after install. On an invented
+  morning (a 4.4 KB page) the wake went from 5,681 to 5,761 bytes: the session field (~45), the told reminders by title
+  in place of one fold line, and the overdue words.
+- **What rides on SO1 step 4.** The backoff for items waiting on Mike (3/7/14 days, then parked; at most one session-start
+  mention a week; the shared day latch) is not here. `waitsOnOwner` is the seam: today it reads the lead's `asked` ids
+  and its words; SO1 step 4's raise events can answer there too.
+
+Revert: each piece is local. The fold rule is `shownEarlier`/`retold` in `shapedDelivery`; the own line's filter is
+`ownToldOnce`; the overdue clause is `lateWords`; the handoff order is `handoffsTold`; the quote is `quoteOf`; the night
+line's journaled branch is the first `if` in `nightLine`; the head field is `own` in `Lifecycle#composeWake`.
 
 ## The page names what it sets down (PG1)
 

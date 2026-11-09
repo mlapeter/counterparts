@@ -317,7 +317,9 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
 14. **[M] The last exchange here is pointed at, never stored** (2026-10-11; Mike's
     design of 2026-10-10, "pull, not push"; `last-exchange.ts`). A session that opens in
     a directory gets one line, `Last said here, <when> (session <id8>): "<first words>…"
-    — recall "last exchange"` (at most `LAST_EXCHANGE_LINE_MAX_BYTES`), naming the
+    — recall "last exchange"` (at most `LAST_EXCHANGE_LINE_MAX_BYTES`; the quote is the
+    first sentence whole when it fits `LAST_EXCHANGE_SENTENCE_BYTES`, with " …" when more
+    followed, else the first words and "…": never a sentence cut unmarked, WK3), naming the
     newest owner words said to ANOTHER session here inside `LAST_EXCHANGE_WINDOW_MS`;
     `recall`'s handle `last exchange` returns them and that session's last text reply,
     each cut at a sentence (`LAST_EXCHANGE_TEXT_MAX_CHARS`). Read from THIS directory's

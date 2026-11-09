@@ -776,3 +776,6 @@ from what's left would be thin and silent. `launch`, `writer`, `begin` and `tags
 reflection by title, and carries the night's own line (`detail.line`), where `dream/night-line.ts` otherwise gives ids and counts and
 never a title. Mike's approved shape, so a deliberate change to what this module lets a session read. The journal and the entry stay out. A
 dream or reflection from a folder this reader may not read (the rule `recall "last night"` applies) goes by no title and leaves no line.
+The night's own line is told once per wake (WK3, 2026-11-09): a sentence of it the page or day's end already says is dropped, and the same
+line two mornings running is a clause. "Under way" is said only while today's dream is not journaled: a journaled dream with the run still
+going reads as the dream, then "the reflection is under way" (`night-line.ts`, on every road).

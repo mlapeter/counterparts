@@ -49,6 +49,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import {
   LAST_EXCHANGE_LINE_MAX_BYTES,
+  LAST_EXCHANGE_SENTENCE_BYTES,
   LAST_EXCHANGE_TEXT_MAX_CHARS,
   LAST_EXCHANGE_WORDS,
   headAtSentence,
@@ -263,7 +264,8 @@ describe("the line names the latest other session in this folder", () => {
 
     const line = lineOf(wakeOf(w, at(9, 45)));
     expect(line).toStartWith("Where this folder stands: session a1b2c3d4, ");
-    expect(saidOf(line)).toBe(`said 09:10: "Let's fix the reserve for the handoff block first, then…" — recall "last exchange".`);
+    // A first sentence that fits is quoted whole (WK3): never cut where a promise lives.
+    expect(saidOf(line)).toBe(`said 09:10: "Let's fix the reserve for the handoff block first, then the ladder after it." — recall "last exchange".`);
     expect(bytes(saidOf(line))).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
 
     // THERE's wake names THERE's session, not HERE's.
@@ -365,7 +367,7 @@ describe("rituals, injections and tool-only turns are not the exchange", () => {
     const w = world(at(9));
     mikeShaped(w);
     const line = lineOf(wakeOf(w, at(9, 30)));
-    expect(line).toContain(`"Run the three agents on the bed survey and tell…"`);
+    expect(line).toContain(`"Run the three agents on the bed survey and tell me what they found."`);
     const got = await lastExchangeOf(recallServer(w));
     expect(got["reason"]).toBe("last-exchange");
     expect(got["session"]).toBe(A);
@@ -416,7 +418,11 @@ describe("the caps hold", () => {
     const line = lineOf(wakeOf(w, at(9, 30))) ?? "";
     expect(bytes(saidOf(line))).toBeLessThanOrEqual(LAST_EXCHANGE_LINE_MAX_BYTES);
     const quote = /: "(.*)" — recall/.exec(line)?.[1] ?? "";
-    expect(quote.replace(/…$/, "").split(" ").length).toBeLessThanOrEqual(LAST_EXCHANGE_WORDS);
+    // The first sentence whole when it fits (WK3), with " …" for the rest; else the first words and "…".
+    expect(quote).toBe(`${sentence.trim()} …`);
+    expect(bytes(quote.replace(/ …$/, ""))).toBeLessThanOrEqual(LAST_EXCHANGE_SENTENCE_BYTES);
+    const run = "word ".repeat(60).trim();
+    expect(quoteOf(run).replace(/…$/, "").split(" ").length).toBeLessThanOrEqual(LAST_EXCHANGE_WORDS);
     const got = await lastExchangeOf(recallServer(w));
     const s = got["said"] as { text: string; cut?: boolean };
     const r = got["reply"] as { text: string; cut?: boolean };
@@ -590,7 +596,7 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     expect(readSentinel(text.slice(text.indexOf("<!-- counterparts:wake "))).intact).toBe(true);
     const line = lineOf(text);
     expect(line).toContain("session a1b2c3d4");
-    expect(saidOf(line)).toBe(`said 10-10 18:30: "Tomorrow we finish the seed-tray ladder and then the watering…" — recall "last exchange".`);
+    expect(saidOf(line)).toBe(`said 10-10 18:30: "Tomorrow we finish the seed-tray ladder and then the watering log." — recall "last exchange".`);
     // The page whole and as long as without the line; the due reminder listed; Still open's first item.
     expect(pageBytes(text)).toBe(pageBytes(quiet));
     expect(lane(text, FRAMING.horizon).some((l) => l.includes("the seed order closes at noon"))).toBe(true);

@@ -3120,8 +3120,60 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   version); the `self.page.brought_back` event is the record, and recall reads "on the page again" live. The ask
   beside a session's wake (session mode) carries no `setDown` rule (room); its drops are still caught by the diff.
 
-## 2026-11-09 — the page's stories (PS1)
+## WK3: the wake as its reader read it (2026-11-09)
 
+- **"Shown earlier" had no context to point at.** RF1 folded a plain reminder told in ANY attended session today in
+  this reader's folders. A new session's model never saw that telling, so the fold pointed at nothing (four mornings
+  running in the feedback). The fold now needs the latch's session to be this reader's, with its context kept. In
+  Claude Code a resume hands no new wake, and a second SessionStart for the same session is turned away, so the fold
+  is reachable in core (`Counterpart#wake` with the same session) more than through the hooks. That's fine: the
+  brief's rule is "if it can't be proven for this session, it isn't said". claude.ai's wake tool mints a session per
+  call, so it never folds either.
+- **Compaction and /clear show titles, not bodies.** The person was told the reminder already (the latch); the model
+  needs the item, not the whole text again.
+- **Overdue vanished into "N more here".** The door lumped overdue and later items. On an invented morning with five
+  overdue, two were listed and the other three read as "3 more here", which says nothing about being late. Another
+  folder's overdue items were only "N in other folders"; they're now "N in other folders (K overdue, oldest MM-DD)",
+  a count, so SO1 step 3's rule (said whole only in their own folder) holds.
+- **One telling: compare by sentence, not by line.** A night's own line is one or two sentences; one can restate the
+  page while the other carries something forward. Each sentence is checked against the page and the day's-end
+  summary with PG1's `lineOnPage` (exact claim key, or `NEAR_SHARE` over two sentences), and only the ones that pass
+  are kept. The reflection's row has no other line to fall back to, so with nothing left the closing line is the
+  night's titles and door. The day's-end summary is in the check because the feedback named it (11-06: page, day's
+  end, closing line); the brief named only the page.
+- **"Waiting on the owner" has no structured mark on a handoff.** The store's own mark is `status: asked` on a memory,
+  so a lead naming an asked memory waits; otherwise a few waiting words around the owner's name. The words are lightly
+  held. SO1 step 4's raise events are the better signal when they land. "Signal since" is a memory written here
+  after it, by another session, that says the lead again (`titleInLead`) or names the asked id.
+- **"Under way" read the run flag.** The night line returned "under way" whenever today's run row said `started`,
+  before looking at today's dream. A dream journaled while the reflection still runs now reads `dream "…"; the
+  reflection is under way.`
+- **Fix round (review of #792, the owner's real wake through a snapshot).** Near-verbatim overlap missed the
+  feedback's own case: the closing line paraphrased a dated moment the page told as a clause. `sameMoment` now
+  matches the moment: the same `MM-DD` (or "Nov 7") and at least `MOMENT_SHARED_WORDS` content words. The line is a
+  reflection's text, not a memory, so there was no identity to match by. With the moment told, the closing line
+  carries an open thread no section showed ("Carried forward: …"), not nothing. A lead whose words named no owner
+  ("ask for his first") and no `asked` memory still led, so a lead at the top of `LEAD_SHOWN_SINK` other sessions'
+  wakes, unrevised and with no signal, now sinks whatever its words (meta `wake.handoff.led`). The words gained
+  ownerless forms. A long other-folders door had squeezed out a plain line due today: short of room, the door goes
+  terse first, and a plain line is Coming up's floor. And a wake with no `source` is unknown, so it doesn't fold.
+- **Round 2 (re-checked through the SessionStart hook on a copy of a real store, clock frozen at a morning).** When
+  one sentence of the closing line tells a moment that was already told, the whole line goes: its undated rest was
+  the same moment, and on its own it ended the wake on a fragment. Then "Carried forward" takes its place. A lead is
+  now counted by handoff id in either form, whole or the stepped-down pointer; on the real store every lead was the
+  pointer, so nothing had been counted. Only a revision resets the count. The waiting words read the whole lead,
+  since the wait sat past the first sentence. A sinking handoff goes down one step per mark (led too often, waiting),
+  so of two waiting leads, the one already led twice gives way. "Signal since" counts only an id still marked
+  `asked`: later rows that only cite a lead's other ids (night recaps) were reading as answers. The record keeps
+  other folders' entries; the first build pruned them.
+- **Round 3: only a wait sinks.** Round 2 sank any lead shown twice, whatever its words. On the real store that sank
+  a lead that waited on nobody, and the older one then led under a false "1 newer one waiting on an answer". With
+  two stale marks each, the tie also went back to the newest. Now a lead sinks only if it waits on the owner AND has
+  led `LEAD_SHOWN_SINK` wakes since its last revision. It then stays sunk until it is revised, so nothing takes
+  turns. The age rule (`WAITING_SINK_MS`) is gone: the count is the clock.
+
+
+## 2026-11-09 — the page's stories (PS1)
 - **What was true.** On the one own-form page, every story under its stories heading had become a correction, none
   newer than ten days, while moments that went right or were between the owner and the counterpart never became
   stories. Likely: the writers favour memories shaped as lessons (corrections are), and day's end is handed the

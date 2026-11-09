@@ -339,6 +339,9 @@ export function writeUpPointer(input: {
 
 const EVENT_RING = 500;
 
+/** A session id the wake's head may carry as `session=…` (WK3): a host's id, no space, `>` or `-->` in it. */
+const SESSION_FIELD = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
 /**
  * Where the per-reason spawn refusal counters live: box 2's meta, under
  * `adapter.spawn.refusals.<reason>`.
@@ -601,7 +604,12 @@ export class Lifecycle implements HostLifecycle {
   ): ReturnType<Counterpart["wake"]> & { readonly tags?: readonly string[]; readonly tagged?: boolean } {
     const dir = this.counterpart.store.dir;
     const asked = tags?.();
-    const fields = asked === undefined || !ONE_TAG ? [] : markerFields(asked);
+    // THE WAKE NAMES ITS SESSION (WK3, 2026-11-09): `reflect` (phase `close`,
+    // `told`, …) asks for the session id, and a model had to dig it out of a
+    // scratchpad path. A head field (`session=…`), so it costs a few bytes and
+    // no line, and rides every road that keeps the head tag.
+    const own = input.nightRun === true || !SESSION_FIELD.test(input.sessionId) ? [] : [`session=${input.sessionId}`];
+    const fields = [...(asked === undefined || !ONE_TAG ? [] : markerFields(asked)), ...own];
     const composed = this.counterpart.wake(
       budget,
       { ...(input.at === undefined ? {} : { date: input.at }) },

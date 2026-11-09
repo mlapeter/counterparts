@@ -647,6 +647,8 @@ export const WAKE_SHAPE_LIMITS = {
   ELSEWHERE_ROWS_READ: 60,
   /** Due today past the plain reminders: a flood of nine read as a nag (the 10-29 wake). */
   DUE_TODAY_SHOWN: 4,
+  /** Plain reminders told today in another session, by title and id (WK3, the brief's "up to 5"): that telling isn't in this session's context, so "shown earlier" would point at nothing. The rest are counted behind the door. */
+  RETOLD_SHOWN: 5,
   /** Overdue items, newest first: more is a nag, and the rest are behind the door. Spare does not reach them (round 4: past it, the lane flooded). */
   OVERDUE_SHOWN: 2,
   /** The next later items; spare room takes it to three, later items only, for the same reason. */
@@ -682,6 +684,16 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_READ: 200,
   /** How many days before its day a dated item can be done (the shop launched one day early); an earlier done row is another visit of the same name (review of #734). */
   HAPPENED_EARLY_DAYS: 1,
+  /** A lead that waits on the owner, at the top of this many wakes since its last revision with no reply since, sinks below the others until revised (review 3 of #792; the case behind it led three sessions). One that doesn't wait on the owner never sinks by count. */
+  LEAD_SHOWN_SINK: 2,
+  /** Sessions kept per handoff in that record: past the threshold, a few more say nothing new. */
+  LEAD_SHOWN_KEPT: 8,
+  /** A closing-line sentence and a page sentence naming the same day and sharing this many content words tell one moment (review of #792: the paraphrase shared a date and a few key words). */
+  MOMENT_SHARED_WORDS: 3,
+  /** The most days a month has, for reading `MM-DD` in prose. */
+  MONTH_DAYS_MAX: 31,
+  /** A handoff this old that nothing written since refers to (by its id) is no longer listed in the wake; still under recall "handoffs" for its life (WK3: ten-day-old ones were still listed). A week: a seat that stops for a weekend is still listed on Monday. */
+  HANDOFF_LISTED_MS: 7 * 24 * 60 * 60_000,
   /** "Set down from my page last night" (PG1): lines named before "and N more". Two is a glance; the rest are behind recall "set down". */
   SET_DOWN_SHOWN: 2,
   /** A set-down line in the wake: this many characters, then "…" (the line is whole behind the door). */

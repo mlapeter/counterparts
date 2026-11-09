@@ -824,6 +824,33 @@ writer named or that are clearly gone (`SET_DOWN_LIMITS.GONE_SHARE`, clause, anc
 checks); the rest are quiet "maybe reworded" memories. **[A]** A record that fails never
 costs the page. A session's or the owner's own edit is not read.
 
+**The wake as its reader read it (WK3, 2026-11-09; working default, lightly held).** From a
+counterpart's own feedback on five mornings of its shaped wake. **[A]** "N due today, shown
+earlier in this session" only for a plain reminder whose telling today was in THIS session
+(the told latch names it) and whose context the host kept (not a compaction, not a /clear);
+told in another session, it is listed again by title and id (`RETOLD_SHOWN`, the rest counted
+behind the door), never its whole body to the person twice. In Claude Code a session gets one
+wake (a resume hands none), so the fold is now rare there by design. **[A]** One telling of a
+moment per wake: a sentence of the night's own line that the page or day's end's summary
+already says (`set-down.ts#lineOnPage`) is not repeated as the closing line; with none left,
+the night's titles stand alone. The same line two mornings running (against the previous
+reflection's) is its first clause with "…", or nothing. A paraphrase of a page moment
+counts as told when both name the same day and share `MOMENT_SHARED_WORDS` content words; then the
+closing line carries an unshown open thread forward instead. A read; nothing is recorded, and PG1's
+told-once latch for set-downs is untouched. **[A]** Overdue items not listed are their own
+clause at Coming up's door, "N (more) overdue (oldest MM-DD)", never folded into "more here";
+another folder's are counted as overdue inside its count, never listed; the one pass keeps
+that door when it must take the section down. **[A]** A handoff whose lead
+item waits on the owner (`counterpart-wake-shape.ts#waitsOnOwner`: an `asked` memory it names,
+or waiting words over the whole lead) that has led `LEAD_SHOWN_SINK` wakes since its last
+revision, with no reply since, sinks below the others until revised (a lead that doesn't wait
+on the owner never sinks by count), and the lead says "N newer one(s) waiting on an answer, below" (its closing
+batch is not news under the new lead); a handoff
+past `HANDOFF_LISTED_MS` that nothing written since names by id is not listed (the newest
+always is; `recall "handoffs"` lists them all). **[A]** Every Elsewhere line carries its age;
+a live folder with nothing written says since when. SO1 step 4 (the waiting-on-owner backoff)
+is a separate change; `waitsOnOwner` is its seam.
+
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test
 (`stories.ts`); words only, nothing checks a story. **[M]** Day's end orders the day's memories

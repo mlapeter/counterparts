@@ -149,8 +149,8 @@ describe("SO1 step 3: a plain reminder is said where it can be acted on", () => 
     // The bakery again: still another folder's, never "shown earlier" here.
     const b2 = hook(S(3), BAKERY);
     expect(section(b2.wake, "Coming up:")).toBe(`Coming up:\n(1 in other folders (garden: Hplain seedlings); recall "coming up")`);
-    // The garden again: folded, once told.
-    expect(section(hook(S(4), GARDEN).wake, "Coming up:")).toBe(`Coming up:\n(1 due today, shown earlier; recall "coming up")`);
+    // The garden again, another session: by title, once told (WK3: never "shown earlier" across sessions).
+    expect(section(hook(S(4), GARDEN).wake, "Coming up:")).toBe(`Coming up:\n- Due today · Hplain seedlings [${id}]`);
   });
 
   test("a folder joined to the garden as one project is its own folder: the shed's wake says the garden's reminder", () => {
@@ -176,7 +176,7 @@ describe("SO1 step 3: a plain reminder is said where it can be acted on", () => 
     expect(b1.person).toContain("Hown dentist");
     expect(latches(id)).toBe(1);
     const g1 = hook(S(2), GARDEN);
-    expect(section(g1.wake, "Coming up:")).toBe(`Coming up:\n(1 due today, shown earlier; recall "coming up")`);
+    expect(section(g1.wake, "Coming up:")).toBe(`Coming up:\n- Due today · Hown dentist [${id}]`);
     expect(g1.person).not.toContain("Hown");
   });
 });
