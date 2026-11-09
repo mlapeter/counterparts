@@ -291,7 +291,7 @@ export const REFLECT_TUNABLES = {
  * reflection's page names the lines it takes out, as day's end's does.
  */
 const REFLECT_SET_DOWN =
-  'In page.setDown, name each line of the page as it stood that you take out and keep nowhere else on it, word for word, with a short why ("retired by <the newer ruling>", "folded into <where>" only when its point is still on the page, "no longer lived", "room"); a line only reworded needs none. One gone and not named is recorded anyway, as set down unnamed, and every set-down line is kept as a memory, so taking one out loses nothing.';
+  'In page.setDown, account for EVERY sentence of the page as it stood that you removed or changed, word for word as it was, each with a short why that says which: "reworded" (its point is still on the page in other words), "folded into <the line that carries it now>", or set down ("retired by <the newer ruling>", "no longer lived", "room"). Your account is trusted as given. One gone that you leave out is recorded anyway, as set down unnamed, and every set-down line is kept as a memory, so taking one out loses nothing.';
 
 /**
  * WHAT THE REFLECTION IS ASKED FOR ITS OWN LINE (NL1, 2026-10-30): the last

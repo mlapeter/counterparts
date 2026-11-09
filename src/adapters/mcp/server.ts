@@ -4178,12 +4178,14 @@ export class McpServer {
           named: r.named,
           ...(r.section.length === 0 ? {} : { section: r.section }),
           leftVersion: r.from,
+          ...(r.lines === undefined ? {} : { lines: r.lines }),
+          ...(r.quiet === true ? { quiet: true } : {}),
           ...(prepared !== null && lineOnPage(r.line, prepared) ? { onPageAgain: true } : {}),
         })),
         note:
           rows.length === 0
             ? "The page has set nothing down yet."
-            : "Lines the nightly page writers took out of the page, newest first: each kept as a memory, word for word. named: false means the writer did not name it and the engine's diff caught it. One that holds again can go back on the page.",
+            : "Lines the nightly page writers took out of the page, newest first: each kept as a memory, word for word. named: false means the writer did not account for it and the engine's diff caught it; quiet means it may only have been reworded (or it holds the lines past one write's cap, in lines), so the wake didn't quote it. One that holds again can go back on the page.",
       },
       false,
     );

@@ -707,13 +707,23 @@ export const SET_DOWN_LIMITS = {
   NEAR_SHARE: 0.7,
   /** New sentences read together for "reworded": a sentence split in two is still the sentence. */
   NEAR_WINDOW: 2,
-  /** A line the writer named "folded": at least this share of its words in a run of new sentences, or it is recorded anyway. */
+  /** For `tools/set-down-diff.ts`'s report only since the review of #789: a writer's "folded" is trusted, not checked. */
   FOLD_SHARE: 0.5,
-  /** New sentences read together for "folded": a story carries a rule over a few sentences. */
+  /** New sentences read together when judging a line no one accounted for as clearly gone: a story carries a rule over a few sentences. */
   FOLD_WINDOW: 3,
+  /** Not accounted for by the writer, and gone: quoted by the wake only when at most this share of its words is anywhere in a run of `FOLD_WINDOW` new sentences; above it, a quiet "maybe reworded" memory. Low on purpose: on the owner's history true folds scored 0.36–0.38 and true drops 0.38–0.40 (review of #789), so the engine quotes only the plain ones. 0.15, not 0.3: at 0.3, a sentence reworded with no words in common ("I'm leaving that open" → "a question I've left with Mike", 0.29) was quoted as gone. */
+  GONE_SHARE: 0.15,
+  /** A new sentence of at least this many content words, all inside a gone one, is that sentence trimmed (to a clause, a word dropped). */
+  CONTAIN_MIN: 2,
+  /** A clause of a gone line (split at ; : — ( ) and ", ") with this share of its words in one new sentence or two: the line is not clearly gone ("Never game a review" → "never game one", 2 of 3). */
+  CLAUSE_SHARE: 0.6,
+  /** An anchor: a stemmed word at least this long that only this line carried on the old page; found anywhere on the new page, the line is not clearly gone. */
+  ANCHOR_MIN: 4,
+  /** A writer's why, at most this many characters (cut at a word, "…"). */
+  WHY_CHARS: 200,
   /** The shortest word counted: "a", "of" and "to" carry nothing. */
   WORD_MIN: 3,
-  /** Most set-downs one write records: past it, the rest are counted on the event (a page rewritten from nothing is not forty memories). */
+  /** Most set-down memories one write makes one by one: past it, the rest go into ONE memory with every line in full (a page rewritten from nothing is not forty memories). */
   MAX_PER_WRITE: 12,
   /** Set-down memories read when looking for one life touched since, or one a write brought back: the newest this many. */
   SCAN: 200,

@@ -3091,13 +3091,27 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   page it replaced against the page as stored (after the lane splice and the gate, so a redaction or a section the
   door can't write is not a drop). Sentences are `page.ts#pageClaims`'s, section by section; "word for word" is
   `claimKey`, the same identity `carryTrace` uses.
-- **Folded vs gone, as built.** Content words (lowercased, `stemTerm`, a small function-word list kept in this one
-  file; the store has no stop list on purpose). Reworded: ≥ `NEAR_SHARE` (0.7) of the gone sentence's words in one
-  new sentence or two side by side; a sentence split in two or lightly reworded lands here whatever the writer said.
-  Folded: the writer said "folded …" and ≥ `FOLD_SHARE` (0.5) of its words sit in a run of up to three. Otherwise set
-  down, named or unnamed. The numbers are unmeasured defaults set on hand-built pages
-  (`test/self-set-down.test.ts`); `tools/set-down-diff.ts` prints the judgement for any two page versions, the
-  reviewer's check against Mike's 11-07 list.
+- **Folded vs gone: the writer's account, not word share (fix round, review of #789).** The first build judged
+  folds by word share; on the owner's real page history it got 9 of 20 pairs right, every miss a line still on the
+  page (trimmed, reworded) scored under 0.7, and on PF1 (v72→v73) true folds scored 0.36–0.38 and true drops
+  0.38–0.40. Word share can't tell a fold from a drop, so the engine no longer tries. The writer accounts for
+  every sentence it removes or changes: "reworded", "folded into <line>", or set down with a why. That account is
+  trusted and counted on the event (`writerFolded`, `writerReworded`) for audit. The engine checks only that
+  nothing went unaccounted. A sentence nobody accounted for is kept when it is still there: contained (a new
+  sentence of ≥ 2 content words wholly inside it, a trim to a clause), or ≥ 0.7 in one or two new sentences.
+  Otherwise it is always recorded, and it is QUOTED by the wake only when clearly gone: ≤ `GONE_SHARE` (0.15) of its
+  words in any run of three new sentences, no clause of it kept (`CLAUSE_SHARE` 0.6), no word only it carried on
+  the old page now on the new one (an anchor), and no word root in a sentence this write rewrote. Everything else is
+  a quiet "set down, unnamed (maybe reworded)" memory, behind `recall "set down"` only.
+- **Measured on a copy of the owner's store (11-09 snapshot), with no writer account,** on PF1 plus 20 seeded random
+  pairs, four seeds (~80 pairs): 3–5 lines quoted per 21 pairs, and every one checked by hand against its after page
+  was gone ("I'm watching it.", "0.3.7 is on his machine.", "Motive is the piece I'm really missing…", "Not pinned
+  yet.", "Roadmap waves have no dates…"). The 0.3 bar quoted "I'm leaving that open…", reworded on the next page
+  with no words in common. PF1 quotes nothing unaccounted at 0.15. Its true drops become quiet memories; on a real
+  night the writer names them. Script: `tools/set-down-diff.ts`.
+- **Past the cap, never silent.** Beyond `MAX_PER_WRITE` (12), the rest go into ONE quiet memory, "Set down from my
+  page MM-DD: N more lines", with every line in full. **Told once:** the first wake that tells a night's set-downs
+  writes the night's date to meta `self.set_down.told`, and no later wake tells that night's again.
 - **The memories are night rows** (`source: reflection`), so the news since last night, the reflection's lived
   lists, beliefs and the "mark about me" door pass them by as they pass every reflection-written row; recall finds
   them as usual. The why goes through `scanSecrets` (it is the writer's words; the line already passed the page gate).

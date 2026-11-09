@@ -28,8 +28,9 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import { SELF_TUNABLES, pageWriterNight } from "../src/core/self/index.js";
-import { SET_DOWN_BACK_EVENT, SET_DOWN_EVENT, SET_DOWN_META, SET_DOWN_TAG, UNNAMED_WHY, diffSetDowns, readSetDowns } from "../src/core/self/set-down.js";
-import { WAKE_SHAPE_KEY } from "../src/core/self/tunables.js";
+import { SET_DOWN_BACK_EVENT, SET_DOWN_EVENT, SET_DOWN_META, SET_DOWN_TAG, UNNAMED_WHY, UNSURE_WHY, diffSetDowns, isQuoted, isSetDown, readSetDowns, recordSetDowns } from "../src/core/self/set-down.js";
+import type { SetDownVerdict } from "../src/core/self/set-down.js";
+import { SET_DOWN_LIMITS, WAKE_SHAPE_KEY } from "../src/core/self/tunables.js";
 
 const S = SELF_TUNABLES as { PAGE_SPLIT: boolean };
 const SPLIT_WAS = S.PAGE_SPLIT;
@@ -79,42 +80,48 @@ describe("the sentence diff: reworded and folded are kept, the rest set down", (
     expect(d.verdicts.map((v) => [v.outcome, v.line])).toEqual([["reworded", "Ship when tested; provenance, not pacing, tells changes apart."]]);
   });
 
-  test("a line the writer names as folded is kept when its words are on the page across a short run; not found, it is set down anyway", () => {
-    const folded = BEFORE.replace(
-      "Lately the work has been the night's children, one at a time.\nBefore naming a cause, I check which build, folder or store is running.",
-      "Lately the work has been the night's children, one at a time. On 10-09 a wrong build cost a whole day. Since then, before naming any cause, I check which folder, build or store is the one running.",
-    );
-    const named = [{ line: "Before naming a cause, I check which build, folder or store is running.", why: "folded into Lately's 10-09 story" }];
-    const kept = diffSetDowns(BEFORE, folded, named);
-    // Most of its words sit in one new sentence: kept, in the writer's word for it.
-    expect(kept.verdicts.find((v) => v.line.startsWith("Before naming"))?.outcome).toBe("folded");
-    expect(diffSetDowns(BEFORE, folded).verdicts.find((v) => v.line.startsWith("Before naming"))?.outcome).toBe("reworded");
-    // A real fold across sentences: the words spread over three.
+  test("the writer's account is trusted as given: folded and reworded are kept wherever the words went, anything else is set down as named", () => {
+    // A fold the words alone can't see (the review of #789: true folds scored 0.36 on real pages).
     const spread = BEFORE.replace(
       "Before naming a cause, I check which build, folder or store is running.",
-      "On 10-09 the wrong build ran for a day, in the right-looking folder. I lost the day to it. Now I check first, then name the cause.",
+      "On 10-09 the wrong build ran for a day, in the right-looking folder. I lost the day to it. Now I check first.",
     );
-    const v = diffSetDowns(BEFORE, spread, named).verdicts.find((x) => x.line.startsWith("Before naming"));
-    expect(v?.outcome).toBe("folded");
-    expect(v?.share).toBeGreaterThanOrEqual(0.5);
-    // Said folded, but gone: recorded, with what the writer said.
-    const gone = BEFORE.replace("Before naming a cause, I check which build, folder or store is running.", "");
-    const g = diffSetDowns(BEFORE, gone, named).verdicts.find((x) => x.line.startsWith("Before naming"));
-    expect(g?.outcome).toBe("named");
-    expect(g?.why).toContain("said folded, but not found on the page");
-  });
-
-  test("named with a why: set down with it; not named: set down unnamed; a named line still on the page matches nothing", () => {
-    const after = BEFORE.replace("- Records drift: look, then fix the note.\n", "").replace("- Shape isn't a finishing step.\n", "");
-    const d = diffSetDowns(BEFORE, after, [
+    const d = diffSetDowns(BEFORE, spread, [{ line: "Before naming a cause, I check which build, folder or store is running.", why: "folded into Lately's 10-09 story" }]);
+    expect(d.verdicts.map((v) => [v.outcome, v.accounted])).toEqual([["folded", true]]);
+    const r = diffSetDowns(BEFORE, spread, [{ line: "Before naming a cause, I check which build, folder or store is running.", why: "reworded as the 10-09 story" }]);
+    expect(r.verdicts.map((v) => v.outcome)).toEqual(["reworded"]);
+    const after = BEFORE.replace("- Records drift: look, then fix the note.\n", "");
+    const n = diffSetDowns(BEFORE, after, [
       { line: "Records drift: look, then fix the note.", why: "no longer lived" },
       { line: "I read slowly, without a harvest, and say what I found.", why: "room" },
     ]);
-    expect(d.verdicts.map((x) => [x.outcome, x.why])).toEqual([
-      ["named", "no longer lived"],
-      ["unnamed", UNNAMED_WHY],
-    ]);
-    expect(d.unmatchedNamed.map((n) => n.line)).toEqual(["I read slowly, without a harvest, and say what I found."]);
+    expect(n.verdicts.map((x) => [x.outcome, x.why])).toEqual([["named", "no longer lived"]]);
+    expect(n.unmatchedNamed.map((x) => x.line)).toEqual(["I read slowly, without a harvest, and say what I found."]);
+  });
+
+  test("not accounted for: a trim to a clause, or a word dropped, is the line still there", () => {
+    const trimmed = BEFORE.replace("- I read slowly, without a harvest, and say what I found.", "- I read slowly, without a harvest.");
+    expect(diffSetDowns(BEFORE, trimmed).verdicts.map((v) => [v.outcome, v.why])).toEqual([["reworded", "still on the page, trimmed or grown"]]);
+    const word = BEFORE.replace("Before naming a cause, I check which build, folder or store is running.", "Before naming a cause, I check which build or store is running.");
+    expect(diffSetDowns(BEFORE, word).verdicts.map((v) => v.outcome)).toEqual(["reworded"]);
+  });
+
+  test("not accounted for and clearly gone (no words, no clause, no anchor left): quoted unnamed; otherwise a quiet 'maybe reworded'", () => {
+    const after = BEFORE.replace("- Shape isn't a finishing step.\n", "");
+    const gone = diffSetDowns(BEFORE, after).verdicts;
+    expect(gone.map((v) => [v.outcome, v.why, isQuoted(v)])).toEqual([["unnamed", UNNAMED_WHY, true]]);
+    // A clause kept ("never game a review" → "never game one"): not quoted.
+    const clauseBefore = "## How I work\n\n- Never game a review; our claims meet the bar I hold rivals to.\n- I test first.";
+    const clauseAfter = "## How I work\n\n- A separate reviewer reads every change; never game one.\n- I test first.";
+    expect(diffSetDowns(clauseBefore, clauseAfter).verdicts.map((v) => [v.outcome, v.why, isQuoted(v)])).toEqual([["unsure", UNSURE_WHY, false]]);
+    // An anchor kept: a word only this line carried, now elsewhere on the page.
+    const anchorBefore = "## Lately\n\n- He posts in r/AISelf; the welcome carried a note in my voice.\n- I test first.";
+    const anchorAfter = "## Lately\n\n- One post a day in r/AISelf, after approval.\n- I test first.";
+    expect(diffSetDowns(anchorBefore, anchorAfter).verdicts.map((v) => v.outcome)).toEqual(["unsure"]);
+    // A root in a rewritten sentence ("Measurements over opinions." merged into "Measure …, with a control").
+    const rootBefore = "## How I work\n\n- Measure the current build first.\n- Measurements over opinions.";
+    const rootAfter = "## How I work\n\n- Measure the current build first, with a control.";
+    expect(diffSetDowns(rootBefore, rootAfter).verdicts.find((v) => v.line.startsWith("Measurements"))?.outcome).toBe("unsure");
   });
 
   test("common page words are not a fold: a short rule whose words recur elsewhere on the page is still set down", () => {
@@ -130,7 +137,7 @@ describe("the sentence diff: reworded and folded are kept, the rest set down", (
       "- Ship when tested; provenance, not pacing, tells changes apart.",
     ].join("\n");
     const v = diffSetDowns(BEFORE, after).verdicts.find((x) => x.line.startsWith("Records drift"));
-    expect(v?.outcome).toBe("unnamed");
+    expect(isSetDown(v as SetDownVerdict)).toBe(true);
     expect(v?.share).toBeLessThan(0.7);
   });
 
@@ -259,8 +266,8 @@ describe("a night that rewrites the page", () => {
     // Day's end was asked to name what it sets down, and its answer says what was recorded.
     expect(block).toContain("pass `setDown`");
     expect(wrote["stored"]).toBe(true);
-    expect(String(wrote["setDown"])).toContain("Set down 2 lines (1 named, 1 not named");
-    expect(String(wrote["setDown"])).toContain("2 gone word for word were found on the page reworded or folded");
+    expect(String(wrote["setDown"])).toContain("Set down 2 lines (1 as you named it, 1 you didn't account for");
+    expect(String(wrote["setDown"])).toContain("2 gone word for word were folded or reworded");
 
     const c = open(at);
     try {
@@ -312,6 +319,11 @@ describe("a night that rewrites the page", () => {
       // Told once: not again as news, nor anywhere else in the wake.
       expect(w.text.split("Records drift").length - 1).toBe(1);
       expect(w.text).not.toContain("Set down from my page 11-08");
+      // Told once: a later session's wake that day doesn't tell it again.
+      now += 3_600_000;
+      const later = m.wake(BUDGET, { date: new Date(now).toISOString().slice(0, 10) }, { scope: "/proj", session: "s-later" });
+      expect(later.ok).toBe(true);
+      expect(later.text).not.toContain("Set down from my page last night");
 
       // recall "set down", through the MCP door: newest first, with why and date.
       const s = new McpServer({ counterpart: m, session: "s-morning", scope: "/proj", registryDir: dir });
@@ -454,6 +466,40 @@ describe("a night that rewrites the page", () => {
       const rows = readSetDowns(c.store);
       expect(rows.find((r) => r.line.startsWith("Records drift"))).toMatchObject({ named: true, why: "no longer lived", by: "writer" });
       expect(rows.find((r) => r.line.startsWith("Shape"))).toMatchObject({ named: false, why: UNNAMED_WHY });
+    } finally {
+      c.close();
+    }
+  });
+
+  test("past one write's cap, never silent: the rest in ONE quiet memory with every line in full; a why is cut to its cap", () => {
+    const c = open();
+    try {
+      const lines = Array.from({ length: SET_DOWN_LIMITS.MAX_PER_WRITE + 3 }, (_, i) => `Zqrule number ${String(i)} about glaze ${String(i)}x and kiln ${String(i)}y holds.`);
+      const before = `## How I work\n\n${lines.map((l) => `- ${l}`).join("\n")}\n- I test first.`;
+      const after = "## How I work\n\n- I test first.";
+      const long = "no longer lived ".repeat(30);
+      const r = recordSetDowns(c.store, {
+        before: { body: before, version: 4, trace: null },
+        after,
+        version: 5,
+        named: lines.map((line) => ({ line, why: long })),
+        by: "writer",
+        session: SESSION,
+        date: "2026-11-08",
+        day: c.store.livedDay(),
+        pageId: "sch_test",
+        claim: 0.4,
+      });
+      expect(r.over).toBe(3);
+      expect(r.ids).toHaveLength(SET_DOWN_LIMITS.MAX_PER_WRITE + 1);
+      const rows = readSetDowns(c.store);
+      const rest = rows.find((x) => x.lines !== undefined);
+      expect(rest?.quiet).toBe(true);
+      expect(rest?.lines).toEqual(lines.slice(SET_DOWN_LIMITS.MAX_PER_WRITE));
+      const body = c.store.readProse(rest?.id ?? "").body;
+      for (const l of lines.slice(SET_DOWN_LIMITS.MAX_PER_WRITE)) expect(body).toContain(l);
+      expect(c.store.readProse(rest?.id ?? "").title).toBe("Set down from my page 11-08: 3 more lines");
+      for (const x of rows.filter((y) => y.lines === undefined)) expect(x.why.length).toBeLessThanOrEqual(SET_DOWN_LIMITS.WHY_CHARS);
     } finally {
       c.close();
     }

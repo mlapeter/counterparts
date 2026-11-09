@@ -69,6 +69,7 @@ import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { MANUAL_HANDLE } from "./manual.js";
 import { DELETED_HANDLE } from "../../core/removal-hold.js";
+import { SET_DOWN_LIMITS } from "../../core/self/tunables.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
@@ -1608,10 +1609,10 @@ const SELF_PAGE: ToolSpec = {
       setDown: {
         type: "array",
         description:
-          'Only day\'s end\'s, with `body`: each line of the page as it stood that this write takes out and keeps nowhere else on it, word for word, with a short why ("retired by <newer ruling>", "folded into <where>", "no longer lived", "room"). A line only reworded needs none. A line gone that is not named is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down").',
+          `Only day's end's, with \`body\`: every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by <newer ruling>", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down"). A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters.`,
         items: {
           type: "object",
-          properties: { line: { type: "string" }, why: { type: "string" } },
+          properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS } },
           required: ["line", "why"],
           additionalProperties: false,
         },
@@ -1929,10 +1930,12 @@ const REFLECT: ToolSpec = {
           },
           setDown: {
             type: "array",
-            description: 'Each line of the page as it stood that this write takes out and keeps nowhere else on it, word for word, with a short why ("retired by …", "folded into …", "no longer lived", "room"). A line gone and not named is recorded anyway, as unnamed.',
+            description: `Every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by …", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed. A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters.`,
             items: {
               type: "object",
-              properties: { line: { type: "string" }, why: { type: "string" } },
+              properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS } },
+              required: ["line", "why"],
+              additionalProperties: false,
             },
           },
         },

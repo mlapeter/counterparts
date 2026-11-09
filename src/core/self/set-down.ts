@@ -48,10 +48,14 @@ export const SET_DOWN_HANDLE = "set down";
 export const SET_DOWN_META = "setDown";
 /** One per nightly write that set anything down or kept anything by rewording or folding: counts and ids only. */
 export const SET_DOWN_EVENT = "self.page.set_down";
+/** The store meta key holding the night (`YYYY-MM-DD`) whose set-downs a wake has told: told once, never again. */
+export const SET_DOWN_TOLD_KEY = "self.set_down.told";
 /** A write that put a set-down line back on the page: the set-down's id. */
 export const SET_DOWN_BACK_EVENT = "self.page.brought_back";
 /** The why recorded for a line the writer did not name. */
 export const UNNAMED_WHY = "set down, unnamed";
+/** The why recorded for a line not accounted for that may only have been reworded: kept quietly, never quoted. */
+export const UNSURE_WHY = "set down, unnamed (maybe reworded)";
 
 /** What a writer names: the line as it was on the page, and a short why. */
 export interface SetDownNamed {
@@ -67,17 +71,20 @@ export interface PageSentence {
 
 /**
  * What became of one sentence gone word for word. `reworded` and `folded` are
- * kept (not set-downs); `named` and `unnamed` are set down.
+ * kept (not set-downs); `named`, `unnamed` and `unsure` are set down, and only
+ * `named` and `unnamed` (clearly gone) are quoted by the wake.
  */
 export interface SetDownVerdict {
   readonly line: string;
   readonly section: string;
-  readonly outcome: "reworded" | "folded" | "named" | "unnamed";
+  readonly outcome: "reworded" | "folded" | "named" | "unnamed" | "unsure";
   readonly why: string;
-  /** The best share of its words found: in one or two new sentences for `reworded`, in a run for `folded`. */
+  /** The best share of its words found: in one or two new sentences, or a run of three for `unnamed`/`unsure`. */
   readonly share: number;
   /** The new sentence(s) it was best matched to, for a reviewer. */
   readonly match: string | null;
+  /** True when the writer's account named it (trusted, not re-judged). */
+  readonly accounted: boolean;
 }
 
 export interface SetDownDiff {
@@ -102,6 +109,10 @@ export interface SetDownFacts {
   readonly restedOn?: readonly string[];
   /** Its place among the lines one write set down (0 first), so a night's are told in the page's order. */
   readonly pos?: number;
+  /** True when the wake does not quote it: unnamed and maybe only reworded, or the lines past a write's cap. */
+  readonly quiet?: boolean;
+  /** On the one memory past a write's cap: every line it holds, in full. */
+  readonly lines?: readonly string[];
 }
 
 /** A set-down memory as the readers see it. */
@@ -190,23 +201,77 @@ function names(named: string, sentence: string): boolean {
   return shareOf(contentWords(sentence), contentWords(named)) >= L.NEAR_SHARE;
 }
 
-/** A why that says "folded": its first word. */
-function saysFolded(why: string): boolean {
-  return /^\s*fold/i.test(why);
+/** What the writer's account says of a line: its why's first word ("folded …", "reworded …"), else set down. */
+export function accountOf(why: string): "folded" | "reworded" | "set down" {
+  if (/^\s*fold/i.test(why)) return "folded";
+  if (/^\s*re-?word/i.test(why)) return "reworded";
+  return "set down";
+}
+
+/**
+ * IS THE GONE SENTENCE STILL THERE, TRIMMED OR GROWN? One new sentence whose
+ * content words (at least `CONTAIN_MIN`) all sit in it (a trim to a clause,
+ * "not inside a mechanism" → "not in a mechanism"), or one that holds all of
+ * its words. Pure.
+ */
+export function contained(words: ReadonlySet<string>, page: readonly { text: string; words: ReadonlySet<string> }[]): string | null {
+  for (const s of page) {
+    if (s.words.size >= L.CONTAIN_MIN && shareOf(s.words, words) === 1) return s.text;
+    if (words.size > 0 && shareOf(words, s.words) === 1) return s.text;
+  }
+  return null;
+}
+
+/**
+ * A CLAUSE OF THE LINE STILL ON THE PAGE: the line split at ; : — ( ) and
+ * ", " — any part of at least `CONTAIN_MIN` content words found whole-ish
+ * (`CLAUSE_SHARE`) in one new sentence or two side by side, or holding one
+ * (`contained`). The new sentence it was found in, or null. Pure.
+ */
+export function clauseKept(line: string, page: readonly { text: string; words: ReadonlySet<string> }[]): string | null {
+  for (const part of line.split(/[;:—()]|,\s/u)) {
+    const words = contentWords(part);
+    if (words.size < L.CONTAIN_MIN) continue;
+    const near = bestRun(words, page, L.NEAR_WINDOW);
+    if (near.share >= L.CLAUSE_SHARE) return near.match;
+    const inside = contained(words, page);
+    if (inside !== null) return inside;
+  }
+  return null;
 }
 
 /**
  * THE DIFF: every sentence of `before` not on `after` word for word, sorted
- * (see the header). `named` is the writer's own list. Sentences with no
+ * (see the header). `named` is the writer's account. Sentences with no
  * content word are passed by. Pure and deterministic.
+ *
+ * Accounted for by the writer: trusted, never re-judged — "folded …" and
+ * "reworded …" are kept (logged), anything else is set down as named. Not
+ * accounted for: still there trimmed or grown (`contained`), or reworded past
+ * `NEAR_SHARE`: kept. Otherwise set down, unnamed — `unnamed` (quoted by the
+ * wake) only when clearly gone, at most `GONE_SHARE` of its words anywhere in a
+ * run of `FOLD_WINDOW` new sentences; else `unsure` (a quiet memory, never
+ * quoted). Word share alone cannot tell a fold from a drop (measured on the
+ * owner's page history, review of #789), so the engine only decides the plain
+ * cases and the writer's account carries the rest.
  */
 export function diffSetDowns(before: string, after: string, named: readonly SetDownNamed[] = []): SetDownDiff {
   const now = pageSentences(after).map((s) => ({ ...s, words: contentWords(s.text) }));
   const nowKeys = new Set(now.map((s) => claimKey(s.text)));
+  const nowWords = new Set(now.flatMap((s) => [...s.words]));
+  const was = pageSentences(before);
+  // How many of the old page's sentences carry each word.
+  const oldFreq = new Map<string, number>();
+  for (const s of was) for (const w of contentWords(s.text)) oldFreq.set(w, (oldFreq.get(w) ?? 0) + 1);
+  // The roots (first letters) of the words in new sentences this write changed (not word for word on the old page).
+  const oldKeys = new Set(was.map((s) => claimKey(s.text)));
+  const changedRoots = new Set(
+    now.filter((s) => !oldKeys.has(claimKey(s.text))).flatMap((s) => [...s.words].filter((w) => w.length > L.ANCHOR_MIN).map((w) => w.slice(0, L.ANCHOR_MIN + 1))),
+  );
   const seen = new Set<string>();
   const used = new Set<number>();
   const verdicts: SetDownVerdict[] = [];
-  for (const s of pageSentences(before)) {
+  for (const s of was) {
     const key = claimKey(s.text);
     if (nowKeys.has(key) || seen.has(key)) continue;
     seen.add(key);
@@ -215,38 +280,62 @@ export function diffSetDowns(before: string, after: string, named: readonly SetD
     const near = bestRun(words, now, L.NEAR_WINDOW);
     const at = named.findIndex((n, i) => !used.has(i) && names(n.line, s.text));
     const n = at < 0 ? undefined : named[at];
+    const base = { line: s.text, section: s.section };
+    if (n !== undefined) {
+      used.add(at);
+      const why = n.why.replace(/\s+/g, " ").trim();
+      const account = accountOf(why);
+      verdicts.push({
+        ...base,
+        outcome: account === "folded" ? "folded" : account === "reworded" ? "reworded" : "named",
+        why: why.length === 0 ? "named, no why given" : why,
+        share: near.share,
+        match: near.match,
+        accounted: true,
+      });
+      continue;
+    }
+    const inside = contained(words, now);
+    if (inside !== null) {
+      verdicts.push({ ...base, outcome: "reworded", why: "still on the page, trimmed or grown", share: near.share, match: inside, accounted: false });
+      continue;
+    }
     if (near.share >= L.NEAR_SHARE) {
-      // Still on the page in other words: kept, whatever was named for it (a
-      // named "folded" is the writer's word for the same thing).
-      if (at >= 0) used.add(at);
-      const folded = n !== undefined && saysFolded(n.why);
-      verdicts.push({ line: s.text, section: s.section, outcome: folded ? "folded" : "reworded", why: folded ? n.why.replace(/\s+/g, " ").trim() : "reworded", share: near.share, match: near.match });
+      verdicts.push({ ...base, outcome: "reworded", why: "reworded", share: near.share, match: near.match, accounted: false });
       continue;
     }
-    if (n === undefined) {
-      verdicts.push({ line: s.text, section: s.section, outcome: "unnamed", why: UNNAMED_WHY, share: near.share, match: near.match });
-      continue;
-    }
-    used.add(at);
-    const why = n.why.replace(/\s+/g, " ").trim();
-    if (saysFolded(why)) {
-      const folded = bestRun(words, now, L.FOLD_WINDOW);
-      verdicts.push(
-        folded.share >= L.FOLD_SHARE
-          ? { line: s.text, section: s.section, outcome: "folded", why, share: folded.share, match: folded.match }
-          : { line: s.text, section: s.section, outcome: "named", why: `said folded, but not found on the page (${why})`, share: folded.share, match: folded.match },
-      );
-      continue;
-    }
-    verdicts.push({ line: s.text, section: s.section, outcome: "named", why: why.length === 0 ? "named, no why given" : why, share: near.share, match: near.match });
+    const wide = bestRun(words, now, L.FOLD_WINDOW);
+    // A CLAUSE STILL THERE ("Never game a review; our claims meet the bar…"
+    // → "…never game one"): the line is not clearly gone, whatever its share.
+    const clause = clauseKept(s.text, now);
+    // AN ANCHOR STILL THERE: a word this line alone carried on the old page
+    // ("r/AISelf", "distribution") found anywhere on the new one says its
+    // point may live on, reworded or folded: not clearly gone.
+    const anchored = [...words].some((w) => w.length >= L.ANCHOR_MIN && (oldFreq.get(w) ?? 0) === 1 && nowWords.has(w));
+    // A ROOT IN A REWRITTEN SENTENCE: one of its words' first `ANCHOR_MIN`+1
+    // letters in a new sentence this write changed ("Measurements over
+    // opinions." beside "Measure the current build, with a control…"): it may
+    // have been merged in. Not clearly gone.
+    const rooted = [...words].some((w) => w.length > L.ANCHOR_MIN && changedRoots.has(w.slice(0, L.ANCHOR_MIN + 1)));
+    verdicts.push(
+      wide.share <= L.GONE_SHARE && clause === null && !anchored && !rooted
+        ? { ...base, outcome: "unnamed", why: UNNAMED_WHY, share: wide.share, match: wide.match, accounted: false }
+        : { ...base, outcome: "unsure", why: UNSURE_WHY, share: wide.share, match: wide.match, accounted: false },
+    );
   }
   return { verdicts, unmatchedNamed: named.filter((_, i) => !used.has(i)) };
 }
 
 /** True when a verdict is a set-down (a memory is made of it). */
 export function isSetDown(v: SetDownVerdict): boolean {
+  return v.outcome === "named" || v.outcome === "unnamed" || v.outcome === "unsure";
+}
+
+/** True when the wake may quote it: named by the writer, or clearly gone. */
+export function isQuoted(v: Pick<SetDownVerdict, "outcome">): boolean {
   return v.outcome === "named" || v.outcome === "unnamed";
 }
+
 
 /** A page read once for many `lineOnPage` questions. */
 export interface PreparedPage {
@@ -307,7 +396,18 @@ export function setDownFactsOf(meta: Readonly<Record<string, unknown>>): SetDown
     date: typeof f["date"] === "string" ? f["date"] : "",
     ...(Array.isArray(f["restedOn"]) ? { restedOn: (f["restedOn"] as unknown[]).filter((x): x is string => typeof x === "string") } : {}),
     ...(typeof f["pos"] === "number" ? { pos: f["pos"] } : {}),
+    ...(f["quiet"] === true ? { quiet: true } : {}),
+    ...(Array.isArray(f["lines"]) ? { lines: (f["lines"] as unknown[]).filter((x): x is string => typeof x === "string") } : {}),
   };
+}
+
+/** `text` cut to at most `max` characters at a word, with "…". Pure. */
+export function clipWords(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,;:—-]+$/u, "")}…`;
 }
 
 /**
@@ -355,10 +455,13 @@ export interface SetDownRecord {
   /** Memories made, one per line set down. */
   readonly ids: readonly string[];
   readonly named: number;
+  /** Not accounted for and clearly gone (quoted by the wake). */
   readonly unnamed: number;
+  /** Not accounted for and maybe only reworded (a quiet memory). */
+  readonly unsure: number;
   readonly reworded: number;
   readonly folded: number;
-  /** Set down past `MAX_PER_WRITE`, counted only. */
+  /** Set down past `MAX_PER_WRITE`: kept together in one memory, every line in full. */
   readonly over: number;
   /** Named lines that matched no sentence gone. */
   readonly unmatchedNamed: number;
@@ -393,21 +496,44 @@ export function recordSetDowns(
   const diff = diffSetDowns(input.before.body, input.after, input.named);
   const down = diff.verdicts.filter(isSetDown);
   const kept = down.slice(0, L.MAX_PER_WRITE);
+  const rest = down.slice(L.MAX_PER_WRITE);
   const restedOf = (line: string): string[] => {
     const claims = input.before.trace?.claims ?? null;
     if (claims === null) return [];
     const key = claimKey(line);
     return [...(claims.find((c) => c.of === key)?.cites ?? [])];
   };
+  // The why is the writer's own words, never through the page's gate: through
+  // the secrets scan, as a chapter title is, and cut to `WHY_CHARS`. The line was on the page.
+  const whyOf = (v: SetDownVerdict): string => {
+    if (v.outcome !== "named") return v.why;
+    const scanned = scanSecrets(v.why, "title");
+    return scanned.emptyAfterRedaction ? UNNAMED_WHY : clipWords(scanned.redacted, L.WHY_CHARS);
+  };
+  const put = (facts: SetDownFacts, title: string, body: string): string =>
+    store.put({
+      type: "memory",
+      kind: "self",
+      title,
+      body,
+      meta: { [SET_DOWN_META]: facts },
+      about: "me",
+      aboutBy: input.by === "writer" ? "writer" : "reflection",
+      // The night's words, not a lived act: the night's own reads pass it by.
+      source: "reflection",
+      origin: { ...(input.session === null ? {} : { session: input.session }), ref: input.pageId },
+      salience: { claimed: input.claim },
+      physics: { birthDay: input.day, lastUsedDay: input.day },
+      tags: [SET_DOWN_TAG],
+      tagsVia: "write",
+      ...(input.model === undefined ? {} : { model: input.model }),
+    });
   const ids: string[] = [];
   for (const [pos, v] of kept.entries()) {
     const restedOn = restedOf(v.line);
-    // The why is the writer's own words, never through the page's gate:
-    // through the secrets scan, as a chapter title is. The line was on the page.
-    const scanned = scanSecrets(v.why, "title");
     const facts: SetDownFacts = {
       line: v.line,
-      why: scanned.emptyAfterRedaction ? UNNAMED_WHY : scanned.redacted,
+      why: whyOf(v),
       named: v.outcome === "named",
       section: v.section,
       from: input.before.version,
@@ -416,26 +542,31 @@ export function recordSetDowns(
       date: input.date,
       ...(restedOn.length === 0 ? {} : { restedOn }),
       pos,
+      ...(isQuoted(v) ? {} : { quiet: true }),
     };
-    ids.push(
-      store.put({
-        type: "memory",
-        kind: "self",
-        title: setDownTitle(v.line, input.date),
-        body: setDownBody(facts),
-        meta: { [SET_DOWN_META]: facts },
-        about: "me",
-        aboutBy: input.by === "writer" ? "writer" : "reflection",
-        // The night's words, not a lived act: the night's own reads pass it by.
-        source: "reflection",
-        origin: { ...(input.session === null ? {} : { session: input.session }), ref: input.pageId },
-        salience: { claimed: input.claim },
-        physics: { birthDay: input.day, lastUsedDay: input.day },
-        tags: [SET_DOWN_TAG],
-        tagsVia: "write",
-        ...(input.model === undefined ? {} : { model: input.model }),
-      }),
-    );
+    ids.push(put(facts, setDownTitle(v.line, input.date), setDownBody(facts)));
+  }
+  // PAST THE CAP, NEVER SILENT (review of #789): the rest in ONE memory, every line in full.
+  if (rest.length > 0) {
+    const facts: SetDownFacts = {
+      line: `${String(rest.length)} more lines`,
+      why: "past one write's cap; each line and its why are in the body",
+      named: false,
+      section: "",
+      from: input.before.version,
+      to: input.version,
+      by: input.by,
+      date: input.date,
+      pos: kept.length,
+      quiet: true,
+      lines: rest.map((v) => v.line),
+    };
+    const body = [
+      `Set down from my self page on ${input.date}, past one write's cap (the lines were on version ${String(input.before.version)}):`,
+      "",
+      ...rest.map((v) => `- ${v.line} (${whyOf(v)})`),
+    ].join("\n");
+    ids.push(put(facts, `Set down from my page ${monthDay(input.date)}: ${String(rest.length)} more lines`, body));
   }
   // BROUGHT BACK: a set-down whose line this write put back (not on the page
   // before, on it now). Said by event; the memory stays as it was.
@@ -444,21 +575,23 @@ export function recordSetDowns(
     const was = preparePage(input.before.body);
     const now = preparePage(input.after);
     for (const r of readSetDowns(store)) {
-      if (ids.includes(r.id)) continue;
+      if (ids.includes(r.id) || r.lines !== undefined) continue;
       if (lineOnPage(r.line, now) && !lineOnPage(r.line, was)) {
         back.push(r.id);
         store.appendEvent({ name: SET_DOWN_BACK_EVENT, day: input.day, ref: r.id, payload: { by: input.by, session: input.session, version: input.version } });
       }
     }
   }
-  const count = (o: SetDownVerdict["outcome"]): number => diff.verdicts.filter((v) => v.outcome === o).length;
+  const count = (o: SetDownVerdict["outcome"], accounted?: boolean): number =>
+    diff.verdicts.filter((v) => v.outcome === o && (accounted === undefined || v.accounted === accounted)).length;
   const record: SetDownRecord = {
     ids,
     named: count("named"),
     unnamed: count("unnamed"),
+    unsure: count("unsure"),
     reworded: count("reworded"),
     folded: count("folded"),
-    over: down.length - kept.length,
+    over: rest.length,
     unmatchedNamed: diff.unmatchedNamed.length,
     back,
   };
@@ -476,8 +609,13 @@ export function recordSetDowns(
         ids,
         named: record.named,
         unnamed: record.unnamed,
+        unsure: record.unsure,
         reworded: record.reworded,
         folded: record.folded,
+        // The writer's "folded" and "reworded" are trusted, not checked: counted apart, for audit.
+        writerFolded: count("folded", true),
+        writerReworded: count("reworded", true),
+        engineReworded: count("reworded", false),
         over: record.over,
         sentNamed: input.named.length,
         unmatchedNamed: record.unmatchedNamed,
@@ -508,6 +646,7 @@ export function setDownsTouched(store: Store, opts: { page: string | null; lane:
   try {
     const page = opts.page === null ? null : preparePage(opts.page);
     const all = readSetDowns(store).filter((r) => {
+      if (r.lines !== undefined) return false;
       const isCore = r.section.toLowerCase() === opts.core.toLowerCase();
       if (opts.lane === "core" && !isCore) return false;
       if (opts.lane === "rest" && isCore) return false;
@@ -570,12 +709,13 @@ export function setDownsBackLines(touched: readonly SetDownTouched[], flat: (s: 
 export function setDownNote(r: SetDownRecord | undefined): string | null {
   if (r === undefined) return null;
   const parts: string[] = [];
-  const set = r.ids.length + r.over;
+  const set = r.named + r.unnamed + r.unsure;
   if (set > 0) {
-    const how = [r.named > 0 ? `${String(r.named)} named` : "", r.unnamed > 0 ? `${String(r.unnamed)} not named, recorded as set down unnamed` : ""].filter((s) => s.length > 0).join(", ");
-    parts.push(`Set down ${String(set)} ${set === 1 ? "line" : "lines"} (${how}), each kept as a memory: recall "${SET_DOWN_HANDLE}".`);
+    const not = r.unnamed + r.unsure;
+    const how = [r.named > 0 ? `${String(r.named)} as you named ${r.named === 1 ? "it" : "them"}` : "", not > 0 ? `${String(not)} you didn't account for, recorded as set down unnamed` : ""].filter((s) => s.length > 0).join(", ");
+    parts.push(`Set down ${String(set)} ${set === 1 ? "line" : "lines"} (${how}), kept as memories${r.over > 0 ? ` (${String(r.over)} past the cap in one)` : ""}: recall "${SET_DOWN_HANDLE}".`);
   }
-  if (r.folded + r.reworded > 0) parts.push(`${String(r.folded + r.reworded)} gone word for word ${r.folded + r.reworded === 1 ? "was" : "were"} found on the page reworded or folded, and not set down.`);
+  if (r.folded + r.reworded > 0) parts.push(`${String(r.folded + r.reworded)} gone word for word ${r.folded + r.reworded === 1 ? "was" : "were"} folded or reworded, and not set down.`);
   if (r.unmatchedNamed > 0) parts.push(`${String(r.unmatchedNamed)} named in setDown ${r.unmatchedNamed === 1 ? "is" : "are"} still on the page or never were, and nothing was recorded for ${r.unmatchedNamed === 1 ? "it" : "them"}.`);
   if (r.back.length > 0) parts.push(`Brought back: ${r.back.join(", ")}.`);
   return parts.length === 0 ? null : parts.join(" ");
@@ -583,4 +723,4 @@ export function setDownNote(r: SetDownRecord | undefined): string | null {
 
 /** The why words a writer is told to use (and the field's shape), the same at both doors. */
 export const SET_DOWN_RULE =
-  'With the page, pass `setDown`: each line of the page as it stood that you are taking out and not keeping elsewhere on it, word for word, with a short why — "retired by <the newer ruling>", "folded into <where>" (only when its point is still on the page), "no longer lived", or "room". A sentence you only reworded needs no entry. Anything gone that you did not name is recorded anyway, as set down unnamed, and every set-down line is kept as a memory, so taking one out loses nothing.';
+  'With the page, pass `setDown`: account for EVERY sentence of the page as it stood that you removed or changed, word for word as it was, each with a short why that says which: "reworded" (its point is still on the page in other words), "folded into <the line that carries it now>", or set down — "retired by <the newer ruling>", "no longer lived", or "room". Your account is trusted as given. A sentence you leave out of it and that is gone is recorded anyway, as set down unnamed; every set-down line is kept as a memory, so taking one out loses nothing.';

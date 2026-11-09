@@ -212,31 +212,37 @@ nothing else moves).
 PG1 (2026-11-09, Mike's decision 11-07 on the Fable fresh-eyes review, batch 1; lightly held), `core/self/set-down.ts`.
 The page sits at its 4,600-byte room every night, so every new line pushes an old one out, and until this nobody could
 tell a line folded into a story from a line gone. The room and the page's form are unchanged. A nightly write (day's
-end's `self_page`, the reflection's `page`) may name what it takes out (`setDown: [{line, why}]`); the door diffs the
-page before and after by sentence: a sentence gone word for word is `reworded` (most of its words in one new sentence
-or two side by side, `SET_DOWN_LIMITS.NEAR_SHARE`), `folded` (the writer said so and its words are found across up to
-three new sentences, `FOLD_SHARE`), or set down, as named or as "set down, unnamed". Each set-down is a memory about me
-(`source: reflection`, tag `set down`, meta `setDown`); the wake's "Last night" says `Set down from my page last
-night: "…" (recall "set down")` until the next night runs; day's end and the reflection are shown, each for its own
-sections, the set-downs life used or a newer memory restated.
+end's `self_page`, the reflection's `page`) accounts for every sentence it removes or changes (`setDown: [{line,
+why}]`, the why saying "reworded", "folded into …", or why it's set down). The account is trusted. The door diffs the
+page before and after by sentence: a sentence gone word for word and left out of the account is kept when it's
+still there (trimmed, or reworded past `SET_DOWN_LIMITS.NEAR_SHARE`); otherwise it is recorded "set down, unnamed",
+and it is quoted by the wake only when clearly gone (`GONE_SHARE`, clause, anchor and root checks); the rest are
+quiet "maybe reworded" memories. Each set-down is a memory about me (`source: reflection`, tag `set down`, meta
+`setDown`). The wake's "Last night" says `Set down from my page last night: "…" (recall "set down")` once. Day's end
+and the reflection are shown, each for its own sections, the set-downs that life has used since or that a newer
+memory restated.
 
 - **Per night, named against unnamed.** One `self.page.set_down` row per nightly write that dropped or reworded
   anything (counts and ids only, never a line):
 
   ```sql
   SELECT day, json_extract(payload, '$.by') AS door,
-         json_extract(payload, '$.named') AS named, json_extract(payload, '$.unnamed') AS unnamed,
-         json_extract(payload, '$.folded') AS folded, json_extract(payload, '$.reworded') AS reworded,
+         json_extract(payload, '$.named') AS named, json_extract(payload, '$.unnamed') AS unnamed_quoted,
+         json_extract(payload, '$.unsure') AS unnamed_quiet,
+         json_extract(payload, '$.writerFolded') AS w_folded, json_extract(payload, '$.writerReworded') AS w_reworded,
+         json_extract(payload, '$.engineReworded') AS e_reworded,
          json_extract(payload, '$.sentNamed') AS sent, json_extract(payload, '$.unmatchedNamed') AS named_not_gone
   FROM events WHERE name = 'self.page.set_down' ORDER BY day;
   ```
 
-  Mostly unnamed says the writers don't read the ask; many `named_not_gone` says they name lines they kept.
-- **Folded or really gone?** For a night with unnamed set-downs, take the two page versions (`counterparts self-page
-  --versions`, then `self-page --version <seq> > before.md`) and run `bun tools/set-down-diff.ts before.md after.md`: each
-  gone sentence with its share and best match. A reader marks each unnamed one folded or gone; more than a third
-  folded says `NEAR_SHARE`/`FOLD_SHARE` are too strict. The same script on page v66 (10-30) against the 11-01 page,
-  read against Mike's 11-07 list (about five gone, three folded, one retired), is the first calibration.
+  Many unnamed (quoted or quiet) says the writers don't account for what they change; many `named_not_gone` says
+  they name lines they kept.
+- **The audit of the writer's account.** For a night, take the two page versions (`counterparts self-page
+  --versions`, then `self-page --version <seq> > before.md`) and run `bun tools/set-down-diff.ts before.md after.md`.
+  For each line the writer called folded or reworded, check by eye that its point is on the new page. Check that any
+  line the wake quoted is really gone (on ~80 real pairs with no account, all were).
+- **The quiet ones.** `recall "set down"` items marked `quiet`: are they mostly rewordings (fine) or real drops that
+  deserved a quote (then the writers aren't accounting)?
 - **Brought back.** `self.page.brought_back` rows (ref: the set-down's id). None in a week is fine; nothing comes
   back by itself.
 - **The wake line.** Mike's call: context or noise. Its bytes come out of "Last night"'s 450; when short, the night's
