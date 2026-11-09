@@ -67,7 +67,8 @@ import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
 import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake-news.js";
-import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
+import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, contentWords, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
+import type { PreparedPage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
 
 /** The meta key that sets the shape for one store (`self/tunables.ts#WAKE_SHAPE_KEY`, where a new install's state can read it too). */
@@ -106,6 +107,8 @@ interface Sec {
   readonly setDownNight?: string;
   /** The least the one pass takes it down to: its door alone, when what is behind it must be said (WK3, overdue). */
   readonly floor?: number;
+  /** The newest handoff led the folder whole (not stepped down): what "led too often" counts. */
+  readonly leadWhole?: boolean;
 }
 type Budgets = Record<SectionKey, number>;
 
@@ -437,7 +440,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const hereFolders: readonly string[] = gate === null ? [scope] : [...gate.ours];
   // The handoffs in the order the wake tells them (WK3): a stale wait on the
   // owner sinks, and a week-old one nothing refers to isn't listed.
-  const hs: readonly Handoff[] = scope.length === 0 ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now), []);
+  const hs: readonly Handoff[] = scope.length === 0 ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now, reader), []);
   const newest = hs[0];
   const newestAt = newest === undefined ? null : safe(() => cp.handoffs.writtenAt(newest), null);
   const chaptersHere: readonly ChapterHere[] = scope.length === 0 ? [] : safe(() => cp.chaptersHereFor(scope, null, cp["chaptersInWindow"](day)).map((f) => f.chapter), []);
@@ -483,7 +486,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // telling in another session, or in this one before a compaction or a /clear
   // emptied its context, shows the item again by title and id (`RETOLD_SHOWN`,
   // the rest counted behind the door), never its whole body twice to the person.
-  const contextKept = here?.source !== "compact" && here?.source !== "clear";
+  // Only a start the host names as one that keeps the context (review of #792): no
+  // source is unknown, and unknown doesn't fold.
+  const contextKept = here?.source === "startup" || here?.source === "resume";
   const toldToday = new Set(cues.filter((c) => c.plain && saysHere(c) && safe(() => cp.prospective.plainToldOn(c.id, at, byToday(c)), false)).map((c) => c.id));
   const shownEarlier = new Set(
     !contextKept || reader === null || !seenToday.has(reader) ? [] : cues.filter((c) => toldToday.has(c.id) && safe(() => cp.prospective.plainToldOn(c.id, at, (s) => s === reader), false)).map((c) => c.id),
@@ -635,6 +640,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       ids: [...(newest === undefined ? [] : [newest.id]), ...sinceLines.slice(0, n.since).map((s) => s.id), ...shownOlder.map((o) => o.h.id)],
       items: n.since + shownOlder.length + (newest === undefined ? 0 : 1),
       handoffs: [...(newest === undefined ? [] : [{ h: newest, bytes: lines.leadBytes }]), ...shownOlder.map((o) => ({ h: o.h, bytes: byteLength(firstRealSentence(o.h.body)) }))],
+      leadWhole: newest !== undefined && !stepDown,
       ...(said === null ? {} : { saidBytes: n.said ? said.bytes : 0 }),
       chapters: sinceLines.slice(0, n.since).filter((s) => s.chapter).length,
     };
@@ -709,16 +715,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const inside = [otherLateWords, ...(named ? namedParts : [])].filter((x) => x.length > 0);
       return `${String(other.length)} in other folders${inside.length === 0 ? "" : ` (${inside.join("; ")})`}`;
     };
-    const render = (shown: readonly { c: Cue; line: string }[], named = false): string[] => {
+    const render = (shown: readonly { c: Cue; line: string }[], named = false, terse = false): string[] => {
       const ids = new Set(shown.map((s) => s.c.id));
       const hiddenToday = todayAll.filter((c) => !ids.has(c.id) && !shownEarlier.has(c.id)).length;
       // OVERDUE IS SAID, NEVER FOLDED INTO "MORE HERE" (WK3): its own count, with
       // the oldest date, so eleven overdue items can't read as a few later ones.
       const lateHidden = overdue.filter((c) => !ids.has(c.id));
       const oldest = oldestOf(lateHidden);
-      const lateWords = lateHidden.length === 0 ? "" : `${String(lateHidden.length)}${lateHidden.length < overdue.length ? " more" : ""} overdue${oldest === null ? "" : ` (oldest ${monthDay(oldest)})`}`;
+      const lateWords = lateHidden.length === 0 ? "" : `${String(lateHidden.length)}${lateHidden.length < overdue.length ? " more" : ""} overdue${oldest === null || terse ? "" : ` (oldest ${monthDay(oldest)})`}`;
       const hereMore = laterAll.filter((c) => !ids.has(c.id)).length;
-      const more = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", lateWords, hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? otherWords(named) : ""].filter((x) => x.length > 0).join(", ");
+      const more = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", lateWords, hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? (terse ? `${String(other.length)} in other folders` : otherWords(named)) : ""].filter((x) => x.length > 0).join(", ");
       // The fold is its own clause: "2 due today, shown earlier in this session; 1 more due today; recall …".
       const words = [folded > 0 ? `${String(folded)} due today, shown earlier in this session` : "", more].filter((x) => x.length > 0).join("; ");
       // Nothing to list and nothing behind the door: no section (WF1), not "Nothing dated."
@@ -729,13 +735,26 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     };
     // Whole lines in order; a line that doesn't fit goes behind the door, and a
     // later one may still fit: a long plain reminder doesn't hide what's after it.
+    // A line due today comes before the overdue words (review of #792): short of
+    // room, the door drops its dates and other folders' overdue count to keep it.
+    const dueToday = new Set([...plain, ...again, ...rest].map((c) => c.id));
     const shown: { c: Cue; line: string }[] = [];
-    for (const o of order) if (byteLength(blockOf(render([...shown, o]))) <= b) shown.push(o);
+    let terse = false;
+    for (const o of order) {
+      if (byteLength(blockOf(render([...shown, o], false, terse))) <= b) shown.push(o);
+      else if (!terse && dueToday.has(o.c.id) && byteLength(blockOf(render([...shown, o], false, true))) <= b) {
+        terse = true;
+        shown.push(o);
+      }
+    }
     // The names ride only in room the lines didn't need: never a line for them.
     const withNames = blockOf(render(shown, true));
-    const text = namedOther !== "" && byteLength(withNames) <= b ? withNames : blockOf(render(shown));
+    const text = !terse && namedOther !== "" && byteLength(withNames) <= b ? withNames : blockOf(render(shown, false, terse));
     // Its door alone, what the one pass keeps when an overdue item is behind it (WK3: never silent).
-    const floor = overdue.length + otherLate.length === 0 ? 0 : byteLength(blockOf(render([])));
+    // A plain reminder due today first, with the door at its tersest; else the door
+    // alone when something overdue is behind it (review of #792: never the other way).
+    const plainFirst = order.filter((o) => o.c.plain && dueToday.has(o.c.id));
+    const floor = plainFirst.length > 0 ? byteLength(blockOf(render(plainFirst, false, true))) : overdue.length + otherLate.length === 0 ? 0 : byteLength(blockOf(render([])));
     if (byteLength(text) > b) return { text: "", ids: [], items: 0, floor };
     return { text, ids: shown.map((s) => s.c.id), items: shown.length, lined: shown.map((s) => s.c.id), floor };
   };
@@ -781,12 +800,18 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     return { text: blockOf(render(k)), ids: list.slice(0, k).map((c) => c.id), items: k };
   };
 
-  const nightSec = (b: number): Sec => {
+  const nightSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const closed = closedLine === null ? [] : [closedLine];
     const down = setDown === null ? [] : [setDown.line];
+    // THE MOMENT WAS TOLD: CARRY SOMETHING ELSE FORWARD (review of #792). The
+    // night's own line said only what the wake already told, so the closing
+    // line is an open thread no section above showed, newest first.
+    const forward = ownLine !== null || night?.own === null || night === null ? null : (openRows.find((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id)) ?? null);
+    const forwardLine = forward === null ? null : `Carried forward: ${forward.r === undefined ? forward.i.title : titleOfRow(forward.r)} [${forward.i.id}]`;
     const as = (f: readonly string[]): Sec => {
       const text = blockOf([...f]);
-      return setDown !== null && f.includes(setDown.line) ? { text, ids: setDown.ids, items: 0, setDownNight: setDown.night } : { text, ids: [], items: 0 };
+      const fwd = forward !== null && forwardLine !== null && f.includes(forwardLine) ? [forward.i.id] : [];
+      return setDown !== null && f.includes(setDown.line) ? { text, ids: [...setDown.ids, ...fwd], items: fwd.length, setDownNight: setDown.night } : { text, ids: fwd, items: fwd.length, ...(fwd.length === 0 ? {} : { lined: fwd }) };
     };
     if (night === null) {
       // Widest first: what it closed and what it set down; then each alone.
@@ -798,7 +823,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     // set down. Short of room, what it set down goes first (recall "set down"
     // holds it), then what it closed; the night's own words, which have no
     // door, are kept longest; then the line alone.
-    const own = ownLine === null ? [] : [ownLine];
+    const own = ownLine !== null ? [ownLine] : forwardLine === null ? [] : [forwardLine];
     const forms = [
       [night.line, ...own, ...closed, ...down],
       ...(own.length === 0 || down.length === 0 ? [] : [[night.line, ...own, ...closed]]),
@@ -818,7 +843,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     coming: comingSec,
     open: openSec,
     yesterday: yesterdaySec,
-    night: (b) => nightSec(b),
+    night: nightSec,
   };
 
   /** Sections in order, claiming ids into one set. A plain reminder due today is Coming up's whatever else could name it. */
@@ -892,6 +917,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     sec,
     live: hs.length,
     since: later?.items.length ?? 0,
+    hs,
   });
 }
 
@@ -911,6 +937,7 @@ function finish(
     readonly sec: Record<SectionKey, Sec>;
     readonly live: number;
     readonly since: number;
+    readonly hs: readonly Handoff[];
   },
 ): ShapedWake | null {
   let result = cp.self.wake(delivery, w.body);
@@ -930,6 +957,8 @@ function finish(
   w.sec.folder.handoffs?.forEach((s, i) => {
     cp.handoffs.noteShown(s.h, { bytes: s.bytes, session: reader, among: w.live, ...(i === 0 ? { plans: w.since } : {}) });
   });
+  const lead = w.sec.folder.handoffs?.[0];
+  if (lead !== undefined && w.sec.folder.leadWhole === true) noteLed(cp, lead.h, reader, w.hs);
   if (w.sec.folder.saidBytes !== undefined) cp["emit"](w.sec.folder.saidBytes > 0 ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: w.sec.folder.saidBytes });
   if ((w.sec.folder.chapters ?? 0) > 0) cp["emit"]("counterpart.lasthere.shown", undefined, { bytes: 0, lines: w.sec.folder.chapters ?? 0 });
   // TOLD ONCE (PG1, review of #789): the night whose set-downs this wake
@@ -987,6 +1016,37 @@ function sessionsSince(
   return seen.size;
 }
 
+/** The meta key recording which sessions' wakes each live handoff led (review of #792): `{ [id]: { version, sessions } }`. */
+export const HANDOFF_LED_KEY = "wake.handoff.led";
+
+type LedRecord = Record<string, { readonly version: number; readonly sessions: readonly string[] }>;
+
+function ledRecord(store: Counterpart["store"]): LedRecord {
+  try {
+    const v = JSON.parse(store.getMeta(HANDOFF_LED_KEY) ?? "{}") as unknown;
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as LedRecord) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** This session's wake led with `h`: recorded (one entry per live handoff, the sessions distinct, a few kept). Never throws. */
+function noteLed(cp: Counterpart, h: Handoff, session: string | null, live: readonly Handoff[]): void {
+  if (session === null || cp.observer) return;
+  try {
+    const was = ledRecord(cp.store);
+    const keep = new Set(live.map((x) => x.id));
+    const out: LedRecord = {};
+    for (const [id, r] of Object.entries(was)) if (keep.has(id) && id !== h.id) out[id] = r;
+    const mine = was[h.id];
+    const sessions = mine === undefined || mine.version !== h.version ? [] : mine.sessions.filter((x) => x !== session);
+    out[h.id] = { version: h.version, sessions: [...sessions, session].slice(-SHAPE.LEAD_SHOWN_KEPT) };
+    cp.store.setMeta(HANDOFF_LED_KEY, JSON.stringify(out));
+  } catch {
+    /* a lead not recorded only sinks later */
+  }
+}
+
 /** The ids a line names (`mem_…`), for what a handoff's lead points at. */
 const MEMORY_ID = /\bmem_[0-9a-f]+\b/g;
 
@@ -996,6 +1056,10 @@ const WAITING_WORDS: readonly string[] = [
   "\\bask {owner}\\b",
   "\\b{owner}'s (?:word|yes|go|call|answer|decision|pick|choice|review|ok)\\b",
   "\\b{owner} to (?:pick|decide|choose|answer|say|confirm|review|approve|publish|run)\\b",
+  // No name (review of #792: "ask for his first" led three sessions).
+  "\\bask (?:for )?(?:his|her|their)\\b",
+  "\\b(?:his|her|their) (?:call|word|yes|go|answer|decision)\\b",
+  "\\bwhen (?:he|she|they) (?:answers?|replies|reply|decides?|says?)\\b",
 ];
 
 /**
@@ -1006,20 +1070,14 @@ const WAITING_WORDS: readonly string[] = [
  * events and backoff land, an item they parked or are backing off answers here
  * too, and the waiting words can go. Never throws.
  */
-export function waitsOnOwner(cp: Counterpart, h: Pick<Handoff, "body">): boolean {
+export function waitsOnOwner(store: Counterpart["store"], h: Pick<Handoff, "body">, owner: string | null): boolean {
   const lead = firstRealSentence(h.body);
   try {
-    for (const id of lead.match(MEMORY_ID) ?? []) if (cp.store.row(id)?.status === "asked") return true;
+    for (const id of lead.match(MEMORY_ID) ?? []) if (store.row(id)?.status === "asked") return true;
   } catch {
     /* a row that won't read answers nothing */
   }
-  let names: string[] = ["the owner"];
-  try {
-    const owner = (cp["ownerDisplayName"]() as string | null | undefined) ?? "";
-    if (owner.trim().length > 0) names = [owner.trim(), ...names];
-  } catch {
-    /* "the owner" alone */
-  }
+  const names: string[] = owner !== null && owner.trim().length > 0 ? [owner.trim(), "the owner"] : ["the owner"];
   const alt = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
   return WAITING_WORDS.some((w) => new RegExp(w.replace("{owner}", `(?:${alt})`), "iu").test(lead));
 }
@@ -1041,7 +1099,7 @@ export function waitsOnOwner(cp: Counterpart, h: Pick<Handoff, "body">): boolean
  *
  * Never throws: what can't be read keeps the order it came in.
  */
-function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonly string[], now: number): Handoff[] {
+function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonly string[], now: number, reader: string | null): Handoff[] {
   if (all.length <= 1) return [...all];
   const zone = cp.store.zone();
   const at = (h: Handoff): number => cp.handoffs.writtenAt(h) ?? startOfLocalDay(h.writtenOn, zone);
@@ -1065,7 +1123,21 @@ function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonl
         (titleInLead(flatten(r.title ?? ""), lead, SHAPE.SINCE_IN_LEAD) || asked.some((id) => r.body.includes(id) || (r.meta ?? "").includes(id))),
     );
   };
-  const sinks = new Set(listed.filter((h) => now - at(h) >= SHAPE.WAITING_SINK_MS && waitsOnOwner(cp, h) && !signal(h)).map((h) => h.id));
+  let owner: string | null = null;
+  try {
+    owner = cp.ownerDisplayName();
+  } catch {
+    owner = null;
+  }
+  // LED TOO OFTEN (review of #792): a lead already at the top of `LEAD_SHOWN_SINK`
+  // other sessions' wakes, unrevised and with no signal since, sinks whatever its
+  // words say; the waiting words are the second signal.
+  const led = ledRecord(cp.store);
+  const ledTooOften = (h: Handoff): boolean => {
+    const r = led[h.id];
+    return r !== undefined && r.version === h.version && r.sessions.filter((x) => x !== reader).length >= SHAPE.LEAD_SHOWN_SINK;
+  };
+  const sinks = new Set(listed.filter((h) => !signal(h) && (ledTooOften(h) || (now - at(h) >= SHAPE.WAITING_SINK_MS && waitsOnOwner(cp.store, h, owner)))).map((h) => h.id));
   return [...listed.filter((h) => !sinks.has(h.id)), ...listed.filter((h) => sinks.has(h.id))];
 }
 
@@ -1329,6 +1401,48 @@ function nightWords(cp: Counterpart, at: string, here: WakeHere | undefined, sco
   return { line: hasNight ? `${line} Whole: recall "last night".` : line, own, reflection: reflectionId };
 }
 
+/** `2026-11-07` or `11-07`; and `Nov 7`, `November 7th` (strings, so the root holds no number). */
+const NUMERIC_DAY = new RegExp("\\b(?:\\d\\d\\d\\d-)?(\\d\\d?)-(\\d\\d?)\\b", "g");
+const NAMED_DAY = new RegExp("\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+(\\d\\d?)(?:st|nd|rd|th)?\\b", "g");
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** The days a sentence names, as `MM-DD`: `2026-11-07`, `11-07`, `Nov 7`, `November 7th`. Pure. */
+export function datesIn(text: string): Set<string> {
+  const out = new Set<string>();
+  const two = (n: number): string => (String(n).length === 1 ? `0${String(n)}` : String(n));
+  for (const m of text.matchAll(NUMERIC_DAY)) {
+    const mo = Number(m[1]);
+    const d = Number(m[2]);
+    if (mo >= 1 && mo <= MONTHS.length && d >= 1 && d <= SHAPE.MONTH_DAYS_MAX) out.add(`${two(mo)}-${two(d)}`);
+  }
+  for (const m of text.toLowerCase().matchAll(NAMED_DAY)) {
+    const mo = MONTHS.indexOf(m[1] ?? "") + 1;
+    const d = Number(m[2]);
+    if (mo >= 1 && d >= 1 && d <= SHAPE.MONTH_DAYS_MAX) out.add(`${two(mo)}-${two(d)}`);
+  }
+  return out;
+}
+
+/**
+ * THE SAME MOMENT, WHATEVER THE WORDS (review of #792: the owner's 11-09 closing
+ * line paraphrased a moment the page told as a clause, and the near-verbatim
+ * check passed it). A sentence and a page sentence naming the same day
+ * (`datesIn`) and sharing at least `MOMENT_SHARED_WORDS` content words (dates
+ * and numbers aside) tell one moment. The line has no memory of its own to
+ * match by identity (a reflection's `detail.line` is text), so this is the
+ * rule. Pure.
+ */
+export function sameMoment(sentence: string, page: PreparedPage): boolean {
+  const days = datesIn(sentence);
+  if (days.size === 0) return false;
+  const words = [...contentWords(sentence)].filter((w) => !/\d/.test(w));
+  for (const p of page.sentences) {
+    if (![...datesIn(p.text)].some((d) => days.has(d))) continue;
+    if (words.filter((w) => p.words.has(w)).length >= SHAPE.MOMENT_SHARED_WORDS) return true;
+  }
+  return false;
+}
+
 /** Where a line breaks into clauses, as set-down's clause rule reads them. */
 const CLAUSE_BREAK = /\s*(?:[;:(]|—|\s-\s)\s*/u;
 
@@ -1351,7 +1465,7 @@ function ownToldOnce(cp: Counterpart, night: { readonly own: string | null; read
   if (own === null) return null;
   const already = told.filter((t) => t.trim().length > 0).map((t) => preparePage(t));
   const sentences = preparePage(own).sentences.map((x) => x.text);
-  const kept = (sentences.length === 0 ? [own] : sentences).filter((x) => !already.some((p) => lineOnPage(x, p)));
+  const kept = (sentences.length === 0 ? [own] : sentences).filter((x) => !already.some((p) => lineOnPage(x, p) || sameMoment(x, p)));
   if (kept.length === 0) return null;
   const line = kept.join(" ");
   const before = previousOwn(cp, night.reflection);

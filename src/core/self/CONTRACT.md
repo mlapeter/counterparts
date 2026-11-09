@@ -834,7 +834,9 @@ wake (a resume hands none), so the fold is now rare there by design. **[A]** One
 moment per wake: a sentence of the night's own line that the page or day's end's summary
 already says (`set-down.ts#lineOnPage`) is not repeated as the closing line; with none left,
 the night's titles stand alone. The same line two mornings running (against the previous
-reflection's) is its first clause with "…", or nothing. A read; nothing is recorded, and PG1's
+reflection's) is its first clause with "…", or nothing. A paraphrase of a page moment
+counts as told when both name the same day and share `MOMENT_SHARED_WORDS` content words; then the
+closing line carries an unshown open thread forward instead. A read; nothing is recorded, and PG1's
 told-once latch for set-downs is untouched. **[A]** Overdue items not listed are their own
 clause at Coming up's door, "N (more) overdue (oldest MM-DD)", never folded into "more here";
 another folder's are counted as overdue inside its count, never listed; the one pass keeps

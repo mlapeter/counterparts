@@ -686,6 +686,14 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_EARLY_DAYS: 1,
   /** A handoff whose lead waits on the owner, with nothing on it since, this old sinks below a fresher one (WK3): a day lets the owner answer overnight; the case behind it led three sessions at 47 hours. */
   WAITING_SINK_MS: 24 * 60 * 60_000,
+  /** A lead at the top of this many other sessions' wakes, unrevised and with no signal since, sinks whatever its words say (review of #792: the third session read it still). */
+  LEAD_SHOWN_SINK: 2,
+  /** Sessions kept per handoff in that record: past the threshold, a few more say nothing new. */
+  LEAD_SHOWN_KEPT: 8,
+  /** A closing-line sentence and a page sentence naming the same day and sharing this many content words tell one moment (review of #792: the paraphrase shared a date and a few key words). */
+  MOMENT_SHARED_WORDS: 3,
+  /** The most days a month has, for reading `MM-DD` in prose. */
+  MONTH_DAYS_MAX: 31,
   /** A handoff this old that nothing written since refers to (by its id) is no longer listed in the wake; still under recall "handoffs" for its life (WK3: ten-day-old ones were still listed). A week: a seat that stops for a weekend is still listed on Monday. */
   HANDOFF_LISTED_MS: 7 * 24 * 60 * 60_000,
   /** "Set down from my page last night" (PG1): lines named before "and N more". Two is a glance; the rest are behind recall "set down". */

@@ -184,6 +184,10 @@ describe("1. \"shown earlier\" points at something", () => {
     // fold is read where it is composed: a wake for that same session, its context kept.
     const { c: again } = brain();
     const sessions = (): WakeSession[] => [{ session: OWN, scope: HERE, startedAt: NOW - MIN, lastAt: NOW, live: true }];
+    // No source from the host: unknown, so no fold (review of #792).
+    const unknown = again.wake(BUDGET, { date: today }, { scope: HERE, session: OWN, sessions, exportsFrom: () => true });
+    expect(unknown.text).not.toContain("shown earlier");
+    expect(section(unknown.text, "Coming up:")).toContain(`- Due today · Tray one [${ids[0] ?? ""}]`);
     const woke = again.wake(BUDGET, { date: today }, { scope: HERE, session: OWN, source: "startup", sessions, exportsFrom: () => true });
     expect(section(woke.text, "Coming up:")).toBe(`Coming up:\n(3 due today, shown earlier in this session; recall "coming up")`);
     // The same read for another session shows them by title.
@@ -236,6 +240,37 @@ describe("2. one telling of a moment", () => {
     const last = section(hook(), "Last night:");
     expect(last).toContain("The cracked batch still sits with me");
     expect(last).not.toContain("shelf log");
+  });
+});
+
+describe("2b. the same moment in other words", () => {
+  test("a paraphrase of a dated page moment is told once, and the closing line carries an open thread forward instead", () => {
+    const { c, today } = brain();
+    const page = "## Core\n\nI keep the kiln's ledger.\n\n## Lately\n\nOn 11-03 I left the kiln door open overnight, and the whole glaze batch cracked.";
+    c.revisePage(page, { reason: "first", by: "owner" });
+    const open = ["Order more cone packs", "Fix the shelf bracket", "Sweep the drying room", "Label the test tiles", "Oil the wheel bearing", "Reply about the clay order"].map((t, i) => {
+      const id = memory(c, `${t}, still to do.`, { title: t, meta: { unresolved: true } });
+      return { t, id, i };
+    });
+    night(c, today, "00000000a011", "The cracked glaze batch from 11-03 still weighs on me: an open kiln door, a lost night.");
+    c.close();
+    const wake = hook();
+    intact(wake);
+    const last = section(wake, "Last night:");
+    expect(last).not.toContain("still weighs on me");
+    const carried = /Carried forward: (.*) \[(mem_[0-9a-f]+)\]/.exec(last);
+    expect(carried).not.toBeNull();
+    // An open thread no section above showed: its id is printed once.
+    expect(wake.split(carried?.[2] ?? "x").length - 1).toBe(1);
+    expect(open.map((o) => o.t)).toContain(carried?.[1] ?? "");
+  });
+
+  test("the same words on another day are a different moment", () => {
+    const { c, today } = brain();
+    c.revisePage("## Lately\n\nOn 11-03 I left the kiln door open overnight, and the whole glaze batch cracked.", { reason: "first", by: "owner" });
+    night(c, today, "00000000a012", "On 11-05 the kiln door was open again, but the glaze batch came through.");
+    c.close();
+    expect(section(hook(), "Last night:")).toContain("On 11-05 the kiln door was open again");
   });
 });
 
@@ -293,6 +328,35 @@ describe("4. stale handoffs sink", () => {
     expect(stands).toContain(`- GLAZE: waiting on Wren to pick the spring glaze [${asked}].`);
   });
 
+  test("a lead already at the top of two other sessions' wakes sinks below the other, whatever its words", () => {
+    const w = brain();
+    const { c } = w;
+    c.revisePage(PAGE, { reason: "first", by: "owner" });
+    w.at(NOW - 30 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 20 * HOUR);
+    c.writeHandoff("ROAD: grade the lane by the barn before the gravel comes.", { scope: HERE, session: OWN });
+    c.close();
+    const lead = (s: string): string => section(hook(s), "Where this folder stands:").split("\n")[1] ?? "";
+    expect(lead("dddd4444-0000-4000-8000-000000000004")).toContain("ROAD");
+    expect(lead("eeee5555-0000-4000-8000-000000000005")).toContain("ROAD");
+    const third = lead(READER);
+    expect(third).toContain("SHELF");
+    expect(third).toContain("1 newer one waiting on an answer, below");
+  });
+
+  test("words with no name wait on the owner too: \"ask for his\" sinks after a day", () => {
+    const w = brain();
+    const { c } = w;
+    c.revisePage(PAGE, { reason: "first", by: "owner" });
+    w.at(NOW - 40 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 30 * HOUR);
+    c.writeHandoff("FENCE: the new posts, but ask for his first on the gate width.", { scope: HERE, session: OWN });
+    c.close();
+    expect(section(hook(), "Where this folder stands:").split("\n")[1]).toContain("SHELF");
+  });
+
   test("a signal since (a memory here on its subject) keeps it leading; so does being fresh", () => {
     const w = brain();
     const { c } = w;
@@ -331,6 +395,24 @@ describe("4. stale handoffs sink", () => {
     expect(stands).toContain("turn the compost");
     expect(stands).toContain("test the well pump");
     expect(stands).not.toContain("mend the fence");
+  });
+});
+
+describe("3b. due today before the overdue words", () => {
+  test("short of room, the door drops its overdue detail rather than a line due today", () => {
+    const { c, today } = brain();
+    // A page that takes most of the room, so Coming up is given back down to its floor: at this
+    // size the plain line fits beside the terse door and not beside the full one (measured).
+    c.revisePage(`## Core\n\n${"I keep the kiln's ledger, carefully, every single day. ".repeat(146)}`, { reason: "first", by: "owner" });
+    const long = `Water the cold frame: ${"carry each tray out, check the soil, water from the left, ".repeat(1)}then close the lid.`;
+    const id = memory(c, long, { title: "Water the cold frame", eventDate: today, meta: { remind: "plain" } });
+    for (const d of [1, 3]) memory(c, `Overdue ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door ${String(d)}`, eventDate: addDays(today, -d) });
+    for (const d of [3, 5]) memory(c, `Later ${String(d)}: turn the compost.`, { title: `Turn the compost ${String(d)}`, eventDate: addDays(today, d) });
+    for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, eventDate: addDays(today, -d), scope: THERE });
+    c.close();
+    const coming = section(hook(), "Coming up:");
+    expect(coming).toContain(`[${id}]`);
+    expect(coming).toContain("3 in other folders");
   });
 });
 

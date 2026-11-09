@@ -3148,3 +3148,13 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **"Under way" read the run flag.** The night line returned "under way" whenever today's run row said `started`,
   before looking at today's dream. A dream journaled while the reflection still runs now reads `dream "…"; the
   reflection is under way.`
+- **Fix round (review of #792, the owner's real wake through a snapshot).** Near-verbatim overlap missed the
+  feedback's own case: the closing line paraphrased a dated moment the page told as a clause. `sameMoment` now
+  matches the moment: the same `MM-DD` (or "Nov 7") and at least `MOMENT_SHARED_WORDS` content words. The line is a
+  reflection's text, not a memory, so there was no identity to match by. With the moment told, the closing line
+  carries an open thread no section showed ("Carried forward: …"), not nothing. A lead whose words named no owner
+  ("ask for his first") and no `asked` memory still led, so a lead at the top of `LEAD_SHOWN_SINK` other sessions'
+  wakes, unrevised and with no signal, now sinks whatever its words (meta `wake.handoff.led`). The words gained
+  ownerless forms. A long other-folders door had squeezed out a plain line due today: short of room, the door goes
+  terse first, and a plain line is Coming up's floor. And a wake with no `source` is unknown, so it doesn't fold.
+
