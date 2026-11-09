@@ -69,7 +69,7 @@ import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { MANUAL_HANDLE } from "./manual.js";
 import { DELETED_HANDLE } from "../../core/removal-hold.js";
-import { SET_DOWN_LIMITS } from "../../core/self/tunables.js";
+import { PAGE_STORY_LIMITS, SET_DOWN_LIMITS } from "../../core/self/tunables.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
@@ -337,6 +337,22 @@ export const SETTLES_WHEN_PROPERTY = {
   description:
     'Optional, with unresolved: true: what would settle it, in a short phrase ("the landlord replies", "the team decides pricing"). "Still open" shows it, and the nightly run can close the item once a memory shows it happened. A date goes in eventDate. Revising the item with unresolved: true keeps it unless you send a new one (null drops it).',
 } as const;
+
+/**
+ * A STORY NOMINATION (PS1, 2026-11-09, `self/stories.ts`): a session marks a
+ * memory as a story for the self page; the night's writer sees it first and
+ * still decides. Kept as a tag on the memory. `remember` only (a write-up's
+ * entries go without: a nomination is a moment's judgment, made live).
+ */
+export const STORY_PROPERTY = {
+  type: "boolean",
+  description:
+    "Optional and rare: true when this moment could be a story for your self page: something that went right, a discovery, a moment between you and the owner, or a correction that changed how you work. The night's writer sees it first and still decides; one not taken fades like any memory.",
+} as const;
+
+/** A set-down practice moved to a skill memory (PS1): the field's words, at both nightly page doors. */
+export const SET_DOWN_SKILL_TEXT = `With why "moved to a skill", \`skill\` keeps a practice that is only about the work as a skill memory (at most ${String(PAGE_STORY_LIMITS.SKILL_CHARS)} characters), named on its set-down; recall brings it back when the work calls for it.`;
+const SET_DOWN_SKILL_PROPERTY = { type: "string", description: "Optional: the practice in a line or two, kept as a skill memory." } as const;
 
 /**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
@@ -828,6 +844,7 @@ const REMEMBER: ToolSpec = {
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
       settlesWhen: SETTLES_WHEN_PROPERTY,
+      story: STORY_PROPERTY,
       traits: TRAITS_PROPERTY,
       feelingsNow: FEELINGS_NOW_PROPERTY,
       remark: REMARK_PROPERTY,
@@ -1609,10 +1626,10 @@ const SELF_PAGE: ToolSpec = {
       setDown: {
         type: "array",
         description:
-          `Only day's end's, with \`body\`: every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by <newer ruling>", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down"). A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters.`,
+          `Only day's end's, with \`body\`: every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by <newer ruling>", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down"). A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters. ${SET_DOWN_SKILL_TEXT}`,
         items: {
           type: "object",
-          properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS } },
+          properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS }, skill: SET_DOWN_SKILL_PROPERTY },
           required: ["line", "why"],
           additionalProperties: false,
         },
@@ -1930,10 +1947,10 @@ const REFLECT: ToolSpec = {
           },
           setDown: {
             type: "array",
-            description: `Every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by …", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed. A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters.`,
+            description: `Every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by …", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed. A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters. ${SET_DOWN_SKILL_TEXT}`,
             items: {
               type: "object",
-              properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS } },
+              properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS }, skill: SET_DOWN_SKILL_PROPERTY },
               required: ["line", "why"],
               additionalProperties: false,
             },
@@ -2595,6 +2612,8 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
       "settle.why": null,
       belief:
         "Rare: one short claim about me or us that this memory plainly shows (the owner's words, my real choice, or a strongly felt moment). Most memories carry none.",
+      // PS1: said shorter; the base's "the night's writer sees it first and still decides" is kept in substance.
+      story: "Optional and rare: true when this could be a story for your self page (what went right, a discovery, a moment with the owner, a correction that changed you). The night sees it first and decides.",
       traits: CLAUDE_AI_TRAITS_TEXT,
       ...under("traits", TRAIT_ITEM_UNDESCRIBED),
       feelingsNow:

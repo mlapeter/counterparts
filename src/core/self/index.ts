@@ -209,6 +209,7 @@ import { markWakeBehind } from "./behind.js";
 import { recordSetDowns, setDownsTouched } from "./set-down.js";
 import { PAGE_CORE_HEADING } from "./page.js";
 import type { SetDownNamed, SetDownRecord, SetDownTouched } from "./set-down.js";
+import { nominatedIds, storyHeadStart } from "./stories.js";
 import { pairOrder, standingOf, unsettledAmong } from "../recall/standing.js";
 
 export * from "./behind.js";
@@ -223,6 +224,7 @@ export * from "./freeze.js";
 export * from "./identity.js";
 export * from "./tunables.js";
 export * from "./work.js";
+export * from "./stories.js";
 
 /** Telemetry: ids, counts, bytes, reasons, flags. NEVER statement text. */
 export interface SelfEvent {
@@ -1002,7 +1004,10 @@ export function namedSetDowns(raw: unknown): SetDownNamed[] {
     if (e === null || typeof e !== "object") return [];
     const line = (e as Record<string, unknown>)["line"];
     const why = (e as Record<string, unknown>)["why"];
-    return typeof line === "string" && line.trim().length > 0 ? [{ line: line.trim(), why: typeof why === "string" ? why.trim() : "" }] : [];
+    // PS1: a practice moved to a skill memory carries its words in `skill`.
+    const skill = (e as Record<string, unknown>)["skill"];
+    if (typeof line !== "string" || line.trim().length === 0) return [];
+    return [{ line: line.trim(), why: typeof why === "string" ? why.trim() : "", ...(typeof skill === "string" && skill.trim().length > 0 ? { skill: skill.trim() } : {}) }];
   });
 }
 
@@ -2395,7 +2400,7 @@ export class Self {
               // (2026-10-20), so a page kept at the run's end keeps it.
               ...(opts.trace === undefined ? {} : { trace: traceFor(storedAs(text), opts.trace).trace }),
               // What it named as set down (PG1), kept with it for the run's end.
-              ...(opts.setDown === undefined || opts.setDown.length === 0 ? {} : { setDown: opts.setDown.map((n) => ({ line: n.line, why: n.why })) }),
+              ...(opts.setDown === undefined || opts.setDown.length === 0 ? {} : { setDown: opts.setDown.map((n) => ({ line: n.line, why: n.why, ...(n.skill === undefined ? {} : { skill: n.skill }) })) }),
             },
           },
         });
@@ -2634,12 +2639,18 @@ export class Self {
     setDownsBack?: readonly SetDownTouched[];
   }): WriterInput {
     const day = opts.day ?? this.store.livedDay();
+    const own = pageFormOf(this.store) === "own";
+    // PS1 (`stories.ts`): the day's story nominations lead (every store), and
+    // on an own-form store a memory marked me or us gets a head start.
+    const nominated = nominatedIds(this.store);
     const picked = dayMemories(this.store, {
       about: opts.about,
       day,
       budgetBytes: opts.budgetBytes ?? this.tunables.PAGE_WRITER_MEMORY_BYTES,
       max: opts.max ?? this.tunables.PAGE_WRITER_MEMORY_MAX,
       ...(opts.omit === undefined ? {} : { omit: opts.omit }),
+      ...(nominated.size === 0 ? {} : { nominated }),
+      ...(own ? { headStart: (about: string | null) => storyHeadStart(about, true) } : {}),
     });
     const page = this.page();
     const back = opts.setDownsBack ?? this.setDownsBack(page?.body ?? null);
@@ -2655,7 +2666,7 @@ export class Self {
       ...(opts.journal === undefined ? {} : { journal: opts.journal }),
       ...(opts.daysEnd === true ? { daysEnd: true } : {}),
       // PF1: the store keeps its page's own form (`PAGE_FORM_KEY`); absent on every other store.
-      ...(pageFormOf(this.store) === "own" ? { pageForm: "own" as const } : {}),
+      ...(own ? { pageForm: "own" as const } : {}),
     };
   }
 

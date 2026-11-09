@@ -3119,3 +3119,30 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **Not built:** no brought-back mark on the memory (no meta-only update in the store, and a `revise` would mint a
   version); the `self.page.brought_back` event is the record, and recall reads "on the page again" live. The ask
   beside a session's wake (session mode) carries no `setDown` rule (room); its drops are still caught by the diff.
+
+## 2026-11-09 — the page's stories (PS1)
+
+- **What was true.** On the one own-form page, every story under its stories heading had become a correction, none
+  newer than ten days, while moments that went right or were between the owner and the counterpart never became
+  stories. Likely: the writers favour memories shaped as lessons (corrections are), and day's end is handed the
+  day's dozen strongest, which work fills by volume.
+- **Where each line went.** `stories.ts` holds the words. `PAGE_STORIES_RULE` (the mix, and the selection test) and
+  `pageCraftRule(field)` (a work-only practice may move to a skill memory; one about honesty or the owner stays) are
+  pushed in `writerInstruction` only for an own-form store's NIGHTLY block (`pageInline`), right after
+  `SET_DOWN_RULE`, so the session-side ask and its 2,300 B test are untouched. The reflection gets both in its page
+  line when it writes the whole page (`PAGE_SPLIT` off); split on, it writes Core alone. `NOMINATED_NOTE` is said
+  only on a day that has a nomination, before the material and its data framing.
+- **Order, not a filter.** `dayMemories` sorts by strength plus `storyHeadStart` (0.15 for me/us, own-form only);
+  then the day's nominated memories (at most `NOMINATED_FIRST`) are moved to the front, so the count's cut
+  (`DAYS_END_MEMORIES`, 12) never takes them. The strength shown is the memory's own. Past the five, a nomination
+  takes its ordinary place, unmarked.
+- **Nomination is a tag** (`story nominated`, via `story`), written by the MCP `remember` door after the deposit, as
+  `recordAbout` writes the mark. No store-format change. Every store, not only own-form: the field is on every
+  host's `remember`. The claude.ai trim says it shorter; the drift guard's `REVIEWED` gained one hash
+  (`remember.story`) and nothing else moved.
+- **Craft to a skill rides the set-down.** `SetDownNamed.skill`; `diffSetDowns` keeps it only on a `named` set-down;
+  `recordSetDowns` makes the `kind: skill` memory (secrets-scanned, cut at `SKILL_CHARS`, unmarked, `source:
+  reflection`) before the set-down memory, whose facts (`skill`) and body name it; the door's note says "Moved to a
+  skill memory: mem_…". Lines past a write's cap don't move (rare; they stay in the one capped memory).
+- **Not built:** nominations and the head start reach day's end only; with the page split off the reflection writes
+  the stories but its bundle has no nomination lane (split is on by default). No migration of today's practices.

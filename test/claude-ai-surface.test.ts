@@ -276,6 +276,7 @@ const REVIEWED: Record<string, unknown> = {
       "occurredOn": "1edf3ed3be",
       "saidBy": "85d56d9cf7",
       "status": "d4fbfe4c52",
+      "story": "aaa9771e8e",
       "tags": "1ac013d11e",
       "feelings": "d60b5b8838",
       "feelings[].whose": "0d206058ad",
