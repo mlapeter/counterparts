@@ -49,6 +49,15 @@ const MUST_REDACT: readonly (readonly [string, string])[] = [
   ["pw 1.0.0-beta-hunter", "1.0.0-beta-hunter"],
   ["pw 1.0.0-alpha.2x", "1.0.0-alpha.2x"],
   ["pw 1.2.3-dev-hunter", "1.2.3-dev-hunter"],
+  // Short version-shaped passwords from the re-review: closed by pinning the major to 1.
+  ["garage pw 5.25.1", "5.25.1"],
+  ["pw 9.99", "9.99"],
+  ["guest wifi pw 4.20", "4.20"],
+  ["pw 3.33.33", "3.33.33"],
+  ["safe pw 6.12.84", "6.12.84"],
+  ["pw 3.14", "3.14"],
+  ["pw 0.0.7", "0.0.7"],
+  ["PW 2.0.0-beta.1", "2.0.0-beta.1"],
   ["My password is hunter2.", "hunter2"],
   ["the wifi password's sunflower42", "sunflower42"],
   ["the wifi password’s sunflower42", "sunflower42"],
@@ -92,7 +101,6 @@ const MUST_NOT_REDACT: readonly string[] = [
   "PW 1.49 broke the screenshot test",
   "upgraded to PW 1.48.2 today",
   "PW v1.48",
-  "PW 2.0.0-beta.1",
   "pinned pw 1.47.0 for now",
   "PW 1.50.1 fixed the flake",
   "rolled back to PW 1.46",
@@ -103,9 +111,10 @@ const MUST_NOT_REDACT: readonly string[] = [
   "pw 1.0.0-next.3",
   "PW 1.49.0-alpha-2024-10-01 nightly",
   "pw v2.0",
-  // The known trade: a version-shaped password after a bare pw is kept.
-  "pw 3.14",
-  "pw 0.0.7",
+  // The known trade: a 1.x version-shaped password after a bare pw is kept.
+  "laptop pw 1.23.45",
+  // Also kept, by the older rule that a value under 4 characters is never taken (not PW_VERSION).
+  "pw 7.7",
   "I forgot my password",
   "the password field is empty",
   "password reset flow",

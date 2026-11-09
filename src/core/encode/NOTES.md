@@ -236,7 +236,7 @@ line 13: decisions are defaults).
       part is one of those ("case-sensitive", "base64-encoded"), algorithms (bcrypt, sha256,
       argon2id, utf-8), paths, URLs, placeholders, and code (brackets, a call, a dotted
       reference). A PIN or door code is 4–12 digits, and a year with a noun after it is not one.
-    - **Playwright false positive (9,700-memory dry run):** only bare, same-line `pw` exempts a version, and `PW_VERSION` bounds it (one-digit major, minor and patch up to two digits, no leading zero, only a named prerelease tag such as `-beta.1`); explicit connectors, dates, IPs, mixed digit/letter values and "1.0.0-hunter2" still redact. Review of #794: an unbounded shape leaked 12 numeric passwords. "pw 3.14" stays the known trade.
+    - **Playwright false positive (9,700-memory dry run):** only bare, same-line `pw` exempts a version, and `PW_VERSION` bounds it (major `1`, as Playwright has only been 1.x; minor and patch up to two digits, no leading zero, only a named prerelease tag such as `-beta.1`); explicit connectors, dates, IPs, mixed digit/letter values and "1.0.0-hunter2" still redact. Review of #794: an unbounded shape leaked 12 numeric passwords. A re-review leaked 7 of 10 short ones ("pw 9.99", "pw 7.7") until the major was pinned to 1; "pw 1.23.45" stays the known trade.
     - **Never across a line**, except one secret-looking token alone on the next line; a stray
       apostrophe does not open a quoted run.
     - **Linear.** Every newline search and lookbehind is bounded: a lookbehind before `pass` ran
