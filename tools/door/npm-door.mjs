@@ -395,6 +395,11 @@ if (process.argv.includes("--advance-clock") && CAN_MOVE_CLOCK) {
       else no("no nightly process logged anything");
       if (lines.some((l) => /ENOENT|EINVAL|spawn\.failed/.test(l))) no("the night could not start claude", lines.filter((l) => /ENOENT|EINVAL|spawn/.test(l)).join("\n"));
       else if (lines.length > 0) ok("the night's claude -p was started (no ENOENT/EINVAL)");
+      // `claude -p` answered: with no login on a runner it says "Not logged in",
+      // which the night records as `signed-out`; a logged-in machine ends `ran`.
+      const end = lines.find((l) => l.includes('"name":"process.end"')) ?? "";
+      if (/"why":"signed-out"|"reason":"ran"/.test(end)) ok(`the night's claude -p ran and answered (${/signed-out/.test(end) ? "signed out, as a runner is" : "ran"})`);
+      else no("the night did not end the way a started claude -p ends", end || "(no process.end)");
       const n = shell(TERMINAL, "counterparts night", { timeout: 60_000 });
       show(`counterparts night, the next day (exit ${n.code})`, `${n.out}${n.err}`);
     } finally {
