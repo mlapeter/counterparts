@@ -132,10 +132,10 @@ const LATER = String.raw`(?!\s+(?:tomorrow|tonight|next|later|soon|on\s+(?:mon|t
 /** …or preceded by what makes it one: `will cut`, `to cut`, `plan to ship`. */
 const PLANNED = String.raw`(?<!\b(?:will|to|shall|would|should|could|can|must|gonna|going\s+to|plan\s+to|about\s+to|then)\s+)`;
 const NOT_PLANNED_AFTER = String.raw`(?<!\b(?:to|will|shall|would|should|could|can|must)\s+)`;
-/** After the token: `0.3.46 released`, `0.3.47-dev is tagged`. */
+/** After the version: `0.3.46 released`, `0.3.47-dev is tagged`. */
 const after = (verbs: string): RegExp =>
   new RegExp(String.raw`^(?:-[\w]+)?\s*[:,]?(?:\s+${FILLER}){0,2}\s+${NOT_PLANNED_AFTER}(?:${verbs})(?![\w.@/-])${LATER}`, "i");
-/** Before the token: `released 0.3.50`, `ready to publish 0.3.47`, `installed counterparts@0.3.14`. */
+/** Before the version: `released 0.3.50`, `ready to publish 0.3.47`, `installed counterparts@0.3.14`. */
 const before = (verbs: string, ready: boolean): RegExp =>
   new RegExp(
     String.raw`(?<![\w.@/-])${PLANNED}(?:${verbs}${ready ? "|ready to (?:publish|release|merge|ship|cut)" : ""})(?:\s+(?:counterparts|version|v))?\s*@?\s*$`,

@@ -106,6 +106,13 @@ committed (section 3). The push run is:
   - the live dashboard tests (`test/dashboard-*-live.test.ts`), with chromium installed. A
     skip here is a failure.
 
+The same push runs `.github/workflows/windows.yml` (W1, 0.3.52), a workflow of its own: the
+package packed on Linux, then installed from npm's side and connected on native Windows
+(`windows (node 22.15.0)`, `windows (node 24)`) and inside WSL (`wsl (ubuntu 24.04)`).
+`fetch-tarball.sh` wants that run green on the commit too. The single binary's
+`windows-x64` (`single-binary.yml`) runs on the release pull request, not the push: read it
+there.
+
 The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
 at its log (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`); a job that failed on a
 timeout gets one rerun (`gh run rerun <id> --failed`), and a second failure gets a real look.
@@ -278,7 +285,8 @@ tools/release/fetch-tarball.sh <full commit sha> <release folder>
 ```
 
 That writes `counterparts-<version>.tgz`, `SHA256` and `COMMIT` into the release folder. It
-stops, writing nothing, unless the run is on a `release/` branch, every job in it passed, and
+stops, writing nothing, unless the run is on a `release/` branch, every job in it passed (and
+in windows.yml's release run on the commit, with its three jobs), and
 the branch is still at that commit, and the file's hash matches both the `SHA256` beside it
 and the line the job printed in its log. A mismatch stops the release; find out why before
 going on. There's no need to pack on the
@@ -310,8 +318,14 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    instead of 90. Each day of them is kept as a summary in `events.rolled` (counts, the ids
    credited for use, the session refs), but the rows and their payload fields are gone for good. So the sheet's first line for that release, and for any
    later one that shortens a window, is a read-only copy of the store, taken before the
-   install line:
-   `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
+   install line, into the release folder, and kept there after the install (0.3.52 on, the first published release with FD1 step 2: it is
+   the only copy those reads can run on once the first night has rolled the rows up):
+   `mkdir -p <release folder>/store-before-<version> && sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '<release folder>/store-before-<version>/counterparts.sqlite'"`.
+   `.backup` is SQLite's online backup, safe beside a running worker (a bare `cp` of a live
+   WAL database is not), and it does not create folders, hence the `mkdir`. Check the copy
+   opened: `sqlite3 "file:<copy>?mode=ro" "pragma integrity_check; select count(*) from events where name = 'recall.decision';"`
+   prints `ok` and a count in the thousands (tried on a WAL database with a transaction open
+   beside it, while cutting 0.3.51).
    The reads that need it, by name: MOD #3 in `docs/CHECK-AFTER.md` ("`recall.decision`
    events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
    lived days after the longer habituation window"). Both run on that copy afterwards, never
@@ -388,6 +402,24 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    **An urgent hosted fix between releases** is the same chain on purpose, with the master
    commit that carries it; read `git log hosted-live..<sha>` first (it ships everything up to
    that commit), and note the sha and why in the coordinator's handoff.
+
+## A version packed and never published (0.3.51, 2026-11-09)
+
+When a release is packed and handed over, and the next one is cut before the owner publishes
+it, the owner may publish the newer one alone. 0.3.51 went this way: 0.3.52 was branched from
+master and `release/0.3.51` merged into it (merge, not rebase, keeping both sides), so the
+newer release carries the older one's commits. Then:
+
+- **CHANGELOG:** the unpublished version gets no heading of its own. Its section is folded
+  into the new one, the new lead on top, with one line: "<version> was packed but never
+  published; everything it held is in this entry." CHECK-AFTER rows dated to it are re-dated
+  to the release that ships.
+- **The upgrade test** runs from the last published version (npm) to the new tarball and back.
+- **No tag, no GitHub release, no bundle tags** for the unpublished version. Its release PR is
+  closed unmerged as superseded by the new one; its `release/<version>` branch is deleted
+  once the new release PR has merged (the new PR carries its commits, so nothing is lost).
+- **Its release folder stays,** with an `UNPUBLISHED` note in it, so nobody later publishes
+  that tarball by mistake.
 
 ## Upgrade and rollback, tested before publish
 
