@@ -69,7 +69,7 @@ import type { CheckoutReading } from "../claude-code/doctor.js";
 import { readHost, mcpCommand } from "./install.js";
 import { coverageLines } from "./coverage.js";
 import { readDesktop } from "./desktop.js";
-import { runtimeLabel } from "../runtime.js";
+import { runtimeLabel, whichOnPath } from "../runtime.js";
 import { npmMarkerReading } from "../npm-live.js";
 import { installRoute } from "../plugin.js";
 // The terminal layouts for the two readings a person checks an install with.
@@ -829,8 +829,10 @@ export const DOCTOR_RED_EXIT = 1;
  * when there is no PATH to search, which the fix line reads as "not looked".
  */
 function claudeOnPath(env: Record<string, string | undefined>): boolean | null {
-  const path = env["PATH"];
+  const path = env["PATH"] ?? env["Path"];
   if (path === undefined || path.trim().length === 0) return null;
+  // Windows: `claude.exe` or npm's `claude.cmd`, and no exec bit to read (W1).
+  if (process.platform === "win32") return whichOnPath("claude", env) !== null;
   for (const dir of path.split(delimiter)) {
     if (dir.length === 0) continue;
     try {

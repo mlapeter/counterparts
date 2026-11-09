@@ -2117,3 +2117,27 @@ door the plugin's `/counterparts:uninstall` drives.
   umask, and so are our own children (`spawn.ts`, the plugin's first run, the plugin
   console's hand-off), which set 077 themselves: before, the night's `claude -p` inherited
   077 from a hook and wrote Claude Code's own files 0600.
+
+## 2026-11-09 — Windows: the console from PowerShell, and `claude.cmd` (W1)
+
+- **The four commands didn't start from PowerShell or cmd.** npm's Windows launchers are written from the bin's first
+  line, `#!/bin/sh` for our polyglot bins, so `counterparts.cmd`/`.ps1` ran `/bin/sh`. The first line can't name Node:
+  macOS and Linux read the same line, and a Bun-only machine would lose the console. So `package.json#scripts.postinstall`
+  runs `src/adapters/windows-shims.mjs`, which on win32 only rewrites the `.cmd` and `.ps1` npm wrote for THIS package's
+  four bins to run `node`, and nothing else (it returns at once elsewhere, and never fails the install). Only for a
+  GLOBAL install (`npm_config_global`), only in the global prefix, and only a file with npm's exact shim target line
+  (`read-cmd-shim`'s regex) naming this package's bin for that name: the review of #787 found the first version would
+  rewrite a project's own `counterparts.cmd` on a local `npm i counterparts`. npm links bins
+  before `postinstall` (arborist `rebuild.js`). This is the package's first install script; it touches only npm's own
+  launchers for our bins, never a host's settings. With `--ignore-scripts` it doesn't run, and the commands still work
+  from Git Bash.
+- **`claude mcp add` from `connect`.** An npm install of Claude Code is `claude.cmd`, which Node won't spawn without a
+  shell (EINVAL since 20.12), and a shell would re-read the store path. `realSpawner` asks `runtime.ts#windowsLaunch`,
+  which reads the shim's target and spawns that (`.exe`) or `node <target>` (`.js`), arguments kept one each. A native
+  `claude.exe` is spawned as is.
+- `claudeOnPath` (doctor's hint) checks PATHEXT on win32 rather than an exec bit Windows doesn't have.
+- A project argument `C:\…` or `dir\sub` names a folder (`looksLikeFolder`); the dashboard opens with `explorer.exe`.
+- What isn't done on Windows yet: `ps` doesn't exist, so the "is something still running" look before `uninstall` or
+  `start-fresh` is a look that didn't happen (`NO_LOOK`, as it always handled); and renaming a store a running server has
+  open can fail there (EBUSY), where macOS lets it; nothing yet turns that error into "quit Claude Code first"
+  (open in `INTERFACE-GAPS.md`).

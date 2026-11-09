@@ -3,8 +3,9 @@
 ## Install
 
 You need [Node](https://nodejs.org) 22.15 or newer, or [bun](https://bun.sh) 1.3 or newer,
-on macOS or Linux; Windows not yet supported. Bun on macOS is the setup in daily use; Node
-and Linux pass a smoke test and an install run but have no daily user yet.
+on macOS, Linux and Windows (Windows is new: tell us how it goes). Bun on macOS is the setup
+in daily use; Node, Linux and Windows pass a smoke test and an install run but have no daily
+user yet. On Windows, read [On Windows](#on-windows) below first.
 
 ```
 npm install -g counterparts@latest
@@ -23,6 +24,32 @@ Or install it as a Claude Code plugin: `/plugin marketplace add mlapeter/counter
 `/plugin install counterparts@counterparts`, then restart Claude Code. The plugin sets
 itself up on its first session and puts no `counterparts` command on your PATH:
 `/counterparts:doctor` checks it, and the rest of this page is for the npm or bun install.
+
+### On Windows
+
+Windows is new, and has few users yet: if something here goes wrong, tell us
+([issues](https://github.com/mlapeter/counterparts/issues)). What differs from macOS and Linux:
+
+- Install with **npm and Node** 22.15 or newer, from PowerShell, cmd or Git Bash. The commands on
+  this page are the same in all three.
+- Your memory lives in `%USERPROFILE%\.counterparts\`, and `counterparts connect` writes to
+  `%USERPROFILE%\.claude\settings.json` and `%USERPROFILE%\.claude.json`, where Claude Code
+  keeps them on Windows.
+- Claude Code runs the hooks in Git Bash when Git for Windows is installed, and in PowerShell
+  when it isn't. Both work. The hooks name `node` by name, so keep the Node you installed
+  with on your PATH; run `counterparts connect` again after moving to another Node.
+- If PowerShell says running scripts is disabled on this system (Windows' default, and it
+  says the same for `npm`), type `counterparts.cmd` in place of `counterparts`, use cmd or
+  Git Bash, or allow scripts for your account once:
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The hooks don't need this: they
+  start `node` itself.
+- npm makes `counterparts` work in PowerShell and cmd with a small step that runs after the
+  install. If you install with `--ignore-scripts`, that step doesn't run, and the command
+  works only from Git Bash: run `npm install -g counterparts@latest` again without it.
+- `counterparts uninstall` and `start-fresh` can't see which Counterparts processes are still
+  running on Windows: quit Claude Code first.
+- In WSL, Counterparts works as it does on Linux: install it inside WSL, and run Claude Code
+  there too.
 
 ## Set it up
 

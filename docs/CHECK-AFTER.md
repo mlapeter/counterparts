@@ -37,6 +37,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
+| The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | the release after 2026-11-09 (W1) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | the release after 2026-11-09 (SX1) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
@@ -130,6 +131,22 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## The first real Windows user's install (W1)
+
+W1 (2026-11-09) made the npm install work on native Windows, proven in CI only (`.github/workflows/windows.yml`, the
+npm door on windows-latest and in WSL). Nobody has used it on their own Windows machine. **Read when we hear back** from
+the first real Windows user (the Reddit commenter who asked "It doesn't work for Windows?").
+
+What to ask or look at: did `npm install -g counterparts@latest` then `counterparts` work from their shell (PowerShell,
+cmd or Git Bash)? Did `counterparts connect` register the memory tools (`claude mcp list` shows counterparts
+connected), and with which Claude Code install (native installer or npm)? Is Git for Windows installed (the hooks then
+run in Git Bash, else PowerShell)? Did the first session wake, did recall answer, did a night run the next day
+(`counterparts night`)? Any console window flashing up, any `counterparts doctor` amber or red that only Windows has?
+
+What would change it: a hook line one of the shells can't run (then pin `"shell"` on the hook, or write the exec form);
+a Node not on PATH by name (then the absolute path, which only Git Bash runs); a launcher still running `/bin/sh` (the
+postinstall didn't run). Revert: none needed; Windows was unsupported before.
 
 ## A password named in a sentence is redacted (SX1)
 

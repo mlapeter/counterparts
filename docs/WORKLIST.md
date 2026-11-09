@@ -125,17 +125,18 @@ repeating them.*
 
 ## Later (on the roadmap, not scheduled)
 
-More hosts (claude.ai needs a tunnel or a hosted piece); the dashboard walk (Health, Flow, mobile); Windows (WSL
-first); the nightly run's timing (a real night run needs a scheduler); dates written into memories' words; the site
-as a public roadmap. Ideas and Parked: see the [roadmap](ROADMAP.md).
+More hosts (claude.ai needs a tunnel or a hosted piece); the dashboard walk (Health, Flow, mobile); the nightly run's
+timing (a real night run needs a scheduler); dates written into memories' words; the site as a public roadmap. Ideas
+and Parked: see the [roadmap](ROADMAP.md).
 
-- **Windows port** (found 11-04 in #746; not now: no Windows release, and README and QUICKSTART say macOS and
-  Linux). #746 made the windows-x64 unit tests pass; what is still wrong there is real, and blocks the job going green:
-  (a) `runtime.ts#shellTokens` reads a backslash inside double quotes as an escape (POSIX), so a hand-typed
-  Windows-native hook line (`"C:\…\counterparts.exe" hook`) is not recognised by doctor or connect. Everything
-  Counterparts writes goes through `shellQuote` and reads back fine. (b) The Windows binary's `--version` prints
-  "version unknown — package.json is not beside the running code". (c) The Windows smoke step hangs after doctor
-  until the job's 8-minute timeout.
+- **Windows port** (W1, 2026-11-09: the npm install works on native Windows and in WSL, CI's `windows.yml` and the
+  windows-x64 binary job are required; README, QUICKSTART and the manual say "Windows is new"). The three blockers from
+  #746 are fixed: (a) `shellTokens` reads a backslash in quotes as bash does; (b) the binary's `--version`; (c) the
+  smoke no longer waits on a dashboard it couldn't stop. Left: the single binary as a Windows release download
+  (`build.ts#RELEASED`, a separate yes) and with it the plugin route on Windows (`plugin-run.sh`'s download, whose
+  e2e is skipped there); the sidebar mod on Windows (not tried); what `cli/INTERFACE-GAPS.md`
+  "Windows, left after W1" lists (no process look, renaming an open store, `/` prefix checks, drive-letter case); and
+  the first real user's install (`CHECK-AFTER.md`).
 
 ## Done
 

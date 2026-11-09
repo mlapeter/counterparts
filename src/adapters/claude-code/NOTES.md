@@ -2996,3 +2996,46 @@ So the night reads the list (`passesOnNight`), and only the told lines read `ATT
 none under `auto`, as it already got none under `ask`. An app a person really talks to through the Agent SDK reads as
 headless too, unless the host says `ATTENDED=1`. Doctor's `night-headless` line says so after two days without a night; nothing
 more was built.
+
+## 2026-11-09 — Windows: how Claude Code runs our hooks and server there (Windows W1)
+
+Step 0 of the Windows port, from Claude Code's own docs (code.claude.com/docs/en/hooks, /settings, /mcp-quickstart,
+/setup, /env-vars, /troubleshoot-install, read 2026-11-09). This is what decides what `connect` writes on win32.
+
+- **Hooks (shell form, `command` with no `args`)**: "passed to a shell: `sh -c` on macOS and Linux, Git Bash on
+  Windows, or PowerShell when Git Bash isn't installed." Git Bash is found at `C:\Program Files\Git` (or `(x86)`), then
+  `git` on PATH, or named by `CLAUDE_CODE_GIT_BASH_PATH`. A hook may pin `"shell": "bash" | "powershell"`. Exec form
+  (`command` + `args`) spawns with no shell and needs a real `.exe` (npm's `.cmd` shims can't be spawned that way).
+  Git for Windows is OPTIONAL for Claude Code now; without it the Bash tool is PowerShell and so is every hook.
+- **MCP stdio servers**: started from `command` + `args` in `~/.claude.json`; the docs don't say whether through a shell
+  (they no longer carry the old `cmd /c npx` advice). A real executable with arguments works either way.
+- **Where the files are**: `~/.claude` is `%USERPROFILE%\.claude`, `~/.claude.json` is `%USERPROFILE%\.claude.json`;
+  `CLAUDE_CONFIG_DIR` moves both, as on macOS.
+- **`npm install -g`** puts three launchers per bin in `%APPDATA%\npm`: `x.cmd`, `x.ps1` and an extensionless sh script
+  for Git Bash. npm writes them from the bin's FIRST LINE (`cmd-shim`), which for ours is `#!/bin/sh`, so the `.cmd` and
+  `.ps1` ran `/bin/sh`, which cmd and PowerShell can't find (`src/adapters/windows-shims.mjs` now rewrites them to
+  `node`; see `cli/NOTES.md`). The sh script works in Git Bash.
+
+So the hook line has to run in BOTH Git Bash and PowerShell, and must not depend on our npm shims. What `connect` writes
+on win32 (`runtime.ts#hostInvocation`): `node --import "file:///C:/…/node-hooks.mjs" "C:/…/claude-code/bin/hook.ts"`.
+
+- `node` BY NAME, when `node` on PATH resolves (links followed) to the very node running `connect`. The default Node
+  is in `C:\Program Files\nodejs`, which needs quotes, and PowerShell needs `&` before a quoted first word, which bash
+  refuses. Scar §2.18 (the host's PATH isn't the login shell's) is a macOS hazard; on Windows the host inherits the
+  account's PATH. When `node` is another file (Volta's or nvm-windows' shim, another Node; W1 review), the path is
+  written for the shell present (`runtime.ts#windowsHookWord`): unquoted when it has no space (both shells run it),
+  quoted with Git Bash present, `& "…"` without it (`shellTokens` reads the `&` away). The last two run in that one
+  shell only, so `connect` warns and doctor's Runtime line is amber: installing or removing Git for Windows later
+  stops every hook until `connect` runs again.
+- `--import` as a `file:` URL: Node reads `C:\…\node-hooks.mjs` as a URL whose scheme is `c:`.
+- `/` in every path: no backslash for either shell to read as an escape, and Windows takes them.
+- The MCP registration is the same words as `command` + `args`: `node`, `--import`, the URL, `C:/…/serve.ts`.
+- POSIX lines are byte-for-byte what they were (`test/windows-port.test.ts` holds both).
+
+Also on Windows: a detached child gets its own console window unless `windowsHide` (the worker, the night, its `claude
+-p`, the dashboard's opener, the plugin's first run); there are no process groups, so the night's watchdog ends its
+child with `taskkill /T /F`; and the night's `claude` may be npm's `claude.cmd`, which `runtime.ts#windowsLaunch` reads
+for its target (an `.exe`, or a `.js` given to `node`) rather than running it through cmd with the night's JSON and
+prompt as arguments. Proven in CI by `.github/workflows/windows.yml` (`tools/door/npm-door.mjs`), which installs Claude
+Code from npm so `claude` is the `.cmd`; a full night needs a Claude login a runner doesn't have, so the door checks the
+night starts and reaches `claude -p`.
