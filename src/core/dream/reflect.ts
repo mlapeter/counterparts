@@ -100,6 +100,7 @@ import type { UnmarkedCandidate } from "./unmarked.js";
 import { chapterEntries, entryKey, entryLine, entrySummary, fitEpisodes, leanChapterHead, leanDate, leanEntry, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
 import { setDownsBackLines, setDownsTouched } from "../self/set-down.js";
+import { PAGE_STORIES_RULE, pageCraftRule } from "../self/stories.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
 import { DREAM_TUNABLES } from "./tunables.js";
 import type { Schemas } from "../schemas/index.js";
@@ -642,8 +643,8 @@ export interface ReflectContext {
       ifVersion?: number;
       /** What the page rests on, whole and per passage (2026-10-20, `self/page.ts#PAGE_META_TRACE`). */
       trace?: { cites: readonly string[]; claims?: readonly { text: string; cites: readonly string[] }[] };
-      /** What it sets down (PG1): the lines and a why each. */
-      setDown?: readonly { line: string; why: string }[];
+      /** What it sets down (PG1): the lines and a why each; `skill` (PS1) when a practice moves to a skill memory. */
+      setDown?: readonly { line: string; why: string; skill?: string }[];
     },
   ) =>
     /** `setDown`: what the door recorded as set down, said (`self/set-down.ts#setDownNote`), or null. */
@@ -686,7 +687,7 @@ export interface ReflectFinish {
     /** Cites per passage (2026-10-20): a sentence or a few, as on the page, and the ids it rests on. */
     readonly claims?: readonly { readonly text?: string; readonly cites?: readonly string[] }[] | null;
     /** What it sets down (PG1, 2026-11-09, `self/set-down.ts`): lines of the page as it stood, taken out and kept nowhere else on it, each with a short why. */
-    readonly setDown?: readonly { readonly line?: string; readonly why?: string }[] | null;
+    readonly setDown?: readonly { readonly line?: string; readonly why?: string; readonly skill?: string }[] | null;
   } | null;
   readonly feelings?: readonly {
     readonly id?: string;
@@ -1230,13 +1231,18 @@ export class Reflections {
     const form = pageFormOf(this.store);
     const own = form === "own";
     const rule = pageWritingRule(form);
+    // THE PAGE'S STORIES (PS1, `self/stories.ts`): an own-form store's
+    // reflection, when it writes the whole page (split off; split on, it
+    // writes Core alone, which tells no stories), is told the mix, its test,
+    // and that craft may move to a skill memory.
+    const stories = own ? `${PAGE_STORIES_RULE} ${pageCraftRule("page.setDown")} ` : "";
     const splitLine = `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day, and tonight yours is "## ${PAGE_CORE_HEADING}" alone: day's end amends the other sections (${own ? "every section but Core" : "Lately, How I work"}) from the day, and they stay exactly as they stand. Send page.text as the "## ${PAGE_CORE_HEADING}" section only — its heading and its words. Rewrite it unless, after reflecting, there is really nothing to change; on a "nothing much" night, leave it as it stands. ${coreDrawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis, and one you keep word for word keeps what it rested on. Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} ${REFLECT_SET_DOWN} Sent back as past its room, send finish again with page.text cut (and page.cites, page.claims and page.setDown), not page.short.`;
     const pageLine =
       this.ctx.pageWrites === false
         ? `- page: not tonight — the owner has day's end off, so the self page is not rewritten. Your entry and share still count.`
         : SELF_TUNABLES.PAGE_SPLIT
           ? splitLine
-          : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. ${drawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. ${own ? (spine === undefined ? `Keep "## Core" for who you are. ` : "") : `${spine === undefined ? `Keep "## Core" for who you are and put craft` : `Put craft`} — how a job is done — under "## How I work". `}Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} ${REFLECT_SET_DOWN} Sent back as past its room, send finish again with page.text cut (and page.cites, page.claims and page.setDown), not page.short.`;
+          : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. ${drawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. ${own ? (spine === undefined ? `Keep "## Core" for who you are. ` : "") : `${spine === undefined ? `Keep "## Core" for who you are and put craft` : `Put craft`} — how a job is done — under "## How I work". `}Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} ${REFLECT_SET_DOWN} ${stories}Sent back as past its room, send finish again with page.text cut (and page.cites, page.claims and page.setDown), not page.short.`;
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (one project's own: it stays with that project; an unmarked skill is craft and reaches every folder) or world — with why. Only me and us can become core, and never a plan. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
@@ -1717,7 +1723,9 @@ export class Reflections {
           trace: pageTrace,
           // WHAT IT SETS DOWN (PG1): checked by the door against the sentence diff.
           setDown: (input.page?.setDown ?? []).flatMap((s) =>
-            typeof s?.line === "string" && s.line.trim().length > 0 ? [{ line: s.line.trim(), why: typeof s.why === "string" ? s.why.trim() : "" }] : [],
+            typeof s?.line === "string" && s.line.trim().length > 0
+              ? [{ line: s.line.trim(), why: typeof s.why === "string" ? s.why.trim() : "", ...(typeof s.skill === "string" && s.skill.trim().length > 0 ? { skill: s.skill.trim() } : {}) }]
+              : [],
           ),
         });
         if (w.ok) {

@@ -851,6 +851,15 @@ always is; `recall "handoffs"` lists them all). **[A]** Every Elsewhere line car
 a live folder with nothing written says since when. SO1 step 4 (the waiting-on-owner backoff)
 is a separate change; `waitsOnOwner` is its seam.
 
+**The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
+store's nightly page writers are told to keep a mix of story kinds and the selection test
+(`stories.ts`); words only, nothing checks a story. **[M]** Day's end orders the day's memories
+by strength plus a head start for me/us (own-form only, `PAGE_STORY_LIMITS.HEAD_START`): the
+order moves, the physics do not. **[M]** A memory tagged `story nominated` (`remember`'s
+`story: true`, every store) is shown first and marked, at most `NOMINATED_FIRST` a day; the
+writer still decides, and nothing keeps an untaken one. **[M]** A named set-down with `skill`
+becomes a `kind: skill` memory, and the set-down's facts and body name it.
+
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and — until 2026-10-15, when nothing regrows any more — the regrow

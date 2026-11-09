@@ -39,7 +39,7 @@ import { stemTerm } from "../store/stem.js";
 import { monthDay } from "../time.js";
 import { CLAIM_PREFIX_MIN_CHARS, claimKey, pageClaims, pageSections, type StoredTrace } from "./page.js";
 import type { SelfPageAuthor } from "./page.js";
-import { SET_DOWN_LIMITS as L } from "./tunables.js";
+import { PAGE_STORY_LIMITS as STORY, SET_DOWN_LIMITS as L } from "./tunables.js";
 
 /** The tag every set-down memory carries, and recall's handle for them. */
 export const SET_DOWN_TAG = "set down";
@@ -61,6 +61,8 @@ export const UNSURE_WHY = "set down, unnamed (maybe reworded)";
 export interface SetDownNamed {
   readonly line: string;
   readonly why: string;
+  /** PS1: a craft practice moved off the page: its words as a skill memory (`stories.ts#pageCraftRule`). */
+  readonly skill?: string;
 }
 
 /** One sentence the page had, with the heading it sat under ("" before any). */
@@ -85,6 +87,8 @@ export interface SetDownVerdict {
   readonly match: string | null;
   /** True when the writer's account named it (trusted, not re-judged). */
   readonly accounted: boolean;
+  /** PS1: on a `named` set-down, the skill memory's words the writer moved it into. */
+  readonly skill?: string;
 }
 
 export interface SetDownDiff {
@@ -113,6 +117,8 @@ export interface SetDownFacts {
   readonly quiet?: boolean;
   /** On the one memory past a write's cap: every line it holds, in full. */
   readonly lines?: readonly string[];
+  /** PS1: the skill memory this practice moved into (`kind: skill`), when the writer moved it there. */
+  readonly skill?: string;
 }
 
 /** A set-down memory as the readers see it. */
@@ -292,6 +298,7 @@ export function diffSetDowns(before: string, after: string, named: readonly SetD
         share: near.share,
         match: near.match,
         accounted: true,
+        ...(account === "set down" && n.skill !== undefined ? { skill: n.skill } : {}),
       });
       continue;
     }
@@ -370,10 +377,11 @@ export function setDownTitle(line: string, date: string): string {
 }
 
 /** The memory's words: the line whole, then where it left and why. Pure. */
-export function setDownBody(f: Pick<SetDownFacts, "line" | "why" | "from" | "by" | "date" | "section">): string {
+export function setDownBody(f: Pick<SetDownFacts, "line" | "why" | "from" | "by" | "date" | "section" | "skill">): string {
   const who = f.by === "writer" ? "day's end" : "the reflection";
   const where = f.section.length === 0 ? "" : ` (under "${f.section}")`;
-  return `${f.line}\n\nSet down from my self page${where} on ${f.date}, when ${who} rewrote it (the line was on version ${String(f.from)}). Why: ${f.why}.`;
+  const moved = f.skill === undefined ? "" : ` Moved to a skill memory: ${f.skill}.`;
+  return `${f.line}\n\nSet down from my self page${where} on ${f.date}, when ${who} rewrote it (the line was on version ${String(f.from)}). Why: ${f.why}.${moved}`;
 }
 
 // ── the store's side ────────────────────────────────────────────────────────
@@ -398,6 +406,7 @@ export function setDownFactsOf(meta: Readonly<Record<string, unknown>>): SetDown
     ...(typeof f["pos"] === "number" ? { pos: f["pos"] } : {}),
     ...(f["quiet"] === true ? { quiet: true } : {}),
     ...(Array.isArray(f["lines"]) ? { lines: (f["lines"] as unknown[]).filter((x): x is string => typeof x === "string") } : {}),
+    ...(typeof f["skill"] === "string" ? { skill: f["skill"] } : {}),
   };
 }
 
@@ -467,6 +476,8 @@ export interface SetDownRecord {
   readonly unmatchedNamed: number;
   /** Set-downs this write put back on the page. */
   readonly back: readonly string[];
+  /** PS1: skill memories made from practices the writer moved off the page. */
+  readonly skills: readonly string[];
 }
 
 /**
@@ -528,9 +539,35 @@ export function recordSetDowns(
       tagsVia: "write",
       ...(input.model === undefined ? {} : { model: input.model }),
     });
+  // CRAFT MOVED TO A SKILL (PS1, `stories.ts#pageCraftRule`): the writer's
+  // words for the practice, through the secrets scan, as a `kind: skill`
+  // memory, unmarked (an unmarked skill is craft and reaches every folder),
+  // which recall finds when the work calls for it. Null when there are no
+  // words left to keep.
+  const skills: string[] = [];
+  const skillOf = (v: SetDownVerdict): string | null => {
+    if (v.outcome !== "named" || v.skill === undefined) return null;
+    const scanned = scanSecrets(v.skill, "body");
+    if (scanned.emptyAfterRedaction) return null;
+    const words = clipWords(scanned.redacted, STORY.SKILL_CHARS);
+    const id = store.put({
+      type: "memory",
+      kind: "skill",
+      title: clipWords(words, L.TITLE_CHARS),
+      body: words,
+      // The night's words, as a set-down's are: the night's own reads pass it by.
+      source: "reflection",
+      origin: { ...(input.session === null ? {} : { session: input.session }), ref: input.pageId },
+      physics: { birthDay: input.day, lastUsedDay: input.day },
+      ...(input.model === undefined ? {} : { model: input.model }),
+    });
+    skills.push(id);
+    return id;
+  };
   const ids: string[] = [];
   for (const [pos, v] of kept.entries()) {
     const restedOn = restedOf(v.line);
+    const skill = skillOf(v);
     const facts: SetDownFacts = {
       line: v.line,
       why: whyOf(v),
@@ -543,6 +580,7 @@ export function recordSetDowns(
       ...(restedOn.length === 0 ? {} : { restedOn }),
       pos,
       ...(isQuoted(v) ? {} : { quiet: true }),
+      ...(skill === null ? {} : { skill }),
     };
     ids.push(put(facts, setDownTitle(v.line, input.date), setDownBody(facts)));
   }
@@ -594,6 +632,7 @@ export function recordSetDowns(
     over: rest.length,
     unmatchedNamed: diff.unmatchedNamed.length,
     back,
+    skills,
   };
   if (diff.verdicts.length > 0 || input.named.length > 0 || back.length > 0) {
     // Counts and ids for what was set down: those lines are on the memories,
@@ -627,6 +666,7 @@ export function recordSetDowns(
         sentNamed: input.named.length,
         unmatchedNamed: record.unmatchedNamed,
         back,
+        ...(skills.length === 0 ? {} : { skills }),
       },
     });
   }
@@ -725,6 +765,7 @@ export function setDownNote(r: SetDownRecord | undefined): string | null {
   if (r.folded + r.reworded > 0) parts.push(`${String(r.folded + r.reworded)} gone word for word ${r.folded + r.reworded === 1 ? "was" : "were"} folded or reworded, and not set down.`);
   if (r.unmatchedNamed > 0) parts.push(`${String(r.unmatchedNamed)} named in setDown ${r.unmatchedNamed === 1 ? "is" : "are"} still on the page or never were, and nothing was recorded for ${r.unmatchedNamed === 1 ? "it" : "them"}.`);
   if (r.back.length > 0) parts.push(`Brought back: ${r.back.join(", ")}.`);
+  if (r.skills.length > 0) parts.push(`Moved to ${r.skills.length === 1 ? "a skill memory" : "skill memories"}: ${r.skills.join(", ")}.`);
   return parts.length === 0 ? null : parts.join(" ");
 }
 

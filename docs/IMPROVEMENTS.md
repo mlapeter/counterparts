@@ -4776,6 +4776,260 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
   folder's "Since the last night"; and `updates` with a fresh date brought back what the
   gate had dropped.
 
+### Decided by the FD1 step 3 builder, 2026-11-07, lightly held (interference for routine work events)
+
+- Decided by the FD1 step 3 builder, 2026-11-07, lightly held: a newer routine work event fades the older one
+  through the one door (`reconsolidation.ts#supersede`, `changed`, source `interference`, reason
+  `superseded-by-newer`), in a night phase of its own (`interfere`, after `tags`). The subject is a version series
+  (`0.3.46` under `0.3.50`: same `major.minor`, no higher patch; the same version only as a real advance, a step
+  such as cut, packed, ready or tagged before a final released or published), in the same
+  folder, read in each memory's headline (its title, or its first 120 characters), both reading as status events,
+  the newer written on a later lived day. Why the headline: on a copy of the owner's store, reading whole bodies
+  made one note that named 0.3.50 in its last line the "newer state" of a dozen unrelated ones. Why tokens: the example pairs are exactly these tokens; the slot
+  detector needs vectors, looks back 7 lived days and waits on the dream (4 a night), and "#760 merged" /
+  "#772 merged" are near-identical by meaning but two subjects, which tokens tell apart. No model, testable
+  hermetically, and every fade is undoable.
+- Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the scope guard, each term pinned to a column — the
+  older is `about = 'work'`, `source = 'authored'`, `kind = 'fact'`, status `done` or unmarked, episodic, not
+  protected or core, not a belief, no `event_date`, not an open item (`unresolved` / `settlesWhen`), `said_by` not
+  `owner` (unmarked counts as not the owner's, as `defaultClaimFor` reads it), no feeling (`emotional` 0, no
+  feelings row), `sal` ≤ 0.4, `uses` < `W_USEFUL` (0.75: one open, quote or rating of 2–3 is past it), reads as a
+  status event AT its subject (a status verb beside the version in the headline, never a plan such as "cut
+  tomorrow" or "will cut"), never faded before, not
+  the faded side of a pair nor under an open question (a pair the owner undid is never faded again). The newer
+  must say the thing was DONE at that subject (released, published, merged, …), equal version too (review of #777). Why: the
+  brief's "unsalient, never-really-used" made checkable; 0.4 is `DEFAULT_CLAIM_PERSONAL`, above every work default.
+- Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the cut is `CHANGED_FADE` (×0.5), at most 200 a night
+  (`BUDGETS.interfere`), and the prune is untouched (`D_FLOOR_DAYS` stays 14). The `sleep.cycle` row counts
+  `interfered` beside `pruned`, so a CHECK-AFTER read tells a fade from an age exit.
+- Decided by the FD1 step 3 builder, 2026-11-07, lightly held: the memory an older one is settled under is its
+  NEAREST later state (the same version first, then the fewest patches on, then the newest
+  written), not the newest match. Why: on the copy, "newest" put every 0.3.x release note under one 0.3.50 drill
+  note, so recall's "earlier → now" pointer named an unrelated memory; the fade is the same either way.
+- Decided by the FD1 step 3 builder, 2026-11-07 (round 3 of the review of #777), lightly held: no pull-request
+  rule. On the owner's copy all three same-PR fades were wrong ("merged" under "merged", a slash list's verb
+  credited to its last number). A later rule could take a PR's not-done → done advance (opened → merged).
+
+### Decided by the SO1 step 2 builder, 2026-11-07, lightly held (a done memory is never overdue)
+
+- From Mike's 11-07 brief (SO1, Fable review item 3): `status: done` with a date of today
+  or earlier reads the date as when it happened. The read side does it in
+  `prospective/derive.ts` (a new refusal, `done`, off the row's status at derive time, plus
+  the same skip in `plainDue`), so every reader of the horizon (the wake's Coming up, its
+  overdue count, the `coming up` handle, Arriving, the cue path) agrees, and rows written
+  before it need no migration or store-format change.
+- The boundary is the date's last day on or before today (`lastDay <= at`; the coordinator's
+  call, 11-07: a done dated today has happened, and "Handoff for 11-07 written" seen on
+  11-07 is the brief's own example). So a done dated today doesn't show as due today; a
+  month or range still running past today is left alone. A done dated tomorrow or later
+  is left alone too (ambiguous; not this step).
+- A repeat is exempt on both sides: a done at a repeat closes one occurrence
+  (`closeOccurrence`), and a repeating row marked done still comes round.
+- The write side (`server-args.ts#doneDateAsOccurred`, both `remember` and `session_end`)
+  turns an eventDate of today or earlier on a done write into `occurredOn`, keeps an `occurredOn` sent
+  too and different, and says it in `facts.dropped` (field `eventDate`). It skips a write
+  with `updates`: its target may repeat, and the deposit's own close decides it; the read
+  side covers a done one-off revision either way. A done write no longer gets the
+  "reads like a reminder but has no eventDate" hint.
+
+### Decided by the roadmap seat with Mike's ruling, 2026-11-07, lightly held (FD1 step 5: old chapters leave ambient recall)
+
+- Decided by the roadmap seat with Mike's ruling ("keep the journal forever; old chapters stop costing"),
+  2026-11-07, lightly held: an ambient turn leaves out a chapter or frozen full copy whose latest chapter is
+  `LAST_HERE_LIFE_DAYS` (14) or more lived days old, dated from the episode's last engine heading, not its birth.
+  Counted on `recall.decision` as `journalAged`, with `journalCandidates` for the journal's share of the slots.
+  Why: reach-exempt rows never left the ambient pool, chapter footnotes past 7 days rated about 0, and the cost
+  was slots, not ms. An age test only, so sleep §15 stands (no strength or ranking row). Facts, meaning, reads by
+  id, the wake and the dream are untouched. Revisit at the CHECK-AFTER read (~1 week after install): N to 7 if
+  7–13-day chapters stay under ~0.3.
+- Decided by the FD1 step 5 builder, 2026-11-07, lightly held: `mcp.recall` carries `elapsedMs` on every path: a
+  question's mode answer (the embedding left out, since that time is the embedder's) or an address's read. Why:
+  meaning mode reads every episode on each ask, the one cost that grows linearly with the journal, and nothing
+  recorded its time. Candidate-first selection for meaning mode is not built; it waits for ~1,000 chapters or a
+  200 ms ask.
+
+### Decided by the FD1 step 2 builder, 2026-11-07, lightly held (growth exits; brief FD1, Mike's 11-07 ruling)
+
+- Decided by the FD1 step 2 builder, 2026-11-07, lightly held: `recall.decision`,
+  `recall.credit` and `recall.rated` keep 30 lived days (`store/operational.ts`
+  `SHORT_RETENTION_DAYS`, `SHORT_RETENTION_NAMES`); every other unlatched event row keeps 90.
+  Why: they are most of the log, and every reader on a turn or a night reads at most 14 lived
+  days of them (habituation 14; doctor's lines 7; priming and the same-turn rating check the
+  session; the dream since the last night). Before a day of them goes, its counts go into
+  one latched `events.rolled` row. Undo: empty the list.
+- Decided by the FD1 step 2 builder, 2026-11-07, lightly held: per-turn names not on the list
+  yet (`adapter.recall`, `adapter.boundary`, `mcp.recall`, `associate.flush`) stay at 90.
+  Doctor's boundary-age read takes `adapter.boundary` with no day bound, and the others'
+  readers weren't all checked, so they wait for a check of their own.
+- Roadmap ruling R1, 2026-11-07: `recall_turns` gets the same 30-lived-day sweep. Nothing
+  in `src/` or `tools/` writes it today (`recordRecallTurn` has no caller), and its only
+  readers are `Store.recallTurns` (no caller) and the owner's removal, which edits `shown`.
+- Roadmap ruling R2, 2026-11-07: a count shown as all-time is read from the daily summaries
+  plus the rows still held, never from the held rows alone. So each summary also keeps the
+  ids credited for use, the session refs and `probe-oq4`'s two reports for its day.
+  Approximate in one place: a session whose rows straddle a rolled lived day and a held one
+  is counted on both sides in `probe-oq4`. No removed or held id is ever written into a summary (the deny-list is
+  read at roll time), and the owner's removal scrubs summaries already written. A memory
+  still held when the sweep runs, and released later, loses those use days from its card:
+  privacy first. A per-turn row written later onto a day already summarised goes uncounted.
+- Decided by the FD1 step 2 builder, 2026-11-07, lightly held: the Growth lines are always
+  green, and none is in the session-start reading. Why: a ratio isn't a fault (guards loose
+  first), and the memories line walks every live row.
+
+### Decided by the SO1 step 1 builder, 2026-11-07, lightly held (the night closes open items itself)
+
+- Decided by the SO1 step 1 builder, 2026-11-07, lightly held: the deterministic close is ONE rule,
+  `release-supersedes`, in a night phase of its own (`close`, after `interfere`; `core/open-close.ts`). An open item
+  (`unresolved`, with or without `settlesWhen`) whose headline names a version as a release step still owed — ready,
+  ready to publish, after-publish, publish, beside the version (review of #782: never cut, built, packed, pushed,
+  merged, approved, reviewed, queued or tagged, which a bug report names too) — closes when a later memory in the
+  same folder, written `status: done`, reads a strictly higher patch of the same series as FINAL (released,
+  published, shipped, deployed, installed, landed; `interference.ts#subjectKeys`), of the same product (the word
+  right before the version: "site 0.3.46" is not "counterparts 0.3.50"; none, or the default name, on either side
+  is the folder's own). W < Z only: the same version's release does not close its own after-publish steps. An
+  unmarked memory is never evidence for a close ("Plan: 0.3.50 released by Friday", "0.3.50 released? Not yet"
+  closed items in the review's attack); it may only list. Why one rule: precision over recall (a wrong close hides a real debt), and the brief's
+  explicit rule is the only one whose evidence reliably lives in the store.
+- Decided by the SO1 step 1 builder, 2026-11-07, lightly held: never closed by the night's rule — `status: asked`
+  (a question to the owner closes on his answer: a write that `updates` it, or the reflection reading his words;
+  similarity is not his answer), an item the owner reopened, a check (CHECK-AFTER, "Check due", a re-read: a release
+  is when a check comes due), an item conditional on a version ("after 0.3.45", "aimed at 0.3.30"), a problem (the
+  headline says break, broke, broken, fail, bug, missing, crash, regress, wrong or fix: "0.3.46 ready but the
+  migration drops tags; fix before any release"), protected or archived rows.
+- Decided by the SO1 step 1 builder, 2026-11-07, lightly held: the reflection's `close` (unsure) ids are no longer
+  asked in the share ("Shall I close them?" is gone); they stay on the row as `closeProposed` and, with the night's
+  own low-confidence matches (a version whose series moved on in an item that doesn't read it as a step; a PR named
+  in the item that a later headline says merged), are listed as `mayBeDone` under `recall "still open"`. The
+  reflection's `closeNow` stays the model's close, except on an `asked` item, which is listed instead.
+- Decided by the SO1 step 1 builder, 2026-11-07, lightly held: the "touch" that reopens a night-closed item is (a)
+  the reflect tool's phase `reopen` with its id (the existing undo path, extended; it also undoes an interference
+  fade a later night put on the closed item), or (b) a `remember`/`session_end` write that `updates` it and says
+  `unresolved: true` (the thread goes on, on the new row, with its `settlesWhen` carried). Recalling it by id is
+  NOT a touch: the morning line prints ids, and looking at what closed must not undo it. Both are recorded
+  (`thread.night.reopened`), clear `threadClosedBy {by: "night"}` (so a later close or reopen is not mistaken for
+  the night's, and the morning line leaves it out), and leave `threadReopenedBy`, so no night closes it again on
+  its own.
+- Decided by the SO1 step 1 builder, 2026-11-07, lightly held: the morning line sits in the shaped wake's night
+  section, after "Last night", as "Closed by the night (N): title — why [id]; … One not done? …": the newest night's
+  closes from yesterday's lived day on, only those this folder's Still open would carry. It repeats in that day's
+  wakes as "Last night" does; a once-a-day latch is SO1 step 4's.
+
+### Decided by the SO1 step 3 builder, 2026-11-07, lightly held (each item shows where it can be acted on)
+
+- Decided with Mike, 11-07 (roadmap): what he saw in motelier was plain reminders to do things from other folders.
+  Another folder's work plain reminder no longer shows or is told in this folder; personal ones (about me, us,
+  owner) still cross, folded once told. `about: world` no longer counts as personal for open threads or dated
+  items (`self/work.ts#threadPlace`). Why: the door read (`~/counterparts-notes/2026-11-07-briefs/SO1-step3-door-read.md`)
+  found the plain-due row the only door showing another folder's work whole since 11-02 (16/34/33/3/16 a day), and
+  the about-world thread in all 8 non-random readers.
+- Decided by the builder, lightly held: the telling path holds another folder's reminder back unclaimed
+  (`Counterpart#plainAway`, beside `plainHeldBack`), not just the wake block. Why: told in the folder that wakes
+  first, it wrote the latch and its own folder's first wake folded it to "shown earlier".
+- Decided with the roadmap (fix round of #780): a reader with no folder (claude.ai and other hosts with no folder)
+  is told only personal plain reminders, and a telling counts as "shown earlier" for a folder's work only when it was
+  in one of that folder's readers' folders, so a chat's told mark never folds it at home.
+- Decided with the roadmap (fix round): the fallback. A work plain reminder unsaid through its window because its
+  folder had no session crosses ONCE, in the next session a person is in, 2 lived days past its last day, with its
+  folder named. Live cases it covers: deadfront's 11-16 founder note (no writes there since 10-09), hearddd-v2's
+  2027-03 month item, sitting-duck's 2027-03-01..10 range. Builder's calls, lightly held:
+  - a lived day is a calendar day a person's session start wrote its presence row (`adapter.wake.injected`,
+    interactive), today included. Round 3, the roadmap's ruling: one source for the crossing and doctor, not the
+    session registry, which prunes a week after a session ends. The wake row now also names its folder (a JSON
+    field, no store-format change), so doctor's "was its folder there" stops reading the registry;
+  - it runs only at a person's session start, or a wake tool call the host says a person is at, in a folder; never
+    per prompt (round 3: it cost ~8.7 ms a prompt on Mike's store), never into a chat with no folder. A day with
+    nothing unsaid is memoised in meta (`prospective.cross.none`), and the dated read is bounded to the lookback;
+  - once crossed, its own folder's late beat doesn't say it again;
+  - my own checks (CHECK-AFTER, "Check due", "Check ~", "Experiment check" in the title or settles-when) never
+    cross: they wait for their folder;
+  - its latch is its own row, `prospective.plain.crossed`, not a beat, so the fold and the beat readers don't treat
+    it as told on its day;
+  - a late beat told in its own folder is the telling (no crossing beside it);
+  - not a closed folder's, not a repeating one, not one marked done or that already happened, and not past 30 days
+    after its last day (`PLAIN_CROSS_LOOKBACK_DAYS`), so an install doesn't flood a session with old ones.
+- Decided with the roadmap (fix round): doctor reads "due while its folder had no session" as info, and amber only
+  once the day it should have crossed has passed with a session and it still wasn't said. A presence row that names
+  no session counts as its folder's (the old reading). The unsaid wording is now "due where a session could say it,
+  and not said".
+- Decided by the builder, lightly held: "in other folders" names up to two of the other folders' plain reminders due
+  today ("garden: title", titles cut at 48 characters, then "and N more"), only in room the lines didn't need, so
+  it never costs a line. Dated items that aren't plain are still only counted.
+- Noted for Mike (not built): dated `about: world` items now show only in their folder (e.g. random's "Anthropic's
+  rule … takes effect Nov 12"). A world-news flavour for those could come later.
+- Decided by the builder, lightly held: a journal copy marked world stays personal (as `isWorkMemory` reads a
+  journal copy); unmarked rows personal by kind (`self`, `person`) still cross.
+- Proposed, not built (step 4 on hold): the four classes, from fields on the row, first match wins.
+  0. `status: done` → no class (steps 1/2: done-but-open).
+  1. Personal: `about` ∈ {me, us, owner}. Crosses folders.
+  2. Mine: title or `settlesWhen` reads CHECK-AFTER, "Check due", "Check ~" or "Experiment check". Own folder and
+     joined projects only.
+  3. Mike's: `status: asked`, or `settlesWhen` starts "Mike" or "he". Own folder; at most once a day (step 4).
+  4. World's: any other `settlesWhen`, or a future `eventDate`. Silent until the date or the settle.
+  5. Else: mine.
+  `said_by` is not used (it records who said a thing, not who owes it). Steps 1-2 need only 1 against the rest,
+  which `threadPlace` already expresses, so no classifier code was added.
+
+### Decided by the SO1 step 1b builder, 2026-11-07, lightly held (a write's close hint)
+
+- The shape (roadmap with Mike, 11-07): a stored `remember` or `session_end` entry lists
+  open items from any folder whose subject it matches (`mayClose`), and the writing model
+  decides. Why: the proof an item is done lives in the session that did the work, which
+  never knew the item existed; the night's rule closed 0 of the 32 items closed by hand
+  on 11-07.
+- At most three per entry, nearest first (fewest patches on, then the newest item). No
+  per-call cap beyond that.
+- The entry must say the thing was DONE (released, published, merged, …) beside the
+  version or PR in its headline; a plan (`planned`, `proposed`, `asked`) and an entry
+  about owner/us/me list nothing.
+- The item's `settlesWhen` is read with every version and PR it names (the same version
+  counts: "settles when 0.3.46 published" is listed beside "0.3.46 published"), since it
+  is a trigger written on purpose. Its headline is read strictly (a step verb beside the
+  version, `sameSubject`'s rules).
+- A PR rule exists for the hint only (`interference.ts#prKeys`). The night's interference
+  sweep still has none: a fade there is the store's call and was wrong on all three
+  same-PR pairs in #777's review; a hint is a list the model judges.
+- Asked items are listed with a note naming the owner ("asked of Mike: close only if
+  this is Mike's answer"), the name read from the store, "the owner" when none.
+- Counted as two event names, no store-format change: `open.close-hint.shown` per entry
+  that listed any (ids, ms) and `open.close-hint.closed` when a listed id is closed
+  through `updates` within 7 lived days (`CLOSE_HINT_TUNABLES.CLOSE_WINDOW_DAYS`).
+- The cost, on the write path: a write whose headline names nothing done (nearly every
+  write) is checked on its own words and reads nothing. One that does reads every open
+  item's head once (`INDEXED BY memories_open`), then the parked check (one row's touch
+  read, only for an item with no `settlesWhen` that isn't asked) and the settled-over
+  walk, nearest first, only until three are listed. Measured on a copy of the owner's
+  store (11-07, 338 open items): ~1.6 ms p50 in the read whether it lists or not, ~2 ms
+  p50 through `remember` (max 2.3). Before the review's fixes it was ~18 ms with hints:
+  the planner took `memories_birth`, and the touch read walked every open item.
+- After the review of #783 (a dry run on the 11-07 copy: 3 of 19 plainly irrelevant, 2
+  weak): the PR rule matches only items in the writer's own project folders (the join
+  Still open reads), since a PR number belongs to one repository; checks and follow-ups
+  are never listed (title or `settlesWhen` with CHECK-AFTER, "Check due", "Check ~",
+  "Experiment check", "re-read": a merge doesn't settle a read); protected rows are left
+  out (their close would be refused); and an item in a folder the folder setting has off,
+  paused or observer is never listed in another folder's result.
+
+### Decided by the SX1 builder, 2026-11-09, lightly held (passwords named in a sentence)
+
+- Decided by the builder, lightly held: the new family is named `password`, not folded into
+  `assigned-credential`, so the marker reads "my wifi password is [REDACTED:password]" and a week's
+  `gate.deposit` count can say how often a sentence carried one. Where: `encode/secrets.ts#SECRET_FAMILIES`.
+- Decided with the coordinator (fix round of #788): a missed password costs more than a cut word, so
+  where the choice is between the two the gate takes the word. Two known cuts ("the password is
+  important / irrelevant") and four known misses (no password name nearby, or the value only after
+  "so") are rows in the test, each with its reason in the PR.
+- Decided by the builder, lightly held: the family finds an anchor with a regex and reads the value in
+  code (`SecretPattern.extent`, `proseValue`), because "a lowercase word with more of the clause after
+  it is the sentence" and "a passphrase runs to the end of its clause" are not clear as regexes.
+- Decided by the builder, lightly held: `:` and `=` straight after a name stay the catch-all's (with its
+  code guards); `pw` and `passcode` joined its names. `pass:` counts only where a field starts, since
+  "first pass: 74%" is prose. `pwd`, `code` and `key` alone are not names.
+- Decided by the builder, lightly held: the raw-buffer scan is injected into `SpanBuffer` by `Counterpart`
+  (`BufferOptions.redact`), keeping `remember/`'s rule that it never gates by itself; the span is hashed
+  after redaction. Lines already on disk are not migrated; they leave under raw retention.
+- Decided by the builder, lightly held: other languages only where one name and one verb were enough
+  (Spanish, French, German, Portuguese), each with a few "wrong / empty / required" words.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
