@@ -133,7 +133,8 @@ and Parked: see the [roadmap](ROADMAP.md).
   windows-x64 binary job are required; README, QUICKSTART and the manual say "Windows is new"). The three blockers from
   #746 are fixed: (a) `shellTokens` reads a backslash in quotes as bash does; (b) the binary's `--version`; (c) the
   smoke no longer waits on a dashboard it couldn't stop. Left: the single binary as a Windows release download
-  (`build.ts#RELEASED`, a separate yes); the sidebar mod on Windows (not tried); what `cli/INTERFACE-GAPS.md`
+  (`build.ts#RELEASED`, a separate yes) and with it the plugin route on Windows (`plugin-run.sh`'s download, whose
+  e2e is skipped there); the sidebar mod on Windows (not tried); what `cli/INTERFACE-GAPS.md`
   "Windows, left after W1" lists (no process look, renaming an open store, `/` prefix checks, drive-letter case); and
   the first real user's install (`CHECK-AFTER.md`).
 
