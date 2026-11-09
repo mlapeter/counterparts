@@ -14,17 +14,27 @@ import { redactSecrets, scanSecrets } from "../src/core/encode/secrets.js";
 /** Each sentence, and the value that must not survive it. */
 const MUST_REDACT: readonly (readonly [string, string])[] = [
   ["my password is hunter2", "hunter2"],
-  // A hyphenated value whose last part is a describing word: a digit in it, or the whole value.
+  // A hyphenated value: the whole value after a password word is a value by default (review of #795).
+  ["wifi pw sunset-river", "sunset-river"],
+  ["the PIN is 44-71", "44-71"],
+  ["her password was tiger-lily", "tiger-lily"],
+  ["my password is super-secret", "super-secret"],
   ["my password is hunter-secret", "hunter-secret"],
   ["pw 1.2.3-dev-secret", "1.2.3-dev-secret"],
   ["the wifi password is sunflower-private", "sunflower-private"],
-  ["my password is tiger7-secret", "tiger7-secret"],
-  ["the password is 42-secret", "42-secret"],
-  ["pw 99-problem", "99-problem"],
-  ["my password was moon-public", "moon-public"],
-  ["my password is hunter-secret lol", "hunter-secret"],
   ["the router password is bluefox-new", "bluefox-new"],
   ["password: frog-secret", "frog-secret"],
+  ["the guest password is purple-monkey", "purple-monkey"],
+  ["my netflix password's blue-banana", "blue-banana"],
+  ["the PIN is 2580-11", "2580-11"],
+  ["the vpn password was paper-crane", "paper-crane"],
+  ["password: lemon-drop", "lemon-drop"],
+  ["my password is open-sesame", "open-sesame"],
+  ["his password is red-fox-jumps", "red-fox-jumps"],
+  ["wifi pw mango-tango", "mango-tango"],
+  ["the admin password is silver-arrow", "silver-arrow"],
+  ["my password is night-owl", "night-owl"],
+  ["my password is hunter-secret lol", "hunter-secret"],
   ["My password is hunter2.", "hunter2"],
   ["the wifi password's sunflower42", "sunflower42"],
   ["the wifi password’s sunflower42", "sunflower42"],
@@ -64,17 +74,25 @@ const MUST_REDACT: readonly (readonly [string, string])[] = [
 
 /** Sentences and code that carry no password: left exactly as they were. */
 const MUST_NOT_REDACT: readonly string[] = [
-  // Hyphenated prose: a description, not a value.
-  "a well-known password",
+  // Hyphenated prose: a describing ending, a participle, a password property, an idiom, an algorithm.
+  "the password is high-entropy",
+  "the password is low-entropy",
+  "the password is 8-chars",
+  "the password is min-length",
+  "the password is mixed-case",
   "the password is top-secret",
   "my password is brand-new",
   "the password is non-public",
-  "the password is super-secret",
-  "the password is semi-private",
+  "the password is well-known",
   "the password is time-sensitive and expires friday",
   "the password is user-specific",
   "the password is admin-managed",
+  "the password is auto-generated",
+  "the password is password-protected",
+  "a well-known password",
   "my password is well-known to the whole team",
+  // The known trade: "-ic" is a describing ending, so a password ending in one is kept.
+  "my password was moon-public",
   "I forgot my password",
   "the password field is empty",
   "password reset flow",

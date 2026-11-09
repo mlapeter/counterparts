@@ -338,22 +338,29 @@ function describes(word: string): boolean {
   return last !== undefined && w.length > last.length + 1 && (PROSE_STOP.has(last) || PROSE_PARTICIPLE.has(last) || PROSE_SUFFIX.test(last));
 }
 
-/** First parts that make a hyphenated description: "top-secret", "brand-new", "non-public". */
-const PROSE_HYPHEN_LEAD = new Set("top super non semi ultra extra brand half all self well very fully".split(" "));
+/** A describing ending on a hyphenated word's last part, after a stem of 3+ letters ("case-sensitive",
+ * "base64-encoded", "user-specific"); the stem keeps "tiger-lily" a value. */
+const HYPHEN_DESCRIBING_END = /^\p{L}{3,}(?:ive|ed|ly|ic|able|less)$/u;
+/** A last part that names a property of a password: "high-entropy", "8-chars", "min-length", "mixed-case". */
+const HYPHEN_PROPERTY = new Set("entropy case length chars char characters digits sensitive protected expiring".split(" "));
+/** Fixed idioms whose last part is a plain word: "top-secret", "brand-new" (both in the prose table). */
+const HYPHEN_IDIOM_LEAD = new Set(["top", "brand"]);
 
 /**
- * A hyphenated VALUE that `describes` would read as prose only because its last part is a plain
- * describing word ("hunter-secret", "1.2.3-dev-secret", "moon-public"). A digit in any part, or the
- * token standing as the whole value, makes it a value. A participle or adjective ending stays prose
- * ("case-sensitive", "base64-encoded", "2FA-protected"), as does a describing first part ("top-secret").
+ * IS THIS HYPHENATED TOKEN A VALUE? `describes` reads "hunter-secret" as prose by its last part, and a
+ * bare `pw` or a weak connector wants a digit, so "my password is hunter-secret", "wifi pw sunset-river"
+ * and "pw 1.2.3-dev-secret" were kept. Standing as the WHOLE value it is a value by default; in a longer
+ * clause, only with a digit and a plain listed last part. Prose when its last part has a describing
+ * ending, is an irregular participle ("well-known") or a password property, after an idiom lead, or
+ * when the whole token is an algorithm ("UTF-8", "sha-256").
  */
 function hyphenValue(word: string, whole: boolean): boolean {
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}.]*(?:-[\p{L}\p{N}.]+)+$/u.test(word) || PROSE_ALGO.test(word)) return false;
   const parts = word.toLowerCase().split("-");
   const last = parts[parts.length - 1] ?? "";
-  if (parts.length < 2 || parts.some((p) => p.length === 0) || !PROSE_STOP.has(last)) return false;
-  // Not `-ic`: "public" is the noun-like part of "moon-public", where "sensitive" is a real ending.
-  if (PROSE_PARTICIPLE.has(last) || /(?:ly|ed|ing|able|ible|less|ful|ous|ive)$/.test(last) || PROSE_HYPHEN_LEAD.has(parts[0] ?? "")) return false;
-  return /\d/.test(word) || whole;
+  if (HYPHEN_DESCRIBING_END.test(last) || PROSE_PARTICIPLE.has(last) || HYPHEN_PROPERTY.has(last)) return false;
+  if (HYPHEN_IDIOM_LEAD.has(parts[0] ?? "")) return false;
+  return whole || (/\d/.test(word) && PROSE_STOP.has(last));
 }
 
 /**
@@ -493,16 +500,20 @@ function proseValue(text: string, start: number, name: string, connector: string
   if (first.length < 4 || first.startsWith(REDACTION_MARK) || codeShaped(first)) return null;
   const one: [number, number] = [vstart + lead, vstart + lead + first.length];
   const next = clean(tokens[1] ?? "");
+  const alone = tokens.length === 1 || PROSE_FILLER.has(next.toLowerCase());
 
   // A value on the next line is one token alone there ("the pin\n1234 Main St" is an address).
   if (crossLine && (tokens.length !== 1 || skipped > 0)) return null;
   if (digitsOnly) {
     const digits = /^\d{4,12}[#*]?$/.test(first) && !(/^pin/.test(lower) && /[#*]$/.test(first));
-    if (!digits && !(combo && /^\d{1,4}(?:[-–]\d{1,4}){2,5}$/.test(first))) return null;
+    // "the PIN is 44-71": digits in dashed groups, the whole value, 4–12 digits in all.
+    const groups = alone && /^\d+(?:-\d+)+$/.test(first) && /^\d{4,12}$/.test(first.replace(/-/g, ""));
+    if (!digits && !groups && !(combo && /^\d{1,4}(?:[-–]\d{1,4}){2,5}$/.test(first))) return null;
     // A year with a noun after it is not a PIN: "PIN 2024 rollout".
     if (/^(?:19|20)\d\d$/.test(first) && /^\p{Ll}+$/u.test(next) && !/^(?:for|to|on|at|in|is|was|and|or)$/.test(next)) return null;
     return one;
   }
+  if (!crossLine && hyphenValue(first, alone)) return one;
   if (bare && !/\d/.test(first)) return null;
   if (weak && !secretShaped(first)) return null;
 
@@ -518,7 +529,6 @@ function proseValue(text: string, start: number, name: string, connector: string
   if (/the[ \t]+(?:word|phrase|string|number)$/u.test(kind)) {
     return PROSE_FUNCTION.has(first.toLowerCase()) || PROSE_GRAMMAR.has(first.toLowerCase()) ? null : one;
   }
-  if (hyphenValue(first, tokens.length === 1 || PROSE_FILLER.has(next.toLowerCase()))) return one;
   if (isProseWord(first)) return null;
   // A run of Capitalised words: "Blue Skies Over Denver"; not when a description follows ("Okta managed").
   if (/^\p{Lu}/u.test(first) && tokens.length > 1 && /^\p{Lu}[\p{L}\p{N}]*$/u.test(next)) {

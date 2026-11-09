@@ -236,11 +236,13 @@ line 13: decisions are defaults).
       part is one of those ("case-sensitive", "base64-encoded"), algorithms (bcrypt, sha256,
       argon2id, utf-8), paths, URLs, placeholders, and code (brackets, a call, a dotted
       reference). A PIN or door code is 4–12 digits, and a year with a noun after it is not one.
-    - **A hyphenated value is not a description** (`hyphenValue`): "my password is hunter-secret"
-      and "pw 1.2.3-dev-secret" survived because the last part ("secret") was on the list. When
-      that last part is a plain listed word (not a participle or an ending other than -ic) and the
-      first part isn't "top", "brand", "non", … the token is a value if any part has a digit or it
-      is the whole value. "case-sensitive", "base64-encoded", "top-secret", "brand-new" stay prose.
+    - **A hyphenated value is not a description** (`hyphenValue`): "my password is hunter-secret",
+      "wifi pw sunset-river" and "the PIN is 44-71" survived, read as prose by their last part or held
+      back by bare `pw` wanting a digit. Standing as the whole value it is now a value by default;
+      prose only when its last part has a describing ending after a 3-letter stem (-ive -ed -ly -ic
+      -able -less; the stem keeps "tiger-lily" a value), is a participle ("well-known"), names a
+      password property ("high-entropy", "8-chars", "mixed-case"), follows "top"/"brand", or the whole
+      token is an algorithm ("UTF-8"). Trade: "moon-public" is kept, by `-ic`. Review of #795.
     - **Never across a line**, except one secret-looking token alone on the next line; a stray
       apostrophe does not open a quoted run.
     - **Linear.** Every newline search and lookbehind is bounded: a lookbehind before `pass` ran
