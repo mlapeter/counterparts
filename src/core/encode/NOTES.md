@@ -221,7 +221,7 @@ line 13: decisions are defaults).
       person); a false positive costs one word of a sentence about passwords. Where the choice
       is between them, this takes the word ("the password is important" is cut).
     - **Names**: password (and three typos), passwd, passcode, passphrase, pass code, PIN (code,
-      number), pw, a door / gate / alarm / lock … code, a wifi key, `pass:` where a field starts
+      number), pw, a door / gate / alarm / lock … code, a wifi key, a pass followed by a colon where a field starts
       (not "first pass: 74%"), and contraseña, mot de passe, mdp, Passwort, Kennwort, senha.
       Not `pwd` (the working directory), not `code` or `key` alone.
     - **Connectors**: is / was (es, est, ist, war, é, era, and "iz") with up to three adverbs,
@@ -244,6 +244,18 @@ line 13: decisions are defaults).
     - **`:` and `=` straight after a name stay the catch-all's**, which has the code guards.
       `pw` and `passcode` joined its password names, and `passcode` the PIN pattern.
     - **The raw buffer crosses the same scan** (`remember/spans.ts`, injected by `Counterpart`).
+    - **Second review, fresh sentences** (20 of 70 kept, 11 of 88 cut; now 5 of 70 and 2 of 88,
+      both of those the catch-all's on master too; `test/secrets-prose-password-review2.test.ts`).
+      The causes: a Windows `\r` stayed on the last word and hid it from every list (the line is
+      now cut at `\r\n`); a passphrase or colon took a whole describing clause (now only a run that
+      reads as one: two to eight words, no function word, three not describing a password; a seed
+      or recovery phrase runs whole); measurements and versions ("1200ms", "12/15", "v2.1") and
+      password-manager names (1Password, LastPass, …) are words; "it's <value>" needs the name in
+      its own clause, not 80 characters away; `pwd` counts in a possessive or "the pwd for" frame;
+      an emoji or `**` before a value is stepped over; lock combinations and dashed codes are
+      digits; an aside (", if you need it," / "(case sensitive)") may sit before the verb; a
+      table cell or a comma may connect. A plain-word value is no longer carried to its other
+      copies ("my password is" a weekday took every copy of the weekday): only a secret-shaped one.
 
 ## Calibration status (scar §2.8, guarantee 13)
 
