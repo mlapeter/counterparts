@@ -909,6 +909,9 @@ export const RECALL_DECISION_FIELDS = [
   "footnotes",
   "elapsedMs",
   "lateMs",
+  // LT2 part 1 (2026-11-09): ms per step of the pass, absent with
+  // `recall.STEP_TIMING` off. Added the way `echoSkipped` was; `tools/parallel`'s hash moves with it.
+  "steps",
   "aborted",
   // Association build 1 (2026-09-28): what spreading did, and the cut's count.
   "spread",
@@ -1087,6 +1090,8 @@ export function recallDecisionRecord(
     // past the line it ran: `lateMs` is what the old `latency-abort` counted.
     elapsedMs: d.elapsedMs,
     lateMs: d.lateMs,
+    // WHERE THE TIME WENT (LT2): step name → ms, copied; undefined (not written) while off.
+    steps: d.steps,
     aborted: d.aborted,
     // What spreading did this turn and how many scored candidates the cut left
     // out — counts only (association build 1, 2026-09-28). `spread` is null on

@@ -81,6 +81,7 @@ import {
   RATED_SAME_TURN_ROWS,
   isBeliefRow,
   beliefLine,
+  StepClock,
 } from "./recall/index.js";
 import { DREW_ON_MAX_PER_BOUNDARY, resolveReferences } from "./recall/reference.js";
 import type { ReferenceCandidate } from "./recall/reference.js";
@@ -120,7 +121,7 @@ import { similarity as textSimilarity } from "./remember/updates.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
 import { REFLECT_TUNABLES } from "./dream/reflect.js";
 import type { SchemaSlice as EncodeSchemaSlice } from "./encode/index.js";
-import { recallTurn } from "./retrieval.js";
+import { composeTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
 import type { RevisionApplication } from "./revision.js";
 import {
@@ -3163,6 +3164,9 @@ export class Counterpart {
     // `composeTurn` skips its own read when `turn.temporal` is already set, so
     // this is the same channel and the same ceiling (§12 G1, G5) — one read of
     // `arrivals()`, never two.
+    // WHERE THE TIME WENT (LT2, 2026-11-09): one clock from here through the
+    // record, lapped at each step (`recall/steps.ts`); read by nothing that decides.
+    const clock = turn.clock ?? new StepClock();
     const arrived =
       opts.at === undefined || turn.temporal !== undefined
         ? null
@@ -3175,16 +3179,26 @@ export class Counterpart {
           }).arrivals.filter((a) => opts.withhold?.has(a.memoryId) !== true);
     const cued: RecallTurn =
       arrived === null ? turn : { ...turn, temporal: arrived.map((a) => ({ id: a.memoryId, weight: a.cueWeight })) };
+    clock.lap("arrivals");
     const echo = turn.echo ?? this.echoOf(turn.sessionId, opts.echoSince, opts.sessionFrom);
     const echoed: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
+    clock.lap("echo");
     const placed: RecallTurn = turn.elsewhere !== undefined ? echoed : this.withElsewhere(echoed, opts.scope);
     const withCues: RecallTurn = this.withNamedFence(placed, opts.foldersOn, opts.scope);
-    const result = recallTurn(this.recall, this.withPrime(this.withSemantic(withCues), opts.scope), {
+    clock.lap("place");
+    const meant = this.withSemantic(withCues);
+    clock.lap("embed");
+    const primed = this.withPrime(meant, opts.scope);
+    clock.lap("primeContext");
+    // `retrieval.ts#recallTurn` in two steps, so the binding is timed apart.
+    const composed = composeTurn(primed, {
       schemas: this.schemas,
       prospective: this.prospective,
       associate: this.associate,
       ...(opts.at === undefined ? {} : { at: opts.at }),
     });
+    clock.lap("compose");
+    const result = this.recall.recall({ ...composed, clock });
     this.recordDecision(result.decision, opts.at ?? null);
     if (arrived !== null && opts.at !== undefined) this.spendArrivals(arrived, result.decision, opts.at);
     return result;

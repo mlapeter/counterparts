@@ -1836,3 +1836,63 @@ the embedding, or an address's read, on the server's clock.
 0.23 ms each, 104 ms at 323 episodes in the replay). It waits for ~1,000 chapters or a meaning ask past 200 ms,
 which `mcp.recall`'s `elapsedMs` now shows. N moves to 7 if the 7–13-day chapter ratings stay under ~0.3 and the
 freed slots go to better footnotes (`docs/CHECK-AFTER.md`).
+
+## LT2 part 1 — where a turn's recall time goes (2026-11-09, measurement only; switch `recall.STEP_TIMING`)
+
+**Why.** The 11-07 read had the typed-turn p50 of `elapsedMs` at 87 ms on lived day 40 and 206 ms on day 46, with
+candidates flat at ~370 a turn, so the growth was in a step nothing timed. Part 2 (a cheaper path for host turns)
+is a later PR and is not built here.
+
+**What.** `recall.decision` carries `steps`: ms per step, rounded to hundredths, in the pass's order
+(`steps.ts#STEP_NAMES`). A `StepClock` is a running mark: `lap(step)` charges the time since the last lap, so the
+laps tile the pass with no gap and no overlap, and a step lapped twice sums. `performance.now()` deltas, read by
+nothing that decides. One clock runs from `Counterpart#recallForTurn` through `Recall#recall`'s record, carried on
+`Turn.clock` (and `ActivationInput.clock` inside `activate`). A path that calls `recall()` or `build()` without one
+gets the build's steps from a clock of its own.
+
+| step | covers |
+|---|---|
+| `arrivals` | the temporal cues (`prospective.arrivals`) |
+| `echo` | what this session wrote, for the echo skip |
+| `place` | the project fence and the named-id fence (`withElsewhere`, `withNamedFence`) |
+| `embed` | this turn's meaning: the lag row, the in-line embed and box 3's count (`withSemantic`) |
+| `primeContext` | the session's sources for priming (`withPrime`) |
+| `compose` | the borrowed channels bound (`retrieval.ts#composeTurn`, the alias map) |
+| `gateLoad` | the session's gate state |
+| `primePlan` | priming's plan (`planPrime`) |
+| `beliefs` | the beliefs slot's pick |
+| `counts` | the two live-memory counts |
+| `mood` | the recorded feelings, when a mood can weigh |
+| `cue` | the words: tokens, rarity, postings, the doc cap, the calendar |
+| `learned` | the learned cue pairs (R3) |
+| `semantic` | the vector's rank over box 3 and its fusion (the embed itself is `embed`) |
+| `rank` | assembling, scoring, folding chapters and ranking for the cut |
+| `spread` | the link walk and its re-rank |
+| `prime` | priming's head starts |
+| `read` | the cut, the mood read and the kept candidates' prose |
+| `pointers` | the quiet pointers and the activation's result |
+| `settledOver` | the chain heads (`headsWin`) and each shown memory's standing (`standingOf`) inside the render |
+| `plumbing` | the own-plumbing filter |
+| `habituation` | who habituated (`habituatedIds`) |
+| `competing` | the unsettled pairs that compete |
+| `gate` | the gate |
+| `seeAlso` | see-also from named ids |
+| `render` | the render, less the standing lookups |
+| `rest` | whatever ran after the last named step (the decision record, the stop counts) |
+| `record` | after the build: gate state, cue records, the train, telemetry |
+
+`arrivals` through `compose` and `record` are outside `elapsedMs`; the rest tile it, so their sum is about
+`elapsedMs`. The `recall.decision` row's own write can't be inside its row, and neither can `spendArrivals` after it.
+A quiet turn carries the steps it ran (no `gate` when nothing was a candidate). The beliefs-only render on a quiet
+turn (`beliefsOnly`) runs after the snapshot and is in no step, as it was in no `elapsedMs`.
+
+**Not separable yet.** `cue` holds tokenizing, `docFrequency` and the per-cue `search` together; `rank` holds the
+`recallable` row reads, the denied set and the chapter fold. If either grows, the next cut is inside it.
+
+**Proof it changes nothing.** `test/lt2-step-timing.test.ts`: twin stores, the same prompts through the real hook and
+delivery, timing on and off: identical stdout, and rows equal but for `steps` and `elapsedMs`. And before/after
+against master (aadafc3f), outside the tree: 12 prompts in three sessions on a 22-memory store through the hook,
+stdout and decision rows (timing fields removed, ids normalized) byte-identical.
+
+**Read by** doctor's `Recall steps` line (`adapters/claude-code/doctor-recall-steps.ts`): the last 7 lived days'
+p50 per step, the eight largest by name, all in `--json` as `p50.<step>`. The read itself is `docs/CHECK-AFTER.md`.

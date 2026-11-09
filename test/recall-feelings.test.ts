@@ -281,7 +281,7 @@ describe("what does not change", () => {
     const without = s.counterpart.recall.build({ sessionId: "cmp", text: question });
     expect(withLane.feeling?.ranked).toBe(false);
     expect(withLane.feeling?.strengths.size).toBe(0);
-    const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
+    const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0, steps: {} });
     expect(strip(withLane.decision)).toEqual(strip(without.decision));
     // Meaning answers it by its words, not as a feeling.
     const r = meaning(s.counterpart, question);
@@ -810,7 +810,7 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     const without = s.counterpart.recall.build({ sessionId: "cmp6", text: question });
     expect(withLane.feeling?.ranked).toBe(false);
     expect(withLane.feeling?.noTopic.size).toBe(0);
-    const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
+    const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0, steps: {} });
     expect(strip(withLane.decision)).toEqual(strip(without.decision));
     // Meaning answers it by its words, not as a feeling.
     const r = meaning(s.counterpart, question);

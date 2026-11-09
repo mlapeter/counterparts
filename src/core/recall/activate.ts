@@ -61,6 +61,7 @@ import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
 import { semanticTuning } from "./tunables.js";
+import type { StepClock } from "./steps.js";
 import { NO_MOOD, hasMood, moodLift } from "./mood.js";
 import type { Mood } from "./mood.js";
 import { cosine } from "./prime.js";
@@ -274,6 +275,8 @@ export interface SpreadStats {
 
 export interface ActivationInput {
   readonly text: string;
+  /** The turn's step clock (LT2, 2026-11-09): lapped at each channel, read by nothing that decides. */
+  readonly clock?: StepClock;
   readonly vector?: readonly number[] | undefined;
   /** A ranking somebody else already computed — the lagged semantic cue the
    *  worker resolved one turn ago (`session.ts`). Supplied hits REPLACE the
@@ -755,6 +758,9 @@ export function activate(
     }
   }
 
+  // WHERE THE TIME WENT (LT2): the words, their rarity and their postings.
+  input.clock?.lap("cue");
+
   // ── learned pairs (2026-10-24, R3 cue learning — an experiment) ─────────
   // A word that brought a memory back AND helped, enough times, is wired to
   // it (`associate`'s `cue_edges`). Each of this turn's OWN words (never a
@@ -828,6 +834,8 @@ export function activate(
     }
   }
 
+  input.clock?.lap("learned");
+
   // ── the per-document ceiling ────────────────────────────────────────────
   // Length normalization damps how loudly ONE cue speaks for a long memory; it
   // does not stop a memory that mentions everything from being touched by
@@ -873,6 +881,9 @@ export function activate(
     cueScore.set(t0.id, (cueScore.get(t0.id) ?? 0) + w);
   }
 
+  // The doc cap and the calendar are cue too (LT2).
+  input.clock?.lap("cue");
+
   // ── the embedding channel: an INPUT, never a fetched one ────────────────
   //
   // TWO ways in, one scoring rule. `vector` is the caller's own embedding and
@@ -910,6 +921,9 @@ export function activate(
       semScore.set(h.id, tuning.weight * scaled);
     }
   }
+
+  // The vector's rank over box 3 and its fusion (LT2); the embed itself is the caller's `embed`.
+  input.clock?.lap("semantic");
 
   // ── assemble: only live, resolvable, non-removed memory ─────────────────
   const denied = new Set(store.deniedIds());
@@ -1236,6 +1250,8 @@ export function activate(
     );
   };
   rankForCut(scored);
+  // Assembled, scored, folded and ranked (LT2).
+  input.clock?.lap("rank");
 
   // ── the hop channel (SEAMS item L) ──────────────────────────────────────
   // The SEEDS are the strongest candidates the CONVERSATION reached — words
@@ -1322,6 +1338,9 @@ export function activate(
       linkOnly: linkOnlyScore.size,
     };
   }
+
+  // The link walk and its re-rank (LT2).
+  input.clock?.lap("spread");
 
   // ── context priming (an experiment, 2026-10-19; `prime.ts`) ────────────
   // A head start for what the session is doing, added like a hop — after the
@@ -1421,6 +1440,8 @@ export function activate(
     primeRun = { capped, trainScored, trainCentre };
   }
 
+  input.clock?.lap("prime");
+
   // THE CUT IS THE WORDS' AND MEANING'S (review of #293, R1). It is taken over
   // the rows those reached, ranked without their stamps, so it keeps exactly
   // what it keeps with no feeling lane at all; then every row a stamp brought
@@ -1493,6 +1514,9 @@ export function activate(
         : { prime: primeRun !== null && !prePrime.has(id) ? { ...c.prime, cut: true as const } : c.prime }),
     });
   }
+
+  // The cut, the mood read and the kept candidates' prose (LT2).
+  input.clock?.lap("read");
 
   // ── quiet pointers: pattern completion, held to a few (2026-09-28) ──────
   // A memory the words and the meaning did not reach, that the graph did. It
