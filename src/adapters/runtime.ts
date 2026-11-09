@@ -48,7 +48,7 @@
  * still parse (`parseScriptInvocation`, `projectEnv: "read"`), `doctor` names
  * them, and `counterparts connect` rewrites them.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -260,13 +260,156 @@ export function runtimeOf(exe: string): RuntimeKind {
  *  <node-hooks.mjs> <script>` for Node, and the script's mode alone (`hook`,
  *  `runner`, …) when `exe` is the compiled binary itself, which reads no
  *  `.env` or `bunfig.toml` (it is built with both off). */
-export function scriptArgs(script: string, exe: string = process.execPath, binary: Binary | null = BINARY): string[] {
+export function scriptArgs(
+  script: string,
+  exe: string = process.execPath,
+  binary: Binary | null = BINARY,
+  platform: string = process.platform,
+): string[] {
   // The compiled binary runs ITSELF in another mode: `<binary> runner`.
   const mode = binary !== null && exe === binary.self ? binaryModeOf(script) : undefined;
   if (mode !== undefined) return [mode];
   return runtimeOf(exe) === "node"
-    ? ["--import", NODE_HOOKS, script]
+    ? ["--import", platform === "win32" ? windowsFileUrl(NODE_HOOKS) : NODE_HOOKS, script]
     : [BUN_NO_ENV_FILE, `${BUN_CONFIG_PREFIX}${EMPTY_BUNFIG}`, "run", script];
+}
+
+// ── Windows (W1, 2026-11-09) ─────────────────────────────────────────────────
+//
+// Claude Code on native Windows runs a hook's command string in Git Bash when
+// Git for Windows is installed, else in PowerShell (code.claude.com/docs/en/hooks,
+// "How shell-form commands are run"), and spawns an MCP server's `command` with
+// its `args` directly. So what `connect` writes there has to read the same in
+// both shells, which is what these do (`claude-code/NOTES.md`, "Windows"):
+//
+//   - `--import` takes a module SPECIFIER, and Node reads `C:\…\node-hooks.mjs`
+//     as a URL with the scheme `c:` (ERR_UNSUPPORTED_ESM_URL_SCHEME). On win32
+//     it is given as a `file:///C:/…` URL; POSIX keeps the plain path every
+//     existing hook line carries.
+//   - Paths are written with `/`: Windows takes them, and neither shell then
+//     has a backslash to read as an escape.
+//   - The runtime is written by its bare NAME (`node`) when that name on PATH
+//     is the very executable running now. PowerShell will not run a quoted
+//     first word without `&` (which bash refuses), and the default Node lives
+//     in `C:/Program Files/…`, which needs quotes. On Windows a host's PATH is
+//     the one the person set for their account, not a login shell's, so scar
+//     §2.18 (the host's PATH is not the shell's) is not the hazard it is on
+//     macOS. When the name finds another file, the absolute path is written,
+//     quoted: Git Bash runs it; PowerShell alone would not.
+
+/** A Windows path as a `file:` URL, by hand, so it is the same on every host
+ *  (a test runs it on macOS): `C:\a b\x.mjs` → `file:///C:/a%20b/x.mjs`. */
+export function windowsFileUrl(path: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const rooted = slashed.startsWith("/") ? slashed : `/${slashed}`;
+  return `file://${encodeURI(rooted).replace(/#/g, "%23").replace(/\?/g, "%3F")}`;
+}
+
+/** A path as a host command on `platform` names it: `/`-separated on win32,
+ *  unchanged elsewhere. */
+export function hostPath(path: string, platform: string = process.platform): string {
+  return platform === "win32" ? path.replace(/\\/g, "/") : path;
+}
+
+/** Where a bare command name resolves on `PATH` — trying each `PATHEXT`
+ *  extension on win32, where `node` is `node.exe` on disk — or null. */
+export function whichOnPath(
+  name: string,
+  env: Record<string, string | undefined> = process.env,
+  platform: string = process.platform,
+  exists: (path: string) => boolean = existsSync,
+): string | null {
+  const win = platform === "win32";
+  // Windows spells it `Path`, and a copy of `process.env` is no longer
+  // case-blind about it.
+  const key = (wanted: string): string | undefined =>
+    env[wanted] ?? (win ? Object.entries(env).find(([k]) => k.toUpperCase() === wanted)?.[1] : undefined);
+  const dirs = (key("PATH") ?? "").split(win ? ";" : ":").filter((d) => d.length > 0);
+  const exts = win
+    ? ["", ...(key("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((e) => e.length > 0).map((e) => e.toLowerCase())]
+    : [""];
+  for (const d of dirs) {
+    for (const ext of exts) {
+      const candidate = `${d.replace(/[\\/]+$/, "")}${win ? "\\" : "/"}${name}${ext}`;
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * HOW TO START A COMMAND BY NAME ON WINDOWS, with its arguments kept one each:
+ * the file to spawn and the arguments to give it, or null when the name is not
+ * on PATH or is something this cannot start without a shell.
+ *
+ * A native `.exe` is spawned as it is. An npm-installed command is a `.cmd`
+ * batch file (`claude.cmd` for an npm install of Claude Code), which Node will
+ * not spawn without a shell (EINVAL since 20.12), and a shell would re-read
+ * every argument — a night child's `--mcp-config` JSON, its system prompt.
+ * npm writes those files one way (`cmd-shim`): the target is the quoted
+ * `"%dp0%\…"` path, run by the program the target's shebang named. So the
+ * target is read out of the file: an `.exe` is spawned directly, a script is
+ * given to `node` (the one on PATH, as the shim does). W1, 2026-11-09.
+ */
+export function windowsLaunch(
+  name: string,
+  args: readonly string[],
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+  read: (path: string) => string = (p) => readFileSync(p, "utf8"),
+): { file: string; args: string[] } | null {
+  const found = whichOnPath(name, env, "win32", exists);
+  if (found === null) return null;
+  if (!/\.(cmd|bat)$/i.test(found)) return { file: found, args: [...args] };
+  let text: string;
+  try {
+    text = read(found);
+  } catch {
+    return null;
+  }
+  const target = /"%dp0%\\([^"]+)"/.exec(text)?.[1];
+  if (target === undefined) return null;
+  const dir = found.replace(/[\\/][^\\/]*$/, "");
+  const file = `${dir}\\${target}`;
+  if (!exists(file)) return null;
+  if (/\.exe$/i.test(file)) return { file, args: [...args] };
+  if (!/\.(c|m)?js$/i.test(file)) return null;
+  const node = whichOnPath("node", env, "win32", exists);
+  return node === null ? null : { file: node, args: [file, ...args] };
+}
+
+/** The runtime as a host command on `platform` names it: on win32 its bare
+ *  name when that name on PATH is this very file, else its `/` path; the path
+ *  unchanged elsewhere. */
+export function hostExe(
+  exe: string,
+  platform: string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (platform !== "win32") return exe;
+  const name = (exe.split(/[\\/]/).pop() ?? "").replace(/\.exe$/i, "");
+  const same = (a: string, b: string): boolean => hostPath(a, "win32").toLowerCase() === hostPath(b, "win32").toLowerCase();
+  if (/^[A-Za-z0-9_-]+$/.test(name)) {
+    const found = whichOnPath(name, env, platform, exists);
+    if (found !== null && same(found, exe)) return name;
+  }
+  return hostPath(exe, platform);
+}
+
+/** What a host is told to run for `script`: the command and its arguments,
+ *  for the platform (`hostExe`, `hostPath`, `scriptArgs`). Every writer of a
+ *  hook line or an MCP registration goes through this, and every reader that
+ *  checks one against what it should be. */
+export function hostInvocation(
+  script: string,
+  exe: string = process.execPath,
+  platform: string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+): { command: string; args: string[] } {
+  const args = scriptArgs(script, exe, BINARY, platform).map((a) => hostPath(a, platform));
+  return { command: hostExe(exe, platform, env, exists), args };
 }
 
 /** A command split into its parts, when it is `<exe> <scriptArgs(script)> <rest…>`. */
@@ -343,16 +486,25 @@ export function parseScriptInvocation(tokens: readonly string[]): ScriptInvocati
 
 /** Is the runtime a command names actually there? An absolute path is checked
  *  on disk; a bare name (`bun`, `node`) is looked up on `PATH`. */
-export function runtimePresent(exe: string, env: Record<string, string | undefined> = process.env): boolean {
+export function runtimePresent(
+  exe: string,
+  env: Record<string, string | undefined> = process.env,
+  platform: string = process.platform,
+): boolean {
   if (exe.includes("/") || exe.includes("\\")) return existsSync(exe);
-  const dirs = (env["PATH"] ?? "").split(process.platform === "win32" ? ";" : ":").filter((d) => d.length > 0);
-  return dirs.some((d) => existsSync(`${d}/${exe}`));
+  // On win32 a bare `node` is `node.exe` on disk (`PATHEXT`).
+  return whichOnPath(exe, env, platform) !== null;
 }
 
 /** Split on whitespace, honouring double quotes — the only quoting
  *  `install.ts#shellQuote` produces, and therefore the only quoting a command
  *  we wrote can carry. A single quote is left in the token, which makes the
- *  match fail, which is the safe direction. */
+ *  match fail, which is the safe direction.
+ *
+ *  Inside the quotes a backslash escapes only what it escapes there in bash —
+ *  `"`, `\`, `$` and a backtick — and is otherwise itself (2026-11-09, W1): a
+ *  hand-typed Windows line, `"C:\Users\me\counterparts.exe" hook`, keeps its
+ *  backslashes, and everything `shellQuote` writes reads back as before. */
 export function shellTokens(command: string): string[] {
   const out: string[] = [];
   let current = "";
@@ -360,7 +512,7 @@ export function shellTokens(command: string): string[] {
   let started = false;
   for (let i = 0; i < command.length; i += 1) {
     const ch = command[i] ?? "";
-    if (ch === "\\" && quoted && i + 1 < command.length) {
+    if (ch === "\\" && quoted && i + 1 < command.length && '"\\$`'.includes(command[i + 1] ?? "")) {
       current += command[i + 1] ?? "";
       i += 1;
       continue;

@@ -42,7 +42,19 @@ async function selfcheck(): Promise<number> {
   const missing = EMBEDDED.filter((p) => !existsSync(p));
   const pkg = EMBEDDED.find((p) => /[\\/]package\.json$/.test(p) && !p.includes("node_modules"));
   const model = bundledModelDir();
+  // What reading the manifest says, in words (W1: on Windows `--version` was
+  // "unknown" while the file was where packagePath looked).
+  let packageJsonRead: string;
+  try {
+    const { readFileSync } = await import("node:fs");
+    const raw = readFileSync(packagePath("package.json"), "utf8");
+    packageJsonRead = `ok, ${raw.length} chars, starts ${JSON.stringify(raw.slice(0, 12))}`;
+    JSON.parse(raw);
+  } catch (err) {
+    packageJsonRead = `failed: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`;
+  }
   const report = {
+    packageJsonRead,
     binary: BINARY,
     embedded: EMBEDDED.length,
     missing,

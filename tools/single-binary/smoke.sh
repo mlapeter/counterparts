@@ -50,6 +50,14 @@ no() {
   [ -n "${2:-}" ] && printf '%s\n' "$2" | head -40 | sed 's/^/      /'
   return 0
 }
+# killf <pkill pattern> <command-line fragment>: end every process whose command
+# line matches. Git Bash on Windows has no pkill; PowerShell finds them there.
+killf() {
+  if command -v pkill >/dev/null 2>&1; then pkill -f "$1" 2>/dev/null; return 0; fi
+  command -v powershell.exe >/dev/null 2>&1 || return 0
+  powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { \$_.CommandLine -like '*$2*' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1
+  return 0
+}
 payload() { # payload <event> [extra json fields]
   printf '{"hook_event_name":"%s","session_id":"%s","cwd":"%s","transcript_path":"%s"%s}' \
     "$1" "$SESSION" "$PROJECT" "$PROJECT/transcript.jsonl" "${2:-}"
@@ -78,7 +86,8 @@ OUT=$(run "$BIN" selfcheck 2>&1)
 if [ $? = 0 ]; then ok "selfcheck: every embedded file is where packagePath looks"; else no "selfcheck" "$OUT"; fi
 
 OUT=$(run "$BIN" cli --version 2>&1)
-if grep -qE '^counterparts [0-9]+\.[0-9]+\.[0-9]+$' <<<"$OUT"; then ok "cli --version: $OUT"; else no "cli --version" "$OUT"; fi
+if grep -qE '^counterparts [0-9]+\.[0-9]+\.[0-9]+$' <<<"$OUT"; then ok "cli --version: $OUT"; else no "cli --version" "$OUT
+$(run "$BIN" selfcheck 2>&1 | head -20)"; fi
 OUT2=$(run "$BIN" --version 2>&1)
 [ "$OUT2" = "$OUT" ] && ok "--version before any mode says the same" || no "--version" "$OUT2"
 
@@ -183,7 +192,11 @@ V=$(curl -s -o /dev/null -w '%{http_code} %{size_download}' "http://127.0.0.1:$P
 F=$(cd "$(dirname "$0")/../../src/adapters/dashboard/web" && ls shared/fonts/*.woff2 2>/dev/null | head -1)
 W=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/$F")
 A=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/overview")
-pkill -f "$BIN dashboard serve --port $PORT" 2>/dev/null; wait "$DASH" 2>/dev/null
+killf "$BIN dashboard serve --port $PORT" "dashboard serve --port $PORT"
+# Never an unbounded wait (2026-11-09, W1): on Windows `pkill` did not exist,
+# the dashboard kept running, and `wait` held the job to its timeout.
+for _ in $(seq 1 20); do kill -0 "$DASH" 2>/dev/null || break; sleep 0.5; done
+kill "$DASH" 2>/dev/null; wait "$DASH" 2>/dev/null
 if [ "$P" = 200 ] && [ "$J" = 200 ] && [ "${V%% *}" = 200 ] && [ "$W" = 200 ]; then
   ok "dashboard: page $P, app.js $J, $THREE ${V}B, $F $W, /api/overview $A"
 else
@@ -218,6 +231,8 @@ if pgrep -f "$LIVE" >/dev/null; then
   no "binary processes still running at cleanup" "$(pgrep -fl "$LIVE")"
   pkill -f "$LIVE"
 fi
+# No pgrep (Git Bash on Windows): nothing above could look, so end what is left.
+command -v pgrep >/dev/null 2>&1 || killf "$LIVE" "$(basename "$BIN")"
 
 echo
 echo "$PASS passed, $FAIL failed"
