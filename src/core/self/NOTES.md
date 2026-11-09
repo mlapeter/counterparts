@@ -3119,3 +3119,32 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **Not built:** no brought-back mark on the memory (no meta-only update in the store, and a `revise` would mint a
   version); the `self.page.brought_back` event is the record, and recall reads "on the page again" live. The ask
   beside a session's wake (session mode) carries no `setDown` rule (room); its drops are still caught by the diff.
+
+## WK3: the wake as its reader read it (2026-11-09)
+
+- **"Shown earlier" had no context to point at.** RF1 folded a plain reminder told in ANY attended session today in
+  this reader's folders. A new session's model never saw that telling, so the fold pointed at nothing (four mornings
+  running in the feedback). The fold now needs the latch's session to be this reader's, with its context kept. In
+  Claude Code a resume hands no new wake, and a second SessionStart for the same session is turned away, so the fold
+  is reachable in core (`Counterpart#wake` with the same session) more than through the hooks. That's fine: the
+  brief's rule is "if it can't be proven for this session, it isn't said". claude.ai's wake tool mints a session per
+  call, so it never folds either.
+- **Compaction and /clear show titles, not bodies.** The person was told the reminder already (the latch); the model
+  needs the item, not the whole text again.
+- **Overdue vanished into "N more here".** The door lumped overdue and later items. On an invented morning with five
+  overdue, two were listed and the other three read as "3 more here", which says nothing about being late. Another
+  folder's overdue items were only "N in other folders"; they're now "N in other folders (K overdue, oldest MM-DD)",
+  a count, so SO1 step 3's rule (said whole only in their own folder) holds.
+- **One telling: compare by sentence, not by line.** A night's own line is one or two sentences; one can restate the
+  page while the other carries something forward. Each sentence is checked against the page and the day's-end
+  summary with PG1's `lineOnPage` (exact claim key, or `NEAR_SHARE` over two sentences), and only the ones that pass
+  are kept. The reflection's row has no other line to fall back to, so with nothing left the closing line is the
+  night's titles and door. The day's-end summary is in the check because the feedback named it (11-06: page, day's
+  end, closing line); the brief named only the page.
+- **"Waiting on the owner" has no structured mark on a handoff.** The store's own mark is `status: asked` on a memory,
+  so a lead naming an asked memory waits; otherwise a few waiting words around the owner's name. The words are lightly
+  held. SO1 step 4's raise events are the better signal when they land. "Signal since" is a memory written here
+  after it, by another session, that says the lead again (`titleInLead`) or names the asked id.
+- **"Under way" read the run flag.** The night line returned "under way" whenever today's run row said `started`,
+  before looking at today's dream. A dream journaled while the reflection still runs now reads `dream "…"; the
+  reflection is under way.`

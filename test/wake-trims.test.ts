@@ -176,7 +176,8 @@ describe("1. the three top tags are one line", () => {
     // The head tag and the end tag: no other comment line.
     expect(tags.length).toBe(2);
     const head = tags[0] ?? "";
-    expect(head).toMatch(/^<!-- counterparts:wake meet=[a-z_]+ store=st_[0-9a-f]{16} elements=\d+ bytes=\d+ -->$/);
+    // The session rides in the head too (WK3), for the tools that ask for it.
+    expect(head).toMatch(/^<!-- counterparts:wake meet=[a-z_]+ store=st_[0-9a-f]{16} session=[^\s>]+ elements=\d+ bytes=\d+ -->$/);
     expect(head.match(/<!--/g)?.length).toBe(1);
     expect(head).not.toContain("day=");
     expect(tags[1]).toMatch(/^<!-- counterparts:wake\/end day=\d+ .*elements=\d+ bytes=\d+ -->$/);

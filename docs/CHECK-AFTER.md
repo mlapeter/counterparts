@@ -40,6 +40,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | the release after 2026-11-09 (W1) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | the release after 2026-11-09 (SX1) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
+| The wake as its reader read it (WK3): "shown earlier" only for a telling in this session's context, else the items by title and id (up to 5); the night's own line drops sentences the page or day's end already tell, and is a clause the second morning running; overdue is its own count with its oldest date; a handoff whose lead waits on the owner with nothing since sinks, and one past a week nothing refers to isn't listed; Elsewhere lines say when and what; "Last said" quotes a whole first sentence; "under way" never over a journaled dream; the head names the session | the release after 2026-11-09 (WK3) | ~7 lived days after install (dated reminder set at merge): a week of wakes read by a fresh session against the brief's six points (`~/counterparts-notes/2026-11-09-briefs/WK3-wake-feedback.md`), and the delivered size against ~8.6 KB | [below](#the-wake-as-its-reader-read-it-wk3) |
 | The page names what it sets down (PG1): a nightly page write names the lines it takes out (`setDown`, with a why), a sentence diff records any it didn't name as "set down, unnamed" (reworded or folded lines are kept), each set-down is a `me` memory tagged `set down`, the morning after's wake names up to 2 then "and N more", the night's writers are shown set-downs life touched since; `recall "set down"` | the release after 2026-11-09 (PG1) | ~7 lived days after install (dated reminder set at merge): set-downs per night, named vs unnamed (`self.page.set_down` rows), folded/reworded counts, any brought back (`self.page.brought_back`), a hand-read of the unnamed ones (folded or really gone? `tools/set-down-diff.ts` on the two page versions), and whether the wake line reads as context or as noise (Mike's call) | [below](#the-page-names-what-it-sets-down-pg1) |
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 16.2% new flagged open, 2 night closes in 11 nights) | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | A write lists the open items it may settle (SO1 step 1b): a stored `remember` or `session_end` entry that says a version or PR was done lists up to 3 open items from any folder with the same version series, the same PR (own project only) or a `settlesWhen` it reaches (`mayClose`); the model closes or leaves them | the release after 2026-11-07 (SO1 step 1b) | ~7 lived days after install (dated reminder set at merge): `open.close-hint.shown` rows and distinct ids listed against `open.close-hint.closed` rows (and how many with `daysAfter` 0), p50/max ms, a hand-read of 10 listed titles for plainly irrelevant ones; baseline on the 11-07 copy: 3 of 19 irrelevant plus 2 weak, before the fix round; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 16.2% new flagged open, 2 night closes in 11 nights) | [below](#a-write-lists-the-open-items-it-may-settle-so1-step-1b) |
@@ -206,6 +207,30 @@ the build and `record` after it, outside `elapsedMs`; the rest tile the build.
 
 That read briefs the fix for whichever step grows. Revert: `recall.STEP_TIMING=false` (the key leaves the row;
 nothing else moves).
+
+## The wake as its reader read it (WK3)
+
+WK3 (2026-11-09, from a counterpart's own feedback on five mornings of its wake; Mike agreed the same day; lightly
+held), `core/counterpart-wake-shape.ts`, `dream/night-line.ts`, `handoff/last-exchange.ts`, `adapters/lifecycle.ts`.
+Only the shaped wake (`self.WAKE_SHAPE`) changes, but for "Last said", the night line and the head's session field,
+which every road carries.
+
+- **The read.** A fresh session, given the week's wakes (`adapter.wake.injected` rows say when; the text is in the
+  host's transcripts), checks each point: does any "shown earlier" appear outside a re-delivery to the same session?
+  Is any moment told twice in one wake (page, day's end, the night's own line)? The same own line two mornings at
+  full weight? Overdue items behind the door with no count? A handoff leading whose lead waits on Mike with nothing
+  since? A listed handoff older than a week? An Elsewhere line without an age or a what? A "Last said" cut without
+  "…"? "under way" after the dream journaled? A wake without `session=` in its head?
+- **Size.** The brief's ~8.6 KB: `adapter.wake.injected`'s bytes by day, before and after install. On an invented
+  morning (a 4.4 KB page) the wake went from 5,681 to 5,761 bytes: the session field (~45), the told reminders by title
+  in place of one fold line, and the overdue words.
+- **What rides on SO1 step 4.** The backoff for items waiting on Mike (3/7/14 days, then parked; at most one session-start
+  mention a week; the shared day latch) is not here. `waitsOnOwner` is the seam: today it reads the lead's `asked` ids
+  and its words; SO1 step 4's raise events can answer there too.
+
+Revert: each piece is local. The fold rule is `shownEarlier`/`retold` in `shapedDelivery`; the own line's filter is
+`ownToldOnce`; the overdue clause is `lateWords`; the handoff order is `handoffsTold`; the quote is `quoteOf`; the night
+line's journaled branch is the first `if` in `nightLine`; the head field is `own` in `Lifecycle#composeWake`.
 
 ## The page names what it sets down (PG1)
 

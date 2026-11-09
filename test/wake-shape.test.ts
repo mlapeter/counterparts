@@ -1199,7 +1199,10 @@ describe("the small words", () => {
   });
 });
 
-describe("reminder folding (RF1): a plain reminder shown earlier today is one line", () => {
+// WK3 (2026-11-09): "shown earlier" only for a telling in THIS session's context;
+// a telling in another session, or before a compaction or a /clear, shows the item
+// again by title and id (`test/wake-wk3-feedback.test.ts` has the brief's cases).
+describe("reminder folding (RF1, WK3): a plain reminder told earlier today is a title line in another session, a fold only in its own", () => {
   /** The real session-start hook, a child process: the wake block, what's above it, and what the person is shown. */
   function start(session: string, cwd = HERE, o: { zone?: string; event?: "SessionStart" | "UserPromptSubmit"; source?: string } = {}): { wake: string; above: string; person: string } {
     const config = join(conf, "claude-code.json");
@@ -1226,7 +1229,7 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
   const plainHere = (c: Counterpart, title: string, today: string, scope = HERE): string => memory(c, `${title}: bring the long ladder round to the east wall.`, { title, eventDate: today, scope, meta: { remind: "plain" } });
 
   for (const zone of ["UTC", "Pacific/Kiritimati"]) {
-  test(`${zone}: wake 1 whole; wake 2 folds what was shown and shows a new one whole; the other folder's own wake shows its one whole, then folds it`, () => {
+  test(`${zone}: wake 1 whole; wake 2, another session, names what was shown by title and shows a new one whole; the other folder's own wake shows its one whole, then by title`, () => {
     const { c } = brain();
     const today = localDate(Date.now(), zone);
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
@@ -1251,10 +1254,13 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
 
     const w2 = start(READER, HERE, { zone });
     const coming2 = section(w2.wake, "Coming up:");
-    expect(coming2.split("\n")).toContain(`(1 due today, shown earlier; 1 in other folders (bakery: Rfold bakery oven); recall "coming up")`);
+    expect(coming2.split("\n")).toContain(`(1 in other folders (bakery: Rfold bakery oven); recall "coming up")`);
     expect(coming2).toContain(`- Due today · Rfold gate hinge: bring the long ladder round to the east wall. [${n}]`);
-    for (const id of [a, b]) expect(w2.wake).not.toContain(id);
-    expect(w2.wake).not.toContain("Rfold ladder");
+    // Told in wake 1, another session: by title and id here, its words not again.
+    expect(coming2.split("\n")).toContain(`- Due today · Rfold ladder [${a}]`);
+    expect(w2.wake).not.toContain(b);
+    expect(w2.wake).not.toContain("Rfold ladder: bring");
+    expect(w2.wake).not.toContain("shown earlier");
     // Named in the other-folders count, never its words.
     expect(w2.wake).not.toContain("Rfold bakery oven: bring the long ladder");
     // The new one is told above the wake and to the person; the folded ones aren't told again.
@@ -1269,9 +1275,9 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     for (const t of ["garden: Rfold ladder", "garden: Rfold gate hinge"]) expect(coming3).toContain(t);
     expect(w3.person).toContain("Rfold bakery oven");
     expect(w3.person).not.toContain("Rfold ladder");
-    // A second wake in the bakery folds it.
+    // A second session in the bakery names it by title.
     const w4 = start("eeee5555-0000-4000-8000-000000000005", THERE, { zone });
-    expect(section(w4.wake, "Coming up:")).toStartWith(`Coming up:\n(1 due today, shown earlier; 2 in other folders (garden: Rfold `);
+    expect(section(w4.wake, "Coming up:")).toStartWith(`Coming up:\n- Due today · Rfold bakery oven [${b}]\n(2 in other folders (garden: Rfold `);
 
     // The door still lists them whole.
     const after = brain();
@@ -1326,7 +1332,7 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     expect(w2.wake).not.toContain("shown earlier");
   });
 
-  test("claude.ai's wake tool: the session registry it reads holds its own wakes, so a second wake folds", async () => {
+  test("claude.ai's wake tool: each call is its own session, so a second wake names it by title, never \"shown earlier\"", async () => {
     const { c, today } = brain();
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
     // The owner's, so a chat with no folder may read it.
@@ -1337,8 +1343,8 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     const first = await text();
     expect(first).toContain(`- Due today · Rfold web: bring the long ladder round to the east wall. [${id}]`);
     const second = await text();
-    expect(second).toContain(`(1 due today, shown earlier; recall "coming up")`);
-    expect(second).not.toContain(`[${id}]`);
+    expect(second).toContain(`- Due today · Rfold web [${id}]`);
+    expect(second).not.toContain("shown earlier");
   });
 
   test("a compaction folds nothing: the same session's model lost what it was shown", () => {
@@ -1348,13 +1354,14 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     c.close();
     expect(section(start(READER).wake, "Coming up:")).toContain(`[${id}]`);
     const compacted = start(READER, HERE, { source: "compact" });
-    expect(section(compacted.wake, "Coming up:")).toContain(`- Due today · Rfold compact: bring the long ladder round to the east wall. [${id}]`);
+    // By title and id (WK3): told once to the person, named again for the model.
+    expect(section(compacted.wake, "Coming up:")).toContain(`- Due today · Rfold compact [${id}]`);
     expect(compacted.wake).not.toContain("shown earlier");
-    // A /clear is a fresh start in the same session: folded.
-    expect(section(start(READER, HERE, { source: "clear" }).wake, "Coming up:")).toBe(`Coming up:\n(1 due today, shown earlier; recall "coming up")`);
+    // A /clear empties the context too (WK3): by title, not "shown earlier".
+    expect(section(start(READER, HERE, { source: "clear" }).wake, "Coming up:")).toBe(`Coming up:\n- Due today · Rfold compact [${id}]`);
   });
 
-  test("the fold is its own clause beside the door's other words", () => {
+  test("told in another session, it is a title line beside the door's other words, never a fold", () => {
     const { c, today } = brain();
     c.revisePage("## Core\n\nI keep the kiln's ledger.", { reason: "first", by: "owner" });
     plainHere(c, "Rfold first", today);
@@ -1364,10 +1371,7 @@ describe("reminder folding (RF1): a plain reminder shown earlier today is one li
     memory(again.c, "Rfold later: the kiln's shelf brackets arrive from the smith.", { title: "Rfold later", eventDate: addDays(today, 3) });
     again.c.close();
     const coming = section(start(READER).wake, "Coming up:");
-    const door = coming.split("\n").find((l) => l.startsWith("(")) ?? "";
-    // Shown or counted, the later one; the fold stays its own clause either way.
-    expect(door.startsWith("(1 due today, shown earlier")).toBe(true);
-    expect(door.endsWith(`; recall "coming up")`)).toBe(true);
-    expect(door).not.toContain("shown earlier, ");
+    expect(coming.split("\n")[1]).toStartWith("- Due today · Rfold first [mem_");
+    expect(coming).not.toContain("shown earlier");
   });
 });
