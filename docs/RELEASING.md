@@ -310,8 +310,14 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    instead of 90. Each day of them is kept as a summary in `events.rolled` (counts, the ids
    credited for use, the session refs), but the rows and their payload fields are gone for good. So the sheet's first line for that release, and for any
    later one that shortens a window, is a read-only copy of the store, taken before the
-   install line:
-   `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '$HOME/counterparts-backups/<date>-<version>-pre-install.sqlite'"`.
+   install line, into the release folder, and kept there after the install (0.3.51 on: it is
+   the only copy those reads can run on once the first night has rolled the rows up):
+   `mkdir -p <release folder>/store-before-<version> && sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro" ".backup '<release folder>/store-before-<version>/counterparts.sqlite'"`.
+   `.backup` is SQLite's online backup, safe beside a running worker (a bare `cp` of a live
+   WAL database is not), and it does not create folders, hence the `mkdir`. Check the copy
+   opened: `sqlite3 "file:<copy>?mode=ro" "pragma integrity_check; select count(*) from events where name = 'recall.decision';"`
+   prints `ok` and a count in the thousands (tried on a WAL database with a transaction open
+   beside it, 0.3.51).
    The reads that need it, by name: MOD #3 in `docs/CHECK-AFTER.md` ("`recall.decision`
    events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
    lived days after the longer habituation window"). Both run on that copy afterwards, never

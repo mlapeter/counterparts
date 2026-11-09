@@ -1,6 +1,6 @@
 {
   "name": "counterparts",
-  "version": "0.3.50",
+  "version": "0.3.51",
   "license": "MIT",
   "description": "Long-term memory for Claude Code, written by Claude itself. Local MCP server and hooks; remembers you across sessions.",
   "repository": {
