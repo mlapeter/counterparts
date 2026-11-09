@@ -124,7 +124,7 @@ const CODE_REFERENCE =
   /^[A-Za-z_$][A-Za-z_$]*(?:(?:(?:\.|::|->)[A-Za-z_$][A-Za-z0-9_$]*|\[[^\]\n]{0,60}\]|\([^)\n]{0,80}\))+[[(]?|[[(])[,;]?$/;
 const TYPE_NAME =
   /^(?:str|int|bytes|bool|float|dict|list|tuple|set|object|Any|None|SecretStr|SecretBytes|string|number|boolean|[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+)[,;]?$/;
-const PASSWORD_NAME = /(?:password|passwd|pwd|passphrase|pass)$/i;
+const PASSWORD_NAME = /(?:password|passwd|passcode|pwd|pw|passphrase|pass)$/i;
 // A bare identifier assigned to a credential-looking name (`pad_token` set to `eos_token`):
 // letters only, joined by underscores or camelCase humps, no digit. A real secret
 // has digits or no word structure; `hunter2x` and `abcdefghijkl` stay values.
@@ -183,6 +183,109 @@ const NOT_A_PLACEHOLDER = "(?![\"']?\\[REDACTED:)";
 const PASSWORD_VALUE = "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n]{4,})";
 /** Any other credential: six or more, and a `,` or `;` ends it. */
 const CREDENTIAL_VALUE = "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n,;]{6,})";
+
+/**
+ * A PASSWORD NAMED IN A SENTENCE (SX1, 2026-11-09). "my password is <value>",
+ * "the wifi password's <value>", "pw for the router is <value>", "passcode <digits>":
+ * none has a `:` or `=` after the name, so the catch-all above never saw them,
+ * and a reviewer's sentence was kept word for word in the memory and the raw
+ * buffer. This family takes the VALUE only and keeps the sentence ("my wifi
+ * password is [REDACTED:password]"), so the memory still says a password exists.
+ *
+ * The name: password, passwd, passcode, passphrase, pass code, PIN (PIN code,
+ * PIN number), pw, and a few other languages' words for password. NOT `pwd`,
+ * which in prose is the working directory ("pwd is /home/…"); `pwd=` is the
+ * catch-all's. NOT `pass` or `key` alone: both are ordinary English.
+ *
+ * Then, optionally, what it is for ("for the router", "to my laptop", "I use for
+ * gmail"): a few words, bounded; then a connector: `is` / `was` (and es, est,
+ * ist, war, é, era), the contraction `'s`, or a spaced dash; then the value.
+ * `:` and `=` stay the catch-all's, which has the code guards. A bare value with
+ * no verb ("pw <value>", "passcode <digits>") is taken only when it carries a digit:
+ * "password reset flow" and "password field" have none.
+ *
+ * The false-positive guard is `isProseWord`: an ordinary word after the verb
+ * ("password is required / wrong / in 1Password / the one I gave you") is the
+ * sentence, not a value. Every group is bounded (two O(n²) incidents above).
+ */
+const PROSE_NAME =
+  "(password|passwd|passcode|pass[ -]?phrase|pass[ -]code|pin(?:[ -](?:code|number))?|pw|" +
+  "contraseña|contrasena|mot de passe|mdp|passwort|kennwort|senha)";
+const PROSE_BEFORE = "(?<![\\p{L}\\p{N}_])";
+const PROSE_AFTER = "(?![\\p{L}\\p{N}_])";
+const PROSE_WORD = "[^\\s.,;:!?\"'`“”‘’]{1,40}";
+/** "for the wifi", "to my laptop", "on the admin account": a preposition and up to three words. */
+const PROSE_FOR = `\\s+(?:for|to|on|of|at|in|with|from)\\s+(?:${PROSE_WORD}\\s+){0,2}${PROSE_WORD}`;
+/** "I use", "we set" (and then, optionally, "for gmail"). */
+const PROSE_WHO = `\\s+(?:i|we|you|they|he|she)\\s+(?:use|used|set|picked|chose|have|had|got)(?:${PROSE_FOR})?`;
+const PROSE_VERB = "(?:is|was|es|est|ist|war|é|era)";
+const PROSE_CONNECTOR =
+  "(?:\\s*['’]s|\\s+" +
+  PROSE_VERB +
+  "(?:\\s*:)?(?:\\s+(?:now|currently|still|just|actually|simply|literally))?(?:\\s+(?:set|changed|updated|reset)\\s+to)?" +
+  "|\\s+[-–—])\\s+";
+/** What cannot be inside an unquoted value. */
+const PROSE_STOPCHAR = "\\s\"'`“”";
+/** Sentence punctuation a value does not end with. */
+const PROSE_TRAIL = ".,;:?)\\]}";
+const PROSE_UNQUOTED =
+  `[^${PROSE_STOPCHAR}]{3,127}[^${PROSE_STOPCHAR}${PROSE_TRAIL}]` +
+  // The WHOLE token or nothing: a value longer than the bound is not cut in two.
+  `(?=[${PROSE_TRAIL}]*(?:[${PROSE_STOPCHAR}]|$))`;
+const PROSE_VALUE = `("[^"\\n]{4,128}"|“[^”\\n]{4,128}”|'[^'\\n]{4,128}'|\`[^\`\\n]{4,128}\`|${PROSE_UNQUOTED})`;
+
+/**
+ * Ordinary words that follow "password is" in a sentence about passwords.
+ * Four letters or more only (a value under four is never taken). Lowercase.
+ */
+const PROSE_STOP = new Set(
+  (
+    // grammar
+    "that this these those what which where when there here your their mine yours ours theirs " +
+    "into onto from with without under inside behind about like than then also just only even " +
+    "still again already never always often usually really quite very pretty kind sort none " +
+    "some each every both either neither enough more most less least much many being been " +
+    "something nothing anything everything someone somewhere elsewhere another other " +
+    "because unless until since while after before above below later gone back " +
+    "four five seven eight nine three eleven twelve twenty thirty forty fifty sixty hundred " +
+    // what a password IS, in a sentence about one
+    "required mandatory optional needed necessary wrong incorrect correct right invalid valid " +
+    "empty blank missing null expired stale weak strong secure insecure safe unsafe good fine " +
+    "okay great bad simple easy hard long short complex random unique default temporary " +
+    "known unknown hidden visible case sensitive broken loose stuck ready available unavailable " +
+    "length strength hash complexity requirement requirements rule rules policy format field " +
+    "expiry expiration manager hint prompt entropy history characters chars value salt " +
+    "secret private public shared personal different same new old current " +
+    "problem issue thing part step reset change login sign " +
+    // a few other languages' wrong / right / empty / required / my
+    "falsch richtig leer erforderlich incorrecta incorrecto correcta correcto vacía vacia " +
+    "obligatoria requerida faux fausse vide obligatoire errada vazia obrigatória mein meine minha"
+  ).split(/\s+/),
+);
+/** An adjective, adverb or participle by its ending ("complicated", "expiring", "hashable"). */
+const PROSE_SUFFIX = /^\p{L}+(?:ly|ed|ing|able|ible|less|ful|ous)$/iu;
+
+/**
+ * IS THIS A WORD OF THE SENTENCE RATHER THAN A PASSWORD? The prose family's
+ * guard. A PIN is digits, four to twelve, or it is not one ("the pin is loose").
+ * Otherwise a value is left when it is a null word, an ordinary word after the
+ * verb (`PROSE_STOP`), a letters-only word with an adjective's or participle's
+ * ending, a path or a URL, a placeholder (`$VAR`, `<password>`, `{pw}`, `%s`),
+ * or has no letter or digit at all (`****`). The trade: a password that is
+ * itself one of those words ("my password is fabulous") is kept.
+ */
+function isProseWord(value: string, _match: string, name: string): boolean {
+  const quoted = /^["'“`]/.test(value);
+  const v = (quoted ? value.slice(1, -1) : value).trim();
+  if (/^pin/i.test(name)) return !/^\d{4,12}$/.test(v);
+  const core = v.replace(/^[([{]+|[)\]}!]+$/g, "");
+  if (PLAIN_WORDS.test(core)) return true;
+  if (PROSE_STOP.has(core.toLowerCase())) return true;
+  if (PROSE_SUFFIX.test(core)) return true;
+  if (/^(?:~|\.{1,2})?[/]/.test(core) || core.includes("://")) return true;
+  if (/^[$<{%]/.test(core)) return true;
+  return !/[\p{L}\p{N}]/u.test(core);
+}
 
 // The same lever exists one class later in `url-path-token`: an unbounded
 // host/path run (`[^\s"'<>]*`) retried across a comma-joined URL list was
@@ -384,7 +487,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     //    one (re-review R4: `DB_PASSWORD=abc,defghij`, `DB_PASSWORD=Ab3$x`).
     //    `pgpassword` is Postgres's own variable, glued with no separator.
     re: new RegExp(
-      "(?<![A-Za-z0-9])(pgpassword|password|passwd|pwd|passphrase|(?<=[A-Za-z0-9][_-])pass)\\b" +
+      "(?<![A-Za-z0-9])(pgpassword|password|passwd|passcode|pwd|pw|passphrase|(?<=[A-Za-z0-9][_-])pass)\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
         PASSWORD_VALUE,
@@ -442,7 +545,7 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     // 4. A PIN, as a whole name or `user_pin` / `PIN_CODE` / `pinCode` (`pin_memory=True` and `spin` never match) and only
     //    with a numeric value of four to twelve digits, quoted or not.
     re: new RegExp(
-      "(?:(?<![A-Za-z0-9])|(?<=[_-]))(pin(?:[_-]?code)?)\\b" +
+      "(?:(?<![A-Za-z0-9])|(?<=[_-]))(pin(?:[_-]?code)?|passcode)\\b" +
         ASSIGNED_SEPARATOR +
         NOT_A_PLACEHOLDER +
         "(\"\\d{4,12}\"|'\\d{4,12}'|\\d{4,12})(?![\\w.])",
@@ -464,6 +567,47 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     propagate: true,
     skip: isSetting,
     why: "A bare AUTH / BEARER environment variable.",
+  },
+  // A PASSWORD NAMED IN A SENTENCE (SX1). Last, so the catch-all keeps every
+  // `:` / `=` form with its code guards, and `NOT_A_PLACEHOLDER` keeps a value
+  // it already took from being counted twice. Case-insensitive and Unicode.
+  {
+    family: "password",
+    // 1. With a verb: "my password is <value>", "the wifi password's
+    //    <value>", "pw for the router is <value>", "Das Passwort ist <value>".
+    re: new RegExp(
+      PROSE_BEFORE +
+        PROSE_NAME +
+        PROSE_AFTER +
+        `(?:${PROSE_FOR}|${PROSE_WHO})?` +
+        PROSE_CONNECTOR +
+        NOT_A_PLACEHOLDER +
+        PROSE_VALUE,
+      "giu",
+    ),
+    value: 2,
+    propagate: true,
+    skip: isProseWord,
+    why: "A password, passcode, passphrase or PIN named in a sentence, with is / was / 's.",
+  },
+  {
+    family: "password",
+    // 2. With no verb: "pw <value>", "passcode <digits>", "PIN <digits>". Only a value
+    //    with a digit in it, so "password reset flow" and "password field" stay.
+    re: new RegExp(
+      PROSE_BEFORE +
+        PROSE_NAME +
+        PROSE_AFTER +
+        "\\s+" +
+        NOT_A_PLACEHOLDER +
+        `(?=[^${PROSE_STOPCHAR}]{0,127}\\d)` +
+        `(${PROSE_UNQUOTED})`,
+      "giu",
+    ),
+    value: 2,
+    propagate: true,
+    skip: isProseWord,
+    why: "A password or PIN named in a sentence with no verb, when the value carries a digit.",
   },
 ];
 

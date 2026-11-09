@@ -67,6 +67,11 @@ walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 - The text of a conversation is kept only until it's written up: since 0.3.21 it is deleted
   3 days after that, or about two weeks after the conversation goes quiet, whichever comes
   first, the next time Counterparts runs. It is never in a backup.
+- What's stripped before anything is kept, in the memories and in that conversation text:
+  credentials in recognisable shapes (API keys, tokens, private keys, passwords in URLs, a
+  value after a name like `password=` or `api_key:`), and passwords named in a sentence
+  ("my wifi password is …", "the PIN is …"): the value goes, the sentence stays. Not every
+  secret has a shape, so don't paste things you wouldn't want kept.
 - It doesn't read or change your CLAUDE.md files or Claude Code's own auto memory
   (MEMORY.md), so they run side by side. A committed CLAUDE.md stays the place for rules
   your team shares through git.

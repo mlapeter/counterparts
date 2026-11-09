@@ -202,6 +202,38 @@ line 13: decisions are defaults).
     - **Left**: a 40-character RELATIVE path beside a key id (`src/…`, review N2) is still
       redacted — over-redaction, the safe direction.
 
+21. **A password named in a sentence is its own family, `password`** (SX1, 2026-11-09). A
+    reviewer said a password in a sentence and it was kept word for word, in the memory and
+    in the raw buffer: every family above wants a shape, or a name with `:` / `=` after it.
+    The new family takes the VALUE after a password-ish name (password, passwd, passcode,
+    passphrase, pass code, PIN, pw, and contraseña / mot de passe / mdp / Passwort /
+    Kennwort / senha) and a connector — `is` / `was` (es, est, ist, war, é, era), the
+    contraction `'s`, a spaced dash — optionally after a short "for the router" / "I use
+    for gmail" clause; or, with no verb, a value with a digit in it ("pw <value>", "PIN
+    <digits>"). The sentence stays: "my wifi password is [REDACTED:password]".
+    - **Its own family name**, not `assigned-credential`, so a week's count can say how
+      often a sentence carried one (`gate.deposit`'s `secretFamilies`).
+    - **`:` and `=` stay the catch-all's**, which has the code guards (a type annotation, a
+      call to getpass). `pw` and `passcode` joined its password names, and `passcode` the PIN
+      pattern, so a pw or a passcode followed by a colon is taken there.
+    - **The guard is `isProseWord`**: an ordinary word after the verb is the sentence, not
+      a value — a stop list (required, wrong, the, your, length, policy, falsch, …), a
+      letters-only word ending like an adjective or participle (-ly -ed -ing -able -ible
+      -less -ful -ous), a path, a URL, a placeholder (`$VAR`, `<…>`, `{…}`, `%s`), or no
+      letter or digit at all. A PIN is four to twelve digits or it is not one ("the pin is
+      loose"). The trade, accepted: a password that is itself one of those words ("my
+      password is fabulous") is kept. `pwd` is not a prose name (in prose it is the
+      working directory); `pass` and `key` alone are ordinary English.
+    - **An unquoted value is taken whole or not at all** (up to 128 characters), and a
+      trailing `.` `,` `;` `:` `?` `)` stays with the sentence. Every group is bounded; 128 KB
+      of near-misses scans linearly (`test/secrets-prose-password.test.ts`).
+    - **The false-positive table** is that test file, both ways; and run over every
+      shipped file and the repo's docs and tests (~1,100 files), the family fired on
+      nothing but its own examples, which are now written as `<value>`.
+    - **The raw buffer crosses the same scan** (`remember/spans.ts`, injected by
+      `Counterpart`): a turn's two streams and a note's own line are redacted before they
+      are hashed or written.
+
 ## Calibration status (scar §2.8, guarantee 13)
 
 Every threshold in `tunables.ts` carries the v1 measurement it inherits and a
