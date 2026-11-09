@@ -76,7 +76,7 @@ const PAGE = [
   "",
   "Most of who I am with Wren is still unearned.",
   "",
-  "## What taught me",
+  "## Kiln lessons",
   "",
   "2026-10-02: I blamed the glaze when the kiln shelf was the cause; now I check the shelf first.",
   "2026-10-09: I quoted a cone number from memory and it was wrong; now I read the log.",
@@ -111,7 +111,7 @@ async function yesterday(own: boolean): Promise<{ me: string; nominated: string;
     for (let i = 0; i < SELF_TUNABLES.DAYS_END_MEMORIES + 2; i += 1) {
       work.push(c.store.put({ type: "memory", kind: "fact", body: WORK(i), salience: { relevance: 0.6, emotional: 0.25, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } }));
     }
-    const me = c.store.put({ type: "memory", kind: "self", body: ME, about: "me", salience: { relevance: 0.55, emotional: 0.2, predictive: 0.55 }, physics: { birthDay: day, lastUsedDay: day } });
+    const me = c.store.put({ type: "memory", kind: "self", body: ME, about: "me", salience: { relevance: 0.58, emotional: 0.25, predictive: 0.58 }, physics: { birthDay: day, lastUsedDay: day } });
     // The head start is what moves it: on its own strength it is below every work memory.
     const s = (id: string): number => strength(c.store.physicsOf(id), day);
     for (const w of work) expect(s(me)).toBeLessThan(s(w));

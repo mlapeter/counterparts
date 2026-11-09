@@ -5,9 +5,11 @@
   rule) and the reflection's page line when it writes the whole page (page split off). The session-side page ask
   goes without, as it does for the set-down rule: it has a ceiling to fit. With the split on (the default), the
   reflection writes Core alone, which tells no stories, so it is not told them.
-- Decided by the PS1 builder, 2026-11-09, lightly held: the head start is `PAGE_STORY_LIMITS.HEAD_START` = 0.15,
+- Decided by the PS1 builder, 2026-11-09, lightly held: the head start is `PAGE_STORY_LIMITS.HEAD_START` = 0.05,
   added to a me/us memory's strength in day's end's ORDER only (the physics are untouched), own-form stores only.
-  Chosen, not measured (strength runs 0..1 and a day's memories sit close together). The reflection's core
+  Measured on the owner's real days (review of #791, 19 days): a day's strengths do not sit close (median ~0.2,
+  the 12th strongest ~0.6; me/us median 0.49 vs work 0.19). Me/us in the shown dozen: 5.2/12 with none, 7.6/12
+  at 0.05 (1 day all me/us), 9.5/12 at the first draft's 0.15 (5 of 19 days all me/us). The reflection's core
   candidates are already all me/us, so no weight is applied there.
 - Decided by the PS1 builder, 2026-11-09, lightly held: a nomination is `remember` with `story: true`, kept as the
   tag `story nominated` (via `story`). It works on EVERY store, not only own-form ones, because the field is

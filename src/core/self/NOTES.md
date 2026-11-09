@@ -3132,7 +3132,7 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   `SET_DOWN_RULE`, so the session-side ask and its 2,300 B test are untouched. The reflection gets both in its page
   line when it writes the whole page (`PAGE_SPLIT` off); split on, it writes Core alone. `NOMINATED_NOTE` is said
   only on a day that has a nomination, before the material and its data framing.
-- **Order, not a filter.** `dayMemories` sorts by strength plus `storyHeadStart` (0.15 for me/us, own-form only);
+- **Order, not a filter.** `dayMemories` sorts by strength plus `storyHeadStart` (0.05 for me/us, own-form only);
   then the day's nominated memories (at most `NOMINATED_FIRST`) are moved to the front, so the count's cut
   (`DAYS_END_MEMORIES`, 12) never takes them. The strength shown is the memory's own. Past the five, a nomination
   takes its ordinary place, unmarked.
