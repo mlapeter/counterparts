@@ -13,13 +13,15 @@ stop re-explaining your projects and how you like to work.
 
 It's for anyone who works with Claude Code every day and wishes it remembered, and for people
 interested in an AI that builds a relationship with them over time. It runs on your machine,
-with Claude Code on macOS and Linux, and with Claude Desktop on macOS.
+with Claude Code on macOS, Linux and Windows, and with Claude Desktop on macOS.
 
 ## Install
 
 You need [Node](https://nodejs.org) 22.15 or newer, or [bun](https://bun.sh) 1.3 or newer,
-on macOS or Linux. Windows isn't supported yet. Bun on macOS is the setup in daily use; Node
-and Linux (since 0.3.11) pass a smoke test and an install run but have no daily user yet.
+on macOS, Linux and Windows (Windows is new: tell us how it goes). Bun on macOS is the setup
+in daily use; Node and Linux (since 0.3.11) pass a smoke test and an install run but have no
+daily user yet. On Windows, install with npm, from PowerShell, cmd or Git Bash; what differs
+there is in [QUICKSTART](docs/QUICKSTART.md#on-windows). Under WSL it works as on Linux.
 
 ```
 npm install -g counterparts@latest

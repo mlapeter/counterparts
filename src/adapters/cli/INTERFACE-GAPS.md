@@ -431,3 +431,21 @@ really closes; a hook turn measured the same before and after. `store/NOTES.md`,
   Claude Code session once the hosted connector is added (a RUNBOOK §7 step at deploy).
 - **A plugin-only install gets no deny entry and no doctor line for it.** The plugin wires
   nothing in `settings.json`, and its `connect` would wire the host a second time.
+
+## Windows, left after W1 (2026-11-09)
+
+The npm door works on native Windows (CI's `windows` workflow). What the audit found and W1 did not fix, none of it on
+the install → connect → wake → recall → night path:
+
+- **No process look.** `realProcessLister` runs `ps`, which Windows doesn't have, so `uninstall`, `start-fresh` and
+  `connect`'s server census see `NO_LOOK` ("could not check"). A `Get-CimInstance Win32_Process` lister would bring it
+  back.
+- **Renaming an open store.** SQLite on Windows holds its files without share-delete, so `claim.ts`'s park,
+  `rollback`, `start-fresh`, `uninstall --park` can fail with EBUSY/EPERM while a session, the worker or an MCP server
+  has the store open. They should say "quit Claude Code first" and treat EBUSY as "something is still running".
+- **Path prefix checks with `/`.** `plugin.ts` (plugin-route detection), `wire.ts#inPlugin`, `host-wiring.ts` (the
+  plugin stand-down's path test), `core/counterpart-projects.ts` (the folder-is-the-store refusal) and
+  `core/dream/project-ask.ts` test `${dir}/` prefixes, which a `C:\…` path never has. The plugin route is not the
+  Windows front door; the projects refusal fails open.
+- **Drive-letter case.** `realpathSync` keeps `c:` vs `C:`, so one folder typed two ways can be two scopes.
+- **`~` shortening** in display text only knows `/`; Windows shows full paths.
