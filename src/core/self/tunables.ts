@@ -682,9 +682,61 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_READ: 200,
   /** How many days before its day a dated item can be done (the shop launched one day early); an earlier done row is another visit of the same name (review of #734). */
   HAPPENED_EARLY_DAYS: 1,
+  /** "Set down from my page last night" (PG1): lines named before "and N more". Two is a glance; the rest are behind recall "set down". */
+  SET_DOWN_SHOWN: 2,
+  /** A set-down line in the wake: this many characters, then "…" (the line is whole behind the door). */
+  SET_DOWN_LINE_CHARS: 140,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,
+} as const;
+
+/**
+ * WHAT THE PAGE SETS DOWN (PG1, 2026-11-09; Mike 11-07, lightly held): the
+ * limits of the sentence diff a nightly page write is checked by
+ * (`self/set-down.ts`), and of the set-downs the night is shown again. A share
+ * is of the gone sentence's content words (stemmed, function words aside)
+ * found in the new page's sentences. UNMEASURED DEFAULTS: set on hand-built
+ * page pairs (`test/self-set-down.test.ts`), not on the owner's pages. The
+ * check is `tools/set-down-diff.ts` on page v66 (10-30) against the 11-01
+ * page, read against Mike's 11-07 judgement of Fable's list (about five gone,
+ * three folded, one retired).
+ */
+export const SET_DOWN_LIMITS = {
+  /** Gone word for word but this share of its words in one new sentence (or two side by side): reworded, kept, not a set-down. */
+  NEAR_SHARE: 0.7,
+  /** New sentences read together for "reworded": a sentence split in two is still the sentence. */
+  NEAR_WINDOW: 2,
+  /** For `tools/set-down-diff.ts`'s report only since the review of #789: a writer's "folded" is trusted, not checked. */
+  FOLD_SHARE: 0.5,
+  /** New sentences read together when judging a line no one accounted for as clearly gone: a story carries a rule over a few sentences. */
+  FOLD_WINDOW: 3,
+  /** Not accounted for by the writer, and gone: quoted by the wake only when at most this share of its words is anywhere in a run of `FOLD_WINDOW` new sentences; above it, a quiet "maybe reworded" memory. Low on purpose: on the owner's history true folds scored 0.36–0.38 and true drops 0.38–0.40 (review of #789), so the engine quotes only the plain ones. 0.15, not 0.3: at 0.3, a sentence the next page reworded with almost no words in common (0.29) was quoted as gone. */
+  GONE_SHARE: 0.15,
+  /** A new sentence of at least this many content words, all inside a gone one, is that sentence trimmed (to a clause, a word dropped). */
+  CONTAIN_MIN: 2,
+  /** A clause of a gone line (split at ; : — ( ) and ", ") with this share of its words in one new sentence or two: the line is not clearly gone (a three-word clause kept as two of its words, 2 of 3). */
+  CLAUSE_SHARE: 0.6,
+  /** An anchor: a stemmed word at least this long that only this line carried on the old page; found anywhere on the new page, the line is not clearly gone. */
+  ANCHOR_MIN: 4,
+  /** The writer's folded/reworded claims kept on one write's event for audit (line and why); past it, counted. A page has ~40 sentences; a rewrite rarely keeps more than this by its word. */
+  AUDIT_MAX: 20,
+  /** A writer's why, at most this many characters (cut at a word, "…"). */
+  WHY_CHARS: 200,
+  /** The shortest word counted: "a", "of" and "to" carry nothing. */
+  WORD_MIN: 3,
+  /** Most set-down memories one write makes one by one: past it, the rest go into ONE memory with every line in full (a page rewritten from nothing is not forty memories). */
+  MAX_PER_WRITE: 12,
+  /** Set-down memories read when looking for one life touched since, or one a write brought back: the newest this many. */
+  SCAN: 200,
+  /** Set-downs the night's page writers are shown again, touched since: a few, newest touch first. */
+  BACK_SHOWN: 5,
+  /** New memories read after a set-down to find one restating it. */
+  RESTATED_READ: 200,
+  /** A set-down line in a memory's title: this many characters, whole words, then "…". The body keeps it whole. */
+  TITLE_CHARS: 120,
+  /** recall "set down": the newest this many. */
+  LISTED: 50,
 } as const;
 
 export function withTunables(overrides: Partial<SelfTunables>): SelfTunables {
