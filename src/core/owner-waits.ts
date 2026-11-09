@@ -124,7 +124,7 @@ export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number
 export function noteRaised(
   store: Pick<Store, "appendEvent" | "getMeta" | "setMeta">,
   item: { readonly id: string; readonly version: number; readonly kind: "memory" | "handoff"; readonly scope?: string | null },
-  at: { readonly day: number; readonly session: string; readonly via: "wake" },
+  at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" },
 ): boolean {
   try {
     const seq = store.appendEvent({

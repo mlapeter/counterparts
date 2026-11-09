@@ -866,9 +866,12 @@ written there in `OWNER_CONTEXT_MS`); then this folder's before a personal one, 
 `OWNER_RAISE_STEPS` lived days (3, 7, 14); at session start never sooner than `OWNER_MENTION_EVERY`
 (a week) after the last raise, so here the steps read 7, 7, 14. After the last step it parks: out of
 the wake, listed parked by `recall "still open"` and counted in the wake's "N parked". A revision
-(`revision`, a handoff's `version`) starts the chain again. Not built: the relevance lane in
-ambient recall (the brief's point 2) and true blockers raised until answered (point 4: no blocker
-mark exists in the store). No store-format change.
+(`revision`, a handoff's `version`) starts the chain again. **[M]** The relevance lane: on a turn
+a person started, an item the turn touches (`OWNER_TURN_SHARED` of its content words), in its own
+project or personal, comes up as one line after the recall block, "Waiting on <owner>, ask when it
+fits: <title> · needs: <settlesWhen> · waiting <age> [id]", under the same record, latch and steps
+without the week floor. **[M]** A sunk handoff said as the wake's ask is not also its pointer line.
+Not built: true blockers raised until answered (point 4: deferred 11-09, no blocker mark exists). No store-format change.
 
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test

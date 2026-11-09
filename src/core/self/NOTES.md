@@ -3218,10 +3218,21 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   than the one-a-day Mike called too slow. So with many items, each session start can carry a different one.
 - **Answered = revised.** A revision (the row's `revision`, a handoff's `version`) starts the chain; touches and
   glimpses don't. An item that stops being `asked` or open leaves the candidates.
-- **Not built:** point 2's relevance lane in ambient recall (the per-turn raise, which the 3-day step is for),
-  point 4's true blockers (no blocker mark in the store), and a night-written context line (the mention is title,
-  `settlesWhen`, age, raises, id). Only the shaped wake carries the mention.
+- **The relevance lane (point 2, same PR after the coordinator's review).** `owedForTurn`, called from
+  `Counterpart#recallForTurn` on a turn a person started (`attended`, set by `Lifecycle#recallTurn` for
+  `startedBy: "person"`): an `asked` item Still open would carry here (not dated) or a sunk handoff here, whose words
+  the turn takes in `OWNER_TURN_SHARED` of (the owner's name aside), comes up as one line after the recall block,
+  "Waiting on <owner>, ask when it fits: <title> · needs: <settlesWhen> · waiting <age> [id]". Its bytes come out of
+  recall's room first; it is shown only when this turn wrote the day latch. ONE record, latch and backoff with the
+  wake's mention: the turn uses the steps without the week floor, so the 3-day step is real now (a turn raise on day
+  0 can be followed by one on day 3; the session-start mention still waits a week). Its time is the `owed` step on
+  `recall.decision`: p50 ~3.3 ms on an invented 400-open, 134-asked store.
+- **Shown once.** A sunk handoff said as the wake's ask is not also its pointer line in "Where this folder stands".
+- **Not built:** a night-written context line (the mention is title, `settlesWhen`, age, raises, id).
 - **Lived days, not calendar days.** The latch and the steps count `livedDay`, which the first turn-end of a calendar
   day moves (`advanceClock`), not SessionStart: the morning's first wake can still be on yesterday's lived day. That
   errs quiet (never two raises in one calendar day). A CHECK-AFTER read grouping `open.owner.raised` by `day` groups
   by lived day.
+- **Item 4 (true blockers raised until answered) deferred 11-09:** live with the relevance lane + weekly mention
+  first; if true blockers still sink after ~a week, add an explicit field (not inference), batched with the next
+  store-format change.

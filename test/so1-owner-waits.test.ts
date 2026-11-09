@@ -144,6 +144,25 @@ function hook(o: { cwd?: string; session?: string; entrypoint?: string } = {}): 
   return wake;
 }
 
+/** The real UserPromptSubmit hook, a child process: what the model is handed with the turn. */
+function prompt(text: string, o: { cwd?: string; session?: string; entrypoint?: string } = {}): string {
+  const config = join(conf, "claude-code.json");
+  writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+  if (!existsSync(join(conf, "scopes.json"))) scopes({ [HERE]: "on", [THERE]: "on" });
+  const session = o.session ?? sid((next += 1));
+  const env: Record<string, string | undefined> = { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home"), CLAUDE_CODE_ENTRYPOINT: o.entrypoint ?? "cli" };
+  delete env["CLAUDE_CODE_SESSION_ATTENDED"];
+  const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
+    encoding: "utf8",
+    input: JSON.stringify({ session_id: session, hook_event_name: "UserPromptSubmit", prompt: text, cwd: o.cwd ?? HERE }),
+    env,
+  });
+  expect(r.status).toBe(0);
+  const out = r.stdout.startsWith("{") ? String((JSON.parse(r.stdout) as { hookSpecificOutput?: { additionalContext?: string } }).hookSpecificOutput?.additionalContext ?? "") : r.stdout;
+  if (process.env["SO1_DUMP"] === "1") console.log(`\n----- turn ${session}\n${out}`);
+  return out;
+}
+
 function section(wake: string, head: string): string {
   return wake.split("\n\n").find((p) => p.startsWith(head)) ?? "";
 }
@@ -284,7 +303,10 @@ describe("3. a handoff WK3 sank gets its weekly mention", () => {
     for (let i = 0; i < WAKE_SHAPE_LIMITS.LEAD_SHOWN_SINK; i++) expect(section(hook(), "Still open:")).not.toContain(WAITING);
     const sunk = hook();
     const stands = section(sunk, "Where this folder stands:");
-    expect(stands.indexOf("SHELF")).toBeLessThan(stands.indexOf("GLAZE"));
+    expect(stands).toContain("Handoff, SHELF");
+    expect(stands).toContain("1 newer one waiting on an answer, below");
+    // Shown once: said as the ask below, so not also its pointer line here.
+    expect(stands).not.toContain("- GLAZE");
     const still = section(sunk, "Still open:");
     expect(still).toContain(`${WAITING} GLAZE: waiting on Wren to pick the spring glaze.`);
     expect(still).toContain(`· a handoff, below the others [${gid}]`);
@@ -325,5 +347,66 @@ describe("4. the order is by relevance to this folder's week", () => {
     asked(c, "Which lid style for the honey jars? Wren to choose.", "Honey jar lids: Wren to choose");
     w.at(NOW);
     expect(section(hook(), "Still open:")).toContain(`[${older}]`);
+  });
+});
+
+describe("5. the relevance lane: a turn that touches it raises it", () => {
+  const KILN = "Which kiln shelf wash to order? Wren to choose between the two suppliers.";
+
+  test("touched: raised, marked, with what it needs and how long; not again that day; silent on day 2, raised on day 3", () => {
+    const w = brain();
+    const { c } = w;
+    w.at(NOW - 2 * 24 * HOUR);
+    const id = asked(c, KILN, "Kiln shelf wash: Wren to choose", { settlesWhen: "Wren picks a supplier" });
+    w.at(NOW);
+    const first = prompt("The kiln shelf is flaking again; the old wash came off in the bisque firing.");
+    expect(first).toContain(`Waiting on Wren, ask when it fits: Kiln shelf wash: Wren to choose · needs: Wren picks a supplier · waiting 2 days [${id}]`);
+    const ev = c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id });
+    expect(ev.length).toBe(1);
+    expect(JSON.parse(ev[0]?.payload ?? "{}")).toMatchObject({ via: "turn" });
+    // Another session, the same lived day: the latch holds.
+    expect(prompt("Back at the kiln shelf: the wash is still flaking.")).not.toContain(id);
+    // Day 2: inside the 3-day step. Day 3: raised again, saying so.
+    liveOn(c, START + 2);
+    expect(prompt("The kiln shelf wash question again, before the glaze firing.")).not.toContain(id);
+    liveOn(c, START + 3);
+    expect(prompt("The kiln shelf wash question again, before the glaze firing.")).toContain(`raised 1 time before, unanswered [${id}]`);
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START, START + 3]);
+  });
+
+  test("a turn that doesn't touch it says nothing of it, and raises nothing", () => {
+    const { c } = brain();
+    const id = asked(c, KILN, "Kiln shelf wash: Wren to choose");
+    expect(prompt("Watered the tomatoes and tied up the beans along the fence.")).not.toContain(id);
+    expect(prompt("The kiln is cooling.")).not.toContain(id);
+    expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
+  });
+
+  test("one backoff: a turn raise on day 0 holds the session-start mention back until the week; another folder's turn never raises it; nor an agent's", () => {
+    const { c } = brain();
+    const id = asked(c, KILN, "Kiln shelf wash: Wren to choose");
+    expect(prompt("The kiln shelf wash is flaking.", { cwd: THERE })).not.toContain(id);
+    expect(prompt("The kiln shelf wash is flaking.", { entrypoint: "sdk-cli" })).not.toContain(id);
+    expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
+    expect(prompt("The kiln shelf wash is flaking.")).toContain(`[${id}]`);
+    liveOn(c, START + 3);
+    expect(hook()).not.toContain(id);
+    liveOn(c, START + 7);
+    expect(section(hook(), "Still open:")).toContain(`${WAITING} Kiln shelf wash: Wren to choose`);
+  });
+
+  test("a sunk handoff the turn touches comes up too", () => {
+    const w = brain();
+    const { c } = w;
+    w.at(NOW - 60 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 40 * HOUR);
+    const gid = c.writeHandoff("GLAZE: waiting on Wren to pick the spring glaze recipe.", { scope: HERE, session: OWN }).id ?? "";
+    w.at(NOW);
+    // It leads twice, sinks, and the third wake's mention raises it; a week on, a turn touches it on its 7-day step.
+    for (let i = 0; i <= WAKE_SHAPE_LIMITS.LEAD_SHOWN_SINK; i++) hook();
+    expect(raiseRecord(c.store)[gid]?.days).toEqual([START]);
+    liveOn(c, START + 7);
+    expect(prompt("Mixing a test batch of the spring glaze recipe today.")).toContain(`(a handoff) · raised 1 time before, unanswered [${gid}]`);
   });
 });

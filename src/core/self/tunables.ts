@@ -707,10 +707,16 @@ export const WAKE_SHAPE_LIMITS = {
   /**
    * The session-start mention comes at most once a week per item, store-wide (every session, every folder),
    * under the same backoff: the next mention waits the larger of the step and this. So at session start alone
-   * the steps read 7, 7, 14, then parked; the 3-day step is reachable only through a raise from another door
-   * (the relevance lane in recall, not built yet). Lived days.
+   * the steps read 7, 7, 14, then parked; a turn that touches the item (the relevance lane, `owedForTurn`) uses the
+   * steps without this floor, so there the 3-day step is real. One record and latch for both. Lived days.
    */
   OWNER_MENTION_EVERY: 7,
+  /**
+   * A turn touches an item waiting on the owner (SO1 step 4's relevance lane) when the turn's content words take in at
+   * least this many of the item's (its title and what settles it; the owner's name and "the owner" aside). Two: one word
+   * ("glaze") is a passing mention; two ("kiln shelf") name the subject. Unmeasured.
+   */
+  OWNER_TURN_SHARED: 2,
   /** Raise chains kept in the record (`owner-waits.ts`): the oldest past this go, which only lets one be raised again. */
   OWNER_RAISES_KEPT: 400,
   /** How far back this folder's memories are read for what an owed item is ranked against (relevance, SO1 step 4): a week of work here. */
