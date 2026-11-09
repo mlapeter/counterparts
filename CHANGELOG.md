@@ -1,9 +1,28 @@
 # Changelog
 
-## 0.3.51 — 2026-11-09
+## 0.3.52 — 2026-11-09
 
-**Memory that fades on purpose as it grows: old per-turn records roll up, older release notes give way to newer ones, finished things stop being overdue, and the night closes items itself.** What you'll notice: the morning's "Last night" can say in one line which open items the night closed; doctor has new Growth lines saying what is filling up and whether it leaves as fast; fewer overdue and still-open items at wake. One thing goes for good: the per-turn recall records (`recall.decision`, `recall.credit`, `recall.rated`) are now kept 30 lived days instead of 90, and on the first night after updating, the ones older than that are rolled up into one summary row per day (counts, the memories credited, the sessions) and deleted. If you want them, copy your store before updating. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.50 needs no store restore: `counterparts disconnect`, 0.3.50's install, then `counterparts connect` (the rows already rolled up stay gone).
+**Counterparts now runs on Windows (new: tell us how it goes), and a password said in a sentence is no longer kept.** It also brings memory that fades on purpose as it grows: old per-turn records roll up, older release notes give way to newer ones, finished things stop being overdue, and the night closes items itself. What you'll notice: the morning's "Last night" can say in one line which open items the night closed; doctor has new Growth lines saying what is filling up and whether it leaves as fast, and a Recall steps line saying where recall's time goes; fewer overdue and still-open items at wake. One thing goes for good: the per-turn recall records (`recall.decision`, `recall.credit`, `recall.rated`) are now kept 30 lived days instead of 90, and on the first night after updating, the ones older than that are rolled up into one summary row per day (counts, the memories credited, the sessions) and deleted. If you want them, copy your store before updating. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.50 needs no store restore: `counterparts disconnect`, 0.3.50's install, then `counterparts connect` (the rows already rolled up stay gone).
 
+0.3.51 was packed but never published; everything it held is in this entry.
+
+- **Doctor says where recall's time goes.** Each recall now records how long each of its steps took (finding words,
+  this turn's meaning, the link walk, ranking, the gate, settled pairs, habituation, the render, and the rest), and
+  `counterparts doctor` has a `Recall steps` line with the last week's median for each, largest first. It only
+  measures: what recall shows is unchanged, byte for byte.
+- **A password said in a sentence isn't kept.** "My wifi password is …", "the PIN is …", "pw for the router
+  is …": the value is replaced with `[REDACTED:password]` and the sentence stays, so the memory still says there is
+  one. Ordinary sentences about passwords ("I forgot my password", "the password field is empty") are left alone.
+- **The raw conversation text gets the same stripping.** What's kept of a conversation until it's written up now
+  goes through the same check as a memory before it's saved, on your machine and on hosted. Text saved before this
+  version isn't rewritten; it's deleted on its usual schedule. Not every secret has a shape: don't paste things you
+  wouldn't want kept.
+- **Counterparts runs on Windows.** Install it with npm (`npm install -g counterparts@latest`) and Node 22.15 or newer,
+  then `counterparts` and `counterparts connect` as on macOS and Linux, from cmd, Git Bash or PowerShell (where
+  Windows' default policy refuses npm's scripts, `counterparts.cmd` works). The hooks `connect` writes run whether
+  Claude Code uses Git Bash or PowerShell for them, and the memory tools register with Claude Code installed either
+  way (its installer or npm). It's new and has few users yet: tell us how it goes. Under WSL it works as on Linux.
+  QUICKSTART's "On Windows" says what differs.
 - **Old routine work notes fade faster once a newer one moves on.** When a newer work memory in the same folder
   says a later version in the same series was released or published ("0.3.50 released"), the night fades the
   older status note ("0.3.46 ready to publish", "0.3.47 after-publish steps") the way a revision does: it
