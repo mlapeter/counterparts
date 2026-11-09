@@ -265,6 +265,19 @@ describe("2b. the same moment in other words", () => {
     expect(open.map((o) => o.t)).toContain(carried?.[1] ?? "");
   });
 
+  test("two sentences, only the first dated: the whole line is the told moment, and an open thread is carried forward, never a fragment", () => {
+    const { c, today } = brain();
+    c.revisePage("## Core\n\nI keep the kiln's ledger.\n\n## Lately\n\nOn 11-03 I left the kiln door open overnight, and the whole glaze batch cracked.", { reason: "first", by: "owner" });
+    // More open threads than Still open shows, so one is left to carry.
+    for (const t of ["Order more cone packs", "Fix the shelf bracket", "Sweep the drying room", "Label the test tiles", "Oil the wheel bearing", "Reply about the clay order"]) memory(c, `${t}, still to do.`, { title: t, meta: { unresolved: true } });
+    night(c, today, "00000000a013", "The glaze batch that cracked on 11-03 after the kiln door stayed open is still with me. I keep turning it over before sleep.");
+    c.close();
+    const last = section(hook(), "Last night:");
+    expect(last).not.toContain("turning it over");
+    expect(last).not.toContain("still with me");
+    expect(last.split("\n").at(-1)).toMatch(/^Carried forward: .+ \[mem_[0-9a-f]+\]$/);
+  });
+
   test("the same words on another day are a different moment", () => {
     const { c, today } = brain();
     c.revisePage("## Lately\n\nOn 11-03 I left the kiln door open overnight, and the whole glaze batch cracked.", { reason: "first", by: "owner" });
@@ -343,6 +356,41 @@ describe("4. stale handoffs sink", () => {
     const third = lead(READER);
     expect(third).toContain("SHELF");
     expect(third).toContain("1 newer one waiting on an answer, below");
+  });
+
+  test("a lead stepped down to its pointer line counts too: by session 3 it sinks", () => {
+    const w = brain();
+    const { c } = w;
+    c.revisePage(PAGE, { reason: "first", by: "owner" });
+    w.at(NOW - 40 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 30 * HOUR);
+    c.writeHandoff("ROAD: grade the lane by the barn before the gravel comes.", { scope: HERE, session: OWN });
+    // A session here since that left work: the lead steps down to one line.
+    w.at(NOW - 5 * HOUR);
+    memory(c, "The seed order went in for the spring beds.", { title: "Seed order placed", session: "ffff6666-0000-4000-8000-000000000006" });
+    c.close();
+    recordSession(storeDir, { sessionId: "ffff6666-0000-4000-8000-000000000006", scope: HERE, phase: "start", at: NOW - 6 * HOUR });
+    recordSession(storeDir, { sessionId: "ffff6666-0000-4000-8000-000000000006", scope: HERE, phase: "end", at: NOW - 5 * HOUR });
+    const stands = (s: string): string => section(hook(s), "Where this folder stands:");
+    const first = stands("dddd4444-0000-4000-8000-000000000004");
+    expect(first).toContain("Last handoff, ROAD");
+    expect(stands("eeee5555-0000-4000-8000-000000000005")).toContain("Last handoff, ROAD");
+    const third = stands(READER);
+    expect(third).not.toContain("Last handoff, ROAD");
+    expect(third).toContain("SHELF");
+  });
+
+  test("a wait past the lead's first sentence counts: \"ask for his first\" in its second", () => {
+    const w = brain();
+    const { c } = w;
+    c.revisePage(PAGE, { reason: "first", by: "owner" });
+    w.at(NOW - 40 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 30 * HOUR);
+    c.writeHandoff("GATE: the new posts are cut and stacked by the shed.\nNext: hang the gate, but ask for his first on the width.", { scope: HERE, session: OWN });
+    c.close();
+    expect(section(hook(), "Where this folder stands:").split("\n")[1]).toContain("SHELF");
   });
 
   test("words with no name wait on the owner too: \"ask for his\" sinks after a day", () => {

@@ -107,8 +107,6 @@ interface Sec {
   readonly setDownNight?: string;
   /** The least the one pass takes it down to: its door alone, when what is behind it must be said (WK3, overdue). */
   readonly floor?: number;
-  /** The newest handoff led the folder whole (not stepped down): what "led too often" counts. */
-  readonly leadWhole?: boolean;
 }
 type Budgets = Record<SectionKey, number>;
 
@@ -640,7 +638,6 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       ids: [...(newest === undefined ? [] : [newest.id]), ...sinceLines.slice(0, n.since).map((s) => s.id), ...shownOlder.map((o) => o.h.id)],
       items: n.since + shownOlder.length + (newest === undefined ? 0 : 1),
       handoffs: [...(newest === undefined ? [] : [{ h: newest, bytes: lines.leadBytes }]), ...shownOlder.map((o) => ({ h: o.h, bytes: byteLength(firstRealSentence(o.h.body)) }))],
-      leadWhole: newest !== undefined && !stepDown,
       ...(said === null ? {} : { saidBytes: n.said ? said.bytes : 0 }),
       chapters: sinceLines.slice(0, n.since).filter((s) => s.chapter).length,
     };
@@ -958,7 +955,8 @@ function finish(
     cp.handoffs.noteShown(s.h, { bytes: s.bytes, session: reader, among: w.live, ...(i === 0 ? { plans: w.since } : {}) });
   });
   const lead = w.sec.folder.handoffs?.[0];
-  if (lead !== undefined && w.sec.folder.leadWhole === true) noteLed(cp, lead.h, reader, w.hs);
+  // Counted by id whatever its shape, whole or the stepped-down pointer (review 2 of #792).
+  if (lead !== undefined) noteLed(cp, lead.h, reader, w.hs);
   if (w.sec.folder.saidBytes !== undefined) cp["emit"](w.sec.folder.saidBytes > 0 ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: w.sec.folder.saidBytes });
   if ((w.sec.folder.chapters ?? 0) > 0) cp["emit"]("counterpart.lasthere.shown", undefined, { bytes: 0, lines: w.sec.folder.chapters ?? 0 });
   // TOLD ONCE (PG1, review of #789): the night whose set-downs this wake
@@ -1019,7 +1017,7 @@ function sessionsSince(
 /** The meta key recording which sessions' wakes each live handoff led (review of #792): `{ [id]: { version, sessions } }`. */
 export const HANDOFF_LED_KEY = "wake.handoff.led";
 
-type LedRecord = Record<string, { readonly version: number; readonly sessions: readonly string[] }>;
+type LedRecord = Record<string, { readonly version: number; readonly sessions: readonly string[]; readonly scope?: string }>;
 
 function ledRecord(store: Counterpart["store"]): LedRecord {
   try {
@@ -1037,10 +1035,11 @@ function noteLed(cp: Counterpart, h: Handoff, session: string | null, live: read
     const was = ledRecord(cp.store);
     const keep = new Set(live.map((x) => x.id));
     const out: LedRecord = {};
-    for (const [id, r] of Object.entries(was)) if (keep.has(id) && id !== h.id) out[id] = r;
+    // Only this folder's gone handoffs are pruned: another folder's record stands (review 2 of #792).
+    for (const [id, r] of Object.entries(was)) if (id !== h.id && (keep.has(id) || (r.scope !== undefined && r.scope !== h.scope))) out[id] = r;
     const mine = was[h.id];
     const sessions = mine === undefined || mine.version !== h.version ? [] : mine.sessions.filter((x) => x !== session);
-    out[h.id] = { version: h.version, sessions: [...sessions, session].slice(-SHAPE.LEAD_SHOWN_KEPT) };
+    out[h.id] = { version: h.version, sessions: [...sessions, session].slice(-SHAPE.LEAD_SHOWN_KEPT), scope: h.scope };
     cp.store.setMeta(HANDOFF_LED_KEY, JSON.stringify(out));
   } catch {
     /* a lead not recorded only sinks later */
@@ -1063,15 +1062,16 @@ const WAITING_WORDS: readonly string[] = [
 ];
 
 /**
- * DOES THIS HANDOFF'S LEAD ITEM WAIT ON THE OWNER (WK3, 2026-11-09)? Its first
- * real sentence (`firstRealSentence`) names a memory marked `asked` (the store's
+ * DOES THIS HANDOFF'S LEAD WAIT ON THE OWNER (WK3, 2026-11-09)? Its lead, whole
+ * (`leadOf`, not only its first sentence), names a memory marked `asked` (the store's
  * own mark for a question to the owner), or says it waits on the owner by name
  * (`WAITING_WORDS`, or "the owner"). THE SEAM FOR SO1 STEP 4: when its raise
  * events and backoff land, an item they parked or are backing off answers here
  * too, and the waiting words can go. Never throws.
  */
 export function waitsOnOwner(store: Counterpart["store"], h: Pick<Handoff, "body">, owner: string | null): boolean {
-  const lead = firstRealSentence(h.body);
+  // The whole lead, not its first sentence (review 2 of #792: the wait sat past it).
+  const lead = leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ");
   try {
     for (const id of lead.match(MEMORY_ID) ?? []) if (store.row(id)?.status === "asked") return true;
   } catch {
@@ -1114,8 +1114,18 @@ function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonl
     all.some((o) => o.id !== h.id && at(o) > at(h) && o.body.includes(h.id)) || rows.some((r) => (r.created_at ?? 0) > at(h) && (r.body.includes(h.id) || (r.meta ?? "").includes(h.id)));
   const listed = all.filter((h, i) => i === 0 || now - at(h) < SHAPE.HANDOFF_LISTED_MS || referred(h));
   const signal = (h: Handoff): boolean => {
+    // The asked ids from the whole lead; the words from its first sentence only: a
+    // five-line lead shares most titles' words by chance (review 2 of #792, real store).
     const lead = firstRealSentence(h.body);
-    const asked = lead.match(MEMORY_ID) ?? [];
+    // Only an id still marked `asked`: a later row that merely cites a lead's other ids
+    // (a night's, a recap) is no answer (review 2 of #792, real store).
+    const asked = (leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ").match(MEMORY_ID) ?? []).filter((id) => {
+      try {
+        return cp.store.row(id)?.status === "asked";
+      } catch {
+        return false;
+      }
+    });
     return rows.some(
       (r) =>
         (r.created_at ?? 0) > at(h) &&
@@ -1130,15 +1140,21 @@ function handoffsTold(cp: Counterpart, all: readonly Handoff[], folders: readonl
     owner = null;
   }
   // LED TOO OFTEN (review of #792): a lead already at the top of `LEAD_SHOWN_SINK`
-  // other sessions' wakes, unrevised and with no signal since, sinks whatever its
+  // other sessions' wakes, unrevised, sinks a step whatever its
   // words say; the waiting words are the second signal.
   const led = ledRecord(cp.store);
   const ledTooOften = (h: Handoff): boolean => {
     const r = led[h.id];
     return r !== undefined && r.version === h.version && r.sessions.filter((x) => x !== reader).length >= SHAPE.LEAD_SHOWN_SINK;
   };
-  const sinks = new Set(listed.filter((h) => !signal(h) && (ledTooOften(h) || (now - at(h) >= SHAPE.WAITING_SINK_MS && waitsOnOwner(cp.store, h, owner)))).map((h) => h.id));
-  return [...listed.filter((h) => !sinks.has(h.id)), ...listed.filter((h) => sinks.has(h.id))];
+  // Each stale mark sinks it a step, newest first within a step: fresh; led too often
+  // OR waiting on the owner; both (review 2 of #792: two waiting leads, the one
+  // already led twice gives way to the other).
+  // Led too often counts whatever was written beside it: only a revision of the
+  // handoff resets it (its version). The waiting words count with no signal since.
+  const steps = (h: Handoff): number => Number(ledTooOften(h)) + Number(!signal(h) && now - at(h) >= SHAPE.WAITING_SINK_MS && waitsOnOwner(cp.store, h, owner));
+  const step = new Map(listed.map((h) => [h.id, steps(h)] as const));
+  return [...listed].sort((x, y) => (step.get(x.id) ?? 0) - (step.get(y.id) ?? 0));
 }
 
 /** Up to `OLDER_SHOWN` of the older handoffs, one per seat, not the lead's, newest of each. */
@@ -1465,8 +1481,10 @@ function ownToldOnce(cp: Counterpart, night: { readonly own: string | null; read
   if (own === null) return null;
   const already = told.filter((t) => t.trim().length > 0).map((t) => preparePage(t));
   const sentences = preparePage(own).sentences.map((x) => x.text);
-  const kept = (sentences.length === 0 ? [own] : sentences).filter((x) => !already.some((p) => lineOnPage(x, p) || sameMoment(x, p)));
-  if (kept.length === 0) return null;
+  // One sentence of the line telling a told moment is the line telling it (review 2 of
+  // #792): its undated rest is the same moment, and alone it would be a fragment.
+  const kept = sentences.length === 0 ? [own] : sentences;
+  if (kept.some((x) => already.some((p) => lineOnPage(x, p) || sameMoment(x, p)))) return null;
   const line = kept.join(" ");
   const before = previousOwn(cp, night.reflection);
   if (before === null) return line;

@@ -3157,4 +3157,13 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   wakes, unrevised and with no signal, now sinks whatever its words (meta `wake.handoff.led`). The words gained
   ownerless forms. A long other-folders door had squeezed out a plain line due today: short of room, the door goes
   terse first, and a plain line is Coming up's floor. And a wake with no `source` is unknown, so it doesn't fold.
+- **Round 2 (re-checked through the SessionStart hook on a copy of a real store, clock frozen at a morning).** When
+  one sentence of the closing line tells a moment that was already told, the whole line goes: its undated rest was
+  the same moment, and on its own it ended the wake on a fragment. Then "Carried forward" takes its place. A lead is
+  now counted by handoff id in either form, whole or the stepped-down pointer; on the real store every lead was the
+  pointer, so nothing had been counted. Only a revision resets the count. The waiting words read the whole lead,
+  since the wait sat past the first sentence. A sinking handoff goes down one step per mark (led too often, waiting),
+  so of two waiting leads, the one already led twice gives way. "Signal since" counts only an id still marked
+  `asked`: later rows that only cite a lead's other ids (night recaps) were reading as answers. The record keeps
+  other folders' entries; the first build pruned them.
 
