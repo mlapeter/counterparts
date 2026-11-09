@@ -22,9 +22,14 @@ import { join } from "node:path";
 // Written by build.ts before every compile and not committed, so a fresh
 // checkout's typecheck has no file to resolve.
 // @ts-ignore
-import { EMBEDDED as embedded } from "./assets.gen.js";
+import { EMBEDDED as embedded, VERSION as builtVersion } from "./assets.gen.js";
+
+import { setBuiltVersion } from "../../src/adapters/runtime.js";
 
 const EMBEDDED = embedded as readonly string[];
+// Before any mode: `--version` falls back to it where the embedded
+// package.json can't be opened (Windows, `runtime.ts#setBuiltVersion`).
+if (typeof builtVersion === "string") setBuiltVersion(builtVersion);
 
 type Entry = { start: () => void | Promise<void> };
 

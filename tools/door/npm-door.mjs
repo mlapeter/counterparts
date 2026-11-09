@@ -351,12 +351,15 @@ function mcpRound(requests) {
 
 // ── the night, on a CI runner whose clock may be moved ───────────────────────
 // The night starts with the first session of a LATER day. With
-// `--advance-clock` (CI's Windows job only: it moves the runner's system
-// clock, which is nobody's machine) the clock goes forward a day, a new session
+// `--advance-clock` (CI only: it moves a runner's or WSL's system clock, which
+// is nobody's machine) the clock goes forward a day, a new session
 // starts, and the night must start in the background and get as far as
 // starting `claude -p` — which, with no Claude login on the runner, ends there.
-if (process.argv.includes("--advance-clock") && WIN) {
-  const moved = shell("powershell", "Set-Date (Get-Date).AddDays(1) | Out-Null");
+// Only on CI (`CI=true`): never a person's own clock, whatever flag is passed.
+const CAN_MOVE_CLOCK = process.env.CI === "true" && (WIN || process.getuid?.() === 0);
+if (process.argv.includes("--advance-clock") && CAN_MOVE_CLOCK) {
+  // PowerShell on Windows; `date -s` as root elsewhere (WSL's own clock).
+  const moved = WIN ? shell("powershell", "Set-Date (Get-Date).AddDays(1) | Out-Null") : shell("sh", "date -s @$(( $(date +%s) + 86400 )) >/dev/null");
   if (moved.code !== 0) no("could not move the clock forward", moved.err);
   else {
     try {
@@ -367,6 +370,11 @@ if (process.argv.includes("--advance-clock") && WIN) {
       if (r.code === 0) ok(`the next day's SessionStart: exit 0, ${r.out.length} bytes out`);
       else no(`the next day's SessionStart (exit ${r.code})`, r.err);
       show("the next day's wake (head)", r.out.slice(0, 1500));
+      // The night is offered on the day's first PROMPT, not in the wake (`hooks.ts#dreamLines`).
+      const prompt = shell(hookShell, hookCommand("UserPromptSubmit"), { input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: next, cwd: PROJECT, transcript_path: transcript, prompt: "good morning" }), timeout: 60_000 });
+      if (prompt.code === 0) ok(`the next day's first prompt: exit 0, ${prompt.out.length} bytes out`);
+      else no(`the next day's first prompt (exit ${prompt.code})`, prompt.err);
+      show("the next day's first prompt's output", prompt.out.slice(0, 1500));
       const logDir = join(HOME, ".counterparts", "store", "sessions", "log");
       let lines = [];
       for (let i = 0; i < 90; i += 1) {
@@ -383,7 +391,8 @@ if (process.argv.includes("--advance-clock") && WIN) {
       const n = shell(TERMINAL, "counterparts night", { timeout: 60_000 });
       show(`counterparts night, the next day (exit ${n.code})`, `${n.out}${n.err}`);
     } finally {
-      shell("powershell", "Set-Date (Get-Date).AddDays(-1) | Out-Null");
+      if (WIN) shell("powershell", "Set-Date (Get-Date).AddDays(-1) | Out-Null");
+      else shell("sh", "date -s @$(( $(date +%s) - 86400 )) >/dev/null");
     }
   }
 }

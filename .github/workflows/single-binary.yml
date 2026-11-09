@@ -40,8 +40,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     # A green run takes under five minutes; Windows' smoke test hung once (2026-10-09).
-    # Windows (experimental) has run to its timeout and been cancelled on every
-    # run since: 8 minutes there, so it stops sitting on every PR (2026-11-03).
+    # Windows (experimental) ran to its timeout and was cancelled on every run
+    # from then until W1 (2026-11-09), which fixed the hang and made it required;
+    # `experimental` stays for a platform that may fail while it is being made.
     timeout-minutes: ${{ matrix.experimental && 8 || 20 }}
     strategy:
       fail-fast: false
@@ -84,6 +85,11 @@ jobs:
           work=""; [ "${{ matrix.platform }}" = "windows-x64" ] && work="$RUNNER_TEMP/smoke"
           bash tools/single-binary/smoke.sh "$PWD/dist/single-binary/$version/counterparts-$version-${{ matrix.platform }}$exe" $work
       - name: The binary through plugin-run.sh, downloaded and verified
+        # Not on Windows (W1, 2026-11-09): no Windows binary is released
+        # (`build.ts#RELEASED`), so the plugin's launcher has nothing to fetch
+        # there, and the plugin route on Windows isn't built. Windows' front door
+        # is npm (`windows.yml`).
+        if: matrix.platform != 'windows-x64'
         run: |
           version=$(bun -e 'console.log(require("./package.json").version)')
           bun tools/single-binary/launcher-e2e.ts "dist/single-binary/$version"

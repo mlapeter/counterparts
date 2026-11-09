@@ -97,7 +97,7 @@ export function embeddedFiles(): string[] {
   return out;
 }
 
-function stageAndWriteManifest(files: readonly string[]): void {
+function stageAndWriteManifest(files: readonly string[], version: string): void {
   rmSync(STAGE, { recursive: true, force: true });
   for (const f of files) {
     mkdirSync(dirname(join(STAGE, f)), { recursive: true });
@@ -109,6 +109,9 @@ function stageAndWriteManifest(files: readonly string[]): void {
     "// Each import embeds one file in the compiled binary (`with { type: \"file\" }`).",
     ...files.map((f, i) => `import f${String(i)} from ${JSON.stringify(relative(HERE, join(STAGE, f)))} with { type: "file" };`),
     `export const EMBEDDED: readonly string[] = [${files.map((_, i) => `f${String(i)}`).join(", ")}];`,
+    // The version as a value too (W1): on Windows Bun lists `./package.json` among
+    // the embedded files and then cannot open it by that name.
+    `export const VERSION = ${JSON.stringify(version)};`,
     "",
   ];
   writeFileSync(join(HERE, "assets.gen.ts"), lines.join("\n"));
@@ -174,7 +177,7 @@ if (import.meta.main) {
   mkdirSync(outDir, { recursive: true });
 
   const files = embeddedFiles();
-  stageAndWriteManifest(files);
+  stageAndWriteManifest(files, version);
   process.stdout.write(`counterparts ${version}: embedding ${String(files.length)} files${bytecode ? ", bytecode" : ""}\n`);
 
   const built: Built[] = [];

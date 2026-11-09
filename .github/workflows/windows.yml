@@ -114,7 +114,7 @@ jobs:
         env:
           TARBALL: ${{ needs.pack.outputs.tarball }}
           # What crosses into WSL, the two paths translated (`/p`).
-          WSLENV: TARBALL:RUNNER_TEMP/p:GITHUB_WORKSPACE/p
+          WSLENV: TARBALL:CI:RUNNER_TEMP/p:GITHUB_WORKSPACE/p
         run: |
           # Node from nodejs.org: Ubuntu's own is older than the 22.15 floor.
           curl -fsSL https://nodejs.org/dist/v24.11.0/node-v24.11.0-linux-x64.tar.xz -o /tmp/node.tar.xz
@@ -124,4 +124,4 @@ jobs:
           # The Windows side's files, copied onto the Linux disk where the work happens.
           cp "$RUNNER_TEMP/pack/$TARBALL" /tmp/
           cp -r "$GITHUB_WORKSPACE/tools/door" /tmp/door-tool
-          cd /tmp && COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 node /tmp/door-tool/npm-door.mjs "/tmp/$TARBALL" /tmp/npm-door
+          cd /tmp && COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 node /tmp/door-tool/npm-door.mjs "/tmp/$TARBALL" /tmp/npm-door --advance-clock

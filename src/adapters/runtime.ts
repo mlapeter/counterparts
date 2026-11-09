@@ -163,6 +163,22 @@ export function packagePath(rel: string, binary: Binary | null = BINARY): string
   return rel.includes("/") ? [binary.root, ...rel.split("/")].join(sep) : [binary.root, ".", rel].join(sep);
 }
 
+/**
+ * The package version the single binary was BUILT from, handed in by its
+ * entry (`tools/single-binary/main.ts`) before any mode runs; null from source.
+ * `cli/commands.ts#packageVersion` reads the embedded `package.json` first and
+ * this only when that fails, which it does on Windows: Bun lists the file as
+ * `B:/~BUN/root/./package.json` and then answers ENOENT for that very name
+ * (W1, 2026-11-09, CI's windows-x64 selfcheck).
+ */
+let builtVersion: string | null = null;
+export function setBuiltVersion(version: string): void {
+  builtVersion = version;
+}
+export function builtVersionOf(): string | null {
+  return builtVersion;
+}
+
 /** The model table's directory inside the binary; undefined from source,
  *  where `core/embed/static.ts` resolves the installed package itself. */
 export function bundledModelDir(binary: Binary | null = BINARY): string | undefined {
@@ -367,7 +383,9 @@ export function windowsLaunch(
   } catch {
     return null;
   }
-  const target = /"%dp0%\\([^"]+)"/.exec(text)?.[1];
+  // The LAST quoted `%dp0%` path: a Node bin's shim names `"%dp0%\node.exe"`
+  // first (`IF EXIST …`), its target last (measured on Claude Code's, CI 11-09).
+  const target = [...text.matchAll(/"%dp0%\\([^"]+)"/g)].pop()?.[1];
   if (target === undefined) return null;
   const dir = found.replace(/[\\/][^\\/]*$/, "");
   const file = `${dir}\\${target}`;

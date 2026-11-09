@@ -84,7 +84,16 @@ describe("what a host is told to run on win32", () => {
 });
 
 describe("windowsLaunch: an npm .cmd shim is read, never run through cmd", () => {
-  const SHIM_JS = '@ECHO off\r\n"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*\r\n';
+  // What npm's cmd-shim writes for a `#!/usr/bin/env node` bin: node.exe first, the target last.
+  const SHIM_JS = [
+    "@ECHO off",
+    'IF EXIST "%dp0%\\node.exe" (',
+    '  SET "_prog=%dp0%\\node.exe"',
+    ") ELSE (",
+    '  SET "_prog=node"',
+    ")",
+    'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  ].join("\r\n");
   const SHIM_EXE = '@ECHO off\r\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\r\n';
   const npm = "C:\\Users\\me\\AppData\\Roaming\\npm";
   test("a .js target is given to node, with the arguments whole", () => {
