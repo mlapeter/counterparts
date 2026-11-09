@@ -350,7 +350,8 @@ describe("E3 — an unsettled pair competes", () => {
     expect(rowOn["pairsCompeted"]).toBe(0);
     expect(u.injection.replace(/mem_[0-9a-f]+/g, "ID")).toBe(t.injection.replace(/mem_[0-9a-f]+/g, "ID"));
     const strip = (r: Record<string, unknown>): string => {
-      const { pairsCompeted: _drop, elapsedMs: _ms, ...rest } = r;
+      // `steps` is timing, like `elapsedMs` (LT2).
+      const { pairsCompeted: _drop, elapsedMs: _ms, steps: _steps, ...rest } = r;
       return JSON.stringify(rest).replace(/mem_[0-9a-f]+/g, "ID");
     };
     expect(strip(rowOn)).toBe(strip(row));

@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | the release after 2026-11-09 (W1) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
+| Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | A write lists the open items it may settle (SO1 step 1b): a stored `remember` or `session_end` entry that says a version or PR was done lists up to 3 open items from any folder with the same version series, the same PR (own project only) or a `settlesWhen` it reaches (`mayClose`); the model closes or leaves them | the release after 2026-11-07 (SO1 step 1b) | ~7 lived days after install (dated reminder set at merge): `open.close-hint.shown` rows and distinct ids listed against `open.close-hint.closed` rows (and how many with `daysAfter` 0), p50/max ms, a hand-read of 10 listed titles for plainly irrelevant ones; baseline on the 11-07 copy: 3 of 19 irrelevant plus 2 weak, before the fix round | [below](#a-write-lists-the-open-items-it-may-settle-so1-step-1b) |
 | Growth exits (FD1 step 2): per-turn event rows (`recall.decision`, `recall.credit`, `recall.rated`) keep 30 lived days, each day rolled into one latched `events.rolled` row first; doctor's Growth lines (memories, event log, cue pairs, dream queue; new and swept edges on Association) | the release after 2026-11-07 (FD1 step 2) | **a read-only copy of the store before the install** (RELEASING §5.1; MOD #3 and the H14 replay read it); then ~3 lived days after install (dated reminder set at merge): events MB and per-kind row counts from `Growth: event log`, one `events.rolled` row per swept day, `sleep.log.swept` deleted against remaining; the other Growth lines' first numbers written down | [below](#growth-exits-fd1-step-2) |
@@ -145,6 +146,36 @@ run in Git Bash, else PowerShell)? Did the first session wake, did recall answer
 What would change it: a hook line one of the shells can't run (then pin `"shell"` on the hook, or write the exec form);
 a Node not on PATH by name (then the absolute path, which only Git Bash runs); a launcher still running `/bin/sh` (the
 postinstall didn't run). Revert: none needed; Windows was unsupported before.
+
+## Recall's steps are timed (LT2 part 1)
+
+LT2 part 1 (2026-11-09, Mike's yes 11-07; measurement only, `recall.STEP_TIMING`). The 11-07 read had recall's p50
+at 87 ms on lived day 40 and 206 ms on day 46 (typed turns; host turns 104 to 302), candidates flat at ~370, so the
+growth is in a step nobody timed. Each `recall.decision` row now carries `steps`: ms per step, in the pass's order
+(`core/recall/steps.ts#STEP_NAMES`, what each covers in recall NOTES, LT2). `arrivals` through `compose` run before
+the build and `record` after it, outside `elapsedMs`; the rest tile the build.
+
+- **Per-step p50, by lived day.** `counterparts doctor`'s `Recall steps` line gives the week's p50 per step, largest
+  first (`--json`: `p50.<step>`). By day, on a snapshot copy or read-only:
+
+  ```sql
+  SELECT day, key AS step, COUNT(*) AS turns,
+         ROUND(AVG(value), 2) AS mean_ms, MAX(value) AS max_ms
+  FROM events, json_each(json_extract(payload, '$.steps'))
+  WHERE name = 'recall.decision' AND json_extract(payload, '$.steps') IS NOT NULL
+  GROUP BY day, step ORDER BY step, day;
+  ```
+
+  (For a p50 by day, pull `day, key, value` and take the median per pair; sqlite has no median.)
+- **Which step grows.** Compare the first and the last lived day with steps: the step whose p50 rises with the days
+  while the turn's candidates stay flat is the one. The suspects named in the brief: `settledOver` (settled pairs),
+  `learned` (cue pairs), `spread` (edges), `competing`, `gateLoad`, `habituation`, and `embed` (box 3's size). Check
+  too whether `rest` stays small; if it grows, a step is missing a name.
+- **Typed against host.** Join to `adapter.recall` on session and turn (`startedBy`) to split the p50 by who started
+  the turn: LT2 part 2 (a cheaper host-turn path) is briefed on that split.
+
+That read briefs the fix for whichever step grows. Revert: `recall.STEP_TIMING=false` (the key leaves the row;
+nothing else moves).
 
 ## The night closes open items itself (SO1 step 1)
 

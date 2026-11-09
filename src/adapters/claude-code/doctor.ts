@@ -166,6 +166,7 @@ import {
 } from "./doctor-self-page.js";
 import { denyFindings, hostFindings, runtimeFindings, desktopFindings } from "./doctor-host.js";
 import { modesFindings } from "./doctor-modes.js";
+import { recallStepFindings } from "./doctor-recall-steps.js";
 import type { HostReading, DesktopReading } from "./doctor-host.js";
 import { owedFolders, readOwed, crashWriteUpFindings, nightHeldFindings, overdueWords } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
@@ -3680,6 +3681,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["claim", () => claimFindings(store, input.host?.plugin ?? null)],
     // Association build 1 (2026-09-28): what spreading did, and the edges.
     ["association", () => associationFindings(store)],
+    // LT2 part 1 (2026-11-09): the week's p50 per recall step. One bounded
+    // event read, never red: not at session start.
+    ...(input.budgetMs !== undefined ? [] : [["recall-steps", (): Finding[] => recallStepFindings(store)] as const]),
     // The feedback loop (2026-10-19, an experiment): ratings as use, co-use links, habituation.
     ["feedback-loop", () => feedbackLoopFindings(store)],
     // FD1 step 2 (2026-11-07): every growing table, how full, in against out.
