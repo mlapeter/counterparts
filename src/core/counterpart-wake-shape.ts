@@ -804,7 +804,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const text = blockOf(render(k));
     if (byteLength(text) > b) return { text: "", ids: [], items: 0 };
     const ids = [...(owe === null ? [] : [owe.id]), ...carried.slice(0, k).map((x) => x.i.id)];
-    return { text, ids, items: ids.length, lined: ids, ...(owe === null ? {} : { owed: owe }) };
+    // Open threads and the lookup ledger hold memory ids: a sunk handoff's id is claimed, not lined.
+    const lined = owe?.kind === "handoff" ? ids.filter((id) => id !== owe.id) : ids;
+    return { text, ids, items: ids.length, lined, ...(owe === null ? {} : { owed: owe }) };
   };
 
   const yesterdaySec = (b: number, claim: ReadonlySet<string>): Sec => {
@@ -938,7 +940,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     closingBytes: byteLength(closing(elements, String(stated), self.rung !== null)),
     rung: self.rung,
     lined: [...self.lined, ...ORDER.flatMap((k) => sec[k].lined ?? [])],
-    threads: sec.open.ids,
+    threads: sec.open.lined ?? [],
     sec,
     live: hs.length,
     since: later?.items.length ?? 0,

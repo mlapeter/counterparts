@@ -3221,3 +3221,7 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **Not built:** point 2's relevance lane in ambient recall (the per-turn raise, which the 3-day step is for),
   point 4's true blockers (no blocker mark in the store), and a night-written context line (the mention is title,
   `settlesWhen`, age, raises, id). Only the shaped wake carries the mention.
+- **Lived days, not calendar days.** The latch and the steps count `livedDay`, which the first turn-end of a calendar
+  day moves (`advanceClock`), not SessionStart: the morning's first wake can still be on yesterday's lived day. That
+  errs quiet (never two raises in one calendar day). A CHECK-AFTER read grouping `open.owner.raised` by `day` groups
+  by lived day.
