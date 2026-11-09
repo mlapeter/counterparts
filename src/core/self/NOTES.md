@@ -3081,3 +3081,41 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   never cross, and a crossed one gets no late beat at home. Bench: `bun tools/bench/plain-cross.ts`.
 - **Not built:** the four classes as code (mine, Mike's, world's, personal). Steps 1-2 need only personal against the
   rest, which `threadPlace` already says. The mapping is in the PR and the decisions fragment, for step 4.
+
+## 2026-11-09 — the page names what it sets down (PG1)
+
+- **Why.** The page sits at its 4,600-byte room every night (4,587–4,601 B for a week), so every new line pushes an old
+  one out; the PF1 rewrite folded most of what it dropped into stories, but about five lines were simply gone, and
+  nobody could tell which. Mike 11-07: keep the room (the pressure made the page stories), record what goes.
+- **Where.** `Self#revisePage`, after the write, for the nightly doors only: `set-down.ts#recordSetDowns` diffs the
+  page it replaced against the page as stored (after the lane splice and the gate, so a redaction or a section the
+  door can't write is not a drop). Sentences are `page.ts#pageClaims`'s, section by section; "word for word" is
+  `claimKey`, the same identity `carryTrace` uses.
+- **Folded vs gone: the writer's account, not word share (fix round, review of #789).** The first build judged
+  folds by word share; on the owner's real page history it got 9 of 20 pairs right, every miss a line still on the
+  page (trimmed, reworded) scored under 0.7, and on PF1 (v72→v73) true folds scored 0.36–0.38 and true drops
+  0.38–0.40. Word share can't tell a fold from a drop, so the engine no longer tries. The writer accounts for
+  every sentence it removes or changes: "reworded", "folded into <line>", or set down with a why. That account is
+  trusted and counted on the event (`writerFolded`, `writerReworded`) for audit. The engine checks only that
+  nothing went unaccounted. A sentence nobody accounted for is kept when it is still there: contained (a new
+  sentence of ≥ 2 content words wholly inside it, a trim to a clause), or ≥ 0.7 in one or two new sentences.
+  Otherwise it is always recorded, and it is QUOTED by the wake only when clearly gone: ≤ `GONE_SHARE` (0.15) of its
+  words in any run of three new sentences, no clause of it kept (`CLAUSE_SHARE` 0.6), no word only it carried on
+  the old page now on the new one (an anchor), and no word root in a sentence this write rewrote. Everything else is
+  a quiet "set down, unnamed (maybe reworded)" memory, behind `recall "set down"` only.
+- **Measured on a copy of the owner's store (11-09 snapshot), with no writer account,** on PF1 plus 20 seeded random
+  pairs, four seeds (~80 pairs): 3–5 lines quoted per 21 pairs, and every one checked by hand against its after page
+  was gone (short fragments, dated status lines, a dropped rule; the page's words are the owner's and stay out of
+  this repo). The 0.3 bar quoted one line that the next page reworded with almost no words in common. PF1 quotes
+  nothing unaccounted at 0.15. Its true drops become quiet memories; on a real night the writer names them. Script:
+  `tools/set-down-diff.ts`.
+- **Past the cap, never silent.** Beyond `MAX_PER_WRITE` (12), the rest go into ONE quiet memory, "Set down from my
+  page MM-DD: N more lines", with every line in full. **Told once:** the first wake that tells a night's set-downs
+  writes the night's date to meta `self.set_down.told`, and no later wake tells that night's again.
+- **The memories are night rows** (`source: reflection`), so the news since last night, the reflection's lived
+  lists, beliefs and the "mark about me" door pass them by as they pass every reflection-written row; recall finds
+  them as usual. The why goes through `scanSecrets` (it is the writer's words; the line already passed the page gate).
+- **The held page carries its names** (`held.setDown`), so a page kept at the run's end still names what it dropped.
+- **Not built:** no brought-back mark on the memory (no meta-only update in the store, and a `revise` would mint a
+  version); the `self.page.brought_back` event is the record, and recall reads "on the page again" live. The ask
+  beside a session's wake (session mode) carries no `setDown` rule (room); its drops are still caught by the diff.

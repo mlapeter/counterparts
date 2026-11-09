@@ -303,3 +303,9 @@ nowhere else.
 console's `ask`), and since the review of #284 (S3) the wake's lanes too: `self/`'s
 resolver hands `briefing.ts#elementLine` the same prefix and suffix, in every lane
 (identity, craft, threads, hints, horizon).
+
+## 11. `recall "set down"` is an MCP handle only — OPEN 2026-11-09 (PG1)
+
+The page's set-downs (`self/set-down.ts#readSetDowns`, newest `SET_DOWN_LIMITS.LISTED`) are listed by the MCP
+server's `set down` handle, like `deleted` and `coming up`. The CLI has no `recall` handle for it, and a facts
+question ("what did my page set down?") is not routed to it; both would be a line each if asked for.
