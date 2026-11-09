@@ -473,6 +473,9 @@ function proseValue(text: string, start: number, name: string, connector: string
   const lead = TOKEN_LEAD.exec(raw)?.[0].length ?? 0;
   const first = raw.slice(lead).replace(TOKEN_TRAIL, "");
   if (first.length < 4 || first.startsWith(REDACTION_MARK) || codeShaped(first)) return null;
+  // PW also means Playwright: only a bare, same-line `pw` gets the dotted-version
+  // exception. Keep explicit password statements and mixed digit/letter values redacted.
+  if (lower === "pw" && bare && !crossLine && skipped === 0 && /^\d+\.\d+(?:\.\d+(?:-[\da-z-]+(?:\.[\da-z-]+)*)?)?$/i.test(first)) return null;
   const one: [number, number] = [vstart + lead, vstart + lead + first.length];
   const next = clean(tokens[1] ?? "");
 

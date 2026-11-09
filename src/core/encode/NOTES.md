@@ -236,6 +236,7 @@ line 13: decisions are defaults).
       part is one of those ("case-sensitive", "base64-encoded"), algorithms (bcrypt, sha256,
       argon2id, utf-8), paths, URLs, placeholders, and code (brackets, a call, a dotted
       reference). A PIN or door code is 4–12 digits, and a year with a noun after it is not one.
+    - **Playwright false positive (9,700-memory dry run):** only bare, same-line `pw` exempts a complete two- or three-part numeric version (three-part may have a `-prerelease` suffix); explicit connectors and mixed digit/letter values still redact.
     - **Never across a line**, except one secret-looking token alone on the next line; a stray
       apostrophe does not open a quoted run.
     - **Linear.** Every newline search and lookbehind is bounded: a lookbehind before `pass` ran

@@ -14,6 +14,14 @@ import { redactSecrets, scanSecrets } from "../src/core/encode/secrets.js";
 /** Each sentence, and the value that must not survive it. */
 const MUST_REDACT: readonly (readonly [string, string])[] = [
   ["my password is hunter2", "hunter2"],
+  ["my password is 1.48hunter", "1.48hunter"],
+  ["pw is 4.4.4.4x", "4.4.4.4x"],
+  ["wifi pw: 1.2.3abc", "1.2.3abc"],
+  ["the PIN is 123456", "123456"],
+  ["pw 9f3k.2a", "9f3k.2a"],
+  ["pw is 1.48.2", "1.48.2"],
+  ["my password is 1.49", "1.49"],
+  ["pw\n1.48.2", "1.48.2"],
   ["My password is hunter2.", "hunter2"],
   ["the wifi password's sunflower42", "sunflower42"],
   ["the wifi password’s sunflower42", "sunflower42"],
@@ -53,6 +61,11 @@ const MUST_REDACT: readonly (readonly [string, string])[] = [
 
 /** Sentences and code that carry no password: left exactly as they were. */
 const MUST_NOT_REDACT: readonly string[] = [
+  "bumped PW 1.48.2 in CI",
+  "PW 1.49 broke the screenshot test",
+  "upgraded to PW 1.48.2 today",
+  "PW v1.48",
+  "PW 2.0.0-beta.1",
   "I forgot my password",
   "the password field is empty",
   "password reset flow",
