@@ -93,6 +93,8 @@ import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
 import { SELF_TUNABLES } from "./tunables.js";
 import { TOLD_SOURCE, isTold } from "../told.js";
+import { SET_DOWN_RULE, setDownsBackLines } from "./set-down.js";
+import type { SetDownTouched } from "./set-down.js";
 
 /** The durable row every page-writer attempt leaves. Read by `fired`, doctor. */
 export const SELF_PAGE_WRITER_EVENT = "self.page.writer.ran";
@@ -829,6 +831,8 @@ export interface WriterInput {
   readonly daysEnd?: boolean;
   /** PF1 (`PAGE_FORM_KEY`): `own` when the store keeps its page's own form. Absent: the block as it was. */
   readonly pageForm?: "own";
+  /** PG1: lines the page set down that life touched since, from this writer's sections (`set-down.ts#setDownsTouched`). Absent: none. */
+  readonly setDownsBack?: readonly SetDownTouched[];
 }
 
 /**
@@ -1103,6 +1107,13 @@ export function writerInstruction(
     pageWritingRule(input.pageForm),
     "",
   );
+  // WHAT IT SETS DOWN (PG1, 2026-11-09, `set-down.ts`): in the nightly run's
+  // block (a tool result, with room). The ask beside a session's wake has a
+  // ceiling to fit and goes without; what it drops is still caught by the diff.
+  if (opts.pageInline === true) lines.push(SET_DOWN_RULE, "");
+  // THE WAY BACK (PG1): set-downs life touched since, offered, never restored by themselves.
+  const back = setDownsBackLines(input.setDownsBack ?? [], flattenLine);
+  if (back !== null) lines.push(...back, DATA_NOT_INSTRUCTIONS, "");
   // WHAT A SENTENCE RESTS ON (day's end, 2026-10-23): the memories below come
   // with their ids, so a sentence written from one can say so.
   if (input.daysEnd === true) {

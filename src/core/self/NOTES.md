@@ -3081,3 +3081,27 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   never cross, and a crossed one gets no late beat at home. Bench: `bun tools/bench/plain-cross.ts`.
 - **Not built:** the four classes as code (mine, Mike's, world's, personal). Steps 1-2 need only personal against the
   rest, which `threadPlace` already says. The mapping is in the PR and the decisions fragment, for step 4.
+
+## 2026-11-09 — the page names what it sets down (PG1)
+
+- **Why.** The page sits at its 4,600-byte room every night (4,587–4,601 B for a week), so every new line pushes an old
+  one out; the PF1 rewrite folded most of what it dropped into stories, but about five lines were simply gone, and
+  nobody could tell which. Mike 11-07: keep the room (the pressure made the page stories), record what goes.
+- **Where.** `Self#revisePage`, after the write, for the nightly doors only: `set-down.ts#recordSetDowns` diffs the
+  page it replaced against the page as stored (after the lane splice and the gate, so a redaction or a section the
+  door can't write is not a drop). Sentences are `page.ts#pageClaims`'s, section by section; "word for word" is
+  `claimKey`, the same identity `carryTrace` uses.
+- **Folded vs gone, as built.** Content words (lowercased, `stemTerm`, a small function-word list kept in this one
+  file; the store has no stop list on purpose). Reworded: ≥ `NEAR_SHARE` (0.7) of the gone sentence's words in one
+  new sentence or two side by side; a sentence split in two or lightly reworded lands here whatever the writer said.
+  Folded: the writer said "folded …" and ≥ `FOLD_SHARE` (0.5) of its words sit in a run of up to three. Otherwise set
+  down, named or unnamed. The numbers are unmeasured defaults set on hand-built pages
+  (`test/self-set-down.test.ts`); `tools/set-down-diff.ts` prints the judgement for any two page versions, the
+  reviewer's check against Mike's 11-07 list.
+- **The memories are night rows** (`source: reflection`), so the news since last night, the reflection's lived
+  lists, beliefs and the "mark about me" door pass them by as they pass every reflection-written row; recall finds
+  them as usual. The why goes through `scanSecrets` (it is the writer's words; the line already passed the page gate).
+- **The held page carries its names** (`held.setDown`), so a page kept at the run's end still names what it dropped.
+- **Not built:** no brought-back mark on the memory (no meta-only update in the store, and a `revise` would mint a
+  version); the `self.page.brought_back` event is the record, and recall reads "on the page again" live. The ask
+  beside a session's wake (session mode) carries no `setDown` rule (room); its drops are still caught by the diff.

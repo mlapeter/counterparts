@@ -219,6 +219,8 @@ import type {
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
 import { DAYS_END_JOURNAL_SHARE, MERGE_DEPTH, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, isOfDay, journalBlockChars } from "./self/writer.js";
 import { chapterSummaries } from "./self/summaries.js";
+import { setDownNote } from "./self/set-down.js";
+import type { SetDownTouched } from "./self/set-down.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
@@ -759,6 +761,7 @@ export class Counterpart {
                 ...common,
                 ...(o.short === undefined ? {} : { short: o.short }),
                 ...(o.trace === undefined ? {} : { trace: o.trace }),
+                ...(o.setDown === undefined || o.setDown.length === 0 ? {} : { setDown: o.setDown }),
               });
         const roomNote = pageRoomNote(
           written,
@@ -772,7 +775,9 @@ export class Counterpart {
           kept.length === 0
             ? null
             : `Kept as it stood: ${kept.map((h) => (h.startsWith("the words") ? h : `"## ${h}"`)).join(", ")} — tonight the reflection writes "## Core" alone, and day's end the rest.`;
-        const note = [roomNote, laneNote].filter((n): n is string => n !== null && n.length > 0).join(" ") || null;
+        // WHAT IT SET DOWN, SAID (PG1, `self/set-down.ts`).
+        const setDownSaid = setDownNote(written.setDown);
+        const note = [roomNote, laneNote, setDownSaid].filter((n): n is string => n !== null && n.length > 0).join(" ") || null;
         return written.written && written.version !== null
           ? { ok: true, version: written.version, note, ...(written.traced === undefined ? {} : { unmatched: written.traced.unmatched }) }
           : written.reason === "past-room"
@@ -5613,6 +5618,8 @@ export class Counterpart {
     /** Most memories carried (the tunable's when absent). */
     max?: number;
     omit?: (m: { id: string; protectedRow: boolean }) => boolean;
+    /** PG1: the set-downs offered back, read once by the caller (`Self#setDownsBack`). */
+    setDownsBack?: readonly SetDownTouched[];
   }): WriterInput {
     const budget = opts.budgetBytes ?? this.self.tunables.PAGE_WRITER_MEMORY_BYTES;
     // WHAT THE NIGHT MAY NOT READ (`fenceNight`) is held back and counted on the run's row.
@@ -5877,8 +5884,12 @@ export class Counterpart {
     built: ReturnType<Counterpart["pageWriterInput"]>;
     text: string;
   } {
+    // The set-downs offered back (PG1), read once for every fitting try; none
+    // that names a memory the night may not read.
+    const closed = this.nightClosed;
+    const setDownsBack = this.self.setDownsBack(this.self.page()?.body ?? null).filter((t) => !closed.has(t.id) && (t.by_memory === undefined || !closed.has(t.by_memory)));
     return fitNightWriter(
-      (budgetBytes) => this.pageWriterInput({ about: input.about, budgetBytes, max: NIGHT_WRITER_MEMORY_MAX }),
+      (budgetBytes) => this.pageWriterInput({ about: input.about, budgetBytes, max: NIGHT_WRITER_MEMORY_MAX, setDownsBack }),
       (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true }),
     );
   }

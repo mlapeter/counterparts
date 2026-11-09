@@ -682,9 +682,49 @@ export const WAKE_SHAPE_LIMITS = {
   HAPPENED_READ: 200,
   /** How many days before its day a dated item can be done (the shop launched one day early); an earlier done row is another visit of the same name (review of #734). */
   HAPPENED_EARLY_DAYS: 1,
+  /** "Set down from my page last night" (PG1): lines named before "and N more". Two is a glance; the rest are behind recall "set down". */
+  SET_DOWN_SHOWN: 2,
+  /** A set-down line in the wake: this many characters, then "…" (the line is whole behind the door). */
+  SET_DOWN_LINE_CHARS: 140,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,
+} as const;
+
+/**
+ * WHAT THE PAGE SETS DOWN (PG1, 2026-11-09; Mike 11-07, lightly held): the
+ * limits of the sentence diff a nightly page write is checked by
+ * (`self/set-down.ts`), and of the set-downs the night is shown again. A share
+ * is of the gone sentence's content words (stemmed, function words aside)
+ * found in the new page's sentences. UNMEASURED DEFAULTS: set on hand-built
+ * page pairs (`test/self-set-down.test.ts`), not on the owner's pages. The
+ * check is `tools/set-down-diff.ts` on page v66 (10-30) against the 11-01
+ * page, read against Mike's 11-07 judgement of Fable's list (about five gone,
+ * three folded, one retired).
+ */
+export const SET_DOWN_LIMITS = {
+  /** Gone word for word but this share of its words in one new sentence (or two side by side): reworded, kept, not a set-down. */
+  NEAR_SHARE: 0.7,
+  /** New sentences read together for "reworded": a sentence split in two is still the sentence. */
+  NEAR_WINDOW: 2,
+  /** A line the writer named "folded": at least this share of its words in a run of new sentences, or it is recorded anyway. */
+  FOLD_SHARE: 0.5,
+  /** New sentences read together for "folded": a story carries a rule over a few sentences. */
+  FOLD_WINDOW: 3,
+  /** The shortest word counted: "a", "of" and "to" carry nothing. */
+  WORD_MIN: 3,
+  /** Most set-downs one write records: past it, the rest are counted on the event (a page rewritten from nothing is not forty memories). */
+  MAX_PER_WRITE: 12,
+  /** Set-down memories read when looking for one life touched since, or one a write brought back: the newest this many. */
+  SCAN: 200,
+  /** Set-downs the night's page writers are shown again, touched since: a few, newest touch first. */
+  BACK_SHOWN: 5,
+  /** New memories read after a set-down to find one restating it. */
+  RESTATED_READ: 200,
+  /** A set-down line in a memory's title: this many characters, whole words, then "…". The body keeps it whole. */
+  TITLE_CHARS: 120,
+  /** recall "set down": the newest this many. */
+  LISTED: 50,
 } as const;
 
 export function withTunables(overrides: Partial<SelfTunables>): SelfTunables {

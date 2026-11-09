@@ -66,7 +66,8 @@ import type { Kind } from "./types.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
-import { happenedAlready, sinceLastNight } from "./counterpart-wake-news.js";
+import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake-news.js";
+import { SET_DOWN_HANDLE, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
 
 /** The meta key that sets the shape for one store (`self/tunables.ts#WAKE_SHAPE_KEY`, where a new install's state can read it too). */
@@ -491,6 +492,10 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // "Last night" — only items this folder's Still open would carry (its own,
   // a joined folder's, a personal one), never another folder's work.
   const closedLine = safe(() => nightClosedLine(cp, day, folders, rule), null);
+  // WHAT THE PAGE SET DOWN LAST NIGHT (PG1, 2026-11-09): once, on the
+  // morning after, by line; never a line on the page now or in the night's
+  // own words (WK3: a moment told once per wake).
+  const setDown = safe(() => setDownWakeLine(cp, now, night?.own ?? null), null);
   const installed = here?.installed ?? null;
   const news = safe(() => sinceLastNight(cp, at, here, { ours: new Set(hereFolders), skip: cueIds }), { items: [] as NewsItem[], since: 0, night: false });
 
@@ -723,20 +728,33 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
 
   const nightSec = (b: number): Sec => {
     const closed = closedLine === null ? [] : [closedLine];
+    const down = setDown === null ? [] : [setDown.line];
+    const downIds = setDown === null ? [] : setDown.ids;
     if (night === null) {
-      const only = closed.length === 0 ? null : blockOf(closed);
-      return only !== null && byteLength(only) <= b ? { text: only, ids: [], items: 0 } : { text: "", ids: [], items: 0 };
+      // Widest first: what it closed and what it set down; then each alone.
+      const forms = [[...closed, ...down], closed, down].filter((f) => f.length > 0);
+      for (const f of forms) {
+        const text = blockOf(f);
+        if (byteLength(text) <= b) return { text, ids: f.includes(setDown?.line ?? "") ? downIds : [], items: 0 };
+      }
+      return { text: "", ids: [], items: 0 };
     }
-    // Widest first: the line, the night's own words, what it closed; then without the own words; then the line alone.
+    // Widest first: the line, the night's own words, what it closed, what it
+    // set down. Short of room, what it set down goes first (recall "set down"
+    // holds it), then what it closed; the night's own words, which have no
+    // door, are kept longest; then the line alone.
+    const own = night.own === null ? [] : [night.own];
     const forms = [
-      ...(night.own === null ? [] : [[night.line, night.own, ...closed]]),
-      ...(closed.length === 0 ? [] : [[night.line, ...closed]]),
-      ...(night.own === null ? [] : [[night.line, night.own]]),
+      [night.line, ...own, ...closed, ...down],
+      ...(own.length === 0 || down.length === 0 ? [] : [[night.line, ...own, ...closed]]),
+      ...(own.length === 0 || closed.length === 0 ? [] : [[night.line, ...own, ...down], [night.line, ...own]]),
+      ...(closed.length + down.length === 0 ? [] : [[night.line, ...closed, ...down]]),
+      ...(down.length === 0 ? [] : [[night.line, ...closed]]),
       [night.line],
     ];
     for (const f of forms) {
       const text = blockOf(f);
-      if (byteLength(text) <= b) return { text, ids: [], items: 0 };
+      if (byteLength(text) <= b) return { text, ids: setDown !== null && f.includes(setDown.line) ? downIds : [], items: 0 };
     }
     return { text: "", ids: [], items: 0 };
   };
@@ -1074,6 +1092,41 @@ function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<stri
   });
   const more = mine.length - named.length;
   return `Closed by the night (${String(mine.length)}): ${named.join("; ")}${more > 0 ? `; +${String(more)} more` : ""}. One not done? The reflect tool's phase "reopen", reopen: [its id], puts it back.`;
+}
+
+/**
+ * `Set down from my page last night: "Records drift: look, then fix the
+ * note" (recall "set down")` (PG1, 2026-11-09): the set-downs of the newest
+ * night (`counterpart-wake-news.ts#lastNightAt`, by its local date), told
+ * until the next night runs, at most `SET_DOWN_SHOWN` by line, then "and N
+ * more". The night runs at a day's first prompt, after that day's first wake,
+ * so this reaches a later session that day and the next morning's first wake
+ * (the same exposure as the night's closes line). A set-down whose line is on
+ * the page now (brought back) or in the night's own words is not told again
+ * (WK3). Null when there is none.
+ */
+function setDownWakeLine(cp: Counterpart, now: number, own: string | null): { line: string; ids: string[] } | null {
+  const store = cp.store;
+  const nightAt = lastNightAt(store, now);
+  if (nightAt === null) return null;
+  const page = cp.self.page()?.body ?? null;
+  const prepared = page === null ? null : preparePage(page);
+  const ownPage = own === null ? null : preparePage(own);
+  const rows = nightSetDowns(store, localDate(nightAt, store.zone())).filter(
+    (r) => (prepared === null || !lineOnPage(r.line, prepared)) && (ownPage === null || !lineOnPage(r.line, ownPage)),
+  );
+  if (rows.length === 0) return null;
+  const max = SHAPE.SET_DOWN_LINE_CHARS;
+  const clip = (t: string): string => {
+    const flat = flatten(t);
+    return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
+  };
+  const named = rows.slice(0, SHAPE.SET_DOWN_SHOWN).map((r) => `"${clip(r.line)}"`);
+  const more = rows.length - named.length;
+  return {
+    line: `Set down from my page last night: ${named.join("; ")}${more > 0 ? `, and ${String(more)} more` : ""} (recall "${SET_DOWN_HANDLE}")`,
+    ids: rows.map((r) => r.id),
+  };
 }
 
 /** "Last night", by title and door: the night's own words on what ran, no ids; and the night's own line, when it left one a reader here may read. */

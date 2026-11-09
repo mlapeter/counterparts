@@ -808,6 +808,19 @@ by `CHAPTER_MOMENT_GRACE_MS` so a stretch's memories written just after its chap
 chapter's. **[M]** `chapterTimesOf` and `chapterAt` give the same placement for many memories
 at once (one read of an episode's moments; recall's meaning mode).
 
+**What the page sets down (PG1, 2026-11-09; working default, lightly held).** **[M]** A
+nightly door's write (`writer`, `reflection`) that takes a sentence off the page leaves a
+record of it: the door diffs the page it replaces against the page as stored
+(`set-down.ts#diffSetDowns`), and every sentence gone word for word is `reworded` or
+`folded` (kept, counted) or set down — as the writer named it (`setDown`, with its why) or
+as "set down, unnamed". No silent drop, whatever the writer sends. **[M]** Each set-down is
+a memory about me (`source: reflection`, tag `set down`, meta `setDown`: the line word for
+word, the why, the version it left), never unresolved. **[M]** The event row carries counts
+and ids, never a line. **[A]** "Reworded" and "folded" are word-share judgements
+(`SET_DOWN_LIMITS`, unmeasured defaults); a line the writer calls folded that is not found
+is recorded anyway. **[A]** A record that fails never costs the page. A session's or the
+owner's own edit is not read.
+
 ## 6. Scars honored
 
 **E7** (observers receive but deposit nothing) · **E8** (episode pacing and — until 2026-10-15, when nothing regrows any more — the regrow

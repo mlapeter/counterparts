@@ -967,7 +967,7 @@ const RECALL: ToolSpec = {
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads that night whole, read-only. Or "last dream" (or "last night"): the newest dream whole — title, journal, what it did — and the reflection after it, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored. Or "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, in its order, with ids and how long since each was touched — paged (see page) — and what its Coming up lists or counts, by title and date. Or "handoffs" (or "${HANDOFFS_HERE_HANDLE}"): this folder's live handoffs, newest first, each by first sentence and id, to expand or retire, with what came after the newest. Or "coming up": what's due, by whole title: today, overdue, later, then other folders' the setting lets be named. Or "elsewhere": the other folders the wake's Elsewhere would show with room, in its order, each with its newest title — paged (see page) — and last the folders it only counts. Or "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one. Or "set down": the lines the self page set down at night, newest first, each word for word with why and date. Or "${MANUAL_HANDLE}": how Counterparts works and how to use it — commands, switches, what to do when something seems off — as a list of sections; "${MANUAL_HANDLE} <section>" opens one. A memory titled exactly like one of these names opens by its id.`,
       },
       ids: {
         type: "array",
@@ -1605,6 +1605,17 @@ const SELF_PAGE: ToolSpec = {
           additionalProperties: false,
         },
       },
+      setDown: {
+        type: "array",
+        description:
+          'Only day\'s end\'s, with `body`: each line of the page as it stood that this write takes out and keeps nowhere else on it, word for word, with a short why ("retired by <newer ruling>", "folded into <where>", "no longer lived", "room"). A line only reworded needs none. A line gone that is not named is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down").',
+        items: {
+          type: "object",
+          properties: { line: { type: "string" }, why: { type: "string" } },
+          required: ["line", "why"],
+          additionalProperties: false,
+        },
+      },
       summary: {
         type: "string",
         description: "Only day's end's, with `session`, as its block asks: a few lines about the day it read, with the page or alone when the page stands. Past its cap it is refused, never cut.",
@@ -1914,6 +1925,14 @@ const REFLECT: ToolSpec = {
             items: {
               type: "object",
               properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
+            },
+          },
+          setDown: {
+            type: "array",
+            description: 'Each line of the page as it stood that this write takes out and keeps nowhere else on it, word for word, with a short why ("retired by …", "folded into …", "no longer lived", "room"). A line gone and not named is recorded anyway, as unnamed.',
+            items: {
+              type: "object",
+              properties: { line: { type: "string" }, why: { type: "string" } },
             },
           },
         },
@@ -2598,7 +2617,7 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
       question: (was) =>
         `${was} In a question about feeling, "I" and "me" mean you, the counterpart, and "you" means the owner: to ask about the owner's feelings, say "the owner" or their name.`,
       page: `With a question, or the handle "${STILL_OPEN_HANDLE}": which page of the answer (1 is the first). The answer says how many there are.`,
-      handle: `A memory id or exact title, read whole (never a search; takes no mode). Also: a dream's id (drm_…) or a reflection's (rfl_…); "last dream" (or "last night"): the newest dream and the reflection after it; "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, paged (see page); "coming up": what's due; "handoffs": the live handoffs, to expand or retire; "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one; "${MANUAL_HANDLE}": how Counterparts works, as sections — "${MANUAL_HANDLE} <section>" opens one.`,
+      handle: `A memory id or exact title, read whole (never a search; takes no mode). Also: a dream's id (drm_…) or a reflection's (rfl_…); "last dream" (or "last night"): the newest dream and the reflection after it; "${STILL_OPEN_HANDLE}": everything the wake's Still open carries, paged (see page); "coming up": what's due; "handoffs": the live handoffs, to expand or retire; "${DELETED_HANDLE}": memories deleted in chat that wait to be erased, to undo one; "set down": the lines the self page set down, with why and date; "${MANUAL_HANDLE}": how Counterparts works, as sections — "${MANUAL_HANDLE} <section>" opens one.`,
     },
   },
   session_end: {

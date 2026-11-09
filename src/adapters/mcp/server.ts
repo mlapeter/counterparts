@@ -257,6 +257,8 @@ import type { PageWriterMode } from "../../core/self/index.js";
 import { canonicalToolName, toolDefinitions, toolSpec } from "./tools.js";
 import { MANUAL_HANDLE, MANUAL_PATH, findSection, installedManual, manualAsk, manualIndexText } from "./manual.js";
 import { DELETED_HANDLE, heldList, heldWakeLine, holdForRemoval, releaseHold, removalRefusal } from "../../core/removal-hold.js";
+import { SET_DOWN_HANDLE, lineOnPage, preparePage, readSetDowns } from "../../core/self/set-down.js";
+import { SET_DOWN_LIMITS } from "../../core/self/tunables.js";
 import { REMOVAL_HOLD_MS } from "../../core/store/index.js";
 import type { ManualAsk } from "./manual.js";
 import { writeUpDoor } from "./write-up.js";
@@ -2683,6 +2685,11 @@ export class McpServer {
     if (typeof handle === "string" && handle.trim().toLowerCase() === DELETED_HANDLE && args["question"] === undefined && args["ids"] === undefined) {
       return this.deletedTool();
     }
+    // WHAT THE PAGE SET DOWN (PG1, 2026-11-09): the door the wake's "Set down
+    // from my page last night" line names, newest first, with why and date.
+    if (typeof handle === "string" && handle.trim().toLowerCase() === SET_DOWN_HANDLE && args["question"] === undefined && args["ids"] === undefined) {
+      return this.setDownTool();
+    }
     // WHAT'S DUE (WK2, 2026-10-30): the door the shaped wake's "Coming up" counts behind.
     if (typeof handle === "string" && handle.trim().toLowerCase() === COMING_UP_HANDLE && args["question"] === undefined && args["ids"] === undefined) {
       return this.comingUpTool();
@@ -4142,6 +4149,44 @@ export class McpServer {
           ? "Nothing deleted in chat is waiting to be erased."
           : "Each is hidden, and erased once its time passes. remember with remove: {id, undo: true} brings one back before then.",
     }, false);
+  }
+
+  /**
+   * recall's `set down` handle (PG1, 2026-11-09): the lines the page set
+   * down, newest first — each word for word, with why, the night's date,
+   * whether the writer named it, and whether it is on the page again. They
+   * count as shown, so one quoted or opened afterwards is credited.
+   */
+  private setDownTool(): ToolResult {
+    const store = this.counterpart.store;
+    const rows = readSetDowns(store, SET_DOWN_LIMITS.LISTED);
+    const page = this.counterpart.self.page()?.body ?? null;
+    const prepared = page === null ? null : preparePage(page);
+    this.markSeen(rows.map((r) => r.id));
+    this.emit("mcp.recall.set_down", undefined, { total: rows.length });
+    return this.result(
+      {
+        path: "handle",
+        reason: "set-down",
+        handle: SET_DOWN_HANDLE,
+        total: rows.length,
+        items: rows.map((r) => ({
+          id: r.id,
+          line: r.line,
+          why: r.why,
+          date: r.date,
+          named: r.named,
+          ...(r.section.length === 0 ? {} : { section: r.section }),
+          leftVersion: r.from,
+          ...(prepared !== null && lineOnPage(r.line, prepared) ? { onPageAgain: true } : {}),
+        })),
+        note:
+          rows.length === 0
+            ? "The page has set nothing down yet."
+            : "Lines the nightly page writers took out of the page, newest first: each kept as a memory, word for word. named: false means the writer did not name it and the engine's diff caught it. One that holds again can go back on the page.",
+      },
+      false,
+    );
   }
 
   /** The doctor's red-only notice (and the search-by-meaning line), from the

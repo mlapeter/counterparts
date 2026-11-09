@@ -1481,3 +1481,12 @@ What it moves, on purpose:
   sources (filed before FS1 under its night's folder) votes with its originals' folders, followed `MERGE_DEPTH` deep;
   one whose originals are gone votes for nothing. Still open: "Still open" and "Work here" don't fence a night row by
   its originals when a minority source's folder closes later (INTERFACE-GAPS 11).
+
+## 2026-11-09 — the reflection names what its page sets down (PG1)
+
+- `finish`'s `page.setDown` (lines taken out, a why each) goes to the page door with the page (`self/set-down.ts`);
+  the door's note on the write says what was recorded, and the past-room resend is asked to send `setDown` again.
+- The bundle carries `## set down, touched since` after the page: set-downs from "## Core" (the reflection's lane
+  with the split on, every section with it off) that life used or a newer memory restated, each with the ids it
+  rested on so a line brought back can cite them. Set-down memories are night rows (`source: reflection`), so they
+  never reach `core`, `candidates` or `felt`.

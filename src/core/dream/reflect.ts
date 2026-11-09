@@ -99,6 +99,7 @@ import { orderUnmarked, personNames } from "./unmarked.js";
 import type { UnmarkedCandidate } from "./unmarked.js";
 import { chapterEntries, entryKey, entryLine, entrySummary, fitEpisodes, leanChapterHead, leanDate, leanEntry, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
+import { setDownsBackLines, setDownsTouched } from "../self/set-down.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
 import { DREAM_TUNABLES } from "./tunables.js";
 import type { Schemas } from "../schemas/index.js";
@@ -286,6 +287,13 @@ export const REFLECT_TUNABLES = {
 } as const;
 
 /**
+ * WHAT THE PAGE SETS DOWN (PG1, 2026-11-09, `self/set-down.ts`): the
+ * reflection's page names the lines it takes out, as day's end's does.
+ */
+const REFLECT_SET_DOWN =
+  'In page.setDown, name each line of the page as it stood that you take out and keep nowhere else on it, word for word, with a short why ("retired by <the newer ruling>", "folded into <where>" only when its point is still on the page, "no longer lived", "room"); a line only reworded needs none. One gone and not named is recorded anyway, as set down unnamed, and every set-down line is kept as a memory, so taking one out loses nothing.';
+
+/**
  * WHAT THE REFLECTION IS ASKED FOR ITS OWN LINE (NL1, 2026-10-30): the last
  * field of `finish`, so it's written after the page in the same call. With no
  * name on the store, the clause that asks for one goes.
@@ -385,6 +393,8 @@ export interface ReflectBundle {
   readonly parts: { readonly part: number; readonly of: number; readonly next: string } | null;
   /** The self page, whole. */
   readonly selfPage: string | null;
+  /** PG1: lines the page set down that life touched since, from the reflection's sections, to bring back if they hold again. Absent: none. */
+  readonly setDownBack?: readonly string[];
   /** The last few days' chapters, as entries (in this part; later parts carry the rest). */
   readonly chapters: readonly ShownChapter[];
   /**
@@ -632,8 +642,11 @@ export interface ReflectContext {
       ifVersion?: number;
       /** What the page rests on, whole and per passage (2026-10-20, `self/page.ts#PAGE_META_TRACE`). */
       trace?: { cites: readonly string[]; claims?: readonly { text: string; cites: readonly string[] }[] };
+      /** What it sets down (PG1): the lines and a why each. */
+      setDown?: readonly { line: string; why: string }[];
     },
   ) =>
+    /** `setDown`: what the door recorded as set down, said (`self/set-down.ts#setDownNote`), or null. */
     /** `note`: what the page's room means for this write (`self/pageRoomNote`), or null. `unmatched`: passages that named no sentence. */
     | { ok: true; version: number; note?: string | null; unmatched?: number }
     /** On `too-large`, the page's bytes and the ceiling, so the retry can be told how much to take out. */
@@ -672,6 +685,8 @@ export interface ReflectFinish {
     readonly short?: string;
     /** Cites per passage (2026-10-20): a sentence or a few, as on the page, and the ids it rests on. */
     readonly claims?: readonly { readonly text?: string; readonly cites?: readonly string[] }[] | null;
+    /** What it sets down (PG1, 2026-11-09, `self/set-down.ts`): lines of the page as it stood, taken out and kept nowhere else on it, each with a short why. */
+    readonly setDown?: readonly { readonly line?: string; readonly why?: string }[] | null;
   } | null;
   readonly feelings?: readonly {
     readonly id?: string;
@@ -1215,13 +1230,13 @@ export class Reflections {
     const form = pageFormOf(this.store);
     const own = form === "own";
     const rule = pageWritingRule(form);
-    const splitLine = `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day, and tonight yours is "## ${PAGE_CORE_HEADING}" alone: day's end amends the other sections (${own ? "every section but Core" : "Lately, How I work"}) from the day, and they stay exactly as they stand. Send page.text as the "## ${PAGE_CORE_HEADING}" section only — its heading and its words. Rewrite it unless, after reflecting, there is really nothing to change; on a "nothing much" night, leave it as it stands. ${coreDrawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis, and one you keep word for word keeps what it rested on. Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.`;
+    const splitLine = `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day, and tonight yours is "## ${PAGE_CORE_HEADING}" alone: day's end amends the other sections (${own ? "every section but Core" : "Lately, How I work"}) from the day, and they stay exactly as they stand. Send page.text as the "## ${PAGE_CORE_HEADING}" section only — its heading and its words. Rewrite it unless, after reflecting, there is really nothing to change; on a "nothing much" night, leave it as it stands. ${coreDrawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis, and one you keep word for word keeps what it rested on. Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} ${REFLECT_SET_DOWN} Sent back as past its room, send finish again with page.text cut (and page.cites, page.claims and page.setDown), not page.short.`;
     const pageLine =
       this.ctx.pageWrites === false
         ? `- page: not tonight — the owner has day's end off, so the self page is not rewritten. Your entry and share still count.`
         : SELF_TUNABLES.PAGE_SPLIT
           ? splitLine
-          : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. ${drawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. ${own ? (spine === undefined ? `Keep "## Core" for who you are. ` : "") : `${spine === undefined ? `Keep "## Core" for who you are and put craft` : `Put craft`} — how a job is done — under "## How I work". `}Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.`;
+          : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. ${drawn} In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. ${own ? (spine === undefined ? `Keep "## Core" for who you are. ` : "") : `${spine === undefined ? `Keep "## Core" for who you are and put craft` : `Put craft`} — how a job is done — under "## How I work". `}Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${rule} ${REFLECT_SET_DOWN} Sent back as past its room, send finish again with page.text cut (and page.cites, page.claims and page.setDown), not page.short.`;
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (one project's own: it stays with that project; an unmarked skill is craft and reaches every folder) or world — with why. Only me and us can become core, and never a plan. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
@@ -1700,6 +1715,10 @@ export class Reflections {
           reflection: row.id,
           ...(shortText.length === 0 ? {} : { short: shortText }),
           trace: pageTrace,
+          // WHAT IT SETS DOWN (PG1): checked by the door against the sentence diff.
+          setDown: (input.page?.setDown ?? []).flatMap((s) =>
+            typeof s?.line === "string" && s.line.trim().length > 0 ? [{ line: s.line.trim(), why: typeof s.why === "string" ? s.why.trim() : "" }] : [],
+          ),
         });
         if (w.ok) {
           // PAST ITS ROOM, SAID (2026-10-10): the page is kept, and the note
@@ -1748,7 +1767,7 @@ export class Reflections {
           // is kept, and one never sent again is kept at the run's end.
           refuse(
             w.reason,
-            `${w.note ?? `The page is ${String(w.bytes ?? 0)} bytes, past its ${String(w.limit ?? 0)}-byte room: cut it and send the page again — cut, don't add a short version.`} Call finish again with this reflection and just page (text, cites and claims).`,
+            `${w.note ?? `The page is ${String(w.bytes ?? 0)} bytes, past its ${String(w.limit ?? 0)}-byte room: cut it and send the page again — cut, don't add a short version.`} Call finish again with this reflection and just page (text, cites, claims and setDown).`,
           );
         } else if (w.reason === "lane-empty") {
           // THE PAGE SPLIT (2026-10-23, `self.PAGE_SPLIT`): headings, but no "## Core".
@@ -3426,6 +3445,12 @@ export class Reflections {
     // replacement must cite it, so the reflection must be able to.
     for (const s of beliefs?.subjects ?? []) for (const x of s.beliefs) for (const m of x.contestedBy ?? []) take(5)(m);
     const page = this.ctx.page();
+    // THE WAY BACK (PG1, `self/set-down.ts#setDownsTouched`): set-downs life
+    // touched since, from the sections tonight's reflection writes.
+    const setDownBack =
+      this.ctx.pageWrites === false
+        ? null
+        : setDownsBackLines(setDownsTouched(this.store, { page, lane: SELF_TUNABLES.PAGE_SPLIT ? "core" : null, core: PAGE_CORE_HEADING }), (x) => x.replace(/\s+/g, " ").trim());
     const earlier = this.store
       .reflections({ limit: T.EARLIER + 4 })
       .filter((r) => r.state === "reflected" && r.entry !== null && r.id !== id)
@@ -3523,6 +3548,7 @@ export class Reflections {
       parts: null,
       // WHOLE (2026-09-28: was cut at 6,000 characters).
       selfPage: page,
+      ...(setDownBack === null ? {} : { setDownBack }),
       ...(timeline === undefined ? {} : { timeline }),
       chapters: chaptersFit.chapters,
       ...(order ? { chaptersAs: "summaries" as const } : {}),
@@ -4781,6 +4807,7 @@ function leanReflectLines(b: ReflectBundle, aliases: AliasMap): string[] {
     out.push(`nominations: ${b.dreamed.nominations.length === 0 ? "none" : b.dreamed.nominations.map((n) => `${s(n.id)}${n.why === null ? "" : ` (${n.why})`}`).join(" · ")}`);
   }
   out.push("## selfPage", b.selfPage ?? "none");
+  if (b.setDownBack !== undefined && b.setDownBack.length > 0) out.push("## set down, touched since", ...b.setDownBack);
   out.push("## earlier: your last reflections");
   if (b.earlier.length === 0) out.push("none");
   for (const e of b.earlier) out.push(`- ${e.date ?? "undated"}: ${e.entry}`);
