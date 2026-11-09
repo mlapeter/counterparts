@@ -10,6 +10,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { runtimeFindings } from "../src/adapters/claude-code/doctor-host.js";
 import { hookTargetPath, runCommand, HOOK_SCRIPT } from "../src/adapters/cli/install.js";
 import { isOurHookCommand } from "../src/adapters/cli/wire.js";
 import {
@@ -21,10 +22,12 @@ import {
   shellTokens,
   whichOnPath,
   windowsFileUrl,
+  windowsHookFit,
+  windowsHookWord,
   windowsLaunch,
 } from "../src/adapters/runtime.js";
 // @ts-expect-error — a plain .mjs with no types: what the postinstall runs.
-import { binDirs, fixShims, rewriteShim } from "../src/adapters/windows-shims.mjs";
+import { fixShims, globalBinDir, rewriteShim } from "../src/adapters/windows-shims.mjs";
 
 const NODE = "C:\\Program Files\\nodejs\\node.exe";
 const WIN_ENV = { Path: "C:\\Windows\\system32;C:\\Program Files\\nodejs\\;C:\\Users\\me\\AppData\\Roaming\\npm", PATHEXT: ".COM;.EXE;.BAT;.CMD" };
@@ -109,6 +112,11 @@ describe("windowsLaunch: an npm .cmd shim is read, never run through cmd", () =>
     expect(windowsLaunch("claude", ["-p"], WIN_ENV, disk(`${npm}\\claude.cmd`, exe), () => SHIM_EXE)).toEqual({ file: exe, args: ["-p"] });
     expect(windowsLaunch("claude", ["-p"], WIN_ENV, disk(`${npm}\\claude.exe`))).toEqual({ file: `${npm}\\claude.exe`, args: ["-p"] });
   });
+  test("older npm's and pnpm's `%~dp0` reads the same (W1 review, 3)", () => {
+    const exists = disk(NODE, `${npm}\\claude.cmd`, `${npm}\\node_modules\\@anthropic-ai\\claude-code\\cli.js`);
+    const old = SHIM_JS.replace(/%dp0%/g, "%~dp0");
+    expect(windowsLaunch("claude", ["-p"], WIN_ENV, exists, () => old)).toEqual({ file: NODE, args: [`${npm}\\node_modules\\@anthropic-ai\\claude-code\\cli.js`, "-p"] });
+  });
   test("not on PATH, or a .cmd it cannot read: null", () => {
     expect(windowsLaunch("claude", [], WIN_ENV, disk())).toBeNull();
     expect(windowsLaunch("claude", [], WIN_ENV, disk(`${npm}\\claude.cmd`), () => "@echo hi\r\n")).toBeNull();
@@ -129,17 +137,25 @@ describe("the postinstall: npm's .cmd and .ps1 made to run node", () => {
     'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\counterparts\\src\\adapters\\cli\\bin\\counterparts.mjs" %*',
   ].join("\r\n");
   const PS1 = 'if (Test-Path "$basedir//bin/sh$exe") {\n  & "$basedir//bin/sh$exe"  "$basedir/node_modules/counterparts/src/adapters/cli/bin/counterparts.mjs" $args\n} else {\n  & "/bin/sh$exe"  "$basedir/node_modules/counterparts/src/adapters/cli/bin/counterparts.mjs" $args\n}';
-  test("rewriteShim swaps /bin/sh for node, and leaves another package's shim alone", () => {
-    const cmd = rewriteShim(CMD, "counterparts\\src\\adapters\\") as string;
+  const TARGET = "node_modules/counterparts/src/adapters/cli/bin/counterparts.mjs";
+  test("rewriteShim swaps /bin/sh for node in npm's exact shim for our bin, and nothing else", () => {
+    const cmd = rewriteShim(CMD, ".cmd", TARGET) as string;
     expect(cmd).toContain('IF EXIST "%dp0%\\node.exe"');
     expect(cmd).toContain('SET "_prog=node"');
     expect(cmd).not.toContain("/bin/sh");
-    const ps1 = rewriteShim(PS1, "counterparts/src/adapters/") as string;
+    const ps1 = rewriteShim(PS1, ".ps1", TARGET) as string;
     expect(ps1).toContain('Test-Path "$basedir/node$exe"');
     expect(ps1).toContain('& "node$exe"');
-    expect(rewriteShim(CMD.replace(/counterparts/g, "other"), "counterparts\\src\\adapters\\")).toBeNull();
+    // Older npm's `%~dp0` reads the same.
+    expect(rewriteShim(CMD.replace(/%dp0%/g, "%~dp0"), ".cmd", TARGET)).toContain('SET "_prog=node"');
+    // Another package's shim, or another bin's target: untouched.
+    expect(rewriteShim(CMD.replace(/counterparts/g, "other"), ".cmd", TARGET)).toBeNull();
+    expect(rewriteShim(CMD, ".cmd", "node_modules/counterparts/src/adapters/mcp/bin/serve.mjs")).toBeNull();
+    // A person's own file that mentions our path and /bin/sh but is not npm's shim shape (W1 review, 1).
+    const theirs = '@echo off\r\nREM runs node_modules\\counterparts\\src\\adapters\\cli\\bin\\counterparts.mjs under /bin/sh\r\nmy-tool %*\r\n';
+    expect(rewriteShim(theirs, ".cmd", TARGET)).toBeNull();
   });
-  test("fixShims touches nothing off win32, and the global prefix's two files on win32", () => {
+  test("fixShims: only a global install on win32, only the global prefix's two files", () => {
     const prefix = mkdtempSync(join(tmpdir(), "w1-shims-"));
     made.push(prefix);
     const pkg = join(prefix, "node_modules", "counterparts");
@@ -147,14 +163,54 @@ describe("the postinstall: npm's .cmd and .ps1 made to run node", () => {
     writeFileSync(join(prefix, "counterparts.cmd"), CMD);
     writeFileSync(join(prefix, "counterparts.ps1"), PS1);
     writeFileSync(join(prefix, "counterparts"), "#!/bin/sh\nexec /bin/sh x\n");
-    expect(binDirs(pkg)).toEqual([prefix, join(prefix, "node_modules", ".bin")]);
-    expect(fixShims(pkg, "darwin")).toEqual([]);
+    const global = { npm_config_global: "true" };
+    expect(globalBinDir(pkg, global)).toBe(prefix);
+    expect(fixShims(pkg, "darwin", global)).toEqual([]);
+    // A LOCAL install (`npm i counterparts` in a project whose root holds a
+    // counterparts.cmd of its own): nothing is touched (W1 review, 1).
+    expect(globalBinDir(pkg, {})).toBeNull();
+    expect(fixShims(pkg, "win32", {})).toEqual([]);
     expect(readFileSync(join(prefix, "counterparts.cmd"), "utf8")).toBe(CMD);
-    expect(fixShims(pkg, "win32").length).toBe(2);
+    expect(fixShims(pkg, "win32", global).length).toBe(2);
     expect(readFileSync(join(prefix, "counterparts.cmd"), "utf8")).not.toContain("/bin/sh");
     // The shell script Git Bash runs stays as npm wrote it.
     expect(readFileSync(join(prefix, "counterparts"), "utf8")).toContain("/bin/sh");
     // Run twice, the second changes nothing.
-    expect(fixShims(pkg, "win32")).toEqual([]);
+    expect(fixShims(pkg, "win32", global)).toEqual([]);
+  });
+});
+
+describe("a Windows hook line's first word (W1 review, 2)", () => {
+  test("node by name only when PATH's node is this very file, links followed", () => {
+    const shim = "C:\\Users\\me\\AppData\\Local\\Volta\\bin\\node.exe";
+    const env = { Path: "C:\\Users\\me\\AppData\\Local\\Volta\\bin", PATHEXT: ".EXE" };
+    const real = "C:\\Users\\me\\AppData\\Local\\Volta\\tools\\image\\node\\24.11.0\\node.exe";
+    // Volta: `node` on PATH is its shim, another file.
+    expect(hostExe(real, "win32", env, disk(shim, real), (p) => p)).toBe("C:/Users/me/AppData/Local/Volta/tools/image/node/24.11.0/node.exe");
+    // A link to the same file reads as the same.
+    expect(hostExe(real, "win32", env, disk(shim, real), (p) => (p === shim ? real : p))).toBe("node");
+  });
+  test("a path is written so the shell Claude Code uses there runs it", () => {
+    const noGit = { Path: "C:\\Windows" };
+    expect(windowsHookWord("node", noGit, disk())).toEqual({ word: "node", form: "name" });
+    expect(windowsHookWord("C:/Users/me/Volta/node.exe", noGit, disk())).toEqual({ word: "C:/Users/me/Volta/node.exe", form: "plain" });
+    expect(windowsHookWord("C:/Program Files/nodejs/node.exe", noGit, disk())).toEqual({ word: '& "C:/Program Files/nodejs/node.exe"', form: "powershell" });
+    expect(windowsHookWord("C:/Program Files/nodejs/node.exe", noGit, disk("C:\\Program Files\\Git\\bin\\bash.exe"))).toEqual({ word: '"C:/Program Files/nodejs/node.exe"', form: "bash" });
+    expect(windowsHookFit("name", "node")).toBeNull();
+    expect(windowsHookFit("plain", "C:/x/node.exe")).toBeNull();
+    expect(windowsHookFit("powershell", "C:/Program Files/nodejs/node.exe")).toContain("PowerShell only");
+  });
+  test("a PowerShell line (`& \"…\"`) reads back as ours", () => {
+    const line = '& "C:/Program Files/nodejs/node.exe" --import "file:///C:/p/node-hooks.mjs" "C:/p/src/adapters/claude-code/bin/hook.ts"';
+    expect(shellTokens(line)[0]).toBe("C:/Program Files/nodejs/node.exe");
+    expect(isOurHookCommand(line)).toBe(true);
+  });
+  test("doctor: a quoted path is amber on win32; green elsewhere, and for node by name", () => {
+    const row = (exe: string) => ({ runtimes: [{ kind: "node" as const, exe, used: ["hooks"], present: true }] });
+    const quoted = runtimeFindings(row("C:/Program Files/nodejs/node.exe") as never, "win32")[0];
+    expect(quoted?.severity).toBe("amber");
+    expect(quoted?.detail ?? "").toContain("only one of Git Bash and PowerShell");
+    expect(runtimeFindings(row("node") as never, "win32")[0]?.severity).toBe("green");
+    expect(runtimeFindings(row("C:/Program Files/nodejs/node.exe") as never, "darwin")[0]?.severity).toBe("green");
   });
 });

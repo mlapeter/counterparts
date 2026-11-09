@@ -59,7 +59,7 @@ export const DEFAULT_STORE_DIR = "store";
 import { EMBEDDER_KINDS } from "../config.js";
 import type { EmbedderKind } from "../config.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
-import { entryScript, hostInvocation, hostPath, parseScriptInvocation, readsHostUserConfig, runtimeOf, runtimePresent, shellTokens } from "../runtime.js";
+import { entryScript, hostInvocation, hostPath, parseScriptInvocation, readsHostUserConfig, runtimeOf, runtimePresent, shellTokens, windowsHookWord } from "../runtime.js";
 import type { RuntimeKind } from "../runtime.js";
 import { pluginInstall, readOurHook, sidebarPluginRecorded } from "../host-wiring.js";
 import type { PluginInstallRead } from "../host-wiring.js";
@@ -150,7 +150,10 @@ export function runCommand(script: string, exe: string = process.execPath, platf
   // PowerShell both run. Elsewhere exactly what it always was.
   const { command, args } = hostInvocation(script, exe, platform);
   const words = args.map((a) => (/^[A-Za-z-]+$/.test(a) ? a : shellQuote(a)));
-  return [/^[A-Za-z0-9_-]+$/.test(command) && platform === "win32" ? command : shellQuote(command), ...words].join(" ");
+  // On win32 the first word in a form Claude Code's shell there runs
+  // (`runtime.ts#windowsHookWord`: by name, a plain path, or quoted for the
+  // one shell present).
+  return [platform === "win32" ? windowsHookWord(command).word : shellQuote(command), ...words].join(" ");
 }
 
 /**

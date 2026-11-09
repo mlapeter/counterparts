@@ -267,6 +267,8 @@ function runHook(event, kind, extra) {
     // Without Git Bash, Claude Code runs the same line in PowerShell.
     const again = runHook("SessionStart", "powershell", { source: "resume" });
     if (again !== null && again.out.trim().length > 0) ok("SessionStart in PowerShell returned a wake too");
+    else if (again !== null) no("SessionStart in PowerShell returned nothing", again.err);
+    if (again !== null) show("the PowerShell wake (a resume, so shorter)", again.out.slice(0, 1200));
   }
   runHook("UserPromptSubmit", hookShell, { prompt: "what espresso machine do we have?" });
   runHook("Stop", hookShell, { stop_hook_active: false });

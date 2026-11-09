@@ -103,7 +103,7 @@ import { PACKAGE_ROOT, PLUGIN_DATA_ENV, PLUGIN_ROOT_ENV } from "../plugin.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
 import { withHostUmask } from "../private-umask.js";
 import { tightenInstallBase } from "../private-base.js";
-import { hostInvocation, parseScriptInvocation, readsHostUserConfig, shellTokens, windowsLaunch } from "../runtime.js";
+import { hostExe, hostInvocation, parseScriptInvocation, readsHostUserConfig, shellTokens, windowsHookFit, windowsHookWord, windowsLaunch } from "../runtime.js";
 import { installedBuild, installedVersion, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
 import type { Io } from "./commands.js";
@@ -1401,6 +1401,14 @@ export async function wire(input: WireInput): Promise<WireResult> {
     io.err("Nothing was changed. The block to merge by hand, its two keys at the top level:");
     for (const line of settingsBlock(command).split("\n")) io.err(`  ${line}`);
     return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
+  }
+
+  // WINDOWS: a hook line that names Node by a path only one of Claude Code's
+  // two shells there can run is said out loud, every connect (W1 review).
+  if (process.platform === "win32") {
+    const exe = hostExe(input.exe);
+    const fit = windowsHookFit(windowsHookWord(exe, env).form, exe);
+    if (fit !== null) u.warn(fit);
   }
 
   const plan = planSettings(sight.value, command, "wire");

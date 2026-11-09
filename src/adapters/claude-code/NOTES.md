@@ -3019,10 +3019,14 @@ Step 0 of the Windows port, from Claude Code's own docs (code.claude.com/docs/en
 So the hook line has to run in BOTH Git Bash and PowerShell, and must not depend on our npm shims. What `connect` writes
 on win32 (`runtime.ts#hostInvocation`): `node --import "file:///C:/…/node-hooks.mjs" "C:/…/claude-code/bin/hook.ts"`.
 
-- `node` BY NAME, when `node` on PATH is the very node running `connect` (else its absolute path, quoted, which Git Bash
-  runs and PowerShell alone would not: PowerShell needs `&` before a quoted first word, and bash refuses `&`). The
-  default Node is in `C:\Program Files\nodejs`, which needs quotes. Scar §2.18 (the host's PATH isn't the login
-  shell's) is a macOS hazard; on Windows the host inherits the account's PATH.
+- `node` BY NAME, when `node` on PATH resolves (links followed) to the very node running `connect`. The default Node
+  is in `C:\Program Files\nodejs`, which needs quotes, and PowerShell needs `&` before a quoted first word, which bash
+  refuses. Scar §2.18 (the host's PATH isn't the login shell's) is a macOS hazard; on Windows the host inherits the
+  account's PATH. When `node` is another file (Volta's or nvm-windows' shim, another Node; W1 review), the path is
+  written for the shell present (`runtime.ts#windowsHookWord`): unquoted when it has no space (both shells run it),
+  quoted with Git Bash present, `& "…"` without it (`shellTokens` reads the `&` away). The last two run in that one
+  shell only, so `connect` warns and doctor's Runtime line is amber: installing or removing Git for Windows later
+  stops every hook until `connect` runs again.
 - `--import` as a `file:` URL: Node reads `C:\…\node-hooks.mjs` as a URL whose scheme is `c:`.
 - `/` in every path: no backslash for either shell to read as an escape, and Windows takes them.
 - The MCP registration is the same words as `command` + `args`: `node`, `--import`, the URL, `C:/…/serve.ts`.

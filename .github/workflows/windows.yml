@@ -12,8 +12,11 @@
 #     background worker, doctor, and (the runner's clock moved a day) the night
 #     starting and reaching `claude -p`.
 #   - wsl: the same script inside Ubuntu on WSL 2, with Node from nodejs.org.
-# Hermetic: every step runs in a temp HOME/USERPROFILE outside the runner's home,
-# and COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 holds for everything not inside it.
+# Hermetic: the door refuses a workdir inside the runner's home and an inherited
+# COUNTERPARTS_DATA_DIR/CONFIG, then runs every step with HOME and USERPROFILE in
+# its temp workdir and every COUNTERPARTS_* variable CLEARED, so the default
+# store a stranger gets is the temp one. COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1 is
+# set for the job, and so holds for anything that runs outside the door.
 name: windows
 
 on:

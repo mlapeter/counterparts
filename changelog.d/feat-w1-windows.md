@@ -4,4 +4,3 @@
   Claude Code uses Git Bash or PowerShell for them, and the memory tools register with Claude Code installed either
   way (its installer or npm). It's new and has few users yet: tell us how it goes. Under WSL it works as on Linux.
   QUICKSTART's "On Windows" says what differs.
-- **No console windows flash up on Windows** for the background worker, the night or its `claude -p`.

@@ -2124,7 +2124,10 @@ door the plugin's `/counterparts:uninstall` drives.
   line, `#!/bin/sh` for our polyglot bins, so `counterparts.cmd`/`.ps1` ran `/bin/sh`. The first line can't name Node:
   macOS and Linux read the same line, and a Bun-only machine would lose the console. So `package.json#scripts.postinstall`
   runs `src/adapters/windows-shims.mjs`, which on win32 only rewrites the `.cmd` and `.ps1` npm wrote for THIS package's
-  four bins to run `node`, and nothing else (it returns at once elsewhere, and never fails the install). npm links bins
+  four bins to run `node`, and nothing else (it returns at once elsewhere, and never fails the install). Only for a
+  GLOBAL install (`npm_config_global`), only in the global prefix, and only a file with npm's exact shim target line
+  (`read-cmd-shim`'s regex) naming this package's bin for that name: the review of #787 found the first version would
+  rewrite a project's own `counterparts.cmd` on a local `npm i counterparts`. npm links bins
   before `postinstall` (arborist `rebuild.js`). This is the package's first install script; it touches only npm's own
   launchers for our bins, never a host's settings. With `--ignore-scripts` it doesn't run, and the commands still work
   from Git Bash.

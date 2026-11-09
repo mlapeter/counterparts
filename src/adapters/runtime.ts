@@ -48,7 +48,7 @@
  * still parse (`parseScriptInvocation`, `projectEnv: "read"`), `doctor` names
  * them, and `counterparts connect` rewrites them.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -310,8 +310,10 @@ export function scriptArgs(
 //     in `C:/Program Files/…`, which needs quotes. On Windows a host's PATH is
 //     the one the person set for their account, not a login shell's, so scar
 //     §2.18 (the host's PATH is not the shell's) is not the hazard it is on
-//     macOS. When the name finds another file, the absolute path is written,
-//     quoted: Git Bash runs it; PowerShell alone would not.
+//     macOS. When the name finds another file (links followed; a version
+//     manager's shim is another file), the path is written in the form the
+//     shell Claude Code uses there runs (`windowsHookWord`), and `connect` and
+//     doctor say it runs in that shell only.
 
 /** A Windows path as a `file:` URL, by hand, so it is the same on every host
  *  (a test runs it on macOS): `C:\a b\x.mjs` → `file:///C:/a%20b/x.mjs`. */
@@ -391,7 +393,8 @@ export function windowsLaunch(
   }
   // The LAST quoted `%dp0%` path: a Node bin's shim names `"%dp0%\node.exe"`
   // first (`IF EXIST …`), its target last (measured on Claude Code's, CI 11-09).
-  const target = [...text.matchAll(/"%dp0%\\([^"]+)"/g)].pop()?.[1];
+  // Older npm and pnpm spell the directory `%~dp0` (read-cmd-shim reads both).
+  const target = [...text.matchAll(/"%(?:dp0%|~dp0)\\([^"]+)"/g)].pop()?.[1];
   if (target === undefined) return null;
   const dir = found.replace(/[\\/][^\\/]*$/, "");
   const file = `${dir}\\${target}`;
@@ -402,23 +405,90 @@ export function windowsLaunch(
   return node === null ? null : { file: node, args: [file, ...args] };
 }
 
+/** A path with links resolved (`realpathSync.native`), or as given when it
+ *  can't be. */
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
 /** The runtime as a host command on `platform` names it: on win32 its bare
- *  name when that name on PATH is this very file, else its `/` path; the path
- *  unchanged elsewhere. */
+ *  name when that name on PATH resolves (links followed) to this very file,
+ *  else its `/` path; the path unchanged elsewhere. Under a version manager
+ *  (Volta, nvm-windows) `node` on PATH is the manager's shim, another file:
+ *  then the path, which `windowsHookWord` writes so a shell can run it. */
 export function hostExe(
   exe: string,
   platform: string = process.platform,
   env: Record<string, string | undefined> = process.env,
   exists: (path: string) => boolean = existsSync,
+  real: (path: string) => string = realOrSelf,
 ): string {
   if (platform !== "win32") return exe;
   const name = (exe.split(/[\\/]/).pop() ?? "").replace(/\.exe$/i, "");
-  const same = (a: string, b: string): boolean => hostPath(a, "win32").toLowerCase() === hostPath(b, "win32").toLowerCase();
+  const same = (a: string, b: string): boolean =>
+    hostPath(real(a), "win32").toLowerCase() === hostPath(real(b), "win32").toLowerCase();
   if (/^[A-Za-z0-9_-]+$/.test(name)) {
     const found = whichOnPath(name, env, platform, exists);
     if (found !== null && same(found, exe)) return name;
   }
   return hostPath(exe, platform);
+}
+
+/**
+ * Does Claude Code on this Windows machine have Git Bash to run hooks in? The
+ * lookup its docs give (code.claude.com/docs/en/troubleshoot-install):
+ * `CLAUDE_CODE_GIT_BASH_PATH`, then `C:\Program Files\Git` and its `(x86)`
+ * twin, then the Git for Windows that `git` on PATH belongs to.
+ */
+export function gitBashOnWindows(
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+): boolean {
+  const named = (env["CLAUDE_CODE_GIT_BASH_PATH"] ?? "").trim();
+  if (named.length > 0 && exists(named)) return true;
+  if (exists("C:\\Program Files\\Git\\bin\\bash.exe") || exists("C:\\Program Files (x86)\\Git\\bin\\bash.exe")) return true;
+  const git = whichOnPath("git", env, "win32", exists);
+  // `…\Git\cmd\git.exe` (or `…\Git\bin\git.exe`): Git Bash is `…\Git\bin\bash.exe`.
+  return git !== null && exists(`${git.replace(/[\\/][^\\/]+[\\/][^\\/]+$/, "")}\\bin\\bash.exe`);
+}
+
+/**
+ * THE FIRST WORD OF A WINDOWS HOOK LINE, and whether it runs in both shells
+ * Claude Code may use there (Git Bash, else PowerShell):
+ *
+ *   - `name`: `node` by name. Both run it.
+ *   - `plain`: a `/` path with no space or shell character, unquoted. Both.
+ *   - `bash`: a path that needs quotes, quoted, with Git Bash present: bash
+ *     runs it; PowerShell would read a quoted first word as a string.
+ *   - `powershell`: the same with no Git Bash: `& "path"`, PowerShell's call
+ *     operator, which bash refuses. (`shellTokens` reads the `&` away.)
+ *
+ * The last two are written for the shell present at `connect`; installing or
+ * removing Git for Windows afterwards breaks them, which `connect` and doctor
+ * say (`windowsHookFit`).
+ */
+export type WindowsHookForm = "name" | "plain" | "bash" | "powershell";
+export function windowsHookWord(
+  command: string,
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+): { word: string; form: WindowsHookForm } {
+  if (/^[A-Za-z0-9_-]+$/.test(command)) return { word: command, form: "name" };
+  if (/^[A-Za-z0-9_.:/+-]+$/.test(command)) return { word: command, form: "plain" };
+  const quoted = `"${command}"`;
+  return gitBashOnWindows(env, exists) ? { word: quoted, form: "bash" } : { word: `& ${quoted}`, form: "powershell" };
+}
+
+/** What a person is told when a Windows hook line names its runtime by a path
+ *  only one shell runs (`windowsHookWord`); null when both run it. */
+export function windowsHookFit(form: WindowsHookForm, exe: string): string | null {
+  if (form === "name" || form === "plain") return null;
+  const shell = form === "bash" ? "Git Bash" : "PowerShell";
+  return `the hooks name Node by its path (${exe}), because \`node\` on PATH is another file (a version manager's shim, or another Node); that line runs in ${shell} only, the shell Claude Code uses on this machine now. If Git for Windows is installed or removed later, run counterparts connect again. To make it run in both, put this Node first on PATH and connect again.`;
 }
 
 /** What a host is told to run for `script`: the command and its arguments,
@@ -556,5 +626,9 @@ export function shellTokens(command: string): string[] {
     started = true;
   }
   if (started || current.length > 0) out.push(current);
+  // A leading lone `&` is PowerShell's call operator, which a Windows hook line
+  // carries before a quoted runtime when there is no Git Bash
+  // (`windowsHookWord`): the command is what follows it. No bash line begins so.
+  if (out[0] === "&" && out.length > 1) out.shift();
   return out;
 }
