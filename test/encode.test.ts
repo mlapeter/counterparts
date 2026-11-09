@@ -113,6 +113,11 @@ const SPECIMENS: { family: string; text: string; marker: string }[] = [
     marker: "npm_abcdefghijklmnopqrstuvwxyz0123456789",
   },
   {
+    family: "password",
+    text: "the wifi password is sunflower42",
+    marker: "sunflower42",
+  },
+  {
     family: "slack-token",
     text: "xoxb-123456789012-abcdefghijkl",
     marker: "xoxb-123456789012-abcdefghijkl",

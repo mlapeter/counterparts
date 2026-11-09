@@ -260,7 +260,8 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
 14. **[M] A span can be destroyed on the owner's say-so, or by the retention rule the owner
     set (G15) — and by nothing else.** *(Amended 2026-09-23: it read "and only on the
     owner's say-so"; the rule is the owner's too, and it destroys through this same door.)*
-    The buffer holds lived experience verbatim, so "anything can be removed loudly"
+    The buffer holds lived experience verbatim (less what the secrets scan strips before an
+    append, SX1), so "anything can be removed loudly"
     (constitution 6/7) has to be true of it too — it was not, and a removed note's words
     survived in `jots.jsonl` where a later backup copied them (LAUNCH-STATUS §I2). The
     door is `owner-strike-seam.ts`, reachable only by importing that file: the buffer

@@ -38,6 +38,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | the release after 2026-11-09 (W1) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
+| A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | the release after 2026-11-09 (SX1) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
 | The night closes open items itself (SO1 step 1): the night's `close` phase closes an open release step ("0.3.46 ready", "0.3.47 after-publish") when a later memory in its folder says a higher patch was released; unsure ones are listed `mayBeDone` under `recall "still open"`, never asked; the wake names the closes | the release after 2026-11-07 (SO1 step 1) | ~3 lived days after install (dated reminder set at merge): closes per night, how many were reopened, the Still open total before and after; a dry run on the day-47 copy said 2 closes and 4 may-be-done | [below](#the-night-closes-open-items-itself-so1-step-1) |
 | A write lists the open items it may settle (SO1 step 1b): a stored `remember` or `session_end` entry that says a version or PR was done lists up to 3 open items from any folder with the same version series, the same PR (own project only) or a `settlesWhen` it reaches (`mayClose`); the model closes or leaves them | the release after 2026-11-07 (SO1 step 1b) | ~7 lived days after install (dated reminder set at merge): `open.close-hint.shown` rows and distinct ids listed against `open.close-hint.closed` rows (and how many with `daysAfter` 0), p50/max ms, a hand-read of 10 listed titles for plainly irrelevant ones; baseline on the 11-07 copy: 3 of 19 irrelevant plus 2 weak, before the fix round | [below](#a-write-lists-the-open-items-it-may-settle-so1-step-1b) |
@@ -146,6 +147,34 @@ run in Git Bash, else PowerShell)? Did the first session wake, did recall answer
 What would change it: a hook line one of the shells can't run (then pin `"shell"` on the hook, or write the exec form);
 a Node not on PATH by name (then the absolute path, which only Git Bash runs); a launcher still running `/bin/sh` (the
 postinstall didn't run). Revert: none needed; Windows was unsupported before.
+
+## A password named in a sentence is redacted (SX1)
+
+SX1 (2026-11-09, finding from a page review: a password said in a sentence was kept word for word in a memory and in
+the raw buffer). The gate gained a `password` family (`encode/secrets.ts`, NOTES 21) that takes the value only and keeps
+the sentence, and `remember/spans.ts` runs the same scan on every turn and note before it is appended (injected by
+`Counterpart`). Hosted invites start the same week, on the same core.
+
+- **Redactions by family, count only.** Memory-side, every write's `gate.deposit` row carries `secretFamilies`
+  (family, count, site; never the value). On a snapshot copy or read-only:
+
+  ```sql
+  SELECT json_extract(f.value, '$.family') AS family, SUM(json_extract(f.value, '$.count')) AS redactions,
+         COUNT(DISTINCT events.seq) AS writes
+  FROM events, json_each(json_extract(payload, '$.secretFamilies')) AS f
+  WHERE name = 'gate.deposit' AND day >= <the install's lived day>
+  GROUP BY family ORDER BY redactions DESC;
+  ```
+
+  The raw buffer's own count (`remember.span.redacted`) is in the event ring only, not the store; a turn's raw
+  redactions show up memory-side when that turn is written up.
+- **False positives.** Any report, and a hand-read of the memories holding `[REDACTED:password]`
+  (`counterparts recall` for "password", read-only): is the redacted word a password, or a word of the sentence the
+  stop list missed? Each miss is a word for `PROSE_STOP` or a test row; a pattern of them is a reason to narrow.
+- **Misses.** A password said in a phrasing the family doesn't take ("the code to get in is …", a password with no
+  name near it) stays: not every secret has a shape, and the docs say so.
+
+Revert: remove the two `password` entries from `SECRET_FAMILIES` (the raw-buffer scan stays: it is the same gate).
 
 ## Recall's steps are timed (LT2 part 1)
 
