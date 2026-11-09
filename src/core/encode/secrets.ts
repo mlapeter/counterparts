@@ -338,6 +338,24 @@ function describes(word: string): boolean {
   return last !== undefined && w.length > last.length + 1 && (PROSE_STOP.has(last) || PROSE_PARTICIPLE.has(last) || PROSE_SUFFIX.test(last));
 }
 
+/** First parts that make a hyphenated description: "top-secret", "brand-new", "non-public". */
+const PROSE_HYPHEN_LEAD = new Set("top super non semi ultra extra brand half all self well very fully".split(" "));
+
+/**
+ * A hyphenated VALUE that `describes` would read as prose only because its last part is a plain
+ * describing word ("hunter-secret", "1.2.3-dev-secret", "moon-public"). A digit in any part, or the
+ * token standing as the whole value, makes it a value. A participle or adjective ending stays prose
+ * ("case-sensitive", "base64-encoded", "2FA-protected"), as does a describing first part ("top-secret").
+ */
+function hyphenValue(word: string, whole: boolean): boolean {
+  const parts = word.toLowerCase().split("-");
+  const last = parts[parts.length - 1] ?? "";
+  if (parts.length < 2 || parts.some((p) => p.length === 0) || !PROSE_STOP.has(last)) return false;
+  // Not `-ic`: "public" is the noun-like part of "moon-public", where "sensitive" is a real ending.
+  if (PROSE_PARTICIPLE.has(last) || /(?:ly|ed|ing|able|ible|less|ful|ous|ive)$/.test(last) || PROSE_HYPHEN_LEAD.has(parts[0] ?? "")) return false;
+  return /\d/.test(word) || whole;
+}
+
 /**
  * IS THIS TOKEN A WORD OF THE SENTENCE RATHER THAN A PASSWORD? A null word, a
  * grammar word, a description (`describes`), an algorithm, a product, a
@@ -500,6 +518,7 @@ function proseValue(text: string, start: number, name: string, connector: string
   if (/the[ \t]+(?:word|phrase|string|number)$/u.test(kind)) {
     return PROSE_FUNCTION.has(first.toLowerCase()) || PROSE_GRAMMAR.has(first.toLowerCase()) ? null : one;
   }
+  if (hyphenValue(first, tokens.length === 1 || PROSE_FILLER.has(next.toLowerCase()))) return one;
   if (isProseWord(first)) return null;
   // A run of Capitalised words: "Blue Skies Over Denver"; not when a description follows ("Okta managed").
   if (/^\p{Lu}/u.test(first) && tokens.length > 1 && /^\p{Lu}[\p{L}\p{N}]*$/u.test(next)) {

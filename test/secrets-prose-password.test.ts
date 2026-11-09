@@ -14,6 +14,17 @@ import { redactSecrets, scanSecrets } from "../src/core/encode/secrets.js";
 /** Each sentence, and the value that must not survive it. */
 const MUST_REDACT: readonly (readonly [string, string])[] = [
   ["my password is hunter2", "hunter2"],
+  // A hyphenated value whose last part is a describing word: a digit in it, or the whole value.
+  ["my password is hunter-secret", "hunter-secret"],
+  ["pw 1.2.3-dev-secret", "1.2.3-dev-secret"],
+  ["the wifi password is sunflower-private", "sunflower-private"],
+  ["my password is tiger7-secret", "tiger7-secret"],
+  ["the password is 42-secret", "42-secret"],
+  ["pw 99-problem", "99-problem"],
+  ["my password was moon-public", "moon-public"],
+  ["my password is hunter-secret lol", "hunter-secret"],
+  ["the router password is bluefox-new", "bluefox-new"],
+  ["password: frog-secret", "frog-secret"],
   ["My password is hunter2.", "hunter2"],
   ["the wifi password's sunflower42", "sunflower42"],
   ["the wifi password’s sunflower42", "sunflower42"],
@@ -53,6 +64,17 @@ const MUST_REDACT: readonly (readonly [string, string])[] = [
 
 /** Sentences and code that carry no password: left exactly as they were. */
 const MUST_NOT_REDACT: readonly string[] = [
+  // Hyphenated prose: a description, not a value.
+  "a well-known password",
+  "the password is top-secret",
+  "my password is brand-new",
+  "the password is non-public",
+  "the password is super-secret",
+  "the password is semi-private",
+  "the password is time-sensitive and expires friday",
+  "the password is user-specific",
+  "the password is admin-managed",
+  "my password is well-known to the whole team",
   "I forgot my password",
   "the password field is empty",
   "password reset flow",
