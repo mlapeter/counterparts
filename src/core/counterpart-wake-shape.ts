@@ -1104,7 +1104,7 @@ function nightClosedLine(cp: Counterpart, day: number, folders: ReadonlySet<stri
 }
 
 /**
- * `Set down from my page last night: "Records drift: look, then fix the
+ * `Set down from my page last night: "Kiln logs wander: look, then fix the
  * note" (recall "set down")` (PG1, 2026-11-09): the set-downs of the newest
  * night (`counterpart-wake-news.ts#lastNightAt`, by its local date), told
  * until the next night runs, at most `SET_DOWN_SHOWN` by line, then "and N

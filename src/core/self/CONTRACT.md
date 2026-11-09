@@ -818,7 +818,8 @@ why) or as "set down, unnamed". No silent drop, whatever the writer sends; past
 `MAX_PER_WRITE` the rest are one memory with every line in full. **[M]** Each set-down is
 a memory about me (`source: reflection`, tag `set down`, meta `setDown`: the line word for
 word, the why, the version it left), never unresolved. **[M]** The event row carries counts
-and ids, never a line. **[A]** The wake quotes a night's set-downs once, and only those the
+and ids, never a set-down line; the lines the writer kept by its own word (folded, reworded)
+ride on it with their claim, at most `AUDIT_MAX`, for audit. **[A]** The wake quotes a night's set-downs once, and only those the
 writer named or that are clearly gone (`SET_DOWN_LIMITS.GONE_SHARE`, clause, anchor and root
 checks); the rest are quiet "maybe reworded" memories. **[A]** A record that fails never
 costs the page. A session's or the owner's own edit is not read.

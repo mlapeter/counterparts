@@ -719,6 +719,8 @@ export const SET_DOWN_LIMITS = {
   CLAUSE_SHARE: 0.6,
   /** An anchor: a stemmed word at least this long that only this line carried on the old page; found anywhere on the new page, the line is not clearly gone. */
   ANCHOR_MIN: 4,
+  /** The writer's folded/reworded claims kept on one write's event for audit (line and why); past it, counted. A page has ~40 sentences; a rewrite rarely keeps more than this by its word. */
+  AUDIT_MAX: 20,
   /** A writer's why, at most this many characters (cut at a word, "…"). */
   WHY_CHARS: 200,
   /** The shortest word counted: "a", "of" and "to" carry nothing. */

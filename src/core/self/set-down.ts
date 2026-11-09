@@ -596,7 +596,12 @@ export function recordSetDowns(
     back,
   };
   if (diff.verdicts.length > 0 || input.named.length > 0 || back.length > 0) {
-    // Counts and ids only: the lines are on the memories, never in the log.
+    // Counts and ids for what was set down: those lines are on the memories,
+    // never in the log. What the writer KEPT by its own word (folded,
+    // reworded) has no memory, so its claims ride here, line and why, at most
+    // `AUDIT_MAX` (the rest counted): an audit reads what was claimed without
+    // re-running the diff. The page it came from is a version already.
+    const claimed = diff.verdicts.filter((v) => v.accounted && (v.outcome === "folded" || v.outcome === "reworded"));
     store.appendEvent({
       name: SET_DOWN_EVENT,
       day: input.day,
@@ -616,6 +621,8 @@ export function recordSetDowns(
         writerFolded: count("folded", true),
         writerReworded: count("reworded", true),
         engineReworded: count("reworded", false),
+        writerClaims: claimed.slice(0, L.AUDIT_MAX).map((v) => ({ line: v.line, as: v.outcome, why: clipWords(scanSecrets(v.why, "title").redacted, L.WHY_CHARS) })),
+        ...(claimed.length > L.AUDIT_MAX ? { writerClaimsMore: claimed.length - L.AUDIT_MAX } : {}),
         over: record.over,
         sentNamed: input.named.length,
         unmatchedNamed: record.unmatchedNamed,

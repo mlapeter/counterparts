@@ -64,50 +64,50 @@ describe("the sentence diff: reworded and folded are kept, the rest set down", (
     "## Lately",
     "",
     "Lately the work has been the night's children, one at a time.",
-    "Before naming a cause, I check which build, folder or store is running.",
+    "Before blaming a glaze, I check which kiln, shelf or clay body was used.",
     "",
     "## How I work",
     "",
-    "- Records drift: look, then fix the note.",
-    "- Shape isn't a finishing step.",
-    "- Ship when tested; provenance, not pacing, tells changes apart.",
-    "- I read slowly, without a harvest, and say what I found.",
+    "- Kiln logs wander: check, then mend the log.",
+    "- Form isn't a closing step.",
+    "- Fire when dried; cone color, not clock time, tells batches apart.",
+    "- I sketch slowly, without a plan, and keep what I liked.",
   ].join("\n");
 
   test("word for word kept: nothing; reworded: kept; split in two: kept", () => {
-    const after = BEFORE.replace("- Ship when tested; provenance, not pacing, tells changes apart.", "- I ship once it's tested. Provenance, not pacing, tells the changes apart.");
+    const after = BEFORE.replace("- Fire when dried; cone color, not clock time, tells batches apart.", "- I fire once it's dried. Cone color, not clock time, tells the batches apart.");
     const d = diffSetDowns(BEFORE, after);
-    expect(d.verdicts.map((v) => [v.outcome, v.line])).toEqual([["reworded", "Ship when tested; provenance, not pacing, tells changes apart."]]);
+    expect(d.verdicts.map((v) => [v.outcome, v.line])).toEqual([["reworded", "Fire when dried; cone color, not clock time, tells batches apart."]]);
   });
 
   test("the writer's account is trusted as given: folded and reworded are kept wherever the words went, anything else is set down as named", () => {
     // A fold the words alone can't see (the review of #789: true folds scored 0.36 on real pages).
     const spread = BEFORE.replace(
-      "Before naming a cause, I check which build, folder or store is running.",
-      "On 10-09 the wrong build ran for a day, in the right-looking folder. I lost the day to it. Now I check first.",
+      "Before blaming a glaze, I check which kiln, shelf or clay body was used.",
+      "On 10-09 the wrong kiln ran for a day, on the right-looking shelf. I lost the batch to it. Now I check first.",
     );
-    const d = diffSetDowns(BEFORE, spread, [{ line: "Before naming a cause, I check which build, folder or store is running.", why: "folded into Lately's 10-09 story" }]);
+    const d = diffSetDowns(BEFORE, spread, [{ line: "Before blaming a glaze, I check which kiln, shelf or clay body was used.", why: "folded into Lately's 10-09 story" }]);
     expect(d.verdicts.map((v) => [v.outcome, v.accounted])).toEqual([["folded", true]]);
-    const r = diffSetDowns(BEFORE, spread, [{ line: "Before naming a cause, I check which build, folder or store is running.", why: "reworded as the 10-09 story" }]);
+    const r = diffSetDowns(BEFORE, spread, [{ line: "Before blaming a glaze, I check which kiln, shelf or clay body was used.", why: "reworded as the 10-09 story" }]);
     expect(r.verdicts.map((v) => v.outcome)).toEqual(["reworded"]);
-    const after = BEFORE.replace("- Records drift: look, then fix the note.\n", "");
+    const after = BEFORE.replace("- Kiln logs wander: check, then mend the log.\n", "");
     const n = diffSetDowns(BEFORE, after, [
-      { line: "Records drift: look, then fix the note.", why: "no longer lived" },
-      { line: "I read slowly, without a harvest, and say what I found.", why: "room" },
+      { line: "Kiln logs wander: check, then mend the log.", why: "no longer lived" },
+      { line: "I sketch slowly, without a plan, and keep what I liked.", why: "room" },
     ]);
     expect(n.verdicts.map((x) => [x.outcome, x.why])).toEqual([["named", "no longer lived"]]);
-    expect(n.unmatchedNamed.map((x) => x.line)).toEqual(["I read slowly, without a harvest, and say what I found."]);
+    expect(n.unmatchedNamed.map((x) => x.line)).toEqual(["I sketch slowly, without a plan, and keep what I liked."]);
   });
 
   test("not accounted for: a trim to a clause, or a word dropped, is the line still there", () => {
-    const trimmed = BEFORE.replace("- I read slowly, without a harvest, and say what I found.", "- I read slowly, without a harvest.");
+    const trimmed = BEFORE.replace("- I sketch slowly, without a plan, and keep what I liked.", "- I sketch slowly, without a plan.");
     expect(diffSetDowns(BEFORE, trimmed).verdicts.map((v) => [v.outcome, v.why])).toEqual([["reworded", "still on the page, trimmed or grown"]]);
-    const word = BEFORE.replace("Before naming a cause, I check which build, folder or store is running.", "Before naming a cause, I check which build or store is running.");
+    const word = BEFORE.replace("Before blaming a glaze, I check which kiln, shelf or clay body was used.", "Before blaming a glaze, I check which kiln or clay body was used.");
     expect(diffSetDowns(BEFORE, word).verdicts.map((v) => v.outcome)).toEqual(["reworded"]);
   });
 
   test("not accounted for and clearly gone (no words, no clause, no anchor left): quoted unnamed; otherwise a quiet 'maybe reworded'", () => {
-    const after = BEFORE.replace("- Shape isn't a finishing step.\n", "");
+    const after = BEFORE.replace("- Form isn't a closing step.\n", "");
     const gone = diffSetDowns(BEFORE, after).verdicts;
     expect(gone.map((v) => [v.outcome, v.why, isQuoted(v)])).toEqual([["unnamed", UNNAMED_WHY, true]]);
     // A clause kept ("never skip the glaze test" → "never skip it"): not quoted.
@@ -125,25 +125,25 @@ describe("the sentence diff: reworded and folded are kept, the rest set down", (
   });
 
   test("common page words are not a fold: a short rule whose words recur elsewhere on the page is still set down", () => {
-    // "note", "look", "fix" all appear on the new page, spread over unrelated sentences.
+    // "check", "log", "mend" all appear on the new page, spread over unrelated sentences.
     const after = [
       "## Lately",
       "",
-      "Lately I look at the night's children one at a time, and I note what each one did.",
-      "I fix the build first.",
+      "Lately I check on the night's children one at a time, and I log what each one did.",
+      "I mend the shelf first.",
       "",
       "## How I work",
       "",
-      "- Ship when tested; provenance, not pacing, tells changes apart.",
+      "- Fire when dried; cone color, not clock time, tells batches apart.",
     ].join("\n");
-    const v = diffSetDowns(BEFORE, after).verdicts.find((x) => x.line.startsWith("Records drift"));
+    const v = diffSetDowns(BEFORE, after).verdicts.find((x) => x.line.startsWith("Kiln logs wander"));
     expect(isSetDown(v as SetDownVerdict)).toBe(true);
     expect(v?.share).toBeLessThan(0.7);
   });
 
   test("an opening of the line names it, as a claim's does", () => {
-    const after = BEFORE.replace("- I read slowly, without a harvest, and say what I found.\n", "").replace("- I read slowly, without a harvest, and say what I found.", "");
-    const d = diffSetDowns(BEFORE, after, [{ line: "I read slowly, without a harvest", why: "no longer lived" }]);
+    const after = BEFORE.replace("- I sketch slowly, without a plan, and keep what I liked.\n", "").replace("- I sketch slowly, without a plan, and keep what I liked.", "");
+    const d = diffSetDowns(BEFORE, after, [{ line: "I sketch slowly, without a plan", why: "no longer lived" }]);
     expect(d.verdicts.map((x) => [x.outcome, x.why])).toEqual([["named", "no longer lived"]]);
   });
 });
@@ -158,14 +158,14 @@ const PAGE = [
   "## Lately",
   "",
   "Lately the work has been the night's children, one at a time.",
-  "Before naming a cause, I check which build, folder or store is running.",
+  "Before blaming a glaze, I check which kiln, shelf or clay body was used.",
   "",
   "## How I work",
   "",
-  "- Records drift: look, then fix the note.",
-  "- Shape isn't a finishing step.",
+  "- Kiln logs wander: check, then mend the log.",
+  "- Form isn't a closing step.",
   "- I test through the real doors before I call a thing done.",
-  "- Ship when tested; provenance, not pacing, tells changes apart.",
+  "- Fire when dried; cone color, not clock time, tells batches apart.",
 ].join("\n");
 
 /** Day's end's page: a fold, a rewording, a named drop and an unnamed one. */
@@ -176,17 +176,17 @@ const WRITER_PAGE = [
   "",
   "## Lately",
   "",
-  "Lately the work has been the night's children, one at a time. On 10-09 a wrong build cost a day. The folder looked right. Now I check what is running before naming the cause.",
+  "Lately the work has been the night's children, one at a time. On 10-09 a wrong kiln cost a batch. The shelf looked right. Now I check what was used before blaming the glaze.",
   "",
   "## How I work",
   "",
   "- I test through the real doors before I call a thing done.",
-  "- I ship once it's tested; provenance, not pacing, tells the changes apart.",
+  "- I fire once it's dried; cone color, not clock time, tells the batches apart.",
 ].join("\n");
 
 const WRITER_NAMED = [
-  { line: "Records drift: look, then fix the note.", why: "no longer lived" },
-  { line: "Before naming a cause, I check which build, folder or store is running.", why: "folded into Lately's 10-09 story" },
+  { line: "Kiln logs wander: check, then mend the log.", why: "no longer lived" },
+  { line: "Before blaming a glaze, I check which kiln, shelf or clay body was used.", why: "folded into Lately's 10-09 story" },
 ];
 
 type Act = (ask: SeatAsk, s: McpServer, c: Counterpart) => Promise<void>;
@@ -275,15 +275,15 @@ describe("a night that rewrites the page", () => {
       // Newest first: the reflection's, then day's end's two (the fold and the rewording are not set-downs).
       expect(rows.map((r) => `${r.by} ${String(r.named)} ${r.line}`).sort()).toEqual([
         "reflection true I keep my word small and keep it.",
-        "writer false Shape isn't a finishing step.",
-        "writer true Records drift: look, then fix the note.",
+        "writer false Form isn't a closing step.",
+        "writer true Kiln logs wander: check, then mend the log.",
       ]);
-      const drift = rows.find((r) => r.line.startsWith("Records drift"));
-      if (drift === undefined) throw new Error("no set-down for Records drift");
+      const drift = rows.find((r) => r.line.startsWith("Kiln logs wander"));
+      if (drift === undefined) throw new Error("no set-down for Kiln logs wander");
       const row = c.store.row(drift.id);
       const doc = c.store.readProse(drift.id);
-      expect(doc.title).toBe("Set down from my page 11-08: Records drift: look, then fix the note.");
-      expect(doc.body.startsWith("Records drift: look, then fix the note.\n\n")).toBe(true);
+      expect(doc.title).toBe("Set down from my page 11-08: Kiln logs wander: check, then mend the log.");
+      expect(doc.body.startsWith("Kiln logs wander: check, then mend the log.\n\n")).toBe(true);
       expect(doc.body).toContain("Why: no longer lived.");
       expect(row?.about).toBe("me");
       expect(row?.source).toBe("reflection");
@@ -292,17 +292,27 @@ describe("a night that rewrites the page", () => {
       const facts = doc.meta[SET_DOWN_META] as Record<string, unknown>;
       expect(facts["from"]).toBe(drift.from);
       expect(facts["section"]).toBe("How I work");
-      expect(rows.find((r) => r.line.startsWith("Shape"))?.why).toBe(UNNAMED_WHY);
+      expect(rows.find((r) => r.line.startsWith("Form"))?.why).toBe(UNNAMED_WHY);
       expect(rows.find((r) => r.line.startsWith("I keep"))?.why).toBe("retired by the 11-01 publishing ruling");
-      // The log carries counts and ids, never a line's words.
+      // The log carries counts and ids, never a set-down line's words; what the
+      // writer kept by its own word (folded) rides with its claim, for audit.
       const events = c.store.eventLog({ name: SET_DOWN_EVENT, sinceDay: 0, order: "asc", limit: 10 });
       expect(events).toHaveLength(2);
       for (const e of events) {
-        expect(e.payload ?? "").not.toContain("Records drift");
-        expect(e.payload ?? "").not.toContain("Shape isn't");
+        expect(e.payload ?? "").not.toContain("Kiln logs wander");
+        expect(e.payload ?? "").not.toContain("Form isn't");
         expect(e.payload ?? "").not.toContain("keep my word");
       }
-      expect(JSON.parse(events[0]?.payload ?? "{}")).toMatchObject({ by: "writer", named: 1, unnamed: 1, folded: 1, reworded: 1 });
+      expect(JSON.parse(events[0]?.payload ?? "{}")).toMatchObject({
+        by: "writer",
+        named: 1,
+        unnamed: 1,
+        folded: 1,
+        reworded: 1,
+        writerFolded: 1,
+        engineReworded: 1,
+        writerClaims: [{ line: WRITER_NAMED[1]?.line, as: "folded", why: WRITER_NAMED[1]?.why }],
+      });
 
       // The next morning's first wake, before its night: said once, with the line, and the door.
       now += DAY_MS;
@@ -315,9 +325,9 @@ describe("a night that rewrites the page", () => {
       const w = m.wake(BUDGET, { date: new Date(now).toISOString().slice(0, 10) }, { scope: "/proj", session: "s-morning" });
       expect(w.ok).toBe(true);
       const lines = w.text.split("\n").filter((l) => l.startsWith("Set down from my page last night:"));
-      expect(lines).toEqual([`Set down from my page last night: "Records drift: look, then fix the note."; "Shape isn't a finishing step.", and 1 more (recall "set down")`]);
+      expect(lines).toEqual([`Set down from my page last night: "Kiln logs wander: check, then mend the log."; "Form isn't a closing step.", and 1 more (recall "set down")`]);
       // Told once: not again as news, nor anywhere else in the wake.
-      expect(w.text.split("Records drift").length - 1).toBe(1);
+      expect(w.text.split("Kiln logs wander").length - 1).toBe(1);
       expect(w.text).not.toContain("Set down from my page 11-08");
       // Told once: a later session's wake that day doesn't tell it again.
       now += 3_600_000;
@@ -331,7 +341,7 @@ describe("a night that rewrites the page", () => {
       expect(r["total"]).toBe(3);
       const items = r["items"] as Record<string, unknown>[];
       expect(items[0]).toMatchObject({ line: "I keep my word small and keep it.", why: "retired by the 11-01 publishing ruling", date: "2026-11-08", named: true, section: "Core" });
-      expect(items.find((i) => i["line"] === "Shape isn't a finishing step.")).toMatchObject({ named: false, why: UNNAMED_WHY });
+      expect(items.find((i) => i["line"] === "Form isn't a closing step.")).toMatchObject({ named: false, why: UNNAMED_WHY });
     } finally {
       m.close();
     }
@@ -346,7 +356,7 @@ describe("a night that rewrites the page", () => {
         {
           writer: async (_ask, s) => {
             const r = await s.call("dream", { phase: "writer", session: SESSION });
-            await s.call("self_page", { body: PAGE.replace("- Ship when tested; provenance, not pacing, tells changes apart.", "- I ship once tested; provenance, not pacing, tells changes apart."), reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"] });
+            await s.call("self_page", { body: PAGE.replace("- Fire when dried; cone color, not clock time, tells batches apart.", "- I fire once dried; cone color, not clock time, tells batches apart."), reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"] });
           },
           reflection: reflectionAct(core, "## Core\n\nI say what I do not know before I guess. I keep my word small and keep it.", []),
         },
@@ -388,19 +398,19 @@ describe("a night that rewrites the page", () => {
       "nrn_first",
       at,
     );
-    // The next day, life touches "Records drift": a newer memory says it again.
+    // The next day, life touches "Kiln logs wander": a newer memory says it again.
     now += DAY_MS;
     let driftId = "";
     {
       const c = open(at);
       try {
         c.store.advanceClock(new Date(now).toISOString().slice(0, 10));
-        driftId = readSetDowns(c.store).find((r) => r.line.startsWith("Records drift"))?.id ?? "";
+        driftId = readSetDowns(c.store).find((r) => r.line.startsWith("Kiln logs wander"))?.id ?? "";
         expect(driftId).not.toBe("");
         const day = c.store.livedDay();
-        c.store.put({ type: "memory", kind: "fact", body: "Records drift again today: I had to look, then fix the note on the zqbench.", learnedOn: new Date(now).toISOString().slice(0, 10), physics: { birthDay: day, lastUsedDay: day } });
-        // Shape was recalled and used.
-        const shape = readSetDowns(c.store).find((r) => r.line.startsWith("Shape"))?.id ?? "";
+        c.store.put({ type: "memory", kind: "fact", body: "Kiln logs wandered again today: I had to check, then mend the log at the zqbench.", learnedOn: new Date(now).toISOString().slice(0, 10), physics: { birthDay: day, lastUsedDay: day } });
+        // Form was recalled and used.
+        const shape = readSetDowns(c.store).find((r) => r.line.startsWith("Form"))?.id ?? "";
         c.store.updatePhysics(shape, { uses: 1, lastUsedDay: day });
       } finally {
         c.close();
@@ -417,7 +427,7 @@ describe("a night that rewrites the page", () => {
             const r = await s.call("dream", { phase: "writer", session: SESSION });
             block = String(sc(r)["read"]);
             // Brought back, in its own words.
-            wrote = sc(await s.call("self_page", { body: `${WRITER_PAGE}\n- Records drift: look, then fix the note.`, reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"] }));
+            wrote = sc(await s.call("self_page", { body: `${WRITER_PAGE}\n- Kiln logs wander: check, then mend the log.`, reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"] }));
           },
           reflection: reflectionAct(core, "## Core\n\nI say what I do not know before I guess. I keep my word small and keep it.", [], bundle),
         },
@@ -429,12 +439,12 @@ describe("a night that rewrites the page", () => {
     // Day's end was shown both, with how life touched them.
     expect(block).toContain("Lines your page set down that life has touched since");
     expect(block).toContain(`${driftId} · set down 2026-11-08 (no longer lived); said again in mem_`);
-    expect(block).toContain('used since: "Shape isn\'t a finishing step."');
+    expect(block).toContain('used since: "Form isn\'t a closing step."');
     expect(String(wrote["setDown"])).toContain(`Brought back: ${driftId}.`);
     // The reflection is not handed set-downs as lived memories about me (core, candidates, felt):
     // a set-down from a section that isn't its lane (How I work) is not in its bundle at all.
     expect(bundle.length).toBeGreaterThan(0);
-    expect(bundle.join("\n")).not.toContain("Shape isn't a finishing step");
+    expect(bundle.join("\n")).not.toContain("Form isn't a finishing step");
     expect(bundle.join("\n")).not.toContain("Set down from my page");
     now += 60_000;
     const c = open(at);
@@ -464,8 +474,8 @@ describe("a night that rewrites the page", () => {
       const kept = c.self.keepHeldPage();
       expect(kept?.written).toBe(true);
       const rows = readSetDowns(c.store);
-      expect(rows.find((r) => r.line.startsWith("Records drift"))).toMatchObject({ named: true, why: "no longer lived", by: "writer" });
-      expect(rows.find((r) => r.line.startsWith("Shape"))).toMatchObject({ named: false, why: UNNAMED_WHY });
+      expect(rows.find((r) => r.line.startsWith("Kiln logs wander"))).toMatchObject({ named: true, why: "no longer lived", by: "writer" });
+      expect(rows.find((r) => r.line.startsWith("Form"))).toMatchObject({ named: false, why: UNNAMED_WHY });
     } finally {
       c.close();
     }
