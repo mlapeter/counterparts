@@ -71,7 +71,7 @@ walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
   first, the next time Counterparts runs. It is never in a backup.
 - What's stripped before anything is kept, in the memories and in that conversation text:
   credentials in recognisable shapes (API keys, tokens, private keys, passwords in URLs, a
-  value after a name like `password=` or `api_key:`), and passwords named in a sentence
+  value after a name like `password=` or `api_key:`), and most passwords named in a sentence
   ("my wifi password is …", "the PIN is …"): the value goes, the sentence stays. Not every
   secret has a shape, so don't paste things you wouldn't want kept.
 - It doesn't read or change your CLAUDE.md files or Claude Code's own auto memory
