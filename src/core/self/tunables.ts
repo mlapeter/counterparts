@@ -711,11 +711,11 @@ export const SET_DOWN_LIMITS = {
   FOLD_SHARE: 0.5,
   /** New sentences read together when judging a line no one accounted for as clearly gone: a story carries a rule over a few sentences. */
   FOLD_WINDOW: 3,
-  /** Not accounted for by the writer, and gone: quoted by the wake only when at most this share of its words is anywhere in a run of `FOLD_WINDOW` new sentences; above it, a quiet "maybe reworded" memory. Low on purpose: on the owner's history true folds scored 0.36–0.38 and true drops 0.38–0.40 (review of #789), so the engine quotes only the plain ones. 0.15, not 0.3: at 0.3, a sentence reworded with no words in common ("I'm leaving that open" → "a question I've left with Mike", 0.29) was quoted as gone. */
+  /** Not accounted for by the writer, and gone: quoted by the wake only when at most this share of its words is anywhere in a run of `FOLD_WINDOW` new sentences; above it, a quiet "maybe reworded" memory. Low on purpose: on the owner's history true folds scored 0.36–0.38 and true drops 0.38–0.40 (review of #789), so the engine quotes only the plain ones. 0.15, not 0.3: at 0.3, a sentence the next page reworded with almost no words in common (0.29) was quoted as gone. */
   GONE_SHARE: 0.15,
   /** A new sentence of at least this many content words, all inside a gone one, is that sentence trimmed (to a clause, a word dropped). */
   CONTAIN_MIN: 2,
-  /** A clause of a gone line (split at ; : — ( ) and ", ") with this share of its words in one new sentence or two: the line is not clearly gone ("Never game a review" → "never game one", 2 of 3). */
+  /** A clause of a gone line (split at ; : — ( ) and ", ") with this share of its words in one new sentence or two: the line is not clearly gone (a three-word clause kept as two of its words, 2 of 3). */
   CLAUSE_SHARE: 0.6,
   /** An anchor: a stemmed word at least this long that only this line carried on the old page; found anywhere on the new page, the line is not clearly gone. */
   ANCHOR_MIN: 4,

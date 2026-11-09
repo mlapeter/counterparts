@@ -3105,10 +3105,10 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   a quiet "set down, unnamed (maybe reworded)" memory, behind `recall "set down"` only.
 - **Measured on a copy of the owner's store (11-09 snapshot), with no writer account,** on PF1 plus 20 seeded random
   pairs, four seeds (~80 pairs): 3–5 lines quoted per 21 pairs, and every one checked by hand against its after page
-  was gone ("I'm watching it.", "0.3.7 is on his machine.", "Motive is the piece I'm really missing…", "Not pinned
-  yet.", "Roadmap waves have no dates…"). The 0.3 bar quoted "I'm leaving that open…", reworded on the next page
-  with no words in common. PF1 quotes nothing unaccounted at 0.15. Its true drops become quiet memories; on a real
-  night the writer names them. Script: `tools/set-down-diff.ts`.
+  was gone (short fragments, dated status lines, a dropped rule; the page's words are the owner's and stay out of
+  this repo). The 0.3 bar quoted one line that the next page reworded with almost no words in common. PF1 quotes
+  nothing unaccounted at 0.15. Its true drops become quiet memories; on a real night the writer names them. Script:
+  `tools/set-down-diff.ts`.
 - **Past the cap, never silent.** Beyond `MAX_PER_WRITE` (12), the rest go into ONE quiet memory, "Set down from my
   page MM-DD: N more lines", with every line in full. **Told once:** the first wake that tells a night's set-downs
   writes the night's date to meta `self.set_down.told`, and no later wake tells that night's again.

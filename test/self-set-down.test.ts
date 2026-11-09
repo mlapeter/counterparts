@@ -110,18 +110,18 @@ describe("the sentence diff: reworded and folded are kept, the rest set down", (
     const after = BEFORE.replace("- Shape isn't a finishing step.\n", "");
     const gone = diffSetDowns(BEFORE, after).verdicts;
     expect(gone.map((v) => [v.outcome, v.why, isQuoted(v)])).toEqual([["unnamed", UNNAMED_WHY, true]]);
-    // A clause kept ("never game a review" → "never game one"): not quoted.
-    const clauseBefore = "## How I work\n\n- Never game a review; our claims meet the bar I hold rivals to.\n- I test first.";
-    const clauseAfter = "## How I work\n\n- A separate reviewer reads every change; never game one.\n- I test first.";
+    // A clause kept ("never skip the glaze test" → "never skip it"): not quoted.
+    const clauseBefore = "## How I work\n\n- Never skip the glaze test; the kiln log shows the cost each spring.\n- I fire slowly.";
+    const clauseAfter = "## How I work\n\n- A separate tile goes in every firing; never skip the glaze.\n- I fire slowly.";
     expect(diffSetDowns(clauseBefore, clauseAfter).verdicts.map((v) => [v.outcome, v.why, isQuoted(v)])).toEqual([["unsure", UNSURE_WHY, false]]);
     // An anchor kept: a word only this line carried, now elsewhere on the page.
-    const anchorBefore = "## Lately\n\n- He posts in r/AISelf; the welcome carried a note in my voice.\n- I test first.";
-    const anchorAfter = "## Lately\n\n- One post a day in r/AISelf, after approval.\n- I test first.";
+    const anchorBefore = "## Lately\n\n- Mira posts in the zqforum; the welcome carried a note in my voice.\n- I fire slowly.";
+    const anchorAfter = "## Lately\n\n- One post a day in the zqforum, after approval.\n- I fire slowly.";
     expect(diffSetDowns(anchorBefore, anchorAfter).verdicts.map((v) => v.outcome)).toEqual(["unsure"]);
-    // A root in a rewritten sentence ("Measurements over opinions." merged into "Measure …, with a control").
-    const rootBefore = "## How I work\n\n- Measure the current build first.\n- Measurements over opinions.";
-    const rootAfter = "## How I work\n\n- Measure the current build first, with a control.";
-    expect(diffSetDowns(rootBefore, rootAfter).verdicts.find((v) => v.line.startsWith("Measurements"))?.outcome).toBe("unsure");
+    // A root in a rewritten sentence ("Glazes over guesses." merged into "Glaze a test tile…, with a control").
+    const rootBefore = "## How I work\n\n- Glaze a test tile first.\n- Glazes over guesses.";
+    const rootAfter = "## How I work\n\n- Glaze a test tile first, with a control.";
+    expect(diffSetDowns(rootBefore, rootAfter).verdicts.find((v) => v.line.startsWith("Glazes"))?.outcome).toBe("unsure");
   });
 
   test("common page words are not a fold: a short rule whose words recur elsewhere on the page is still set down", () => {

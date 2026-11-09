@@ -305,17 +305,17 @@ export function diffSetDowns(before: string, after: string, named: readonly SetD
       continue;
     }
     const wide = bestRun(words, now, L.FOLD_WINDOW);
-    // A CLAUSE STILL THERE ("Never game a review; our claims meet the bar…"
-    // → "…never game one"): the line is not clearly gone, whatever its share.
+    // A CLAUSE STILL THERE ("Never skip the glaze test; the kiln log proves
+    // it" → "…never skip the test"): the line is not clearly gone, whatever its share.
     const clause = clauseKept(s.text, now);
     // AN ANCHOR STILL THERE: a word this line alone carried on the old page
-    // ("r/AISelf", "distribution") found anywhere on the new one says its
-    // point may live on, reworded or folded: not clearly gone.
+    // (a name, "zqkiln") found anywhere on the new one says its point may
+    // live on, reworded or folded: not clearly gone.
     const anchored = [...words].some((w) => w.length >= L.ANCHOR_MIN && (oldFreq.get(w) ?? 0) === 1 && nowWords.has(w));
     // A ROOT IN A REWRITTEN SENTENCE: one of its words' first `ANCHOR_MIN`+1
-    // letters in a new sentence this write changed ("Measurements over
-    // opinions." beside "Measure the current build, with a control…"): it may
-    // have been merged in. Not clearly gone.
+    // letters in a new sentence this write changed ("Glazes over guesses."
+    // beside "Glaze a test tile first, with a control…"): it may have been
+    // merged in. Not clearly gone.
     const rooted = [...words].some((w) => w.length > L.ANCHOR_MIN && changedRoots.has(w.slice(0, L.ANCHOR_MIN + 1)));
     verdicts.push(
       wide.share <= L.GONE_SHARE && clause === null && !anchored && !rooted
