@@ -24,8 +24,10 @@ on:
       - "package.json"
       - "bun.lock"
       - ".github/workflows/windows.yml"
+  # A release branch, not every merge to master: the PR already ran it (three
+  # Windows runners, about 15 runner-minutes).
   push:
-    branches: [master, "release/**"]
+    branches: ["release/**"]
   workflow_dispatch:
 
 permissions:

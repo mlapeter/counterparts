@@ -170,6 +170,16 @@ for (const kind of WIN ? ["powershell", "cmd", "bash"] : ["sh"]) {
   if (r.code === 0 && said === `counterparts ${version}`) ok(`${kind}: counterparts --version → ${said}`);
   else no(`${kind}: counterparts --version (exit ${r.code})`, `${r.out}\n${r.err}`);
 }
+if (WIN) {
+  // A Windows client's PowerShell is `Restricted` by default (a runner's isn't):
+  // it refuses every npm `.ps1`, npm's own included. `counterparts.cmd` is the
+  // way through, and QUICKSTART says so.
+  const restricted = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Restricted", "-Command", "counterparts.cmd --version"], { env, cwd: PROJECT, encoding: "utf8", windowsHide: true, timeout: 120_000 });
+  if (restricted.status === 0 && restricted.stdout.trim() === `counterparts ${version}`) ok("PowerShell under the Restricted policy: counterparts.cmd --version");
+  else no("PowerShell under the Restricted policy: counterparts.cmd --version", `${restricted.stdout}\n${restricted.stderr}`);
+  const bare = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Restricted", "-Command", "counterparts --version"], { env, cwd: PROJECT, encoding: "utf8", windowsHide: true, timeout: 120_000 });
+  note(`under Restricted, bare \`counterparts --version\` exits ${bare.status}${/disabled on this system/.test(bare.stderr) ? " (scripts are disabled: npm's .ps1 refused, as npm's own is)" : ""}`);
+}
 
 // ── 3. Claude Code, then install + connect ────────────────────────────────────
 {
@@ -345,6 +355,10 @@ function mcpRound(requests) {
   show(`counterparts doctor (exit ${r.code})`, `${r.out}${r.err}`);
   if (r.code === 0) ok("counterparts doctor exit 0");
   else no(`counterparts doctor (exit ${r.code})`);
+  // Connected means GREEN here: an AMBER says hooks in, server not registered.
+  const host = r.out.split(/\r?\n/).find((l) => /^\s*\w+\s+Claude Code\b/.test(l)) ?? "";
+  if (/^\s*GREEN\b/.test(host)) ok("doctor: Claude Code GREEN (hooks and the memory tools)");
+  else no("doctor: the Claude Code line is not green", host);
   const reds = r.out.split(/\r?\n/).filter((l) => /^\s*RED\b/.test(l));
   if (reds.length === 0) ok("doctor: nothing red");
   else no("doctor: red lines", reds.join("\n"));

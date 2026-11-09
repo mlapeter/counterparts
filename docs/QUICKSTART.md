@@ -38,6 +38,11 @@ Windows is new, and has few users yet: if something here goes wrong, tell us
 - Claude Code runs the hooks in Git Bash when Git for Windows is installed, and in PowerShell
   when it isn't. Both work. The hooks name `node` by name, so keep the Node you installed
   with on your PATH; run `counterparts connect` again after moving to another Node.
+- If PowerShell says running scripts is disabled on this system (Windows' default, and it
+  says the same for `npm`), type `counterparts.cmd` in place of `counterparts`, use cmd or
+  Git Bash, or allow scripts for your account once:
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. The hooks don't need this: they
+  start `node` itself.
 - npm makes `counterparts` work in PowerShell and cmd with a small step that runs after the
   install. If you install with `--ignore-scripts`, that step doesn't run, and the command
   works only from Git Bash: run `npm install -g counterparts@latest` again without it.
