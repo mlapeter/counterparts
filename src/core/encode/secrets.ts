@@ -53,6 +53,13 @@ export interface SecretPattern {
    * match its own family already made, never skip a family.
    */
   skip?: (value: string, match: string, name: string) => boolean;
+  /**
+   * For a family whose VALUE a regular expression cannot bound (SX1, a password
+   * in a sentence): `re` finds only the anchor, and this reads the text after it,
+   * returning the `[start, end)` to redact, or null for nothing. When present,
+   * `value` and `skip` are not used.
+   */
+  extent?: (m: RegExpExecArray, text: string) => [number, number] | null;
   /** Why this family exists — lineage where there is any. */
   why: string;
 }
@@ -187,104 +194,264 @@ const CREDENTIAL_VALUE = "(\"[^\"\\n]{4,}\"|'[^'\\n]{4,}'|[^\\s\"'\\n,;]{6,})";
 /**
  * A PASSWORD NAMED IN A SENTENCE (SX1, 2026-11-09). "my password is <value>",
  * "the wifi password's <value>", "pw for the router is <value>", "passcode <digits>":
- * none has a `:` or `=` after the name, so the catch-all above never saw them,
- * and a reviewer's sentence was kept word for word in the memory and the raw
+ * none has a `:` or `=` straight after the name, so the catch-all above never saw
+ * them, and a reviewer's sentence was kept word for word in the memory and the raw
  * buffer. This family takes the VALUE only and keeps the sentence ("my wifi
  * password is [REDACTED:password]"), so the memory still says a password exists.
  *
- * The name: password, passwd, passcode, passphrase, pass code, PIN (PIN code,
- * PIN number), pw, and a few other languages' words for password. NOT `pwd`,
- * which in prose is the working directory ("pwd is /home/…"); `pwd=` is the
- * catch-all's. NOT `pass` or `key` alone: both are ordinary English.
+ * Two halves. A regular expression finds the ANCHOR: a name, an optional short
+ * clause ("for the router", "I gave you"), and a connector. Then `proseValue`
+ * reads the text after it, in code, and decides how much of it is the value —
+ * one token, a quoted run, a run of capitalised words, or a passphrase to the end
+ * of its clause — or that it is a word of the sentence and nothing is taken.
+ * A regex cannot say "a lowercase word followed by more words is the sentence"
+ * clearly; code can. The fix round of #788 (an adversarial review: 26 of 53
+ * phrasings leaked, 28 of 97 ordinary sentences were cut) is why.
  *
- * Then, optionally, what it is for ("for the router", "to my laptop", "I use for
- * gmail"): a few words, bounded; then a connector: `is` / `was` (and es, est,
- * ist, war, é, era), the contraction `'s`, or a spaced dash; then the value.
- * `:` and `=` stay the catch-all's, which has the code guards. A bare value with
- * no verb ("pw <value>", "passcode <digits>") is taken only when it carries a digit:
- * "password reset flow" and "password field" have none.
+ * The costs are not symmetric: a missed password is stored (on a server, for a
+ * hosted person); a false positive costs one word of a sentence ABOUT passwords.
+ * Where the choice is between the two, this takes the word.
  *
- * The false-positive guard is `isProseWord`: an ordinary word after the verb
- * ("password is required / wrong / in 1Password / the one I gave you") is the
- * sentence, not a value. Every group is bounded (two O(n²) incidents above).
+ * Every group is bounded, and nothing crosses a line except a value that starts
+ * on the next line and looks like a secret (two O(n²) incidents above).
  */
 const PROSE_NAME =
-  "(password|passwd|passcode|pass[ -]?phrase|pass[ -]code|pin(?:[ -](?:code|number))?|pw|" +
+  "(password|passwd|pasword|passwrod|passowrd|passcode|pass[ -]?phrase|pass[ -]code|" +
+  // `pass:` only where a field starts (a line, or after `,` `;` `/` `|` `(`): "first pass: 74%" is prose.
+  // The lookbehind sits AFTER the word and is bounded: before it, it ran at every position of a
+  // long run of spaces (43 s at 200 KB, caught by the scaling check).
+  "pin(?:[ -](?:code|number))?|pw|pass(?<=(?:^|[\\n,;/|(])[ \\t]{0,8}pass)(?=[ \\t]*:)|" +
+  "(?:door|gate|garage|alarm|lock|safe|entry|access|building|keypad)[ -]code|wi-?fi[ -]key|" +
   "contraseña|contrasena|mot de passe|mdp|passwort|kennwort|senha)";
 const PROSE_BEFORE = "(?<![\\p{L}\\p{N}_])";
 const PROSE_AFTER = "(?![\\p{L}\\p{N}_])";
-const PROSE_WORD = "[^\\s.,;:!?\"'`“”‘’]{1,40}";
-/** "for the wifi", "to my laptop", "on the admin account": a preposition and up to three words. */
-const PROSE_FOR = `\\s+(?:for|to|on|of|at|in|with|from)\\s+(?:${PROSE_WORD}\\s+){0,2}${PROSE_WORD}`;
-/** "I use", "we set" (and then, optionally, "for gmail"). */
-const PROSE_WHO = `\\s+(?:i|we|you|they|he|she)\\s+(?:use|used|set|picked|chose|have|had|got)(?:${PROSE_FOR})?`;
-const PROSE_VERB = "(?:is|was|es|est|ist|war|é|era)";
+/** is / was, in five languages (and a typo), as a whole word. */
+const PROSE_VERB = "(?:is|iz|was|es|est|ist|war|é|era)(?![\\p{L}\\p{N}])";
+/** A word of the clause before the connector: never the connector itself. */
+const PROSE_WORD = `(?!${PROSE_VERB})[^\\s.,;:!?"'\`“”‘’]{1,40}`;
+/** "for the wifi", "to my laptop", "on the admin account": a preposition and up to three words, on one line. */
+const PROSE_FOR = `[ \\t]+(?:for|to|on|of|at|in|with|from)[ \\t]+(?:${PROSE_WORD}[ \\t]+){0,2}${PROSE_WORD}`;
+/** "I use", "we set", "I gave you" (and then, optionally, "for gmail"). */
+const PROSE_WHO =
+  "[ \\t]+(?:i|we|you|they|he|she)[ \\t]+" +
+  "(?:use|used|set|picked|chose|have|had|got|gave|sent|told|shared|made|created|mentioned|wrote)" +
+  `(?:[ \\t]+(?:you|me|him|her|them|us))?(?:${PROSE_FOR})?`;
+const PROSE_ADVERB = "(?:[ \\t]+(?:now|currently|still|just|actually|simply|literally|basically|probably|always)){0,3}";
+/** The connector, captured whole (group 2) so `proseValue` can tell which one it was. */
 const PROSE_CONNECTOR =
-  "(?:\\s*['’]s|\\s+" +
+  "(" +
+  // is / was, in five languages (and a typo), then "now", "set to", "the word"
+  "[ \\t]+" +
   PROSE_VERB +
-  "(?:\\s*:)?(?:\\s+(?:now|currently|still|just|actually|simply|literally))?(?:\\s+(?:set|changed|updated|reset)\\s+to)?" +
-  "|\\s+[-–—])\\s+";
-/** What cannot be inside an unquoted value. */
-const PROSE_STOPCHAR = "\\s\"'`“”";
-/** Sentence punctuation a value does not end with. */
-const PROSE_TRAIL = ".,;:?)\\]}";
-const PROSE_UNQUOTED =
-  `[^${PROSE_STOPCHAR}]{3,127}[^${PROSE_STOPCHAR}${PROSE_TRAIL}]` +
-  // The WHOLE token or nothing: a value longer than the bound is not cut in two.
-  `(?=[${PROSE_TRAIL}]*(?:[${PROSE_STOPCHAR}]|$))`;
-const PROSE_VALUE = `("[^"\\n]{4,128}"|“[^”\\n]{4,128}”|'[^'\\n]{4,128}'|\`[^\`\\n]{4,128}\`|${PROSE_UNQUOTED})`;
+  "(?:[ \\t]*:)?" +
+  PROSE_ADVERB +
+  "(?:[ \\t]+(?:set|changed|updated|reset)[ \\t]+to)?(?:[ \\t]+the[ \\t]+(?:word|phrase|string|number))?" +
+  // the contraction: "the wifi password's <value>"
+  "|[ \\t]*['’]s" +
+  // a colon after a short clause: "password for the router: <value>"
+  "|[ \\t]*:" +
+  // an arrow, a spaced dash, a question mark ("password? it's <value>")
+  "|[ \\t]*(?:->|=>|→)|[ \\t]+[-–—]|[ \\t]*\\?(?:[ \\t]+it(?:['’]s|[ \\t]+is))?" +
+  // "changed my password to <value>": `to`, only after a word that changes it
+  "|(?<=\\b(?:change|changed|changing|set|reset|update|updated|switched)\\b[^\\n.]{0,40})[ \\t]+to" +
+  // no verb at all: "pw <value>", "PIN <digits>" (the value must carry a digit)
+  "|(?=[ \\t]))" +
+  // then the gap before the value: on this line, or ONE line break
+  "([ \\t]*(?:\\r?\\n[ \\t]*)?)";
 
-/**
- * Ordinary words that follow "password is" in a sentence about passwords.
- * Four letters or more only (a value under four is never taken). Lowercase.
- */
-const PROSE_STOP = new Set(
+/** Ordinary grammar words: never a value, and never the start of a passphrase. Four letters or more. */
+const PROSE_GRAMMAR = new Set(
   (
-    // grammar
     "that this these those what which where when there here your their mine yours ours theirs " +
     "into onto from with without under inside behind about like than then also just only even " +
     "still again already never always often usually really quite very pretty kind sort none " +
     "some each every both either neither enough more most less least much many being been " +
-    "something nothing anything everything someone somewhere elsewhere another other " +
-    "because unless until since while after before above below later gone back " +
+    "something nothing anything everything someone somewhere elsewhere another other whatever " +
+    "because cause unless until since while after before above below later gone back same " +
     "four five seven eight nine three eleven twelve twenty thirty forty fifty sixty hundred " +
-    // what a password IS, in a sentence about one
-    "required mandatory optional needed necessary wrong incorrect correct right invalid valid " +
-    "empty blank missing null expired stale weak strong secure insecure safe unsafe good fine " +
-    "okay great bad simple easy hard long short complex random unique default temporary " +
-    "known unknown hidden visible case sensitive broken loose stuck ready available unavailable " +
-    "length strength hash complexity requirement requirements rule rules policy format field " +
-    "expiry expiration manager hint prompt entropy history characters chars value salt " +
-    "secret private public shared personal different same new old current " +
-    "problem issue thing part step reset change login sign " +
-    // a few other languages' wrong / right / empty / required / my
-    "falsch richtig leer erforderlich incorrecta incorrecto correcta correcto vacía vacia " +
-    "obligatoria requerida faux fausse vide obligatoire errada vazia obrigatória mein meine minha"
+    "mein meine minha"
   ).split(/\s+/),
 );
-/** An adjective, adverb or participle by its ending ("complicated", "expiring", "hashable"). */
-const PROSE_SUFFIX = /^\p{L}+(?:ly|ed|ing|able|ible|less|ful|ous)$/iu;
+/** What a password IS, in a sentence about one. Kept short on purpose: the shape rules below do most of it. */
+const PROSE_STOP = new Set(
+  (
+    "required mandatory optional needed necessary wrong incorrect correct right invalid valid " +
+    "empty blank missing null expired stale weak strong secure insecure safe unsafe good fine " +
+    "okay great bad simple easy hard long short complex random unique default temporary weird " +
+    "known unknown visible case sensitive loose stuck ready available unavailable plaintext cleartext " +
+    "lowercase uppercase length strength hash complexity requirement requirements rule rules policy " +
+    "format field expiry expiration manager hint prompt entropy history characters chars value salt " +
+    "secret private public personal different new old current problem issue thing part step reset " +
+    "change login sign see " +
+    "falsch richtig leer erforderlich incorrecta incorrecto correcta correcto vacía vacia " +
+    "obligatoria requerida faux fausse vide obligatoire errada vazia obrigatória"
+  ).split(/\s+/),
+);
+/** Irregular past participles: "the password is sent / written / kept / read …". */
+const PROSE_PARTICIPLE = new Set(
+  (
+    "sent written kept shown stolen given read known hidden taken made held told found lost broken " +
+    "chosen forgotten done seen bought paid built spent shot left meant drawn grown thrown worn torn " +
+    "sworn bound wound hung stuck struck spun split shut spread cast"
+  ).split(/\s+/),
+);
+/** The same, with a prefix: "overwritten", "rewritten", "unbroken". */
+const PROSE_PARTICIPLE_END = /^\p{L}{2,6}(?:written|stolen|given|shown|taken|chosen|broken|forgotten|hidden|known|made|done|sent|kept)$/iu;
+/** An adjective, adverb or participle by its ending ("complicated", "expiring", "numeric", "sensitive"). */
+const PROSE_SUFFIX = /^\p{L}+(?:ly|ed|ing|able|ible|less|ful|ous|ive|ic)$/iu;
+/** Algorithms and encodings: "the password is argon2id / SHA256 / UTF-8 / base64". */
+const PROSE_ALGO =
+  /^(?:md5|sha-?(?:1|2|3|224|256|384|512)|bcrypt|scrypt|argon2(?:id|i|d)?|pbkdf2|utf-?(?:8|16|32)|ascii|base(?:32|64)|aes-?\d*|rsa|hmac|2fa|mfa|otp|totp|hotp)$/i;
+/** Words a value may be followed by and still end its clause: "my password is <value> lol". */
+const PROSE_FILLER = new Set("lol haha lmao btw tho though now ok okay right i iirc fyi please thanks".split(" "));
+
+/** A participle, adjective or description: by list, by ending, or as the last part of a hyphenated word. */
+function describes(word: string): boolean {
+  const w = word.toLowerCase();
+  if (PROSE_STOP.has(w) || PROSE_PARTICIPLE.has(w) || PROSE_PARTICIPLE_END.test(w) || PROSE_SUFFIX.test(w) || PROSE_ALGO.test(w)) return true;
+  // "case-sensitive", "base64-encoded", "2FA-protected": the last part says what it is.
+  const last = /-(\p{L}+)$/u.exec(w)?.[1];
+  return last !== undefined && w.length > last.length + 1 && (PROSE_STOP.has(last) || PROSE_PARTICIPLE.has(last) || PROSE_SUFFIX.test(last));
+}
 
 /**
- * IS THIS A WORD OF THE SENTENCE RATHER THAN A PASSWORD? The prose family's
- * guard. A PIN is digits, four to twelve, or it is not one ("the pin is loose").
- * Otherwise a value is left when it is a null word, an ordinary word after the
- * verb (`PROSE_STOP`), a letters-only word with an adjective's or participle's
- * ending, a path or a URL, a placeholder (`$VAR`, `<password>`, `{pw}`, `%s`),
- * or has no letter or digit at all (`****`). The trade: a password that is
- * itself one of those words ("my password is fabulous") is kept.
+ * IS THIS TOKEN A WORD OF THE SENTENCE RATHER THAN A PASSWORD? A null word, a
+ * grammar word, a description (`describes`), an algorithm, a path or a URL, a
+ * placeholder (`$VAR`, `<password>`, `{pw}`, `%s`), or no letter or digit at
+ * all (`****`). The trade: a password that is itself one of those words ("my
+ * password is fabulous") is kept.
  */
-function isProseWord(value: string, _match: string, name: string): boolean {
-  const quoted = /^["'“`]/.test(value);
-  const v = (quoted ? value.slice(1, -1) : value).trim();
-  if (/^pin/i.test(name)) return !/^\d{4,12}$/.test(v);
-  const core = v.replace(/^[([{]+|[)\]}!]+$/g, "");
-  if (PLAIN_WORDS.test(core)) return true;
-  if (PROSE_STOP.has(core.toLowerCase())) return true;
-  if (PROSE_SUFFIX.test(core)) return true;
+function isProseWord(token: string): boolean {
+  const core = token.replace(/^[([{'"“‘]+|[)\]}!'"”’]+$/g, "");
+  if (core.length < 4) return true;
+  if (PLAIN_WORDS.test(core) || PROSE_GRAMMAR.has(core.toLowerCase())) return true;
+  if (describes(core)) return true;
   if (/^(?:~|\.{1,2})?[/]/.test(core) || core.includes("://")) return true;
   if (/^[$<{%]/.test(core)) return true;
   return !/[\p{L}\p{N}]/u.test(core);
+}
+
+/** Looks like a secret on its own: a digit, or a symbol among letters ("Ocelot!99", "Kx7#mPq2"). A path's `/` and `.` are not symbols here. */
+function secretShaped(token: string): boolean {
+  return /\d/.test(token) || (/\p{L}/u.test(token) && /[^\p{L}\p{N}\-_.'’/\\]/u.test(token));
+}
+
+/** Code, not a value: brackets, an assignment, a call, a dotted reference (`flags["x"]`, `f.color`, `passRecord(input)`). */
+function codeShaped(token: string): boolean {
+  return /[[\](){}<>=;]/.test(token) || /^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$.]*$/.test(token) || CODE_REFERENCE.test(token);
+}
+
+/** Markup and sentence punctuation around a token: `**none.**`, `(hunter2)`, `hunter2!!`. */
+const TOKEN_LEAD = /^[*_([{'"“‘`]+/u;
+const TOKEN_TRAIL = /[.,;:?!*_)\]}'"”’`]+$/u;
+
+const QUOTE_CLOSE: Record<string, string> = { '"': '"', "“": "”", "‘": "’", "'": "'", "`": "`" };
+/** Where a clause ends: sentence punctuation before a space, a spaced dash, a conjunction, a bracket. */
+const CLAUSE_END = /[.,;!?:](?=[\s"'”’)*_]|$)|[ \t]+(?:[-–—]|and|but|so|or|then|because)(?=[ \t])|[)\]]/u;
+/** The longest value read after a connector. */
+const PROSE_REACH = 160;
+const PROSE_QUOTE_REACH = 64;
+
+/**
+ * HOW MUCH AFTER THE CONNECTOR IS THE VALUE? `[start, end)` in `text`, or null:
+ * nothing is a password here and nothing is redacted or counted.
+ */
+function proseValue(text: string, start: number, name: string, connector: string, gap: string): [number, number] | null {
+  const kind = connector.trim().toLowerCase();
+  const lower = name.toLowerCase();
+  const crossLine = gap.includes("\n");
+  const bare = kind === "";
+  const wordConnector = bare || /^(?:is|iz|was|es|est|ist|war|é|era|['’]s)\b|^to$/u.test(kind) || /^[-–—]$/.test(kind);
+  if (wordConnector && !/[ \t]$/.test(connector + gap) && !crossLine) return null;
+  if (text.startsWith(REDACTION_MARK, start)) return null;
+  // Bounded BEFORE the newline search: an unbounded `indexOf` per anchor is quadratic on a long line.
+  const reach = text.slice(start, start + PROSE_REACH);
+  const nl = reach.indexOf("\n");
+  const line = nl < 0 ? reach : reach.slice(0, nl);
+  // A PIN or a door code is digits (a code may end in # or *). Not a passcode, which may be letters.
+  const digitsOnly = /^pin/.test(lower) || (/code$/.test(lower) && !/^pass/.test(lower));
+  // After a value on the NEXT line, a bare name, a dash, an arrow, a question or `pass:`,
+  // only a value that looks like a secret on its own.
+  const weak = crossLine || bare || /^(?:[-–—]|->|=>|→)$/.test(kind) || kind.startsWith("?") || lower === "pass";
+
+  // A QUOTED value: the quote has to close on this line, within reach, or nothing is taken.
+  const close = QUOTE_CLOSE[line[0] ?? ""];
+  if (close !== undefined) {
+    if (crossLine) return null;
+    const closeRe = close === "'" ? /'(?![\p{L}\p{N}])/u : new RegExp(close === "`" ? "`" : close);
+    const at = line.slice(1, PROSE_QUOTE_REACH + 1).search(closeRe);
+    if (at < 0) return null;
+    const inner = line.slice(1, at + 1).trim();
+    if (inner.length < 4 || inner.startsWith(REDACTION_MARK) || codeShaped(inner)) return null;
+    if (digitsOnly ? !/^\d{4,12}[#*]?$/.test(inner) : weak && !secretShaped(inner)) return null;
+    if (!/\s/.test(inner) && isProseWord(inner)) return null;
+    return [start, start + at + 2];
+  }
+
+  const endAt = line.search(CLAUSE_END);
+  const clause = (endAt < 0 ? line : line.slice(0, endAt)).replace(/[ \t]+$/, "");
+  const tokens = clause.split(/[ \t]+/).filter((t) => t.length > 0);
+  const raw = tokens[0];
+  if (raw === undefined) return null;
+  const lead = TOKEN_LEAD.exec(raw)?.[0].length ?? 0;
+  const first = raw.slice(lead).replace(TOKEN_TRAIL, "");
+  if (first.length < 4 || first.startsWith(REDACTION_MARK) || codeShaped(first)) return null;
+  const one: [number, number] = [start + lead, start + lead + first.length];
+
+  if (digitsOnly) {
+    if (!/^\d{4,12}[#*]?$/.test(first) || (/^pin/.test(lower) && /[#*]$/.test(first))) return null;
+    // A year with a noun after it is not a PIN: "PIN 2024 rollout".
+    const next = (tokens[1] ?? "").replace(TOKEN_TRAIL, "");
+    if (/^(?:19|20)\d\d$/.test(first) && /^\p{Ll}+$/u.test(next) && !/^(?:for|to|on|at|in|is|was|and|or)$/.test(next)) return null;
+    return one;
+  }
+  if (crossLine && tokens.length !== 1) return null;
+  if (bare && !/\d/.test(first)) return null;
+  if (weak && !secretShaped(first)) return null;
+
+  // A passphrase runs to the end of its clause, unless it starts as a sentence does.
+  if (/phrase$/.test(lower) && tokens.length > 1) {
+    const w = first.toLowerCase();
+    if (PROSE_GRAMMAR.has(w) || PLAIN_WORDS.test(w) || PROSE_PARTICIPLE.has(w) || /^\p{L}+(?:ed|ing|ly)$/u.test(w)) return null;
+    return [start + lead, start + clause.length];
+  }
+  // "is the word <value>": whatever comes next is the value, even an ordinary word.
+  if (/the[ \t]+(?:word|phrase|string|number)$/u.test(kind)) return one;
+  if (isProseWord(first)) return null;
+  // After a colon ("is:", "for the router:"), a short clause is the value whole.
+  if (kind.endsWith(":") && tokens.length > 1 && tokens.length <= 6) return [start + lead, start + clause.length];
+  // A run of Capitalised words: "Blue Skies Over Denver".
+  if (/^\p{Lu}/u.test(first) && tokens.length > 1 && /^\p{Lu}[\p{L}\p{N}]*$/u.test(tokens[1] ?? "")) {
+    let n = 1;
+    while (n < tokens.length && /^\p{Lu}[\p{L}\p{N}!#$%&*@]*$/u.test(tokens[n] ?? "")) n += 1;
+    const run = new RegExp(`^(?:\\S+[ \\t]+){${String(n - 1)}}\\S+`).exec(clause)?.[0] ?? raw;
+    return [start + lead, start + run.replace(TOKEN_TRAIL, "").length];
+  }
+  // A lowercase word with more of the clause after it is the sentence ("is sent over TLS").
+  if (/^\p{Ll}+$/u.test(first) && tokens.length > 1 && !PROSE_FILLER.has((tokens[1] ?? "").toLowerCase())) return null;
+  return one;
+}
+
+/** A password name anywhere on this line, within reach before or after `at`. */
+const NAME_NEARBY = /(?<![\p{L}\p{N}_])(?:password|passwd|pasword|passcode|passphrase|pin|pw)(?![\p{L}\p{N}_])/iu;
+function nameNear(text: string, from: number, to: number): boolean {
+  // A window of 80 either side, cut at the line breaks inside it (bounded, so linear).
+  const lo = Math.max(0, from - 80);
+  const before = text.slice(lo, from);
+  const after = text.slice(to, to + 80);
+  const b = before.lastIndexOf("\n");
+  const a = after.indexOf("\n");
+  const window = (b < 0 ? before : before.slice(b + 1)) + text.slice(from, to) + (a < 0 ? after : after.slice(0, a));
+  return NAME_NEARBY.test(window);
+}
+
+/** One secret-shaped token at `start`, on this line, or null. */
+function shapedToken(text: string, start: number): [number, number] | null {
+  if (text.startsWith(REDACTION_MARK, start)) return null;
+  const m = /^[^\s"'`“”]{4,64}/u.exec(text.slice(start, start + 65));
+  if (m === null) return null;
+  const token = m[0].replace(/[.,;:?)\]}]+$/, "");
+  return token.length >= 4 && secretShaped(token) && !isProseWord(token) ? [start, start + token.length] : null;
 }
 
 // The same lever exists one class later in `url-path-token`: an unbounded
@@ -569,45 +736,52 @@ export const SECRET_FAMILIES: readonly SecretPattern[] = [
     why: "A bare AUTH / BEARER environment variable.",
   },
   // A PASSWORD NAMED IN A SENTENCE (SX1). Last, so the catch-all keeps every
-  // `:` / `=` form with its code guards, and `NOT_A_PLACEHOLDER` keeps a value
-  // it already took from being counted twice. Case-insensitive and Unicode.
+  // `name:` / `name=` form with its code guards, and a value it already took is a
+  // placeholder here. Each pattern finds an ANCHOR; `extent` reads the value.
   {
     family: "password",
-    // 1. With a verb: "my password is <value>", "the wifi password's
-    //    <value>", "pw for the router is <value>", "Das Passwort ist <value>".
-    re: new RegExp(
-      PROSE_BEFORE +
-        PROSE_NAME +
-        PROSE_AFTER +
-        `(?:${PROSE_FOR}|${PROSE_WHO})?` +
-        PROSE_CONNECTOR +
-        NOT_A_PLACEHOLDER +
-        PROSE_VALUE,
-      "giu",
-    ),
-    value: 2,
+    // 1. The name, an optional clause, a connector: "my password is <value>", "the
+    //    wifi password's <value>", "pw for the router: <value>", "PIN <digits>".
+    re: new RegExp(PROSE_BEFORE + PROSE_NAME + PROSE_AFTER + `(?:${PROSE_FOR}|${PROSE_WHO})?` + PROSE_CONNECTOR, "giu"),
+    value: 0,
+    extent: (m, text) => proseValue(text, m.index + m[0].length, m[1] ?? "", m[2] ?? "", m[3] ?? ""),
     propagate: true,
-    skip: isProseWord,
-    why: "A password, passcode, passphrase or PIN named in a sentence, with is / was / 's.",
+    why: "A password, passcode, passphrase, PIN or door code named in a sentence.",
   },
   {
     family: "password",
-    // 2. With no verb: "pw <value>", "passcode <digits>", "PIN <digits>". Only a value
-    //    with a digit in it, so "password reset flow" and "password field" stay.
-    re: new RegExp(
-      PROSE_BEFORE +
-        PROSE_NAME +
-        PROSE_AFTER +
-        "\\s+" +
-        NOT_A_PLACEHOLDER +
-        `(?=[^${PROSE_STOPCHAR}]{0,127}\\d)` +
-        `(${PROSE_UNQUOTED})`,
-      "giu",
-    ),
-    value: 2,
+    // 2. "it's <value>" / "that was <value>" with a password named on the same line,
+    //    before or after ("password? it's <value>", "<value>, the password I mean").
+    //    Only a value that looks like a secret on its own.
+    re: /(?<![\p{L}\p{N}_])(?:it|that)(?:['’]s|[ \t]+(?:is|was))[ \t]+/giu,
+    value: 0,
+    extent: (m, text) => {
+      const r = shapedToken(text, m.index + m[0].length);
+      return r !== null && nameNear(text, m.index, r[1]) ? r : null;
+    },
     propagate: true,
-    skip: isProseWord,
-    why: "A password or PIN named in a sentence with no verb, when the value carries a digit.",
+    why: "A password said as 'it's …' beside its name.",
+  },
+  {
+    family: "password",
+    // 3. "set it to <value> when you reset the admin password".
+    re: /(?<![\p{L}\p{N}_])(?:set|change|changed|reset|update|updated)[ \t]+(?:it|this|that)[ \t]+to[ \t]+/giu,
+    value: 0,
+    extent: (m, text) => {
+      const r = shapedToken(text, m.index + m[0].length);
+      return r !== null && nameNear(text, m.index, r[1]) ? r : null;
+    },
+    propagate: true,
+    why: "A password set 'to …' with its name on the same line.",
+  },
+  {
+    family: "password",
+    // 4. The value first: "<value> is my password for everything".
+    re: /(?<![^\s"'(])[^\s"'`“”]{4,64}(?=[ \t]+(?:is|was)[ \t]+(?:my|our|the|your|his|her|their)[ \t]+(?:[\p{L}-]{1,20}[ \t]+){0,2}(?:password|passcode|passphrase|pin|pw)(?![\p{L}\p{N}_]))/giu,
+    value: 0,
+    extent: (m, text) => shapedToken(text, m.index),
+    propagate: true,
+    why: "A password said before its name.",
   },
 ];
 
@@ -630,6 +804,7 @@ function redactOne(
   // A fresh regex per call: a module-level /g regex carries `lastIndex` state,
   // and a shared mutable cursor across callers is a bug waiting for a Tuesday.
   const re = new RegExp(p.re.source, p.re.flags);
+  if (p.extent !== undefined) return redactByExtent(text, re, p, hit, captured);
   return text.replace(re, (...args: unknown[]): string => {
     const match = String(args[0] ?? "");
     const mark = `[REDACTED:${p.family}]`;
@@ -650,6 +825,36 @@ function redactOne(
     if (at < 0) return mark;
     return `${match.slice(0, at)}${mark}${match.slice(at + val.length)}`;
   });
+}
+
+/**
+ * The anchor-and-extent form: every anchor `re` finds, `p.extent` says what after
+ * it is the value. Ranges never overlap and never move backwards, and the scan
+ * resumes after a taken value, so the pass stays linear.
+ */
+function redactByExtent(
+  text: string,
+  re: RegExp,
+  p: SecretPattern,
+  hit: () => void,
+  captured?: (value: string) => void,
+): string {
+  const mark = `[REDACTED:${p.family}]`;
+  let out = "";
+  let from = 0;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m[0].length === 0) re.lastIndex += 1;
+    const range = p.extent?.(m, text) ?? null;
+    if (range === null) continue;
+    const [start, end] = range;
+    if (start < from || end <= start || end > text.length) continue;
+    hit();
+    captured?.(text.slice(start, end));
+    out += text.slice(from, start) + mark;
+    from = end;
+    if (re.lastIndex < end) re.lastIndex = end;
+  }
+  return from === 0 ? text : out + text.slice(from);
 }
 
 function unquote(value: string): string {
