@@ -3198,3 +3198,26 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   skill memory: mem_…". Lines past a write's cap don't move (rare; they stay in the one capped memory).
 - **Not built:** nominations and the head start reach day's end only; with the page split off the reflection writes
   the stories but its bundle has no nomination lane (split is on by default). No migration of today's practices.
+
+## 2026-11-09 — what waits on the owner: raised, backed off, parked (SO1 step 4, revised)
+- **What was true.** An `asked` open item was never parked (`carriesOpen`), so every one sat in Still open in every
+  wake of its folder (the 11-09 read: 99 of 290 live open were `asked`). A handoff WK3 sank had no end date: its only
+  trace was "N newer one(s) waiting on an answer, below" (coordinator, 11-09).
+- **Built.** `core/owner-waits.ts` and `owedOne` in the shaped wake. An `asked` item leaves Still open's lines; one
+  item that waits on the owner is said per wake, the most relevant to the folder's week first (content words of its
+  title and `settlesWhen` against the leading lead and a week of titles written there; then here before personal,
+  then oldest). A sunk handoff is a candidate (`handoffsTold` hands its sunk set out). Said in a delivered,
+  attended wake = raised: an `open.owner.raised` event whose dedup key (`<id>:<lived day>`) is the shared day latch,
+  and the chain in meta `wake.owner.raised` (written only by the latch's winner, at the item's version).
+- **The two rules collide at session start.** The brief's 3/7/14 backoff and "at most one session-start mention a
+  week" can't both bind at session start: a 3-day step is never reachable there under a weekly floor. The rule
+  taken: the next mention waits the larger of the step and the week, so the session-start sequence is 7, 7, 14,
+  then parked (day 28); the 3-day step is kept for a raise from another door (the recall lane, not built).
+- **The week is per item, not per store.** "At most one mention a week" is read per item, shared by every session
+  and folder; a wake says at most one item. Read store-wide it would take ~99 weeks to raise each item once, slower
+  than the one-a-day Mike called too slow. So with many items, each session start can carry a different one.
+- **Answered = revised.** A revision (the row's `revision`, a handoff's `version`) starts the chain; touches and
+  glimpses don't. An item that stops being `asked` or open leaves the candidates.
+- **Not built:** point 2's relevance lane in ambient recall (the per-turn raise, which the 3-day step is for),
+  point 4's true blockers (no blocker mark in the store), and a night-written context line (the mention is title,
+  `settlesWhen`, age, raises, id). Only the shaped wake carries the mention.

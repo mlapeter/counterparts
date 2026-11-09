@@ -303,6 +303,7 @@ import * as depositPart from "./counterpart-deposit.js";
 import * as projectsPart from "./counterpart-projects.js";
 import { reviseTold } from "./told.js";
 import type { ToldSurface } from "./told.js";
+import { ownerParked } from "./owner-waits.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -1689,7 +1690,8 @@ export class Counterpart {
   stillOpen(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { items: StillOpenItem[]; parked: number; comingUp: ComingUpItem[] } {
     let open: { items: StillOpenItem[]; parked: number };
     try {
-      open = this.self.stillOpen(this.store.livedDay(), here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom));
+      const day = this.store.livedDay();
+      open = this.self.stillOpen(day, here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom), ownerParked(this.store, day));
     } catch {
       open = { items: [], parked: 0 };
     }

@@ -698,6 +698,23 @@ export const WAKE_SHAPE_LIMITS = {
   SET_DOWN_SHOWN: 2,
   /** A set-down line in the wake: this many characters, then "…" (the line is whole behind the door). */
   SET_DOWN_LINE_CHARS: 140,
+  /**
+   * WAITING ON THE OWNER (SO1 step 4, revised; Mike 11-07, lightly held): the lived days to wait after each
+   * unanswered raise, in order: 3, then 7, then 14, then the item parks (still under recall "still open"). So
+   * three raises at most per version of the item; a revision starts the chain again. Unmeasured defaults.
+   */
+  OWNER_RAISE_STEPS: [3, 7, 14],
+  /**
+   * The session-start mention comes at most once a week per item, store-wide (every session, every folder),
+   * under the same backoff: the next mention waits the larger of the step and this. So at session start alone
+   * the steps read 7, 7, 14, then parked; the 3-day step is reachable only through a raise from another door
+   * (the relevance lane in recall, not built yet). Lived days.
+   */
+  OWNER_MENTION_EVERY: 7,
+  /** Raise chains kept in the record (`owner-waits.ts`): the oldest past this go, which only lets one be raised again. */
+  OWNER_RAISES_KEPT: 400,
+  /** How far back this folder's memories are read for what an owed item is ranked against (relevance, SO1 step 4): a week of work here. */
+  OWNER_CONTEXT_MS: 7 * 24 * 60 * 60_000,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,
