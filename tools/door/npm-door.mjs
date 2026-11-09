@@ -269,6 +269,15 @@ function runHook(event, kind, extra) {
     if (again !== null && again.out.trim().length > 0) ok("SessionStart in PowerShell returned a wake too");
     else if (again !== null) no("SessionStart in PowerShell returned nothing", again.err);
     if (again !== null) show("the PowerShell wake (a resume, so shorter)", again.out.slice(0, 1200));
+    // The form `connect` writes when `node` on PATH is another file and there is
+    // no Git Bash (`runtime.ts#windowsHookWord`): `& "<node path>" …`.
+    const line = hookCommand("SessionStart");
+    if (line !== undefined && /^node /.test(line)) {
+      const call = line.replace(/^node /, `& "${process.execPath.replace(/\\/g, "/")}" `);
+      const r = shell("powershell", call, { input: payload("SessionStart", { source: "resume" }), timeout: 60_000 });
+      if (r.code === 0 && r.out.trim().length > 0) ok('SessionStart as `& "<node path>" …` in PowerShell returned a wake');
+      else no(`SessionStart as & "<node path>" in PowerShell (exit ${r.code})`, `${call}\n${r.out}\n${r.err}`);
+    }
   }
   runHook("UserPromptSubmit", hookShell, { prompt: "what espresso machine do we have?" });
   runHook("Stop", hookShell, { stop_hook_active: false });
