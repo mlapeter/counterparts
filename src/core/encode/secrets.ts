@@ -326,6 +326,15 @@ const PROSE_PRODUCT =
   /^(?:1password|lastpass|keepass(?:xc)?|bitwarden|dashlane|nordpass|keeper|protonpass|enpass|roboform|okta|authy|vaultwarden)$/i;
 /** A measurement, a fraction or a version: "1200ms", "74%", "12/15", "v2.1". */
 const PROSE_MEASURE = /^(?:[+-]?\d+(?:[.,]\d+)?(?:ms|s|secs?|m|mins?|h|hrs?|d|kb|mb|gb|tb|k|x|px|%)|\d+\/\d+|v\d+(?:\.\d+)+)$/i;
+/**
+ * A Playwright version after a bare `pw` ("bumped PW 1.48.2", "PW 1.49 broke it"), a false
+ * positive from the 9,700-memory dry run. Bounded on purpose, because every number it admits
+ * is a numeric password that leaks: major `1` (Playwright has only ever been 1.x), a minor and
+ * patch of at most two digits with no leading zero, and only a named prerelease tag followed by
+ * digits ("1.49.0-beta.1"). Dates, IPs, PINs, "pw 9.99", "12.34.56", "3.141" and "1.0.0-hunter2"
+ * stay redacted; "pw 1.23.45" is the trade, and "PW 1.100.0" or "PW 2.0" would be redacted.
+ */
+const PW_VERSION = /^1\.(?:0|[1-9]\d?)(?:\.(?:0|[1-9]\d?)(?:-(?:alpha|beta|rc|next|canary|dev)[\d.-]*)?)?$/i;
 /** Words a value may be followed by and still end its clause: "my password is <value> lol". */
 const PROSE_FILLER = new Set("lol haha lmao btw tho though now ok okay right i iirc fyi please thanks".split(" "));
 
@@ -473,6 +482,9 @@ function proseValue(text: string, start: number, name: string, connector: string
   const lead = TOKEN_LEAD.exec(raw)?.[0].length ?? 0;
   const first = raw.slice(lead).replace(TOKEN_TRAIL, "");
   if (first.length < 4 || first.startsWith(REDACTION_MARK) || codeShaped(first)) return null;
+  // PW also means Playwright: only a bare, same-line `pw` gets the dotted-version
+  // exception. Keep explicit password statements and mixed digit/letter values redacted.
+  if (lower === "pw" && bare && !crossLine && skipped === 0 && PW_VERSION.test(first)) return null;
   const one: [number, number] = [vstart + lead, vstart + lead + first.length];
   const next = clean(tokens[1] ?? "");
 
