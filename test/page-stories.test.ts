@@ -218,6 +218,8 @@ describe("PS1: the page's stories, on an own-form store", () => {
     const order = shownOrder(writer);
     expect(order).toHaveLength(SELF_TUNABLES.DAYS_END_MEMORIES);
     expect(order[0]).toBe(nominated);
+    // The heading says how the dozen was picked, not "strongest".
+    expect(writer).toContain(`The ${String(SELF_TUNABLES.DAYS_END_MEMORIES)} picked (nominated first, then the strongest, a memory about me or us a little ahead) of the`);
     expect(writer).toContain(`- ${nominated} · ${NOMINATED_MARK} ${NOMINATED}`);
     expect(writer).toContain(NOMINATED_NOTE);
     expect(writer.indexOf(NOMINATED_NOTE)).toBeLessThan(writer.indexOf(`- ${nominated} · `));
@@ -248,6 +250,11 @@ describe("PS1: the page's stories, on an own-form store", () => {
       expect(c.store.readProse(row.id).body).toContain(`Moved to a skill memory: ${String(row.skill)}.`);
       // Nothing else moved: the stories and the practice about honesty stand.
       expect(c.self.page()?.body).toBe(WRITTEN);
+      // Through the door: a question about the work finds the skill.
+      const s = new McpServer({ counterpart: c, session: "s-next", scope: "/shop", registryDir: dir });
+      const r = await s.call("recall", { session: "s-next", question: "how do I check a new glaze with a test tile and a control?", mode: "facts" });
+      expect(r.isError ?? false).toBe(false);
+      expect(JSON.stringify(sc(r))).toContain(String(row.skill));
     } finally {
       c.close();
     }

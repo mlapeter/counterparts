@@ -1199,7 +1199,7 @@ export function writerInstruction(
     if (input.memories.some((m) => m.nominated === true)) lines.push(NOMINATED_NOTE);
     lines.push(
       input.daysEnd === true
-        ? `The ${String(input.memories.length)} strongest of the ${String(input.memories.length + input.dropped)} things written down on ${input.about}${input.omitted > 0 ? ` (${String(input.omitted)} more held back)` : ""}, each with its id to cite (the day's chapters tell the rest):`
+        ? `The ${String(input.memories.length)} ${pickedWords(input)} of the ${String(input.memories.length + input.dropped)} things written down on ${input.about}${input.omitted > 0 ? ` (${String(input.omitted)} more held back)` : ""}, each with its id to cite (the day's chapters tell the rest):`
         : `What was written down on ${input.about} (${String(input.memories.length)}${tail}), most salient first:`,
       // THE FRAMING SITS WITH THE UNTRUSTED MATERIAL, not only at the top of the
       // block (S2 review, MAJOR-2). The lines below are model- and user-authored
@@ -1261,6 +1261,18 @@ function journalLines(about: string, journal: WriterJournal): string[] {
     out.push(`- ${what}${how}: ${flattenLine(e.text)}`);
   }
   return out;
+}
+
+/**
+ * WHAT DAY'S END'S DOZEN IS, SAID TRUE (PS1): "strongest" while strength is
+ * the whole order; with a nomination leading or a me/us head start, the words
+ * say so. Pure.
+ */
+function pickedWords(input: Pick<WriterInput, "memories" | "pageForm">): string {
+  const nominated = input.memories.some((m) => m.nominated === true);
+  if (!nominated && input.pageForm !== "own") return "strongest";
+  const order = input.pageForm === "own" ? "the strongest, a memory about me or us a little ahead" : "the strongest";
+  return nominated ? `picked (nominated first, then ${order})` : `picked (${order})`;
 }
 
 /** The one sentence that stands between quoted memories and the reader. */
