@@ -717,6 +717,22 @@ export const WAKE_SHAPE_LIMITS = {
    * ("glaze") is a passing mention; two ("kiln shelf") name the subject. Unmeasured.
    */
   OWNER_TURN_SHARED: 2,
+  /**
+   * ...and those shared words weigh this much together, each at recall's own cue weight (IDF from the store's
+   * document frequency × the everyday factor), so a word most memories hold counts about nothing (round 3 of #796:
+   * two plain shared words fired on 8 of 42 real turns, 3 of them wrong).
+   */
+  OWNER_TURN_WEIGHT: 4,
+  /**
+   * A shared word counts only at this weight or more: about 1.5 is a word in under a tenth of the store's memories
+   * and not an everyday one. Set on the round-3 replay of 42 real turns (a copy of the owner's store): "step", "test",
+   * "still", "night" (1.1–1.7) were what the wrong matches shared; the right ones shared a rare subject word.
+   */
+  OWNER_TURN_WORD_FLOOR: 1.5,
+  /** A turn with fewer content words than this doesn't look ("goodnight" pays nothing). */
+  OWNER_TURN_MIN_WORDS: 3,
+  /** Folders whose owed-item list (with its weighed words) is cached in meta, per lived day; the oldest go. */
+  OWNER_ITEMS_KEPT: 8,
   /** Raise chains kept in the record (`owner-waits.ts`): the oldest past this go, which only lets one be raised again. */
   OWNER_RAISES_KEPT: 400,
   /** How far back this folder's memories are read for what an owed item is ranked against (relevance, SO1 step 4): a week of work here. */

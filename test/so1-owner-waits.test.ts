@@ -30,7 +30,7 @@ import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { OWNER_ITEMS_KEY, WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { OWNER_RAISED_EVENT, OWNER_RAISED_KEY, raiseRecord, waitState } from "../src/core/owner-waits.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { WAKE_SHAPE_LIMITS } from "../src/core/self/tunables.js";
@@ -352,9 +352,17 @@ describe("4. the order is by relevance to this folder's week", () => {
 
 describe("5. the relevance lane: a turn that touches it raises it", () => {
   const KILN = "Which kiln shelf wash to order? Wren to choose between the two suppliers.";
+  const ASK = "Waiting on Wren, ask when it fits";
+  /** Rarity needs a store to be rare in: forty everyday notes, so a word only the item holds weighs what it would on a lived store. */
+  const WORDS = ["garden", "kettle", "ladder", "window", "basket", "pencil", "blanket", "lantern", "bucket", "hammer", "teapot", "mirror", "candle", "saddle", "wagon", "button", "pillow", "carpet", "drawer", "shovel"];
+  const filled = (): ReturnType<typeof brain> => {
+    const b = brain();
+    for (let i = 0; i < 40; i++) note(b.c, `Moved the ${WORDS[i % WORDS.length] ?? ""} beside the ${WORDS[(i * 7 + 3) % WORDS.length] ?? ""} today.`, `Day note ${String(i)}`);
+    return b;
+  };
 
   test("touched: raised, marked, with what it needs and how long; not again that day; silent on day 2, raised on day 3", () => {
-    const w = brain();
+    const w = filled();
     const { c } = w;
     w.at(NOW - 2 * 24 * HOUR);
     const id = asked(c, KILN, "Kiln shelf wash: Wren to choose", { settlesWhen: "Wren picks a supplier" });
@@ -365,30 +373,30 @@ describe("5. the relevance lane: a turn that touches it raises it", () => {
     expect(ev.length).toBe(1);
     expect(JSON.parse(ev[0]?.payload ?? "{}")).toMatchObject({ via: "turn" });
     // Another session, the same lived day: the latch holds.
-    expect(prompt("Back at the kiln shelf: the wash is still flaking.")).not.toContain(id);
+    expect(prompt("Back at the kiln shelf: the wash is still flaking.")).not.toContain(ASK);
     // Day 2: inside the 3-day step. Day 3: raised again, saying so.
     liveOn(c, START + 2);
-    expect(prompt("The kiln shelf wash question again, before the glaze firing.")).not.toContain(id);
+    expect(prompt("The kiln shelf wash question again, before the glaze firing.")).not.toContain(ASK);
     liveOn(c, START + 3);
     expect(prompt("The kiln shelf wash question again, before the glaze firing.")).toContain(`raised 1 time before, unanswered [${id}]`);
     expect(raiseRecord(c.store)[id]?.days).toEqual([START, START + 3]);
   });
 
   test("a turn that doesn't touch it says nothing of it, and raises nothing", () => {
-    const { c } = brain();
+    const { c } = filled();
     const id = asked(c, KILN, "Kiln shelf wash: Wren to choose");
-    expect(prompt("Watered the tomatoes and tied up the beans along the fence.")).not.toContain(id);
-    expect(prompt("The kiln is cooling.")).not.toContain(id);
+    expect(prompt("Watered the tomatoes and tied up the beans along the fence.")).not.toContain(ASK);
+    expect(prompt("The kiln is cooling.")).not.toContain(ASK);
     expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
   });
 
   test("one backoff: a turn raise on day 0 holds the session-start mention back until the week; another folder's turn never raises it; nor an agent's", () => {
-    const { c } = brain();
+    const { c } = filled();
     const id = asked(c, KILN, "Kiln shelf wash: Wren to choose");
-    expect(prompt("The kiln shelf wash is flaking.", { cwd: THERE })).not.toContain(id);
-    expect(prompt("The kiln shelf wash is flaking.", { entrypoint: "sdk-cli" })).not.toContain(id);
+    expect(prompt("The kiln shelf wash is flaking.", { cwd: THERE })).not.toContain(ASK);
+    expect(prompt("The kiln shelf wash is flaking.", { entrypoint: "sdk-cli" })).not.toContain(ASK);
     expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
-    expect(prompt("The kiln shelf wash is flaking.")).toContain(`[${id}]`);
+    expect(prompt("The kiln shelf wash is flaking.")).toContain(`${ASK}: Kiln shelf wash: Wren to choose`);
     liveOn(c, START + 3);
     expect(hook()).not.toContain(id);
     liveOn(c, START + 7);
@@ -396,7 +404,7 @@ describe("5. the relevance lane: a turn that touches it raises it", () => {
   });
 
   test("a sunk handoff the turn touches comes up too", () => {
-    const w = brain();
+    const w = filled();
     const { c } = w;
     w.at(NOW - 60 * HOUR);
     c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
@@ -408,5 +416,61 @@ describe("5. the relevance lane: a turn that touches it raises it", () => {
     expect(raiseRecord(c.store)[gid]?.days).toEqual([START]);
     liveOn(c, START + 7);
     expect(prompt("Mixing a test batch of the spring glaze recipe today.")).toContain(`(a handoff) · raised 1 time before, unanswered [${gid}]`);
+  });
+});
+
+describe("6. rarity, not plain shared words (round 3 of #796)", () => {
+  const ASK = "Waiting on Wren, ask when it fits";
+  const WORDS = ["garden", "kettle", "ladder", "window", "basket", "pencil", "blanket", "lantern", "bucket", "hammer"];
+  /** Forty notes that all say "moved" and "today": two words most of this store holds. */
+  const filled = (): ReturnType<typeof brain> => {
+    const b = brain();
+    for (let i = 0; i < 40; i++) note(b.c, `Moved the ${WORDS[i % WORDS.length] ?? ""} today.`, `Day note ${String(i)}`);
+    return b;
+  };
+
+  test("two shared words that most memories hold weigh nothing; one rare word alone isn't enough", () => {
+    const { c } = filled();
+    asked(c, "The kiln was moved today; which shelf does Wren want it on?", "Kiln moved today: Wren to pick its shelf");
+    // "moved" and "today" are in every note: worth ~0, so they don't make two words.
+    expect(prompt("I moved the basket and the lantern today, the garden looks good.")).not.toContain(ASK);
+    // "kiln" alone is one word, however rare.
+    expect(prompt("The kiln took ages to cool down this evening, finally.")).not.toContain(ASK);
+    expect(prompt("Which shelf should the kiln go on, it's still on the floor?")).toContain(`${ASK}: Kiln moved today: Wren to pick its shelf`);
+  });
+
+  test("the folder's list is cached for the day, and a new asked item is seen on the next turn", () => {
+    const { c } = filled();
+    const S = sid(900);
+    expect(prompt("Which shelf should the kiln go on, it's still on the floor?", { session: S })).not.toContain(ASK);
+    expect(c.store.getMeta(OWNER_ITEMS_KEY)).toBeDefined();
+    asked(c, "The kiln was moved; which shelf does Wren want it on?", "Kiln shelf: Wren to pick");
+    expect(prompt("Which shelf should the kiln go on, it's still on the floor?", { session: S })).toContain(`${ASK}: Kiln shelf: Wren to pick`);
+  });
+
+  test("a turn of fewer than three content words doesn't look", () => {
+    const { c } = filled();
+    const id = asked(c, "Which kiln shelf wash to order? Wren to choose.", "Kiln shelf wash: Wren to choose");
+    expect(prompt("kiln shelf")).not.toContain(ASK);
+    expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
+  });
+
+  test("one subject, one chain: a sunk handoff naming an asked memory is that memory's, at the wake and in a turn", () => {
+    const w = filled();
+    const { c } = w;
+    w.at(NOW - 61 * HOUR);
+    const id = asked(c, "Which glaze should the spring batch use? Wren to pick.", "Spring glaze recipe: Wren to pick");
+    w.at(NOW - 60 * HOUR);
+    c.writeHandoff("SHELF: build the cooling rack once the stain dries.", { scope: HERE, session: OTHER });
+    w.at(NOW - 40 * HOUR);
+    const gid = c.writeHandoff(`GLAZE: waiting on Wren to pick the spring glaze [${id}].`, { scope: HERE, session: OWN }).id ?? "";
+    w.at(NOW);
+    for (let i = 0; i <= WAKE_SHAPE_LIMITS.LEAD_SHOWN_SINK; i++) hook();
+    // The handoff sank, but the memory stands for the subject: its chain, never the handoff's.
+    expect(raiseRecord(c.store)[gid]).toBeUndefined();
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START]);
+    liveOn(c, START + 7);
+    expect(prompt("Mixing a test batch of the spring glaze recipe today.")).toContain(`raised 1 time before, unanswered [${id}]`);
+    expect(raiseRecord(c.store)[gid]).toBeUndefined();
   });
 });

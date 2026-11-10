@@ -27,8 +27,12 @@
  * Meta and events only: no store-format change. Never throws: a chain that
  * won't read is an item never raised (it may be raised again), never one hidden.
  */
+import { everydayFactor, informativeness } from "./recall/cues.js";
+import { TUNABLES as RECALL_TUNABLES } from "./recall/tunables.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
+import { tokenize } from "./store/index.js";
 import type { Store } from "./store/index.js";
+import { stemTerm } from "./store/stem.js";
 
 /** The meta key holding each item's raise chain: `{ [id]: { version, days, kind, scope? } }`. */
 export const OWNER_RAISED_KEY = "wake.owner.raised";
@@ -146,4 +150,77 @@ export function noteRaised(
   } catch {
     return false;
   }
+}
+
+// ── what a turn touches (the relevance lane's match, round 3 of #796) ──────────
+
+/** One item's words, each by its index term with its weight: rarity × how un-everyday it is. */
+export type TermWeights = Readonly<Record<string, number>>;
+
+/** A text's index terms (`stem.ts#stemTerm`), each with the surface forms it came from, as recall's cue step reads a turn. */
+export function termsOf(text: string, minLength: number = RECALL_TUNABLES.MIN_CUE_LENGTH): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const tok of tokenize(text)) {
+    if (tok.length < minLength) continue;
+    const key = stemTerm(tok);
+    const forms = out.get(key);
+    if (forms === undefined) out.set(key, [tok]);
+    else if (!forms.includes(tok)) forms.push(tok);
+  }
+  return out;
+}
+
+/**
+ * WEIGH ITEMS' WORDS AS RECALL WEIGHS A CUE: the store's document frequency
+ * (`informativeness`, the IDF recall's `cue` step reads, so a word in most
+ * memories is worth about nothing and no stoplist is needed), scaled by the
+ * embedder's everyday factor (`everydayFactor`; 1 with no table). ONE
+ * `docFrequency` read for every text's words together. Never throws:
+ * unreadable is {} for each.
+ */
+export function weighMany(store: Pick<Store, "docFrequency" | "countMemories" | "wordNorm">, texts: readonly string[], size?: number): TermWeights[] {
+  try {
+    const each = texts.map((t) => termsOf(t));
+    const keys = new Set<string>();
+    for (const terms of each) for (const forms of terms.values()) keys.add(forms.join(" "));
+    if (keys.size === 0) return texts.map(() => ({}));
+    const n = size ?? store.countMemories({ archived: false });
+    const df = store.docFrequency([...keys]);
+    const norm = new Map<string, number>();
+    return each.map((terms) => {
+      const out: Record<string, number> = {};
+      for (const [key, forms] of terms) {
+        const surface = forms[0] ?? key;
+        if (!norm.has(surface)) norm.set(surface, everydayFactor(store.wordNorm(surface), RECALL_TUNABLES));
+        const w = informativeness(df.get(forms.join(" ")) ?? 0, n) * (norm.get(surface) ?? 1);
+        if (w > 0) out[key] = w;
+      }
+      return out;
+    });
+  } catch {
+    return texts.map(() => ({}));
+  }
+}
+
+/** One text's weighed words (`weighMany` of one). */
+export function weighTerms(store: Pick<Store, "docFrequency" | "countMemories" | "wordNorm">, text: string, size?: number): TermWeights {
+  return weighMany(store, [text], size)[0] ?? {};
+}
+
+/** What a turn's terms share with an item's: how many words at or over `OWNER_TURN_WORD_FLOOR`, and their summed weight; the `aside` terms (the owner's name) count for nothing. */
+export function sharedWeight(item: TermWeights, turn: ReadonlySet<string>, aside: ReadonlySet<string> = new Set()): { n: number; sum: number } {
+  let n = 0;
+  let sum = 0;
+  for (const [k, w] of Object.entries(item)) {
+    // A word below the floor is one most memories hold: it counts for nothing, not even towards `n`.
+    if (aside.has(k) || !turn.has(k) || w < SHAPE.OWNER_TURN_WORD_FLOOR) continue;
+    n += 1;
+    sum += w;
+  }
+  return { n, sum };
+}
+
+/** A turn touches an item: at least `OWNER_TURN_SHARED` shared words, together weighing `OWNER_TURN_WEIGHT`. */
+export function touches(s: { n: number; sum: number }): boolean {
+  return s.n >= SHAPE.OWNER_TURN_SHARED && s.sum >= SHAPE.OWNER_TURN_WEIGHT;
 }

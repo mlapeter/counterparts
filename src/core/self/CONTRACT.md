@@ -867,10 +867,12 @@ written there in `OWNER_CONTEXT_MS`); then this folder's before a personal one, 
 (a week) after the last raise, so here the steps read 7, 7, 14. After the last step it parks: out of
 the wake, listed parked by `recall "still open"` and counted in the wake's "N parked". A revision
 (`revision`, a handoff's `version`) starts the chain again. **[M]** The relevance lane: on a turn
-a person started, an item the turn touches (`OWNER_TURN_SHARED` of its content words), in its own
+a person started, an item the turn touches (two shared words each over `OWNER_TURN_WORD_FLOOR`, together
+`OWNER_TURN_WEIGHT`, at recall's cue weight; a turn under `OWNER_TURN_MIN_WORDS` content words doesn't look), in its own
 project or personal, comes up as one line after the recall block, "Waiting on <owner>, ask when it
 fits: <title> · needs: <settlesWhen> · waiting <age> [id]", under the same record, latch and steps
-without the week floor. **[M]** A sunk handoff said as the wake's ask is not also its pointer line.
+without the week floor. **[M]** A sunk handoff said as the wake's ask is not also its pointer line; one
+that names an `asked` memory here, or touches its words, is that memory's subject and raise chain.
 Not built: true blockers raised until answered (point 4: deferred 11-09, no blocker mark exists). No store-format change.
 
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form

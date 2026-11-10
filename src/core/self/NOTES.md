@@ -3221,12 +3221,29 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **The relevance lane (point 2, same PR after the coordinator's review).** `owedForTurn`, called from
   `Counterpart#recallForTurn` on a turn a person started (`attended`, set by `Lifecycle#recallTurn` for
   `startedBy: "person"`): an `asked` item Still open would carry here (not dated) or a sunk handoff here, whose words
-  the turn takes in `OWNER_TURN_SHARED` of (the owner's name aside), comes up as one line after the recall block,
+  the turn takes in enough of (round 3, below), comes up as one line after the recall block,
   "Waiting on <owner>, ask when it fits: <title> · needs: <settlesWhen> · waiting <age> [id]". Its bytes come out of
   recall's room first; it is shown only when this turn wrote the day latch. ONE record, latch and backoff with the
   wake's mention: the turn uses the steps without the week floor, so the 3-day step is real now (a turn raise on day
   0 can be followed by one on day 3; the session-start mention still waits a week). Its time is the `owed` step on
-  `recall.decision`: p50 ~3.3 ms on an invented 400-open, 134-asked store.
+  `recall.decision`.
+- **Round 3 of #796 (a reviewer's 42 real turns on a copy of the owner's store).** Two plain shared words fired on 8
+  of 42 turns: 3 right, 2 weak, 3 wrong (a turn about writing a brief raised an unrelated account question). Now a shared word counts only at
+  recall's own cue weight (`informativeness` over the store's document frequency × `everydayFactor`; no stoplist),
+  at least `OWNER_TURN_WORD_FLOOR` (1.5) each, two of them, together `OWNER_TURN_WEIGHT` (4). Replayed: 4 of the 42
+  fire (3 items), and of the reviewer's 8 only the two with a rare subject word stay.
+  **The dream-queue turn ("night" 1.3 + "dream" 1.7) no longer fires**: lexically it weighs less than the wrong
+  "step" + "brief" match (3.7), so no threshold keeps one and drops the other. On 20 fresh turns written for the
+  replay: 9 fire, each on its subject, none off-topic (the set was written knowing the items, so it flatters).
+- **One subject, one chain.** A sunk handoff whose lead names an `asked` memory here, or whose first sentence touches
+  one's words as a turn would, is that memory's: never a candidate of its own, at the wake or in a turn (the reviewer
+  saw a memory raised one day and its handoff the next). A handoff is matched on its lead's first sentence and the
+  titles of the memories its lead names, not its whole lead.
+- **Latency.** The build (open `asked` rows, their place, `settlesWhen`, one `docFrequency` read for every item's
+  words, WK3's sunk handoffs) is cached per folder per lived day in meta `wake.owner.items`, keyed by a fingerprint of
+  the `asked` rows' ids and revisions, the folder's handoffs' versions and WK3's lead record. A turn with fewer than
+  `OWNER_TURN_MIN_WORDS` (3) content words doesn't look. Through the hook on the copy: ~3.2 ms p50 on a cached turn,
+  ~45 ms on a build (200 ms on a cold page cache); the reviewer measured 17–23 ms on every turn before.
 - **Shown once.** A sunk handoff said as the wake's ask is not also its pointer line in "Where this folder stands".
 - **Not built:** a night-written context line (the mention is title, `settlesWhen`, age, raises, id).
 - **Lived days, not calendar days.** The latch and the steps count `livedDay`, which the first turn-end of a calendar

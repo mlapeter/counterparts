@@ -70,7 +70,9 @@ import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake
 import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, contentWords, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
 import type { PreparedPage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
-import { noteRaised, ownerParked, raiseRecord, raisesAt, waitState } from "./owner-waits.js";
+import { noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
+import type { TermWeights } from "./owner-waits.js";
+import { hashText } from "./store/prose.js";
 
 /** The meta key that sets the shape for one store (`self/tunables.ts#WAKE_SHAPE_KEY`, where a new install's state can read it too). */
 export { WAKE_SHAPE_KEY } from "./self/tunables.js";
@@ -523,7 +525,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
             day,
             now,
             rows: openRows.filter((x) => x.r?.status === "asked" && !cueIds.has(x.i.id)).map((x) => ({ id: x.i.id, row: x.r as MemoryRow, settles: x.i.settlesWhen ?? null, at: x.at, here: x.here })),
-            handoffs: hs.filter((h, i) => i > 0 && sunkIds.has(h.id)),
+            handoffs: joinless(
+              cp,
+              hs.filter((h, i) => i > 0 && sunkIds.has(h.id)),
+              openRows.filter((x) => x.r?.status === "asked").map((x) => ({ id: x.i.id, text: `${x.r === undefined ? x.i.title : titleOfRow(x.r)} ${x.i.settlesWhen ?? ""}` })),
+            ),
             lead: lead5,
             folders: hereFolders,
           }),
@@ -1220,81 +1226,197 @@ function owedOne(
   return owed;
 }
 
+/** The meta key caching each folder's owed items for the turn lane, per lived day (round 3 of #796): `{ [folder]: { day, fp, at, items } }`. */
+export const OWNER_ITEMS_KEY = "wake.owner.items";
+
+/** One item waiting on the owner, as the turn lane matches it: its line's parts and its weighed words. */
+export interface OwedItem {
+  readonly id: string;
+  readonly version: number;
+  readonly kind: "memory" | "handoff";
+  readonly scope: string | null;
+  readonly title: string;
+  readonly needs: string | null;
+  readonly at: number;
+  readonly terms: TermWeights;
+}
+
+/** The owner's name and "owner", as index terms: a word every such item says, so it counts for nothing. */
+function ownerAside(cp: Counterpart): { who: string; aside: ReadonlySet<string> } {
+  let owner: string | null = null;
+  try {
+    owner = cp.ownerDisplayName();
+  } catch {
+    owner = null;
+  }
+  const who = owner !== null && owner.trim().length > 0 ? owner.trim() : "the owner";
+  return { who, aside: new Set(termsOf(`${who} owner`, SHAPE.WORD_MIN).keys()) };
+}
+
 /**
- * THE RELEVANCE LANE (SO1 step 4, revised, point 2; coordinator 11-09): what
- * waits on the owner comes up when the turn touches its subject, in its own
- * project, with its context. Candidates: open memories marked `asked` that
- * this folder's Still open would carry (here, joined, or personal; not dated,
- * whose home is Coming up) and this folder's handoffs WK3 sank. Touched: the
- * turn's content words take in `OWNER_TURN_SHARED` of the item's (the owner's
- * name aside). Due by the SAME backoff and record as the wake's mention
- * (`owner-waits.ts`), without the wake's weekly floor: 3, 7, 14 lived days,
- * then parked, and once per lived day store-wide. The most words first, then
- * the oldest. One line, or null. The caller shows it and records the raise.
- * Reads only; never throws.
+ * ONE SUBJECT, ONE CHAIN (round 3 of #796: a memory raised on one day and the
+ * handoff about it the next). A sunk handoff whose lead names an `asked`
+ * memory among `mems`, or whose first sentence touches one's words as a turn
+ * would (`touches`), is that memory's: not a candidate of its own, so the
+ * memory's raise chain is the subject's. Pure but for the weighing.
+ */
+function handoffJoins(h: Handoff, first: TermWeights, mems: readonly { readonly id: string; readonly terms: TermWeights }[], aside: ReadonlySet<string>): boolean {
+  const named = new Set(leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ").match(MEMORY_ID) ?? []);
+  if (mems.some((m) => named.has(m.id))) return true;
+  const words = new Set(Object.keys(first));
+  return mems.some((m) => touches(sharedWeight(m.terms, words, aside)));
+}
+
+/** The sunk handoffs that are no `asked` memory's subject (`handoffJoins`): the wake's candidates of their own. */
+function joinless(cp: Counterpart, hs: readonly Handoff[], mems: readonly { readonly id: string; readonly text: string }[]): Handoff[] {
+  if (hs.length === 0 || mems.length === 0) return [...hs];
+  const size = cp.store.countMemories({ archived: false });
+  const { aside } = ownerAside(cp);
+  const terms = weighMany(cp.store, [...mems.map((m) => m.text), ...hs.map((h) => firstRealSentence(h.body))], size);
+  const weighed = mems.map((m, i) => ({ id: m.id, terms: terms[i] ?? {} }));
+  return hs.filter((h, i) => !handoffJoins(h, terms[mems.length + i] ?? {}, weighed, aside));
+}
+
+/**
+ * THE ITEMS WAITING ON THE OWNER HERE, WEIGHED (SO1 step 4, the turn lane):
+ * open memories marked `asked` that this folder's Still open would carry (its
+ * own, a joined folder's, or personal; not dated, whose home is Coming up),
+ * each by its title and what settles it; and this folder's handoffs WK3 sank,
+ * each by its lead's first sentence and the titles of the memories its lead
+ * names, unless it joins an `asked` memory's chain (`handoffJoins`). Reads only.
+ */
+export function owedItems(cp: Counterpart, scope: string, exportsFrom?: (scope: string) => boolean): OwedItem[] {
+  const store = cp.store;
+  const now: number = cp["nowFn"]();
+  const reader = cp["threadReader"](scope, exportsFrom);
+  const folders = new Set(reader.folders.map(projectFolder).filter((f) => f.length > 0));
+  const rule = { craftTravels: cp.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(store) };
+  const size = store.countMemories({ archived: false });
+  const { aside } = ownerAside(cp);
+  const asked = store.askedOpenStamps().map((r) => r.id);
+  const found: (Omit<OwedItem, "terms"> & { readonly text: string })[] = [];
+  for (const f of asked.length === 0 ? [] : store.openThreadTouches({ at: store.today(), ids: asked })) {
+    if (!f.asked || f.dated) continue;
+    const r = store.row(f.id);
+    if (r === undefined || r.status !== "asked" || r.superseded_by !== null) continue;
+    if (threadPlace({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false }, folders, rule) === "out") continue;
+    let needs: string | null = null;
+    try {
+      needs = settlesWhenOf(store.readProse(f.id).meta);
+    } catch {
+      needs = null;
+    }
+    const title = titleOfRow(r);
+    found.push({ id: f.id, version: r.revision, kind: "memory", scope: r.origin_scope ?? null, title, needs, at: r.created_at ?? now, text: `${title} ${needs ?? ""}` });
+  }
+  const sunk = new Set<string>();
+  const hs = handoffsTold(cp, cp.handoffs.readAll(scope), [...folders], now, null, sunk).slice(1).filter((h) => sunk.has(h.id));
+  // A handoff by its lead's first sentence and the titles of the memories its lead names.
+  const handText = (h: Handoff): string => {
+    const named = leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ").match(MEMORY_ID) ?? [];
+    return [firstRealSentence(h.body), ...named.flatMap((id) => {
+      const r = store.row(id);
+      return r === undefined ? [] : [titleOfRow(r)];
+    })].join(" ");
+  };
+  // One document-frequency read for every item's words, and each handoff's first sentence.
+  const weights = weighMany(store, [...found.map((x) => x.text), ...hs.map((h) => firstRealSentence(h.body)), ...hs.map(handText)], size);
+  const items: OwedItem[] = found.map(({ text: _t, ...x }, i) => ({ ...x, terms: weights[i] ?? {} }));
+  const mems = [...items];
+  hs.forEach((h, i) => {
+    if (handoffJoins(h, weights[found.length + i] ?? {}, mems, aside)) return;
+    items.push({
+      id: h.id,
+      version: h.version,
+      kind: "handoff",
+      scope: h.scope,
+      title: titleOfRow({ title: null, body: h.body }),
+      needs: null,
+      at: cp.handoffs.writtenAt(h) ?? startOfLocalDay(h.writtenOn, store.zone()),
+      terms: weights[found.length + hs.length + i] ?? {},
+    });
+  });
+  return items;
+}
+
+type ItemsCache = Record<string, { readonly day: number; readonly fp: string; readonly at: number; readonly items: readonly OwedItem[] }>;
+
+/**
+ * `owedItems`, CACHED PER FOLDER PER LIVED DAY (round 3 of #796: the build
+ * cost 17–23 ms a turn on a real store). Kept in meta under the folder (every
+ * session there reads the same list, so asked per session it would only be
+ * built more often), with a
+ * fingerprint of what would change the list: the `asked` open items' ids and
+ * revisions, this folder's handoffs' ids and versions, and WK3's lead record
+ * (what sinks one). A write that changes any of those, or a new lived day,
+ * builds it again. The cache never decides: only how often the list is read.
+ */
+function owedItemsCached(cp: Counterpart, scope: string, exportsFrom?: (scope: string) => boolean): OwedItem[] {
+  const store = cp.store;
+  const day = store.livedDay();
+  const fp = hashText(JSON.stringify([scope, store.askedOpenStamps(), cp.handoffs.readAll(scope).map((h) => [h.id, h.version]), store.getMeta(HANDOFF_LED_KEY) ?? ""]));
+  let was: ItemsCache = {};
+  try {
+    const v = JSON.parse(store.getMeta(OWNER_ITEMS_KEY) ?? "{}") as unknown;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) was = v as ItemsCache;
+  } catch {
+    was = {};
+  }
+  const hit = was[scope];
+  if (hit !== undefined && hit.day === day && hit.fp === fp && Array.isArray(hit.items)) return [...hit.items];
+  const items = owedItems(cp, scope, exportsFrom);
+  if (!cp.observer) {
+    try {
+      const { [scope]: _old, ...rest } = was;
+      const kept = Object.entries(rest)
+        .sort((a, b) => (a[1].at ?? 0) - (b[1].at ?? 0))
+        .slice(-(SHAPE.OWNER_ITEMS_KEPT - 1));
+      store.setMeta(OWNER_ITEMS_KEY, JSON.stringify(Object.fromEntries([...kept, [scope, { day, fp, at: cp["nowFn"](), items }]])));
+    } catch {
+      /* uncached: the next turn builds it again */
+    }
+  }
+  return items;
+}
+
+/**
+ * THE RELEVANCE LANE (SO1 step 4, revised, point 2; coordinator 11-09, round 3
+ * of #796): what waits on the owner comes up when the turn touches its
+ * subject, in its own project, with its context. A turn with fewer than
+ * `OWNER_TURN_MIN_WORDS` content words doesn't look. Touched: at least
+ * `OWNER_TURN_SHARED` of the item's words in the turn, weighing together
+ * `OWNER_TURN_WEIGHT` at recall's cue weight (`owner-waits.ts#touches`); the
+ * owner's name counts for nothing. Due by the SAME backoff and record as the
+ * wake's mention (`owner-waits.ts`), without the wake's weekly floor: 3, 7, 14
+ * lived days, then parked, once per lived day store-wide. The heaviest match
+ * first, then the oldest. One line, or null. The caller shows it and records
+ * the raise. Never throws.
  */
 export function owedForTurn(
   cp: Counterpart,
   o: { readonly text: string; readonly scope: string; readonly exportsFrom?: (scope: string) => boolean },
 ): { line: string; item: { id: string; version: number; kind: "memory" | "handoff"; scope: string | null } } | null {
   try {
+    if (contentWords(o.text).size < SHAPE.OWNER_TURN_MIN_WORDS) return null;
+    const items = owedItemsCached(cp, o.scope, o.exportsFrom);
+    if (items.length === 0) return null;
     const store = cp.store;
     const day = store.livedDay();
     const now: number = cp["nowFn"]();
     const record = raiseRecord(store);
-    const due = (id: string, version: number): { raised: number } | null => {
-      const st = waitState(raisesAt(record, id, version), day, SHAPE.OWNER_RAISE_STEPS, 0);
-      return st.kind === "due" ? { raised: st.raised } : null;
-    };
-    let owner: string | null = null;
-    try {
-      owner = cp.ownerDisplayName();
-    } catch {
-      owner = null;
-    }
-    const who = owner !== null && owner.trim().length > 0 ? owner.trim() : "the owner";
-    const aside = contentWords(`${who} the owner`);
-    const turn = contentWords(o.text);
-    const shared = (words: ReadonlySet<string>): number => [...words].filter((w) => !aside.has(w) && turn.has(w)).length;
-    type Hit = { id: string; version: number; kind: "memory" | "handoff"; scope: string | null; title: string; needs: string | null; at: number; raised: number; n: number };
-    const hits: Hit[] = [];
-    const reader = cp["threadReader"](o.scope, o.exportsFrom);
-    const folders = new Set(reader.folders.map(projectFolder).filter((f) => f.length > 0));
-    const rule = { craftTravels: cp.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(store) };
-    for (const f of store.openThreadTouches({ at: store.today() })) {
-      if (!f.asked || f.dated) continue;
-      const r = store.row(f.id);
-      if (r === undefined || r.status !== "asked" || r.archived !== 0 || r.superseded_by !== null) continue;
-      if (threadPlace({ about: r.about ?? null, kind: r.kind as Kind, originScope: r.origin_scope ?? null, journal: false }, folders, rule) === "out") continue;
-      const d = due(f.id, r.revision);
-      if (d === null) continue;
-      let needs: string | null = null;
-      try {
-        needs = settlesWhenOf(store.readProse(f.id).meta);
-      } catch {
-        needs = null;
-      }
-      const title = titleOfRow(r);
-      const n = shared(contentWords(`${title} ${needs ?? ""}`));
-      if (n < SHAPE.OWNER_TURN_SHARED) continue;
-      hits.push({ id: f.id, version: r.revision, kind: "memory", scope: r.origin_scope ?? null, title, needs, at: r.created_at ?? now, raised: d.raised, n });
-    }
-    const sunk = new Set<string>();
-    const hs = handoffsTold(cp, cp.handoffs.readAll(o.scope), [...folders], now, null, sunk);
-    for (const h of hs.slice(1)) {
-      if (!sunk.has(h.id)) continue;
-      const d = due(h.id, h.version);
-      if (d === null) continue;
-      const n = shared(contentWords(leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ")));
-      if (n < SHAPE.OWNER_TURN_SHARED) continue;
-      hits.push({ id: h.id, version: h.version, kind: "handoff", scope: h.scope, title: titleOfRow({ title: null, body: h.body }), needs: null, at: cp.handoffs.writtenAt(h) ?? startOfLocalDay(h.writtenOn, store.zone()), raised: d.raised, n });
-    }
-    const top = hits.sort((a, b) => b.n - a.n || a.at - b.at || (a.id < b.id ? -1 : 1))[0];
+    const { who, aside } = ownerAside(cp);
+    const turn = new Set(termsOf(o.text).keys());
+    const hits = items
+      .map((i) => ({ i, s: sharedWeight(i.terms, turn, aside), st: waitState(raisesAt(record, i.id, i.version), day, SHAPE.OWNER_RAISE_STEPS, 0) }))
+      .filter((x) => x.st.kind === "due" && touches(x.s))
+      .sort((a, b) => b.s.sum - a.s.sum || a.i.at - b.i.at || (a.i.id < b.i.id ? -1 : 1));
+    const top = hits[0];
     if (top === undefined) return null;
-    const needs = top.needs === null ? "" : ` · needs: ${flatten(top.needs)}`;
-    const raised = top.raised === 0 ? "" : ` · raised ${plural(top.raised, "time")} before, unanswered`;
-    const line = `Waiting on ${who}, ask when it fits: ${top.title}${needs} · waiting ${ageWords(top.at, now)}${top.kind === "handoff" ? " (a handoff)" : ""}${raised} [${top.id}]`;
-    return { line, item: { id: top.id, version: top.version, kind: top.kind, scope: top.scope } };
+    const { i } = top;
+    const needs = i.needs === null ? "" : ` · needs: ${flatten(i.needs)}`;
+    const raised = top.st.raised === 0 ? "" : ` · raised ${plural(top.st.raised, "time")} before, unanswered`;
+    const line = `Waiting on ${who}, ask when it fits: ${i.title}${needs} · waiting ${ageWords(i.at, now)}${i.kind === "handoff" ? " (a handoff)" : ""}${raised} [${i.id}]`;
+    return { line, item: { id: i.id, version: i.version, kind: i.kind, scope: i.scope } };
   } catch {
     return null;
   }
