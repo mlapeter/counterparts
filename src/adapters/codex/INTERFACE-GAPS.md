@@ -37,8 +37,7 @@
    (`reads-memories.ts`), as a Codex `me` note can; the null mark loses the reach `us` had as a personal mark;
    the inner doors answer `reader-self-note` / `ABOUT_READER_SELF` for an `us` note too; the slot detector
    may still PROPOSE a Codex note as the newer state of something (a confirm crosses `supersede`, which refuses
-   it over identity); a Codex chapter still reads as "my journal" in facts recall, the dream's journal slices and
-   the reflection's timeline; a Codex `remove` of the counterpart's memories is allowed (Mike's call: held 24 h,
+   it over identity); a Codex chapter still reads as "my journal" in facts recall; a Codex `remove` of the counterpart's memories is allowed (Mike's call: held 24 h,
    undoable); and a reader host is known only by the `--host codex` launch flag — a hosted, remote or hand-added
    MCP entry treats Codex as the counterpart (map `clientInfo` once measured).
 2. **What waits for Claude Code.** The first meeting, the first-launch scope question, plain reminders, the update
