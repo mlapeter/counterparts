@@ -5188,6 +5188,9 @@ export class Counterpart {
       ...(ctx.tags === undefined ? {} : { tags: ctx.tags }),
       ...(ctx.about === undefined ? {} : { about: ctx.about }),
       ...(ctx.night === true ? { night: true } : {}),
+      // A reader host's write (CX2, `reader-note.ts`).
+      ...(ctx.host === undefined ? {} : { host: ctx.host }),
+      ...(ctx.readerSelf === undefined ? {} : { readerSelf: ctx.readerSelf }),
     });
   }
 

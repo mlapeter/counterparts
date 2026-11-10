@@ -33,6 +33,7 @@ import type { AdapterConfig } from "../../config.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { WORKER_RUNNER_PATH } from "../../spawn.js";
+import type { Spawner } from "../../spawn.js";
 import { usePrivateUmask } from "../../private-umask.js";
 import { eventDirectory, hookConfigChoice, hookScopeVerdict, hostConfig, sessionScope } from "../../claude-code/bin/hook.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
@@ -86,6 +87,8 @@ export async function runCodexHook(
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
   },
+  /** The worker's starter: injected by a test, so no real worker runs over a temp store. */
+  spawner?: Spawner,
 ): Promise<{ outcome: string }> {
   const name: CodexHookName | undefined = CODEX_EVENT_NAMES[String(payload["hook_event_name"] ?? "")];
   if (name === undefined) return { outcome: "not-ours" };
@@ -144,6 +147,7 @@ export async function runCodexHook(
     command: process.execPath,
     args: scriptArgs(WORKER_RUNNER_PATH),
     configPath: choice.path,
+    ...(spawner === undefined ? {} : { spawner }),
     scope: verdict,
     ...(read.error === null ? {} : { scopeUnreadable: read.error }),
     ...(read.refused.length === 0 ? {} : { scopeRefused: read.refused.map((r) => r.key) }),
