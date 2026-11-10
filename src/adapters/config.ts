@@ -267,6 +267,8 @@ export const TUNABLES = {
    * 3s"); its heavy work is the detached worker's, as Claude Code's is.
    */
   CODEX_HOOK_TIMEOUT_S: 30,
+  /** SessionEnd's `timeout`: Codex's own 3 s clamp, written as it is so Codex prints no clamp warning. */
+  CODEX_SESSION_END_TIMEOUT_S: 3,
   /** What `doctor` calls a recent Codex session, for its "a transcript was readable" line. */
   CODEX_RECENT_DAYS: 14,
   // The Stop ask's pacing is NOT here: two pacers on one blocked moment drew

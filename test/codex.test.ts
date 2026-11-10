@@ -490,13 +490,31 @@ describe("counterparts connect --host codex", () => {
     expect(toml).toContain("\"--host\", \"codex\"");
     expect(toml).toContain(`COUNTERPARTS_DATA_DIR = ${JSON.stringify(store)}`);
     expect(toml).toContain("[mcp_servers.other]");
-    expect(toml).not.toContain("trusted_hash = \"sha256:" + "b");
-    const backups = readdirSync(codexHome).filter((n) => n.includes(".bak") || /\d{4}/.test(n));
+    // Nothing here writes a trust hash: only the seeded one is there.
+    expect(toml.match(/trusted_hash/g)?.length).toBe(1);
+    const stopHook = (doc.hooks["SessionEnd"]?.[0] as { hooks: Record<string, unknown>[] }).hooks[0] as Record<string, unknown>;
+    expect(stopHook["timeout"]).toBe(3);
+    // One backup of each file this first connect changed.
+    const listing = readdirSync(codexHome).sort();
+    expect(listing.length).toBe(4);
 
-    // Again: nothing to do, no new backup.
+    // Again: nothing to do — both files byte for byte, no new backup.
+    const hooksBytes = readFileSync(hooksPath(), "utf8");
+    const tomlBytes = readFileSync(tomlPath(), "utf8");
     const again = await cli("connect");
-    expect(again.said).toContain("nothing changed");
-    expect(readdirSync(codexHome).filter((n) => n.includes(".bak") || /\d{4}/.test(n))).toEqual(backups);
+    expect(again.said).toContain("Codex hooks: already in");
+    expect(again.said).toContain("MCP server \"counterparts\": already in");
+    expect(readFileSync(hooksPath(), "utf8")).toBe(hooksBytes);
+    expect(readFileSync(tomlPath(), "utf8")).toBe(tomlBytes);
+    expect(readdirSync(codexHome).sort()).toEqual(listing);
+
+    // Doctor, the command: its Codex lines, through the report.
+    const doc1 = consoleWith();
+    await run(["doctor", "--config", cfg], { io: doc1.io, env: env(), home });
+    expect(doc1.out.join("\n")).toContain("Codex hooks");
+    const doc2 = consoleWith();
+    await run(["doctor", "--config", cfg, "--json"], { io: doc2.io, env: env(), home });
+    expect(doc2.out.join("\n")).toContain("codex.hooks");
 
     // Doctor: unapproved until the person approves in /hooks; then green.
     const before = codexFindings({ codexHome, codexOnPath: true, cli: "counterparts" });

@@ -46,11 +46,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 /** Our handler for one event, exactly as connect writes it. */
-export function codexHandler(command: string, context: boolean): Record<string, unknown> {
+export function codexHandler(command: string, context: boolean, event = ""): Record<string, unknown> {
   return {
     type: "command",
     command,
-    timeout: TUNABLES.CODEX_HOOK_TIMEOUT_S,
+    timeout: event === "SessionEnd" ? TUNABLES.CODEX_SESSION_END_TIMEOUT_S : TUNABLES.CODEX_HOOK_TIMEOUT_S,
     ...(context ? { additionalContextLimit: TUNABLES.CODEX_CONTEXT_LIMIT_TOKENS } : {}),
   };
 }
@@ -108,7 +108,7 @@ export function mergeCodexHooks(doc: unknown, command: string, direction: "wire"
   for (const e of CODEX_EVENTS) {
     const raw = hooks[e.event];
     const groups: unknown[] = Array.isArray(raw) ? [...raw] : [];
-    const want = codexHandler(command, e.context);
+    const want = codexHandler(command, e.context, e.event);
     let seen = false;
     let outcome: EventOutcome = direction === "wire" ? "added" : "absent";
     let lastOurs = -1;

@@ -24,3 +24,10 @@
 9. **Positional trust.** Codex keys a hook's approval by its index in `hooks.json`. Ours are appended last, but a
    tool that later appends after us, then a `disconnect`, shifts that tool's index and Codex asks again; disconnect
    says so when it sees it.
+10. **The MCP server's place before it is bound.** Claude Code's server learns its project from
+    `CLAUDE_PROJECT_DIR`; Codex exports nothing like it, so a `remember` before the session's first `session_end` or
+    `chapter` (which bind it by id) is filed under the directory Codex started the server in — unmeasured (the TUI's
+    cwd, or the app-server daemon's). Check one Codex memory's `origin_scope`; if it is wrong, pass `--scope` from
+    the hook's `cwd`, or bind by the registry's newest live Codex session in that directory.
+11. **The worker** (`claude-code/bin/runner.ts`) reads no transcript and no Claude Code environment (checked
+    11-09): it works over spans and the registry, so a Codex session's boundary runs it unchanged.
