@@ -229,7 +229,9 @@ describe("the dashboard's door: the about action and the card's control", () => 
       expect(html).toContain("About me — who I am");
       expect(html).toContain("marked by you");
       expect(html).toContain('<option value="me" selected>');
-      expect(html).toContain("markAbout(this)");
+      // Delegated, not inline (HD2: shared/dom.js), so the page runs under a CSP with no inline script.
+      expect(html).toContain('data-do="mark-about"');
+      expect(html).not.toContain("onclick");
       expect(aboutControl({ ...d, about: null, aboutBy: null })).toContain("Not marked");
       expect(aboutControl({ ...d, journal: true })).toBe("");
     } finally {

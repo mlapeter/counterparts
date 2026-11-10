@@ -109,7 +109,8 @@ export function safeNext(raw: unknown): string {
   if (u.origin !== "https://x.invalid") return "/account";
   const path = u.pathname;
   if (path.startsWith("//") || path.includes("\\")) return "/account";
-  if (!(path === "/account" || path.startsWith("/oauth/"))) return "/account";
+  // `/dashboard/` (HD2): the page a signed-out visitor to the dashboard was sent from.
+  if (!(path === "/account" || path === "/dashboard/" || path.startsWith("/oauth/"))) return "/account";
   return path + u.search;
 }
 

@@ -400,6 +400,7 @@ ${
         body: `<h1>Your Counterparts account</h1>
 <p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
 <p class="muted">${BETA_NOTE_HTML}</p>
+<p><a href="/dashboard/">Open your dashboard</a> <span class="muted">— your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</span></p>
 <h2>Connected AIs</h2>
 ${
   connections.length === 0

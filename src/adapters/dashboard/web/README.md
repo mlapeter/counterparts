@@ -11,6 +11,7 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 | file | what it is |
 |---|---|
 | `server.ts` | `node:http` on 127.0.0.1, the Host allowlist, `router()` (GET: `/`, `/brain` (now a redirect to `/#home`), the favicon (`favicon.svg`, a file beside it since 2026-10-14), `/api/*`, the static files), and the POST hand-off to `actions.ts`. A store waiting for its one-time upgrade (v6 met by v7, `../upgrade.ts`) gets one calm page instead, and is tried again on every request |
+| `respond.ts` | the half both hosts serve (HD2, 2026-11-10): `staticReply` (the page, the favicon, the static files) and `viewReply` (every `/api` view) over an observer source, for a `DashboardHost` — `LOCAL_HOST` (`/`, every view, can act) or `HOSTED_HOST` (`/dashboard/`, the views in `HOSTED_VIEWS`, read-only, no machine panels, no brain). Root-absolute links in the page and CSS are rebased to the host's base at serve time; the page learns the host from `<meta name="counterparts-host">`. Never imports `actions.ts` and has no `node:fs` (the caller hands in `Files`). The hosted door is `hosted/src/dashboard.ts` |
 | `actions.ts` | managing: `POST /api/action/<name>` — the same-origin + per-launch-token guard, argument validation, and the console's own `run()` (loaded lazily; never handed the observer source). `ACTIONS` lists them: `ask`, `note`, `remove`, `backup`, `export`, `scope`, `rebrief`, `verify`, and `doctor` (a read: the health tab's checklist, `doctor --json`) |
 | `ask-voice.ts` | `toMyVoice(question, ownerName)`: Ask is the owner talking to me, so `ask` turns his question into my voice before it searches ("do you remember what I said" → "do I remember what Mike said"; his I → "you" when the store knows no name). Pure; the rules are in its header and `test/dashboard-ask-voice.test.ts`. The server reads the name (`sleep#ownerNames`) and hands `actions.ts` the string |
 | `static.ts` | `resolveStatic()`: which URL paths are static files and where they live (pure; no fs) |
@@ -43,7 +44,11 @@ shared/
   fonts/              Outfit (variable, latin) + Courier Prime 400/700 (latin) .woff2, with their OFL licences
   base.css layout.css utilities.css   reset, header/nav, headings, the .cols grids, .foot/.tone-*/#err
   tip.css modal.css   the tooltip and the overlay card
-  dom.js              $  esc
+  dom.js              $  esc, and the delegated clicks: markup says `data-do="open-memory" data-id=…`
+                      (never an inline onclick=), a module registers `onDo(name, fn)`, one listener
+                      (`wireClicks`, from the modal's mount) runs it — so hosted's CSP needs no inline script
+  host.js             HOST: which host serves the page (local | hosted) and what it shows — tabs, canAct,
+                      machine, the pulse's pace; `NOT_HERE`, the one line a hidden part says instead
   format.js           n2 n3 pct said livedSpan headline
   dates.js            dateWords dateOr stampWords: every date the dashboard prints itself, one style
                       ("Sep 30th", the year when it is not this one; "Wed, Sep 30th" for a title).
@@ -55,7 +60,7 @@ shared/
   actions.js          act() (managing: the one POST, with the page's token) and resultHtml()
   canvas.js           FACE (the canvas's face, Outfit) fit hitTest roundRect clip wrapText
   tip.js modal.js     showTip/hideTip; openModal/closeModal/section
-  memory-modal.js     openMemory, copyId, removeMemory (window globals: rows use inline onclick)
+  memory-modal.js     openMemory, copyId, removeMemory (data-do handlers; window globals kept for the harness)
   memory-marks.js .css  a memory's kind icon/colour, feeling dots, strength meter, badges;
                       feelingName (what the page CALLS a stored core: its own name
                       since the wheel v2, 2026-09-30) and feelingWord (a

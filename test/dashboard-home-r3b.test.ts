@@ -177,7 +177,7 @@ describe("2. the panel: one number, those memories, one line", () => {
       for (const m of p.memories) expect(m.emotional > 0 || m.feelings.some((f) => f.strength > 0)).toBe(true);
       const html = picture(p);
       expect(html).toContain("proud · you");
-      expect(html).toContain(`openMemory('${felt}')`);
+      expect(html).toContain(`data-do="open-memory" data-id="${felt}"`);
     });
   });
 

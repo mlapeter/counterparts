@@ -75,7 +75,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
     write doesn't say it. Rows a day past expiry are swept by the next ask.
 13. **Every form is CSRF-bound** (an HMAC of the browser cookie) and Origin-checked. After login, only our own paths
-    (`/account`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
+    (`/account`, `/dashboard/`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
     `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. They live in memory, which suits
     one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
@@ -437,6 +437,26 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     an erase. It is there to tell a quiet account from a live one; nothing reads it yet (INTERFACE-GAPS, "A quiet
     tenant's raw copies wait"). The migration is one `ALTER TABLE people ADD COLUMN last_wake_on TEXT`, made at open
     when the column is missing, so it is safe twice and on the beta volume.
+38. **The dashboard** (HD2, Mike 2026-11-10: "the same dashboard … shared code so we can keep them both in sync"):
+    `/dashboard/` serves the local dashboard's own page, files and views (`src/dashboard.ts` over
+    `src/adapters/dashboard/web/respond.ts`; nothing copied into `hosted/`), first release home, memories and self.
+    - **Owner-only, from the session**: the person is the web session's, the store is that person's one active store;
+      nothing in a URL names a store. No session: the page redirects to sign-in, `/api` and files are `401`.
+    - **Read-only**: only `GET`/`HEAD`; no action door (this package never imports `web/actions.ts`); only the views in
+      `HOSTED_VIEWS` answer, the rest `404` "not on hosted yet" before a store is looked at.
+    - **A pending delete opens nothing**: the page goes to `/account` (the pending page), `/api` is `403`; inside the
+      store's queue the lock is checked again (`StoreLocked`).
+    - **A look is not a wake**: no `onWake`, no tool call, no worker; each view runs on an observer `Counterpart`
+      opened and closed inside `Tenants.withTenant(...).serial`. A store never connected is not created by a look
+      (`409`, one sentence); one waiting for a restore is `503`.
+    - **One person can't hold the process** (#801 review): at most two of a person's views run or wait at once, the
+      rest a `429` with one sentence (the page retries a few times), and each view yields a turn before it runs.
+      On hosted a view's `limit` is bounded, `/api/overview` drops the feed and `/api/activity` sends `lastSeq` and
+      counts only (no narrated rows, no session ids or build).
+    - **Its own CSP**: `script-src 'self'` and no inline script (the page's clicks are delegated); inline style
+      attributes only (`style-src-attr 'unsafe-inline'`); `connect-src`, `font-src`, `img-src` same-origin;
+      `frame-ancestors 'none'`. The store's path (`/api/meta`'s `dir`) is not sent, and a failed view says nothing of
+      the server.
 
 ## What it drops, for now
 
