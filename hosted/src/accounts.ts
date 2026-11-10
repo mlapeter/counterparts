@@ -216,7 +216,7 @@ export class Accounts {
       this.db.exec("ALTER TABLE stores ADD COLUMN removal_due_at INTEGER");
     }
     // LW1 (Mike, 2026-11-09): the DAY of the person's last wake, `YYYY-MM-DD`
-    // in UTC, and nothing else: no time, no client, no address. NULL until
+    // in UTC; this column holds only the date, no time, client or address. NULL until
     // their first wake. It tells a quiet account from a live one. Added by
     // ALTER like the three above, so it is safe to run twice and on the beta volume.
     if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "last_wake_on")) {
