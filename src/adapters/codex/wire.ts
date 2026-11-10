@@ -178,6 +178,8 @@ export function codexMcpBlock(command: string, args: readonly string[], env: Rea
 const HEADER = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/;
 const OUR_TABLE = new RegExp(`^mcp_servers\\s*\\.\\s*(?:"${CODEX_MCP_NAME}"|${CODEX_MCP_NAME})(\\s*\\..*)?$`);
 const BLOCK_COMMENT = /^#\s*Written by `counterparts connect --host codex`/;
+/** One TOML scalar as `scanToml#code` shows it: a string (`""`), a date with a time, or one bare token. */
+const SCALAR = /^(""|\d{4}-\d{2}-\d{2}[ T]\S+|[^\s,[\]{}"]+)$/;
 /** A line that is only a comment, or blank. */
 const COMMENT_OR_BLANK = /^\s*(#.*)?$/;
 
@@ -201,6 +203,8 @@ interface TomlLine {
   readonly code: string;
   /** Still inside a multi-line string at its end. */
   readonly openAfter: boolean;
+  /** A one-line string (`"…` or `'…`) that the line never closes. */
+  readonly unterminated: boolean;
 }
 
 /** Read config.toml's lines with multi-line strings (`"""`, `'''`) tracked. Never throws. */
@@ -210,6 +214,7 @@ export function scanToml(text: string): TomlLine[] {
   for (const line of text.split("\n")) {
     const startedIn = open !== null;
     let code = "";
+    let unterminated = false;
     let i = 0;
     while (i < line.length) {
       if (open !== null) {
@@ -233,12 +238,14 @@ export function scanToml(text: string): TomlLine[] {
       if (c === '"') {
         i += 1;
         while (i < line.length && line[i] !== '"') i += line[i] === "\\" ? 2 : 1;
+        if (i >= line.length) unterminated = true;
         i += 1;
         code += '""';
         continue;
       }
       if (c === "'") {
         const j = line.indexOf("'", i + 1);
+        if (j < 0) unterminated = true;
         i = j < 0 ? line.length : j + 1;
         code += '""';
         continue;
@@ -246,7 +253,7 @@ export function scanToml(text: string): TomlLine[] {
       code += c;
       i += 1;
     }
-    out.push({ text: line, header: startedIn ? null : headerOf(line), inString: startedIn, code, openAfter: open !== null });
+    out.push({ text: line, header: startedIn ? null : headerOf(line), inString: startedIn, code, openAfter: open !== null, unterminated });
   }
   return out;
 }
@@ -262,6 +269,7 @@ export function tomlProblem(text: string): string | null {
   let depth = 0;
   const lines = scanToml(text);
   for (const [n, l] of lines.entries()) {
+    if (l.unterminated) return `line ${String(n + 1)} has a string that is never closed`;
     if (l.inString) continue;
     const code = l.code.trim();
     const count = (s: string, re: RegExp): number => (s.match(re) ?? []).length;
@@ -274,7 +282,10 @@ export function tomlProblem(text: string): string | null {
     if (/^\[\[?[^[\]]+\]\]?$/.test(code)) continue;
     const kv = /^([A-Za-z0-9_\-"]+(?:\s*\.\s*[A-Za-z0-9_\-"]+)*)\s*=\s*(\S.*)$/.exec(code);
     if (kv === null) return `line ${String(n + 1)} is not a table, a key = value, or a comment`;
-    const value = kv[2] as string;
+    const value = (kv[2] as string).trim();
+    // ONE VALUE, AND NOTHING AFTER IT (re-review): a string, a scalar, a date
+    // with its time, or the opening of an array or inline table.
+    if (!/[[{]/.test(value) && !SCALAR.test(value)) return `line ${String(n + 1)} has more after its value than one value`;
     depth += count(value, /[[{]/g) - count(value, /[\]}]/g);
     if (depth < 0) return `line ${String(n + 1)} closes a bracket nothing opened`;
   }

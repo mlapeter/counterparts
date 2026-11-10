@@ -21,7 +21,7 @@ import { runCodexHook } from "../src/adapters/codex/bin/hook.js";
 import { codexFindings } from "../src/adapters/codex/doctor.js";
 import { codexDelivery } from "../src/adapters/codex/envelope.js";
 import { CODEX_STOP_OPENER, parseCodexTranscript } from "../src/adapters/codex/transcript.js";
-import { mergeCodexHooks, ourPositions, stateKey } from "../src/adapters/codex/wire.js";
+import { mergeCodexHooks, ourPositions, stateKey, tomlProblem } from "../src/adapters/codex/wire.js";
 import { CODEX_STOP_OPENER_WORDS, codexStandDown, codexStopAsk } from "../src/adapters/codex/words.js";
 import { CODEX_HOST } from "../src/adapters/hosts.js";
 import { openServer } from "../src/adapters/mcp/index.js";
@@ -599,6 +599,20 @@ describe("Codex's files, edited with care (CX2 fix round)", () => {
     expect(r.said).not.toContain("this line is not toml");
     expect(readFileSync(tomlPath(), "utf8")).toBe("model = \"x\"\nthis line is not toml\n");
     expect(readFileSync(hooksPath(), "utf8")).toBe("{}\n");
+  });
+
+  test("an unclosed one-line string, or junk after a value, is refused too (re-review)", async () => {
+    for (const bad of ['model = "x', "x = 'y", 'k = "a" "b"']) {
+      writeFileSync(tomlPath(), `${bad}\n`);
+      writeFileSync(hooksPath(), "{}\n");
+      const r = await cli(["connect", "--host", "codex", "--config", cfg]);
+      expect({ bad, code: r.code }).toEqual({ bad, code: EXIT.refused });
+      expect(r.said).toContain("line 1");
+      expect(readFileSync(tomlPath(), "utf8")).toBe(`${bad}\n`);
+      expect(readFileSync(hooksPath(), "utf8")).toBe("{}\n");
+    }
+    // And ordinary values still read: a date with its time, an array over lines, a multi-line string.
+    expect(tomlProblem('when = 1979-05-27 07:32:00Z\nn = 3\nok = true\nargs = [\n  "a",\n  "b",\n]\ns = """\nx = "\n"""\nt = { a = "1" }\n')).toBeNull();
   });
 
   test("hooks.json keeps its own indentation", async () => {
