@@ -3,7 +3,8 @@
  * account page, log out. Server-rendered HTML, no framework.
  *
  *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full
- *   POST /login            sends the link — the same words on the page whatever the outcome
+ *   POST /login            sends the link — the same words on the page whatever the outcome; a reviewer's
+ *                          code beside its account's email signs in at once, with no email (DIR1)
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
  *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): public, cached a few
  *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
@@ -322,7 +323,19 @@ ${
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
       if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
-        message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
+        // A form that carried a code may have been a reviewer's sign-in, which sends no email (DIR1 review).
+        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.");
+        return true;
+      }
+      // A REVIEWER'S CODE (DIR1, 2026-11-10): typed in the code field beside the email of an account the
+      // operator's `reviewer` command made, it signs this browser in now, with no email (a stranger
+      // reviewing the directory listing has no mailbox of ours). One lookup by the code's hash for every
+      // ask, so a code that isn't one costs what none costs and goes on below as an invite code would.
+      const reviewer = opts.accounts.reviewerSignIn(form.get("email"), form.get("invite"));
+      if (reviewer !== null) {
+        opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
+        const session = opts.accounts.startSession(reviewer);
+        redirect(res, next, { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
         return true;
       }
       // The words follow the spots as they stand now (public), not this ask's outcome.

@@ -25,9 +25,9 @@ import { join } from "node:path";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { CLAUDE_AI_SCOPE, CLAUDE_AI_TRIM, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_DELETE, CLAUDE_AI_SCOPE, CLAUDE_AI_TRIM, CLAUDE_AI_WAKE, CLAUDE_AI_WORDS, DESKTOP_TOOLS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, claudeAiNightLine, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_INSTRUCTIONS, claudeAiNightLine, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_LAUNCH_HOW, DESKTOP_DREAM_NOTE, DESKTOP_REFLECT_LAUNCH_HOW, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -269,6 +269,8 @@ const REVIEWED: Record<string, unknown> = {
       "how": "e714d82a7a",
       "salience": "1834cd690e",
       "relevance": "7a7f8e3999",
+      "emotional": "51c02dda24",
+      "predictive": "bac5d26e32",
       "title": "8afc29c74e",
       "eventDate": "98298dca72",
       "remind": "ab0bfa03b1",
@@ -276,10 +278,8 @@ const REVIEWED: Record<string, unknown> = {
       "occurredOn": "1edf3ed3be",
       "saidBy": "85d56d9cf7",
       "status": "d4fbfe4c52",
-      "story": "aaa9771e8e",
       "tags": "1ac013d11e",
       "feelings": "d60b5b8838",
-      "feelings[].whose": "0d206058ad",
       "feelings[].core": "9911db1028",
       "feelings[].emotion": "023c77c53c",
       "feelings[].strength": "bd1273bb51",
@@ -290,10 +290,9 @@ const REVIEWED: Record<string, unknown> = {
       "unresolved": "cbd16aad96",
       "settlesWhen": "b6305e2b4e",
       "settle": "45475eb24f",
-      "settle.holds": "6a58514bdd",
-      "settle.over": "0e32ce9884",
-      "settle.why": "e251d15b83",
+      "settle.pair": "74b22b897a",
       "belief": "f088b81712",
+      "story": "aaa9771e8e",
       "traits": "e48e635dcd",
       "traits[].axis": "4ea8cee912",
       "traits[].toward": "d87177c798",
@@ -308,11 +307,11 @@ const REVIEWED: Record<string, unknown> = {
       "feelingsNow[].valence": "6e86e907f7",
       "feelingsNow[].carried_by": "2a8ae4e5eb",
       "remark": "3e9b45b1d5",
-      "core": "519446dddc",
-      "remove": "ea1e6fb930"
+      "core": "519446dddc"
     },
     "drop": {
-      "feelings[].other_word": "ead44e7a57"
+      "feelings[].other_word": "ead44e7a57",
+      "remove": "0a42d1e610"
     }
   },
   "recall": {
@@ -329,10 +328,15 @@ const REVIEWED: Record<string, unknown> = {
     ],
     "fields": {
       "question": "090112a6c7",
+      "mode": "bd996c592a",
       "page": "aa1b4f19b4",
-      "handle": "2f790a5b27"
+      "handle": "2f790a5b27",
+      "ids": "179f71ee22",
+      "part": "9592cce598"
     },
-    "drop": {}
+    "drop": {
+      "query": "fcb5d6ccbd"
+    }
   },
   "session_end": {
     "claims": [
@@ -352,6 +356,8 @@ const REVIEWED: Record<string, unknown> = {
       "memories[].how": "e714d82a7a",
       "memories[].salience": "1834cd690e",
       "memories[].relevance": "7a7f8e3999",
+      "memories[].emotional": "51c02dda24",
+      "memories[].predictive": "bac5d26e32",
       "memories[].title": "8afc29c74e",
       "memories[].eventDate": "98298dca72",
       "memories[].remind": "ab0bfa03b1",
@@ -361,7 +367,6 @@ const REVIEWED: Record<string, unknown> = {
       "memories[].status": "d4fbfe4c52",
       "memories[].tags": "1ac013d11e",
       "memories[].feelings": "d60b5b8838",
-      "memories[].feelings[].whose": "0d206058ad",
       "memories[].feelings[].core": "9911db1028",
       "memories[].feelings[].emotion": "023c77c53c",
       "memories[].feelings[].strength": "bd1273bb51",
@@ -383,7 +388,8 @@ const REVIEWED: Record<string, unknown> = {
     },
     "drop": {
       "memories[].traits": "d132aa0aa1",
-      "memories[].feelings[].other_word": "ead44e7a57"
+      "memories[].feelings[].other_word": "ead44e7a57",
+      "memories[].feelings[].beneath": "17b496a61f"
     }
   },
   "chapter": {
@@ -396,7 +402,11 @@ const REVIEWED: Record<string, unknown> = {
     ],
     "fields": {
       "session": "728826c924",
-      "about": "7e2907d04a"
+      "text": "e7670d6cc1",
+      "title": "8b24b59f76",
+      "about": "7e2907d04a",
+      "summary": "f801ab18de",
+      "drewOn": "cbaecd892f"
     },
     "drop": {}
   },
@@ -415,7 +425,17 @@ const REVIEWED: Record<string, unknown> = {
       "32a9cd2fbf"
     ],
     "fields": {
-      "short": "d94ea23d16"
+      "body": "2e95d46d7a",
+      "short": "d94ea23d16",
+      "reason": "8dbd33f5ec",
+      "ifVersion": "c0b04b84dc",
+      "session": "6bb1547b04",
+      "cites": "7d5b010961",
+      "claims": "a8925df229",
+      "setDown": "9302194fe5",
+      "setDown[].skill": "c8b080b692",
+      "summary": "5592e7efb0",
+      "summaryCites": "6d7c5bd2e2"
     },
     "drop": {}
   },
@@ -432,11 +452,31 @@ const REVIEWED: Record<string, unknown> = {
       "637784db2d"
     ],
     "fields": {
+      "phase": "3f46643129",
       "session": "7d4241f119",
+      "dream": "a11a9e4dc2",
+      "part": "2d9b6f7908",
+      "changes": "04aee98cbf",
+      "changes[].occurredOn": "732d1ca956",
+      "changes[].saidBy": "193320faf1",
+      "changes[].status": "96ff07e97c",
+      "changes[].fold": "9f58c36e1e",
+      "changes[].core": "2985e8ff7b",
       "changes[].emotion": "3801918a03",
-      "changes[].core": "2985e8ff7b"
+      "changes[].carried_by": "c080013ac7",
+      "changes[].holds": "5fd7b6bdb4",
+      "changes[].over": "d07a9013c5",
+      "changes[].pair": "a05126d731",
+      "changes[].subject": "45300b6ea1",
+      "changes[].same": "dbbd616b41",
+      "title": "eec5250154",
+      "text": "73124e2c30"
     },
-    "drop": {}
+    "drop": {
+      "tagged": "714e339fe6",
+      "merges": "81c82585d9",
+      "kinds": "3040d75357"
+    }
   },
   "reflect": {
     "claims": [
@@ -452,14 +492,45 @@ const REVIEWED: Record<string, unknown> = {
       "1cc7f7a4aa"
     ],
     "fields": {
+      "phase": "c9b70fd374",
       "session": "c28179806e",
-      "traits": "901488a68e",
+      "close": "eeedede798",
+      "closeNow": "a87fbd8723",
+      "closeNow[].why": "830407c543",
+      "closeNow[].shows": "2ac99e57b6",
+      "reopen": "086748f724",
+      "holds": "86ac71ddfe",
+      "over": "d07a9013c5",
+      "how": "61c8a10bcf",
+      "why": "ee218540ef",
+      "part": "143a7a5c6f",
+      "dream": "15141008f1",
+      "reflection": "0c1bc3e133",
+      "title": "4ee1147527",
+      "entry": "12e8f05869",
+      "cites": "9ca53d079b",
+      "page": "0fecd6e060",
+      "page.setDown": "02d65dba1b",
+      "page.setDown[].skill": "c8b080b692",
+      "share": "c02038ca13",
+      "line": "1708824e44",
+      "feelings": "566abdc3ad",
+      "feelings[].core": "acd48bd5a0",
       "feelings[].emotion": "023c77c53c",
-      "feelings[].core": "acd48bd5a0"
+      "feelings[].carried_by": "9b0ede9e47",
+      "about": "fce746669b",
+      "core": "53e5d1be7e",
+      "traits": "901488a68e",
+      "beliefs": "12058506df",
+      "beliefs.filings": "20de570074",
+      "beliefs.births": "25a9026a86",
+      "beliefs.retire": "be2acca48a",
+      "beliefs.adopt": "67d977d580"
     },
     "drop": {}
   },
   "remember.negativeExamples": "c9716eb17f",
+  "status.negativeExamples": "27916cd425",
   "session_end.negativeExamples": "bfa4cd4090",
   "self_page.negativeExamples": "caa0d05bfb",
   "self_page.summary": "1d98475edc"
@@ -493,48 +564,53 @@ describe("4. the tool words for chat", () => {
     expect(by["status"]?.startsWith("Memory status:")).toBe(true);
   });
 
-  // REWORKED ON PURPOSE (TT1, 2026-11-04). This pinned "claude.ai's privileges EQUAL Claude Code's".
-  // claude.ai now renders fewer claims (`tools.ts#CLAUDE_AI_TRIM`), so it pins what keeps that safe:
-  // every claim it renders is one of the base's own rows, in the base's order, and every base row it
-  // does not render is an engine row there, so nothing is invented on claude.ai and nothing leaves the
-  // audit (`mcp.test.ts` holds the base rows' mechanized paths). A tool with no trim still serves the
-  // base's claims exactly. Claude Code's and Desktop's words are pinned byte for byte below and in
-  // `description-cut.test.ts`.
-  test("summary and admission change (and some negatives); claims served are the base's own rows, the rest its engine's (scope's are its own); Claude Code's and Desktop's words are untouched", () => {
+  // DIR1 (2026-11-10): the server's `instructions` are read like a description (the directory's review), so
+  // they say what wake is for, never "call it first, before anything", and nothing a directory reader flags.
+  test("claude.ai's server instructions describe wake; they do not order a call before anything", async () => {
+    const s = server(CLAUDE_AI_HOST);
+    const http = await serveHttp({ server: s });
+    closers.push(() => http.close());
+    const init = (await rpc(http.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-ai", version: "0.1.0" } }))["result"] as { instructions: string };
+    expect(init.instructions).toBe(CLAUDE_AI_INSTRUCTIONS);
+    for (const text of [init.instructions, ...CLAUDE_AI_TOOLS.map((t) => renderDescription(t))]) {
+      expect(text).not.toMatch(/call (this|it|its wake tool) first/i);
+      expect(text).not.toMatch(/in every conversation/i);
+      expect(text).not.toMatch(/before answering anything/i);
+      expect(text).not.toMatch(/don't ask first|I set this up myself|tool notices/i);
+      expect(text).not.toMatch(/err toward too many/i);
+    }
+    expect(init.instructions).toContain("wake tool");
+  });
+
+  // REWORKED ON PURPOSE (TT1, 2026-11-04; again DIR1, 2026-11-10). TT1 pinned "claims served are the
+  // base's own rows"; since DIR1 claude.ai serves NO claims (`tools.ts#withClaimsAsEngine`, policy §5B),
+  // so this pins what keeps that safe: every base row is an engine row there, each once, none invented
+  // and none lost (`mcp.test.ts` holds the base rows' mechanized paths). Claude Code's and Desktop's
+  // words are pinned byte for byte below and in `description-cut.test.ts`.
+  test("summary and admission change (and some negatives); no claim is served, every base row is an engine row; Claude Code's and Desktop's words are untouched", () => {
+    for (const spec of CLAUDE_AI_TOOLS) {
+      expect(spec.privileges).toEqual([]);
+      expect(renderDescription(spec)).not.toContain("What this tool guarantees");
+    }
     for (const spec of CLAUDE_AI_TOOLS.slice(1)) {
-      // claude.ai's `scope` is its own spec (`tools.ts#CLAUDE_AI_SCOPE`): one setting, no directories, no terminal.
-      if (spec.name === "scope") {
-        const { inputSchema: _schema, ...own } = CLAUDE_AI_SCOPE;
-        expect(spec).toMatchObject(own);
-        continue;
-      }
-      const base = TOOLS.find((t) => t.name === spec.name);
+      // claude.ai's own specs (`scope`, `delete_memory`): their rows are their own, all engine rows here.
+      const own = spec.name === "scope" ? CLAUDE_AI_SCOPE : spec.name === "delete_memory" ? CLAUDE_AI_DELETE : undefined;
+      const base = own ?? TOOLS.find((t) => t.name === spec.name);
       expect(base).toBeDefined();
-      const own = CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS]?.negativeExamples;
-      expect(spec.negativeExamples).toEqual(own ?? base?.negativeExamples ?? []);
+      if (own === undefined) {
+        const words = CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS]?.negativeExamples;
+        expect(spec.negativeExamples).toEqual(words ?? base?.negativeExamples ?? []);
+      }
       expect(spec.negativeExamples.length).toBeGreaterThanOrEqual(1);
       for (const negative of spec.negativeExamples) expect(negative.toLowerCase()).toContain("do not");
       const baseRows = [...(base?.privileges ?? []), ...(base?.engine ?? [])];
-      if (CLAUDE_AI_TRIM[spec.name as keyof typeof CLAUDE_AI_TRIM]?.served === undefined) {
-        expect(spec.privileges).toEqual(base?.privileges ?? []);
-      } else {
-        expect(spec.privileges.length).toBeGreaterThanOrEqual(1);
-        // The same objects, in the base's order: served is a subset, never a rewording.
-        expect(spec.privileges).toEqual((base?.privileges ?? []).filter((p) => spec.privileges.includes(p)));
-        for (const p of spec.privileges) expect(base?.privileges.includes(p)).toBe(true);
-      }
-      // Served and engine together are exactly the base's rows, each once: none lost, none added, none doubled.
-      const rows = [...spec.privileges, ...(spec.engine ?? [])];
+      const rows = spec.engine ?? [];
       expect(rows.length).toBe(baseRows.length);
       expect(new Set(rows).size).toBe(rows.length);
       expect(new Set(rows)).toEqual(new Set(baseRows));
-      // The same annotations, but a chat copy is never read-only: it takes `session` (H1, `tools.ts#chatAnnotations`).
-      const b = base?.annotations;
-      expect(spec.annotations).toEqual((b?.readOnlyHint === true ? { ...b, readOnlyHint: false, idempotentHint: false } : b) as never);
-      if (CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS] === undefined && CLAUDE_AI_TRIM[spec.name as keyof typeof CLAUDE_AI_TRIM] === undefined) {
-        expect(renderDescription(spec)).toBe(renderDescription(base as never));
-      }
     }
+    const wake = CLAUDE_AI_TOOLS[0]!;
+    expect(new Set(wake.engine)).toEqual(new Set([...CLAUDE_AI_WAKE.privileges, ...(CLAUDE_AI_WAKE.engine ?? [])]));
     for (const spec of TOOLS) expect(renderDescription(spec)).not.toContain("Save to long-term memory, in the moment");
     expect(toolDefinitions(false).map((t) => t["description"])).toEqual(TOOLS.map((t) => renderDescription(t)));
   });
@@ -590,7 +666,8 @@ describe("4. the tool words for chat", () => {
     }
     // Which fields stand in for `text` is every host's sentence, served whole.
     const ccText = String((TOOLS.find((t) => t.name === "remember")?.inputSchema as { properties: { text: { description: string } } }).properties.text.description);
-    expect(field("remember", "text")).toContain(String(ccText.match(/Required unless [^.]*\./)?.[0]));
+    // `remove` is not claude.ai's (DIR1: `delete_memory`), so its sentence names the rest.
+    expect(field("remember", "text")).toContain(String(ccText.match(/Required unless [^.]*\./)?.[0]).replace(", `core` or `remove` is sent", " or `core` is sent"));
     // Claude Code's catch-up fields are kept, short: claude.ai's wake can carry the write-up pointer.
     expect(field("session_end", "writeUp")).toContain("ended session");
     // Not offered here: the legacy other_word, and traits on a write-up entry (remember keeps them).
@@ -599,8 +676,9 @@ describe("4. the tool words for chat", () => {
     expect(Object.keys((entry["feelings"] as { items: { properties: object } }).items.properties)).not.toContain("other_word");
     expect(texts.some(([p]) => p === "remember.traits")).toBe(true);
 
-    // The size, loosely: 92,335 B before TT1 (on 0.3.47's words), 65,044 B after. A ceiling, so the words do not quietly grow back.
-    expect(Buffer.byteLength(JSON.stringify({ tools: defs }), "utf8")).toBeLessThan(70_000);
+    // The size, loosely: 92,335 B before TT1 (on 0.3.47's words), 65,044 B after, 67,293 B on 0.3.54's,
+    // 40,257 B after DIR1 (no claims served, field words cut). A ceiling, so the words do not quietly grow back.
+    expect(Buffer.byteLength(JSON.stringify({ tools: defs }), "utf8")).toBeLessThan(42_000);
     // Every other host's list is the registry's own, untrimmed.
     for (const host of [false, DESKTOP_HOST] as const) {
       const json = JSON.stringify(toolDefinitions(host));
@@ -609,31 +687,50 @@ describe("4. the tool words for chat", () => {
     }
   });
 
-  // TT1 over master's 0.3.47 (HD1, TC1): through the door, claude.ai's trimmed list still offers
-  // delete-from-chat and its undo handle, and says the plumbing rule; Claude Code's door serves the
-  // registry's own list; and a remove sent through claude.ai's door holds the memory.
-  test("through the door: claude.ai's trimmed list keeps remove, \"deleted\" and the plumbing rule; Claude Code's list is the registry's", async () => {
+  // TT1 over master's 0.3.47 (HD1, TC1); DIR1 (2026-11-10): through the door, claude.ai's delete is its own
+  // tool (`delete_memory`, destructive), `remember` there carries no `remove` and says where a stale one
+  // goes, the undo handle and the plumbing rule are kept; Claude Code's door serves the registry's list,
+  // `remove` and all; and a delete through claude.ai's door holds the memory.
+  test("through the door: claude.ai deletes with delete_memory, not remember's remove; \"deleted\" and the plumbing rule kept; Claude Code's list is the registry's", async () => {
     const { http } = await door();
-    const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: { name: string; inputSchema: { properties: Record<string, { description?: string; properties?: Record<string, unknown> }> } }[] }).tools;
-    const remember = list.find((t) => t.name === "remember")?.inputSchema.properties;
-    expect(Object.keys(remember?.["remove"]?.properties ?? {}).sort()).toEqual(["id", "undo"]);
-    expect(String(remember?.["remove"]?.description)).toContain("erased after 24 hours");
-    expect(String(remember?.["text"]?.description)).toContain("Do NOT write about this system's plumbing");
+    type Listed = { name: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean }; inputSchema: { properties: Record<string, { description?: string; properties?: Record<string, unknown> }>; required?: string[] } };
+    const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: Listed[] }).tools;
+    const remember = list.find((t) => t.name === "remember");
+    expect(remember?.inputSchema.properties["remove"]).toBeUndefined();
+    expect(remember?.annotations.destructiveHint).toBe(false);
+    const del = list.find((t) => t.name === "delete_memory");
+    expect(Object.keys(del?.inputSchema.properties ?? {}).sort()).toEqual(["id", "session", "undo"]);
+    expect(del?.inputSchema.required).toEqual(["id"]);
+    expect(del?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+    expect(String(remember?.inputSchema.properties["text"]?.description)).toContain("Do NOT write about this system's plumbing");
     expect(String(list.find((t) => t.name === "recall")?.inputSchema.properties["handle"]?.description)).toContain('"deleted"');
     // Claude Code's own door, introduced as Claude Code (`door` says it is claude-ai, which picks the chat's list).
     const ccHttp = await serveHttp({ server: server("claude-code") });
     closers.push(() => ccHttp.close());
     await rpc(ccHttp.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "2.0.0" } });
-    const ccList = ((await rpc(ccHttp.url, "tools/list"))["result"] as { tools: unknown[] }).tools;
+    const ccList = ((await rpc(ccHttp.url, "tools/list"))["result"] as { tools: { name: string }[] }).tools;
     expect(JSON.stringify(ccList)).toBe(JSON.stringify(toolDefinitions(false)));
-    expect(Buffer.byteLength(JSON.stringify({ tools: list }), "utf8")).toBeLessThan(Buffer.byteLength(JSON.stringify({ tools: ccList }), "utf8") - 20_000);
+    expect(ccList.map((t) => t.name)).not.toContain("delete_memory");
+    expect(Buffer.byteLength(JSON.stringify({ tools: list }), "utf8")).toBeLessThan(Buffer.byteLength(JSON.stringify({ tools: ccList }), "utf8") - 40_000);
 
     const session = String((await tool(http.url, "wake", {})).structured["session"]);
     const id = String((await tool(http.url, "remember", { session, kind: "fact", text: "Wren's bike lock code is 4471.", about: "owner" })).structured["id"]);
     await tool(http.url, "recall", { session, ids: [id] });
-    const held = (await tool(http.url, "remember", { session, remove: { id } })).structured["remove"] as Record<string, unknown>;
+    // A stale list's `remember` with `remove` is told where the delete went, and nothing runs.
+    const stale = await tool(http.url, "remember", { session, remove: { id } });
+    expect(stale.structured["reason"]).toBe("remove-moved");
+    expect(String(stale.structured["detail"])).toContain("delete_memory");
+    const held = (await tool(http.url, "delete_memory", { session, id })).structured;
     expect(held["ok"]).toBe(true);
     expect(held["reason"]).toBe("held");
+    const back = (await tool(http.url, "delete_memory", { session, id, undo: true })).structured;
+    expect(back["ok"]).toBe(true);
+    const empty = (await tool(http.url, "delete_memory", { session })).structured;
+    expect(empty["ok"]).toBe(false);
+    expect(String(empty["detail"])).toContain("delete_memory needs the memory's id");
+    // Claude Code's door has no such tool: a protocol error, as for any unknown tool.
+    const cc = await rpc(ccHttp.url, "tools/call", { name: "delete_memory", arguments: { id } });
+    expect((cc["error"] as { code: number }).code).toBe(-32601);
   });
 
   /**
@@ -678,12 +775,14 @@ describe("4. the tool words for chat", () => {
 
   // H1 (2026-10-29): the honesty question, closed by the door test below. Whether claude.ai skips its
   // per-tool permission prompt for a read-only tool is NOT tested anywhere, and nothing here claims it.
-  test("annotations: nothing is read-only on claude.ai or Desktop (a named call touches the session record); Claude Code's status is", () => {
+  // DIR1 (2026-11-10): claude.ai's rule is the directory's (`tools.ts#CLAUDE_AI_ANNOTATIONS`): read-only
+  // when a call changes no memory, page, journal, dream or setting, the server's bookkeeping aside.
+  test("annotations: claude.ai's status and recall are read-only (bookkeeping only); Desktop's nothing; Claude Code's status", () => {
     const readOnlyOn = (host: boolean | string): string[] =>
       toolDefinitions(host)
         .filter((t) => (t["annotations"] as { readOnlyHint: boolean }).readOnlyHint)
         .map((t) => (t["annotations"] as { title: string }).title);
-    expect(readOnlyOn(CLAUDE_AI_HOST)).toEqual([]);
+    expect(readOnlyOn(CLAUDE_AI_HOST)).toEqual(["Recall memories", "Memory status"]);
     expect(readOnlyOn(DESKTOP_HOST)).toEqual([]);
     // recall (its use credit), wake, and self_page (it has a write mode) are never read-only anywhere.
     expect(readOnlyOn(false)).toEqual(["Memory status"]);
@@ -787,7 +886,7 @@ describe("H1: Memory status's readOnlyHint is true to what a status call does", 
   const changed = (a: Map<string, string>, b: Map<string, string>): string[] =>
     [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).map((k) => k.replace(root, "<root>"));
 
-  test("through the claude.ai door: a status call naming no session changes no row and no file; one naming it touches the session record, so the chat copy is not read-only", async () => {
+  test("through the claude.ai door: a status call naming no session changes no row and no file; one naming it touches only the session record, which claude.ai's rule counts as bookkeeping (DIR1)", async () => {
     const { http, s } = await door();
     const session = String(((await rpc(http.url, "tools/call", { name: "wake", arguments: {} }))["result"] as { structuredContent: Record<string, unknown> }).structuredContent["session"]);
     await rpc(http.url, "tools/call", { name: "remember", arguments: { session, text: "Wren keeps bees on the roof of the library." } });
@@ -806,7 +905,9 @@ describe("H1: Memory status's readOnlyHint is true to what a status call does", 
     await rpc(http.url, "tools/call", { name: "status", arguments: { session } });
     expect(changed(named, snapshot(dir))).toEqual([`<root>/store-claude-ai/sessions/${session}.json`]);
     const status = ((await rpc(http.url, "tools/list"))["result"] as { tools: { name: string; annotations: { readOnlyHint: boolean } }[] }).tools.find((t) => t.name === "status");
-    expect(status?.annotations.readOnlyHint).toBe(false);
+    // DIR1: read-only on claude.ai (what changed is the session's own record, above); Desktop's copy keeps H1's rule.
+    expect(status?.annotations.readOnlyHint).toBe(true);
+    expect((toolDefinitions(DESKTOP_HOST).find((t) => t["name"] === "status")?.["annotations"] as { readOnlyHint: boolean }).readOnlyHint).toBe(false);
   });
 
   test("Claude Code's status, which takes no session, changes no row and no file, and stays read-only", async () => {
@@ -918,17 +1019,17 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     const reflect = by["reflect"] ?? "";
     for (const d of [dream, reflect]) {
       expect(d).toContain("night routine");
-      expect(d).toContain("In a conversation, call `launch` when");
+      expect(d.toLowerCase()).toContain("call `launch` when the person asks you to");
       for (const phrase of SHARED) expect(d).not.toContain(phrase);
       expect(d.toLowerCase()).not.toContain("background");
     }
-    expect(dream).toContain("follows the prompt that returns itself, in that same run");
+    expect(dream).toContain("then follow the steps it returns, in order, passing the same session");
     expect(dream).toContain("Do NOT start a dream nobody asked for");
     // HN1: the wake that tells a conversation to run the night is not "nobody asked".
     expect(dream).toContain("when the wake says this conversation runs the night");
     // The propose guard is every host's, kept verbatim.
     expect(dream).toContain("Do NOT use `propose` to correct or delete a memory");
-    expect(reflect).toContain("The night routine calls `begin` and `finish` after the dream");
+    expect(reflect).toContain("the run calls `begin` and `finish` as its steps say");
   });
 
   test("Claude Code's dream and reflect descriptions are the shared ones, byte for byte; Desktop's name no background agent (OL1d)", async () => {

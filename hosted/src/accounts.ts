@@ -43,6 +43,10 @@ export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
 /** How long an invite code lives by default (G1 L4). The `invite` command takes `--expires <days>`. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** A reviewer's code lives at most this many days (DIR1): long enough for a review whose length isn't fixed, never forever. */
+export const REVIEWER_MAX_DAYS = 365;
+/** How long a reviewer's code lives unless `reviewer --days` says otherwise. */
+export const REVIEWER_DEFAULT_DAYS = 90;
 export const MAX_EMAIL = 254;
 /** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
 export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -126,6 +130,16 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS email_hours (
   hour INTEGER PRIMARY KEY,
   asks INTEGER NOT NULL
+);
+-- DIR1 (2026-11-10): a reviewer's sign-in code, for an account the operator's
+-- \`reviewer\` command made (the directory's "test account credentials" field):
+-- typed beside that account's email on /login, it signs in without an email.
+-- Stored as its SHA-256, expiring, revocable; one person each, never a member's.
+CREATE TABLE IF NOT EXISTS reviewer_codes (
+  code_hash TEXT PRIMARY KEY,
+  person_id TEXT NOT NULL REFERENCES people(id),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
@@ -281,6 +295,17 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "last_wake_on")) {
       this.db.exec("ALTER TABLE people ADD COLUMN last_wake_on TEXT");
     }
+    // DIR1 (2026-11-10): what a store is seeded with at its first open: 'sample'
+    // for a reviewer's account (`createReviewer`), NULL for everyone else. Cleared
+    // once the seed has run. Added by ALTER like the four above.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "seed")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN seed TEXT");
+    }
+    // DIR1 review (2026-11-10): what kind of account this is: 'reviewer' for one the
+    // `reviewer` command made (it never takes a public spot), NULL for everyone else.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "kind")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN kind TEXT");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -394,7 +419,8 @@ export class Accounts {
     const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'spots'")?.value;
     const n = raw === undefined ? 0 : Number(raw);
     const total = Number.isInteger(n) && n >= 0 ? n : 0;
-    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted'")?.n ?? 0;
+    // A reviewer's account (DIR1) is the operator's, never a public spot's.
+    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted' AND kind IS NOT 'reviewer'")?.n ?? 0;
     return { total, people, left: Math.max(0, total - people) };
   }
 
@@ -460,6 +486,98 @@ export class Accounts {
       this.now(),
     );
     return row?.id ?? null;
+  }
+
+  // ── a reviewer's account (DIR1, 2026-11-10) ────────────────────────────────
+
+  /**
+   * A REVIEWER'S ACCOUNT: a person, the email the operator named (verified by
+   * the operator's say-so: nobody clicks a link), a store seeded with sample
+   * data at its first open (`stores.seed`), and a sign-in code typed beside the
+   * email on /login. Made past the spots, as an invite is. Refused for an email
+   * that already has an account, so it never opens a real person's. The code
+   * is returned once and kept as its SHA-256; it expires after `days`.
+   */
+  createReviewer(input: { email: unknown; days: number; timeZone?: unknown }): { personId: string; storeId: string; code: string; expiresAt: number } | { refusal: string } {
+    const email = normalizeEmail(input.email);
+    if (email === null) return { refusal: "that isn't an email address" };
+    if (!Number.isInteger(input.days) || input.days < 1 || input.days > REVIEWER_MAX_DAYS) return { refusal: `days is a whole number from 1 to ${String(REVIEWER_MAX_DAYS)}` };
+    const code = secret("cpr_");
+    const at = this.now();
+    const expiresAt = at + input.days * 24 * 60 * 60 * 1000;
+    return this.db.transaction(() => {
+      if (this.db.get("SELECT 1 AS x FROM identities WHERE kind = 'email' AND value = ?", email) !== undefined) {
+        return { refusal: "that email already has an account: a reviewer's account is always a new one" };
+      }
+      const personId = id128();
+      const storeId = id128();
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id, kind) VALUES (?, ?, 'active', ?, NULL, 'reviewer')", personId, at, validTimeZone(input.timeZone));
+      this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, email, at, at);
+      this.db.run("INSERT INTO stores (id, person_id, created_at, state, seed) VALUES (?, ?, ?, 'active', 'sample')", storeId, personId, at);
+      this.db.run("INSERT INTO reviewer_codes (code_hash, person_id, created_at, expires_at) VALUES (?, ?, ?, ?)", sha256(code), personId, at, expiresAt);
+      this.audit(personId, storeId, "reviewer.created", null);
+      return { personId, storeId, code, expiresAt };
+    });
+  }
+
+  /**
+   * The person a reviewer's code signs in, when `email` is that person's and
+   * the code is live; else null. One lookup by the code's hash for every ask,
+   * code or none, so a code that isn't one costs what no code costs.
+   */
+  reviewerSignIn(emailRaw: unknown, codeRaw: unknown): string | null {
+    const code = typeof codeRaw === "string" && codeRaw.trim().length > 0 ? codeRaw.trim() : "\u0000";
+    const row = this.db.get<{ person_id: string }>("SELECT person_id FROM reviewer_codes WHERE code_hash = ? AND expires_at > ?", sha256(code), this.now());
+    if (row === undefined) return null;
+    const email = normalizeEmail(emailRaw);
+    const own = email === null ? undefined : this.db.get("SELECT 1 AS x FROM identities WHERE kind = 'email' AND value = ? AND person_id = ?", email, row.person_id);
+    if (own === undefined || !this.canSignIn(row.person_id)) return null;
+    this.audit(row.person_id, null, "login.reviewer-code", null);
+    return row.person_id;
+  }
+
+  /**
+   * Revoke every reviewer code of the reviewer account at `email`, and end its web sessions. How many
+   * codes went, and whose: the caller ends that person's OAuth grants too (`OidcStore#revokeAccount`),
+   * so a connection made with the code stops at its next call. Only a reviewer's account: never a member's.
+   */
+  revokeReviewer(emailRaw: unknown): { revoked: number; personId: string | null } {
+    const email = normalizeEmail(emailRaw);
+    if (email === null) return { revoked: 0, personId: null };
+    const person = this.db.get<{ id: string }>("SELECT p.id FROM identities i JOIN people p ON p.id = i.person_id WHERE i.kind = 'email' AND i.value = ? AND p.kind = 'reviewer'", email)?.id;
+    if (person === undefined) return { revoked: 0, personId: null };
+    this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
+    const n = this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+    this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
+    this.audit(person, null, "reviewer.revoked", String(n));
+    return { revoked: n, personId: person };
+  }
+
+  /**
+   * A reviewer whose codes have all expired is ended as a revoke ends one (the app's timer, and start-up,
+   * call this and then revoke the returned people's grants): the code rows and web sessions go. Each
+   * person is returned once, because its rows go with it.
+   */
+  endExpiredReviewers(): string[] {
+    const due = this.db
+      .all<{ person_id: string }>("SELECT person_id FROM reviewer_codes GROUP BY person_id HAVING max(expires_at) <= ?", this.now())
+      .map((r) => r.person_id);
+    for (const person of due) {
+      this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
+      this.audit(person, null, "reviewer.expired", null);
+    }
+    return due;
+  }
+
+  /** What this store is seeded with at its first open ('sample'), or null. */
+  seedOf(storeId: string): string | null {
+    return this.db.get<{ seed: string | null }>("SELECT seed FROM stores WHERE id = ?", storeId)?.seed ?? null;
+  }
+
+  /** The seed ran: it never runs again. */
+  clearSeed(storeId: string): void {
+    this.db.run("UPDATE stores SET seed = NULL WHERE id = ?", storeId);
   }
 
   // ── login links ────────────────────────────────────────────────────────────
@@ -787,6 +905,7 @@ export class Accounts {
       const emails = this.db.all<{ value: string }>("SELECT value FROM identities WHERE person_id = ? AND kind = 'email'", personId).map((r) => r.value);
       for (const e of emails) this.db.run("DELETE FROM login_links WHERE email = ?", e);
       this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
+      this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
       this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
       this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL, last_wake_on = NULL WHERE id = ?", at, personId);
