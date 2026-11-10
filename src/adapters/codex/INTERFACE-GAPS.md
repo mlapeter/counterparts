@@ -24,6 +24,15 @@
    stays its own (me and us); a Codex `remark` never moves an identity row's mark, and a Codex `remember.core`
    is refused; a Codex chapter carries its host (`meta.hosts`, additive) and day's end skips it; a write's
    neighbours label a Codex note.
+   **Every row Codex writes carries `meta.host`** (re-review of 208c9b45) — its plain writes, its notes, and its
+   chapters' summaries (from the episode's `hosts`) — and every identity guard reads `isReaderHostRow`: the dream's
+   merge, gist/fold sources, fold parts, belief-candidate sources and nominate-core; the reflection's cites and
+   marks; `fileSupport`; the core lane; `setAbout`/`markAbout`; dedup; the content ledger's `repeats`; and the page
+   writer's omit (all of Codex's rows, not only its notes). The dream's episodes and the reflection's chapters and
+   timeline skip a Codex chapter, as day's end does; the dream's and the reflection's items label any Codex row
+   ("written by gpt-x in Codex — not mine"). Accepted for now: an owner-said fact Codex recorded can't be settled
+   over the counterpart's identity by the counterpart either (only the owner's door can), and the slot detector's
+   nightly confirm will refuse such a pair each night it proposes it.
    Still open (fine for now): with no mark the note can show among a folder's titles in the wake
    (`reads-memories.ts`), as a Codex `me` note can; the null mark loses the reach `us` had as a personal mark;
    the inner doors answer `reader-self-note` / `ABOUT_READER_SELF` for an `us` note too; the slot detector
