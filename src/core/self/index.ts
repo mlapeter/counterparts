@@ -3591,7 +3591,7 @@ export class Self {
      *  episode's meta, and on the chapter's summary (2026-10-01; the copy
      *  until 2026-10-15). `summary`: the chapter's summary memory, in the
      *  session's own words (2026-10-15) — written once per chapter. */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark; summary?: string } = {},
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark; summary?: string; host?: string } = {},
   ): ChapterAppend {
     const d = opts.day ?? this.store.livedDay();
     if (sessionId.trim().length === 0) {
@@ -3629,6 +3629,7 @@ export class Self {
     if (opts.model !== undefined) append.model = opts.model;
     if (opts.scope !== undefined && opts.scope.length > 0) append.scope = opts.scope;
     if (opts.about !== undefined) append.about = opts.about;
+    if (opts.host !== undefined && opts.host.length > 0) append.host = opts.host;
     const written = appendChapter(this.store, state, gatedText, append);
     // WHICH CHAPTER THIS IS, by place among the engine headings — the number
     // a summary carries and an address names (`epi_…#N`).

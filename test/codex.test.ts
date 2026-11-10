@@ -38,6 +38,8 @@ import { isStoreError } from "../src/core/store/index.js";
 import { readerSelfOfRow, readerUsOfRow } from "../src/core/reader-note.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { strength } from "../src/core/physics/index.js";
+import { runCycle } from "../src/core/sleep/index.js";
+import { settle } from "../src/core/reconsolidation.js";
 
 const MODEL = "gpt-test-9";
 const HOOK = resolve(import.meta.dir, "../src/adapters/codex/bin/hook.ts");
@@ -921,6 +923,205 @@ describe("about: us from Codex is the owner and that model, labelled — never t
       expect(row?.about).toBe("us");
       expect(readerUsOfRow(row)).toBeNull();
       expect(aboutMe(cc.counterpart.store, { id: row?.id ?? "", kind: row?.kind ?? "person", about: row?.about ?? null })).toBe(true);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+});
+
+// ── option B, held in core (review of e507e3e4..a7c9bd74): every road a Codex note could take ──
+
+const LABEL_US = `${MODEL} in Codex's own note about itself and the owner — not about us`;
+
+/** The counterpart's own us (from Claude Code) and a Codex us note, in one store; the Codex server left open. */
+async function twoUs(session: string): Promise<{ s: ReturnType<typeof openServer>; ccId: string; noteId: string }> {
+  const cc = openServer({ dir: store, scope: canonicalScope(project) });
+  let ccId: string;
+  try {
+    ccId = (await cc.call("remember", { text: "Mike and I cook risotto together on rainy Sundays.", about: "us", kind: "person" })).structuredContent["id"] as string;
+  } finally {
+    cc.counterpart.close();
+  }
+  await hook(base("SessionStart", session, null, { source: "startup" }));
+  const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+  await s.call("session_end", { session, memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner", saidBy: "owner" }] });
+  const noteId = (await s.call("remember", { session, text: "The owner and I review the risotto benchmark suite on Sundays.", about: "us", kind: "person" })).structuredContent["id"] as string;
+  return { s, ccId, noteId };
+}
+
+const strengthNow = (c: Counterpart, id: string): number =>
+  strength(c.store.physicsOf(id) as NonNullable<ReturnType<Counterpart["store"]["physicsOf"]>>, c.store.livedDay());
+
+describe("option B in core: nothing Codex wrote replaces, fades or folds into the counterpart's me or us", () => {
+  test("dedup (runCycle) never merges a Codex note with the counterpart's same words", async () => {
+    const words = "Mike and I always toast a green release with ginger tea.";
+    await hook(base("SessionStart", "cx-dd", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    let noteId: string;
+    try {
+      noteId = (await s.call("remember", { session: "cx-dd", text: words, about: "us", kind: "person" })).structuredContent["id"] as string;
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const ccId = (await cc.call("remember", { text: words, about: "us", kind: "person" })).structuredContent["id"] as string;
+      runCycle({ store: cc.counterpart.store, date: cc.counterpart.store.today() });
+      expect(cc.counterpart.store.row(ccId)?.archived).toBe(0);
+      expect(cc.counterpart.store.row(noteId)?.archived).toBe(0);
+      expect(cc.counterpart.store.row(ccId)?.about).toBe("us");
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("an MCP settle from Codex never moves the counterpart's us: not by its note, not by any memory", async () => {
+    const { s, ccId, noteId } = await twoUs("cx-settle");
+    try {
+      const c = s.counterpart;
+      const before = strengthNow(c, ccId);
+      await s.call("recall", { question: "risotto Sundays", mode: "facts" });
+      const r = await s.call("remember", { session: "cx-settle", settle: { holds: noteId, over: ccId, how: "changed", why: "newer" } });
+      expect((r.structuredContent["settle"] as Record<string, unknown>)["ok"]).toBe(false);
+      expect(strengthNow(c, ccId)).toBe(before);
+      expect(c.store.row(ccId)?.superseded_by ?? null).toBeNull();
+      // The core's own rule, whoever calls it: a Codex note over the counterpart's identity is refused.
+      const direct = settle(c.store, { holds: noteId, over: ccId, how: "corrected", actor: "dream", actorId: "drm_x" });
+      expect(direct.ok).toBe(false);
+      expect(c.store.row(ccId)?.archived).toBe(0);
+      // Nor any other memory Codex wrote (meta.host), not only its own notes.
+      const plain = (await s.call("remember", { session: "cx-settle", text: "The owner moved risotto night to Saturdays.", about: "owner" })).structuredContent["id"] as string;
+      const byPlain = settle(c.store, { holds: plain, over: ccId, how: "changed", actor: "dream", actorId: "drm_x" });
+      expect(byPlain.ok ? null : byPlain.reason).toBe("reader-over-identity");
+      expect(strengthNow(c, ccId)).toBe(before);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("the dream: a Codex note is never a merge, gist or fold source, its settle over the counterpart's us is refused, and the bundle labels it", async () => {
+    const { s, ccId, noteId } = await twoUs("cx-dream");
+    s.counterpart.close();
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const before = strengthNow(c, ccId);
+      const begun = c.dreams.begin({ session: "night" });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      expect(JSON.stringify(begun.bundle)).toContain(LABEL_US);
+      const out = c.dreams.propose({
+        dream: begun.bundle.dream,
+        session: "night",
+        changes: [
+          { action: "merge", ids: [noteId, ccId], text: "We cook and review on Sundays." },
+          { action: "gist", text: "Sundays are ours.", sources: [noteId, ccId], fold: true },
+          { action: "gist", text: "Sundays hold a pattern.", sources: [noteId] },
+          { action: "settle", holds: noteId, over: ccId, how: "changed", why: "newer" },
+        ],
+      });
+      if (!out.ok) throw new Error("propose refused");
+      expect(out.results.map((r) => r.reason)).toEqual(["reader-self-note", "reader-self-note", "reader-self-note", "reader-over-identity"]);
+      expect(strengthNow(c, ccId)).toBe(before);
+      expect(c.store.row(ccId)?.archived).toBe(0);
+      expect(c.store.row(ccId)?.superseded_by ?? null).toBeNull();
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("a Codex revision of its own note keeps it Codex's, for me and for us", async () => {
+    await hook(base("SessionStart", "cx-own", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      await s.call("session_end", { session: "cx-own", memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner", saidBy: "owner" }] });
+      const me = (await s.call("remember", { session: "cx-own", text: "I tend to batch my lint fixes at the end.", about: "me" })).structuredContent["id"] as string;
+      const us = (await s.call("remember", { session: "cx-own", text: "The owner and I split lint fixes by module.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      const meRev = (await s.call("remember", { session: "cx-own", updates: me, how: "changed", text: "I now batch my lint fixes at the end of each module, not the session." })).structuredContent["id"] as string;
+      const usRev = (await s.call("remember", { session: "cx-own", updates: us, how: "changed", text: "The owner and I now split lint fixes by package, not module.", kind: "person" })).structuredContent["id"] as string;
+      expect(readerSelfOfRow(s.counterpart.store.row(meRev))).toEqual({ host: CODEX_HOST, model: MODEL });
+      expect(readerUsOfRow(s.counterpart.store.row(usRev))).toEqual({ host: CODEX_HOST, model: MODEL });
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("remark and core from Codex: never re-marks the counterpart's me or us away, never keeps or retires the core", async () => {
+    const { s, ccId } = await twoUs("cx-remark");
+    try {
+      const c = s.counterpart;
+      await s.call("recall", { question: "risotto Sundays", mode: "facts" });
+      const away = await s.call("remember", { session: "cx-remark", remark: { id: ccId, about: "work", why: "it is work" } });
+      expect((away.structuredContent["remark"] as Record<string, unknown>)["reason"]).toBe("reader-host");
+      expect(c.store.row(ccId)?.about).toBe("us");
+      c.store.updatePhysics(ccId, { promotedIdentity: true });
+      const retire = await s.call("remember", { session: "cx-remark", core: { id: ccId, decision: "retire", why: "not needed" } });
+      expect((retire.structuredContent["core"] as Record<string, unknown>)["reason"]).toBe("reader-host");
+      expect(c.store.row(ccId)?.promoted_identity).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("a Codex updates at a core memory or a belief is not taken (readerIdentityTarget's other branches)", async () => {
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    let coreId: string;
+    let beliefId: string;
+    try {
+      coreId = (await cc.call("remember", { text: "The owner reads every diff before it lands.", about: "owner", saidBy: "owner" })).structuredContent["id"] as string;
+      cc.counterpart.store.updatePhysics(coreId, { promotedIdentity: true });
+      const b = cc.counterpart.sessionBelief({ memoryId: coreId, statement: "Careful review matters to them." });
+      beliefId = b.id as string;
+      expect(typeof beliefId).toBe("string");
+    } finally {
+      cc.counterpart.close();
+    }
+    await hook(base("SessionStart", "cx-branches", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      await s.call("session_end", { session: "cx-branches", memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner", saidBy: "owner" }] });
+      const before = strengthNow(s.counterpart, coreId);
+      const onCore = await s.call("remember", { session: "cx-branches", updates: coreId, how: "changed", text: "The owner now reads every diff before it lands, twice." });
+      expect((onCore.structuredContent["updatesNotTaken"] as Record<string, unknown>)["over"]).toBe(coreId);
+      expect(onCore.structuredContent["updatesNotTaken"]).toMatchObject({ reason: "counterpart-identity" });
+      expect(strengthNow(s.counterpart, coreId)).toBe(before);
+      const onBelief = await s.call("remember", { session: "cx-branches", updates: beliefId, how: "corrected", text: "Careful review matters to them less than speed now." });
+      expect((onBelief.structuredContent["updatesNotTaken"] as Record<string, unknown>)["over"]).toBe(beliefId);
+      expect(s.counterpart.store.row(beliefId)?.archived).toBe(0);
+      expect(s.counterpart.store.row(beliefId)?.superseded_by ?? null).toBeNull();
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("a Codex chapter never reaches the page writer's day as the counterpart's journal", async () => {
+    await hook(base("SessionStart", "cx-ch", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      const ch = await s.call("chapter", { session: "cx-ch", text: "I refactored the quillwort tokenizer and the owner approved it.", summary: "The quillwort tokenizer refactor landed." });
+      expect(ch.structuredContent["stored"]).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const handed = c.pageWriterInput({ about: c.store.today() });
+      expect(JSON.stringify(handed)).not.toContain("quillwort");
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("the neighbours a write is shown label a Codex note", async () => {
+    const { s, noteId } = await twoUs("cx-nb");
+    s.counterpart.close();
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const r = await cc.call("remember", { text: "The owner and I review the risotto benchmark suite on Sunday evenings now." });
+      const nb = (r.structuredContent["neighbours"] as Record<string, unknown>[] | undefined) ?? [];
+      const it = nb.find((n) => n["id"] === noteId);
+      expect(it).toBeDefined();
+      expect(it?.["reader"]).toBe(LABEL_US);
     } finally {
       cc.counterpart.close();
     }

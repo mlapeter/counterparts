@@ -728,6 +728,8 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       ...(typeof title === "string" && title.length > 0 ? { title } : {}),
       ...(model === undefined ? {} : { model }),
       ...(chapterAbout === null ? {} : { about: chapterAbout }),
+      // Which reader host wrote it (option B): the page writer never reads it as the counterpart's day.
+      ...(server["readerHost"]() ? { host: server["host"] } : {}),
       ...(typeof summary === "string" && summary.trim().length > 0 ? { summary } : {}),
     });
   } catch (err) {

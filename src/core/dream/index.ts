@@ -37,7 +37,7 @@
  * the model, outside this process.
  */
 import { SELF_TUNABLES } from "../self/tunables.js";
-import { isReaderSelfRow } from "../reader-note.js";
+import { isReaderSelfRow, readerNoteLine } from "../reader-note.js";
 import { NO_RECORD_RULE, daySummaryFor, pageWriterNight } from "../self/writer.js";
 import type { DaySummary } from "../self/writer.js";
 import { createHash, randomBytes } from "node:crypto";
@@ -168,6 +168,8 @@ export interface DreamItem {
   readonly id: string;
   /** `earlier (now mem_…)` when a later memory settled over it (`recall/standing.ts#headOf`, 2026-10-11). */
   readonly standing?: string;
+  /** A reader host's own note, labelled (option B, `reader-note.ts#readerNoteLine`): never mine, never a source. */
+  readonly reader?: string;
   readonly kind: Kind;
   readonly why: DreamRole;
   readonly fidelity: Exclude<Fidelity, "id">;
@@ -2144,7 +2146,8 @@ export class Dreams {
     for (const id of new Set(sources)) {
       if (!shown.has(id)) continue;
       const row = this.store.row(id);
-      if (row === undefined || !this.showable(row) || foldExemption(this.store, row) !== null) continue;
+      // Nor a reader host's own note (option B): never a fold's part, so never carried as one.
+      if (row === undefined || !this.showable(row) || foldExemption(this.store, row) !== null || isReaderSelfRow(row)) continue;
       parts.push(id);
     }
     if (parts.length < 2) return 0;
@@ -2207,6 +2210,8 @@ export class Dreams {
         const rs = rows as MemoryRow[];
         const which = (pred: (r: MemoryRow) => boolean): string => rs.filter(pred).map((r) => r.id).join(", ");
         if (rs.some((r) => r.promoted_identity === 1)) return { action, ok: false, reason: "core-is-not-merged", detail: `${which((r) => r.promoted_identity === 1)} is core; a dream does not rewrite the core.` };
+        // A READER HOST'S OWN NOTE IS NEVER MERGED (option B, 2026-11-10, `reader-note.ts`): another model's words, not mine.
+        if (rs.some((r) => isReaderSelfRow(r))) return { action, ok: false, reason: "reader-self-note", detail: `${which((r) => isReaderSelfRow(r))} is a note another model wrote, read from another host; a dream does not merge it.` };
         if (rs.some((r) => r.source === "dreamed")) return { action, ok: false, reason: "dreamed-rises-only-awake", detail: `${which((r) => r.source === "dreamed")} was dreamed; a dream does not build on its own words.` };
         // A DATED memory is a reminder that fires on its date (`prospective/`);
         // the merged memory would carry no date, and the reminder would go
@@ -2403,6 +2408,10 @@ export class Dreams {
         if (isFold && sources.length < 2) return { action, ok: false, reason: "fold-takes-two-or-more", detail: `sources named ${String(sources.length)}; a fold says what two or more memories add up to.` };
         const sourceRows = sources.map(live);
         if (sourceRows.some((r) => r === null)) return { action, ok: false, reason: "not-shown-or-gone", detail: this.notLive(sources.filter((_, i) => sourceRows[i] === null), shown) };
+        // NOR A GIST'S OR A FOLD'S SOURCE (option B, 2026-11-10): another model's note is never what my pattern is drawn from.
+        if (sourceRows.some((r) => isReaderSelfRow(r))) {
+          return { action, ok: false, reason: "reader-self-note", detail: `${sources.filter((_, i) => isReaderSelfRow(sourceRows[i])).join(", ")} is a note another model wrote, read from another host; it is never a gist's or a fold's source.` };
+        }
         const words = this.words(change.text, dream);
         if (!words.ok) return { action, ok: false, reason: words.reason, detail: `text: ${words.detail}` };
         const kind: Kind = (KINDS as readonly string[]).includes(String(change.kind)) ? (change.kind as Kind) : "fact";
@@ -3526,9 +3535,11 @@ export class Dreams {
     // SETTLED OVER (2026-10-11): marked, not left out — the dream may still
     // link or feel it, and the mark keeps it from gisting the old rule as now.
     const head = headOf(this.store, row.id);
+    const reader = readerNoteLine(row);
     return {
       id: row.id,
       ...(head === null ? {} : { standing: earlierMark(head) }),
+      ...(reader === null ? {} : { reader }),
       kind: row.kind,
       why,
       fidelity: placed.fidelity === "id" ? "line" : placed.fidelity,
@@ -4054,6 +4065,7 @@ export function leanDreamItem(item: DreamItem | string, aliases: AliasMap, year:
   f.push(`d${String(item.day)} ${leanDate(item.learned, year)}${item.lived === undefined ? "" : ` lived ${leanDate(item.lived, year)}`}`);
   if (item.feeling !== null || item.felt > 0) f.push(`${item.feeling ?? "felt"} ${leanNumber(item.felt)}`);
   if (item.core) f.push("core");
+  if (item.reader !== undefined) f.push(item.reader);
   if (item.standing !== undefined) f.push(aliases.inText(item.standing).replace(/^earlier \(now (.+)\)$/, "earlier, now $1"));
   const tail = item.fidelity === "whole" ? "" : item.fidelity === "excerpt" ? ` (excerpt of ${String(item.chars)})` : ` (${String(item.chars)})`;
   return `${f.join(" · ")} · ${item.text}${tail}`;

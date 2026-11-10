@@ -108,6 +108,63 @@ export function isReaderSelfRow(row: { readonly meta?: unknown } | undefined | n
 }
 
 /**
+ * Was this row written from a reader host at all (`meta.host`), or is it a
+ * reader's own note? Either way its words are another model's, never the
+ * counterpart's (2026-11-10). Never throws.
+ */
+export function isReaderHostRow(row: { readonly meta?: unknown } | undefined | null): boolean {
+  if (row === undefined || row === null) return false;
+  if (isReaderSelfRow(row)) return true;
+  const raw = row.meta;
+  let meta: unknown = raw;
+  if (typeof raw === "string") {
+    if (!raw.includes(`"${HOST_META_KEY}"`)) return false;
+    try {
+      meta = JSON.parse(raw);
+    } catch {
+      return false;
+    }
+  }
+  if (meta === null || typeof meta !== "object" || Array.isArray(meta)) return false;
+  const host = (meta as Record<string, unknown>)[HOST_META_KEY];
+  return typeof host === "string" && host.length > 0;
+}
+
+/**
+ * THE COUNTERPART'S OWN IDENTITY (option B, 2026-11-10): a memory marked me or
+ * us, a core one (promoted, or in the identity band), or a belief. The one rule
+ * the core holds at every operation a reader's words could reach it by — a
+ * settle, a write's `updates`, a fold or merge — so that nothing a reader host
+ * wrote replaces, fades or folds into it. A reader's own note is never one.
+ * Structural, so the store, the night and the door can all read it. Never throws.
+ */
+export function isCounterpartIdentityRow(
+  row:
+    | {
+        readonly type?: string;
+        readonly about?: string | null;
+        readonly promoted_identity?: number;
+        readonly band?: string;
+        readonly meta?: unknown;
+      }
+    | undefined
+    | null,
+): boolean {
+  if (row === undefined || row === null || isReaderSelfRow(row)) return false;
+  if (row.about === "me" || row.about === "us") return true;
+  if (row.promoted_identity === 1 || row.band === "identity") return true;
+  if (row.type === "schema" && typeof row.meta === "string" && row.meta.includes('"belief"')) {
+    try {
+      const m = JSON.parse(row.meta) as { role?: unknown } | null;
+      return m !== null && typeof m === "object" && m.role === "belief";
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
  * Is a write from a reader host about the reader itself? `about: me`, or a
  * `kind: self` memory with no other mark (`kind: self` beside `us` is the
  * reader's `us` note instead: `writesReaderUs`).

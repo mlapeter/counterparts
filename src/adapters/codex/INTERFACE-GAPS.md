@@ -14,10 +14,24 @@
    taken (`counterpart-deposit.ts#readerIdentityTarget`): nothing is settled, faded or carried, Codex's words
    stand as its own note, and the result says so (`updatesNotTaken`). A Codex note never blocks the counterpart's
    own write of the same words (the content ledger's `repeats`); Codex repeating the counterpart's is still a repeat.
+   **Held in core since the review of a7c9bd74** (two predicates in `core/reader-note.ts`: `isReaderSelfRow` for a
+   Codex note, `isCounterpartIdentityRow` for a memory about me or us, a core one or a belief; `isReaderHostRow`
+   adds any row with `meta.host`): sleep's dedup never merges across a reader boundary; `reconsolidation.ts`'s
+   `settle` and `supersede` (the one door a settle, a write's `updates`, a slot, a merge, a fold and interference
+   cross) refuse `reader-over-identity` when words written from a reader host would stand over the counterpart's
+   identity, and a settle FROM a reader host touching identity at all; the dream never merges, gists, folds or
+   carries a Codex note, and the dream's and the reflection's bundles label it; a Codex revision of its own note
+   stays its own (me and us); a Codex `remark` never moves an identity row's mark, and a Codex `remember.core`
+   is refused; a Codex chapter carries its host (`meta.hosts`, additive) and day's end skips it; a write's
+   neighbours label a Codex note.
    Still open (fine for now): with no mark the note can show among a folder's titles in the wake
    (`reads-memories.ts`), as a Codex `me` note can; the null mark loses the reach `us` had as a personal mark;
-   the inner doors answer `reader-self-note` / `ABOUT_READER_SELF` for an `us` note too; and the slot detector
-   may still PROPOSE (never settle) a Codex note as the newer state of something, for the night to answer.
+   the inner doors answer `reader-self-note` / `ABOUT_READER_SELF` for an `us` note too; the slot detector
+   may still PROPOSE a Codex note as the newer state of something (a confirm crosses `supersede`, which refuses
+   it over identity); a Codex chapter still reads as "my journal" in facts recall, the dream's journal slices and
+   the reflection's timeline; a Codex `remove` of the counterpart's memories is allowed (Mike's call: held 24 h,
+   undoable); and a reader host is known only by the `--host codex` launch flag — a hosted, remote or hand-added
+   MCP entry treats Codex as the counterpart (map `clientInfo` once measured).
 2. **What waits for Claude Code.** The first meeting, the first-launch scope question, plain reminders, the update
    and maintenance lines, the write-up pointer for an owed session (a Codex session that ended unwritten is written
    up by the next Claude Code session in its folder, or the night's catch-up — in the counterpart's voice, about

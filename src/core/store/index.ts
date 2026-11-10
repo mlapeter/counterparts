@@ -305,7 +305,7 @@ export * from "./errors.js";
 export * from "../observer.js";
 // A reader host's note about itself (CX2): re-exported so `sleep/`, which
 // imports only types, physics and the store, can keep it out of the core.
-export { isReaderSelfRow } from "../reader-note.js";
+export { isCounterpartIdentityRow, isReaderHostRow, isReaderSelfRow } from "../reader-note.js";
 export * from "./paths.js";
 export * from "./private.js";
 export * from "./prose.js";

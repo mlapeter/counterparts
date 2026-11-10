@@ -5254,7 +5254,7 @@ export class Counterpart {
      *  `about`: what the session was about, carried to the chapter's summary
      *  (2026-10-01, `self/index.ts#appendChapter`). `summary`: the chapter's
      *  summary memory in the session's words (2026-10-15), gated by `self/`. */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark; summary?: string } = {},
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark; summary?: string; host?: string } = {},
   ): ChapterResult {
     const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {

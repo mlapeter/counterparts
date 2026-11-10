@@ -98,7 +98,7 @@ import { homedir } from "node:os";
 import { NONESSENTIAL_TRAFFIC_ENV, UPDATE_CHECK_ENV, UPDATE_OFF_KEY, askedOff, updateSwitch } from "../update-check.js";
 import type { UpdateSwitch } from "../update-check.js";
 import { CLAUDE_AI_HOST, CODEX_HOST, CODEX_HOST_NAME, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, isReaderHost, wordingFor } from "../hosts.js";
-import { READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, READER_US_META_KEY, readerLabel, writesReaderSelf, writesReaderUs } from "../../core/reader-note.js";
+import { READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, READER_US_META_KEY, isCounterpartIdentityRow, readerLabel, writesReaderSelf, writesReaderUs } from "../../core/reader-note.js";
 import type { ReaderSelf } from "../../core/reader-note.js";
 import { PLUGIN_ROOT_ENV, recordedForThisCopy } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
@@ -2167,6 +2167,11 @@ export class McpServer {
       }
       // A READER HOST NEVER MARKS A MEMORY ABOUT ME OR US (CX2; `us` since
       // option B, 2026-11-10): both are the counterpart's.
+      // Nor away from them (review of a7c9bd74): a memory that IS the
+      // counterpart's identity — marked me or us, core, a belief — keeps its mark.
+      if (this.readerHost() && isCounterpartIdentityRow(this.counterpart.store.row(id))) {
+        return { ok: false, reason: "reader-host", detail: `${id} is the counterpart's own (about me or us, or core), and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}; its mark is not yours to change. Nothing was marked.` };
+      }
       if (this.readerHost() && (arg["about"] === "me" || arg["about"] === "us")) {
         const mark = arg["about"];
         return { ok: false, reason: "reader-host", detail: `In this memory "${mark}" is ${mark === "me" ? "the counterpart" : "the owner and the counterpart"}, and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}; a mark about ${mark} is not yours to set. Nothing was marked.` };
@@ -2307,6 +2312,10 @@ export class McpServer {
     try {
       if (id.length === 0) return { ok: false, reason: "core-malformed", detail: 'core needs the memory\'s id: {id, decision, why}.' };
       if (decision !== "keep" && decision !== "retire") return { ok: false, reason: "core-malformed", detail: 'decision is "keep" or "retire".' };
+      // THE CORE IS THE COUNTERPART'S (option B, 2026-11-10): a reader host neither keeps nor retires it.
+      if (this.readerHost()) {
+        return { ok: false, reason: "reader-host", detail: `The core is the counterpart's own, and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}: a keep or a retire is not yours to make. Nothing was changed.` };
+      }
       const row = this.counterpart.store.row(id);
       if (row === undefined) return { ok: false, reason: "unknown-id", detail: `No memory ${id} in this store.` };
       // Deleted in chat (held) or removed: gone, not "not in the core" (fix round R7).
@@ -2357,6 +2366,8 @@ export class McpServer {
         why: typeof arg["why"] === "string" ? arg["why"] : null,
         actor: "session",
         actorId: this.session ?? null,
+        // From a reader host the core refuses any settle touching the counterpart's identity (option B).
+        ...(this.readerHost() ? { readerHost: true } : {}),
       });
       return { ...out };
     } catch (err) {

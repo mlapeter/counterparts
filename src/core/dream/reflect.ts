@@ -65,7 +65,7 @@
 import { randomBytes } from "node:crypto";
 
 import { emotionalIntensity } from "../physics/index.js";
-import { isReaderSelfRow } from "../reader-note.js";
+import { isReaderSelfRow, readerNoteLine } from "../reader-note.js";
 import { earlierMark, headOf, isHandoff, isSelfPage } from "../recall/index.js";
 import { aboutMe, acceptsReflectedFeeling, keepCore, laterFeelingWasReflections, promotionRecordKey, reconsiderWords, retireCore, selfRelevantFeeling } from "../sleep/index.js";
 import {
@@ -349,6 +349,8 @@ export interface ReflectItem {
   readonly id: string;
   /** `earlier (now mem_…)` when a later memory settled over it (`recall/standing.ts#headOf`, 2026-10-11). */
   readonly standing?: string;
+  /** A reader host's own note, labelled (option B, `reader-note.ts#readerNoteLine`): never mine, never a source. */
+  readonly reader?: string;
   readonly kind: Kind;
   readonly fidelity: Fidelity;
   readonly text: string;
@@ -3922,9 +3924,11 @@ export class Reflections {
       }));
     const about = row.about === null ? null : (ABOUT_MARKS as readonly string[]).includes(row.about) ? (row.about as AboutMark) : null;
     const head = headOf(this.store, row.id);
+    const reader = readerNoteLine(row);
     return {
       id: row.id,
       ...(head === null ? {} : { standing: earlierMark(head) }),
+      ...(reader === null ? {} : { reader }),
       kind: row.kind,
       fidelity: placed.fidelity,
       text: placed.text,
@@ -4760,6 +4764,7 @@ export function leanReflectItem(item: ReflectItem | string, aliases: AliasMap, y
         .join(" | ")}`,
     );
   }
+  if (item.reader !== undefined) f.push(item.reader);
   if (item.standing !== undefined) f.push(aliases.inText(item.standing).replace(/^earlier \(now (.+)\)$/, "earlier, now $1"));
   const tail = item.fidelity === "whole" ? "" : item.fidelity === "excerpt" ? ` (excerpt of ${String(item.chars)})` : item.fidelity === "id" ? ` (id only; ${String(item.chars)})` : ` (${String(item.chars)})`;
   return `${f.join(" · ")} · ${item.text}${tail}`;

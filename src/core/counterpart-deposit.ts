@@ -26,7 +26,7 @@ import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
 import { noteCloseHintTaken } from "./close-hint.js";
-import { READER_US_META_KEY, isReaderSelfRow, readerUsOfMeta } from "./reader-note.js";
+import { READER_US_META_KEY, isCounterpartIdentityRow, isReaderSelfRow, readerSelfOfRow, readerUsOfMeta, readerUsOfRow } from "./reader-note.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -262,9 +262,19 @@ export async function deposit(
   // revises — that would put the reader's words in the counterpart's identity —
   // so an inherited `me` makes it the reader's note about itself, as a sent one
   // does at the door. And a note about itself carries no `me` or `us` at all.
+  // A READER'S REVISION OF ITS OWN NOTE stays its own (review of a7c9bd74):
+  // the note carries no mark to inherit, so its kind — about itself, or itself
+  // and the owner — is read off the note it revises, when no mark was sent.
+  const ownTarget =
+    ctx.host !== undefined && (ctx.about === undefined || ctx.about === null) && ctx.readerSelf === undefined && readerUsOfMeta(ctx.readerMeta ?? null) === null
+      ? (carry.proposal.updates?.resolved ?? null)
+      : null;
+  const ownRow = ownTarget === null ? undefined : cp.store.row(ownTarget);
+  const inheritsSelf = readerSelfOfRow(ownRow) !== null;
+  const inheritsUs = !inheritsSelf && readerUsOfRow(ownRow) !== null;
   const readerSelf =
     ctx.readerSelf ??
-    (ctx.host !== undefined && (unplumbed?.about === "me" || readerHeld?.about === "me") ? { host: ctx.host, model: ctx.model ?? null } : undefined);
+    (ctx.host !== undefined && (unplumbed?.about === "me" || readerHeld?.about === "me" || inheritsSelf) ? { host: ctx.host, model: ctx.model ?? null } : undefined);
   // And `us` the same way (option B, 2026-11-10): from a reader host it is the
   // owner and THAT model, so an inherited `us` makes the revision the reader's
   // `us` note, as a sent one does at the door. A note about itself wins.
@@ -272,7 +282,7 @@ export async function deposit(
     readerSelf !== undefined
       ? undefined
       : (readerUsOfMeta(ctx.readerMeta ?? null) ??
-        (ctx.host !== undefined && (unplumbed?.about === "us" || readerHeld?.about === "us") ? { host: ctx.host, model: ctx.model ?? null } : undefined));
+        (ctx.host !== undefined && (unplumbed?.about === "us" || readerHeld?.about === "us" || inheritsUs) ? { host: ctx.host, model: ctx.model ?? null } : undefined));
   const readerMeta: Readonly<Record<string, unknown>> | undefined =
     readerUs === undefined
       ? ctx.readerMeta === undefined || readerSelf === undefined
@@ -419,12 +429,10 @@ function readerIdentityTarget(cp: Counterpart, p: Proposal): { over: string; abo
   if (target === null) return null;
   try {
     const row = cp.store.row(target);
-    if (row === undefined || isReaderSelfRow(row)) return null;
+    if (row === undefined || !isCounterpartIdentityRow(row)) return null;
     const about = row.about === "me" || row.about === "us" ? row.about : null;
     if (about !== null) return { over: target, about, why: `about-${about}` };
-    if (row.promoted_identity === 1 || row.band === "identity") return { over: target, about: null, why: "core" };
-    if (isBeliefRow(row)) return { over: target, about: null, why: "belief" };
-    return null;
+    return { over: target, about: null, why: isBeliefRow(row) ? "belief" : "core" };
   } catch {
     return null;
   }
