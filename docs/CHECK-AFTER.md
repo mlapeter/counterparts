@@ -254,7 +254,8 @@ and `owedOne` in `core/counterpart-wake-shape.ts`. Only the shaped wake changes.
   `asked`, every `asked` item in its folder's Still open each wake. After: Still open shorter by the folder's `asked`
   items, one "Waiting on" line a wake at most.
 - **The turn lane.** Raises by `via: "turn"` against `via: "wake"`; for a hand-read of ten turn raises, did the turn
-  really touch the item (the bar: two shared words each weighing `OWNER_TURN_WORD_FLOOR` at recall's cue weight,
+  really touch the item (the bar: two shared words each weighing `OWNER_TURN_WORD_FLOOR` at recall's cue weight, one
+  of them a subject word, `OWNER_TURN_SUBJECT` or not in the embedder's word table,
   together `OWNER_TURN_WEIGHT`)? The `owed` step's p50 on `recall.decision.steps`: on a copy of the owner's store
   (11-09, day 49), through the hook, ~3.2 ms p50 on a cached turn, ~45 ms on the folder's first turn after a wake
   or a write that changes an asked item (one build), ~200 ms when that first build meets a cold page cache.

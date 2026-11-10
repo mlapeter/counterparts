@@ -154,8 +154,21 @@ export function noteRaised(
 
 // ── what a turn touches (the relevance lane's match, round 3 of #796) ──────────
 
-/** One item's words, each by its index term with its weight: rarity × how un-everyday it is. */
-export type TermWeights = Readonly<Record<string, number>>;
+/**
+ * One item's words, each by its index term with its weight (rarity × how
+ * un-everyday it is), and which of them are SUBJECT words: weighing at least
+ * `OWNER_TURN_SUBJECT`, or, with the embedder's word table loaded, a word the
+ * table holds no whole-word row for (a name, a tool, jargon: "npm"), over the
+ * floor. A turn has to share one of these (round 4 of #796: "want" and "talk"
+ * clear the floor, and together raised an item about wanting to talk).
+ */
+export interface TermWeights {
+  readonly w: Readonly<Record<string, number>>;
+  readonly subject: readonly string[];
+}
+
+/** No words. */
+export const NO_TERMS: TermWeights = { w: {}, subject: [] };
 
 /** A text's index terms (`stem.ts#stemTerm`), each with the surface forms it came from, as recall's cue step reads a turn. */
 export function termsOf(text: string, minLength: number = RECALL_TUNABLES.MIN_CUE_LENGTH): Map<string, string[]> {
@@ -183,44 +196,51 @@ export function weighMany(store: Pick<Store, "docFrequency" | "countMemories" | 
     const each = texts.map((t) => termsOf(t));
     const keys = new Set<string>();
     for (const terms of each) for (const forms of terms.values()) keys.add(forms.join(" "));
-    if (keys.size === 0) return texts.map(() => ({}));
+    if (keys.size === 0) return texts.map(() => NO_TERMS);
     const n = size ?? store.countMemories({ archived: false });
     const df = store.docFrequency([...keys]);
-    const norm = new Map<string, number>();
+    // Is the word table there at all? Without it every word reads as un-tabled, and only weight makes a subject word.
+    const table = store.wordNorm("the") !== null;
+    const norm = new Map<string, number | null>();
     return each.map((terms) => {
       const out: Record<string, number> = {};
+      const subject: string[] = [];
       for (const [key, forms] of terms) {
         const surface = forms[0] ?? key;
-        if (!norm.has(surface)) norm.set(surface, everydayFactor(store.wordNorm(surface), RECALL_TUNABLES));
-        const w = informativeness(df.get(forms.join(" ")) ?? 0, n) * (norm.get(surface) ?? 1);
-        if (w > 0) out[key] = w;
+        if (!norm.has(surface)) norm.set(surface, store.wordNorm(surface));
+        const raw = norm.get(surface) ?? null;
+        const w = informativeness(df.get(forms.join(" ")) ?? 0, n) * everydayFactor(raw, RECALL_TUNABLES);
+        if (!(w > 0)) continue;
+        out[key] = w;
+        if (w >= SHAPE.OWNER_TURN_SUBJECT || (table && raw === null && w >= SHAPE.OWNER_TURN_WORD_FLOOR)) subject.push(key);
       }
-      return out;
+      return { w: out, subject };
     });
   } catch {
-    return texts.map(() => ({}));
+    return texts.map(() => NO_TERMS);
   }
 }
 
 /** One text's weighed words (`weighMany` of one). */
 export function weighTerms(store: Pick<Store, "docFrequency" | "countMemories" | "wordNorm">, text: string, size?: number): TermWeights {
-  return weighMany(store, [text], size)[0] ?? {};
+  return weighMany(store, [text], size)[0] ?? NO_TERMS;
 }
 
 /** What a turn's terms share with an item's: how many words at or over `OWNER_TURN_WORD_FLOOR`, and their summed weight; the `aside` terms (the owner's name) count for nothing. */
-export function sharedWeight(item: TermWeights, turn: ReadonlySet<string>, aside: ReadonlySet<string> = new Set()): { n: number; sum: number } {
+export function sharedWeight(item: TermWeights, turn: ReadonlySet<string>, aside: ReadonlySet<string> = new Set()): { n: number; sum: number; subject: boolean } {
   let n = 0;
   let sum = 0;
-  for (const [k, w] of Object.entries(item)) {
+  const subject = (item.subject ?? []).some((k) => turn.has(k) && !aside.has(k));
+  for (const [k, w] of Object.entries(item.w ?? {})) {
     // A word below the floor is one most memories hold: it counts for nothing, not even towards `n`.
     if (aside.has(k) || !turn.has(k) || w < SHAPE.OWNER_TURN_WORD_FLOOR) continue;
     n += 1;
     sum += w;
   }
-  return { n, sum };
+  return { n, sum, subject };
 }
 
-/** A turn touches an item: at least `OWNER_TURN_SHARED` shared words, together weighing `OWNER_TURN_WEIGHT`. */
-export function touches(s: { n: number; sum: number }): boolean {
-  return s.n >= SHAPE.OWNER_TURN_SHARED && s.sum >= SHAPE.OWNER_TURN_WEIGHT;
+/** A turn touches an item: at least `OWNER_TURN_SHARED` shared words, together weighing `OWNER_TURN_WEIGHT`, one of them a subject word. */
+export function touches(s: { n: number; sum: number; subject: boolean }): boolean {
+  return s.subject && s.n >= SHAPE.OWNER_TURN_SHARED && s.sum >= SHAPE.OWNER_TURN_WEIGHT;
 }

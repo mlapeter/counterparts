@@ -70,7 +70,7 @@ import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake
 import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, contentWords, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
 import type { PreparedPage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
-import { noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
+import { NO_TERMS, noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
 import type { TermWeights } from "./owner-waits.js";
 import { hashText } from "./store/prose.js";
 
@@ -1229,6 +1229,9 @@ function owedOne(
 /** The meta key caching each folder's owed items for the turn lane, per lived day (round 3 of #796): `{ [folder]: { day, fp, at, items } }`. */
 export const OWNER_ITEMS_KEY = "wake.owner.items";
 
+/** The cached list's shape, in its fingerprint: a list cached in an older shape is built again. */
+const OWNER_ITEMS_SHAPE = "subject-words";
+
 /** One item waiting on the owner, as the turn lane matches it: its line's parts and its weighed words. */
 export interface OwedItem {
   readonly id: string;
@@ -1263,7 +1266,7 @@ function ownerAside(cp: Counterpart): { who: string; aside: ReadonlySet<string> 
 function handoffJoins(h: Handoff, first: TermWeights, mems: readonly { readonly id: string; readonly terms: TermWeights }[], aside: ReadonlySet<string>): boolean {
   const named = new Set(leadOf(h.body, SHAPE.LEAD_LINES, SHAPE.LEAD_BYTES).lines.join(" ").match(MEMORY_ID) ?? []);
   if (mems.some((m) => named.has(m.id))) return true;
-  const words = new Set(Object.keys(first));
+  const words = new Set(Object.keys(first.w));
   return mems.some((m) => touches(sharedWeight(m.terms, words, aside)));
 }
 
@@ -1273,8 +1276,8 @@ function joinless(cp: Counterpart, hs: readonly Handoff[], mems: readonly { read
   const size = cp.store.countMemories({ archived: false });
   const { aside } = ownerAside(cp);
   const terms = weighMany(cp.store, [...mems.map((m) => m.text), ...hs.map((h) => firstRealSentence(h.body))], size);
-  const weighed = mems.map((m, i) => ({ id: m.id, terms: terms[i] ?? {} }));
-  return hs.filter((h, i) => !handoffJoins(h, terms[mems.length + i] ?? {}, weighed, aside));
+  const weighed = mems.map((m, i) => ({ id: m.id, terms: terms[i] ?? NO_TERMS }));
+  return hs.filter((h, i) => !handoffJoins(h, terms[mems.length + i] ?? NO_TERMS, weighed, aside));
 }
 
 /**
@@ -1321,10 +1324,10 @@ export function owedItems(cp: Counterpart, scope: string, exportsFrom?: (scope: 
   };
   // One document-frequency read for every item's words, and each handoff's first sentence.
   const weights = weighMany(store, [...found.map((x) => x.text), ...hs.map((h) => firstRealSentence(h.body)), ...hs.map(handText)], size);
-  const items: OwedItem[] = found.map(({ text: _t, ...x }, i) => ({ ...x, terms: weights[i] ?? {} }));
+  const items: OwedItem[] = found.map(({ text: _t, ...x }, i) => ({ ...x, terms: weights[i] ?? NO_TERMS }));
   const mems = [...items];
   hs.forEach((h, i) => {
-    if (handoffJoins(h, weights[found.length + i] ?? {}, mems, aside)) return;
+    if (handoffJoins(h, weights[found.length + i] ?? NO_TERMS, mems, aside)) return;
     items.push({
       id: h.id,
       version: h.version,
@@ -1333,7 +1336,7 @@ export function owedItems(cp: Counterpart, scope: string, exportsFrom?: (scope: 
       title: titleOfRow({ title: null, body: h.body }),
       needs: null,
       at: cp.handoffs.writtenAt(h) ?? startOfLocalDay(h.writtenOn, store.zone()),
-      terms: weights[found.length + hs.length + i] ?? {},
+      terms: weights[found.length + hs.length + i] ?? NO_TERMS,
     });
   });
   return items;
@@ -1354,7 +1357,7 @@ type ItemsCache = Record<string, { readonly day: number; readonly fp: string; re
 function owedItemsCached(cp: Counterpart, scope: string, exportsFrom?: (scope: string) => boolean): OwedItem[] {
   const store = cp.store;
   const day = store.livedDay();
-  const fp = hashText(JSON.stringify([scope, store.askedOpenStamps(), cp.handoffs.readAll(scope).map((h) => [h.id, h.version]), store.getMeta(HANDOFF_LED_KEY) ?? ""]));
+  const fp = hashText(JSON.stringify([OWNER_ITEMS_SHAPE, scope, store.askedOpenStamps(), cp.handoffs.readAll(scope).map((h) => [h.id, h.version]), store.getMeta(HANDOFF_LED_KEY) ?? ""]));
   let was: ItemsCache = {};
   try {
     const v = JSON.parse(store.getMeta(OWNER_ITEMS_KEY) ?? "{}") as unknown;

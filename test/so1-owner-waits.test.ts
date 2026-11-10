@@ -448,6 +448,15 @@ describe("6. rarity, not plain shared words (round 3 of #796)", () => {
     expect(prompt("Which shelf should the kiln go on, it's still on the floor?", { session: S })).toContain(`${ASK}: Kiln shelf: Wren to pick`);
   });
 
+  test("two middling words with no subject word between them don't raise it (round 4: \"want to talk\")", () => {
+    const { c } = filled();
+    // "wants" and "talk" are in a few notes each: over the floor, under a subject word's weight.
+    for (let i = 0; i < 4; i++) note(c, `Wren wants to talk about the ${WORDS[i] ?? ""} later.`, `Talk note ${String(i)}`);
+    asked(c, "Wren wants to talk over whether to send the stall form.", "Stall form: Wren wants to talk it over");
+    expect(prompt("I want to talk through the week with you this evening.")).not.toContain(ASK);
+    expect(prompt("Should we send the stall form, Wren wants to talk it over.")).toContain(`${ASK}: Stall form: Wren wants to talk it over`);
+  });
+
   test("a turn of fewer than three content words doesn't look", () => {
     const { c } = filled();
     const id = asked(c, "Which kiln shelf wash to order? Wren to choose.", "Kiln shelf wash: Wren to choose");

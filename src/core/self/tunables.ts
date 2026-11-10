@@ -729,6 +729,14 @@ export const WAKE_SHAPE_LIMITS = {
    * "still", "night" (1.1–1.7) were what the wrong matches shared; the right ones shared a rare subject word.
    */
   OWNER_TURN_WORD_FLOOR: 1.5,
+  /**
+   * ...and one of them is a SUBJECT word: weighing at least this, or one the embedder's word table holds no whole-word
+   * row for (a name, a tool, jargon). Round 4 of #796: common verbs clear the floor ("want" 1.8, "talk" 2.4, "ready"
+   * 2.7), and two of them raised an item that happened to say them; a song's name (5.8) or "npm" (2.3, no row) is a
+   * subject. The table is loaded on the owner's store (the config's default embedder): its ramp
+   * (`EVERYDAY_NORM_LOW`/`HIGH`) discounts only function words, by design, so it can't do this alone.
+   */
+  OWNER_TURN_SUBJECT: 3,
   /** A turn with fewer content words than this doesn't look ("goodnight" pays nothing). */
   OWNER_TURN_MIN_WORDS: 3,
   /** Folders whose owed-item list (with its weighed words) is cached in meta, per lived day; the oldest go. */

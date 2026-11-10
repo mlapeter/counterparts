@@ -3235,6 +3235,12 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   **The dream-queue turn ("night" 1.3 + "dream" 1.7) no longer fires**: lexically it weighs less than the wrong
   "step" + "brief" match (3.7), so no threshold keeps one and drops the other. On 20 fresh turns written for the
   replay: 9 fire, each on its subject, none off-topic (the set was written knowing the items, so it flatters).
+- **Round 4: a subject word.** A blind check of 30 turns fired on none, but common verbs clear the floor ("want" 1.8,
+  "talk" 2.4, "ready" 2.7), and a turn about wanting to talk raised an item that happened to say both. The embedder's
+  word table IS loaded on the owner's store (no `embedder` block reads as the default, on); its ramp discounts only
+  function words, by design, so it can't fix this. Now one shared word must be a subject word: weighing
+  `OWNER_TURN_SUBJECT` (3), or one the table holds no whole-word row for ("npm", a name), over the floor. Without
+  a table, weight alone decides. Replayed: the probe stays quiet; the song's-name and "npm install" matches still fire.
 - **One subject, one chain.** A sunk handoff whose lead names an `asked` memory here, or whose first sentence touches
   one's words as a turn would, is that memory's: never a candidate of its own, at the wake or in a turn (the reviewer
   saw a memory raised one day and its handoff the next). A handoff is matched on its lead's first sentence and the
