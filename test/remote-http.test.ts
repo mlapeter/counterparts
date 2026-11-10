@@ -28,7 +28,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, MAX_BATCH, REFUSED_ERROR, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { INTERNAL_ERROR_WORDS, LOOPBACK, MAX_BATCH, REFUSED_ERROR, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
@@ -272,7 +272,8 @@ describe("the HTTP door, through the socket", () => {
     closers.push(() => http.close());
     const out = await rpc(http.url, "ping");
     expect(out.status).toBe(200);
-    expect(out.body["error"]).toEqual({ code: -32603, message: "internal error" });
+    expect(out.body["error"]).toEqual({ code: -32603, message: INTERNAL_ERROR_WORDS });
+    expect(INTERNAL_ERROR_WORDS.startsWith("internal error")).toBe(true);
     expect(JSON.stringify(out.body)).not.toContain("/Users/");
   });
 

@@ -162,6 +162,25 @@ const BASE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
 };
 
+/**
+ * WHAT EACH REFUSAL SAYS (DIR1, 2026-11-10; the directory's "helpful errors, not generic", policy §5A).
+ * One plain sentence a person or a client's log can act on. The statuses and headers are as before; no
+ * sentence carries anything the request sent or an error's message.
+ */
+export const DOOR_WORDS = {
+  notPost: "405: this is an MCP endpoint (Streamable HTTP). Send JSON-RPC messages with POST; there is no SSE stream to GET.\n",
+  foreignOrigin: "403: requests from this web page's origin aren't accepted here. Connect from Claude (claude.ai, Claude Desktop or Claude Code), or from MCP Inspector's command line.\n",
+  noToken: "401: sign-in needed. Connect through OAuth: the WWW-Authenticate header points at this server's resource metadata.\n",
+  badToken: "401: this access token isn't valid any more (expired, revoked, or the account was disconnected). Refresh it, or connect again.\n",
+  authDown: "503: the account service couldn't check this token just now, so nothing ran. Try again in 30 seconds.\n",
+  notJson: "415: send the JSON-RPC body with Content-Type: application/json.\n",
+  inFlight: "429: too many requests at once for this account. Wait for an answer before sending more.\n",
+  restoring: "503: this memory is being restored from its backup. Try again in a few minutes.\n",
+  badTarget: "400: the request target must be a path on this server.\n",
+  notFound: "Not found. The MCP endpoint is /mcp.\n",
+  failed: "500: something went wrong on the server. Try again; if it keeps happening, open an issue at https://github.com/mlapeter/counterparts/issues.\n",
+} as const;
+
 function text(res: ServerResponse, status: number, body: string, extra: Record<string, string> = {}): void {
   res.writeHead(status, { ...BASE_HEADERS, "Content-Type": "text/plain; charset=utf-8", ...extra });
   res.end(body);
@@ -202,13 +221,13 @@ export function createHostedServer(opts: HostedServerOptions): Server {
   const mcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== "POST") {
       req.resume();
-      text(res, 405, "405\n", { Allow: "POST", ...hsts });
+      text(res, 405, DOOR_WORDS.notPost, { Allow: "POST", ...hsts });
       return;
     }
     const from = req.headers["origin"];
     if (typeof from === "string" && !allowed.has(from)) {
       req.resume();
-      text(res, 403, "403\n", hsts);
+      text(res, 403, DOOR_WORDS.foreignOrigin, hsts);
       return;
     }
     const token = bearer(req);
@@ -221,18 +240,18 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     } catch (err) {
       report("auth", null, err);
       req.resume();
-      text(res, 503, "503\n", { "Retry-After": "30", ...hsts });
+      text(res, 503, DOOR_WORDS.authDown, { "Retry-After": "30", ...hsts });
       return;
     }
     if (caller === null) {
       req.resume();
-      text(res, 401, "401\n", { ...challenge(token === null ? undefined : "invalid_token"), ...hsts });
+      text(res, 401, token === null ? DOOR_WORDS.noToken : DOOR_WORDS.badToken, { ...challenge(token === null ? undefined : "invalid_token"), ...hsts });
       return;
     }
     const type = req.headers["content-type"];
     if (typeof type !== "string" || !/^application\/json\s*(;|$)/i.test(type)) {
       req.resume();
-      text(res, 415, "415\n", hsts);
+      text(res, 415, DOOR_WORDS.notJson, hsts);
       return;
     }
     const store = tag(caller.storeId);
@@ -240,7 +259,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     if (limits !== undefined && !limits.enter(caller.personId)) {
       req.resume();
       event("limit.in-flight", store);
-      text(res, 429, "429: too many requests at once for this account\n", { "Retry-After": "5", ...hsts });
+      text(res, 429, DOOR_WORDS.inFlight, { "Retry-After": "5", ...hsts });
       return;
     }
     // The slot is given back once, at the answer, or when the client's socket
@@ -309,7 +328,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       // moment before its grant was revoked: the same 401 as that token now gets.
       if (err instanceof StoreLocked && !res.headersSent) {
         req.resume();
-        text(res, 401, "401\n", { ...challenge("invalid_token"), ...hsts });
+        text(res, 401, DOOR_WORDS.badToken, { ...challenge("invalid_token"), ...hsts });
         return;
       }
       // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
@@ -320,7 +339,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       }
       req.resume();
       event("store.needs-restore", store);
-      text(res, 503, "503: this memory is being restored\n", { "Retry-After": "300" });
+      text(res, 503, DOOR_WORDS.restoring, { "Retry-After": "300" });
     } finally {
       req.socket.removeListener("close", release);
       release();
@@ -357,7 +376,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       const target = req.url ?? "/";
       if (!target.startsWith("/") || target.startsWith("//")) {
         req.resume();
-        text(res, 400, "400\n");
+        text(res, 400, DOOR_WORDS.badTarget);
         return;
       }
       let url: URL;
@@ -365,7 +384,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         url = new URL(target, origin);
       } catch {
         req.resume();
-        text(res, 400, "400\n");
+        text(res, 400, DOOR_WORDS.badTarget);
         return;
       }
       if (MCP_PATHS.has(url.pathname)) return mcp(req, res);
@@ -397,11 +416,11 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         if (await route(req, res, url)) return;
       }
       req.resume();
-      text(res, 404, "Not found\n", hsts);
+      text(res, 404, DOOR_WORDS.notFound, hsts);
     })().catch((err: unknown) => {
       // Never the message: it could name a path on disk.
       report("route", null, err);
-      if (!res.headersSent) text(res, 500, "500\n");
+      if (!res.headersSent) text(res, 500, DOOR_WORDS.failed);
       else res.destroy();
     });
   });

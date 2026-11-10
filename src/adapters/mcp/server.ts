@@ -732,7 +732,7 @@ export class McpServer {
     if (toolSpec(name, this.host) === undefined) {
       // An unknown TOOL is a protocol fault (the client called something that
       // does not exist); an unusable ARGUMENT is the tool's own answer.
-      return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown tool: ${name}`);
+      return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown tool: ${name}. tools/list names the tools this server offers.`);
     }
     const args = params["arguments"];
     if (args !== undefined && (args === null || typeof args !== "object" || Array.isArray(args))) {
