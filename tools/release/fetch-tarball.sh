@@ -116,4 +116,4 @@ echo
 echo "Before handing over: cd \"$FOLDER\" && shasum -a 256 -c SHA256"
 echo "The PUBLISH sheet's two lines for the owner (docs/RELEASING.md §5):"
 echo "npm publish $FOLDER/$TARBALL --otp=CODE"
-echo "npm install -g counterparts@$WANTED && counterparts --version"
+echo "bun add -g counterparts@$WANTED && counterparts --version"
