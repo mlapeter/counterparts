@@ -211,6 +211,9 @@ export interface ToolSpec {
  * - `idempotentHint` is true only where a repeat call with the same arguments
  *   leaves nothing more behind; `openWorldHint` is false for every tool —
  *   all of them work on this machine's store and files only.
+ *
+ * These are Claude Code's and Desktop's. claude.ai's list has its own rule
+ * (DIR1, `CLAUDE_AI_ANNOTATIONS`): `status` and `recall` read-only there.
  */
 export interface ToolAnnotations {
   readonly title: string;
@@ -296,7 +299,8 @@ const CORE_DECISION_PROPERTY = {
  * session's list. It holds, never erases: the memory is hidden at once and the
  * owner-side sweep erases it after 24 hours (`core/removal-hold.ts`,
  * `sweepHeldRemovals` in `adapters/cli/`). `destructiveHint` stays false for
- * `remember`, honestly: the call destroys nothing for a day.
+ * `remember`, honestly: the call destroys nothing for a day. On claude.ai the
+ * delete is its own tool instead (DIR1, `CLAUDE_AI_DELETE`, destructive).
  */
 const REMOVE_PROPERTY = {
   type: "object",
@@ -2199,7 +2203,8 @@ const DESKTOP_SESSION_PROPERTY = {
  * a file a later call reads (whether it carries the write-up ask). So the copy
  * that gains `session` loses `readOnlyHint` (and `idempotentHint`: each named
  * call counts). Only `status` is read-only to begin with; Claude Code's `status`,
- * which takes no session, keeps it.
+ * which takes no session, keeps it. claude.ai's list sets its own after this
+ * (DIR1, `CLAUDE_AI_ANNOTATIONS`).
  */
 function chatAnnotations(a: ToolAnnotations): ToolAnnotations {
   return a.readOnlyHint ? { ...a, readOnlyHint: false, idempotentHint: false } : a;
@@ -2889,9 +2894,11 @@ export const CLAUDE_AI_DELETE: ToolSpec = {
  * writes is the server's bookkeeping, which nobody would call a change:
  * - `status`: the session's record (last seen, the write-up pacer);
  * - `recall`: that record too, which memories this conversation was shown
- *   (`noteAsked`), which memory a title reached, one count row, and the use
- *   credit at the boundary, by which a memory opened or quoted fades a little
- *   slower. No memory's words, marks or links change.
+ *   (`noteAsked`), which memory a title reached, one count row, the question's
+ *   cue words for this session (`recall/index.ts#noteQuestionCues`: stemmed
+ *   words, wired to a memory only if it is then opened), and the use credit at
+ *   the boundary, by which a memory opened or quoted fades a little slower. No
+ *   memory's words, marks or links change.
  * `delete_memory` is destructive; `dream` stays destructive (its `undo`). Every
  * other writer archives what it replaces, so it stays not destructive. Titles:
  * `session_end`'s says what it does on a host with no session end.

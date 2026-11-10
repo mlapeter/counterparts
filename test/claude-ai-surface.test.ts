@@ -677,7 +677,7 @@ describe("4. the tool words for chat", () => {
     expect(texts.some(([p]) => p === "remember.traits")).toBe(true);
 
     // The size, loosely: 92,335 B before TT1 (on 0.3.47's words), 65,044 B after, 67,293 B on 0.3.54's,
-    // 40,193 B after DIR1 (no claims served, field words cut). A ceiling, so the words do not quietly grow back.
+    // 40,257 B after DIR1 (no claims served, field words cut). A ceiling, so the words do not quietly grow back.
     expect(Buffer.byteLength(JSON.stringify({ tools: defs }), "utf8")).toBeLessThan(42_000);
     // Every other host's list is the registry's own, untrimmed.
     for (const host of [false, DESKTOP_HOST] as const) {

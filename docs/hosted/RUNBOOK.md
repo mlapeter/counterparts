@@ -262,11 +262,14 @@ extend `deniedMcpServers`. It already lists `*.trycloudflare.com`, `claude.ai co
 
 ## 9. The directory reviewer's account, and every tool once (DIR1, 2026-11-10)
 
-**The account.** Use an address you control (delete emails go to it), at a domain no person uses:
+**Two accounts, not one.** The sample is seeded at an account's first connection, with dates relative to that
+day, and whatever is done there stays. So make one account for your own every-tool run below, and a second, never
+connected, for the portal, on the day you submit. Each needs an address you control (delete emails go to it) that
+no person uses; `REVIEWER_EMAIL` below is a placeholder for it.
 
 ```sh
 railway ssh
-node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts reviewer reviewer@counterparts.ai --days 90
+node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts reviewer REVIEWER_EMAIL --days 90
 ```
 
 It prints a code (`cpr_…`) once, on stdout. It makes a new account even with spots closed, and refuses an address
@@ -274,13 +277,14 @@ that already has one. Its memory fills with sample data (a made-up "Sam") at its
 portal's test-credentials field:
 
     Sign in at https://app.counterparts.ai/login (Claude's connector flow sends you there): email
-    reviewer@counterparts.ai; open "Have an invite code?" and paste the code; "Email me a link" then signs
-    you in at once, with no email. The account holds sample data only.
+    REVIEWER_EMAIL; open "Have an invite code?" and paste the code; "Email me a link" then signs you in
+    at once, with no email. The account holds sample data only.
 
-When the review ends: `... main.ts reviewer revoke reviewer@counterparts.ai`. A re-review gets a new address.
+When the review ends: `... main.ts reviewer revoke REVIEWER_EMAIL`. A re-review gets a new address.
 
-**Every tool once, against the live server** (the portal's step 8; after the deploy, on Mike's word). On your
-laptop, in a private browser window so your own session isn't the one signed in:
+**Every tool once, against the live server** (the portal's step 8; after the deploy, on Mike's word), on YOUR
+reviewer account (the first one above, not the portal's). On your laptop, in a private browser window so your own
+session isn't the one signed in:
 
 ```sh
 mkdir -p /tmp/dir1-live && cd /tmp/dir1-live

@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
 import { mcpAllowedOrigins } from "../src/main.js";
-import { MAIN, rpc, tempRoot } from "./helpers.js";
+import { MAIN, freePort, rpc, spawnServe, tempRoot } from "./helpers.js";
 import { Browser, CLAUDE_CODE_CIMD, CLAUDE_CODE_CIMD_URL, bearer, connect, csrfOf, insecure, rig } from "./oauth-rig.js";
 import type { Rig } from "./oauth-rig.js";
 
@@ -411,5 +411,28 @@ describe("MCP Inspector's web page: an exact origin allow-list, empty by default
     for (const bad of ["*", "http://localhost:6274/", "http://localhost:6274/x", "localhost:6274", "ftp://x.example"]) {
       assert.ok("refusal" in mcpAllowedOrigins(bad), bad);
     }
+  });
+});
+
+describe("the reviewer's path against a real `main.ts serve` (item 7)", () => {
+  test("the CLI beside the running server, a sign-in by code, the seed with the real worker and embedder, a wake that shows it", { timeout: 180_000 }, async () => {
+    const port = await freePort();
+    const origin = `http://127.0.0.1:${String(port)}`;
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: origin, PORT: String(port), MAIL: "log", BACKUPS: "off" };
+    const served = await spawnServe(env, 60_000);
+    closers.push(() => served.stop());
+    assert.ok(served.up, served.stderr());
+    const cli = spawnSync(process.execPath, [...scriptArgs(MAIN), "reviewer", "reviewer@example.com", "--days", "7", "--tz", "America/Denver"], { env, encoding: "utf8", timeout: 30_000 });
+    assert.equal(cli.status, 0, cli.stderr);
+    const code = cli.stdout.trim();
+    const c = await connect({ origin } as Rig, { signIn: withCode("reviewer@example.com", code) });
+    const woke = await callTool({ origin } as Rig, c.access, "wake", {});
+    assert.equal(woke.isError, false, woke.text);
+    assert.match(woke.text, /Who I am:[\s\S]*sample account for reviewing Counterparts/);
+    assert.match(woke.text, /While I slept I tied Ana's visit/);
+    const recall = await callTool({ origin } as Rig, c.access, "recall", { session: String(woke.out["session"]), question: "kitchen budget", mode: "facts" });
+    assert.match(recall.text, /18,000/);
+    assert.match(served.stderr(), /sample\.seeded/);
+    assert.doesNotMatch(served.stderr(), /sample\.seed\.failed/);
   });
 });

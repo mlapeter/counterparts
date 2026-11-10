@@ -199,7 +199,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
    engine = the base's rows.
    **And since DIR1 (2026-11-10) it serves none.** For the directory's "frugal with tokens"
    (policy §5B), every claude.ai claim is an engine row (`withClaimsAsEngine`), the field words are
-   shorter still, and the night's fields are left to the run's own prompt: 67,293 → 40,193 bytes.
+   shorter still, and the night's fields are left to the run's own prompt: 67,293 → 40,257 bytes.
    claude.ai also has its own annotations (`CLAUDE_AI_ANNOTATIONS`: `status` and `recall`
    read-only, their writes being bookkeeping) and its own `delete_memory` (`CLAUDE_AI_DELETE`,
    destructive), which carries `remember`'s `remove` there, so `remember` only adds. The test now
