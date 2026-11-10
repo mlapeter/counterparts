@@ -1310,6 +1310,7 @@ describe("option B for every row Codex writes: plain notes and chapter summaries
     const cc = openServer({ dir: store, scope: canonicalScope(project) });
     try {
       const c = cc.counterpart;
+      await cc.call("remember", { text: "The owner asked for a quieter build log." });
       const begun = c.dreams.begin({ session: "night" });
       if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
       expect(c.dreams.journal({ dream: begun.bundle.dream, session: "night", title: "t", text: "I dreamed of a lamp." }).ok).toBe(true);
