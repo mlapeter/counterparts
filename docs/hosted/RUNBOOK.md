@@ -228,7 +228,7 @@ A spot is taken when someone clicks their emailed link, not when they ask for it
 nothing. An account erased after a delete frees its spot; one waiting out its 24 hours still holds it.
 
 **The hourly email cap** (EC1, 2026-11-10). While spots are open, anyone can make hosted email any address, so the
-sign-in emails a clock hour are capped: 100 unless you set it. `spots` shows it on its last line (`emails: 100 an hour
+sign-in asks are counted each clock hour, and once M are counted (100 unless you set it) new addresses wait. `spots` shows it on its last line (`emails: 100 an hour
 while open (12 this hour)`, with `: reached` once it's hit). To change it: `… hosted/src/main.ts spots emails 200`
 (0 to 100,000; at once, no restart; N stays as it is). Past the cap, a new address gets no email and everyone who asks
 sees "Lots of people are signing up right now. New to Counterparts? Try again in an hour."; people with an account

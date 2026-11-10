@@ -355,6 +355,12 @@ describe("EC1: the hourly email cap while spots are open", () => {
     assert.match(over.body, /Check your email/);
     assert.match(over.body, /Lots of people are signing up right now\. New to Counterparts\? Try again in an hour\./);
     assert.deepEqual(r.accounts.emailCap(), { perHour: 3, thisHour: 3, reached: true });
+    // An invite-coded sign-up while open falls under the cap too, and sees the same page.
+    const { code } = r.accounts.createInvite({ note: "over" });
+    const invited = await askLink(r, new Browser(r.base), "invited@example.com", code);
+    assert.equal(invited.link, null, "no email for an invite past the cap while open");
+    assert.equal(words(invited.body), words(over.body));
+    assert.equal(r.mail.sent.length, 3);
     r.setNow(T + 60 * 60 * 1000);
     assert.equal(r.accounts.emailCap().thisHour, 0, "a new hour, a new count");
     const next = await askLink(r, new Browser(r.base), "e@example.com");
