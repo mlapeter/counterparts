@@ -456,7 +456,8 @@ describe("a form opened before a restart (H1: the CSRF key comes from COOKIE_KEY
     return { mail, stop };
   }
   const KEYS = ["k".repeat(40), "o".repeat(40)];
-  const SENT = "a sign-in link is on its way";
+  // No spots set (SU1), so the page's words are the full ones: a link if the address has an account or a good code.
+  const SENT = "a link is on its way";
 
   /** Open /login on one server, restart it with `after`'s keys, and post the form there, as the browser does. */
   async function acrossRestart(before: readonly string[] | undefined, after: readonly string[] | undefined): Promise<{ status: number; body: string; mailed: number }> {
