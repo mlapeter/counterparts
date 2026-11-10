@@ -5191,6 +5191,7 @@ export class Counterpart {
       // A reader host's write (CX2, `reader-note.ts`).
       ...(ctx.host === undefined ? {} : { host: ctx.host }),
       ...(ctx.readerSelf === undefined ? {} : { readerSelf: ctx.readerSelf }),
+      ...(ctx.readerMeta === undefined ? {} : { readerMeta: ctx.readerMeta }),
     });
   }
 

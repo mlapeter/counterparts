@@ -315,7 +315,7 @@ export async function depositEntries(
     const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
     const tags = tagsOf[n] ?? { dropped: [] };
     // A READER HOST'S ENTRY (CX2): its host, and `me` kept as its own note.
-    const reader = server["readerDeposit"](about.mark, draft["kind"], model);
+    const reader = server["readerDeposit"](about.mark, draft["kind"], model, feelings.inputs, facts.sent);
     let result: DepositResult;
     try {
       result = await server.counterpart.submitSessionEnd(draft, {
@@ -323,7 +323,8 @@ export async function depositEntries(
         scope: scope ?? server.scope,
         // The day this server reads, for a done that closes one occurrence (2026-10-20).
         at: server["today"](),
-        facts: facts.sent,
+        facts: reader.facts,
+        ...(reader.readerMeta === undefined ? {} : { readerMeta: reader.readerMeta }),
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
         ...(reader.host === undefined ? {} : { host: reader.host }),
         ...(reader.readerSelf === undefined ? {} : { readerSelf: reader.readerSelf }),
@@ -360,7 +361,8 @@ export async function depositEntries(
       ...(result.gate === null ? {} : { gate: result.gate }),
       ...(malformed === null ? {} : { malformed }),
       ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
-      ...server["recordFeelings"](result, feelings.inputs, model),
+      ...server["recordFeelings"](result, reader.feelings, model),
+      ...server["readerOwnNote"](reader),
       ...(server["readerSelfAbout"](result) ?? server["recordAbout"](result, reader.about)),
       ...(traits.inputs.length > 0 && server["readerHost"]() ? server["readerKeeps"](result, "traits") : server["recordTraits"](result, traits.inputs, model)),
       ...reminderEcho(result, dated, server["today"]()),

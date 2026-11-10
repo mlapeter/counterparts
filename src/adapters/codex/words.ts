@@ -72,7 +72,7 @@ export function codexFrame(model: string | undefined): string {
   const who = reader(model);
   return (
     `[Counterparts in Codex] What follows is the shared memory of this person's counterpart — the AI they work with in Claude — read here by you, ${who} in Codex. ` +
-    "You are not that counterpart: its self page is shown for history, not yours to speak as. " +
+    "You are not that counterpart: its self page is shown for history, not yours to speak as, and \"I\" and \"me\" in what follows are the counterpart. " +
     `Use the memories as context; when you write a memory or a chapter, write as yourself (${who} in Codex). ` +
     "The counterpart's dreams and reflections run in Claude, not here."
   );

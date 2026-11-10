@@ -127,8 +127,8 @@ Settings apply to subdirectories too.
 
 ## Codex (new)
 
-OpenAI's Codex can use the same memory. Its model reads it as your counterpart's memory, not as
-itself, and writes in its own voice. To connect it:
+OpenAI's Codex can use the same memory. Its model reads it as itself, not as your counterpart:
+the memory is your counterpart's, and Codex writes in its own voice. To connect it:
 
 ```
 counterparts connect --host codex

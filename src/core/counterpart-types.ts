@@ -564,6 +564,8 @@ export interface DepositContext {
    * identity material. The door sets it and sends `about` as null beside it.
    */
   readerSelf?: ReaderSelf;
+  /** A reader host's own feelings and said-by, as meta (CX2 fix round, `reader-note.ts`). */
+  readerMeta?: Readonly<Record<string, unknown>>;
   /**
    * Memories the same call wrote before this one (a dump's earlier entries):
    * the writer's own words of the same moment, never read as an earlier state

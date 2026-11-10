@@ -178,6 +178,8 @@ export function codexMcpBlock(command: string, args: readonly string[], env: Rea
 const HEADER = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/;
 const OUR_TABLE = new RegExp(`^mcp_servers\\s*\\.\\s*(?:"${CODEX_MCP_NAME}"|${CODEX_MCP_NAME})(\\s*\\..*)?$`);
 const BLOCK_COMMENT = /^#\s*Written by `counterparts connect --host codex`/;
+/** A line that is only a comment, or blank. */
+const COMMENT_OR_BLANK = /^\s*(#.*)?$/;
 
 /** The header line's table name, or null for a line that is not a header. */
 function headerOf(line: string): string | null {
@@ -186,67 +188,172 @@ function headerOf(line: string): string | null {
 }
 
 /**
+ * ONE LINE OF config.toml, AS THESE EDITS READ IT (CX2 fix round): its text;
+ * its table name when it is a header OUTSIDE a multi-line string (a
+ * `[mcp_servers.counterparts]` inside `"""…"""` is words, not a table); whether
+ * it began inside such a string; and its CODE — the line with every string
+ * replaced by `""` and its comment cut, for the validity check.
+ */
+interface TomlLine {
+  readonly text: string;
+  readonly header: string | null;
+  readonly inString: boolean;
+  readonly code: string;
+  /** Still inside a multi-line string at its end. */
+  readonly openAfter: boolean;
+}
+
+/** Read config.toml's lines with multi-line strings (`"""`, `'''`) tracked. Never throws. */
+export function scanToml(text: string): TomlLine[] {
+  const out: TomlLine[] = [];
+  let open: '"""' | "'''" | null = null;
+  for (const line of text.split("\n")) {
+    const startedIn = open !== null;
+    let code = "";
+    let i = 0;
+    while (i < line.length) {
+      if (open !== null) {
+        const j = line.indexOf(open, i);
+        if (j < 0) {
+          i = line.length;
+          break;
+        }
+        open = null;
+        i = j + 3;
+        continue;
+      }
+      const c = line[i] as string;
+      if (c === "#") break;
+      if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
+        open = line.startsWith('"""', i) ? '"""' : "'''";
+        code += '""';
+        i += 3;
+        continue;
+      }
+      if (c === '"') {
+        i += 1;
+        while (i < line.length && line[i] !== '"') i += line[i] === "\\" ? 2 : 1;
+        i += 1;
+        code += '""';
+        continue;
+      }
+      if (c === "'") {
+        const j = line.indexOf("'", i + 1);
+        i = j < 0 ? line.length : j + 1;
+        code += '""';
+        continue;
+      }
+      code += c;
+      i += 1;
+    }
+    out.push({ text: line, header: startedIn ? null : headerOf(line), inString: startedIn, code, openAfter: open !== null });
+  }
+  return out;
+}
+
+/**
+ * WHY config.toml CANNOT BE EDITED, or null (CX2 fix round). Not a TOML
+ * parser: a line-level check that each line outside a string is blank, a
+ * comment, a table header, a `key = value`, or the inside of a value an
+ * earlier line opened (an array, an inline table, a multi-line string). It
+ * names the LINE NUMBER only: a config line may hold a token.
+ */
+export function tomlProblem(text: string): string | null {
+  let depth = 0;
+  const lines = scanToml(text);
+  for (const [n, l] of lines.entries()) {
+    if (l.inString) continue;
+    const code = l.code.trim();
+    const count = (s: string, re: RegExp): number => (s.match(re) ?? []).length;
+    if (depth > 0) {
+      depth += count(code, /[[{]/g) - count(code, /[\]}]/g);
+      if (depth < 0) return `line ${String(n + 1)} closes a bracket nothing opened`;
+      continue;
+    }
+    if (code.length === 0) continue;
+    if (/^\[\[?[^[\]]+\]\]?$/.test(code)) continue;
+    const kv = /^([A-Za-z0-9_\-"]+(?:\s*\.\s*[A-Za-z0-9_\-"]+)*)\s*=\s*(\S.*)$/.exec(code);
+    if (kv === null) return `line ${String(n + 1)} is not a table, a key = value, or a comment`;
+    const value = kv[2] as string;
+    depth += count(value, /[[{]/g) - count(value, /[\]}]/g);
+    if (depth < 0) return `line ${String(n + 1)} closes a bracket nothing opened`;
+  }
+  if (lines.length > 0 && (lines[lines.length - 1] as TomlLine).openAfter) return "a multi-line string is never closed";
+  if (depth > 0) return "an array or inline table is never closed";
+  return null;
+}
+
+/**
  * Drop the tables `drop` names (each with its body, up to the next header),
- * and our block's own comment line above our MCP table.
+ * and our block's own comment line above our MCP table. The comments and
+ * blank lines at the END of a dropped table stay: they sit above the next
+ * header and are that table's (CX2 fix round: a `# note` above a later table
+ * was lost on reconnect).
  */
 function dropTables(text: string, drop: (name: string) => boolean): { text: string; dropped: number } {
-  const lines = text.split("\n");
   const out: string[] = [];
   let skipping = false;
+  let skipped: string[] = [];
   let dropped = 0;
-  for (const line of lines) {
-    const name = headerOf(line);
-    if (name !== null) {
-      skipping = drop(name);
+  const release = (atEnd: boolean): void => {
+    let k = skipped.length;
+    while (k > 0 && COMMENT_OR_BLANK.test(skipped[k - 1] as string)) k -= 1;
+    // At the end of the file, keep the comments (somebody's) and lose the blank lines.
+    const tail = skipped.slice(k);
+    out.push(...(atEnd ? tail.filter((s) => s.trim().length > 0) : tail));
+    skipped = [];
+  };
+  for (const l of scanToml(text)) {
+    if (l.header !== null) {
+      if (skipping) release(false);
+      skipping = drop(l.header);
       if (skipping) {
         dropped += 1;
         if (out.length > 0 && BLOCK_COMMENT.test(out[out.length - 1] ?? "")) out.pop();
         continue;
       }
     }
-    if (!skipping) out.push(line);
+    if (skipping) skipped.push(l.text);
+    else out.push(l.text);
   }
+  if (skipping) release(true);
   return { text: out.join("\n"), dropped };
 }
 
 /** Is there an MCP entry named ours in a form this file does not edit (an inline or dotted one)? */
 export function foreignShapedMcp(text: string): boolean {
   let inServers = false;
-  for (const line of text.split("\n")) {
-    const name = headerOf(line);
-    if (name !== null) {
-      inServers = name === "mcp_servers";
+  for (const l of scanToml(text)) {
+    if (l.inString) continue;
+    if (l.header !== null) {
+      inServers = l.header === "mcp_servers";
       continue;
     }
-    if (/^\s*mcp_servers\s*\.\s*"?counterparts"?\s*[.=]/.test(line)) return true;
-    if (inServers && /^\s*"?counterparts"?\s*[.=]/.test(line)) return true;
+    if (/^\s*mcp_servers\s*\.\s*"?counterparts"?\s*[.=]/.test(l.code)) return true;
+    if (inServers && /^\s*"*counterparts"*\s*[.=]/.test(l.code)) return true;
   }
   return false;
 }
 
 /** Does config.toml hold our MCP table? */
 export function hasCodexMcp(text: string): boolean {
-  return text.split("\n").some((l) => {
-    const n = headerOf(l);
-    return n !== null && OUR_TABLE.test(n);
-  });
+  return scanToml(text).some((l) => l.header !== null && OUR_TABLE.test(l.header));
 }
 
 /** The `[mcp_servers.counterparts]` table's body, as key → raw value text (for doctor). */
 export function codexMcpEntry(text: string): Record<string, string> | null {
-  const lines = text.split("\n");
   let inOurs = false;
   let found = false;
   const out: Record<string, string> = {};
-  for (const line of lines) {
-    const n = headerOf(line);
-    if (n !== null) {
-      inOurs = n.replace(/\s+/g, "") === `mcp_servers.${CODEX_MCP_NAME}` || n.replace(/\s+/g, "") === `mcp_servers."${CODEX_MCP_NAME}"`;
+  for (const l of scanToml(text)) {
+    if (l.header !== null) {
+      const n = l.header.replace(/\s+/g, "");
+      inOurs = n === `mcp_servers.${CODEX_MCP_NAME}` || n === `mcp_servers."${CODEX_MCP_NAME}"`;
       found = found || inOurs;
       continue;
     }
-    if (!inOurs) continue;
-    const m = /^\s*([A-Za-z0-9_-]+)\s*=\s*(.*)$/.exec(line);
+    if (!inOurs || l.inString) continue;
+    const m = /^\s*([A-Za-z0-9_-]+)\s*=\s*(.*)$/.exec(l.text);
     if (m !== null) out[m[1] as string] = (m[2] as string).trim();
   }
   return found ? out : null;
@@ -267,23 +374,32 @@ export function stateKey(hooksPath: string, p: Pick<OurPosition, "key" | "group"
   return `${hooksPath}:${p.key}:${String(p.group)}:${String(p.handler)}`;
 }
 
+/** The key a `[hooks.state."<key>"]` header names, or null. */
+function stateKeyOf(header: string): string | null {
+  const m = /^hooks\s*\.\s*state\s*\.\s*"((?:[^"\\]|\\.)*)"$/.exec(header);
+  if (m === null) return null;
+  try {
+    return JSON.parse(`"${m[1] as string}"`) as string;
+  } catch {
+    return null;
+  }
+}
+
 /** Every `[hooks.state."<key>"]` row: its key, and whether it carries a trusted hash or is disabled. */
 export function hookStates(text: string): Map<string, { trusted: boolean; enabled: boolean }> {
   const out = new Map<string, { trusted: boolean; enabled: boolean }>();
   let current: string | null = null;
-  for (const line of text.split("\n")) {
-    const n = headerOf(line);
-    if (n !== null) {
-      const m = /^hooks\s*\.\s*state\s*\.\s*"((?:[^"\\]|\\.)*)"$/.exec(n);
-      current = m === null ? null : JSON.parse(`"${m[1] as string}"`) as string;
+  for (const l of scanToml(text)) {
+    if (l.header !== null) {
+      current = stateKeyOf(l.header);
       if (current !== null) out.set(current, { trusted: false, enabled: true });
       continue;
     }
-    if (current === null) continue;
+    if (current === null || l.inString) continue;
     const row = out.get(current);
     if (row === undefined) continue;
-    if (/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/.test(line)) out.set(current, { ...row, trusted: true });
-    if (/^\s*enabled\s*=\s*false\b/.test(line)) out.set(current, { ...row, enabled: false });
+    if (/^\s*trusted_hash\s*=\s*"sha256:[0-9a-f]+"/.test(l.text)) out.set(current, { ...row, trusted: true });
+    if (/^\s*enabled\s*=\s*false\b/.test(l.text)) out.set(current, { ...row, enabled: false });
   }
   return out;
 }
@@ -291,13 +407,8 @@ export function hookStates(text: string): Map<string, { trusted: boolean; enable
 /** Remove the `hooks.state` rows with these keys (disconnect: ours only). */
 export function dropHookStates(text: string, keys: ReadonlySet<string>): { text: string; dropped: number } {
   return dropTables(text, (n) => {
-    const m = /^hooks\s*\.\s*state\s*\.\s*"((?:[^"\\]|\\.)*)"$/.exec(n);
-    if (m === null) return false;
-    try {
-      return keys.has(JSON.parse(`"${m[1] as string}"`) as string);
-    } catch {
-      return false;
-    }
+    const key = stateKeyOf(n);
+    return key !== null && keys.has(key);
   });
 }
 
@@ -321,14 +432,26 @@ export function trustOf(
 /** Is Codex's own `memories` feature switched on in config.toml (`[features] memories = true`)? */
 export function codexMemoriesOn(text: string): boolean {
   let inFeatures = false;
-  for (const line of text.split("\n")) {
-    const n = headerOf(line);
-    if (n !== null) {
-      inFeatures = n === "features";
+  for (const l of scanToml(text)) {
+    if (l.header !== null) {
+      inFeatures = l.header === "features";
       continue;
     }
-    if (inFeatures && /^\s*memories\s*=\s*true\b/.test(line)) return true;
-    if (/^\s*features\s*\.\s*memories\s*=\s*true\b/.test(line)) return true;
+    if (l.inString) continue;
+    if (inFeatures && /^\s*memories\s*=\s*true\b/.test(l.code)) return true;
+    if (/^\s*features\s*\.\s*memories\s*=\s*true\b/.test(l.code)) return true;
   }
   return false;
+}
+
+/**
+ * hooks.json written back in ITS OWN indentation and line ending (CX2 fix
+ * round): the indent of its first indented line (two spaces when there is
+ * none), and a final newline when it had one.
+ */
+export function formatLike(previous: string | null, doc: unknown): string {
+  const indent = previous === null ? "  " : (/\n([ \t]+)\S/.exec(previous)?.[1] ?? "  ");
+  const eol = previous !== null && previous.includes("\r\n") ? "\r\n" : "\n";
+  const body = JSON.stringify(doc, null, indent).replace(/\n/g, eol);
+  return previous === null || /\r?\n$/.test(previous) ? `${body}${eol}` : body;
 }

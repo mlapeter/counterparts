@@ -52,7 +52,7 @@ import { TUNABLES as PHYSICS, clampSalienceAtSeam, defaultClaimFor } from "./phy
 import { CUE_MODE_META, DATE_FROM_META, RECURRING_META } from "./prospective/index.js";
 import type { Proposal } from "./remember/index.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
-import { HOST_META_KEY, READER_SELF_META_KEY } from "./reader-note.js";
+import { HOST_META_KEY, READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, READER_SELF_META_KEY } from "./reader-note.js";
 import type { ReaderSelf } from "./reader-note.js";
 import { isDay, isRecurrence, localDate } from "./time.js";
 import type { AboutMark, AboutSetter, Store } from "./store/index.js";
@@ -164,6 +164,12 @@ export interface MintOptions {
    * decides it, and sends no `about` mark with it.
    */
   readerSelf?: ReaderSelf;
+  /**
+   * A reader host's own feelings and said-by (CX2 fix round, `reader-note.ts`):
+   * meta keys the door built, written as given. Never the feelings table or
+   * the `said_by` column.
+   */
+  readerMeta?: Readonly<Record<string, unknown>>;
 }
 
 export interface MintResult {
@@ -277,6 +283,9 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // A READER HOST'S WRITE (CX2): which host, and whether it is the reader's note about itself.
   if (opts.host !== undefined) meta[HOST_META_KEY] = opts.host;
   if (opts.readerSelf !== undefined) meta[READER_SELF_META_KEY] = { host: opts.readerSelf.host, model: opts.readerSelf.model };
+  for (const [k, v] of Object.entries(opts.readerMeta ?? {})) {
+    if (k === READER_FEELINGS_META_KEY || k === READER_SAID_BY_META_KEY) meta[k] = v;
+  }
   // SECOND-HAND (2026-10-01): written up by a session that did not live it.
   const writeUp = opts.writeUp;
   if (writeUp !== undefined) {

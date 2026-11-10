@@ -90,3 +90,16 @@ export function writesReaderSelf(about: string | null | undefined, kind: string 
 export function readerLabel(r: ReaderSelf, hostName: string): string {
   return r.model === null ? `a model in ${hostName}` : `${r.model} in ${hostName}`;
 }
+
+/**
+ * A READER'S OWN FEELINGS AND ITS OWN WORDS (CX2 fix round, 2026-11-09): in this
+ * store `whose: self` on a feeling and `said_by = self` on a memory mean the
+ * COUNTERPART — the fast lane reads a strong self "recognized" as about me
+ * (`sleep/consolidate.ts#selfRelevantFeeling`), the night counts "my" feelings
+ * (`dream/feeling-weeks.ts`), and a belief files `said_by = self` as a choice.
+ * From a reader host they are the model's, so they never reach the feelings
+ * table or the column: they ride the memory's meta, labelled with the host and
+ * the model. `whose: owner` and every other `said_by` pass through unchanged.
+ */
+export const READER_FEELINGS_META_KEY = "readerFeelings";
+export const READER_SAID_BY_META_KEY = "readerSaidBy";

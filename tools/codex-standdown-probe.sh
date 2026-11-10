@@ -13,14 +13,27 @@
 #   1. Add it as a SessionStart hook beside ours in ~/.codex/hooks.json:
 #        { "hooks": [ { "type": "command", "command": "/ABSOLUTE/PATH/tools/codex-standdown-probe.sh" } ] }
 #      appended to the "SessionStart" list.
-#   2. Start `codex`, approve it in /hooks, restart, and open one session (the
-#      control row). Then, in Claude Code with codex-plugin-cc installed, run
-#      /codex:rescue on anything small (the row that matters).
-#   3. Read the log: cat "${TMPDIR:-/tmp}/counterparts-codex-probe.log"
-#   4. Take the hook back out of ~/.codex/hooks.json.
+#   2. Start `codex`, approve it in /hooks, restart, and open one session (row A,
+#      the control). Then, in Claude Code with codex-plugin-cc installed, run
+#      /codex:rescue on anything small (row B, the plugin).
+#   3. THE DAEMON CASE. Codex's TUI runs sessions in one app-server daemon per
+#      CODEX_HOME, and the daemon outlives the terminal that started it — so if
+#      the FIRST `codex` after a quiet spell is started from a shell inside Claude
+#      Code, every later session may inherit its environment. To see it: quit
+#      every Codex, wait for the daemon to go (`pgrep -fl "app-server --managed-daemon"`
+#      prints nothing; or wait ~30 min), then start `codex` from Claude Code's
+#      terminal (its `!codex`, or a shell it opened) and open one session (row C);
+#      then, from an ordinary terminal, start `codex` again WITHOUT stopping the
+#      daemon and open one session (row D).
+#   4. Read the log: cat "${TMPDIR:-/tmp}/counterparts-codex-probe.log"
+#   5. Take the hook back out of ~/.codex/hooks.json.
 # Each row: time, event, which marker variables were SET (names only), and the
-# rollout's originator and source. A /codex:rescue row with no marker and an
-# originator that does not say "Claude Code" means neither signal holds: say so.
+# rollout's originator and source. What to check:
+#   - row A: no markers, originator codex-tui (a plain session works);
+#   - row B: a marker or an originator naming Claude Code (else neither signal holds);
+#   - row D: if it shows Claude Code markers, a plain session after a daemon born
+#     inside Claude Code would stand down wrongly — then the env signal must go
+#     and the originator alone decides.
 LOG="${TMPDIR:-/tmp}/counterparts-codex-probe.log"
 IN=$(cat)
 EVENT=$(printf '%s' "$IN" | sed -n 's/.*"hook_event_name":"\([^"]*\)".*/\1/p')

@@ -30,7 +30,9 @@ import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { canonicalScope, readSession } from "../src/adapters/sessions.js";
 import type { Spawner } from "../src/adapters/spawn.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { aboutMe } from "../src/core/sleep/index.js";
+import { aboutMe, selfRelevantFeeling } from "../src/core/sleep/index.js";
+import { feelingWeeks } from "../src/core/dream/feeling-weeks.js";
+import { wireCodex } from "../src/adapters/cli/codex.js";
 import { storyHeadStart } from "../src/core/self/stories.js";
 import { isStoreError } from "../src/core/store/index.js";
 import { readerSelfOfRow } from "../src/core/reader-note.js";
@@ -196,7 +198,7 @@ describe("the hooks", () => {
     const ctx = out.hookSpecificOutput.additionalContext;
     expect(ctx.startsWith("[Counterparts in Codex]")).toBe(true);
     expect(ctx).toContain(`read here by you, ${MODEL} in Codex`);
-    expect(ctx).toContain("You are not that counterpart: its self page is shown for history, not yours to speak as.");
+    expect(ctx).toContain("You are not that counterpart: its self page is shown for history, not yours to speak as, and \"I\" and \"me\" in what follows are the counterpart.");
     expect(ctx).toContain(`write as yourself (${MODEL} in Codex)`);
     const rec = readSession(store, "cx-wake");
     expect(rec?.host).toBe(CODEX_HOST);
@@ -559,6 +561,141 @@ describe("counterparts connect --host codex", () => {
 });
 
 // ── the delivery and the words ────────────────────────────────────────────
+
+// ── the fix round: config.toml, hooks.json's shape, Windows, uninstall ──────
+
+describe("Codex's files, edited with care (CX2 fix round)", () => {
+  const hooksPath = (): string => join(codexHome, "hooks.json");
+  const tomlPath = (): string => join(codexHome, "config.toml");
+  async function cli(argv: string[]): Promise<{ code: number; said: string }> {
+    const c = consoleWith();
+    const code = await run(argv, { io: c.io, env: env(), home, spawner: () => ({ missing: false, code: 0, out: "", err: "" }), processes: () => ({ looked: true, processes: [] }) });
+    return { code, said: `${c.out.join("\n")}\n${c.err.join("\n")}` };
+  }
+
+  test("a reconnect keeps the comment above a later table, and a header inside a multi-line string is words", async () => {
+    writeFileSync(tomlPath(), ['notes = """', "[mcp_servers.counterparts]", "kept as written", '"""', ""].join("\n"));
+    expect((await cli(["connect", "--host", "codex", "--config", cfg])).code).toBe(EXIT.ok);
+    writeFileSync(tomlPath(), `${readFileSync(tomlPath(), "utf8")}\n# note for later\n[mcp_servers.later]\ncommand = "/bin/later"\n`);
+    expect((await cli(["connect", "--host", "codex", "--config", cfg])).code).toBe(EXIT.ok);
+    const toml = readFileSync(tomlPath(), "utf8");
+    expect(toml).toContain("# note for later\n[mcp_servers.later]\ncommand = \"/bin/later\"");
+    expect(toml.startsWith('notes = """\n[mcp_servers.counterparts]\nkept as written\n"""')).toBe(true);
+    expect(toml.match(/^\[mcp_servers\.counterparts\]$/gm)?.length).toBe(2);
+    // Disconnect leaves the later table's comment too, and the string.
+    expect((await cli(["disconnect", "--host", "codex", "--config", cfg])).code).toBe(EXIT.ok);
+    const after = readFileSync(tomlPath(), "utf8");
+    expect(after).toContain("# note for later\n[mcp_servers.later]");
+    expect(after).toContain("kept as written");
+    expect(after).not.toContain("--host");
+  });
+
+  test("a config.toml that does not read as TOML is refused, and neither file changes", async () => {
+    writeFileSync(tomlPath(), "model = \"x\"\nthis line is not toml\n");
+    writeFileSync(hooksPath(), "{}\n");
+    const r = await cli(["connect", "--host", "codex", "--config", cfg]);
+    expect(r.code).toBe(EXIT.refused);
+    expect(r.said).toContain("line 2");
+    expect(r.said).not.toContain("this line is not toml");
+    expect(readFileSync(tomlPath(), "utf8")).toBe("model = \"x\"\nthis line is not toml\n");
+    expect(readFileSync(hooksPath(), "utf8")).toBe("{}\n");
+  });
+
+  test("hooks.json keeps its own indentation", async () => {
+    writeFileSync(hooksPath(), `${JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "/x/other.sh" }] }] } }, null, 4)}\n`);
+    await cli(["connect", "--host", "codex", "--config", cfg]);
+    const text = readFileSync(hooksPath(), "utf8");
+    expect(text).toContain('\n    "hooks": {');
+    expect(text.endsWith("}\n")).toBe(true);
+  });
+
+  test("on Windows, connect says it is not supported yet and writes nothing", () => {
+    const c = consoleWith();
+    const out = wireCodex({ io: c.io, env: env(), home, configPath: cfg, custom: true, store, now: Date.now(), platform: "win32" }, "wire");
+    expect(out).toBe("refused");
+    expect(c.err.join("\n")).toContain("Windows");
+    expect(existsSync(hooksPath())).toBe(false);
+  });
+
+  test("uninstall takes our Codex hooks and MCP entry out too", async () => {
+    writeFileSync(hooksPath(), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "/x/other.sh" }] }] } }));
+    await cli(["connect", "--host", "codex", "--config", cfg]);
+    const r = await cli(["uninstall", "--config", cfg, "--keep-memories", "--yes"]);
+    expect(r.code).toBe(EXIT.ok);
+    const doc = JSON.parse(readFileSync(hooksPath(), "utf8")) as Record<string, unknown>;
+    expect(ourPositions(doc)).toEqual([]);
+    expect(JSON.stringify(doc)).toContain("/x/other.sh");
+    expect(readFileSync(tomlPath(), "utf8")).not.toContain("[mcp_servers.counterparts]");
+  });
+});
+
+// ── the fix round: a reader's own feelings and said-by stay out of the counterpart's ──
+
+describe("whose: self and saidBy: self from Codex are the model's, never the counterpart's", () => {
+  test("a strong self 'recognized' never reaches the fast lane, the night's 'my' feelings, or a belief as a choice", async () => {
+    await hook(base("SessionStart", "cx-feel", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      // Bound first (a `remember` before any `session_end` records no model, as on every host).
+      const ordinary = (await s.call("session_end", { session: "cx-feel", memories: [{ content: "The owner keeps plans short.", kind: "fact", about: "owner", saidBy: "owner" }] })).structuredContent;
+      const ordinaryId = ((ordinary["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>)["id"] as string;
+      const r = await s.call("remember", {
+        session: "cx-feel",
+        text: "Seeing the old tokenizer notes, the pattern of over-planning felt familiar.",
+        kind: "person",
+        saidBy: "self",
+        feelings: [
+          { whose: "self", emotion: "recognized", strength: 0.95, carried_by: "the old notes" },
+          { whose: "owner", emotion: "curious", strength: 0.5 },
+        ],
+      });
+      const id = r.structuredContent["id"] as string;
+      expect(typeof id).toBe("string");
+      const c = s.counterpart;
+      const row = c.store.row(id);
+      // The column and the table hold none of it; the meta holds it, labelled.
+      expect(row?.said_by ?? null).toBeNull();
+      const feelings = c.store.feelingsFor(id);
+      expect(feelings.some((f) => f.whose === "self")).toBe(false);
+      expect(feelings.some((f) => f.whose === "owner")).toBe(true);
+      const meta = JSON.parse(row?.meta ?? "{}") as Record<string, Record<string, unknown>>;
+      expect(meta["readerFeelings"]?.["host"]).toBe(CODEX_HOST);
+      expect(meta["readerFeelings"]?.["model"]).toBe(MODEL);
+      expect(meta["readerSaidBy"]).toEqual({ host: CODEX_HOST, model: MODEL, saidBy: "self" });
+      // The fast lane: an unmarked person memory with a strong self recognition would count — this one doesn't.
+      expect(selfRelevantFeeling(c.store, { id, kind: row?.kind ?? "person", about: row?.about ?? null }, true)).toBe(false);
+      // The night's "my" feelings: nothing of it.
+      const weeks = feelingWeeks(c.store, c.store.today(), () => true);
+      expect(Object.keys(weeks?.mine ?? {}).length).toBe(0);
+      expect(weeks?.restsOn ?? []).not.toContain(id);
+      // A belief: filed as found, never as my choice.
+      const belief = c.sessionBelief({ memoryId: ordinaryId, statement: "They like short plans." });
+      expect(belief.id).not.toBeNull();
+      const filed = c.schemas.fileSupport({ beliefId: belief.id as string, memoryId: id, stance: "support", day: c.store.livedDay(), route: "choice" });
+      expect(filed.route).not.toBe("choice");
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("the control: the same write from the counterpart's own host is the counterpart's", async () => {
+    const s = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const r = await s.call("remember", {
+        text: "Seeing the old tokenizer notes, the pattern of over-planning felt familiar.",
+        kind: "person",
+        saidBy: "self",
+        feelings: [{ whose: "self", emotion: "recognized", strength: 0.95 }],
+      });
+      const id = r.structuredContent["id"] as string;
+      const row = s.counterpart.store.row(id);
+      expect(row?.said_by).toBe("self");
+      expect(selfRelevantFeeling(s.counterpart.store, { id, kind: row?.kind ?? "person", about: row?.about ?? null }, true)).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+});
 
 describe("the envelope", () => {
   test("only the measured shapes", () => {

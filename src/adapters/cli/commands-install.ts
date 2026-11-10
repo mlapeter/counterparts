@@ -60,7 +60,7 @@ import type { WireResult, Spawner, WireInput, ProcessLister } from "./wire.js";
 import { desktopUnavailable, connectDesktop, repairDesktop } from "./desktop.js";
 import type { DesktopRepair } from "./desktop.js";
 import { CODEX_HOST, DESKTOP_ALWAYS_ALLOW } from "../hosts.js";
-import { wireCodex } from "./codex.js";
+import { codexWired, wireCodex } from "./codex.js";
 // `humanBytes` comes from `uninstall.ts` rather than from the private one
 // below: the two spell a size differently ("7.6 MB" against "7.6 MiB"), and
 // the folder `install` offers to bring back is the one `uninstall --park` set
@@ -1245,11 +1245,16 @@ export async function hostWiringCommand(
       lister,
     };
     // `--json`: the plugin command's door (`uninstall.ts#uninstallJson`).
-    return exitFor(
-      parsed.flags["json"] === true
-        ? await uninstallJson(uninstallInput)
-        : await uninstall(uninstallInput),
-    );
+    const json = parsed.flags["json"] === true;
+    const left = json ? await uninstallJson(uninstallInput) : await uninstall(uninstallInput);
+    // CODEX TOO (CX2 fix round): an uninstall that went ahead takes our hooks and
+    // MCP entry out of Codex's files, as `disconnect --host codex` does. The JSON
+    // door prints one object, so there it is said on stderr instead.
+    if (left === "ok" && codexWired(home_, env)) {
+      if (json) io.err(`Codex still has the Counterparts hooks and MCP entry: run \`${BIN.cli} disconnect --host codex\`.`);
+      else wireCodex({ io, env, home: home_, configPath, custom: custom !== undefined, store, now: now() }, "unwire");
+    }
+    return exitFor(left);
   }
 
   const input: WireInput = {

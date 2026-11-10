@@ -12,9 +12,11 @@
 3. **The wake-arrival check.** Claude Code compares what it printed with what its transcript says it injected
    (`claude-code/hooks.ts#checkWakeArrival`); Codex's rollout records our wake as a developer message with
    `hooks.additional_context` — a sibling check could read it.
-4. **Feelings and `saidBy: "self"` from Codex.** A feeling `whose: self` and `saidBy: self` mean the counterpart in
-   this store; from Codex they mean the model. Left as sent (only the `me` mark, traits, stories and `me` beliefs
-   are kept out); revisit with (1).
+4. **Feelings and `saidBy: "self"` from Codex — CLOSED in the fix round (2026-11-09).** They never reach the
+   feelings table or the `said_by` column; they ride the memory's meta as `readerFeelings` / `readerSaidBy`,
+   labelled `{host, model}` (`core/reader-note.ts`). `whose: owner` passes through; `feelingsNow` from Codex records
+   only the owner's. Still open: a chapter's own feelings, if any road gives it one, and how the night might one day
+   read a reader's labelled feelings at all.
 5. **The chapter's memory copy** carries the model (column) but not the host (meta): `appendEpisode` takes no host.
    A Codex chapter `about: me` drops the mark at the door.
 6. **Measurements owed**: the stand-down's two signals (`tools/codex-standdown-probe.sh`); tool-call records in

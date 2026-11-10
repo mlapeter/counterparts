@@ -218,7 +218,10 @@ export async function deposit(
   const held = await cp["guardUpdate"](result.proposal, ctx);
   const carry = cp["carryReminder"](held === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null);
   // v12: the writer's three fields, a revision's carried over where unsent.
-  const facts = cp["carryFacts"](carry.proposal, ctx.facts);
+  const carried = cp["carryFacts"](carry.proposal, ctx.facts);
+  // A READER HOST NEVER WRITES `said_by = self` (CX2 fix round, `reader-note.ts`):
+  // in this store `self` is the counterpart, so not even one a revision would carry.
+  const facts = carried !== null && ctx.host !== undefined && carried.saidBy === "self" ? { ...carried, saidBy: null } : carried;
   const withFacts: Proposal = facts === null ? carry.proposal : { ...carry.proposal, facts: { ...(facts.occurredOn === null ? {} : { occurredOn: facts.occurredOn }), ...(facts.saidBy === null ? {} : { saidBy: facts.saidBy }), ...(facts.status === null ? {} : { status: facts.status }) } };
   // Its title, a revision's carried over when none was sent — unless this
   // write closes a dated memory (2026-10-14).
@@ -268,6 +271,7 @@ export async function deposit(
       ...(ctx.writeUp === undefined ? {} : { writeUp: ctx.writeUp }),
       ...(ctx.host === undefined ? {} : { host: ctx.host }),
       ...(readerSelf === undefined ? {} : { readerSelf }),
+      ...(ctx.readerMeta === undefined ? {} : { readerMeta: ctx.readerMeta }),
       onEvent: (name, data) => cp["emit"](name, undefined, data),
     });
   } catch (err) {

@@ -61,7 +61,7 @@ import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentW
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
-import type { Counterpart, DepositResult } from "../../core/counterpart.js";
+import type { Counterpart, DepositResult, SentFacts } from "../../core/counterpart.js";
 import { LAST_EXCHANGE_HANDLE, lastExchangeAnswer } from "../../core/handoff/last-exchange.js";
 import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/index.js";
 import { COMING_UP_HANDLE, ELSEWHERE_HANDLE, HANDOFFS_HANDLE } from "../../core/counterpart-wake-shape.js";
@@ -98,7 +98,7 @@ import { homedir } from "node:os";
 import { NONESSENTIAL_TRAFFIC_ENV, UPDATE_CHECK_ENV, UPDATE_OFF_KEY, askedOff, updateSwitch } from "../update-check.js";
 import type { UpdateSwitch } from "../update-check.js";
 import { CLAUDE_AI_HOST, CODEX_HOST, CODEX_HOST_NAME, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, isReaderHost, wordingFor } from "../hosts.js";
-import { readerLabel, writesReaderSelf } from "../../core/reader-note.js";
+import { READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, readerLabel, writesReaderSelf } from "../../core/reader-note.js";
 import type { ReaderSelf } from "../../core/reader-note.js";
 import { PLUGIN_ROOT_ENV, recordedForThisCopy } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
@@ -1981,7 +1981,7 @@ export class McpServer {
     // v14, lane B: its tags, loose first the same way.
     const tags = readTags(args);
     // A READER HOST'S WRITE (CX2): its host, and `me` kept as its own note.
-    const reader = this.readerDeposit(about.mark, draft["kind"], model);
+    const reader = this.readerDeposit(about.mark, draft["kind"], model, feelings.inputs, facts.sent);
     let deposit: DepositResult;
     try {
       deposit = await this.counterpart.submitJot(draft, {
@@ -1992,7 +1992,8 @@ export class McpServer {
         // The day this server reads, for a done that closes one occurrence (2026-10-20).
         at: this.today(),
         ownSpanHash,
-        facts: facts.sent,
+        facts: reader.facts,
+        ...(reader.readerMeta === undefined ? {} : { readerMeta: reader.readerMeta }),
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
         // What it is about sets an unclaimed memory's default floor (2026-10-10).
         about: reader.about,
@@ -2015,7 +2016,8 @@ export class McpServer {
     // so a retry does not run into `already-settled`.
     const settle = settleArg === undefined ? null : this.settleOutcome(settleArg as Record<string, unknown>);
     return this.depositResult("remember", deposit, {
-      ...this.recordFeelings(deposit, feelings.inputs, model),
+      ...this.recordFeelings(deposit, reader.feelings, model),
+      ...this.readerOwnNote(reader),
       ...(this.readerSelfAbout(deposit) ?? this.recordAbout(deposit, reader.about)),
       // A BELIEF IN THE MOMENT (lane C3), after the feelings: a vivid one is read off them.
       // From a reader host, only one about us on a memory that is not its own note (CX2).
@@ -2106,7 +2108,13 @@ export class McpServer {
       const deniedNow = new Set(this.counterpart.store.deniedIds());
       const shown = new Set([...seen].filter((x) => !deniedNow.has(x)));
       const model = this.sessionModel(session);
-      const items = list.map((x) => (x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}));
+      const all = list.map((x) => (x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : {}));
+      // A READER HOST FEELS NOTHING AS "SELF" (CX2 fix round): in this store
+      // that is the counterpart. Only the owner's feelings are recorded from it.
+      const items = this.readerHost() ? all.filter((f) => f["whose"] === "owner") : all;
+      if (items.length < all.length && items.length === 0) {
+        return { recorded: 0, reason: "reader-host", detail: 'From this host only the owner\'s feelings are recorded now (whose: "owner"); yours belong on a memory you write.' };
+      }
       const done = this.counterpart.reflections.feelAgain({
         session,
         shown,
@@ -4753,12 +4761,50 @@ export class McpServer {
     about: AboutMark | null,
     kind: unknown,
     model: string | undefined,
-  ): { host?: string; readerSelf?: ReaderSelf; about: AboutMark | null } {
-    if (!this.readerHost()) return { about };
+    feelings: readonly FeelingInput[] = [],
+    facts: SentFacts = {},
+  ): {
+    host?: string;
+    readerSelf?: ReaderSelf;
+    about: AboutMark | null;
+    /** The feelings the counterpart's table takes: all of them, or a reader's `whose: owner` and others. */
+    feelings: readonly FeelingInput[];
+    /** The facts the row takes: a reader's `saidBy: self` sent as none. */
+    facts: SentFacts;
+    readerMeta?: Record<string, unknown>;
+  } {
+    if (!this.readerHost()) return { about, feelings, facts };
+    // A READER'S OWN FEELINGS AND WORDS (CX2 fix round, `reader-note.ts`): in
+    // this store `whose: self` and `said_by = self` are the counterpart, so
+    // the model's ride the memory's meta, labelled, and never the table or column.
+    const own = feelings.filter((f) => f.whose === "self");
+    const said = facts.saidBy === "self";
+    const label = { host: this.host, model: model ?? null };
+    const readerMeta: Record<string, unknown> = {
+      ...(own.length === 0 ? {} : { [READER_FEELINGS_META_KEY]: { ...label, feelings: own.map((f) => ({ ...f })) } }),
+      ...(said ? { [READER_SAID_BY_META_KEY]: { ...label, saidBy: "self" } } : {}),
+    };
+    const rest = {
+      feelings: feelings.filter((f) => f.whose !== "self"),
+      facts: said ? { ...facts, saidBy: null } : facts,
+      ...(Object.keys(readerMeta).length === 0 ? {} : { readerMeta }),
+    };
     if (writesReaderSelf(about, typeof kind === "string" ? kind : null)) {
-      return { host: this.host, readerSelf: { host: this.host, model: model ?? null }, about: null };
+      return { host: this.host, readerSelf: label, about: null, ...rest };
     }
-    return { host: this.host, about };
+    return { host: this.host, about, ...rest };
+  }
+
+  /** What a reader's own feelings and said-by became, in a result (CX2 fix round). */
+  private readerOwnNote(reader: { readerMeta?: Record<string, unknown> }): Record<string, unknown> {
+    const meta = reader.readerMeta;
+    if (meta === undefined) return {};
+    const host = this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host;
+    return {
+      readerOwn: {
+        note: `Your own ${meta[READER_FEELINGS_META_KEY] !== undefined ? "feelings (whose: self)" : ""}${meta[READER_FEELINGS_META_KEY] !== undefined && meta[READER_SAID_BY_META_KEY] !== undefined ? " and " : ""}${meta[READER_SAID_BY_META_KEY] !== undefined ? "saidBy: self" : ""} were kept on the memory, labelled as yours in ${host}: in this memory "self" is the counterpart.`,
+      },
+    };
   }
 
   /** What a reader host's note about itself says in a result: where it went, and what it is not. */
