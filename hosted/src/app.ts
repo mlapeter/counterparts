@@ -550,6 +550,8 @@ export function createApp(opts: AppOptions): App {
     readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
+    // The day of each person's last wake (LW1): a read, and a write once a day at most.
+    onWake: (personId) => void accounts.noteWake(personId),
     ...(opts.onError === undefined ? {} : { onError: opts.onError }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.logForwardedFor === undefined ? {} : { logForwardedFor: opts.logForwardedFor }),

@@ -136,6 +136,11 @@ export function normalizeEmail(raw: unknown): string | null {
   return e;
 }
 
+/** The UTC calendar day of `ms`, as `YYYY-MM-DD` (the shape of `people.last_wake_on`). From the epoch time alone, so the process's TZ can't move it. */
+export function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 /** An IANA zone this runtime knows, or null. */
 export function validTimeZone(raw: unknown): string | null {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 64) return null;
@@ -210,6 +215,13 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "removal_due_at")) {
       this.db.exec("ALTER TABLE stores ADD COLUMN removal_due_at INTEGER");
     }
+    // LW1 (Mike, 2026-11-09): the DAY of the person's last wake, `YYYY-MM-DD`
+    // in UTC, and nothing else: no time, no client, no address. NULL until
+    // their first wake. It tells a quiet account from a live one. Added by
+    // ALTER like the three above, so it is safe to run twice and on the beta volume.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "last_wake_on")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN last_wake_on TEXT");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -225,6 +237,28 @@ export class Accounts {
   /** The upload watch's write (`backup.ts#UploadWatch`): one row, its time replaced (always a new value, so the page always changes), so Litestream has a transaction to ship. */
   heartbeat(): void {
     this.db.run("INSERT INTO heartbeat (id, at) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET at = max(excluded.at, heartbeat.at + 1)", this.now());
+  }
+
+  // ── the day of the last wake (LW1) ──────────────────────────────────────
+
+  /**
+   * A wake (`server.ts#HostedServerOptions.onWake`): today's date, UTC, as
+   * `YYYY-MM-DD`, once a day. A read first, and a write only when the day
+   * changed, so every other wake that day writes nothing (and gives Litestream
+   * nothing to ship). Never audited: an audit row carries the time. True when
+   * it wrote.
+   */
+  noteWake(personId: string): boolean {
+    const today = utcDay(this.now());
+    const row = this.db.get<{ last_wake_on: string | null }>("SELECT last_wake_on FROM people WHERE id = ? AND state = 'active'", personId);
+    if (row === undefined || row.last_wake_on === today) return false;
+    this.db.run("UPDATE people SET last_wake_on = ? WHERE id = ? AND state = 'active'", today, personId);
+    return true;
+  }
+
+  /** The day (UTC, `YYYY-MM-DD`) of this person's last wake, or null when none was seen. */
+  lastWakeOn(personId: string): string | null {
+    return this.db.get<{ last_wake_on: string | null }>("SELECT last_wake_on FROM people WHERE id = ?", personId)?.last_wake_on ?? null;
   }
 
   // ── stores (OL2b) ──────────────────────────────────────────────────────────
@@ -625,7 +659,7 @@ export class Accounts {
       this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
       this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
-      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL, last_wake_on = NULL WHERE id = ?", at, personId);
     });
     this.audit(personId, null, "account.deleted", null);
   }

@@ -165,6 +165,15 @@ copies are "due to go within about two weeks of [their] conversation going quiet
 wake, and wait if chats stop or are far apart. So a number on a hosted page stays tied to the
 next wake unless a sweep is built; whether to build one is Mike's, open.
 
+Since LW1 (11-09) the control database keeps the UTC day of each person's last wake
+(`people.last_wake_on`, CONTRACT §37), so such a sweep has its input without opening a store:
+`SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state = 'active' AND
+p.last_wake_on < <today minus N days, UTC>` (a NULL — never woken since LW1 shipped — falls back
+to `people.created_at`). The same column could give `main.ts signups` a "woke in the last 7 days /
+quiet for 14+" count for monitoring; that command reads on a read-only connection with no migration,
+so it would need a `PRAGMA table_info` guard for a volume from before the column. Neither is built:
+the threshold, and whether a quiet account's raw copies go early, are Mike's.
+
 ## The 24-hour delete (R6, 10-27)
 
 34. **Closed 2026-10-27 (R9, on Mike's "yes send email"): a confirmation email at a delete.** One at the delete,
