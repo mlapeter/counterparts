@@ -329,7 +329,8 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    The reads that need it, by name: MOD #3 in `docs/CHECK-AFTER.md` ("`recall.decision`
    events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
    lived days after the longer habituation window"). Both run on that copy afterwards, never
-   on the live store.
+   on the live store. A release that shortens no window and deletes no rows needs no copy
+   (0.3.53: none taken; 0.3.52's copy still holds the rows those reads need).
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh
