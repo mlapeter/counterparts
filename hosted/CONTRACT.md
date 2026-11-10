@@ -140,6 +140,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       `backchannel_logout_uri` and `request_uris` are refused at registration and in CIMD documents, and every body
       limit is finite.
     - **Redirect URIs** are https, http on a loopback address only, or a native app's own scheme.
+    - **A client whose redirect URIs are all http on loopback is a native app** (DIR1, 2026-11-10; RFC 8252
+      §7.3, and the connector auth doc's "accept a loopback redirect on any port"): its return may come on any
+      port, with the same host and path, and the Allow page is shown every time. Claude Code's own CIMD
+      document (`http://localhost/callback`, `http://127.0.0.1/callback`, no `application_type`) signs in
+      this way; before, the library read it as `web` and refused `localhost:<port>`. https returns still
+      match exactly.
 22. **The entry point** (`src/main.ts`) needs everything named, and nothing falls back to a default:
     - `HOSTED_DATA_ROOT`: absolute, and never inside a live store;
     - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
