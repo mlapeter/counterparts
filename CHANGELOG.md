@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.54 — 2026-11-10
+
+**Hosted gets your dashboard (read-only: home, memories, your page and dreams), and hosted sign-up can open by spots instead of invite codes (closed until we open it).** What you'll notice on hosted: the account page links "Open your dashboard", which shows Home, Memories and Self; Subjects, Flow and Health say they're not on hosted yet. The sign-in page reads "Email me a link", with an optional "Have an invite code?". For local users: the dashboard's buttons work as before (their click handling moved, nothing new). No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.53 is a reinstall with no store restore: `counterparts disconnect`, 0.3.53's install, then `counterparts connect`.
+
+- **Hosted: your dashboard, read-only.** The account page links "Open your dashboard" (`/dashboard/`): the local
+  dashboard's Home, Memories and Self pages (the days, the memories, the self page, the dreams), served from your
+  hosted memory and seen only by you. Nothing on it writes; the pages that read your computer (Subjects, Flow,
+  Health) say they're not on hosted yet. The local dashboard and hosted's now share one server-side answerer, and
+  every button's click handling moved from inline handlers to delegated listeners: the local dashboard looks and
+  works as before. Its pages retry a request that was told to slow down.
+- **Hosted: sign up with just your email while the beta has spots left.** The operator sets how many accounts
+  hosted takes (`spots set N`); until it's full, a new address gets a sign-up link with no code. When it's full,
+  the sign-in page says so and links counterparts.ai's waiting list. Invite codes still work, and are now an
+  optional "Have an invite code?" field. Spots start at 0, so nothing opens until the operator says so.
+
 ## 0.3.53 — 2026-11-09
 
 **Your page names what it sets down and tells more than corrections; the morning wake reads cleaner; things waiting on you come up when they're relevant, not as a pile.** What you'll notice: the morning after a night's page write, the wake can say "Set down from my page last night: …"; the wake ends with a "Carried forward" line, gives overdue items as a count with the oldest date, and names the session id in its first line; and now and then a line "Waiting on <you>, ask when it fits: …" when something you owe an answer on comes up in the conversation or at the week's session start. The wake changes are in the shaped wake (on for a store created since 0.3.46, or after `counterparts wake-shape on`). `remember` takes `story: true`. No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.52 is a reinstall with no store restore: `counterparts disconnect`, 0.3.52's install, then `counterparts connect`.

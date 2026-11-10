@@ -309,7 +309,8 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    folder; a mismatch stops the release there. The PUBLISH sheet then gives the owner two
    lines and nothing else to run (Mike, 2026-11-01):
    `npm publish <full path to the release folder>/counterparts-<version>.tgz --otp=CODE`, and
-   the install line, `bun add -g counterparts@<version> && counterparts --version`.
+   the install line, `npm install -g counterparts@<version> && counterparts --version` (npm since
+   0.3.54, as he installs; it was `bun add -g` before).
    After publishing, check npm's `dist.integrity` against the tarball's sha512.
 
    **A copy before the install, when the release lets event rows go sooner (FD1 step 2,
@@ -330,7 +331,7 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
    lived days after the longer habituation window"). Both run on that copy afterwards, never
    on the live store. A release that shortens no window and deletes no rows needs no copy
-   (0.3.53: none taken; 0.3.52's copy still holds the rows those reads need).
+   (0.3.53 and 0.3.54: none taken; 0.3.52's copy still holds the rows those reads need).
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh
