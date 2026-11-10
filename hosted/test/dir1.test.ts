@@ -10,6 +10,8 @@
  *     sign nobody in; its store fills with the sample at the first connection, once, through the tools;
  *     the operator's `reviewer` command prints the code once and refuses an address with an account.
  *   - Every tool once, through the door, on that account (portal step 8's record: `DIR1_RECORD=<file>`).
+ *   - MCP Inspector's web page: `/mcp` answers an exact allow-listed origin (CORS, preflight), empty by
+ *     default; no Origin is served as before and any other is refused.
  *
  * Hermetic: a temp data root per test, removed after; an in-memory mailer; a CIMD fetch serving fixture
  * documents (Claude Code's is its real one, copied); a stub spawner. No network, no live store.
@@ -25,6 +27,7 @@ import { join } from "node:path";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
+import { mcpAllowedOrigins } from "../src/main.js";
 import { MAIN, rpc, tempRoot } from "./helpers.js";
 import { Browser, CLAUDE_CODE_CIMD, CLAUDE_CODE_CIMD_URL, bearer, connect, csrfOf, insecure, rig } from "./oauth-rig.js";
 import type { Rig } from "./oauth-rig.js";
@@ -352,6 +355,61 @@ describe("every tool once, through the hosted door, on the reviewer's account (i
           "",
         ].join("\n"),
       );
+    }
+  });
+});
+
+describe("MCP Inspector's web page: an exact origin allow-list, empty by default (item 6)", () => {
+  const INSPECTOR = "http://localhost:6274";
+  const post = (r: Rig, token: string, origin?: string): Promise<Response> =>
+    fetch(`${r.origin}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...(origin === undefined ? {} : { origin }) },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+
+  test("unset: no Origin is served as before, any Origin is refused with a sentence; set: only the listed origin, with CORS", async () => {
+    for (const listed of [false, true]) {
+      const r = await rig(tmp.root + (listed ? "/listed" : "/plain"), listed ? { allowedOrigins: [INSPECTOR] } : {});
+      closers.push(() => r.close());
+      const { code } = r.app.accounts.createInvite();
+      const c = await connect(r, { email: "inspector@example.com", invite: code });
+      const none = await post(r, c.access);
+      assert.equal(none.status, 200);
+      assert.equal(none.headers.get("access-control-allow-origin"), null);
+      const foreign = await post(r, c.access, "https://evil.example");
+      assert.equal(foreign.status, 403);
+      assert.match(await foreign.text(), /^403: requests from this web page's origin aren't accepted here/);
+      assert.equal(foreign.headers.get("access-control-allow-origin"), null);
+      const inspector = await post(r, c.access, INSPECTOR);
+      const pre = await fetch(`${r.origin}/mcp`, { method: "OPTIONS", headers: { origin: INSPECTOR, "access-control-request-method": "POST", "access-control-request-headers": "authorization, content-type" } });
+      const preForeign = await fetch(`${r.origin}/mcp`, { method: "OPTIONS", headers: { origin: "https://evil.example" } });
+      assert.equal(preForeign.status, 405);
+      assert.equal(preForeign.headers.get("access-control-allow-origin"), null);
+      if (!listed) {
+        assert.equal(inspector.status, 403);
+        assert.equal(pre.status, 405);
+      } else {
+        assert.equal(inspector.status, 200);
+        assert.equal(inspector.headers.get("access-control-allow-origin"), INSPECTOR);
+        assert.match(String(inspector.headers.get("access-control-expose-headers")), /WWW-Authenticate/);
+        assert.equal(pre.status, 204);
+        assert.equal(pre.headers.get("access-control-allow-origin"), INSPECTOR);
+        assert.match(String(pre.headers.get("access-control-allow-headers")), /authorization/);
+        // A 401 the page can read, so it can start OAuth from it.
+        const anon = await fetch(`${r.origin}/mcp`, { method: "POST", headers: { "content-type": "application/json", origin: INSPECTOR }, body: "{}" });
+        assert.equal(anon.status, 401);
+        assert.equal(anon.headers.get("access-control-allow-origin"), INSPECTOR);
+      }
+    }
+  });
+
+  test("MCP_ALLOWED_ORIGINS takes exact origins only: never *, a path, or a trailing slash", () => {
+    assert.deepEqual(mcpAllowedOrigins(undefined), []);
+    assert.deepEqual(mcpAllowedOrigins(""), []);
+    assert.deepEqual(mcpAllowedOrigins("http://localhost:6274, http://127.0.0.1:6274"), ["http://localhost:6274", "http://127.0.0.1:6274"]);
+    for (const bad of ["*", "http://localhost:6274/", "http://localhost:6274/x", "localhost:6274", "ftp://x.example"]) {
+      assert.ok("refusal" in mcpAllowedOrigins(bad), bad);
     }
   });
 });

@@ -219,6 +219,18 @@ export function createHostedServer(opts: HostedServerOptions): Server {
   const unauthorized = { status: 401, headers: challenge("invalid_token") };
 
   const mcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    // A BROWSER CLIENT ON THE ALLOW-LIST (DIR1: MCP Inspector's web page): its preflight is answered and
+    // its answers readable. Nothing for any other origin, and nothing changes for a call with no Origin.
+    const from0 = req.headers["origin"];
+    const cors: Record<string, string> =
+      typeof from0 === "string" && allowed.has(from0) ? { "Access-Control-Allow-Origin": from0, "Access-Control-Expose-Headers": "WWW-Authenticate, Mcp-Session-Id", Vary: "Origin" } : {};
+    for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
+    if (req.method === "OPTIONS" && cors["Access-Control-Allow-Origin"] !== undefined) {
+      req.resume();
+      res.writeHead(204, { ...BASE_HEADERS, ...hsts, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version, mcp-session-id", "Access-Control-Max-Age": "600" });
+      res.end();
+      return;
+    }
     if (req.method !== "POST") {
       req.resume();
       text(res, 405, DOOR_WORDS.notPost, { Allow: "POST", ...hsts });

@@ -258,6 +258,28 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
 }
 
 /** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
+/**
+ * `MCP_ALLOWED_ORIGINS` (DIR1, 2026-11-10): the exact browser origins `/mcp` answers, comma-separated, for
+ * a browser-based client such as MCP Inspector's web page (`http://localhost:6274`). Unset or empty: none,
+ * as before, so claude.ai (which calls server to server, with no Origin) is unchanged. Each must be a bare
+ * origin (scheme, host, port), never `*`, so a typo can't open the door to every page.
+ */
+export function mcpAllowedOrigins(raw: string | undefined): string[] & { refusal?: never } | { refusal: string } {
+  const out: string[] = [];
+  for (const part of (raw ?? "").split(",").map((p) => p.trim()).filter((p) => p.length > 0)) {
+    let origin: string | null = null;
+    try {
+      const u = new URL(part);
+      origin = (u.protocol === "http:" || u.protocol === "https:") && u.origin === part ? u.origin : null;
+    } catch {
+      origin = null;
+    }
+    if (origin === null) return { refusal: `refused: MCP_ALLOWED_ORIGINS takes exact origins like http://localhost:6274, comma-separated; "${part.slice(0, 80)}" isn't one.` };
+    out.push(origin);
+  }
+  return out;
+}
+
 export function callLine(r: HostedCallRecord): string {
   const parts = [`store=${r.store}`, `method=${r.method}`];
   if (r.tool !== undefined) parts.push(`tool=${r.tool}`);
@@ -973,6 +995,12 @@ async function main(): Promise<void> {
   const embedder = openEmbedder(withEmbedderDefault({}));
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
   if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
+  const allowedOrigins = mcpAllowedOrigins(env["MCP_ALLOWED_ORIGINS"]);
+  if ("refusal" in allowedOrigins) {
+    process.stderr.write(`[hosted] ${allowedOrigins.refusal}\n`);
+    process.exitCode = 1;
+    return;
+  }
   const app = createApp({
     dataRoot: read.dataRoot,
     publicOrigin: read.origin,
@@ -981,6 +1009,8 @@ async function main(): Promise<void> {
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
+    // DIR1: exact browser origins `/mcp` answers (MCP Inspector's web page while testing); unset: none.
+    ...(allowedOrigins.length === 0 ? {} : { allowedOrigins }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
     // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
     onUploads: (e) => process.stderr.write(uploadsLine(e)),
