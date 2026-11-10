@@ -1490,3 +1490,9 @@ What it moves, on purpose:
   with the split on, every section with it off) that life used or a newer memory restated, each with the ids it
   rested on so a line brought back can cite them. Set-down memories are night rows (`source: reflection`), so they
   never reach `core`, `candidates` or `felt`.
+
+## 2026-11-09 — a reader host's note about itself (CX2)
+
+- A belief candidate drops a reader host's note about itself from its sources, `nominate-core` refuses one
+  (`reader-self-note`), and the reflection reads one as not lived: no cite, no mark, no trait, no feeling
+  (`notLivedReason`, `lived`). `core/reader-note.ts` says what such a note is.

@@ -380,7 +380,8 @@ describe("recall opens the manual", () => {
     // The cap follows the content, not the other way (11-04, ROADMAP): it was set from
     // #738's size, so a new section raises it rather than trimming reviewed lines.
     // About 2,325 B with "Taking your hosted memory home" (EX1); a little room above that.
-    expect(Buffer.byteLength(text)).toBeLessThan(2400);
+    // About 2,460 B with "Codex (new)" (CX2, 2026-11-09).
+    expect(Buffer.byteLength(text)).toBeLessThan(2550);
     const norm = (x: string): string => x.toLowerCase().replace(/[’]/g, "'");
     // A concrete thing: a code span, a quoted phrase, or a file name.
     const concrete = (line: string): string[] =>

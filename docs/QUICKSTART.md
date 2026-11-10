@@ -125,6 +125,29 @@ counterparts scope --list         # every directory you've set
 
 Settings apply to subdirectories too.
 
+## Codex (new)
+
+OpenAI's Codex can use the same memory. Its model reads it as your counterpart's memory, not as
+itself, and writes in its own voice. To connect it:
+
+```
+counterparts connect --host codex
+```
+
+That appends four hooks to `~/.codex/hooks.json` (or `$CODEX_HOME`) after any other tool's, and
+adds a `counterparts` MCP server to `~/.codex/config.toml`; both files are backed up first.
+**Then one step is yours:** start Codex, type `/hooks`, approve the four Counterparts hooks, and
+restart Codex. Codex skips a hook until you approve it, and asks again if an update changes its
+command. `counterparts doctor` says which are approved.
+
+What works in Codex: the wake at the start of a session, recall on each prompt, the end-of-session
+ask, and each turn kept for write-up. Memories written there are labelled with Codex and the model.
+What doesn't: no dreams or reflection run in Codex (they stay in Claude Code); Codex can't write
+the self page; a "me" it writes is kept as its own note, not your counterpart's self; Windows isn't
+wired for Codex yet. Keep Codex's own `memories` feature off, or two memories will disagree.
+
+`counterparts disconnect --host codex` takes out only what connect added.
+
 ## Look at the memory
 
 ```

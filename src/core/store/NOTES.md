@@ -2501,3 +2501,10 @@ size apart; requiring every sampled id to miss keeps one stray row from firing i
 rows:** a store whose live rows are all in a script the tokenizer keeps nothing of (CJK) rebuilt
 and wrote an event at every open, and doctor stayed amber; the rebuild now stamps the live count
 it saw in `cache_meta` (`index.tokenlessLive`) and writes no event when the index is still empty.
+
+## 2026-11-09 — a reader host's note about itself (CX2)
+
+- `core/reader-note.ts`: a memory a reader host (Codex) wrote `about: me` is stored with no `me` mark and
+  `meta.readerSelf = {host, model}` (no schema change: the meta bag). `Store#setAbout` refuses `me`/`us` on such a
+  row to every setter but the owner (`ABOUT_READER_SELF`); `isReaderSelfRow` is re-exported here so `sleep/`, which
+  imports only types, physics and the store, can read it.
