@@ -3,7 +3,8 @@
  * account page, log out. Server-rendered HTML, no framework.
  *
  *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full
- *   POST /login            sends the link — the same words on the page whatever the outcome
+ *   POST /login            sends the link — the same words on the page whatever the outcome; a reviewer's
+ *                          code beside its account's email signs in at once, with no email (DIR1)
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
  *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): public, cached a few
  *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
@@ -138,12 +139,14 @@ const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 // tie each sentence to the code. On the account page, where sign-in lands.
 // Change a sentence here only with him, and when the code behind it changes.
 // AR1 (Mike, 2026-11-10): "(kept for 12 months, then erased)" added with the
-// audit's 365-day limit (`accounts.ts#RETENTION_DAYS`).
+// audit's 365-day limit (`accounts.ts#RETENTION_DAYS`); "invite code" became
+// "which invite you used, if any (a reference, not the code)" to match /privacy/:
+// the account keeps `people.invite_id`, and codes are stored only hashed.
 const ISSUES_URL = "https://github.com/mlapeter/counterparts/issues";
 const FEEDBACK_EMAIL = "mike@resonantventures.com";
 const BETA_NOTE_HTML =
   escapeHtml(
-    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events (kept for 12 months, then erased). We also keep the day you last started a chat with Counterparts (just the date), to tell quiet accounts from active ones. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
+    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased). We also keep the day you last started a chat with Counterparts (just the date), to tell quiet accounts from active ones. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
   ) +
   `<a href="${ISSUES_URL}">${ISSUES_URL}</a>` +
   escapeHtml(" (please don't paste memories into it). For anything else, write to ") +
@@ -325,7 +328,19 @@ ${
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
       if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
-        message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
+        // A form that carried a code may have been a reviewer's sign-in, which sends no email (DIR1 review).
+        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.");
+        return true;
+      }
+      // A REVIEWER'S CODE (DIR1, 2026-11-10): typed in the code field beside the email of an account the
+      // operator's `reviewer` command made, it signs this browser in now, with no email (a stranger
+      // reviewing the directory listing has no mailbox of ours). One lookup by the code's hash for every
+      // ask, so a code that isn't one costs what none costs and goes on below as an invite code would.
+      const reviewer = opts.accounts.reviewerSignIn(form.get("email"), form.get("invite"));
+      if (reviewer !== null) {
+        opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
+        const session = opts.accounts.startSession(reviewer);
+        redirect(res, next, { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
         return true;
       }
       // The words follow the spots as they stand now (public), not this ask's outcome.

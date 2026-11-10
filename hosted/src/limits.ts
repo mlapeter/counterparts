@@ -14,7 +14,8 @@
  *      its own answers.
  *   3. **Size**: 1 GiB per store (a store's own `stores.quota_bytes` wins when
  *      set). Over it, every tool that can add to the memory refuses; `recall`,
- *      `status`, `wake`, `scope` and reading the self page keep working.
+ *      `status`, `wake`, `scope`, `delete_memory` (a delete frees room) and reading
+ *      the self page keep working.
  *
  * A refused CALL is answered the way a tool refuses (`isError: true`, a
  * `reason`, and words the model can pass on), not with an HTTP error, because
@@ -37,8 +38,8 @@ export const STORE_QUOTA_BYTES = 1024 * 1024 * 1024;
 /** How long a measured size is trusted before the dir is walked again. */
 export const SIZE_TTL_MS = 60_000;
 
-/** Tools that add nothing to a memory: they keep working over the quota. `self_page` with no argument but `session`/`ifVersion` is a read and joins them. */
-export const QUOTA_FREE_TOOLS: ReadonlySet<string> = new Set(["recall", "status", "wake", "scope"]);
+/** Tools that add nothing to a memory (and a delete, which frees room): they keep working over the quota. `self_page` with no argument but `session`/`ifVersion` is a read and joins them. */
+export const QUOTA_FREE_TOOLS: ReadonlySet<string> = new Set(["recall", "status", "wake", "scope", "delete_memory"]);
 
 /** The only `self_page` arguments a read carries. */
 const SELF_PAGE_READ_ARGS: ReadonlySet<string> = new Set(["session", "ifVersion"]);

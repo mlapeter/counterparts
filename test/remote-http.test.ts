@@ -28,7 +28,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, MAX_BATCH, REFUSED_ERROR, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { INTERNAL_ERROR_WORDS, LOOPBACK, MAX_BATCH, REFUSED_ERROR, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
@@ -135,7 +135,8 @@ describe("the HTTP door, through the socket", () => {
     const { http } = await door();
     await rpc(http.url, "initialize", INIT);
     const list = result((await rpc(http.url, "tools/list")).body)["tools"] as Record<string, unknown>[];
-    expect(list.map((t) => t["name"])).toEqual(["wake", ...TOOLS.map((t) => t.name)]);
+    // DIR1: claude.ai's own `delete_memory` last (`tools.ts#CLAUDE_AI_DELETE`).
+    expect(list.map((t) => t["name"])).toEqual(["wake", ...TOOLS.map((t) => t.name), "delete_memory"]);
     const wake = list[0] as Record<string, unknown>;
     // It describes what wake brings; it does not tell Claude to call it first (OL1b item 4: the directory rule).
     expect(String(wake["description"]).startsWith("Start a conversation with your long-term memory of this person")).toBe(true);
@@ -271,7 +272,8 @@ describe("the HTTP door, through the socket", () => {
     closers.push(() => http.close());
     const out = await rpc(http.url, "ping");
     expect(out.status).toBe(200);
-    expect(out.body["error"]).toEqual({ code: -32603, message: "internal error" });
+    expect(out.body["error"]).toEqual({ code: -32603, message: INTERNAL_ERROR_WORDS });
+    expect(INTERNAL_ERROR_WORDS.startsWith("internal error")).toBe(true);
     expect(JSON.stringify(out.body)).not.toContain("/Users/");
   });
 
@@ -432,7 +434,9 @@ describe("claude.ai's tools and words", () => {
     expect(toolDefinitions(DESKTOP_HOST)).toEqual(toolDefinitions(true));
     expect(toolDefinitions("claude-code")).toEqual(toolDefinitions(false));
     expect(DESKTOP_TOOLS.at(-1)?.name).toBe("wake");
-    expect(CLAUDE_AI_TOOLS[0]).toBe(CLAUDE_AI_WAKE);
+    // DIR1: the same words, its claims served as engine rows (`tools.ts#withClaimsAsEngine`).
+    expect(CLAUDE_AI_TOOLS[0]?.summary).toBe(CLAUDE_AI_WAKE.summary);
+    expect(CLAUDE_AI_TOOLS[0]?.privileges).toEqual([]);
     expect(renderDescription(CLAUDE_AI_WAKE)).toContain("what is worth keeping is saved as it comes up, with `remember`");
     expect(DESKTOP_INSTRUCTIONS).toContain("Code tab");
   });

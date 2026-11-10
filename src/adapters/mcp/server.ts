@@ -732,7 +732,7 @@ export class McpServer {
     if (toolSpec(name, this.host) === undefined) {
       // An unknown TOOL is a protocol fault (the client called something that
       // does not exist); an unusable ARGUMENT is the tool's own answer.
-      return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown tool: ${name}`);
+      return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown tool: ${name}. tools/list names the tools this server offers.`);
     }
     const args = params["arguments"];
     if (args !== undefined && (args === null || typeof args !== "object" || Array.isArray(args))) {
@@ -1059,6 +1059,10 @@ export class McpServer {
         return this.reflectTool(args);
       case "meet":
         return await this.meetTool(args);
+      case "delete_memory":
+        // claude.ai's own (`tools.ts#CLAUDE_AI_DELETE`, DIR1): `remember`'s
+        // `remove`, as a tool of its own so its annotations can say it deletes.
+        return this.host === CLAUDE_AI_HOST ? this.deleteMemoryTool(args) : this.refuse(name, "unknown-tool", { tool: name });
       default:
         return this.refuse(name, "unknown-tool", { tool: name });
     }
@@ -1791,6 +1795,19 @@ export class McpServer {
   }
 
   /**
+   * `delete_memory` (claude.ai only, DIR1 2026-11-10): the same hold as
+   * `remember`'s `remove` (`removeOutcome`), its result the outcome itself.
+   * Its words say the tool's own name, never `remove`.
+   */
+  private deleteMemoryTool(args: Record<string, unknown>): ToolResult {
+    if (this.observer) return this.standDown("delete_memory");
+    const out = this.removeOutcome({ id: args["id"], undo: args["undo"] });
+    const detail = out["detail"];
+    const said = typeof detail === "string" ? { ...out, detail: detail.replace(/^remove needs/, "delete_memory needs") } : out;
+    return this.result({ tool: "delete_memory", ...said }, out["ok"] !== true);
+  }
+
+  /**
    * `remember` (was `note` until 2026-10-10) — deliberate remembering in the
    * moment; with the end-of-session ask, the only road from conversation to
    * memory since the keyless sweep came out (2026-09-24).
@@ -1808,6 +1825,12 @@ export class McpServer {
     // 24-hour hold, never an erase (`core/removal-hold.ts`). Alone, or beside
     // anything else the call does; the hold is answered first.
     const removeArg = args["remove"];
+    // ON CLAUDE.AI A DELETE IS ITS OWN TOOL (DIR1, 2026-11-10): `remember` there
+    // only adds, so its annotations are true. A call from a cached list that still
+    // sends `remove` is told where the delete went, and nothing else runs.
+    if (removeArg !== undefined && this.host === CLAUDE_AI_HOST) {
+      return this.refuse("remember", "remove-moved", { detail: "To delete a memory here, call the delete_memory tool with {id} (or {id, undo: true} to bring one back). Nothing was saved or deleted." });
+    }
     if (removeArg !== undefined) {
       if (removeArg === null || typeof removeArg !== "object" || Array.isArray(removeArg)) {
         return this.refuse("remember", "remove-malformed", { detail: "remove is one object: {id} to delete a memory, or {id, undo: true} to bring it back." });
@@ -4108,7 +4131,8 @@ export class McpServer {
       const store = this.counterpart.store;
       const lines = list
         .filter((n) => store.isHeld(n.id))
-        .map((n) => `held for removal: "${n.title}" · undo within 24h: remember with remove: {id: "${n.id}", undo: true}`);
+        // claude.ai's delete is its own tool (DIR1, `tools.ts#CLAUDE_AI_DELETE`), so its undo is too.
+        .map((n) => `held for removal: "${n.title}" · undo within 24h: ${this.host === CLAUDE_AI_HOST ? "delete_memory with" : "remember with remove:"} {id: "${n.id}", undo: true}`);
       if (lines.length === 0) return res;
       // Beside what the recall said, in both copies: a host that reads the
       // structured result and one that reads only the text each see it.
@@ -4149,7 +4173,7 @@ export class McpServer {
       note:
         items.length === 0
           ? "Nothing deleted in chat is waiting to be erased."
-          : "Each is hidden, and erased once its time passes. remember with remove: {id, undo: true} brings one back before then.",
+          : `Each is hidden, and erased once its time passes. ${this.host === CLAUDE_AI_HOST ? "delete_memory with" : "remember with remove:"} {id, undo: true} brings one back before then.`,
     }, false);
   }
 
