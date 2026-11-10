@@ -17,6 +17,7 @@
  * bucket (backups off), no live store.
  */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -340,6 +341,85 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
       assert.doesNotMatch(await res.text(), /locked now/);
     }
     assert.equal(r.app.tenants.isOpen(me.storeId), false, "a look opened a locked store");
+  });
+
+  test("one session can't stall the process: past two views in flight it is a 429, and /healthz keeps answering", async () => {
+    const r = await rig();
+    const me = await signUp(r, "busy@example.com");
+    // A store big enough that one /api/memories is real work (#801 review: 3,000 held /healthz ~10 s before the cap).
+    await r.app.tenants.withTenant(me.storeId, {}, (t, server) =>
+      t.serial(async () => {
+        const store = server.counterpart.store;
+        const day = store.livedDay();
+        for (let i = 0; i < 3000; i++) {
+          store.put({ type: "memory", kind: "fact", body: `Busy memory number ${String(i)}: the tide table for pier ${String(i % 97)}.`, salience: { relevance: 0.5, emotional: 0.2, predictive: 0.4 }, physics: { birthDay: day, lastUsedDay: day } });
+        }
+      }),
+    );
+    const one = Date.now();
+    assert.equal((await me.browser.go("/dashboard/api/memories")).status, 200);
+    const single = Date.now() - one;
+
+    const N = 60;
+    const health: number[] = [];
+    let flooding = true;
+    const probe = (async () => {
+      while (flooding) {
+        const t0 = Date.now();
+        await fetch(`${r.origin}/healthz`);
+        health.push(Date.now() - t0);
+        await new Promise((res) => setTimeout(res, 20));
+      }
+    })();
+    const t0 = Date.now();
+    // The flood comes from ANOTHER process, as it would in production: a client
+    // in this one shares the server's event loop, and its requests then only
+    // trickle in between views (Node's fetch did; bun's didn't).
+    const cookie = [...me.browser.jar].map(([k, v]) => `${k}=${v}`).join("; ");
+    const client = `const [u, c, n] = process.argv.slice(-3);
+(async () => { const out = await Promise.all(Array.from({ length: Number(n) }, async () => { const r = await fetch(u, { headers: { cookie: c } }); const b = await r.text(); return [r.status, r.status === 429 ? b : ""]; })); process.stdout.write(JSON.stringify(out)); })();`;
+    const child = spawn(process.execPath, ["-e", client, "--", `${r.origin}/dashboard/api/memories`, cookie, String(N)], { stdio: ["ignore", "pipe", "inherit"] });
+    let raw = "";
+    child.stdout.on("data", (b: Buffer) => (raw += b.toString()));
+    await new Promise<void>((res) => child.once("exit", () => res()));
+    const replies = JSON.parse(raw) as [number, string][];
+    for (const [s, b] of replies) if (s === 429) assert.match(b, /still reading your memory/);
+    const statuses = replies.map(([s]) => s);
+    const flood = Date.now() - t0;
+    flooding = false;
+    await probe;
+    const ok = statuses.filter((s) => s === 200).length;
+    const busy = statuses.filter((s) => s === 429).length;
+    const worst = Math.max(...health);
+    console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
+    assert.equal(ok + busy, N);
+    assert.ok(busy >= N - 10, `most of the flood was refused (${String(busy)} of ${String(N)})`);
+    assert.ok(ok >= 1);
+    // Loose but real: /healthz never waits behind more than a few views.
+    assert.ok(worst < Math.max(1500, single * 4), `/healthz waited ${String(worst)} ms`);
+    // And the cap is per person and lets go: the next view answers.
+    assert.equal((await me.browser.go("/dashboard/api/meta")).status, 200);
+  });
+
+  test("hosted bounds a view's size and leaves off what its page doesn't draw", async () => {
+    const r = await rig();
+    const me = await signUp(r, "bounded@example.com");
+    await r.app.tenants.withTenant(me.storeId, {}, (t, server) =>
+      t.serial(async () => {
+        const store = server.counterpart.store;
+        const day = store.livedDay();
+        for (let i = 0; i < 120; i++) store.put({ type: "memory", kind: "fact", body: `Heron sighting ${String(i)} by the mill.`, salience: { relevance: 0.5, emotional: 0.2, predictive: 0.4 }, physics: { birthDay: day, lastUsedDay: day } });
+      }),
+    );
+    const found = await me.browser.json("/dashboard/api/search?q=heron&limit=99999999");
+    assert.ok((found.body["hits"] as unknown[]).length <= 50);
+    const list = await me.browser.json("/dashboard/api/memories/list?limit=99999999");
+    assert.ok(JSON.stringify(list.body).length < 2_000_000);
+    const overview = await me.browser.json("/dashboard/api/overview?limit=99999999");
+    assert.equal("feed" in overview.body, false);
+    const activity = await me.browser.json("/dashboard/api/activity?limit=99999999&sinceSeq=0");
+    assert.deepEqual(activity.body["events"], []);
+    assert.equal(typeof activity.body["lastSeq"], "number");
   });
 
   test("a store never connected isn't created by a look", async () => {

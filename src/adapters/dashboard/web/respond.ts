@@ -248,6 +248,11 @@ export function viewReply(url: URL, src: DashboardSource, host: DashboardHost): 
   }
 }
 
+/** A `limit` a non-local host bounds (a huge one only makes a bigger reply on a shared server). */
+function cap(host: DashboardHost, n: number, max: number): number {
+  return host.machine ? n : Math.max(0, Math.min(n, max));
+}
+
 function view(url: URL, path: string, src: DashboardSource, host: DashboardHost): Reply | null {
   if (path === "/api/meta") {
     const meta = metaView(src);
@@ -257,7 +262,13 @@ function view(url: URL, path: string, src: DashboardSource, host: DashboardHost)
     return json(rest);
   }
   if (path === "/api/pulse") return json(pulse(src));
-  if (path === "/api/overview") return json(overviewView(src, intParam(url, "limit", 40)));
+  if (path === "/api/overview") {
+    const overview = overviewView(src, cap(host, intParam(url, "limit", 40), 100));
+    if (host.machine) return json(overview);
+    // Home no longer draws the feed (round 4); off the wire where nothing reads it.
+    const { feed: _feed, ...rest } = overview;
+    return json(rest);
+  }
   if (path === "/api/memories") return json(memoriesView(src, { limit: intParam(url, "limit", 4000) }));
   if (path === "/api/memories/list") {
     const q = url.searchParams;
@@ -273,7 +284,7 @@ function view(url: URL, path: string, src: DashboardSource, host: DashboardHost)
       feelingCore: q.get("feelingCore"),
       sort: q.get("sort"),
       offset: intParam(url, "offset", 0),
-      limit: intParam(url, "limit", 50),
+      limit: cap(host, intParam(url, "limit", 50), 200),
     }));
   }
   if (path === "/api/memory") {
@@ -282,7 +293,7 @@ function view(url: URL, path: string, src: DashboardSource, host: DashboardHost)
     return json(memoryDetail(src, id));
   }
   if (path === "/api/search") {
-    return json(searchView(src, url.searchParams.get("q") ?? "", intParam(url, "limit", 25)));
+    return json(searchView(src, url.searchParams.get("q") ?? "", cap(host, intParam(url, "limit", 25), 50)));
   }
   if (path === "/api/mind") return json(mindView(src));
   // THE SUBJECTS TAB (wave 2 lane D, 2026-10-21): the cloud and every
@@ -316,12 +327,17 @@ function view(url: URL, path: string, src: DashboardSource, host: DashboardHost)
   if (path === "/api/activity") {
     const sinceRaw = url.searchParams.get("sinceSeq");
     const opts: { limit: number; name?: string; sinceSeq?: number } = {
-      limit: intParam(url, "limit", 40),
+      limit: cap(host, intParam(url, "limit", 40), 100),
     };
     const name = url.searchParams.get("name");
     if (name !== null && name.length > 0) opts.name = name;
     if (sinceRaw !== null) opts.sinceSeq = intParam(url, "sinceSeq", 0);
-    return json(activityView(src, opts));
+    const activity = activityView(src, opts);
+    if (host.machine) return json(activity);
+    // The page on this host reads only `lastSeq` (the pulse: did the store move?).
+    // The narrated rows and their details (session ids, the server's build)
+    // stay off the wire; nothing on its tabs draws a feed.
+    return json({ ...activity, events: [], vocabulary: [] });
   }
   if (path === "/api/event") {
     const seq = intParam(url, "seq", -1);

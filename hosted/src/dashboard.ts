@@ -102,9 +102,15 @@ function send(res: ServerResponse, reply: Reply, head: boolean): void {
 const EMPTY_WORDS = "Your memory is empty so far. Connect Counterparts in Claude and start a chat, then come back.";
 const RESTORE_WORDS = "Your memory is being restored. Try again in a little while.";
 const LOCKED_WORDS = "Your account is set to be deleted, so your memory isn't shown.";
+const BUSY_WORDS = "Your dashboard is still reading your memory. Try again in a moment.";
+
+/** How many of one person's `/api` views may run or wait at once (#801 review: one session must not stall the process). */
+export const MAX_VIEWS_IN_FLIGHT = 2;
 
 export function dashboardRoute(opts: DashboardRouteOptions): Route {
   const { pages, accounts, tenants } = opts;
+  /** Each person's views running or queued now. */
+  const inFlight = new Map<string, number>();
   return async (req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> => {
     const p = url.pathname;
     if (p !== DASHBOARD_PREFIX && !p.startsWith(`${DASHBOARD_PREFIX}/`)) return false;
@@ -164,11 +170,23 @@ export function dashboardRoute(opts: DashboardRouteOptions): Route {
     }
     // Only the path and the query reach the view, under the page's base.
     const viewUrl = new URL(`${sub}${url.search}`, "http://dashboard.invalid");
+    // ONE PERSON CAN'T HOLD THE PROCESS (#801 review): a view is synchronous
+    // work on the one event loop, so at most `MAX_VIEWS_IN_FLIGHT` of this
+    // person's views run or wait at a time; the rest are a 429 at once.
+    const held = inFlight.get(personId) ?? 0;
+    if (held >= MAX_VIEWS_IN_FLIGHT) {
+      send(res, { ...json({ error: BUSY_WORDS }, 429), headers: { ...json(null).headers, "retry-after": "2" } }, head);
+      return true;
+    }
+    inFlight.set(personId, held + 1);
     const timeZone = person.timeZone ?? undefined;
     let reply: Reply;
     try {
       reply = await tenants.withTenant(storeId, timeZone === undefined ? {} : { timeZone }, (target) =>
         target.serial(async () => {
+          // A turn for everything else first (other people, /healthz): the
+          // queue would otherwise run queued turns back to back.
+          await new Promise<void>((r) => setImmediate(r));
           const look = Dashboard.open({ dir: storeDir, ...(timeZone === undefined ? {} : { timeZone }) });
           try {
             return viewReply(viewUrl, look.source, HOSTED_HOST) ?? json({ error: "not found" }, 404);
@@ -188,6 +206,10 @@ export function dashboardRoute(opts: DashboardRouteOptions): Route {
         }
         reply = json({ error: "this view could not be read just now" }, 500);
       }
+    } finally {
+      const left = (inFlight.get(personId) ?? 1) - 1;
+      if (left <= 0) inFlight.delete(personId);
+      else inFlight.set(personId, left);
     }
     send(res, reply, head);
     return true;

@@ -449,6 +449,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - **A look is not a wake**: no `onWake`, no tool call, no worker; each view runs on an observer `Counterpart`
       opened and closed inside `Tenants.withTenant(...).serial`. A store never connected is not created by a look
       (`409`, one sentence); one waiting for a restore is `503`.
+    - **One person can't hold the process** (#801 review): at most two of a person's views run or wait at once, the
+      rest a `429` with one sentence (the page retries a few times), and each view yields a turn before it runs.
+      On hosted a view's `limit` is bounded, `/api/overview` drops the feed and `/api/activity` sends `lastSeq` and
+      counts only (no narrated rows, no session ids or build).
     - **Its own CSP**: `script-src 'self'` and no inline script (the page's clicks are delegated); inline style
       attributes only (`style-src-attr 'unsafe-inline'`); `connect-src`, `font-src`, `img-src` same-origin;
       `frame-ancestors 'none'`. The store's path (`/api/meta`'s `dir`) is not sent, and a failed view says nothing of

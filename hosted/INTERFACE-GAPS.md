@@ -246,5 +246,7 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
     opens the tenant's own handle when it is closed (as export does), which then idles out on the usual 10 minutes; the
     page polls every 60 s, and not while hidden, so a tab left open keeps that handle warm. A memory store's open was
     a few milliseconds in tests; measure on a large store if pages feel slow.
+46b. **No process-wide budget for dashboard views** (#801 review fixed the one-session case: two in flight per person,
+    a yield before each). Many people each inside their two still share one event loop, as §14 says for `/mcp`.
 47. **The page's inline `style=` attributes are allowed** (`style-src-attr 'unsafe-inline'`, nothing else inline): the
     drawn markup uses about fifty for widths and colours. Moving them to classes would let the CSP drop it.
