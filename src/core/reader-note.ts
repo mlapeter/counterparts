@@ -26,7 +26,8 @@
  *     is the owner and the counterpart, so the mark is not recorded either; the
  *     memory is kept, recallable and labelled, and every identity door treats
  *     it as it treats `readerSelf` (`isReaderSelfRow` covers both): never the
- *     counterpart's us, its relationship arc, the self page, a belief, a page
+ *     counterpart's us, its relationship arc, the self page (nor the nightly
+ *     page writer's day, `Counterpart#pageWriterInput`), a belief, a page
  *     story or the wake's us lines.
  *
  * A leaf: imports nothing, so the store, the schemas, the night and the door

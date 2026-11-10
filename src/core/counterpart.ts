@@ -5638,7 +5638,11 @@ export class Counterpart {
     // WHAT THE NIGHT MAY NOT READ (`fenceNight`) is held back and counted on the run's row.
     const closed = this.nightClosed;
     const asked = opts.omit;
-    const omit = (m: { id: string; protectedRow: boolean }): boolean => closed.has(m.id) || asked?.(m) === true;
+    // Nor A READER HOST'S OWN NOTE (CX2; `us` too since option B, 2026-11-10,
+    // `reader-note.ts`): another model's words about itself, or itself and the
+    // owner, are never the counterpart's page. Counted on the run's row too.
+    const omit = (m: { id: string; protectedRow: boolean }): boolean =>
+      closed.has(m.id) || isReaderSelfRow(this.store.row(m.id)) || asked?.(m) === true;
     // DAY'S END READS THE DAY AS TOLD (2026-10-23, `self.DAYS_END_INPUT`, read
     // at use): every chapter of the day by its summary, a line each with its
     // address, in most of the room, and the day's few strongest memories with

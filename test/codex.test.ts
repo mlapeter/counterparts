@@ -36,6 +36,7 @@ import { wireCodex } from "../src/adapters/cli/codex.js";
 import { storyHeadStart } from "../src/core/self/stories.js";
 import { isStoreError } from "../src/core/store/index.js";
 import { readerSelfOfRow, readerUsOfRow } from "../src/core/reader-note.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 
 const MODEL = "gpt-test-9";
 const HOOK = resolve(import.meta.dir, "../src/adapters/codex/bin/hook.ts");
@@ -795,6 +796,18 @@ describe("about: us from Codex is the owner and that model, labelled — never t
       const news = c.store.aboutUsWrittenSince(0, Number.MAX_SAFE_INTEGER, 50).map((x) => x.id);
       expect(news).toContain(ccId);
       expect(news).not.toContain(id);
+
+      // The self page's writer is never handed it; the counterpart's own us it is.
+      const handed = c.pageWriterInput({ about: c.store.today() });
+      const statements = handed.memories.map((m) => m.statement);
+      expect(statements).toContain("Mike and I found our rhythm on long walks after dinner.");
+      expect(statements.some((x) => x.includes("heronfeather"))).toBe(false);
+      expect(handed.omitted).toBe(1);
+      // The whole wake, as a fresh session gets it (the shaped composer): none of Codex's us words.
+      c.store.setMeta(WAKE_SHAPE_KEY, "on");
+      const woke = await hook(base("SessionStart", "cx-us-wake", null, { source: "startup" }));
+      expect(woke.stdout).toContain("counterparts:wake/end");
+      expect(woke.stdout).not.toContain("heronfeather");
 
       // And Codex cannot re-mark the counterpart's own memory about us either.
       const rm = await s.call("remember", { session: "cx-us", remark: { id: ccId, about: "us", why: "it is ours" } });
