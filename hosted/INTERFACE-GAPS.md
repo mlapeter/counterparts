@@ -15,7 +15,7 @@
    - lockout: the recovery private key held offline in two places before use, both copies proven by
      `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
      passing on the real binary. (Met for the KEK 11-02; for the recovery key, the real-R2 drill passed 2026-11-06
-    13:52 on 0.3.50.)
+     13:52 on 0.3.50.)
    - **Not closed by WB1** (it was never the goal): a leak of the volume is a leak of everything (the live stores are
      plaintext there; with the bucket, the backups' history too). And the memory stores that exist at the migration
      keep their DEKs (control is re-keyed): an old `HOSTED_KEKS` plus a copy of their old `keys/<id>.wrapped` still

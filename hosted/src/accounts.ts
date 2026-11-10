@@ -414,9 +414,12 @@ export class Accounts {
    * shows the same words either way. `browser` is the raw value of the
    * browser-binding cookie; only its hash is kept.
    */
-  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string }): LinkRequest {
+  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string; spotsLeft?: number }): LinkRequest {
     const email = normalizeEmail(input.email);
     if (email === null) return { send: false, reason: "bad-email" };
+    // The spots, read once for every ask (or handed in by the page, which read
+    // them for its words), so a known and an unknown address cost the same reads.
+    const spotsLeft = input.spotsLeft ?? this.spots().left;
     const identity = this.db.get<{ id: string; person_id: string }>("SELECT id, person_id FROM identities WHERE kind = 'email' AND value = ?", email);
     let inviteId: string | null = null;
     let refused: "full" | "suspended" | null = null;
@@ -427,7 +430,7 @@ export class Accounts {
       // (mistyped, expired, used up), takes a spot while one is left (SU1).
       // The spot isn't held here: the click takes it (`useLink`).
       inviteId = this.liveInvite(typeof input.inviteCode === "string" ? input.inviteCode.trim() : "");
-      if (inviteId === null && this.spots().left === 0) refused = "full";
+      if (inviteId === null && spotsLeft === 0) refused = "full";
     }
     const token = secret("cpl_");
     const at = this.now();

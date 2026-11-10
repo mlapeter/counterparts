@@ -175,7 +175,7 @@ export class McpLimits {
         stored: false,
         reason: "store-full",
         quotaBytes: quota,
-        message: `This memory has reached the hosted beta's size limit (${mb(quota)}), so nothing new can be added to it right now. Everything already in it is still there, and recall still works. The person who invited you can raise the limit.`,
+        message: `This memory has reached the hosted beta's size limit (${mb(quota)}), so nothing new can be added to it right now. Everything already in it is still there, and recall still works. Counterparts can raise the limit for you: write to us.`,
       }),
     };
   }

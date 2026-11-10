@@ -147,6 +147,10 @@ describe("the production default: spots never set", () => {
     assert.ok(login.includes(`href="${WAITLIST_URL}"`));
     assert.match(login, /Have an invite code\?/);
     assert.doesNotMatch(login, /only the first time/);
+    // Sign-in leads; the full notice is for newcomers, after the form, and the code field stays folded.
+    assert.ok(login.indexOf("<form") < login.indexOf("Hosted is full for now"));
+    assert.match(login, /New to Counterparts\? Hosted is full for now/);
+    assert.doesNotMatch(login, /<details open/);
 
     const stranger = await signUp(r, "stranger@example.com");
     assert.equal(stranger.asked.status, 200);

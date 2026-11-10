@@ -101,6 +101,8 @@ const SENT_WORDS_FULL = "If that address has an account, or your invite code is 
 export const WAITLIST_URL = "https://counterparts.ai/#waitlist";
 const FULL_TITLE = "Hosted is full for now";
 const FULL_HTML = `${escapeHtml("Hosted is full for now — ")}<a href="${WAITLIST_URL}">join the waiting list</a>.`;
+/** The full notice as everyone sees it on the sign-in pages: aimed at newcomers, since members still sign in. */
+const NEWCOMER_FULL_HTML = `${escapeHtml("New to Counterparts? ")}${FULL_HTML}`;
 
 /** Who may read /spots from a browser: the site, nothing else (its www host redirects to this one). */
 export const SPOTS_ORIGINS: readonly string[] = ["https://counterparts.ai"];
@@ -197,24 +199,25 @@ export function accountPages(opts: PagesOptions): Pages {
 
   const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = ""): void => {
     const nonce = randomBytes(16).toString("base64");
-    // Full: said to everyone alike, above the form. Sign-in and a code still work.
+    // Full: said to everyone alike, under the form and to newcomers. Sign-in and a code still work.
     const full = opts.accounts.spots().left === 0;
     page(res, status, {
       title: "Sign in",
       nonce,
       body: `<h1>Sign in to Counterparts</h1>
 ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
-${full ? `<p>${FULL_HTML}</p><p class="muted">Have an account, or an invite code? Sign in here.</p>` : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
+${full ? "" : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
 <form method="post" action="/login">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
 <label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
-<details${full ? " open" : ""}><summary>Have an invite code?</summary>
+<details><summary>Have an invite code?</summary>
 <label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
 </details>
 <button type="submit">Email me a link</button>
 </form>
+${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
 <script nonce="${nonce}">try{document.getElementById("tz").value=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}</script>`,
     });
   };
@@ -317,8 +320,9 @@ ${
         return true;
       }
       // The words follow the spots as they stand now (public), not this ask's outcome.
-      const open = opts.accounts.spots().left > 0;
-      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser! });
+      const spotsLeft = opts.accounts.spots().left;
+      const open = spotsLeft > 0;
+      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft });
       if (!asked.send && asked.reason === "bad-email") {
         loginForm(res, browser!, next, 400, "That doesn't look like an email address.");
         return true;
@@ -344,7 +348,7 @@ ${
           });
       }
       if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
-      else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${escapeHtml("New to Counterparts? ")}${FULL_HTML}</p>` });
+      else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>` });
       return true;
     }
     if (p === "/login/link" && req.method === "GET") {
@@ -354,7 +358,7 @@ ${
       if (!used.ok) {
         if (used.reason === "full") {
           // The last spot went between the ask and this click. Said only here, to the person who clicked their own link.
-          page(res, 200, { title: FULL_TITLE, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>${FULL_HTML}</p><p class="muted">The last spot went before this link was opened. Have an invite code? <a href="/login">Sign up with it here</a>.</p>` });
+          page(res, 200, { title: FULL_TITLE, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
         } else if (used.reason === "wrong-browser") {
           message(res, 400, "Open it in the other browser", "This link works only in the browser where you asked for it. Open it there, or ask for a new link here.", { href: "/login", text: "Ask for a new link" });
         } else {
