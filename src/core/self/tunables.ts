@@ -698,6 +698,53 @@ export const WAKE_SHAPE_LIMITS = {
   SET_DOWN_SHOWN: 2,
   /** A set-down line in the wake: this many characters, then "…" (the line is whole behind the door). */
   SET_DOWN_LINE_CHARS: 140,
+  /**
+   * WAITING ON THE OWNER (SO1 step 4, revised; Mike 11-07, lightly held): the lived days to wait after each
+   * unanswered raise, in order: 3, then 7, then 14, then the item parks (still under recall "still open"). So
+   * three raises at most per version of the item; a revision starts the chain again. Unmeasured defaults.
+   */
+  OWNER_RAISE_STEPS: [3, 7, 14],
+  /**
+   * The session-start mention comes at most once a week per item, store-wide (every session, every folder),
+   * under the same backoff: the next mention waits the larger of the step and this. So at session start alone
+   * the steps read 7, 7, 14, then parked; a turn that touches the item (the relevance lane, `owedForTurn`) uses the
+   * steps without this floor, so there the 3-day step is real. One record and latch for both. Lived days.
+   */
+  OWNER_MENTION_EVERY: 7,
+  /**
+   * A turn touches an item waiting on the owner (SO1 step 4's relevance lane) when the turn's content words take in at
+   * least this many of the item's (its title and what settles it; the owner's name and "the owner" aside). Two: one word
+   * ("glaze") is a passing mention; two ("kiln shelf") name the subject. Unmeasured.
+   */
+  OWNER_TURN_SHARED: 2,
+  /**
+   * ...and those shared words weigh this much together, each at recall's own cue weight (IDF from the store's
+   * document frequency × the everyday factor), so a word most memories hold counts about nothing (round 3 of #796:
+   * two plain shared words fired on 8 of 42 real turns, 3 of them wrong).
+   */
+  OWNER_TURN_WEIGHT: 4,
+  /**
+   * A shared word counts only at this weight or more: about 1.5 is a word in under a tenth of the store's memories
+   * and not an everyday one. Set on the round-3 replay of 42 real turns (a copy of the owner's store): "step", "test",
+   * "still", "night" (1.1–1.7) were what the wrong matches shared; the right ones shared a rare subject word.
+   */
+  OWNER_TURN_WORD_FLOOR: 1.5,
+  /**
+   * ...and one of them is a SUBJECT word: weighing at least this, or one the embedder's word table holds no whole-word
+   * row for (a name, a tool, jargon). Round 4 of #796: common verbs clear the floor ("want" 1.8, "talk" 2.4, "ready"
+   * 2.7), and two of them raised an item that happened to say them; a song's name (5.8) or "npm" (2.3, no row) is a
+   * subject. The table is loaded on the owner's store (the config's default embedder): its ramp
+   * (`EVERYDAY_NORM_LOW`/`HIGH`) discounts only function words, by design, so it can't do this alone.
+   */
+  OWNER_TURN_SUBJECT: 3,
+  /** A turn with fewer content words than this doesn't look ("goodnight" pays nothing). */
+  OWNER_TURN_MIN_WORDS: 3,
+  /** Folders whose owed-item list (with its weighed words) is cached in meta, per lived day; the oldest go. */
+  OWNER_ITEMS_KEPT: 8,
+  /** Raise chains kept in the record (`owner-waits.ts`): the oldest past this go, which only lets one be raised again. */
+  OWNER_RAISES_KEPT: 400,
+  /** How far back this folder's memories are read for what an owed item is ranked against (relevance, SO1 step 4): a week of work here. */
+  OWNER_CONTEXT_MS: 7 * 24 * 60 * 60_000,
   /** The largest element count and byte count the frame is sized for, so a digit's growth can't pass the ceiling. */
   FRAME_ELEMENTS: 9_999,
   FRAME_BYTES: 99_999,

@@ -94,7 +94,7 @@ describe("errors that become a 500", () => {
     });
     const out = await rpc(d.url, "tools/list", {}, d.headers);
     assert.equal(out.status, 200);
-    assert.equal((out.body["error"] as { message: string }).message, "internal error");
+    assert.ok((out.body["error"] as { message: string }).message.startsWith("internal error:"));
     assert.deepEqual(d.told.map((t) => t.where), ["call"]);
     assert.match(d.told[0]?.line ?? "", /name=RangeError/);
     assert.ok(!(d.told[0]?.line ?? "").includes("Mike"));

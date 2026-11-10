@@ -21,7 +21,7 @@ export const SERVER_NAME = "counterparts";
  * host decides whether to trust what follows. Read from a constant rather than
  * from disk so the server opens no file to answer its first message.
  */
-export const SERVER_VERSION = "0.3.52";
+export const SERVER_VERSION = "0.3.54";
 
 /**
  * THE ONE LINE EVERY TOOL ANSWERS WITH when the store on disk is a schema AHEAD
@@ -336,8 +336,10 @@ export const TITLE_ASKED_NOTE =
  * (anthropics/claude-ai-mcp#93); the trial's canary rides beside it to measure
  * exactly that (`claudeAiInstructions`).
  */
+// DIR1 (2026-11-10): said as what the tools are for, not as an order to call one before anything
+// (the directory's review reads server instructions as it reads descriptions).
 export const CLAUDE_AI_INSTRUCTIONS =
-  "Counterparts is your memory. In every conversation, call its wake tool first — before answering anything, and above all anything about the person, the past, or work in progress — and once: it returns this conversation's briefing and a session id to pass as `session` on every later call in it. Without a wake, what recall returns is a slice, not the whole record: never present it as complete. Nothing tells this memory when a conversation ends, so remember what matters as it comes up, in the moment, with the remember tool. For how anything here works, recall the handle \"manual\".";
+  "Counterparts is a long-term memory the person connected. Its wake tool starts a conversation with that memory: once, at the start, before you answer something that needs your memory of them, the past, or work in progress. It returns a briefing and a session id to pass as `session` on later calls. Without a wake, what recall returns is a slice, not the whole record. Nothing tells this memory when a conversation ends, so what is worth keeping is saved as it comes up, with the remember tool. For how anything here works, recall the handle \"manual\".";
 
 /**
  * The `instructions` a claude.ai server sends, with the trial's CANARY when the

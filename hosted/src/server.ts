@@ -74,6 +74,13 @@ export interface HostedServerOptions {
   readonly maxBodyBytes?: number;
   /** The call log: ids and codes only (`http.ts#CallRecord`) plus the hashed store. */
   readonly onCall?: (record: HostedCallRecord) => void;
+  /**
+   * Told the person behind each `wake` call that reached their store, answered
+   * or refused (a refusal over a limit is still them coming back), and nothing
+   * else about it: the app keeps the day (`accounts.ts#noteWake`). A throw is
+   * swallowed: a failed note never fails the wake.
+   */
+  readonly onWake?: (personId: string) => void;
   /** The salt the store tag is keyed with. Random per process when absent. */
   readonly logSalt?: string;
   /** Per-account limits on `/mcp` (`limits.ts`). Absent ⇒ none (tests of the earlier steps). */
@@ -155,6 +162,25 @@ const BASE_HEADERS: Record<string, string> = {
   "Cache-Control": "no-store",
 };
 
+/**
+ * WHAT EACH REFUSAL SAYS (DIR1, 2026-11-10; the directory's "helpful errors, not generic", policy §5A).
+ * One plain sentence a person or a client's log can act on. The statuses and headers are as before; no
+ * sentence carries anything the request sent or an error's message.
+ */
+export const DOOR_WORDS = {
+  notPost: "405: this is an MCP endpoint (Streamable HTTP). Send JSON-RPC messages with POST; there is no SSE stream to GET.\n",
+  foreignOrigin: "403: requests from this web page's origin aren't accepted here. Connect from Claude (claude.ai, Claude Desktop or Claude Code), or from MCP Inspector's command line.\n",
+  noToken: "401: sign-in needed. Connect through OAuth: the WWW-Authenticate header points at this server's resource metadata.\n",
+  badToken: "401: this access token isn't valid any more (expired, revoked, or the account was disconnected). Refresh it, or connect again.\n",
+  authDown: "503: the account service couldn't check this token just now, so nothing ran. Try again in 30 seconds.\n",
+  notJson: "415: send the JSON-RPC body with Content-Type: application/json.\n",
+  inFlight: "429: too many requests at once for this account. Wait for an answer before sending more.\n",
+  restoring: "503: this memory is being restored from its backup. Try again in a few minutes.\n",
+  badTarget: "400: the request target must be a path on this server.\n",
+  notFound: "Not found. The MCP endpoint is /mcp.\n",
+  failed: "500: something went wrong on the server. Try again; if it keeps happening, open an issue at https://github.com/mlapeter/counterparts/issues.\n",
+} as const;
+
 function text(res: ServerResponse, status: number, body: string, extra: Record<string, string> = {}): void {
   res.writeHead(status, { ...BASE_HEADERS, "Content-Type": "text/plain; charset=utf-8", ...extra });
   res.end(body);
@@ -193,15 +219,27 @@ export function createHostedServer(opts: HostedServerOptions): Server {
   const unauthorized = { status: 401, headers: challenge("invalid_token") };
 
   const mcp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    // A BROWSER CLIENT ON THE ALLOW-LIST (DIR1: MCP Inspector's web page): its preflight is answered and
+    // its answers readable. Nothing for any other origin, and nothing changes for a call with no Origin.
+    const from0 = req.headers["origin"];
+    const cors: Record<string, string> =
+      typeof from0 === "string" && allowed.has(from0) ? { "Access-Control-Allow-Origin": from0, "Access-Control-Expose-Headers": "WWW-Authenticate, Mcp-Session-Id", Vary: "Origin" } : {};
+    for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
+    if (req.method === "OPTIONS" && cors["Access-Control-Allow-Origin"] !== undefined) {
+      req.resume();
+      res.writeHead(204, { ...BASE_HEADERS, ...hsts, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "authorization, content-type, mcp-protocol-version, mcp-session-id", "Access-Control-Max-Age": "600" });
+      res.end();
+      return;
+    }
     if (req.method !== "POST") {
       req.resume();
-      text(res, 405, "405\n", { Allow: "POST", ...hsts });
+      text(res, 405, DOOR_WORDS.notPost, { Allow: "POST", ...hsts });
       return;
     }
     const from = req.headers["origin"];
     if (typeof from === "string" && !allowed.has(from)) {
       req.resume();
-      text(res, 403, "403\n", hsts);
+      text(res, 403, DOOR_WORDS.foreignOrigin, hsts);
       return;
     }
     const token = bearer(req);
@@ -214,18 +252,18 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     } catch (err) {
       report("auth", null, err);
       req.resume();
-      text(res, 503, "503\n", { "Retry-After": "30", ...hsts });
+      text(res, 503, DOOR_WORDS.authDown, { "Retry-After": "30", ...hsts });
       return;
     }
     if (caller === null) {
       req.resume();
-      text(res, 401, "401\n", { ...challenge(token === null ? undefined : "invalid_token"), ...hsts });
+      text(res, 401, token === null ? DOOR_WORDS.noToken : DOOR_WORDS.badToken, { ...challenge(token === null ? undefined : "invalid_token"), ...hsts });
       return;
     }
     const type = req.headers["content-type"];
     if (typeof type !== "string" || !/^application\/json\s*(;|$)/i.test(type)) {
       req.resume();
-      text(res, 415, "415\n", hsts);
+      text(res, 415, DOOR_WORDS.notJson, hsts);
       return;
     }
     const store = tag(caller.storeId);
@@ -233,7 +271,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     if (limits !== undefined && !limits.enter(caller.personId)) {
       req.resume();
       event("limit.in-flight", store);
-      text(res, 429, "429: too many requests at once for this account\n", { "Retry-After": "5", ...hsts });
+      text(res, 429, DOOR_WORDS.inFlight, { "Retry-After": "5", ...hsts });
       return;
     }
     // The slot is given back once, at the answer, or when the client's socket
@@ -283,7 +321,16 @@ export function createHostedServer(opts: HostedServerOptions): Server {
             // The same answers for a call refused at its turn: 401 for a store
             // locked or a token revoked meanwhile, never a 200 "internal error".
             refusal: (err) => (err instanceof StoreLocked || err instanceof TokenRevoked ? unauthorized : err instanceof RecheckFailed ? { status: 503, headers: { "Retry-After": "30" } } : null),
-            onCall: (r) => opts.onCall?.({ ...r, store }),
+            onCall: (r) => {
+              if (r.method === "tools/call" && r.tool === "wake") {
+                try {
+                  opts.onWake?.(caller.personId);
+                } catch {
+                  /* a note, not a gate */
+                }
+              }
+              opts.onCall?.({ ...r, store });
+            },
             onError: (where, err) => report(where, store, err),
           });
         }),
@@ -293,7 +340,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       // moment before its grant was revoked: the same 401 as that token now gets.
       if (err instanceof StoreLocked && !res.headersSent) {
         req.resume();
-        text(res, 401, "401\n", { ...challenge("invalid_token"), ...hsts });
+        text(res, 401, DOOR_WORDS.badToken, { ...challenge("invalid_token"), ...hsts });
         return;
       }
       // A store whose files are gone waits for a restore (tenants.ts#StoreNeedsRestore):
@@ -304,7 +351,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       }
       req.resume();
       event("store.needs-restore", store);
-      text(res, 503, "503: this memory is being restored\n", { "Retry-After": "300" });
+      text(res, 503, DOOR_WORDS.restoring, { "Retry-After": "300" });
     } finally {
       req.socket.removeListener("close", release);
       release();
@@ -341,7 +388,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       const target = req.url ?? "/";
       if (!target.startsWith("/") || target.startsWith("//")) {
         req.resume();
-        text(res, 400, "400\n");
+        text(res, 400, DOOR_WORDS.badTarget);
         return;
       }
       let url: URL;
@@ -349,7 +396,7 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         url = new URL(target, origin);
       } catch {
         req.resume();
-        text(res, 400, "400\n");
+        text(res, 400, DOOR_WORDS.badTarget);
         return;
       }
       if (MCP_PATHS.has(url.pathname)) return mcp(req, res);
@@ -381,11 +428,11 @@ export function createHostedServer(opts: HostedServerOptions): Server {
         if (await route(req, res, url)) return;
       }
       req.resume();
-      text(res, 404, "Not found\n", hsts);
+      text(res, 404, DOOR_WORDS.notFound, hsts);
     })().catch((err: unknown) => {
       // Never the message: it could name a path on disk.
       report("route", null, err);
-      if (!res.headersSent) text(res, 500, "500\n");
+      if (!res.headersSent) text(res, 500, DOOR_WORDS.failed);
       else res.destroy();
     });
   });

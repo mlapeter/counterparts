@@ -49,8 +49,11 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       for (const spec of specs as readonly ToolSpec[]) {
         const description = descriptions.get(spec.name) ?? "";
         expect(description).toBe(renderDescription(spec));
-        const list = description.indexOf(GUARANTEES);
-        expect(list).toBeGreaterThan(0);
+        // claude.ai serves no claims (DIR1, `tools.ts#withClaimsAsEngine`): no list, so the whole
+        // description is what must fit; every other host leads its list with the rest.
+        const list = desktop === CLAUDE_AI_HOST ? description.length + 1 : description.indexOf(GUARANTEES);
+        if (desktop === CLAUDE_AI_HOST) expect(description).not.toContain(GUARANTEES);
+        else expect(list).toBeGreaterThan(0);
         if (!description.startsWith(spec.summary)) failures.push(`${spec.name}: the summary does not open the description`);
         for (const part of [`When: ${spec.admission}`, ...spec.negativeExamples]) {
           const end = endOf(description, part);
@@ -136,7 +139,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
   // `saidBy` is a field to fill stays inside the cut with the plumbing Do NOT before it.
   test("session_end's fields sentence (occurredOn, saidBy, status) ends inside the cut on every host", () => {
     const sentence = "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text.";
-    for (const desktop of [false, true, CLAUDE_AI_HOST]) {
+    // Not claude.ai's since DIR1: it serves no claims, and the entry's `saidBy` field is there.
+    for (const desktop of [false, true]) {
       const end = endOf(served(desktop).get("session_end") ?? "", sentence);
       expect(end).toBeGreaterThan(0);
       expect(end).toBeLessThanOrEqual(HOST_DESCRIPTION_CAP);

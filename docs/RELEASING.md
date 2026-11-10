@@ -114,7 +114,8 @@ package packed on Linux, then installed from npm's side and connected on native 
 there.
 
 The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
-at its log (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`); a job that failed on a
+at its log (`gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<id>/logs`: without the flag,
+gh 2.103 prints nothing for a log holding colour codes, and `fetch-tarball.sh` read that as no hash, 0.3.54); a job that failed on a
 timeout gets one rerun (`gh run rerun <id> --failed`), and a second failure gets a real look.
 So does a test the release doesn't touch that has also failed on master: `test/plugin-binary.test.ts`'s
 "download once" did, on the Kiritimati suite (0.3.44). A rerun of the failed job keeps the run's id and
@@ -309,7 +310,8 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    folder; a mismatch stops the release there. The PUBLISH sheet then gives the owner two
    lines and nothing else to run (Mike, 2026-11-01):
    `npm publish <full path to the release folder>/counterparts-<version>.tgz --otp=CODE`, and
-   the install line, `bun add -g counterparts@<version> && counterparts --version`.
+   the install line, `npm install -g counterparts@<version> && counterparts --version` (npm since
+   0.3.54, as he installs; it was `bun add -g` before).
    After publishing, check npm's `dist.integrity` against the tarball's sha512.
 
    **A copy before the install, when the release lets event rows go sooner (FD1 step 2,
@@ -329,7 +331,8 @@ tarball too, if the new run's hash differs), then fetch from the new commit's gr
    The reads that need it, by name: MOD #3 in `docs/CHECK-AFTER.md` ("`recall.decision`
    events since the .18 install") and the H14 replay (ratings from 10-26 to 10-31, "Due ~14
    lived days after the longer habituation window"). Both run on that copy afterwards, never
-   on the live store.
+   on the live store. A release that shortens no window and deletes no rows needs no copy
+   (0.3.53 and 0.3.54: none taken; 0.3.52's copy still holds the rows those reads need).
 2. Tag the commit the tarball was packed from (`COMMIT`), and push the tag:
 
    ```sh

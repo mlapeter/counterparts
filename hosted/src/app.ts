@@ -29,6 +29,7 @@ import type { CimdFetch } from "./egress.js";
 import { createOAuth } from "./oauth.js";
 import type { OAuth } from "./oauth.js";
 import { accountPages } from "./pages.js";
+import { dashboardRoute } from "./dashboard.js";
 import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import { Csrf } from "./web.js";
@@ -38,6 +39,7 @@ import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
+import { seedSample } from "./sample.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
@@ -88,7 +90,7 @@ export interface AppOptions {
    * `storeTag` too (R5); and a delete's email that didn't send
    * (`delete.mail.failed`, by `storeTag`; R9).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -175,6 +177,8 @@ export interface App {
   finishPendingDeletes(): Promise<number>;
   /** Erase every chat's delete whose 24-hour hold has passed (HD1): the timer while serving, and tests. Returns how many were erased. */
   finishDueHolds(): Promise<number>;
+  /** End every reviewer account whose codes have all expired, its connections too (DIR1 review): start-up, the timer while serving, and tests. Returns whom. */
+  endExpiredReviewers(): string[];
   close(): Promise<void>;
 }
 
@@ -281,6 +285,18 @@ export function createApp(opts: AppOptions): App {
     onRemovalHeld: (storeId, at) => {
       accounts.noteRemovalDue(storeId, at);
       accounts.audit(accounts.personOfStore(storeId), storeId, "removal.held", null);
+    },
+    // A reviewer's account (DIR1, `main.ts reviewer`): its store fills with the sample at its first
+    // open, through the tools, before any call; cleared once it ran, so it never runs twice.
+    seed: (storeId) => (accounts.seedOf(storeId) === "sample" ? (server) => seedSample(server) : null),
+    onSeed: (storeId, ok) => {
+      if (ok) accounts.clearSeed(storeId);
+      accounts.audit(accounts.personOfStore(storeId), storeId, ok ? "sample.seeded" : "sample.seed.failed", null);
+      try {
+        opts.onEvent?.(ok ? "sample.seeded" : "sample.seed.failed", storeTag(storeId));
+      } catch {
+        /* a log, not a gate */
+      }
     },
     onCreated: (storeId) => {
       // A store's dir made while the server runs is a sign-up's (already in the
@@ -408,6 +424,20 @@ export function createApp(opts: AppOptions): App {
     return p;
   };
   deleteRef = deleteAccount;
+  /**
+   * A REVIEWER'S CODES ALL EXPIRED (DIR1 review): the account ends as `reviewer revoke` ends it, its
+   * connections too, so a token made with the code stops at its next call. At start-up and every tick.
+   */
+  const endExpiredReviewers = (): string[] => {
+    try {
+      const ended = accounts.endExpiredReviewers();
+      for (const personId of ended) o.revokeAll(personId);
+      return ended;
+    } catch {
+      return []; // the next tick
+    }
+  };
+
   const finishPendingDeletes = async (): Promise<number> => {
     // Pending deletes whose deadline has passed begin their erase here: `due`
     // turns them `deleting` only if the deadline is still passed and nobody
@@ -545,11 +575,14 @@ export function createApp(opts: AppOptions): App {
     tenants,
     publicOrigin,
     authenticate: o.authenticate,
-    routes: [o.route, pages.route],
+    // THE DASHBOARD (HD2): the local dashboard's page and views, read-only, for the signed-in owner.
+    routes: [o.route, pages.route, dashboardRoute({ pages, accounts, tenants, onError: (storeId, err) => opts.onError?.("route", storeId === null ? null : storeTag(storeId), err) })],
     limits,
     readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
+    // The day of each person's last wake (LW1): a read, and a write once a day at most.
+    onWake: (personId) => void accounts.noteWake(personId),
     ...(opts.onError === undefined ? {} : { onError: opts.onError }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.logForwardedFor === undefined ? {} : { logForwardedFor: opts.logForwardedFor }),
@@ -658,10 +691,12 @@ export function createApp(opts: AppOptions): App {
       }
       const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
+      endExpiredReviewers();
       if (retryTimer === null) {
         retryTimer = setInterval(() => {
           void finishPendingDeletes();
           void finishDueHolds();
+          endExpiredReviewers();
           try {
             o.store.sweepClients();
           } catch {
@@ -683,6 +718,7 @@ export function createApp(opts: AppOptions): App {
     keepAccount,
     finishPendingDeletes,
     finishDueHolds,
+    endExpiredReviewers,
     async close(): Promise<void> {
       started = false;
       uploads?.stop();

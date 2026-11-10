@@ -456,7 +456,8 @@ describe("a form opened before a restart (H1: the CSRF key comes from COOKIE_KEY
     return { mail, stop };
   }
   const KEYS = ["k".repeat(40), "o".repeat(40)];
-  const SENT = "a sign-in link is on its way";
+  // No spots set (SU1), so the page's words are the full ones: a link if the address has an account or a good code.
+  const SENT = "a link is on its way";
 
   /** Open /login on one server, restart it with `after`'s keys, and post the form there, as the browser does. */
   async function acrossRestart(before: readonly string[] | undefined, after: readonly string[] | undefined): Promise<{ status: number; body: string; mailed: number }> {
@@ -498,7 +499,7 @@ describe("G4: the beta note, and the bare address", () => {
   // Mike's paragraph (2026-11-06), copied here by hand: importing the page's
   // constant would let a changed word through.
   const NOTE =
-    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at https://github.com/mlapeter/counterparts/issues (please don't paste memories into it). For anything else, write to mike@resonantventures.com.";
+    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events. We also keep the day you last started a chat with Counterparts (just the date), to tell quiet accounts from active ones. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at https://github.com/mlapeter/counterparts/issues (please don't paste memories into it). For anything else, write to mike@resonantventures.com.";
   const visible = (html: string): string =>
     html
       .replace(/<[^>]+>/g, "")

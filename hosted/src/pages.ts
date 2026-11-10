@@ -2,9 +2,12 @@
  * THE ACCOUNT PAGES (OL2 step 3; design §4.2): log in by email link, the
  * account page, log out. Server-rendered HTML, no framework.
  *
- *   GET  /login            the form (email, an invite code for sign-up, `next`)
- *   POST /login            sends the link — the same words on the page whatever the outcome
+ *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full
+ *   POST /login            sends the link — the same words on the page whatever the outcome; a reviewer's
+ *                          code beside its account's email signs in at once, with no email (DIR1)
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
+ *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): public, cached a few
+ *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
  *   GET  /account          who you are, your time zone, your connected AIs
  *   POST /account/timezone
  *   POST /logout
@@ -63,6 +66,8 @@ export interface PagesOptions {
   readonly keepAccount?: (personId: string) => boolean;
   /** A delete's email failed to send (R9): for the operator's log, by store. Never given the address or the error. */
   readonly onDeleteMailFailed?: (storeId: string | null) => void;
+  /** Origins a browser may read `/spots` from (SU1). Default `SPOTS_ORIGINS`: the site only. */
+  readonly spotsOrigins?: readonly string[];
 }
 
 /** A deadline in the person's own zone, e.g. "Tuesday, October 28 at 2:05 PM MDT". */
@@ -85,8 +90,31 @@ export interface Pages {
   readonly cookieNames: CookieNames;
 }
 
-const SENT_WORDS =
-  "If that address can sign in — or your invite code is good — a sign-in link is on its way. It works for 15 minutes, once, in this browser.";
+// THE SENT WORDS (SU1): which of the two depends on the spots only, which are
+// public (/spots), never on the address typed, so the page still says nothing
+// of who has an account (CONTRACT §12). While spots are left, any address can
+// sign in or sign up (a suspended one gets no email); with none left, only one
+// with an account or a good code gets a link.
+const SENT_WORDS_OPEN = "If that address can sign in or sign up, a link is on its way. It works for 15 minutes, once, in this browser.";
+const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works for 15 minutes, once, in this browser.";
+// THE BUSY WORDS (EC1): spots are open but this hour's sign-in emails reached
+// the cap (`spots emails M`). Chosen by that count, read before the ask and the
+// same for every address, never by what happened to this one; true for a
+// member, who still gets a link, and for a newcomer, who gets none this hour.
+const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works for 15 minutes, once, in this browser.";
+const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts? Try again in an hour.";
+
+/** Where a new person goes when hosted is full: the site's hosted waiting list. */
+export const WAITLIST_URL = "https://counterparts.ai/#waitlist";
+const FULL_TITLE = "Hosted is full for now";
+const FULL_HTML = `${escapeHtml("Hosted is full for now — ")}<a href="${WAITLIST_URL}">join the waiting list</a>.`;
+/** The full notice as everyone sees it on the sign-in pages: aimed at newcomers, since members still sign in. */
+const NEWCOMER_FULL_HTML = `${escapeHtml("New to Counterparts? ")}${FULL_HTML}`;
+
+/** Who may read /spots from a browser: the site, nothing else (its www host redirects to this one). */
+export const SPOTS_ORIGINS: readonly string[] = ["https://counterparts.ai"];
+/** How long /spots's answer is kept, here and in a browser. */
+export const SPOTS_CACHE_MS = 5_000;
 
 // THE DELETE WORDS (R6, Mike 2026-10-27: plain and honest). DESIGN §5.2 and §5.4 say the same.
 const DELETE_LATER_WORDS =
@@ -113,7 +141,7 @@ const ISSUES_URL = "https://github.com/mlapeter/counterparts/issues";
 const FEEDBACK_EMAIL = "mike@resonantventures.com";
 const BETA_NOTE_HTML =
   escapeHtml(
-    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
+    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, invite code and a record of account events. We also keep the day you last started a chat with Counterparts (just the date), to tell quiet accounts from active ones. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
   ) +
   `<a href="${ISSUES_URL}">${ISSUES_URL}</a>` +
   escapeHtml(" (please don't paste memories into it). For anything else, write to ") +
@@ -166,21 +194,37 @@ export function accountPages(opts: PagesOptions): Pages {
   /** A signed-in person whose delete is pending (R6): served the pending page, keep, and delete now, and nothing else. */
   const pendingOf = (req: IncomingMessage): string | null => opts.accounts.sessionPendingDelete(parseCookies(req).get(names.session) ?? null);
 
+  // /spots's answer, kept SPOTS_CACHE_MS so a busy site page costs one read a few seconds.
+  let spotsCache: { at: number; body: string } | null = null;
+  const spotsBody = (): string => {
+    if (spotsCache !== null && now() - spotsCache.at < SPOTS_CACHE_MS) return spotsCache.body;
+    const left = opts.accounts.spots().left;
+    spotsCache = { at: now(), body: `${JSON.stringify({ left, open: left > 0 })}\n` };
+    return spotsCache.body;
+  };
+  const spotsOrigins = opts.spotsOrigins ?? SPOTS_ORIGINS;
+
   const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = ""): void => {
     const nonce = randomBytes(16).toString("base64");
+    // Full: said to everyone alike, under the form and to newcomers. Sign-in and a code still work.
+    const full = opts.accounts.spots().left === 0;
     page(res, status, {
       title: "Sign in",
       nonce,
       body: `<h1>Sign in to Counterparts</h1>
 ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
+${full ? "" : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
 <form method="post" action="/login">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
 <label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
-<label>Invite code <span class="muted">(only the first time)</span><br><input type="text" name="invite" autocomplete="off"></label><br>
-<button type="submit">Email me a sign-in link</button>
+<details><summary>Have an invite code?</summary>
+<label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
+</details>
+<button type="submit">Email me a link</button>
 </form>
+${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
 <script nonce="${nonce}">try{document.getElementById("tz").value=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}</script>`,
     });
   };
@@ -239,6 +283,22 @@ ${
       redirect(res, "/account");
       return true;
     }
+    if (p === "/spots" && (req.method === "GET" || req.method === "HEAD")) {
+      // Public, for the site's "N spots left" (SU1). Nothing but the two fields.
+      req.resume();
+      const from = req.headers["origin"];
+      const cors = typeof from === "string" && spotsOrigins.includes(from) ? { "Access-Control-Allow-Origin": from } : {};
+      const body = spotsBody();
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": `public, max-age=${String(Math.round(SPOTS_CACHE_MS / 1000))}`,
+        "X-Content-Type-Options": "nosniff",
+        Vary: "Origin",
+        ...cors,
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
+      return true;
+    }
     if (p === "/login" && req.method === "GET") {
       const browser = browserOf(req, res);
       if (personOf(req) !== null) {
@@ -263,10 +323,28 @@ ${
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
       if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
-        message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
+        // A form that carried a code may have been a reviewer's sign-in, which sends no email (DIR1 review).
+        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.");
         return true;
       }
-      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser! });
+      // A REVIEWER'S CODE (DIR1, 2026-11-10): typed in the code field beside the email of an account the
+      // operator's `reviewer` command made, it signs this browser in now, with no email (a stranger
+      // reviewing the directory listing has no mailbox of ours). One lookup by the code's hash for every
+      // ask, so a code that isn't one costs what none costs and goes on below as an invite code would.
+      const reviewer = opts.accounts.reviewerSignIn(form.get("email"), form.get("invite"));
+      if (reviewer !== null) {
+        opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
+        const session = opts.accounts.startSession(reviewer);
+        redirect(res, next, { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
+        return true;
+      }
+      // The words follow the spots as they stand now (public), not this ask's outcome.
+      const spotsLeft = opts.accounts.spots().left;
+      const open = spotsLeft > 0;
+      // The email cap (EC1), read with the spots and before the ask, and with
+      // nothing awaited between here and the ask, so it agrees with the ask.
+      const busy = open && opts.accounts.emailCap().reached;
+      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft });
       if (!asked.send && asked.reason === "bad-email") {
         loginForm(res, browser!, next, 400, "That doesn't look like an email address.");
         return true;
@@ -291,7 +369,9 @@ ${
             }
           });
       }
-      message(res, 200, "Check your email", SENT_WORDS);
+      if (busy) page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>` });
+      else if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
+      else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>` });
       return true;
     }
     if (p === "/login/link" && req.method === "GET") {
@@ -299,7 +379,10 @@ ${
       const browser = parseCookies(req).get(names.browser) ?? null;
       const used = token.length < 16 || token.length > 128 ? ({ ok: false, reason: "unknown" } as const) : opts.accounts.useLink({ token, browser });
       if (!used.ok) {
-        if (used.reason === "wrong-browser") {
+        if (used.reason === "full") {
+          // The last spot went between the ask and this click. Said only here, to the person who clicked their own link.
+          page(res, 200, { title: FULL_TITLE, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
+        } else if (used.reason === "wrong-browser") {
           message(res, 400, "Open it in the other browser", "This link works only in the browser where you asked for it. Open it there, or ask for a new link here.", { href: "/login", text: "Ask for a new link" });
         } else {
           message(res, 400, "That link can't be used", "It has expired, was already used, or isn't one of ours. Ask for a new one.", { href: "/login", text: "Ask for a new link" });
@@ -340,6 +423,7 @@ ${
         body: `<h1>Your Counterparts account</h1>
 <p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
 <p class="muted">${BETA_NOTE_HTML}</p>
+<p><a href="/dashboard/">Open your dashboard</a> <span class="muted">— your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</span></p>
 <h2>Connected AIs</h2>
 ${
   connections.length === 0

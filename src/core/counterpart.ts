@@ -229,7 +229,7 @@ import { NOTHING_CLOSED, closedToNight, isNightRow, memoryClosedTo, memoryFolder
 import type { FolderOn } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import { SELF_TUNABLES } from "./self/tunables.js";
-import { UNDATED_LAST, WAKE_SHAPE_KEY, headlessOf, readCues, readElsewhere, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
+import { UNDATED_LAST, WAKE_SHAPE_KEY, headlessOf, owedForTurn, readCues, readElsewhere, shapedDelivery, sinceHere } from "./counterpart-wake-shape.js";
 import { happenedAlready } from "./counterpart-wake-news.js";
 import type { Cue, ElsewhereListed, SinceItem } from "./counterpart-wake-shape.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
@@ -304,6 +304,7 @@ import * as depositPart from "./counterpart-deposit.js";
 import * as projectsPart from "./counterpart-projects.js";
 import { reviseTold } from "./told.js";
 import type { ToldSurface } from "./told.js";
+import { noteRaised, ownerParked } from "./owner-waits.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -1690,7 +1691,8 @@ export class Counterpart {
   stillOpen(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { items: StillOpenItem[]; parked: number; comingUp: ComingUpItem[] } {
     let open: { items: StillOpenItem[]; parked: number };
     try {
-      open = this.self.stillOpen(this.store.livedDay(), here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom));
+      const day = this.store.livedDay();
+      open = this.self.stillOpen(day, here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom), ownerParked(this.store, day));
     } catch {
       open = { items: [], parked: 0 };
     }
@@ -3165,6 +3167,12 @@ export class Counterpart {
       /** The host's folder setting, read when first asked (FI1, 2026-10-30):
        *  what a named id may not carry across. Absent: a host with none. */
       foldersOn?: () => FolderOn;
+      /** A person is at this turn (SO1 step 4's relevance lane, 2026-11-09): what
+       *  waits on the owner and the turn touches may come up, and is recorded as
+       *  raised. Absent or false: a host's or an agent's turn, and nothing does. */
+      attended?: boolean;
+      /** The host's folder setting as the wake reads it (`exportsFrom`), for where an item may come up. */
+      exportsFrom?: (scope: string) => boolean;
     } = {},
   ): RecallResult {
     // THE TEMPORAL CUES ARE COMPUTED HERE, not inside `composeTurn`, for one
@@ -3207,10 +3215,22 @@ export class Counterpart {
       ...(opts.at === undefined ? {} : { at: opts.at }),
     });
     clock.lap("compose");
-    const result = this.recall.recall({ ...composed, clock });
+    // WAITING ON THE OWNER, AND THIS TURN TOUCHES IT (SO1 step 4, point 2): one
+    // line after the recall block, its bytes taken from recall's room first.
+    const owed =
+      opts.attended === true && !this.observer && opts.scope !== undefined && isDirectoryScope(opts.scope) && isKnownSession(turn.sessionId)
+        ? owedForTurn(this, { text: stripBoilerplate(turn.text).text, scope: opts.scope, ...(opts.exportsFrom === undefined ? {} : { exportsFrom: opts.exportsFrom }) })
+        : null;
+    clock.lap("owed");
+    const owedBytes = owed === null ? 0 : byteLength(`${owed.line}\n`);
+    const room = (composed.budgetBytes ?? this.recall.budget()) - owedBytes;
+    const result = this.recall.recall({ ...composed, budgetBytes: Math.max(0, room), clock });
     this.recordDecision(result.decision, opts.at ?? null);
     if (arrived !== null && opts.at !== undefined) this.spendArrivals(arrived, result.decision, opts.at);
-    return result;
+    if (owed === null || room < 0) return result;
+    // Shown only once the latch is this turn's: of two sessions racing, one raises it.
+    if (!noteRaised(this.store, owed.item, { day: this.store.livedDay(), session: turn.sessionId, via: "turn" })) return result;
+    return { ...result, injection: result.injection.length === 0 ? owed.line : `${result.injection}\n${owed.line}` };
   }
 
   /**

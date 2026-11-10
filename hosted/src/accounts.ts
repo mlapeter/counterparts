@@ -14,9 +14,19 @@
  *   - **A login link works once, for 15 minutes, in the browser that asked for
  *     it.** "Used" and the person's session are written in one statement that
  *     only an unused, unexpired row satisfies, so two clicks cannot both win.
- *   - **Sign-up needs an invite** (Q10). An unknown address with no valid
- *     invite gets no email — and the same answer on the page as everyone else,
- *     so the form never says who has an account.
+ *   - **Sign-up takes a spot or an invite** (SU1, 2026-11-10; Q10 before it).
+ *     An unknown address signs up with just its email while a spot is left
+ *     (`spots set N`: N accounts in all, every person counted, invited or
+ *     not); a live invite code signs up past the cap. With neither, no email —
+ *     and the same answer on the page as everyone else, so the form never says
+ *     who has an account. The spot, like the invite, is taken at the click, in
+ *     the transaction that makes the person: a link asked for and never
+ *     clicked takes nothing.
+ *   - **While spots are open, sign-up emails have an hourly cap** (EC1,
+ *     2026-11-10): `spots emails M`, 100 by default, counted in control so a
+ *     deploy doesn't reset it. Every ask counts alike, member or not; past M a
+ *     new address with no live invite code gets no email, while a member or a
+ *     live code still gets its link, and the page says the same to all.
  *   - **A store id is 128 random bits**, made here at sign-up and never derived
  *     from an address or a name.
  *   - **Nothing in `audit` is content**: action codes and ids only.
@@ -33,6 +43,10 @@ export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
 /** How long an invite code lives by default (G1 L4). The `invite` command takes `--expires <days>`. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** A reviewer's code lives at most this many days (DIR1): long enough for a review whose length isn't fixed, never forever. */
+export const REVIEWER_MAX_DAYS = 365;
+/** How long a reviewer's code lives unless `reviewer --days` says otherwise. */
+export const REVIEWER_DEFAULT_DAYS = 90;
 export const MAX_EMAIL = 254;
 /** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
 export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -101,6 +115,32 @@ CREATE TABLE IF NOT EXISTS heartbeat (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   at INTEGER NOT NULL
 );
+-- SU1 (2026-11-10): the operator's settings, one row each: 'spots' (how
+-- many accounts hosted takes in all; absent ⇒ 0, closed) and, EC1,
+-- 'emails_per_hour' (the sign-in asks counted an hour while spots are open;
+-- absent ⇒ DEFAULT_EMAILS_PER_HOUR).
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  set_at INTEGER NOT NULL
+);
+-- EC1 (2026-11-10): one row per clock hour (floor(ms / 3 600 000)), the
+-- sign-in asks counted in it while spots were open. A count, no address.
+-- Kept a day, pruned in the commit that counts.
+CREATE TABLE IF NOT EXISTS email_hours (
+  hour INTEGER PRIMARY KEY,
+  asks INTEGER NOT NULL
+);
+-- DIR1 (2026-11-10): a reviewer's sign-in code, for an account the operator's
+-- \`reviewer\` command made (the directory's "test account credentials" field):
+-- typed beside that account's email on /login, it signs in without an email.
+-- Stored as its SHA-256, expiring, revocable; one person each, never a member's.
+CREATE TABLE IF NOT EXISTS reviewer_codes (
+  code_hash TEXT PRIMARY KEY,
+  person_id TEXT NOT NULL REFERENCES people(id),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
   person_id TEXT,
@@ -136,6 +176,11 @@ export function normalizeEmail(raw: unknown): string | null {
   return e;
 }
 
+/** The UTC calendar day of `ms`, as `YYYY-MM-DD` (the shape of `people.last_wake_on`). From the epoch time alone, so the process's TZ can't move it. */
+export function utcDay(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 /** An IANA zone this runtime knows, or null. */
 export function validTimeZone(raw: unknown): string | null {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 64) return null;
@@ -166,11 +211,44 @@ export interface Person {
 
 export type LinkRequest =
   | { readonly send: true; readonly to: string; readonly token: string; readonly signUp: boolean }
-  | { readonly send: false; readonly reason: "bad-email" | "invite-required" | "suspended" };
+  | { readonly send: false; readonly reason: "bad-email" | "full" | "suspended" | "busy" };
 
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
-  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" };
+  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" | "full" };
+
+/** The spots (SU1): how many accounts hosted takes in all, how many there are, and how many more may sign up without a code. */
+export interface Spots {
+  /** The operator's number (`spots set N`); 0 when never set. */
+  readonly total: number;
+  /** People with an account: every state but `deleted` (a pending delete still holds its spot; an erased account frees it). */
+  readonly people: number;
+  /** max(0, total − people). Invite sign-ups count as people, so they can take it below zero; it reads 0 then. */
+  readonly left: number;
+}
+
+/** The most `spots set` takes: a typo of a few extra digits is refused, not obeyed. */
+export const MAX_SPOTS = 100_000;
+
+/** EC1: the sign-in asks counted an hour while spots are open, when the operator never set it (`spots emails M`). */
+export const DEFAULT_EMAILS_PER_HOUR = 100;
+/** The most `spots emails` takes. */
+export const MAX_EMAILS_PER_HOUR = 100_000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The hourly email cap (EC1): how many sign-in asks this clock hour may count
+ * while spots are open, and how many it has. Past it, an address with no
+ * account gets no email; a member still gets their sign-in link.
+ */
+export interface EmailCap {
+  /** The operator's M (`spots emails M`); DEFAULT_EMAILS_PER_HOUR when never set. */
+  readonly perHour: number;
+  /** Asks counted in this clock hour. */
+  readonly thisHour: number;
+  /** thisHour ≥ perHour: sign-up emails wait for the next hour. */
+  readonly reached: boolean;
+}
 
 export interface AccountsOptions {
   /** `HOSTED_DATA_ROOT/control/accounts.sqlite`. */
@@ -210,6 +288,24 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "removal_due_at")) {
       this.db.exec("ALTER TABLE stores ADD COLUMN removal_due_at INTEGER");
     }
+    // LW1 (Mike, 2026-11-09): the DAY of the person's last wake, `YYYY-MM-DD`
+    // in UTC; this column holds only the date, no time, client or address. NULL until
+    // their first wake. It tells a quiet account from a live one. Added by
+    // ALTER like the three above, so it is safe to run twice and on the beta volume.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "last_wake_on")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN last_wake_on TEXT");
+    }
+    // DIR1 (2026-11-10): what a store is seeded with at its first open: 'sample'
+    // for a reviewer's account (`createReviewer`), NULL for everyone else. Cleared
+    // once the seed has run. Added by ALTER like the four above.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "seed")) {
+      this.db.exec("ALTER TABLE stores ADD COLUMN seed TEXT");
+    }
+    // DIR1 review (2026-11-10): what kind of account this is: 'reviewer' for one the
+    // `reviewer` command made (it never takes a public spot), NULL for everyone else.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "kind")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN kind TEXT");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -225,6 +321,28 @@ export class Accounts {
   /** The upload watch's write (`backup.ts#UploadWatch`): one row, its time replaced (always a new value, so the page always changes), so Litestream has a transaction to ship. */
   heartbeat(): void {
     this.db.run("INSERT INTO heartbeat (id, at) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET at = max(excluded.at, heartbeat.at + 1)", this.now());
+  }
+
+  // ── the day of the last wake (LW1) ──────────────────────────────────────
+
+  /**
+   * A wake (`server.ts#HostedServerOptions.onWake`): today's date, UTC, as
+   * `YYYY-MM-DD`, once a day. A read first, and a write only when the day
+   * changed, so every other wake that day writes nothing (and gives Litestream
+   * nothing to ship). Never audited: an audit row carries the time. True when
+   * it wrote.
+   */
+  noteWake(personId: string): boolean {
+    const today = utcDay(this.now());
+    const row = this.db.get<{ last_wake_on: string | null }>("SELECT last_wake_on FROM people WHERE id = ? AND state = 'active'", personId);
+    if (row === undefined || row.last_wake_on === today) return false;
+    this.db.run("UPDATE people SET last_wake_on = ? WHERE id = ? AND state = 'active'", today, personId);
+    return true;
+  }
+
+  /** The day (UTC, `YYYY-MM-DD`) of this person's last wake, or null when none was seen. */
+  lastWakeOn(personId: string): string | null {
+    return this.db.get<{ last_wake_on: string | null }>("SELECT last_wake_on FROM people WHERE id = ?", personId)?.last_wake_on ?? null;
   }
 
   // ── stores (OL2b) ──────────────────────────────────────────────────────────
@@ -294,6 +412,47 @@ export class Accounts {
     return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;
   }
 
+  // ── spots (SU1) ────────────────────────────────────────────────────────────
+
+  /** The spots now. Read from the database every time: `spots set` writes from another process. */
+  spots(): Spots {
+    const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'spots'")?.value;
+    const n = raw === undefined ? 0 : Number(raw);
+    const total = Number.isInteger(n) && n >= 0 ? n : 0;
+    // A reviewer's account (DIR1) is the operator's, never a public spot's.
+    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted' AND kind IS NOT 'reviewer'")?.n ?? 0;
+    return { total, people, left: Math.max(0, total - people) };
+  }
+
+  /** The operator sets N (`main.ts spots set N`): accounts in all. Lowering it below the people there are closes sign-up and removes nobody. */
+  setSpots(total: number): Spots {
+    if (!Number.isInteger(total) || total < 0 || total > MAX_SPOTS) throw new Error(`spots: a whole number from 0 to ${String(MAX_SPOTS)}`);
+    this.db.run("INSERT INTO settings (key, value, set_at) VALUES ('spots', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at", String(total), this.now());
+    this.audit(null, null, "spots.set", String(total));
+    return this.spots();
+  }
+
+  /** The email cap now (EC1). Read from the database every time, like the spots. */
+  emailCap(): EmailCap {
+    const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'emails_per_hour'")?.value;
+    const n = raw === undefined ? NaN : Number(raw);
+    const perHour = Number.isInteger(n) && n >= 0 && n <= MAX_EMAILS_PER_HOUR ? n : DEFAULT_EMAILS_PER_HOUR;
+    const thisHour = this.db.get<{ asks: number }>("SELECT asks FROM email_hours WHERE hour = ?", Math.floor(this.now() / HOUR_MS))?.asks ?? 0;
+    return { perHour, thisHour, reached: thisHour >= perHour };
+  }
+
+  /** The operator sets M (`main.ts spots emails M`): takes effect at the next ask, no restart. */
+  setEmailsPerHour(perHour: number): EmailCap {
+    if (!Number.isInteger(perHour) || perHour < 0 || perHour > MAX_EMAILS_PER_HOUR) throw new Error(`spots emails: a whole number from 0 to ${String(MAX_EMAILS_PER_HOUR)}`);
+    this.db.run(
+      "INSERT INTO settings (key, value, set_at) VALUES ('emails_per_hour', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at",
+      String(perHour),
+      this.now(),
+    );
+    this.audit(null, null, "spots.emails", String(perHour));
+    return this.emailCap();
+  }
+
   // ── invites ────────────────────────────────────────────────────────────────
 
   /**
@@ -329,6 +488,98 @@ export class Accounts {
     return row?.id ?? null;
   }
 
+  // ── a reviewer's account (DIR1, 2026-11-10) ────────────────────────────────
+
+  /**
+   * A REVIEWER'S ACCOUNT: a person, the email the operator named (verified by
+   * the operator's say-so: nobody clicks a link), a store seeded with sample
+   * data at its first open (`stores.seed`), and a sign-in code typed beside the
+   * email on /login. Made past the spots, as an invite is. Refused for an email
+   * that already has an account, so it never opens a real person's. The code
+   * is returned once and kept as its SHA-256; it expires after `days`.
+   */
+  createReviewer(input: { email: unknown; days: number; timeZone?: unknown }): { personId: string; storeId: string; code: string; expiresAt: number } | { refusal: string } {
+    const email = normalizeEmail(input.email);
+    if (email === null) return { refusal: "that isn't an email address" };
+    if (!Number.isInteger(input.days) || input.days < 1 || input.days > REVIEWER_MAX_DAYS) return { refusal: `days is a whole number from 1 to ${String(REVIEWER_MAX_DAYS)}` };
+    const code = secret("cpr_");
+    const at = this.now();
+    const expiresAt = at + input.days * 24 * 60 * 60 * 1000;
+    return this.db.transaction(() => {
+      if (this.db.get("SELECT 1 AS x FROM identities WHERE kind = 'email' AND value = ?", email) !== undefined) {
+        return { refusal: "that email already has an account: a reviewer's account is always a new one" };
+      }
+      const personId = id128();
+      const storeId = id128();
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id, kind) VALUES (?, ?, 'active', ?, NULL, 'reviewer')", personId, at, validTimeZone(input.timeZone));
+      this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, email, at, at);
+      this.db.run("INSERT INTO stores (id, person_id, created_at, state, seed) VALUES (?, ?, ?, 'active', 'sample')", storeId, personId, at);
+      this.db.run("INSERT INTO reviewer_codes (code_hash, person_id, created_at, expires_at) VALUES (?, ?, ?, ?)", sha256(code), personId, at, expiresAt);
+      this.audit(personId, storeId, "reviewer.created", null);
+      return { personId, storeId, code, expiresAt };
+    });
+  }
+
+  /**
+   * The person a reviewer's code signs in, when `email` is that person's and
+   * the code is live; else null. One lookup by the code's hash for every ask,
+   * code or none, so a code that isn't one costs what no code costs.
+   */
+  reviewerSignIn(emailRaw: unknown, codeRaw: unknown): string | null {
+    const code = typeof codeRaw === "string" && codeRaw.trim().length > 0 ? codeRaw.trim() : "\u0000";
+    const row = this.db.get<{ person_id: string }>("SELECT person_id FROM reviewer_codes WHERE code_hash = ? AND expires_at > ?", sha256(code), this.now());
+    if (row === undefined) return null;
+    const email = normalizeEmail(emailRaw);
+    const own = email === null ? undefined : this.db.get("SELECT 1 AS x FROM identities WHERE kind = 'email' AND value = ? AND person_id = ?", email, row.person_id);
+    if (own === undefined || !this.canSignIn(row.person_id)) return null;
+    this.audit(row.person_id, null, "login.reviewer-code", null);
+    return row.person_id;
+  }
+
+  /**
+   * Revoke every reviewer code of the reviewer account at `email`, and end its web sessions. How many
+   * codes went, and whose: the caller ends that person's OAuth grants too (`OidcStore#revokeAccount`),
+   * so a connection made with the code stops at its next call. Only a reviewer's account: never a member's.
+   */
+  revokeReviewer(emailRaw: unknown): { revoked: number; personId: string | null } {
+    const email = normalizeEmail(emailRaw);
+    if (email === null) return { revoked: 0, personId: null };
+    const person = this.db.get<{ id: string }>("SELECT p.id FROM identities i JOIN people p ON p.id = i.person_id WHERE i.kind = 'email' AND i.value = ? AND p.kind = 'reviewer'", email)?.id;
+    if (person === undefined) return { revoked: 0, personId: null };
+    this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
+    const n = this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+    this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
+    this.audit(person, null, "reviewer.revoked", String(n));
+    return { revoked: n, personId: person };
+  }
+
+  /**
+   * A reviewer whose codes have all expired is ended as a revoke ends one (the app's timer, and start-up,
+   * call this and then revoke the returned people's grants): the code rows and web sessions go. Each
+   * person is returned once, because its rows go with it.
+   */
+  endExpiredReviewers(): string[] {
+    const due = this.db
+      .all<{ person_id: string }>("SELECT person_id FROM reviewer_codes GROUP BY person_id HAVING max(expires_at) <= ?", this.now())
+      .map((r) => r.person_id);
+    for (const person of due) {
+      this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
+      this.audit(person, null, "reviewer.expired", null);
+    }
+    return due;
+  }
+
+  /** What this store is seeded with at its first open ('sample'), or null. */
+  seedOf(storeId: string): string | null {
+    return this.db.get<{ seed: string | null }>("SELECT seed FROM stores WHERE id = ?", storeId)?.seed ?? null;
+  }
+
+  /** The seed ran: it never runs again. */
+  clearSeed(storeId: string): void {
+    this.db.run("UPDATE stores SET seed = NULL WHERE id = ?", storeId);
+  }
+
   // ── login links ────────────────────────────────────────────────────────────
 
   /**
@@ -336,17 +587,25 @@ export class Accounts {
    * shows the same words either way. `browser` is the raw value of the
    * browser-binding cookie; only its hash is kept.
    */
-  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string }): LinkRequest {
+  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string; spotsLeft?: number }): LinkRequest {
     const email = normalizeEmail(input.email);
     if (email === null) return { send: false, reason: "bad-email" };
+    // The spots, read once for every ask (or handed in by the page, which read
+    // them for its words), so a known and an unknown address cost the same reads.
+    const spotsLeft = input.spotsLeft ?? this.spots().left;
+    // The email cap (EC1), only while spots are open; read for every ask alike.
+    const perHour = spotsLeft > 0 ? this.emailCap().perHour : null;
     const identity = this.db.get<{ id: string; person_id: string }>("SELECT id, person_id FROM identities WHERE kind = 'email' AND value = ?", email);
     let inviteId: string | null = null;
-    let refused: "invite-required" | "suspended" | null = null;
+    let refused: "full" | "suspended" | "busy" | null = null;
     if (identity !== undefined) {
       if (!this.canSignIn(identity.person_id)) refused = "suspended";
     } else {
+      // A live code signs up past the cap. No code, or one that isn't good
+      // (mistyped, expired, used up), takes a spot while one is left (SU1).
+      // The spot isn't held here: the click takes it (`useLink`).
       inviteId = this.liveInvite(typeof input.inviteCode === "string" ? input.inviteCode.trim() : "");
-      if (inviteId === null) refused = "invite-required";
+      if (inviteId === null && spotsLeft === 0) refused = "full";
     }
     const token = secret("cpl_");
     const at = this.now();
@@ -357,6 +616,21 @@ export class Accounts {
     // volume; review of #644). The same commit drops links a day past their
     // expiry, so addresses don't pile up here.
     this.db.transaction((): void => {
+      // THE EMAIL CAP (EC1), while spots are open: every well-formed ask takes
+      // a count, member or not, in this same commit, so neither the time nor
+      // the next stranger's outcome says whether this address has an account.
+      // Over the cap only a code-less sign-up is refused: a member still gets
+      // their link, and a live invite code passes this cap as it passes the
+      // spots (#804 review), so a stranger's flood can't block the invited. A
+      // code that isn't good (inviteId null) is a code-less ask here.
+      if (perHour !== null) {
+        const hour = Math.floor(at / HOUR_MS);
+        this.db.run("DELETE FROM email_hours WHERE hour < ?", hour - 24);
+        this.db.run("INSERT INTO email_hours (hour, asks) VALUES (?, 0) ON CONFLICT (hour) DO NOTHING", hour);
+        this.db.run("UPDATE email_hours SET asks = asks + 1 WHERE hour = ? AND asks < ?", hour, perHour);
+        const counted = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
+        if (!counted && refused === null && identity === undefined && inviteId === null) refused = "busy";
+      }
       this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
       this.db.run(
         "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -379,7 +653,10 @@ export class Accounts {
   /**
    * The link was opened. One use, in time, in the browser that asked. A sign-up
    * creates the person, the email identity (verified by this very click) and the
-   * store, and spends one use of the invite.
+   * store, and spends one use of the invite — or, with no invite (or one used up
+   * since), takes a spot: the count and the insert in this one transaction
+   * (BEGIN IMMEDIATE, so a second connection waits for it), so two people racing
+   * for the last spot can't both get in (SU1).
    */
   useLink(input: { token: string; browser: string | null }): LinkUse {
     const hash = sha256(input.token);
@@ -411,15 +688,19 @@ export class Accounts {
         this.audit(existing.person_id, null, "login.link", null);
         return { ok: true, personId: existing.person_id, created: false };
       }
-      if (row.invite_id === null) return { ok: false, reason: "invite-spent" };
-      this.db.run("UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)", row.invite_id, at);
-      if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) !== 1) return { ok: false, reason: "invite-spent" };
+      let inviteId: string | null = null;
+      if (row.invite_id !== null) {
+        this.db.run("UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)", row.invite_id, at);
+        if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1) inviteId = row.invite_id;
+      }
+      // No invite spent: a spot, counted inside this transaction.
+      if (inviteId === null && this.spots().left === 0) return { ok: false, reason: row.invite_id === null ? "full" : "invite-spent" };
       const personId = id128();
       const storeId = id128();
-      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, ?)", personId, at, row.time_zone, row.invite_id);
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, ?)", personId, at, row.time_zone, inviteId);
       this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, row.email, at, at);
       this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
-      this.audit(personId, storeId, "signup", row.invite_id);
+      this.audit(personId, storeId, "signup", inviteId ?? "spot");
       return { ok: true, personId, created: true };
     });
   }
@@ -615,7 +896,8 @@ export class Accounts {
    * THE ACCOUNT'S LAST STEP (after its store is gone): every way in, every
    * session and pending link is deleted; the person and the store are left as
    * tombstones (id, dates, state) so nothing reuses their ids. The address can
-   * sign up again later as a new person, with a new invite.
+   * sign up again later as a new person, with a spot or a new invite (SU1:
+   * this person stops counting against the spots here).
    */
   markDeleted(personId: string): void {
     const at = this.now();
@@ -623,9 +905,10 @@ export class Accounts {
       const emails = this.db.all<{ value: string }>("SELECT value FROM identities WHERE person_id = ? AND kind = 'email'", personId).map((r) => r.value);
       for (const e of emails) this.db.run("DELETE FROM login_links WHERE email = ?", e);
       this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
+      this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
       this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
-      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL, last_wake_on = NULL WHERE id = ?", at, personId);
     });
     this.audit(personId, null, "account.deleted", null);
   }

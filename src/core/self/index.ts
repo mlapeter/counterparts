@@ -1243,7 +1243,7 @@ export class Self {
    * reads it — its threads first, the personal ones after, another folder's
    * work neither listed nor counted as parked. Absent: every thread.
    */
-  stillOpen(day: number, reader?: ThreadReader): { items: StillOpenItem[]; parked: number } {
+  stillOpen(day: number, reader?: ThreadReader, ownerParked?: ReadonlySet<string>): { items: StillOpenItem[]; parked: number } {
     const { open, carry } = this.openScanned(day);
     const settled = settledOver(this.store);
     const place = reader === undefined ? undefined : this.threadPlaceFor(reader);
@@ -1272,14 +1272,20 @@ export class Self {
       };
     };
     const out: StillOpenItem[] = [];
+    // PARKED BY THE OWNER'S BACKOFF (SO1 step 4, `owner-waits.ts#ownerParked`):
+    // an `asked` item raised at every step unanswered leaves the carried list
+    // for the parked one, as an item the carry parks does.
+    const backedOff: Scanned[] = [];
     for (const id of [...lanes.threads.map((r) => r.id), ...(lanes.overflow?.threads ?? [])]) {
       const s = byId.get(id);
-      if (s !== undefined) out.push(item(s, false));
+      if (s === undefined) continue;
+      if (ownerParked?.has(id) === true) backedOff.push(s);
+      else out.push(item(s, false));
     }
     // THE PARKED, AFTER THE CARRIED (P2, 2026-10-28): listed and marked, the
     // most recently touched first; another folder's work is not this
     // reader's (O2), as the wake's count reads them (`parkedOf`).
-    const parked = this.parkedOf(carry, day, place);
+    const parked = [...backedOff, ...this.parkedOf(carry, day, place)];
     for (const s of parked) out.push(item(s, true));
     return { items: out, parked: parked.length };
   }

@@ -2,7 +2,7 @@
 
 ## Before any non-family user
 
-1. **Gates** (DESIGN §5.4; item 2 is one more):
+1. **Gates** (DESIGN §5.4; item 2 was one more, deferred since):
    - Railway's disk encryption confirmed in writing. Met 2026-11-04: SOC 3 (period ending 2026-04-22, unqualified) says
      AES-256 at rest, volume-level, backups too. Open from the same report: Railway snapshots volumes several times a
      day, retention unknown; Mike is asking Railway (DESIGN §5.1);
@@ -14,14 +14,15 @@
      The R2 drill (item 5) again on the deployed image after that;
    - lockout: the recovery private key held offline in two places before use, both copies proven by
      `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
-     passing on the real binary. (Met for the KEK 11-02; owed again for the recovery key at the WB1 release.)
+     passing on the real binary. (Met for the KEK 11-02; for the recovery key, the real-R2 drill passed 2026-11-06
+     13:52 on 0.3.50.)
    - **Not closed by WB1** (it was never the goal): a leak of the volume is a leak of everything (the live stores are
      plaintext there; with the bucket, the backups' history too). And the memory stores that exist at the migration
      keep their DEKs (control is re-keyed): an old `HOSTED_KEKS` plus a copy of their old `keys/<id>.wrapped` still
      opens their backups. Accepted for Mike's and the test accounts' stores; re-keying them is not built.
-2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
-   lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
-   service. Not built now.
+2. **Deferred, not a gate for the beta (Mike, 2026-11-04, and kept deferred 2026-11-10): the account email, encrypted
+   under the person's DEK, with a keyed hash for lookup.** It was a gate from 2026-10-26, 16:21. The hash key would sit
+   next to the KEK, behind `KeyWrapper`. Not built.
    - Until then, the beta says "your account email is purged from backups within 24 hours", on the account, done and
      202 pages and in DESIGN §5.2.
    - Why that holds: with `secure_delete` on, snapshots taken after a delete are clean. The pre-delete snapshot and the
@@ -37,6 +38,7 @@
 0-10 users).** They stay owed; the lists above and item 8 say what each would take.
 - ~~The Cloudflare key service (the second gate above)~~: replaced by WB1 (2026-11-06), above.
 - The account email under the DEK (item 2): it comes with the encrypted live store, which is pending Mike's final word.
+  Mike kept it deferred on 2026-11-10: not a gate for the beta.
 - The four custom alerts (item 8): Railway's crash and deploy emails cover the start.
 - An outside uptime service (item 8): it needs Mike's account, and Railway's notices cover a crash.
 - A formal data-request process: a request to the feedback address is handled by hand at this size.
@@ -56,8 +58,8 @@
    `restore --all` on Railway's side would be; never `serve` a drill container against the production bucket).
    **WB1 (2026-11-06): passed in the new shape with `--local`** (a local S3 with SSE-C, the branch's image): the
    sealed key objects, both refusals (no private key, the wrong one), and `hold` + `recover-keys` + `RESTORE_ON_BOOT`
-   twice. **Owed:** the same on R2 (`drill.sh --sha <the release>` or after it deploys), and on Railway that `hold`
-   passes the healthcheck and `railway ssh` reaches it (unverified).
+   twice. **Passed on R2 2026-11-06 13:52, on 0.3.50.** Still unverified: on Railway, that `hold` passes the
+   healthcheck and `railway ssh` reaches it.
 6. **Volume ownership.** The image runs as `node`, and Railway mounts volumes owned by root. The RUNBOOK's answer is
    Railway's `RAILWAY_RUN_UID=0` (unverified), which runs it as root. An entrypoint that chowns and drops privileges
    would keep `node`.
@@ -101,7 +103,7 @@
 
 14. **No global or cost-weighted budget** (the #653 review, L4). The limits are per account and count calls, not
     their cost: a few accounts each inside their own limits, all running heavy calls, still slow everyone (one
-    event loop). Acceptable for an invite-only beta of about 20; a shared budget or a cost weight per tool comes
+    event loop). Acceptable for a beta capped at a few tens of accounts (spots, SU1); a shared budget or a cost weight per tool comes
     with real load.
 15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
     only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5). Since the build with
@@ -165,6 +167,15 @@ copies are "due to go within about two weeks of [their] conversation going quiet
 wake, and wait if chats stop or are far apart. So a number on a hosted page stays tied to the
 next wake unless a sweep is built; whether to build one is Mike's, open.
 
+Since LW1 (11-09) the control database keeps the UTC day of each person's last wake
+(`people.last_wake_on`, CONTRACT §37), so such a sweep has its input without opening a store:
+`SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state = 'active' AND
+p.last_wake_on < <today minus N days, UTC>` (a NULL — never woken since LW1 shipped — falls back
+to `people.created_at`). The same column could give `main.ts signups` a "woke in the last 7 days /
+quiet for 14+" count for monitoring; that command reads on a read-only connection with no migration,
+so it would need a `PRAGMA table_info` guard for a volume from before the column. Neither is built:
+the threshold, and whether a quiet account's raw copies go early, are Mike's.
+
 ## The 24-hour delete (R6, 10-27)
 
 34. **Closed 2026-10-27 (R9, on Mike's "yes send email"): a confirmation email at a delete.** One at the delete,
@@ -218,3 +229,60 @@ next wake unless a sweep is built; whether to build one is Mike's, open.
 44. **Still open (G1 L5, not taken up in G1F): a 30-day sliding web session can export the whole memory** (and delete it
     now, §35) with no fresh sign-in (G1 L5). Someone at an unlocked, signed-in browser can download it. A fix would
     ask for a session younger than about 15 minutes for export and delete-now.
+
+## The dashboard on hosted (HD2, 2026-11-10)
+
+45. **First release: home, memories and self, read-only** (`src/dashboard.ts`, the shared half
+    `src/adapters/dashboard/web/respond.ts`). Owed, each on Mike's word:
+    - **The other tabs** (subjects, flow, health) say "not on hosted yet" and their views 404 (`HOSTED_VIEWS`). Health's
+      machine parts (doctor, hooks, worker, install) stay local; its store parts (the last cycle, the wake's size, the
+      archive) and the mechanisms panel could come over as they are.
+    - **The 3-D brain** is off (`HOSTED_HOST.brain`): a 600 KB module per visit, and its lights read `/api/mechanisms`.
+    - **Managing** (ask by facts / by meaning, add a memory, remove one, mark what it is about) is hidden by
+      `HOST.canAct`; it would need a hosted action door with CSRF and the tenant's queue, not `actions.ts`.
+    - **An empty store** (signed up, never connected) answers each view 409 with one sentence, so the page shows that
+      sentence in its error box; a calmer empty page would be nicer.
+46. **Every `/api` view opens an observer Counterpart inside the tenant's queue and closes it** (no cache). It also
+    opens the tenant's own handle when it is closed (as export does), which then idles out on the usual 10 minutes; the
+    page polls every 60 s, and not while hidden, so a tab left open keeps that handle warm. A memory store's open was
+    a few milliseconds in tests; measure on a large store if pages feel slow.
+46b. **No process-wide budget for dashboard views** (#801 review fixed the one-session case: two in flight per person,
+    a yield before each). Many people each inside their two still share one event loop, as §14 says for `/mcp`.
+47. **The page's inline `style=` attributes are allowed** (`style-src-attr 'unsafe-inline'`, nothing else inline): the
+    drawn markup uses about fifty for widths and colours. Moving them to classes would let the CSP drop it.
+
+## The hourly email cap while spots are open (EC1, 2026-11-10)
+
+48. **What stays open around the cap** (`spots emails M`, CONTRACT §11).
+    - **A live invite code can ask for links to any address**, open or closed: the code is spent at the click, not the
+      ask, so one code mails as many addresses as the per-IP and per-address limits let through. A live code passes
+      the email cap as it passes the spots (#804 review: the invited aren't blocked by a stranger's flood), so M
+      doesn't bound it, open or closed; its asks still count toward M. Older than EC1; spending a use at the ask, or a
+      cap per code, would close it.
+    - **The lockout trade-off.** The cap is global, so anyone can hold it: about 5 IPs at the per-IP 20 an hour fill
+      the default 100 every hour, and newcomers without a code see "try again in an hour" for as long as that lasts.
+      Members and live codes still get through. With no alarm (below), the operator sees it only as `reached` in
+      `spots`; the answer then is invite codes, or a higher M with a tighter per-IP limit.
+    - **Clock hours, not a sliding hour.** Up to 2M can go out across one hour's end (M at 12:59, M more at 13:00).
+      Loose on purpose; a sliding window is a table of timestamps, as Counterparts Phone's `rate_hits` keeps.
+    - **It counts asks, not deliveries.** A refused ask (suspended account), a member's sign-in and a live code's ask
+      count too, so the count can't say who has an account; a mail that fails still counted. Over M, a member's or a
+      live code's ask is counted no further and still sent, bounded only by the per-address and per-IP limits.
+    - **No alarm when it trips.** Phone mails its operator once an hour when its sign-up cap trips (`signup_alarm`);
+      here the operator sees it only in `spots` (`… this hour: reached`).
+
+## The directory connector (DIR1, 2026-11-10)
+
+49. **What DIR1 left open.**
+    - **A reviewer's code is a password for one account.** Bounded (expiry, revoke, the login form's per-IP and
+      per-address limits, never a member's address), but it is a standing secret in the portal's test-credentials
+      field. Revoke it (`reviewer revoke <email>`) when the review ends; a re-review gets a new account.
+    - **The sample is seeded once.** Several reviewers (or one who turns memory off, deletes and rewrites the page)
+      leave the account as they left it; there is no reset. A fresh `reviewer` account is the reset.
+    - **Inspector's web page is unverified end to end.** `MCP_ALLOWED_ORIGINS` lets its page call `/mcp` (preflight,
+      CORS), but its browser-side OAuth (discovery, `/oauth/register` from the page) was not run here. Inspector's
+      command line was, through its own OAuth (DCR, a loopback return, PKCE) against a local hosted server.
+    - **Ten schema portability warnings** (Inspector `--strict`): nullable fields typed `["string","null"]` (and two
+      `["array","null"]`). Legal JSON Schema, accepted by Claude; every host's schema shares them, so changing them
+      is a both-doors change, left for now.
+

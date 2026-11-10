@@ -40,6 +40,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
    nameable. It never holds a token.
 7. **`/mcp` refuses** anything but POST (`405`), a foreign `Origin` (`403`), and a body that is not
    `application/json` (`415`). The last closes the local door's `text/plain` simple-request hole.
+   - Each refusal is one plain sentence (DIR1, `server.ts#DOOR_WORDS`): what happened and what to do,
+     never anything the request sent.
+   - **A foreign Origin is any not on `MCP_ALLOWED_ORIGINS`** (DIR1): exact origins, empty by default.
+     A listed one (MCP Inspector's web page while testing) gets its preflight answered and
+     `Access-Control-Allow-Origin` on every answer, the 401 included; a call with no Origin (claude.ai's,
+     Claude Code's, Inspector's command line) is served as before.
    - A token that can't be *checked* (`authenticate` threw, e.g. the accounts database is down) gets `503` with
      `Retry-After`, never `401`, so the client retries instead of asking the person to sign in again.
    - Only origin-form request targets reach a route. `//host/x` and absolute-form targets get `400`, so no route ever
@@ -56,16 +62,49 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - The single-use claim is one `UPDATE … WHERE used_at IS NULL`.
     - The wrong browser is refused without spending the link, so a forwarded email or a mail scanner signs nobody in
       and doesn't burn the link either.
-11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
-    the verified email identity and the store. A code expires 7 days after it is made unless `invite --expires <days>`
-    (1 to 365) says otherwise (G1 L4, 2026-11-04). Codes made before that default have no expiry and stay valid until
-    used.
-12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
+11. **Sign-up takes a spot or a live invite** (SU1, 2026-11-10; invite only before it).
+    - **Spots.** `spots set N` (stored in control's `settings`; never set ⇒ 0) is the accounts hosted takes in all.
+      Spots left = max(0, N − people), counting every person but a `deleted` tombstone and a reviewer's account
+      (§11a, `people.kind`): invited ones and a pending
+      delete count, an erased account frees its spot. While one is left, an unknown address with no good code gets a
+      link. The spot is taken at the click: the count and the insert run in the one `BEGIN IMMEDIATE` transaction that
+      creates the person, the verified email identity and the store, so two clicks for the last spot can't both get
+      in, and a link never clicked takes nothing. A click with none left makes nothing and says hosted is full.
+    - **Invites** sign up past N. A code is spent at the click, in that same transaction. A code expires 7 days after it
+      is made unless `invite --expires <days>` (1 to 365) says otherwise (G1 L4, 2026-11-04). Codes made before that
+      default have no expiry and stay valid until used. A code that isn't good (mistyped, expired, used up) while a
+      spot is left takes the spot instead.
+    - **`GET /spots`** answers `{"left": n, "open": bool}` and nothing else, with no auth, kept 5 seconds, and
+      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`).
+    - **The hourly email cap while open** (EC1, 2026-11-10). `spots emails M` (stored in control's `settings`; never
+      set ⇒ 100) is how many sign-in asks a clock hour counts while spots are left. The count is a row per hour in
+      control's `email_hours`, so a deploy or restart doesn't reset it. Every well-formed ask while open counts alike,
+      member or not, in the same commit as its `login_links` row; past M an address with no account and no live
+      invite code gets no email (a mistyped, expired or used-up code is no code here). A member still gets their
+      sign-in link, and a live code still gets its sign-up link: it passes this cap as it passes the spots, so a
+      stranger's flood can't block the people invited (#804 review). The page is chosen from the cap's state before
+      the ask, so it's the same for all of them (§12). While closed nothing is counted or changed. The per-IP and per-address limits (§14) stand in front of it as before.
+11a. **A reviewer's account** (DIR1, 2026-11-10; the directory's test-account credentials). `main.ts
+    reviewer <email> [--days N]` makes a NEW person at an address the operator controls (refused for
+    one that has an account, so never a real person's), past the spots, and prints a sign-in code once
+    (`cpr_`, stored as its SHA-256 in `reviewer_codes`, 90 days by default, 365 at most). That code in
+    the login form's code field beside that email signs the browser in, with no email; `reviewer revoke
+    <email>` ends its codes, its web sessions and every OAuth grant (`OidcStore#revokeAccount`), so a
+    connection made with the code is refused at its next call; an erase deletes them too. When all of an
+    account's codes have expired, start-up and the ten-minute timer end it the same way
+    (`Accounts#endExpiredReviewers`), so expiry ends existing connections within about ten minutes, not
+    only new sign-ins. Revoke only ever touches an account the command made (`people.kind = 'reviewer'`),
+    and such an account takes no public spot. The lookup by the code's hash runs for every ask, so a
+    wrong code costs and reads like any ask and goes on as an invite code.
+12. **The login page never says who has an account.** It shows the same words whether a link went out or not (they
+    change with the spots, which are public, never with the address: "full" is said to everyone alike, and so is
+    "lots of people are signing up right now" once this hour's email cap is reached, chosen by the count read before
+    the ask), and
     the email is sent without being awaited, so the response time doesn't say it either. Every ask, refused or not,
     writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
     write doesn't say it. Rows a day past expiry are swept by the next ask.
 13. **Every form is CSRF-bound** (an HMAC of the browser cookie) and Origin-checked. After login, only our own paths
-    (`/account`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
+    (`/account`, `/dashboard/`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
     `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. They live in memory, which suits
     one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
@@ -120,6 +159,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       `backchannel_logout_uri` and `request_uris` are refused at registration and in CIMD documents, and every body
       limit is finite.
     - **Redirect URIs** are https, http on a loopback address only, or a native app's own scheme.
+    - **A client whose redirect URIs are all http on loopback is a native app** (DIR1, 2026-11-10; RFC 8252
+      §7.3, and the connector auth doc's "accept a loopback redirect on any port"): its return may come on any
+      port, with the same host and path, and the Allow page is shown every time. Claude Code's own CIMD
+      document (`http://localhost/callback`, `http://127.0.0.1/callback`, no `application_type`) signs in
+      this way; before, the library read it as `web` and refused `localhost:<port>`. https returns still
+      match exactly.
 22. **The entry point** (`src/main.ts`) needs everything named, and nothing falls back to a default:
     - `HOSTED_DATA_ROOT`: absolute, and never inside a live store;
     - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
@@ -127,10 +172,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 
     `invite` prints one code, once, and says on stderr when it expires (7 days, or `--expires <days>`).
 
+    `spots` prints N, the people there are, the spots left and the email cap (M an hour, and this hour's count);
+    `spots set N` (0 to 100,000) stores N and takes effect at the next sign-up, no restart; `spots emails M` (0 to
+    100,000) stores M the same way (EC1). Both stand behind the same volume check as `invite`. A bad N is refused.
+
     `signups` (`src/signups.ts`) prints the people there are now and the sign-ups per week (Monday 00:00 UTC), counts
     only, so its output can be pasted anywhere. It reads `people`'s dates and states on a read-only connection, needs
     no key or bucket, and makes, migrates and checkpoints nothing, beside the running server or on a stopped volume.
-    A sign-up is a `people` row, which is also a redeemed invite (§11). With no database it fails and makes none.
+    A sign-up is a `people` row, made at the click with a redeemed invite or a spot (§11). With no database it fails
+    and makes none.
 23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
     authorization starts an hour per IP (each can make the server fetch a CIMD document).
 
@@ -401,7 +451,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - 1 GiB per store (`stores.quota_bytes` wins when set).
 
     A refused call is a tool refusal the model can relay: `isError`, a `reason` (`rate-limited`, `store-full`),
-    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`,
+    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`, `delete_memory` (DIR1: a delete frees room),
     `scope` and reading the self page (no argument but `session` or `ifVersion`) keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
     is logged as its event and the hashed store tag, nothing else. The slot is given back at the answer or when the
     client's socket closes, so an aborted request (bun included) never holds it.
@@ -415,6 +465,42 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - Litestream 0.5.17, pinned by version and by the release's own sha256 for amd64 and arm64, checked in the build;
     - it is built to run as `node`, with `/data` made and owned by `node`; the entry point is `main.ts serve`. On Railway, the RUNBOOK's
       `RAILWAY_RUN_UID=0` for a root-owned volume runs it as root (INTERFACE-GAPS §6).
+37. **The day of the last wake** (LW1, Mike 2026-11-09). `people.last_wake_on` holds the UTC calendar day
+    (`YYYY-MM-DD`) of the person's last `wake` call that reached their store, answered or refused;
+    this field holds no time, IP, client or count (the per-grant last-used time and the call log are separate, and keep times). The door tells the app the person (`server.ts#onWake`), and
+    `accounts.ts#noteWake` reads the row and writes only when the day changed, so it is one write a day at most and
+    never an audit row (an audit row carries the time). NULL until the first wake; cleared with the rest of the row at
+    an erase. It is there to tell a quiet account from a live one; nothing reads it yet (INTERFACE-GAPS, "A quiet
+    tenant's raw copies wait"). The migration is one `ALTER TABLE people ADD COLUMN last_wake_on TEXT`, made at open
+    when the column is missing, so it is safe twice and on the beta volume.
+38. **The dashboard** (HD2, Mike 2026-11-10: "the same dashboard … shared code so we can keep them both in sync"):
+    `/dashboard/` serves the local dashboard's own page, files and views (`src/dashboard.ts` over
+    `src/adapters/dashboard/web/respond.ts`; nothing copied into `hosted/`), first release home, memories and self.
+    - **Owner-only, from the session**: the person is the web session's, the store is that person's one active store;
+      nothing in a URL names a store. No session: the page redirects to sign-in, `/api` and files are `401`.
+    - **Read-only**: only `GET`/`HEAD`; no action door (this package never imports `web/actions.ts`); only the views in
+      `HOSTED_VIEWS` answer, the rest `404` "not on hosted yet" before a store is looked at.
+    - **A pending delete opens nothing**: the page goes to `/account` (the pending page), `/api` is `403`; inside the
+      store's queue the lock is checked again (`StoreLocked`).
+    - **A look is not a wake**: no `onWake`, no tool call, no worker; each view runs on an observer `Counterpart`
+      opened and closed inside `Tenants.withTenant(...).serial`. A store never connected is not created by a look
+      (`409`, one sentence); one waiting for a restore is `503`.
+    - **One person can't hold the process** (#801 review): at most two of a person's views run or wait at once, the
+      rest a `429` with one sentence (the page retries a few times), and each view yields a turn before it runs.
+      On hosted a view's `limit` is bounded, `/api/overview` drops the feed and `/api/activity` sends `lastSeq` and
+      counts only (no narrated rows, no session ids or build).
+    - **Its own CSP**: `script-src 'self'` and no inline script (the page's clicks are delegated); inline style
+      attributes only (`style-src-attr 'unsafe-inline'`); `connect-src`, `font-src`, `img-src` same-origin;
+      `frame-ancestors 'none'`. The store's path (`/api/meta`'s `dir`) is not sent, and a failed view says nothing of
+      the server.
+
+39. **A reviewer's store is seeded with sample data** (DIR1, `sample.ts`): its `stores.seed` is
+    `sample`, so its first open queues `seedSample` first in the store's own queue, before any call,
+    through the tools a conversation calls: a made-up person, a met first meeting, a dozen memories, a
+    chapter, a self page, a night (day's end, a dream, a reflection with a share), then the wake
+    composed at the worker's ceiling. The first memory and the page say it is sample data. Cleared once
+    it ran (`sample.seeded`), so it never runs twice; a throw is audited (`sample.seed.failed`) and the
+    store is served as far as it got. An ordinary sign-up's store is never seeded.
 
 ## What it drops, for now
 

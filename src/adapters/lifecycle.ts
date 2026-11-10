@@ -1293,6 +1293,9 @@ export class Lifecycle implements HostLifecycle {
         // What a named id may not carry across (FI1, 2026-10-30): the folder
         // setting, read only on a turn with one to ask about.
         ...(config === undefined || config.length === 0 ? {} : { foldersOn: () => foldersOn(scopesPath(config)) }),
+        // SO1 step 4's relevance lane: only a turn a person started may raise what
+        // waits on them; the folder setting as the wake reads it.
+        ...(opts.startedBy === "person" && input.nightRun !== true ? { attended: true, exportsFrom: this.chapterExports() } : {}),
       },
     );
     const decision = result.decision;

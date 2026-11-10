@@ -5030,6 +5030,57 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
 - Decided by the builder, lightly held: other languages only where one name and one verb were enough
   (Spanish, French, German, Portuguese), each with a few "wrong / empty / required" words.
 
+### Decided by the PG1 builder, 2026-11-09, lightly held (the page names what it sets down)
+
+- Decided by the PG1 builder, 2026-11-09, lightly held (fix round after the review of #789, the coordinator's
+  design): folded vs gone is the WRITER'S ACCOUNT, not a word share. The writer accounts for every sentence it
+  removes or changes ("reworded", "folded into <line>", or set down with a why), and that account is trusted and
+  counted on the event for audit. The engine checks only completeness. Why: on the owner's real page history a
+  word-share judgement got 9 of 20 pairs right, and true folds (0.36–0.38) scored the same as true drops
+  (0.38–0.40).
+- Decided by the PG1 builder, 2026-11-09, lightly held: a sentence nobody accounted for is kept when it's still
+  there (a new sentence wholly inside it, or ≥ 0.7 of its words in one or two new sentences). Otherwise it is
+  always recorded, and quoted by the wake only when clearly gone: ≤ 0.15 of its words in any run of three new
+  sentences, no clause kept, no anchor word carried over, no word root in a rewritten sentence. The rest are quiet
+  "maybe reworded" memories. Why: a quoted line still on the page is the error the owner would see. Measured on
+  ~80 real pairs with no writer account, every quoted line checked was gone.
+- Decided by the PG1 builder, 2026-11-09, lightly held: a set-down memory is a night row (`source: reflection`,
+  `kind: self`, about me, the personal default claim, tag `set down`, meta `setDown`). Why: the night's readers (the
+  news since last night, the reflection's lived lists, beliefs, marking about me) already pass every
+  reflection-written row by, so the wake tells it once and the reflection can't cite it back as lived evidence.
+- Decided by the PG1 builder, 2026-11-09, lightly held: the wake line sits in the shaped wake's "Last night", after
+  the closes, for the newest night's quoted set-downs, told ONCE (meta `self.set_down.told` holds the night told).
+  Short of room it steps down first, then the closes, and the night's own words last. It isn't in the unshaped wake
+  (the closes line isn't either).
+- Decided by the PG1 builder, 2026-11-09, lightly held: only the nightly doors (`writer`, `reflection`) are read; a
+  session's or the owner's edit is theirs. At most 12 memories per write, one per line; past that, ONE memory
+  holds the rest, every line in full. A why is cut to 200 characters.
+
+### Decided by the PS1 builder, 2026-11-09, lightly held (the page's stories)
+
+- Decided by the PS1 builder, 2026-11-09, lightly held: the story words (the mix, the selection test, craft that
+  may move to a skill) are said only to an own-form store's NIGHTLY writers: day's end's block (beside the set-down
+  rule) and the reflection's page line when it writes the whole page (page split off). The session-side page ask
+  goes without, as it does for the set-down rule: it has a ceiling to fit. With the split on (the default), the
+  reflection writes Core alone, which tells no stories, so it is not told them.
+- Decided by the PS1 builder, 2026-11-09, lightly held: the head start is `PAGE_STORY_LIMITS.HEAD_START` = 0.05,
+  added to a me/us memory's strength in day's end's ORDER only (the physics are untouched), own-form stores only.
+  Measured on the owner's real days (review of #791, 19 days): a day's strengths do not sit close (median ~0.2,
+  the 12th strongest ~0.6; me/us median 0.49 vs work 0.19). Me/us in the shown dozen: 5.2/12 with none, 7.6/12
+  at 0.05 (1 day all me/us), 9.5/12 at the first draft's 0.15 (5 of 19 days all me/us). The reflection's core
+  candidates are already all me/us, so no weight is applied there.
+- Decided by the PS1 builder, 2026-11-09, lightly held: a nomination is `remember` with `story: true`, kept as the
+  tag `story nominated` (via `story`). It works on EVERY store, not only own-form ones, because the field is
+  offered on every host and a field that did nothing would mislead. Day's end shows the day's nominations first
+  (at most `NOMINATED_FIRST` = 5), marked, with one line saying it still decides. Day's end reads one day, so an
+  untaken nomination is simply not shown again and fades like any memory. `session_end` entries don't take it: a
+  nomination is a judgment made in the moment.
+- Decided by the PS1 builder, 2026-11-09, lightly held: a craft practice moves out through the set-down the writer
+  already names: `setDown: [{line, why: "moved to a skill", skill: "<the practice>"}]`. The door makes a
+  `kind: skill` memory (unmarked: an unmarked skill is craft and reaches every folder; `source: reflection`, as a
+  set-down is), and the set-down's facts and body name its id. Nothing is migrated; the writers move one when they
+  judge it about the work, not about honesty or about the owner.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

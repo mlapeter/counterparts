@@ -24,13 +24,13 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
 | Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | Railway's disk encryption is confirmed in writing (SOC 3, 2026-11-04, §5.1); a copy of the live disk would be readable plaintext if it didn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
-| Q4 | When a delete becomes unreadable everywhere | **Changed by Mike (2026-10-27; it was "at once, everywhere" on 10-26): delete is locked at once and erased 24 hours later unless the person keeps it; "delete everything now" beside it erases at once.** Each wrapped DEK is one write-once R2 object, deleted with everything else at the erase (§5.4) | A day to change your mind, against a locked copy that lives a day longer. The account email leaves the control database's backups within 24 hours of the erase (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
+| Q4 | When a delete becomes unreadable everywhere | **Changed by Mike (2026-10-27; it was "at once, everywhere" on 10-26): delete is locked at once and erased 24 hours later unless the person keeps it; "delete everything now" beside it erases at once.** Each wrapped DEK is one write-once R2 object, deleted with everything else at the erase (§5.4) | A day to change your mind, against a locked copy that lives a day longer. The account email leaves the control database's backups within 24 hours of the erase (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is deferred (Mike, 2026-11-04, and kept deferred 2026-11-10: not a gate for the beta; §5.4) |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
 | Q6 | Which runtime runs the hosted server | **Node 24 LTS in the container** (the package already runs on Node through `node-hooks.mjs`). Tests run under bun too (§8.2) | `oidc-provider` supports Node only and prints "Unsupported runtime" on bun, even though the spike passed there (**M**) |
 | Q7 | The background worker (`wake` spawns `runner.ts` per boundary) | **Keep the child process, through the existing `Spawner` seam, behind a global cap and one pending run per store.** In-process comes later (§2.5) | It reuses the proven runner and isolates CPU, at the cost of one short-lived process per run |
 | Q8 | MCP protocol versions | **2025-06-18 and 2025-11-25 first** (what claude.ai documents). Then 2026-07-28 behind a version switch (§3) | Shipping what clients send today, against spec-first |
 | Q9 | Which host the hosted door serves | **Always `claude-ai`**, one surface. It never switches on the client's name, even when Claude Code connects (remote CONTRACT) | Claude Code reaching the hosted URL is served as a chat host. That is honest, and its hooks aren't there anyway |
-| Q10 | Invite-only beta | **Invite codes** (one table). Sign-up is open to anyone holding a code | A little friction for a hard cap on who is in |
+| Q10 | Who may sign up | **Changed 2026-11-10 (SU1, Mike): spots.** The operator sets N, the accounts hosted takes in all (`main.ts spots set N`, stored in control; never set ⇒ 0, closed). While fewer than N people have an account, any address signs up with just its email; at N the login page says hosted is full and links the site's waiting list. Invite codes still work and sign up past N. `GET /spots` gives the site `{"left": n, "open": bool}` (§4.2). It was invite codes only (10-26) | A link on any page instead of a code per person, with the cap itself as the guard against a flood |
 | Q11 | Connection lifetime | **Refresh tokens last 30 days, sliding, with no absolute cap in the beta.** The phone capped at 90 days | Fewer silent "reconnect" breaks in a memory people rely on, against an older grant living longer. Disconnect is always one click |
 
 Lanes others own, where this lane takes the plan's defaults:
@@ -238,7 +238,20 @@ allows 240 s per tool call (**V**), so plain JSON is fine.
    days, sliding.
 4. Rate limits: per email (5 an hour) and per IP (20 an hour).
    - Messages are identical whether or not the address is known, so the form doesn't reveal who has an account.
-   - Sign-up needs an invite code (Q10).
+   - Sign-up takes a spot or an invite code (Q10, SU1). Whether spots are left is public (`/spots`), so the page may
+     say "full" to everyone alike, above the form and after a POST; it never says it for one address and not another.
+     Only the link's own click says "the last spot went", to the person who clicked it.
+   - The spot is taken at the click, in the transaction that makes the person (count and insert under one
+     `BEGIN IMMEDIATE`), never at the ask: a link that is never clicked takes nothing.
+   - While spots are open, an hourly email cap (EC1, 2026-11-10; `spots emails M`, default 100) stops the form from
+     being a mail cannon from rotating IPs, which the in-memory limits above can't (and a deploy resets them). Each
+     clock hour's count is a row in control (`email_hours`), so it survives a restart. Every ask counts alike, member
+     or not, in the commit that writes its link row, so neither the time nor the next newcomer's outcome says who has
+     an account. Past M only a sign-up with no live invite code is refused: members and live codes still get their
+     link, and the page says "lots of people are signing up right now" to everyone alike. While closed it does nothing.
+   - `GET /spots`: `{"left": n, "open": bool}` and nothing else; no auth; kept 5 seconds (in memory and
+     `Cache-Control: max-age=5`); `Access-Control-Allow-Origin` only for `https://counterparts.ai` (its `www` host
+     redirects there), with `Vary: Origin`.
 5. Passkeys come later (WebAuthn: a new identity kind, no table change). SMS codes come when texting arrives.
 
 ### 4.3 OAuth endpoints and paths
@@ -597,7 +610,8 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
 - **The Cloudflare key service** (gate 2). Why: one leak of Railway's environment is a risk worth closing, but for a
   handful of invited users it isn't worth a second `KeyWrapper` yet. The breach report is still unverified.
 - **The account email encrypted under the person's DEK** (gate 3). Why: it belongs with the encrypted live store, and
-  that drop is pending Mike's final word. Until then the 24-hour purge wording stands.
+  that drop is pending Mike's final word. Until then the 24-hour purge wording stands. **Mike, 2026-11-10: kept
+  deferred; not a gate for the beta.**
 - **The four custom alerts** (lag, volume full, 5xx rate, sidecar restarts; §7.1). Why: Railway's own crash and deploy
   emails and `/readyz` are enough to start.
 - **An outside uptime service** (§7.1). Why: it needs an account of Mike's, and Railway's notices cover a crash.
@@ -613,7 +627,8 @@ store, under its own SSE-C key derived from the `control` DEK (sealed to the rec
 ```
 people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|pending-delete|deleted,
                display_name NULL, time_zone TEXT, invite_id NULL,
-               delete_after NULL -- R6: when a pending delete is due)
+               delete_after NULL -- R6: when a pending delete is due,
+               last_wake_on TEXT NULL -- LW1: the UTC day (YYYY-MM-DD) of the last wake, the date only; written once a day)
 identities    (id PK, person_id FK, kind TEXT -- email|phone|passkey|…, value TEXT -- normalized,
                verified_at NULL, created_at, UNIQUE(kind, value))
 login_links   (id PK, identity_id FK, token_hash UNIQUE, browser_hash, expires_at, used_at NULL, ip_hash)
@@ -622,6 +637,8 @@ stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id
                state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
 audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content)
+settings      (key PK, value, set_at -- SU1: the operator's settings: 'spots', absent = 0; EC1 'emails_per_hour', absent = 100)
+email_hours   (hour PK -- floor(ms / 3 600 000), asks -- EC1: sign-in asks counted that hour while open; kept a day)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 ```
 

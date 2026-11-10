@@ -88,6 +88,24 @@ try {
   await me.go(link);
   await save("03a-account-no-connections", await me.go("/account"));
 
+  // SU1: with a spot open, the sign-in page and its sent page for a new address
+  // (the two above are the default, closed); then the last spot gone before the click.
+  app.accounts.setSpots(app.accounts.spots().people + 1);
+  const newcomer = new Browser(origin);
+  const openHtml = await save("01b-sign-in-spots-open", await newcomer.go("/login"));
+  await save("02b-check-your-email-spots-open", await newcomer.form("/login", { csrf: csrfOf(openHtml), email: "new@example.com", invite: "", tz: "America/Denver", next: "/account" }));
+  const freshLink = /https?:\/\/\S+/.exec(mail.sent.at(-1)!.text)![0];
+  app.accounts.setSpots(app.accounts.spots().people);
+  await save("02c-full-at-the-click", await newcomer.go(freshLink));
+  // EC1: spots open, this hour's email cap reached: the sent page everyone sees.
+  app.accounts.setSpots(app.accounts.spots().people + 5);
+  app.accounts.setEmailsPerHour(0);
+  const busy = new Browser(origin);
+  const busyHtml = await (await busy.go("/login")).text();
+  await save("02d-check-your-email-busy", await busy.form("/login", { csrf: csrfOf(busyHtml), email: "later@example.com", invite: "", tz: "America/Denver", next: "/account" }));
+  app.accounts.setEmailsPerHour(100);
+  app.accounts.setSpots(0);
+
   // The Allow page: what claude.ai does, from discovery to the page.
   const issuer = new URL(origin);
   const as = await oauth.processDiscoveryResponse(issuer, await oauth.discoveryRequest(issuer, { algorithm: "oauth2", ...insecure }));

@@ -70,7 +70,7 @@ A night pass runs day's end, a dream and a reflection, set to `auto`, `ask` or `
 
 ## Seeing and changing what's kept
 
-Look with `recall` or `self_page`, correct with `updates`; `remember`'s `remove` deletes one, with a day to undo.
+Look with `recall` or `self_page`, correct with `updates`, and delete one memory with a day to undo.
 
 - Ask the memory: `recall` with a question and a mode, or a memory's id or exact title as `handle` to read it whole. [local] From a terminal: `counterparts ask "…"`.
 - The self page, the "Who I am" the wake opens with: the `self_page` tool reads it, and writes it whole when something about you will still be true next month. [local] `counterparts self-page` shows it, and `counterparts self-page --versions` lists earlier versions.
@@ -79,7 +79,9 @@ Look with `recall` or `self_page`, correct with `updates`; `remember`'s `remove`
 - [local] `counterparts remove <id>` shows what would go; with `--confirm` it asks them to type the id back, then deletes that memory for good. It needs a terminal, and it is the person's to run. `--confirm` also finishes a memory deleted in chat, at once.
 - [local] `counterparts delete conversation-text`, `counterparts delete backups` or `counterparts delete activity-log` deletes one kind of data and nothing else (since 0.3.21).
 - [local] `counterparts settle` lists memories that disagree and how each pair was settled; `counterparts core` lists what became part of who I am, and `counterparts core --demote <id>` sends one back.
-- Delete one memory: `remember` with `remove` and the memory's id, on a memory shown in this conversation, after saying which one. It's hidden at once and erased after 24 hours. `remove` with `undo: true` brings it back before then, and recall's handle `deleted` lists what's waiting.
+- Delete one memory, on a memory shown in this conversation, after saying which one. It's hidden at once and erased after 24 hours, and recall's handle `deleted` lists what's waiting.
+- [local] `remember` with `remove` and the memory's id deletes it; `remove` with `undo: true` brings it back before then.
+- [hosted] The `delete_memory` tool with the memory's id deletes it; `undo: true` brings it back before then.
 
 ## Export, backup, uninstall
 
@@ -121,8 +123,8 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 [hosted] Counterparts Online is this memory on a server, used from claude.ai with the `wake` tool.
 
 - It's connected in claude.ai as a custom connector, from the setup page the person was given. In a new chat, the `wake` tool starts the conversation.
-- Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
-- There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands and no dashboard.
+- Sign-up is by email while the beta has spots left; when it's full, the sign-in page links counterparts.ai's waiting list, and an invite code still signs up. Sign-in is by an emailed link. The account page has the connected AIs, the time zone (the memory's day turns over at their midnight), "Download my memory", and delete.
+- There are no hooks: the `wake` tool starts each chat, and nothing asks for a write-up at the end. There are no terminal commands. The account page links a read-only dashboard (Home, Memories, Self); its other pages are local only.
 - One account is one memory, with no folders: the `scope` tool pauses it or turns it off.
 - Nights run in the day's first chat, after the `wake` and before the answer (see Nights and dreams), or from the person's own routine.
 - Limits in the beta: about 120 calls a minute and 1,500 an hour; a store of up to 1 GiB. Over a limit, the tool says so; nothing is lost.
