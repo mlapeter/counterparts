@@ -227,13 +227,15 @@ keep working either way and sign up past the cap.
 A spot is taken when someone clicks their emailed link, not when they ask for it, so a link nobody clicks holds
 nothing. An account erased after a delete frees its spot; one waiting out its 24 hours still holds it.
 
-**The hourly email cap** (EC1, 2026-11-10). While spots are open, anyone can make hosted email any address, so the
-sign-in asks are counted each clock hour, and once M are counted (100 unless you set it) new addresses wait. `spots` shows it on its last line (`emails: 100 an hour
-while open (12 this hour)`, with `: reached` once it's hit). To change it: `… hosted/src/main.ts spots emails 200`
-(0 to 100,000; at once, no restart; N stays as it is). Past the cap, a new address gets no email and everyone who asks
-sees "Lots of people are signing up right now. New to Counterparts? Try again in an hour."; people with an account
-still get their sign-in link. The count is kept in control, so a deploy doesn't reset it. While closed it does
-nothing. If you see `reached` and the sign-ups look real, raise it; if they look like a flood, `spots set 0`.
+**The hourly email cap** (EC1, 2026-11-10). While spots are open, anyone can make hosted email any address, so
+sign-in asks are counted each clock hour, and once M are counted (100 unless you set it) new addresses wait. `spots`
+shows it on its last line (`emails: 100 an hour while open (12 this hour)`, with `: reached` once it's hit). To
+change it: `… hosted/src/main.ts spots emails 200` (0 to 100,000; at once, no restart; N stays as it is). Past the
+cap, a new address with no invite code gets no email, and everyone who asks sees "Lots of people are signing up
+right now. New to Counterparts? Try again in an hour." People with an account, and anyone with a live invite code,
+still get their link. The count is kept in control, so a deploy doesn't reset it. While closed it does nothing. If
+you see `reached` and the sign-ups look real, raise it; if they look like a flood, `spots set 0` and send invite
+codes, which get through either way.
 
 To count people, any time, beside the running server (counts only, safe to paste anywhere, your own account included): `railway ssh`, then `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups`.
 

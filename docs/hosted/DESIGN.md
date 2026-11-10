@@ -247,8 +247,8 @@ allows 240 s per tool call (**V**), so plain JSON is fine.
      being a mail cannon from rotating IPs, which the in-memory limits above can't (and a deploy resets them). Each
      clock hour's count is a row in control (`email_hours`), so it survives a restart. Every ask counts alike, member
      or not, in the commit that writes its link row, so neither the time nor the next newcomer's outcome says who has
-     an account. Past M only a sign-up is refused: members still get their link, and the page says "lots of people
-     are signing up right now" to everyone alike. While closed it does nothing.
+     an account. Past M only a sign-up with no live invite code is refused: members and live codes still get their
+     link, and the page says "lots of people are signing up right now" to everyone alike. While closed it does nothing.
    - `GET /spots`: `{"left": n, "open": bool}` and nothing else; no auth; kept 5 seconds (in memory and
      `Cache-Control: max-age=5`); `Access-Control-Allow-Origin` only for `https://counterparts.ai` (its `www` host
      redirects there), with `Vary: Origin`.

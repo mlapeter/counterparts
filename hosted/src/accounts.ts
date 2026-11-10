@@ -25,8 +25,8 @@
  *   - **While spots are open, sign-up emails have an hourly cap** (EC1,
  *     2026-11-10): `spots emails M`, 100 by default, counted in control so a
  *     deploy doesn't reset it. Every ask counts alike, member or not; past M a
- *     new address gets no email while a member still gets their link, and the
- *     page says the same to both.
+ *     new address with no live invite code gets no email, while a member or a
+ *     live code still gets its link, and the page says the same to all.
  *   - **A store id is 128 random bits**, made here at sign-up and never derived
  *     from an address or a name.
  *   - **Nothing in `audit` is content**: action codes and ids only.
@@ -501,14 +501,17 @@ export class Accounts {
       // THE EMAIL CAP (EC1), while spots are open: every well-formed ask takes
       // a count, member or not, in this same commit, so neither the time nor
       // the next stranger's outcome says whether this address has an account.
-      // Over the cap only a sign-up is refused: a member still gets their link.
+      // Over the cap only a code-less sign-up is refused: a member still gets
+      // their link, and a live invite code passes this cap as it passes the
+      // spots (#804 review), so a stranger's flood can't block the invited. A
+      // code that isn't good (inviteId null) is a code-less ask here.
       if (perHour !== null) {
         const hour = Math.floor(at / HOUR_MS);
         this.db.run("DELETE FROM email_hours WHERE hour < ?", hour - 24);
         this.db.run("INSERT INTO email_hours (hour, asks) VALUES (?, 0) ON CONFLICT (hour) DO NOTHING", hour);
         this.db.run("UPDATE email_hours SET asks = asks + 1 WHERE hour = ? AND asks < ?", hour, perHour);
         const counted = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
-        if (!counted && refused === null && identity === undefined) refused = "busy";
+        if (!counted && refused === null && identity === undefined && inviteId === null) refused = "busy";
       }
       this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
       this.db.run(

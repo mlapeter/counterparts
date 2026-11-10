@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
+import { openDb } from "../../src/core/store/db.js";
 import { Accounts } from "../src/accounts.js";
 import { memoryMailer } from "../src/egress.js";
 import { SPOTS_CACHE_MS, WAITLIST_URL, accountPages } from "../src/pages.js";
@@ -355,17 +356,41 @@ describe("EC1: the hourly email cap while spots are open", () => {
     assert.match(over.body, /Check your email/);
     assert.match(over.body, /Lots of people are signing up right now\. New to Counterparts\? Try again in an hour\./);
     assert.deepEqual(r.accounts.emailCap(), { perHour: 3, thisHour: 3, reached: true });
-    // An invite-coded sign-up while open falls under the cap too, and sees the same page.
+    // A live invite code passes the email cap as it passes the spots (#804 review), and sees the same page;
+    // a code that isn't good is a code-less ask and waits.
     const { code } = r.accounts.createInvite({ note: "over" });
     const invited = await askLink(r, new Browser(r.base), "invited@example.com", code);
-    assert.equal(invited.link, null, "no email for an invite past the cap while open");
+    assert.ok(invited.link !== null, "a live invite past the cap while open gets its email");
     assert.equal(words(invited.body), words(over.body));
-    assert.equal(r.mail.sent.length, 3);
+    assert.equal(r.mail.sent.length, 4);
+    const typo = await askLink(r, new Browser(r.base), "typo@example.com", "cpi_not-a-real-code");
+    assert.equal(typo.link, null, "a mistyped code past the cap gets no email");
+    assert.equal(words(typo.body), words(over.body));
+    assert.equal(r.mail.sent.length, 4);
     r.setNow(T + 60 * 60 * 1000);
     assert.equal(r.accounts.emailCap().thisHour, 0, "a new hour, a new count");
     const next = await askLink(r, new Browser(r.base), "e@example.com");
     assert.ok(next.link !== null, "the next hour sends again");
     assert.doesNotMatch(next.body, /Lots of people/);
+  });
+
+  test("old hours are pruned: an ask more than 25 hours on drops the earlier hour's row", async () => {
+    const r = await rig(T);
+    r.accounts.setSpots(50);
+    assert.ok((await askLink(r, new Browser(r.base), "early@example.com")).link !== null);
+    const hours = (): number[] => {
+      const db = openDb(r.path);
+      try {
+        return db.all<{ hour: number }>("SELECT hour FROM email_hours ORDER BY hour").map((h) => h.hour);
+      } finally {
+        db.close();
+      }
+    };
+    const first = Math.floor(T / 3_600_000);
+    assert.deepEqual(hours(), [first]);
+    r.setNow(T + 26 * 60 * 60 * 1000);
+    assert.ok((await askLink(r, new Browser(r.base), "late@example.com")).link !== null);
+    assert.deepEqual(hours(), [first + 26], "the hour 26 hours back is gone");
   });
 
   test("the count is in control: a restart (new Accounts, new pages, same database) keeps the count and M", async () => {

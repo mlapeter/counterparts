@@ -72,9 +72,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - **The hourly email cap while open** (EC1, 2026-11-10). `spots emails M` (stored in control's `settings`; never
       set ⇒ 100) is how many sign-in asks a clock hour counts while spots are left. The count is a row per hour in
       control's `email_hours`, so a deploy or restart doesn't reset it. Every well-formed ask while open counts alike,
-      member or not, in the same commit as its `login_links` row; past M an address with no account (with or without
-      an invite code) gets no email, and a member still gets their sign-in link. While closed nothing is counted or
-      changed. The per-IP and per-address limits (§14) stand in front of it as before.
+      member or not, in the same commit as its `login_links` row; past M an address with no account and no live
+      invite code gets no email (a mistyped, expired or used-up code is no code here). A member still gets their
+      sign-in link, and a live code still gets its sign-up link: it passes this cap as it passes the spots, so a
+      stranger's flood can't block the people invited (#804 review). The page is chosen from the cap's state before
+      the ask, so it's the same for all of them (§12). While closed nothing is counted or changed. The per-IP and per-address limits (§14) stand in front of it as before.
 12. **The login page never says who has an account.** It shows the same words whether a link went out or not (they
     change with the spots, which are public, never with the address: "full" is said to everyone alike, and so is
     "lots of people are signing up right now" once this hour's email cap is reached, chosen by the count read before
