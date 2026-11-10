@@ -155,6 +155,7 @@ export const PAGE_STYLE = [
   "form{margin:0 0 1rem}form>br,label>br{display:none}",
   "label{display:block;margin:0 0 1rem;font:500 13px/1.4 var(--mono);color:var(--ink-2)}",
   "label .muted{font-size:1em}",
+  "details{margin:0 0 1rem}summary{cursor:pointer;font:500 13px/1.4 var(--mono);color:var(--ink-2)}details label{margin:.6rem 0 0}",
   "input[type=email],input[type=text]{display:block;width:100%;min-height:44px;margin-top:.4rem;padding:0 14px;font:15px var(--mono);color:var(--ink);background:var(--soft);border:1px solid var(--field);border-radius:4px}",
   "input[type=email]:hover,input[type=text]:hover{border-color:var(--accent)}",
   "input[type=email]:focus,input[type=text]:focus{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}",

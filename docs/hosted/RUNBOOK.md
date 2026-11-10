@@ -204,6 +204,29 @@ the domain on Cloudflare.
    **in the same browser**.
 3. Your account page shows no connected apps yet.
 
+### Opening spots (SU1, 2026-11-10)
+
+Sign-up without a code is **closed until you open it**: a volume where `spots set` was never run has 0 spots, and a
+new address with no code gets no email (the login page says hosted is full and links the waiting list). Invite codes
+keep working either way and sign up past the cap.
+
+1. See where it stands, in the running container:
+
+   ```sh
+   railway ssh
+   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts spots
+   ```
+
+   It prints `spots` (N, the accounts hosted takes in all), `people` (accounts that exist now, yours and invited ones
+   included) and `left`.
+2. Open some: `… hosted/src/main.ts spots set 10`. N counts everyone, so with 4 accounts, `spots set 10` opens 6. It
+   takes effect at once (no restart); the site's count (`https://app.counterparts.ai/spots`) follows within 5 seconds.
+3. Open more later the same way (`spots set 15`). To close sign-up, `spots set 0`. Lowering N removes nobody: everyone
+   with an account still signs in.
+
+A spot is taken when someone clicks their emailed link, not when they ask for it, so a link nobody clicks holds
+nothing. An account erased after a delete frees its spot; one waiting out its 24 hours still holds it.
+
 To count people, any time, beside the running server (counts only, safe to paste anywhere, your own account included): `railway ssh`, then `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups`.
 
 ## 7. BEFORE you add the connector: Claude Code
