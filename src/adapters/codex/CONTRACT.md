@@ -56,8 +56,8 @@ and UserPromptSubmit, `{"decision":"block","reason":…}` at Stop; appended span
 7. **[M] `connect --host codex` appends ours after every other tool's hooks and never moves theirs**; disconnect
    removes only ours and their `hooks.state` rows. Trust is the person's: nothing here writes a `trusted_hash`.
 8. **[M] The MCP server launched `--host codex` refuses `self_page` writes, `dream`, `reflect` and `meet`**, tags
-   every write with the host (meta) and model (column), and keeps a `me` as the model's own note
-   (`core/reader-note.ts`), never identity material.
+   every write with the host (meta) and model (column), and keeps a `me` as the model's own note and an `us` as its own
+   note about itself and the owner (option B, 2026-11-10; `core/reader-note.ts`), never identity material.
 
 ## 6. Scars honored
 

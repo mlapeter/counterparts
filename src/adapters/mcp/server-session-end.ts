@@ -714,6 +714,11 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
   // The model the hooks last saw answer in this session. A Stop records it
   // before its ask goes out, so the chapter that answers the ask has it.
   const model = readSession(server["registryDir"], session)?.model;
+  // A READER HOST'S CHAPTER IS NEVER ABOUT ME OR US (CX2; `us` since option B,
+  // 2026-11-10): both are the counterpart's, and a chapter's copy carries no
+  // reader label to keep the reader's own sense of them (INTERFACE-GAPS §5).
+  const readerDrops = server["readerHost"]() && (about.mark === "me" || about.mark === "us");
+  const chapterAbout = readerDrops ? null : about.mark;
   let written: ChapterResult;
   try {
     written = server.counterpart.appendEpisode(session, text, {
@@ -721,8 +726,7 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       scope: server.scope,
       ...(typeof title === "string" && title.length > 0 ? { title } : {}),
       ...(model === undefined ? {} : { model }),
-      // A READER HOST'S CHAPTER IS NEVER ABOUT ME (CX2): `me` is the counterpart.
-      ...(about.mark === null || (about.mark === "me" && server["readerHost"]()) ? {} : { about: about.mark }),
+      ...(chapterAbout === null ? {} : { about: chapterAbout }),
       ...(typeof summary === "string" && summary.trim().length > 0 ? { summary } : {}),
     });
   } catch (err) {
@@ -746,7 +750,8 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       chapter: written.chapter,
       created: written.created,
       ...(written.gate === null ? {} : { gate: written.gate }),
-      ...(about.mark === null || !written.appended ? {} : { about: about.mark }),
+      ...(chapterAbout === null || !written.appended ? {} : { about: chapterAbout }),
+      ...(readerDrops && written.appended ? { aboutDropped: { mark: about.mark, reason: "reader-host", note: `Not marked about ${String(about.mark)}: in this memory that is the counterpart's, and this chapter was written from another host.` } } : {}),
       ...(written.summary === null ? {} : { summary: summaryAnswer(written.summary) }),
       ...withDrewOn,
     },

@@ -98,7 +98,7 @@ import { homedir } from "node:os";
 import { NONESSENTIAL_TRAFFIC_ENV, UPDATE_CHECK_ENV, UPDATE_OFF_KEY, askedOff, updateSwitch } from "../update-check.js";
 import type { UpdateSwitch } from "../update-check.js";
 import { CLAUDE_AI_HOST, CODEX_HOST, CODEX_HOST_NAME, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, isReaderHost, wordingFor } from "../hosts.js";
-import { READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, readerLabel, writesReaderSelf } from "../../core/reader-note.js";
+import { READER_FEELINGS_META_KEY, READER_SAID_BY_META_KEY, READER_US_META_KEY, readerLabel, writesReaderSelf, writesReaderUs } from "../../core/reader-note.js";
 import type { ReaderSelf } from "../../core/reader-note.js";
 import { PLUGIN_ROOT_ENV, recordedForThisCopy } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
@@ -255,12 +255,7 @@ const STILL_OPEN_QUESTIONS: ReadonlySet<string> = new Set([
  * instructions (CX1 §1).
  */
 export const CODEX_INSTRUCTIONS =
-  "Counterparts: the shared memory of this person's counterpart, the AI they work with in Claude. You read it from Codex as yourself, not as the counterpart: in these tools \"me\" means the counterpart, so write memories in your own voice, and about: me keeps a note about you. The self page, dream, reflect and meet are the counterpart's and refuse here. Codex's hooks bring the wake and recall; when asked at the end, call session_end and chapter with the session id given.";
-
-/** A `remember` belief marked about us (CX2: the one kind a reader host may still make). */
-function isUsBelief(arg: unknown): boolean {
-  return arg !== null && typeof arg === "object" && !Array.isArray(arg) && (arg as Record<string, unknown>)["about"] === "us";
-}
+  "Counterparts: the shared memory of this person's counterpart, the AI they work with in Claude. You read it from Codex as yourself, not as the counterpart: in these tools \"me\" means the counterpart, so write memories in your own voice; about: me keeps a note about you, about: us one about you and the person. The self page, dream, reflect and meet are the counterpart's and refuse here. Codex's hooks bring the wake and recall; when asked at the end, call session_end and chapter with the session id given.";
 
 /** True when a facts question asks for exactly the list of what is still open. */
 export function asksStillOpen(question: string): boolean {
@@ -2020,8 +2015,9 @@ export class McpServer {
       ...this.readerOwnNote(reader),
       ...(this.readerSelfAbout(deposit) ?? this.recordAbout(deposit, reader.about)),
       // A BELIEF IN THE MOMENT (lane C3), after the feelings: a vivid one is read off them.
-      // From a reader host, only one about us on a memory that is not its own note (CX2).
-      ...(args["belief"] !== undefined && this.readerHost() && (deposit.readerSelf !== undefined || !isUsBelief(args["belief"]))
+      // From a reader host, none: a belief is about me or us, and both are the
+      // counterpart's (CX2; `us` too since option B, 2026-11-10).
+      ...(args["belief"] !== undefined && this.readerHost()
         ? this.readerKeeps(deposit, "belief")
         : this.recordBelief(deposit, args["belief"])),
       ...(traits.inputs.length > 0 && this.readerHost() ? this.readerKeeps(deposit, "traits") : this.recordTraits(deposit, traits.inputs, model)),
@@ -2168,9 +2164,11 @@ export class McpServer {
       if (!shown.has(id) || this.denied(id)) {
         return { ok: false, reason: "not-shown-or-gone", detail: `${id} was not shown in this session: recall it by id first, then re-mark it.` };
       }
-      // A READER HOST NEVER MARKS A MEMORY ABOUT ME (CX2): `me` is the counterpart.
-      if (this.readerHost() && arg["about"] === "me") {
-        return { ok: false, reason: "reader-host", detail: `In this memory "me" is the counterpart, and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}; a mark about me is not yours to set. Nothing was marked.` };
+      // A READER HOST NEVER MARKS A MEMORY ABOUT ME OR US (CX2; `us` since
+      // option B, 2026-11-10): both are the counterpart's.
+      if (this.readerHost() && (arg["about"] === "me" || arg["about"] === "us")) {
+        const mark = arg["about"];
+        return { ok: false, reason: "reader-host", detail: `In this memory "${mark}" is ${mark === "me" ? "the counterpart" : "the owner and the counterpart"}, and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}; a mark about ${mark} is not yours to set. Nothing was marked.` };
       }
       const out = this.counterpart.markAbout({
         id,
@@ -4780,18 +4778,22 @@ export class McpServer {
     const own = feelings.filter((f) => f.whose === "self");
     const said = facts.saidBy === "self";
     const label = { host: this.host, model: model ?? null };
+    // ITS `us` (option B, Mike 2026-11-10): the owner and THIS model, so the
+    // same way — labelled in the meta, never the counterpart's `us` mark.
+    const self = writesReaderSelf(about, typeof kind === "string" ? kind : null);
+    const us = !self && writesReaderUs(about);
     const readerMeta: Record<string, unknown> = {
       ...(own.length === 0 ? {} : { [READER_FEELINGS_META_KEY]: { ...label, feelings: own.map((f) => ({ ...f })) } }),
       ...(said ? { [READER_SAID_BY_META_KEY]: { ...label, saidBy: "self" } } : {}),
+      ...(us ? { [READER_US_META_KEY]: { ...label } } : {}),
     };
     const rest = {
       feelings: feelings.filter((f) => f.whose !== "self"),
       facts: said ? { ...facts, saidBy: null } : facts,
       ...(Object.keys(readerMeta).length === 0 ? {} : { readerMeta }),
     };
-    if (writesReaderSelf(about, typeof kind === "string" ? kind : null)) {
-      return { host: this.host, readerSelf: label, about: null, ...rest };
-    }
+    if (self) return { host: this.host, readerSelf: label, about: null, ...rest };
+    if (us) return { host: this.host, about: null, ...rest };
     return { host: this.host, about, ...rest };
   }
 
@@ -4807,8 +4809,19 @@ export class McpServer {
     };
   }
 
-  /** What a reader host's note about itself says in a result: where it went, and what it is not. */
+  /** What a reader host's note about itself (or itself and the owner) says in a result: where it went, and what it is not. */
   private readerSelfAbout(deposit: DepositResult): Record<string, unknown> | null {
+    const us = deposit.readerSelf === undefined ? deposit.readerUs : undefined;
+    if (us !== undefined) {
+      const label = readerLabel(us, us.host === CODEX_HOST ? CODEX_HOST_NAME : us.host);
+      return {
+        about: {
+          stored: false,
+          reason: "reader-us-note",
+          note: `Kept as your own note about you and the owner (${label}), recallable and labelled so — not about us: in this memory "us" is the owner and the counterpart.`,
+        },
+      };
+    }
     const self = deposit.readerSelf;
     if (self === undefined) return null;
     const label = readerLabel(self, self.host === CODEX_HOST ? CODEX_HOST_NAME : self.host);
@@ -4825,7 +4838,7 @@ export class McpServer {
   private readerKeeps(deposit: DepositResult, part: "traits" | "story" | "belief"): Record<string, unknown> {
     void deposit;
     const host = this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host;
-    return { [part]: { stored: false, reason: "reader-host", note: `Not kept: ${part === "belief" ? "a belief about me" : part === "story" ? "a story for the self page" : "a trait"} is the counterpart's own, and this memory was written from ${host}. The memory itself was kept.` } };
+    return { [part]: { stored: false, reason: "reader-host", note: `Not kept: ${part === "belief" ? "a belief about me or us" : part === "story" ? "a story for the self page" : "a trait"} is the counterpart's own, and this memory was written from ${host}. The memory itself was kept.` } };
   }
 
   /** `remember`'s `belief` (lane C3, 2026-10-21): born beside the memory, or said why not. */

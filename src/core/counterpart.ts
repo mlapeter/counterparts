@@ -5500,7 +5500,7 @@ export class Counterpart {
       return {
         ok: false,
         reason: "reader-self-note",
-        detail: `${id} is a note another model wrote about itself; it is not about me or us (the owner can mark it anything).`,
+        detail: `${id} is a note another model wrote about itself (or about itself and the owner); it is not about me or us (the owner can mark it anything).`,
       };
     }
     if (input.by === "self") {

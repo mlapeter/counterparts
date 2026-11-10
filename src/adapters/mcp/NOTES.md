@@ -2072,6 +2072,7 @@ asked for. Hosted only for now: a claude.ai connector to a local store isn't cov
 - **Every write carries the host** (`DepositContext.host` → `meta.host`) beside the `model` column the registry
   already relayed. A `me` (or `kind: self` with no mark) becomes `readerSelf` (`core/reader-note.ts`): no `me` mark,
   and the result says so (`about.reason: reader-self-note`). From Codex a `remember` keeps no traits, no story
-  nomination and no `me` belief (a belief `about: us` still is); `remark` to `me` refuses. `us` is unchanged
-  (Mike, 11-09), listed as open in `codex/INTERFACE-GAPS.md` §1.
+  nomination and no belief; `remark` to `me` or `us` refuses. An `us` (Mike, 11-10, option B: the owner and
+  that model) becomes `meta.readerUs` with no `us` mark (`about.reason: reader-us-note`), and `isReaderSelfRow`
+  keeps it out wherever a `readerSelf` note is kept out; facts recall labels both (`codex/INTERFACE-GAPS.md` §1).
 - **`initialize` carries `CODEX_INSTRUCTIONS`** (under 512 characters: Codex keeps that much).

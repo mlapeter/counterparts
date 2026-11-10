@@ -35,7 +35,7 @@ import { feelingWeeks } from "../src/core/dream/feeling-weeks.js";
 import { wireCodex } from "../src/adapters/cli/codex.js";
 import { storyHeadStart } from "../src/core/self/stories.js";
 import { isStoreError } from "../src/core/store/index.js";
-import { readerSelfOfRow } from "../src/core/reader-note.js";
+import { readerSelfOfRow, readerUsOfRow } from "../src/core/reader-note.js";
 
 const MODEL = "gpt-test-9";
 const HOOK = resolve(import.meta.dir, "../src/adapters/codex/bin/hook.ts");
@@ -707,6 +707,142 @@ describe("whose: self and saidBy: self from Codex are the model's, never the cou
       expect(selfRelevantFeeling(s.counterpart.store, { id, kind: row?.kind ?? "person", about: row?.about ?? null }, true)).toBe(true);
     } finally {
       s.counterpart.close();
+    }
+  });
+});
+
+// ── option B (Mike, 2026-11-10): a Codex "us" is the owner and THAT model ──
+
+describe("about: us from Codex is the owner and that model, labelled — never the counterpart's us", () => {
+  test("kept and recalled with its label; out of meaning-mode us, the self page, beliefs, page stories and the wake", async () => {
+    // The counterpart's own us, from Claude Code, in the same store: the control every check reads beside it.
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    let ccId: string;
+    try {
+      const mine = await cc.call("remember", { text: "Mike and I found our rhythm on long walks after dinner.", about: "us", kind: "person" });
+      ccId = mine.structuredContent["id"] as string;
+      expect(cc.counterpart.store.row(ccId)?.about).toBe("us");
+    } finally {
+      cc.counterpart.close();
+    }
+
+    await hook(base("SessionStart", "cx-us", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      // Bound first, so the label carries the model.
+      const ordinary = (await s.call("session_end", { session: "cx-us", memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner", saidBy: "owner" }] })).structuredContent;
+      const ordinaryId = ((ordinary["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>)["id"] as string;
+
+      const r = await s.call("remember", {
+        session: "cx-us",
+        text: "Pairing on the heronfeather tokenizer, the owner and I settle disputes by running the benchmark.",
+        about: "us",
+        kind: "person",
+        belief: { statement: "We settle things with data.", about: "us" },
+      });
+      const id = r.structuredContent["id"] as string;
+      expect(typeof id).toBe("string");
+      expect((r.structuredContent["about"] as Record<string, unknown>)["reason"]).toBe("reader-us-note");
+      // No belief from Codex, `us` or not.
+      expect((r.structuredContent["belief"] as Record<string, unknown>)["stored"]).toBe(false);
+      expect((r.structuredContent["belief"] as Record<string, unknown>)["reason"]).toBe("reader-host");
+
+      const c = s.counterpart;
+      const row = c.store.row(id);
+      // Stored, with no `us` mark; labelled in the meta the way its feelings and said-by are.
+      expect(row?.about ?? null).toBeNull();
+      expect(row?.model).toBe(MODEL);
+      expect(readerUsOfRow(row)).toEqual({ host: CODEX_HOST, model: MODEL });
+      expect(readerSelfOfRow(row)).toBeNull();
+      expect((JSON.parse(row?.meta ?? "{}") as Record<string, unknown>)["readerUs"]).toEqual({ host: CODEX_HOST, model: MODEL });
+
+      // Recall finds it, with the label.
+      const found = await s.call("recall", { question: "heronfeather tokenizer benchmark disputes", mode: "facts" });
+      const answer = String(found.structuredContent["answer"]);
+      expect(found.structuredContent["ids"] as string[]).toContain(id);
+      expect(answer).toContain(`${MODEL} in Codex's own note about itself and the owner — not about us`);
+
+      // Meaning-mode "us" (the relationship arc): the counterpart's us, never Codex's.
+      const arc = await s.call("recall", { question: "how have the two of us been together lately?", mode: "meaning" });
+      const arcIds = arc.structuredContent["ids"] as string[];
+      expect(arcIds).toContain(ccId);
+      expect(arcIds).not.toContain(id);
+
+      // The self page's writer: never a core candidate, no page-story head start.
+      expect(aboutMe(c.store, { id, kind: row?.kind ?? "person", about: row?.about ?? null })).toBe(false);
+      expect(storyHeadStart(row?.about ?? null, true)).toBe(0);
+      const ccRow = c.store.row(ccId);
+      expect(aboutMe(c.store, { id: ccId, kind: ccRow?.kind ?? "person", about: ccRow?.about ?? null })).toBe(true);
+
+      // No later road marks it me or us: the reflection's, a re-mark's.
+      let threw: unknown = null;
+      try {
+        c.store.setAbout(id, "us", { by: "reflection" });
+      } catch (err) {
+        threw = err;
+      }
+      expect(isStoreError(threw, "ABOUT_READER_SELF")).toBe(true);
+      const remarked = c.markAbout({ id, mark: "us", by: "self" });
+      expect(remarked.ok ? null : remarked.reason).toBe("reader-self-note");
+
+      // Never a belief's evidence.
+      const belief = c.sessionBelief({ memoryId: ordinaryId, statement: "They like small reviews." });
+      expect(belief.id).not.toBeNull();
+      const filed = c.schemas.fileSupport({ beliefId: belief.id as string, memoryId: id, stance: "support", day: c.store.livedDay() });
+      expect(filed.reason).toBe("reader-self-note");
+
+      // The wake's us lines ("Since the last night"): the counterpart's, not Codex's.
+      const news = c.store.aboutUsWrittenSince(0, Number.MAX_SAFE_INTEGER, 50).map((x) => x.id);
+      expect(news).toContain(ccId);
+      expect(news).not.toContain(id);
+
+      // And Codex cannot re-mark the counterpart's own memory about us either.
+      const rm = await s.call("remember", { session: "cx-us", remark: { id: ccId, about: "us", why: "it is ours" } });
+      expect((rm.structuredContent["remark"] as Record<string, unknown>)["reason"]).toBe("reader-host");
+
+      // A Codex revision of the counterpart's us memory never inherits its us: it becomes Codex's own note.
+      const rev = await s.call("remember", { session: "cx-us", updates: ccId, text: "Mike and I found our rhythm on long walks after dinner, and on Sunday mornings too.", kind: "person" });
+      const revId = rev.structuredContent["id"] as string;
+      expect(c.store.row(revId)?.about ?? null).toBeNull();
+      expect(readerUsOfRow(c.store.row(revId))).toEqual({ host: CODEX_HOST, model: MODEL });
+      expect((rev.structuredContent["about"] as Record<string, unknown>)["reason"]).toBe("reader-us-note");
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("the same through session_end; a chapter's us is dropped; and the counterpart's own us from Claude Code is unchanged", async () => {
+    await hook(base("SessionStart", "cx-us2", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      const out = await s.call("session_end", { session: "cx-us2", memories: [{ content: "The owner and I like to review diffs side by side.", kind: "person", about: "us" }] });
+      const outcome = (out.structuredContent["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>;
+      const codexId = outcome["id"] as string;
+      const row = s.counterpart.store.row(codexId);
+      expect(row?.about ?? null).toBeNull();
+      expect(readerUsOfRow(row)).toEqual({ host: CODEX_HOST, model: MODEL });
+      expect((outcome["about"] as Record<string, unknown>)["reason"]).toBe("reader-us-note");
+      const ch = await s.call("chapter", { session: "cx-us2", text: "We reviewed the tokenizer diff side by side.", about: "us" });
+      expect(ch.structuredContent["stored"]).toBe(true);
+      expect(ch.structuredContent["about"]).toBeUndefined();
+      expect((ch.structuredContent["aboutDropped"] as Record<string, unknown>)["mark"]).toBe("us");
+    } finally {
+      s.counterpart.close();
+    }
+    // The same words from Claude Code, in a store of their own (in this one they would be refused as a
+    // duplicate of Codex's note): the counterpart's own us.
+    const other = join(root, "cp", "store-cc");
+    Counterpart.open({ dir: other }).close();
+    const cc = openServer({ dir: other, scope: canonicalScope(project) });
+    try {
+      const mine = await cc.call("remember", { text: "The owner and I like to review diffs side by side.", about: "us", kind: "person" });
+      expect((mine.structuredContent["about"] as Record<string, unknown>)["mark"]).toBe("us");
+      const row = cc.counterpart.store.row(mine.structuredContent["id"] as string);
+      expect(row?.about).toBe("us");
+      expect(readerUsOfRow(row)).toBeNull();
+      expect(aboutMe(cc.counterpart.store, { id: row?.id ?? "", kind: row?.kind ?? "person", about: row?.about ?? null })).toBe(true);
+    } finally {
+      cc.counterpart.close();
     }
   });
 });

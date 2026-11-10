@@ -20,10 +20,14 @@
  *     keyed on `about IN ('me', 'us')` — the core lane, page stories' head
  *     start, "About me" — already passes it by.
  *
- * `us` from a reader host is unchanged (Mike, 2026-11-09: no change without his
- * word): who "us" is from Codex — the owner and the counterpart, or the owner
- * and the reading model — is an open question, listed in the codex adapter's
- * INTERFACE-GAPS.
+ *   - **`readerUs`** — `{ host, model }` on a memory the reader wrote about
+ *     ITSELF AND THE OWNER: one its writer marked `about: us` (Mike, 2026-11-10,
+ *     option B: "us" from Codex is the owner and THAT model). In this store `us`
+ *     is the owner and the counterpart, so the mark is not recorded either; the
+ *     memory is kept, recallable and labelled, and every identity door treats
+ *     it as it treats `readerSelf` (`isReaderSelfRow` covers both): never the
+ *     counterpart's us, its relationship arc, the self page, a belief, a page
+ *     story or the wake's us lines.
  *
  * A leaf: imports nothing, so the store, the schemas, the night and the door
  * can all read it.
@@ -35,6 +39,9 @@ export const HOST_META_KEY = "host";
 /** The meta key marking a reader's note about itself. */
 export const READER_SELF_META_KEY = "readerSelf";
 
+/** The meta key marking a reader's note about itself and the owner (its `us`, option B, 2026-11-10). */
+export const READER_US_META_KEY = "readerUs";
+
 /** Who wrote a reader's self-note: the host, and the model when the host named one. */
 export interface ReaderSelf {
   readonly host: string;
@@ -43,8 +50,18 @@ export interface ReaderSelf {
 
 /** The reader-self mark out of a meta bag, or null. Never throws. */
 export function readerSelfOfMeta(meta: unknown): ReaderSelf | null {
+  return labelOfMeta(meta, READER_SELF_META_KEY);
+}
+
+/** The reader-us mark out of a meta bag, or null. Never throws. */
+export function readerUsOfMeta(meta: unknown): ReaderSelf | null {
+  return labelOfMeta(meta, READER_US_META_KEY);
+}
+
+/** A `{host, model}` label under `key` in a meta bag, or null. Never throws. */
+function labelOfMeta(meta: unknown, key: string): ReaderSelf | null {
   if (meta === null || typeof meta !== "object" || Array.isArray(meta)) return null;
-  const v = (meta as Record<string, unknown>)[READER_SELF_META_KEY];
+  const v = (meta as Record<string, unknown>)[key];
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const host = (v as Record<string, unknown>)["host"];
   if (typeof host !== "string" || host.length === 0) return null;
@@ -58,32 +75,62 @@ export function readerSelfOfMeta(meta: unknown): ReaderSelf | null {
  * bag included: a row nobody marked is an ordinary memory.
  */
 export function readerSelfOfRow(row: { readonly meta?: unknown } | undefined | null): ReaderSelf | null {
+  return labelOfRow(row, READER_SELF_META_KEY);
+}
+
+/** The reader-us mark on a stored row (its note about itself and the owner), or null. */
+export function readerUsOfRow(row: { readonly meta?: unknown } | undefined | null): ReaderSelf | null {
+  return labelOfRow(row, READER_US_META_KEY);
+}
+
+function labelOfRow(row: { readonly meta?: unknown } | undefined | null, key: string): ReaderSelf | null {
   if (row === undefined || row === null) return null;
   const raw = row.meta;
   if (typeof raw === "string") {
-    if (!raw.includes(READER_SELF_META_KEY)) return null;
+    if (!raw.includes(key)) return null;
     try {
-      return readerSelfOfMeta(JSON.parse(raw));
+      return labelOfMeta(JSON.parse(raw), key);
     } catch {
       return null;
     }
   }
-  return readerSelfOfMeta(raw);
+  return labelOfMeta(raw, key);
 }
 
-/** Is this row a reader's note about itself? */
+/**
+ * Is this row a reader's OWN note — about itself (`readerSelf`), or about
+ * itself and the owner (`readerUs`, 2026-11-10)? Either way it is never the
+ * counterpart's identity: every door that keeps one out keeps the other out.
+ */
 export function isReaderSelfRow(row: { readonly meta?: unknown } | undefined | null): boolean {
-  return readerSelfOfRow(row) !== null;
+  return readerSelfOfRow(row) !== null || readerUsOfRow(row) !== null;
 }
 
 /**
  * Is a write from a reader host about the reader itself? `about: me`, or a
- * `kind: self` memory with no other mark (`kind: self` beside `us` stays `us`:
- * that word is not changed here).
+ * `kind: self` memory with no other mark (`kind: self` beside `us` is the
+ * reader's `us` note instead: `writesReaderUs`).
  */
 export function writesReaderSelf(about: string | null | undefined, kind: string | null | undefined): boolean {
   if (about === "me") return true;
   return kind === "self" && (about === null || about === undefined);
+}
+
+/** Is a write from a reader host about the reader and the owner (option B, 2026-11-10)? */
+export function writesReaderUs(about: string | null | undefined): boolean {
+  return about === "us";
+}
+
+/**
+ * A reader's own note, as recall labels it (2026-11-10): whose it is and what
+ * its `me` or `us` meant — null for an ordinary memory.
+ */
+export function readerNoteLine(row: { readonly meta?: unknown } | undefined | null, hostName: (host: string) => string): string | null {
+  const self = readerSelfOfRow(row);
+  if (self !== null) return `${readerLabel(self, hostName(self.host))}'s own note about itself — not about me`;
+  const us = readerUsOfRow(row);
+  if (us !== null) return `${readerLabel(us, hostName(us.host))}'s own note about itself and the owner — not about us`;
+  return null;
 }
 
 /** How a reader's self-note is named to the person and the model: "gpt-x in Codex". */

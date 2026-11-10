@@ -2648,7 +2648,7 @@ export class Dreams {
         // A READER HOST'S NOTE ABOUT ITSELF IS NEVER A CORE CANDIDATE (CX2,
         // `reader-note.ts`): another model wrote it about that model.
         if (isReaderSelfRow(row)) {
-          return { action, ok: false, reason: "reader-self-note", detail: `${row.id} is a note another model wrote about itself, read from another host; it is never core.` };
+          return { action, ok: false, reason: "reader-self-note", detail: `${row.id} is a note another model wrote about itself (or about itself and the owner), read from another host; it is never core.` };
         }
         // A NOMINATION IS THE DREAM'S SUGGESTION of what a memory is about (v9):
         // a dream cannot set the mark — only an awake model that read it can —

@@ -564,7 +564,7 @@ export interface DepositContext {
    * identity material. The door sets it and sends `about` as null beside it.
    */
   readerSelf?: ReaderSelf;
-  /** A reader host's own feelings and said-by, as meta (CX2 fix round, `reader-note.ts`). */
+  /** A reader host's own feelings, said-by and `us`, as meta (CX2 fix round, option B; `reader-note.ts`). */
   readerMeta?: Readonly<Record<string, unknown>>;
   /**
    * Memories the same call wrote before this one (a dump's earlier entries):
@@ -694,6 +694,12 @@ export interface DepositResult {
    * sent so by the door, or made so because a revision would have carried `me`.
    */
   readonly readerSelf?: ReaderSelf;
+  /**
+   * A reader host's note about itself and the owner (2026-11-10, option B,
+   * `reader-note.ts`): sent `about: us` at the door, or made so because a
+   * revision would have carried `us`.
+   */
+  readonly readerUs?: ReaderSelf;
   /**
    * The title, when the writer sent none and this revision took the one of
    * the memory it revises (2026-10-14, `counterpart-deposit.ts#carryTitle`).

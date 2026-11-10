@@ -26,6 +26,7 @@ import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
 import { noteCloseHintTaken } from "./close-hint.js";
+import { READER_US_META_KEY, readerUsOfMeta } from "./reader-note.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -255,7 +256,22 @@ export async function deposit(
   const readerSelf =
     ctx.readerSelf ??
     (ctx.host !== undefined && unplumbed?.about === "me" ? { host: ctx.host, model: ctx.model ?? null } : undefined);
-  const about = readerSelf !== undefined && (unplumbed?.about === "me" || unplumbed?.about === "us") ? null : unplumbed;
+  // And `us` the same way (option B, 2026-11-10): from a reader host it is the
+  // owner and THAT model, so an inherited `us` makes the revision the reader's
+  // `us` note, as a sent one does at the door. A note about itself wins.
+  const readerUs =
+    readerSelf !== undefined
+      ? undefined
+      : (readerUsOfMeta(ctx.readerMeta ?? null) ??
+        (ctx.host !== undefined && unplumbed?.about === "us" ? { host: ctx.host, model: ctx.model ?? null } : undefined));
+  const readerMeta: Readonly<Record<string, unknown>> | undefined =
+    readerUs === undefined
+      ? ctx.readerMeta === undefined || readerSelf === undefined
+        ? ctx.readerMeta
+        : Object.fromEntries(Object.entries(ctx.readerMeta).filter(([k]) => k !== READER_US_META_KEY))
+      : { ...(ctx.readerMeta ?? {}), [READER_US_META_KEY]: { host: readerUs.host, model: readerUs.model } };
+  const readerOwn = readerSelf !== undefined || readerUs !== undefined;
+  const about = readerOwn && (unplumbed?.about === "me" || unplumbed?.about === "us") ? null : unplumbed;
   let mint: MintResult;
   try {
     mint = mintProposal(cp.store, minting2, {
@@ -264,14 +280,14 @@ export async function deposit(
       ...(plumbing === null ? {} : { ownPlumbing: plumbing.cue }),
       ...(about !== null
         ? { about: about.about, inheritedAbout: about }
-        : sentAbout === undefined || (readerSelf !== undefined && (sentAbout === "me" || sentAbout === "us"))
+        : sentAbout === undefined || (readerOwn && (sentAbout === "me" || sentAbout === "us"))
           ? {}
           : { about: sentAbout }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.writeUp === undefined ? {} : { writeUp: ctx.writeUp }),
       ...(ctx.host === undefined ? {} : { host: ctx.host }),
       ...(readerSelf === undefined ? {} : { readerSelf }),
-      ...(ctx.readerMeta === undefined ? {} : { readerMeta: ctx.readerMeta }),
+      ...(readerMeta === undefined ? {} : { readerMeta }),
       onEvent: (name, data) => cp["emit"](name, undefined, data),
     });
   } catch (err) {
@@ -378,6 +394,7 @@ export async function deposit(
     ...(slot === null ? {} : { slot }),
     ...(plumbing === null ? {} : { ownPlumbing: { cue: plumbing.cue, dropped: plumbing.dropped, aboutRefused: plumbing.aboutRefused } }),
     ...(readerSelf === undefined ? {} : { readerSelf }),
+    ...(readerUs === undefined ? {} : { readerUs }),
   };
 }
 
