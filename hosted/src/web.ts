@@ -204,7 +204,7 @@ export const WARM_STYLE = [
   ".cp-warm .cp-hero{text-align:center;margin:0 0 1.25rem}",
   ".cp-warm .cp-hero h1{margin:0 0 .4rem}",
   ".cp-warm .cp-hero p{margin:0}",
-  ".cp-eyebrow{font:500 13px/1.4 var(--mono);color:var(--ink-2);margin:0 0 .35rem}",
+  ".cp-warm .cp-hero .cp-eyebrow{font:500 13px/1.4 var(--mono);color:var(--ink-2);margin:0 0 .35rem}",
   ".cp-fox{display:block;width:152px;height:162px;margin:-4px auto 14px;image-rendering:pixelated;image-rendering:crisp-edges;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}",
 ].join("");
 
