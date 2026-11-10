@@ -88,9 +88,12 @@ export interface AppOptions {
    * and, at start-up, a store that lived with no key anywhere: given one
    * (`backup.key.minted`) or not, and why (`backup.keyless.<reason>`), by
    * `storeTag` too (R5); and a delete's email that didn't send
-   * (`delete.mail.failed`, by `storeTag`; R9).
+   * (`delete.mail.failed`, by `storeTag`; R9). AR1's retention pass, with no
+   * id in the second argument: `retention.failed` with a code (`r2`,
+   * `leftover`, `forget`), and `retention.waiting` with how many tombstones
+   * wait (when that count changes).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -570,27 +573,56 @@ export function createApp(opts: AppOptions): App {
    * Backups off: no bucket to prove anything against, so tombstones wait.
    */
   let pruning: Promise<RetentionReport> | null = null;
+  /** The last pass's waiting count: `retention.waiting` is logged when it changes, not every tick. */
+  let lastWaiting = 0;
   const runRetention = async (): Promise<RetentionReport> => {
     const audit = accounts.pruneAudit();
     let forgotten = 0;
     let waiting = 0;
+    // Counts and codes only, never an id: a line naming the person would be a new trace of them.
+    const failed = (code: "r2" | "leftover" | "forget"): void => {
+      try {
+        opts.onEvent?.("retention.failed", code);
+      } catch {
+        /* a log, not a gate */
+      }
+    };
     for (const t of accounts.expiredTombstones()) {
       if (backups === null || opts.backup === undefined || uploads === null || !uploads.rose()) {
         waiting += 1;
         continue;
       }
+      // The guard BEFORE any bucket call: only a deleted person, a year past the erase, with no live store, ever reaches removeStore.
+      if (!accounts.forgettable(t.personId)) continue;
+      let step: "r2" | "leftover" = "r2";
       try {
         for (const id of t.storeIds) {
           if ((await backups.objectsLeft(id)) > 0) await backups.removeStore(id);
-          if ((await backups.objectsLeft(id)) > 0) throw new Error("the bucket still holds some of it");
+          if ((await backups.objectsLeft(id)) > 0) {
+            step = "leftover";
+            throw new Error("the bucket still holds some of it");
+          }
           await opts.backup.objects.delete(tombstoneObject(id));
         }
-        if (accounts.forget(t.personId)) forgotten += 1;
-        else waiting += 1;
       } catch {
         // R2 down, or a leftover that wouldn't go: tried again at the next pass. No audit row: it would name the person again.
+        failed(step);
+        waiting += 1;
+        continue;
+      }
+      if (accounts.forget(t.personId)) forgotten += 1;
+      else {
+        failed("forget");
         waiting += 1;
       }
+    }
+    if (waiting !== lastWaiting) {
+      try {
+        if (waiting > 0) opts.onEvent?.("retention.waiting", String(waiting));
+      } catch {
+        /* a log, not a gate */
+      }
+      lastWaiting = waiting;
     }
     return { audit, forgotten, waiting };
   };
@@ -608,7 +640,8 @@ export function createApp(opts: AppOptions): App {
     retentionAt = now;
     void pruneRetention().then(
       (r) => {
-        if (r.waiting > 0 && backups !== null) retentionAt = null;
+        // Retried each tick only with an upload watch (a sidecar): without one nothing can be proven, so the next day.
+        if (r.waiting > 0 && uploads !== null) retentionAt = null;
       },
       () => {
         retentionAt = null;

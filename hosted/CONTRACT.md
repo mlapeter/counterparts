@@ -425,8 +425,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
     start-up writes the configuration but starts nothing.
 31c. **Account events and a deleted account's tombstone are kept 365 days, then erased** (AR1, Mike 2026-11-10;
-    `accounts.ts#RETENTION_DAYS`, `app.ts#pruneRetention`). The finish timer runs the pass once a day. With backups on,
-    a pass that left a tombstone waiting runs again at the next tick (ten minutes); with backups off, the next day.
+    `accounts.ts#RETENTION_DAYS`, `app.ts#pruneRetention`). The finish timer runs the pass once a day. With a sidecar (its
+    upload watch), a pass that left a tombstone waiting runs again at the next tick (ten minutes); without one, the next
+    day. Only a person who is `deleted`, past 365 days, with no store that isn't `deleted` is ever selected, and
+    `Accounts#forgettable` checks that again before any bucket call for them (a wrong selection never reaches
+    `removeStore`).
     - Audit rows older than 365 days are deleted, a live account's or a deleted one's. The one exception: a deleted
       store's `delete.backups` / `delete.leftovers` rows (§31a's leftovers pass reads them) stay while its tombstone
       does, and go with it.
@@ -445,7 +448,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       - So it goes only while uploads are proven to be landing (`UploadWatch#rose`: the accounts replica's TXID rose
         in this process, and isn't stale since). The bucket's latest accounts database is then this one, written a
         year after the delete went into it.
-      - The other way back, a copy on the volume (`control.aside-*`, `*.pre-restore-*`), is deleted after a day
+      - The other way back, a copy on the volume (`control.aside-*`, `*.pre-restore-*`), is deleted at the first start a day or more later
         (§31a). An older accounts database in the bucket's own history is gone within the 24 h purge's bound
         (DESIGN §5.4: max(snapshot interval, retention), both 12 h, plus Litestream's unmeasured lag).
       - Until uploads are proven, the marker stays, and so do the account's rows.
@@ -461,8 +464,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - **Backups:** an erased row lasts in the control database's backups at most about 24 h more (the 24 h purge's
       bound). So while uploads land and the bucket answers, "12 months" means 365 days, plus up to a day for the
       pass, plus about a day for the backups. While uploads are stale or R2 is down, a tombstone waits as long as
-      that lasts. With backups off (or no sidecar), a tombstone is never erased. A waiting pass leaves no trace of
-      its own (an audit row would name the person); the stale-uploads log line is the signal.
+      that lasts. With backups off (or no sidecar), a tombstone is never erased. A waiting pass writes no audit row
+      (it would name the person). It logs counts and codes only: `retention.failed code=r2|leftover|forget`, and
+      `retention.waiting n=<count>` when the count changes.
     - `signups`' weeks count tombstones, so a week more than 365 days old loses those who later left and were
       forgotten.
     - **`client_use` (oauth.sqlite) isn't pruned.** It holds no person: just a client id and when someone first

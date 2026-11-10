@@ -802,7 +802,8 @@ and keep it; "delete everything now" erases at once. Nothing here needs you:
 - **Twelve months, then gone** (AR1, 2026-11-10). Audit rows are kept for 365 days. A deleted account's tombstone rows
   and the bucket's `deleted/<storeId>` marker go 365 days after its erase, in a daily pass. The pass removes a marker
   only while the upload watch sees uploads landing, and only if the bucket holds nothing of that store. Otherwise
-  it waits and tries again: a stale-uploads line in the log is the thing to fix. The pass writes no audit row, so
+  it waits and tries again, logging `retention.waiting n=<count>` (and `retention.failed code=...` when the bucket
+  didn't answer or wasn't clean): a stale-uploads line in the log is the usual thing to fix. The pass writes no audit row, so
   an erased account leaves nothing to look up. For an operator question about an account deleted more than a year
   ago, the answer is that there's no record.
 

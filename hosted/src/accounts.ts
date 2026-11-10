@@ -985,11 +985,26 @@ export class Accounts {
     return this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
   }
 
-  /** AR1: the deleted accounts erased more than `RETENTION_MS` ago, each with its stores' ids (all tombstones). */
+  /** AR1: the deleted accounts erased more than `RETENTION_MS` ago and with no store that isn't `deleted`, each with its stores' ids (all tombstones). */
   expiredTombstones(): { personId: string; storeIds: string[] }[] {
     return this.db
-      .all<{ id: string }>("SELECT id FROM people WHERE state = 'deleted' AND deleted_at IS NOT NULL AND deleted_at < ? ORDER BY deleted_at", this.now() - RETENTION_MS)
+      .all<{ id: string }>(
+        "SELECT id FROM people p WHERE state = 'deleted' AND deleted_at IS NOT NULL AND deleted_at < ? AND NOT EXISTS (SELECT 1 FROM stores s WHERE s.person_id = p.id AND s.state != 'deleted') ORDER BY deleted_at",
+        this.now() - RETENTION_MS,
+      )
       .map((p) => ({ personId: p.id, storeIds: this.db.all<{ id: string }>("SELECT id FROM stores WHERE person_id = ?", p.id).map((r) => r.id) }));
+  }
+
+  /**
+   * AR1: may this person be forgotten now? `deleted`, erased more than
+   * `RETENTION_MS` ago, and no store that isn't `deleted`. The retention pass
+   * asks it BEFORE any bucket call for the person (a wrong selection must never
+   * reach `removeStore`), and `forget` asks it again inside its transaction.
+   */
+  forgettable(personId: string): boolean {
+    const p = this.db.get<{ state: string; deleted_at: number | null }>("SELECT state, deleted_at FROM people WHERE id = ?", personId);
+    if (p?.state !== "deleted" || p.deleted_at === null || p.deleted_at >= this.now() - RETENTION_MS) return false;
+    return this.db.get("SELECT 1 AS one FROM stores WHERE person_id = ? AND state != 'deleted' LIMIT 1", personId) === undefined;
   }
 
   /**
@@ -1002,9 +1017,7 @@ export class Accounts {
    */
   forget(personId: string): boolean {
     return this.db.transaction((): boolean => {
-      const p = this.db.get<{ state: string }>("SELECT state FROM people WHERE id = ?", personId);
-      if (p?.state !== "deleted") return false;
-      if (this.db.get("SELECT 1 AS one FROM stores WHERE person_id = ? AND state != 'deleted' LIMIT 1", personId) !== undefined) return false;
+      if (!this.forgettable(personId)) return false;
       this.db.run("DELETE FROM audit WHERE person_id = ? OR store_id IN (SELECT id FROM stores WHERE person_id = ?)", personId, personId);
       // Every table that references people goes before it (foreign keys are on); markDeleted already emptied all but stores.
       this.db.run("DELETE FROM identities WHERE person_id = ?", personId);

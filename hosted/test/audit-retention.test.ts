@@ -56,6 +56,10 @@ interface Rig {
   objects: ReturnType<typeof memoryObjectStore>;
   wrapper: EnvKeyWrapper;
   txid: { n: number };
+  /** Every `onEvent` the app sent, as `name arg`. */
+  events: string[];
+  /** How many times the app read the clock (a tick reads it): proof that ticks ran. */
+  reads: { n: number };
 }
 
 /** One app on the data root. Pass `objects`, `wrapper`, `clock` and `txid` from an earlier rig to restart on the same volume and bucket. */
@@ -63,13 +67,19 @@ async function rig(o: { backups?: boolean; clock?: { at: number }; objects?: Ret
   const objects = o.objects ?? memoryObjectStore();
   const wrapper = o.wrapper ?? new EnvKeyWrapper(new Map([["v1", randomBytes(32)]]), "v1");
   const clock = o.clock ?? { at: T0 };
+  const events: string[] = [];
+  const reads = { n: 0 };
   const app = createApp({
     dataRoot: join(tmp.root, "data"),
     publicOrigin: "http://127.0.0.1:1",
     mailer: memoryMailer(),
     embedder: null,
     spawner: () => ({ pid: 1 }),
-    now: () => clock.at,
+    now: () => {
+      reads.n += 1;
+      return clock.at;
+    },
+    onEvent: (name, arg) => events.push(`${name} ${arg}`),
     finishEveryMs: o.finishEveryMs ?? 60 * 60 * 1000,
     ...(o.backups === false
       ? {}
@@ -85,7 +95,34 @@ async function rig(o: { backups?: boolean; clock?: { at: number }; objects?: Ret
         }),
   });
   closers.push(() => app.close());
-  return { app, clock, objects, wrapper, txid: o.txid ?? { n: 0 } };
+  return { app, clock, objects, wrapper, txid: o.txid ?? { n: 0 }, events, reads };
+}
+
+/** Poll `cond` until it holds, or fail after `ms`. */
+async function until(cond: () => boolean, what: string, ms = 5000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((res) => setTimeout(res, 5));
+  }
+}
+
+/** Is there an audit row with this action, in the accounts database itself? */
+function hasAction(action: string): boolean {
+  const db = openDb(join(tmp.root, "data", "control", "accounts.sqlite"));
+  try {
+    return db.get("SELECT 1 AS one FROM audit WHERE action = ? LIMIT 1", action) !== undefined;
+  } finally {
+    db.close();
+  }
+}
+
+/** No event carries a person's or a store's id, or an address. */
+function eventsNameNobody(r: Rig, ids: string[]): void {
+  for (const e of r.events) {
+    for (const id of ids) assert.equal(e.includes(id), false, `an event names ${id}: ${e}`);
+    assert.doesNotMatch(e, /@/);
+  }
 }
 
 /** A person signed up through the accounts' own link (an invite, a click in the same browser), their store backed up as the page's sign-up does. */
@@ -285,5 +322,119 @@ describe("AR1: a deleted account's tombstone, kept 365 days after the erase", ()
       await new Promise((res) => setTimeout(res, 10));
     }
     bucketHasNothingOf(r, gone.storeId);
+  });
+});
+
+describe("AR1: the #808 review's guards", () => {
+  test("forget on a live person returns false and deletes nothing", async () => {
+    const r = await rig();
+    await r.app.start();
+    const me = await signUp(r, "alive@example.com");
+    const rows = auditRows(me.personId, me.storeId);
+    r.clock.at = T0 + 400 * DAY;
+    assert.equal(r.app.accounts.forgettable(me.personId), false);
+    assert.equal(r.app.accounts.forget(me.personId), false);
+    assert.equal(auditRows(me.personId, me.storeId), rows);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "active");
+    assert.equal(r.app.accounts.personOfStore(me.storeId), me.personId);
+    assert.ok(r.objects.objects.has(keyObject(me.storeId)));
+  });
+
+  test("a wrong selection (a live person handed to the pass) never reaches the bucket: no removeStore, no delete, nothing forgotten", async () => {
+    const objects = memoryObjectStore();
+    const deletes: string[] = [];
+    const store: ObjectStore = {
+      put: (k, b) => objects.put(k, b),
+      get: (k) => objects.get(k),
+      list: (p) => objects.list(p),
+      delete: async (k) => {
+        deletes.push(k);
+        return objects.delete(k);
+      },
+      deletePrefix: async (p) => {
+        deletes.push(p);
+        return objects.deletePrefix(p);
+      },
+    };
+    const r = await rig({ objects, store });
+    await r.app.start();
+    const me = await signUp(r, "selected@example.com");
+    r.clock.at = T0 + 400 * DAY;
+    await uploadsLand(r);
+    // Injected: the selection is wrong, and names the live person.
+    r.app.accounts.expiredTombstones = () => [{ personId: me.personId, storeIds: [me.storeId] }];
+    const report = await r.app.pruneRetention();
+    assert.equal(report.forgotten, 0);
+    assert.deepEqual(deletes.filter((k) => k.includes(me.storeId)), [], "no bucket delete for the live store");
+    assert.ok(objects.objects.has(keyObject(me.storeId)), "its key object");
+    assert.ok((await objects.list(replicaPrefix(me.storeId))).length > 0, "its replica");
+    assert.equal(r.app.accounts.person(me.personId)!.state, "active");
+  });
+
+  test("the grace after begin() is not proof: a restart past 365 days with no upload seen yet waits", async () => {
+    const r = await rig();
+    await r.app.start();
+    const gone = await signUp(r, "grace@example.com");
+    await r.app.deleteAccount(gone.personId);
+    await r.app.close();
+    r.clock.at = T0 + 366 * DAY;
+    const again = await rig({ objects: r.objects, wrapper: r.wrapper, clock: r.clock, txid: r.txid });
+    await again.app.start();
+    const report = await again.app.pruneRetention();
+    assert.deepEqual([report.forgotten, report.waiting], [0, 1]);
+    assert.ok(r.objects.objects.has(tombstoneObject(gone.storeId)));
+    assert.equal(again.app.accounts.person(gone.personId)!.state, "deleted");
+    assert.ok(again.events.includes("retention.waiting 1"), "the wait is logged, by count");
+    eventsNameNobody(again, [gone.personId, gone.storeId]);
+  });
+
+  test("the timer's pass runs once a day, not every tick", async () => {
+    const r = await rig({ finishEveryMs: 10 });
+    r.clock.at = T0 - 400 * DAY;
+    r.app.accounts.audit(null, null, "probe.first", null);
+    r.clock.at = T0;
+    await r.app.start();
+    await until(() => !hasAction("probe.first"), "the first tick's pass");
+    r.clock.at = T0 - 400 * DAY;
+    r.app.accounts.audit(null, null, "probe.old", null);
+    r.clock.at = T0 + 60 * 60 * 1000; // an hour later: inside the day
+    const seen = r.reads.n;
+    await until(() => r.reads.n > seen + 30, "more ticks");
+    assert.ok(hasAction("probe.old"), "no second pass within the day");
+    r.clock.at = T0 + DAY + 1;
+    await until(() => !hasAction("probe.old"), "the next day's pass");
+  });
+
+  test("a bucket whose prefix delete leaves an object behind: the pass waits, the rows and the marker stay, and the log says so by code", async () => {
+    const objects = memoryObjectStore();
+    const stuck = { id: "" };
+    const store: ObjectStore = {
+      put: (k, b) => objects.put(k, b),
+      get: (k) => objects.get(k),
+      list: (p) => objects.list(p),
+      delete: (k) => objects.delete(k),
+      deletePrefix: async (p) => {
+        // Leaves one key behind for the stuck store (an R2 delete that reports success and misses one).
+        const n = await objects.deletePrefix(p);
+        if (stuck.id !== "" && p.includes(stuck.id)) await objects.put(`${p}ltx/0/stuck.ltx`, "ciphertext");
+        return n;
+      },
+    };
+    const r = await rig({ objects, store });
+    await r.app.start();
+    const gone = await signUp(r, "stuck@example.com");
+    await r.app.deleteAccount(gone.personId);
+    stuck.id = gone.storeId;
+    await objects.put(`${replicaPrefix(gone.storeId)}ltx/0/9.ltx`, "ciphertext");
+    r.clock.at = T0 + 366 * DAY;
+    await uploadsLand(r);
+    const report = await r.app.pruneRetention();
+    assert.deepEqual([report.forgotten, report.waiting], [0, 1]);
+    assert.ok(objects.objects.has(tombstoneObject(gone.storeId)), "the marker stays");
+    assert.equal(r.app.accounts.person(gone.personId)!.state, "deleted");
+    assert.ok(auditRows(gone.personId, gone.storeId) > 0);
+    assert.ok(r.events.includes("retention.failed leftover"));
+    assert.ok(r.events.includes("retention.waiting 1"));
+    eventsNameNobody(r, [gone.personId, gone.storeId]);
   });
 });
