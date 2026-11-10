@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
-import { DASHBOARD_CSP } from "../src/dashboard.js";
+import { DASHBOARD_CSP, MAX_VIEWS_IN_FLIGHT } from "../src/dashboard.js";
 import { memoryMailer } from "../src/egress.js";
 import { tenantDir } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
@@ -360,6 +360,23 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     assert.equal((await me.browser.go("/dashboard/api/memories")).status, 200);
     const single = Date.now() - one;
 
+    // Count this person's views running or waiting, at the one place a view
+    // enters (the route calls `withTenant` only past the cap), and keep the peak.
+    const tenants = r.app.tenants;
+    const realWithTenant = tenants.withTenant.bind(tenants);
+    let views = 0;
+    let peak = 0;
+    tenants.withTenant = async (storeId, opts, fn) => {
+      if (storeId !== me.storeId) return realWithTenant(storeId, opts, fn);
+      views += 1;
+      peak = Math.max(peak, views);
+      try {
+        return await realWithTenant(storeId, opts, fn);
+      } finally {
+        views -= 1;
+      }
+    };
+
     const N = 60;
     const health: number[] = [];
     let flooding = true;
@@ -374,7 +391,12 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     const t0 = Date.now();
     // The flood comes from ANOTHER process, as it would in production: a client
     // in this one shares the server's event loop, and its requests then only
-    // trickle in between views (Node's fetch did; bun's didn't).
+    // trickle in between views (Node's fetch did; bun's didn't). Even so, how
+    // many arrive at once is the runtime's: bun's server takes all sixty in one
+    // turn (~58 are a 429), Node 24's takes a first burst and then about one
+    // request per event-loop turn, and each turn there carries a whole view, so
+    // the later ones find a slot free and are served (15-30 are a 429). So the
+    // test asserts the cap itself, not a share of refusals.
     const cookie = [...me.browser.jar].map(([k, v]) => `${k}=${v}`).join("; ");
     const client = `const [u, c, n] = process.argv.slice(-3);
 (async () => { const out = await Promise.all(Array.from({ length: Number(n) }, async () => { const r = await fetch(u, { headers: { cookie: c } }); const b = await r.text(); return [r.status, r.status === 429 ? b : ""]; })); process.stdout.write(JSON.stringify(out)); })();`;
@@ -391,10 +413,15 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     const ok = statuses.filter((s) => s === 200).length;
     const busy = statuses.filter((s) => s === 429).length;
     const worst = Math.max(...health);
-    console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
+    tenants.withTenant = realWithTenant;
+    console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; peak ${String(peak)} in flight; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
     assert.equal(ok + busy, N);
-    assert.ok(busy >= N - 10, `most of the flood was refused (${String(busy)} of ${String(N)})`);
+    // The cap: never more than two of this person's views at once, and the flood did reach it.
+    assert.equal(peak, MAX_VIEWS_IN_FLIGHT, `peak views in flight ${String(peak)}`);
+    assert.equal(views, 0);
+    assert.ok(busy >= 1, "past the cap, a view is a 429");
     assert.ok(ok >= 1);
+    assert.ok(health.length >= 1, `/healthz answered ${String(health.length)} probes during the flood`);
     // Loose but real: /healthz never waits behind more than a few views.
     assert.ok(worst < Math.max(1500, single * 4), `/healthz waited ${String(worst)} ms`);
     // And the cap is per person and lets go: the next view answers.
