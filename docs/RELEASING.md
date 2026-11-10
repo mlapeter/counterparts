@@ -114,7 +114,8 @@ package packed on Linux, then installed from npm's side and connected on native 
 there.
 
 The run's logs are public, so nothing in it reads a store or a secret. A red job gets a look
-at its log (`gh api repos/<owner>/<repo>/actions/jobs/<id>/logs`); a job that failed on a
+at its log (`gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<id>/logs`: without the flag,
+gh 2.103 prints nothing for a log holding colour codes, and `fetch-tarball.sh` read that as no hash, 0.3.54); a job that failed on a
 timeout gets one rerun (`gh run rerun <id> --failed`), and a second failure gets a real look.
 So does a test the release doesn't touch that has also failed on master: `test/plugin-binary.test.ts`'s
 "download once" did, on the Kiritimati suite (0.3.44). A rerun of the failed job keeps the run's id and

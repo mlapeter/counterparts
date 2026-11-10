@@ -93,7 +93,7 @@ HASH=$(shasum -a 256 "$TARBALL" | cut -d' ' -f1)
 [ "$(cat COMMIT)" = "$SHA" ] || stop "the artifact says it was packed from $(cat COMMIT), not $SHA"
 
 JOB=$(grep -F "$(printf '\t')release (pack" <<<"$JOBS" | cut -f1)
-LOGGED=$(gh api "repos/$REPO/actions/jobs/$JOB/logs" | grep -oE 'TARBALL_SHA256=[0-9a-f]{64}' | head -1 | cut -d= -f2 || true)
+LOGGED=$(gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$JOB/logs" | grep -oE 'TARBALL_SHA256=[0-9a-f]{64}' | head -1 | cut -d= -f2 || true)
 [ "$LOGGED" = "$HASH" ] || stop "the file hashes to $HASH, the job's log says ${LOGGED:-nothing}: $URL"
 
 PACKED=$(tar -xzOf "$TARBALL" package/package.json | grep -m1 '"version"' | cut -d'"' -f4)
@@ -116,4 +116,4 @@ echo
 echo "Before handing over: cd \"$FOLDER\" && shasum -a 256 -c SHA256"
 echo "The PUBLISH sheet's two lines for the owner (docs/RELEASING.md §5):"
 echo "npm publish $FOLDER/$TARBALL --otp=CODE"
-echo "bun add -g counterparts@$WANTED && counterparts --version"
+echo "npm install -g counterparts@$WANTED && counterparts --version"
