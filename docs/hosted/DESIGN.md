@@ -613,7 +613,8 @@ store, under its own SSE-C key derived from the `control` DEK (sealed to the rec
 ```
 people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|pending-delete|deleted,
                display_name NULL, time_zone TEXT, invite_id NULL,
-               delete_after NULL -- R6: when a pending delete is due)
+               delete_after NULL -- R6: when a pending delete is due,
+               last_wake_on TEXT NULL -- LW1: the UTC day (YYYY-MM-DD) of the last wake, the date only; written once a day)
 identities    (id PK, person_id FK, kind TEXT -- email|phone|passkey|…, value TEXT -- normalized,
                verified_at NULL, created_at, UNIQUE(kind, value))
 login_links   (id PK, identity_id FK, token_hash UNIQUE, browser_hash, expires_at, used_at NULL, ip_hash)

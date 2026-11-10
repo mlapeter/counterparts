@@ -415,6 +415,14 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - Litestream 0.5.17, pinned by version and by the release's own sha256 for amd64 and arm64, checked in the build;
     - it is built to run as `node`, with `/data` made and owned by `node`; the entry point is `main.ts serve`. On Railway, the RUNBOOK's
       `RAILWAY_RUN_UID=0` for a root-owned volume runs it as root (INTERFACE-GAPS §6).
+37. **The day of the last wake** (LW1, Mike 2026-11-09). `people.last_wake_on` holds the UTC calendar day
+    (`YYYY-MM-DD`) of the person's last `wake` call that reached their store, answered or refused;
+    this field holds no time, IP, client or count (the per-grant last-used time and the call log are separate, and keep times). The door tells the app the person (`server.ts#onWake`), and
+    `accounts.ts#noteWake` reads the row and writes only when the day changed, so it is one write a day at most and
+    never an audit row (an audit row carries the time). NULL until the first wake; cleared with the rest of the row at
+    an erase. It is there to tell a quiet account from a live one; nothing reads it yet (INTERFACE-GAPS, "A quiet
+    tenant's raw copies wait"). The migration is one `ALTER TABLE people ADD COLUMN last_wake_on TEXT`, made at open
+    when the column is missing, so it is safe twice and on the beta volume.
 
 ## What it drops, for now
 

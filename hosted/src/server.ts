@@ -74,6 +74,13 @@ export interface HostedServerOptions {
   readonly maxBodyBytes?: number;
   /** The call log: ids and codes only (`http.ts#CallRecord`) plus the hashed store. */
   readonly onCall?: (record: HostedCallRecord) => void;
+  /**
+   * Told the person behind each `wake` call that reached their store, answered
+   * or refused (a refusal over a limit is still them coming back), and nothing
+   * else about it: the app keeps the day (`accounts.ts#noteWake`). A throw is
+   * swallowed: a failed note never fails the wake.
+   */
+  readonly onWake?: (personId: string) => void;
   /** The salt the store tag is keyed with. Random per process when absent. */
   readonly logSalt?: string;
   /** Per-account limits on `/mcp` (`limits.ts`). Absent ⇒ none (tests of the earlier steps). */
@@ -283,7 +290,16 @@ export function createHostedServer(opts: HostedServerOptions): Server {
             // The same answers for a call refused at its turn: 401 for a store
             // locked or a token revoked meanwhile, never a 200 "internal error".
             refusal: (err) => (err instanceof StoreLocked || err instanceof TokenRevoked ? unauthorized : err instanceof RecheckFailed ? { status: 503, headers: { "Retry-After": "30" } } : null),
-            onCall: (r) => opts.onCall?.({ ...r, store }),
+            onCall: (r) => {
+              if (r.method === "tools/call" && r.tool === "wake") {
+                try {
+                  opts.onWake?.(caller.personId);
+                } catch {
+                  /* a note, not a gate */
+                }
+              }
+              opts.onCall?.({ ...r, store });
+            },
             onError: (where, err) => report(where, store, err),
           });
         }),

@@ -556,3 +556,14 @@ isn't its key's (`syncKeyFiles`, before the sidecar starts), whatever window lef
 longer asks for the private key on the server: `--recovery-fingerprint` names the key Mike checked on his Mac, and
 the server checks it is the key every object is sealed to. `serve` leaves `serving.heartbeat` while it runs, so
 `migrate-keys` and `recover-keys` refuse beside it.
+
+## 2026-11-09 — the day of the last wake (LW1)
+
+`people.last_wake_on`, the UTC day of the last `wake`, for telling quiet accounts from live ones. Two things the
+build learned. **An UPDATE that writes the same value commits nothing SQLite can see**: another connection's
+`PRAGMA data_version` doesn't move, so a test that read only that would pass a write on every wake. The test counts
+UPDATEs with a trigger on its own temp control database instead (and still checks `data_version`). **The wake is
+read from the call record, not from `initialize`**: claude.ai reuses one connection across chats, and every chat's
+first call is `wake` (the instruction block's rule 1), so the record's `tool === "wake"` is the one signal that
+means a person came back. The door's `onCall` runs before the answer is written, so the day is in place when the
+client reads the wake.
