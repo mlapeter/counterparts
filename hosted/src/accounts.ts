@@ -22,6 +22,11 @@
  *     who has an account. The spot, like the invite, is taken at the click, in
  *     the transaction that makes the person: a link asked for and never
  *     clicked takes nothing.
+ *   - **While spots are open, sign-up emails have an hourly cap** (EC1,
+ *     2026-11-10): `spots emails M`, 100 by default, counted in control so a
+ *     deploy doesn't reset it. Every ask counts alike, member or not; past M a
+ *     new address with no live invite code gets no email, while a member or a
+ *     live code still gets its link, and the page says the same to all.
  *   - **A store id is 128 random bits**, made here at sign-up and never derived
  *     from an address or a name.
  *   - **Nothing in `audit` is content**: action codes and ids only.
@@ -106,12 +111,21 @@ CREATE TABLE IF NOT EXISTS heartbeat (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   at INTEGER NOT NULL
 );
--- SU1 (2026-11-10): the operator's settings, one row each. Today only
--- 'spots' (how many accounts hosted takes in all; absent ⇒ 0, closed).
+-- SU1 (2026-11-10): the operator's settings, one row each: 'spots' (how
+-- many accounts hosted takes in all; absent ⇒ 0, closed) and, EC1,
+-- 'emails_per_hour' (the sign-in asks counted an hour while spots are open;
+-- absent ⇒ DEFAULT_EMAILS_PER_HOUR).
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   set_at INTEGER NOT NULL
+);
+-- EC1 (2026-11-10): one row per clock hour (floor(ms / 3 600 000)), the
+-- sign-in asks counted in it while spots were open. A count, no address.
+-- Kept a day, pruned in the commit that counts.
+CREATE TABLE IF NOT EXISTS email_hours (
+  hour INTEGER PRIMARY KEY,
+  asks INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
@@ -183,7 +197,7 @@ export interface Person {
 
 export type LinkRequest =
   | { readonly send: true; readonly to: string; readonly token: string; readonly signUp: boolean }
-  | { readonly send: false; readonly reason: "bad-email" | "full" | "suspended" };
+  | { readonly send: false; readonly reason: "bad-email" | "full" | "suspended" | "busy" };
 
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
@@ -201,6 +215,26 @@ export interface Spots {
 
 /** The most `spots set` takes: a typo of a few extra digits is refused, not obeyed. */
 export const MAX_SPOTS = 100_000;
+
+/** EC1: the sign-in asks counted an hour while spots are open, when the operator never set it (`spots emails M`). */
+export const DEFAULT_EMAILS_PER_HOUR = 100;
+/** The most `spots emails` takes. */
+export const MAX_EMAILS_PER_HOUR = 100_000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The hourly email cap (EC1): how many sign-in asks this clock hour may count
+ * while spots are open, and how many it has. Past it, an address with no
+ * account gets no email; a member still gets their sign-in link.
+ */
+export interface EmailCap {
+  /** The operator's M (`spots emails M`); DEFAULT_EMAILS_PER_HOUR when never set. */
+  readonly perHour: number;
+  /** Asks counted in this clock hour. */
+  readonly thisHour: number;
+  /** thisHour ≥ perHour: sign-up emails wait for the next hour. */
+  readonly reached: boolean;
+}
 
 export interface AccountsOptions {
   /** `HOSTED_DATA_ROOT/control/accounts.sqlite`. */
@@ -372,6 +406,27 @@ export class Accounts {
     return this.spots();
   }
 
+  /** The email cap now (EC1). Read from the database every time, like the spots. */
+  emailCap(): EmailCap {
+    const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'emails_per_hour'")?.value;
+    const n = raw === undefined ? NaN : Number(raw);
+    const perHour = Number.isInteger(n) && n >= 0 && n <= MAX_EMAILS_PER_HOUR ? n : DEFAULT_EMAILS_PER_HOUR;
+    const thisHour = this.db.get<{ asks: number }>("SELECT asks FROM email_hours WHERE hour = ?", Math.floor(this.now() / HOUR_MS))?.asks ?? 0;
+    return { perHour, thisHour, reached: thisHour >= perHour };
+  }
+
+  /** The operator sets M (`main.ts spots emails M`): takes effect at the next ask, no restart. */
+  setEmailsPerHour(perHour: number): EmailCap {
+    if (!Number.isInteger(perHour) || perHour < 0 || perHour > MAX_EMAILS_PER_HOUR) throw new Error(`spots emails: a whole number from 0 to ${String(MAX_EMAILS_PER_HOUR)}`);
+    this.db.run(
+      "INSERT INTO settings (key, value, set_at) VALUES ('emails_per_hour', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at",
+      String(perHour),
+      this.now(),
+    );
+    this.audit(null, null, "spots.emails", String(perHour));
+    return this.emailCap();
+  }
+
   // ── invites ────────────────────────────────────────────────────────────────
 
   /**
@@ -420,9 +475,11 @@ export class Accounts {
     // The spots, read once for every ask (or handed in by the page, which read
     // them for its words), so a known and an unknown address cost the same reads.
     const spotsLeft = input.spotsLeft ?? this.spots().left;
+    // The email cap (EC1), only while spots are open; read for every ask alike.
+    const perHour = spotsLeft > 0 ? this.emailCap().perHour : null;
     const identity = this.db.get<{ id: string; person_id: string }>("SELECT id, person_id FROM identities WHERE kind = 'email' AND value = ?", email);
     let inviteId: string | null = null;
-    let refused: "full" | "suspended" | null = null;
+    let refused: "full" | "suspended" | "busy" | null = null;
     if (identity !== undefined) {
       if (!this.canSignIn(identity.person_id)) refused = "suspended";
     } else {
@@ -441,6 +498,21 @@ export class Accounts {
     // volume; review of #644). The same commit drops links a day past their
     // expiry, so addresses don't pile up here.
     this.db.transaction((): void => {
+      // THE EMAIL CAP (EC1), while spots are open: every well-formed ask takes
+      // a count, member or not, in this same commit, so neither the time nor
+      // the next stranger's outcome says whether this address has an account.
+      // Over the cap only a code-less sign-up is refused: a member still gets
+      // their link, and a live invite code passes this cap as it passes the
+      // spots (#804 review), so a stranger's flood can't block the invited. A
+      // code that isn't good (inviteId null) is a code-less ask here.
+      if (perHour !== null) {
+        const hour = Math.floor(at / HOUR_MS);
+        this.db.run("DELETE FROM email_hours WHERE hour < ?", hour - 24);
+        this.db.run("INSERT INTO email_hours (hour, asks) VALUES (?, 0) ON CONFLICT (hour) DO NOTHING", hour);
+        this.db.run("UPDATE email_hours SET asks = asks + 1 WHERE hour = ? AND asks < ?", hour, perHour);
+        const counted = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
+        if (!counted && refused === null && identity === undefined && inviteId === null) refused = "busy";
+      }
       this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
       this.db.run(
         "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

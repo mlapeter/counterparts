@@ -250,3 +250,23 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
     a yield before each). Many people each inside their two still share one event loop, as §14 says for `/mcp`.
 47. **The page's inline `style=` attributes are allowed** (`style-src-attr 'unsafe-inline'`, nothing else inline): the
     drawn markup uses about fifty for widths and colours. Moving them to classes would let the CSP drop it.
+
+## The hourly email cap while spots are open (EC1, 2026-11-10)
+
+48. **What stays open around the cap** (`spots emails M`, CONTRACT §11).
+    - **A live invite code can ask for links to any address**, open or closed: the code is spent at the click, not the
+      ask, so one code mails as many addresses as the per-IP and per-address limits let through. A live code passes
+      the email cap as it passes the spots (#804 review: the invited aren't blocked by a stranger's flood), so M
+      doesn't bound it, open or closed; its asks still count toward M. Older than EC1; spending a use at the ask, or a
+      cap per code, would close it.
+    - **The lockout trade-off.** The cap is global, so anyone can hold it: about 5 IPs at the per-IP 20 an hour fill
+      the default 100 every hour, and newcomers without a code see "try again in an hour" for as long as that lasts.
+      Members and live codes still get through. With no alarm (below), the operator sees it only as `reached` in
+      `spots`; the answer then is invite codes, or a higher M with a tighter per-IP limit.
+    - **Clock hours, not a sliding hour.** Up to 2M can go out across one hour's end (M at 12:59, M more at 13:00).
+      Loose on purpose; a sliding window is a table of timestamps, as Counterparts Phone's `rate_hits` keeps.
+    - **It counts asks, not deliveries.** A refused ask (suspended account), a member's sign-in and a live code's ask
+      count too, so the count can't say who has an account; a mail that fails still counted. Over M, a member's or a
+      live code's ask is counted no further and still sent, bounded only by the per-address and per-IP limits.
+    - **No alarm when it trips.** Phone mails its operator once an hour when its sign-up cap trips (`signup_alarm`);
+      here the operator sees it only in `spots` (`… this hour: reached`).

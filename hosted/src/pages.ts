@@ -96,6 +96,12 @@ export interface Pages {
 // with an account or a good code gets a link.
 const SENT_WORDS_OPEN = "If that address can sign in or sign up, a link is on its way. It works for 15 minutes, once, in this browser.";
 const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works for 15 minutes, once, in this browser.";
+// THE BUSY WORDS (EC1): spots are open but this hour's sign-in emails reached
+// the cap (`spots emails M`). Chosen by that count, read before the ask and the
+// same for every address, never by what happened to this one; true for a
+// member, who still gets a link, and for a newcomer, who gets none this hour.
+const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works for 15 minutes, once, in this browser.";
+const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts? Try again in an hour.";
 
 /** Where a new person goes when hosted is full: the site's hosted waiting list. */
 export const WAITLIST_URL = "https://counterparts.ai/#waitlist";
@@ -322,6 +328,9 @@ ${
       // The words follow the spots as they stand now (public), not this ask's outcome.
       const spotsLeft = opts.accounts.spots().left;
       const open = spotsLeft > 0;
+      // The email cap (EC1), read with the spots and before the ask, and with
+      // nothing awaited between here and the ask, so it agrees with the ask.
+      const busy = open && opts.accounts.emailCap().reached;
       const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft });
       if (!asked.send && asked.reason === "bad-email") {
         loginForm(res, browser!, next, 400, "That doesn't look like an email address.");
@@ -347,7 +356,8 @@ ${
             }
           });
       }
-      if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
+      if (busy) page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>` });
+      else if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
       else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>` });
       return true;
     }

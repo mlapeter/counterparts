@@ -13,6 +13,9 @@
  *   - an erased account frees its spot; a pending delete still holds it;
  *   - /spots: exactly `{left, open}`, CORS for counterparts.ai only, cached a few seconds;
  *   - `main.ts spots` / `spots set N` as a process.
+ *   - EC1, the hourly email cap while open: emails stop at M for new addresses; the count
+ *     survives a restart; nothing changes while closed; a member and a stranger over the cap
+ *     see the same words, and both count alike; `spots emails M` sets and shows it.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -21,6 +24,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
+import { openDb } from "../../src/core/store/db.js";
 import { Accounts } from "../src/accounts.js";
 import { memoryMailer } from "../src/egress.js";
 import { SPOTS_CACHE_MS, WAITLIST_URL, accountPages } from "../src/pages.js";
@@ -82,8 +86,8 @@ interface Rig {
   now: () => number;
 }
 
-async function rig(): Promise<Rig> {
-  let now = Date.UTC(2026, 10, 10, 12);
+async function rig(start = Date.UTC(2026, 10, 10, 12)): Promise<Rig> {
+  let now = start;
   const clock = (): number => now;
   const path = join(tmp.root, "control", "accounts.sqlite");
   const accounts = new Accounts({ path, now: clock });
@@ -329,6 +333,144 @@ describe("GET /spots", () => {
   });
 });
 
+describe("EC1: the hourly email cap while spots are open", () => {
+  // At 12:10, so the hour's bucket is plain; rollovers move the clock an hour.
+  const T = Date.UTC(2026, 10, 10, 12, 10);
+
+  test("the default is 100; emails to new addresses stop at M, the page says so to all, and the next hour sends again", async () => {
+    const r = await rig(T);
+    assert.deepEqual(r.accounts.emailCap(), { perHour: 100, thisHour: 0, reached: false });
+    r.accounts.setSpots(50);
+    r.accounts.setEmailsPerHour(3);
+    for (const who of ["a", "b", "c"]) {
+      const asked = await askLink(r, new Browser(r.base), `${who}@example.com`);
+      assert.equal(asked.status, 200);
+      assert.doesNotMatch(asked.body, /Lots of people are signing up/);
+      assert.ok(asked.link !== null, `${who}: emailed under a cap of three`);
+    }
+    assert.equal(r.mail.sent.length, 3);
+    const over = await askLink(r, new Browser(r.base), "d@example.com");
+    assert.equal(over.status, 200);
+    assert.equal(over.link, null, "the fourth new address gets no email");
+    assert.equal(r.mail.sent.length, 3);
+    assert.match(over.body, /Check your email/);
+    assert.match(over.body, /Lots of people are signing up right now\. New to Counterparts\? Try again in an hour\./);
+    assert.deepEqual(r.accounts.emailCap(), { perHour: 3, thisHour: 3, reached: true });
+    // A live invite code passes the email cap as it passes the spots (#804 review), and sees the same page;
+    // a code that isn't good is a code-less ask and waits.
+    const { code } = r.accounts.createInvite({ note: "over" });
+    const invited = await askLink(r, new Browser(r.base), "invited@example.com", code);
+    assert.ok(invited.link !== null, "a live invite past the cap while open gets its email");
+    assert.equal(words(invited.body), words(over.body));
+    assert.equal(r.mail.sent.length, 4);
+    const typo = await askLink(r, new Browser(r.base), "typo@example.com", "cpi_not-a-real-code");
+    assert.equal(typo.link, null, "a mistyped code past the cap gets no email");
+    assert.equal(words(typo.body), words(over.body));
+    assert.equal(r.mail.sent.length, 4);
+    r.setNow(T + 60 * 60 * 1000);
+    assert.equal(r.accounts.emailCap().thisHour, 0, "a new hour, a new count");
+    const next = await askLink(r, new Browser(r.base), "e@example.com");
+    assert.ok(next.link !== null, "the next hour sends again");
+    assert.doesNotMatch(next.body, /Lots of people/);
+  });
+
+  test("old hours are pruned: an ask more than 25 hours on drops the earlier hour's row", async () => {
+    const r = await rig(T);
+    r.accounts.setSpots(50);
+    assert.ok((await askLink(r, new Browser(r.base), "early@example.com")).link !== null);
+    const hours = (): number[] => {
+      const db = openDb(r.path);
+      try {
+        return db.all<{ hour: number }>("SELECT hour FROM email_hours ORDER BY hour").map((h) => h.hour);
+      } finally {
+        db.close();
+      }
+    };
+    const first = Math.floor(T / 3_600_000);
+    assert.deepEqual(hours(), [first]);
+    r.setNow(T + 26 * 60 * 60 * 1000);
+    assert.ok((await askLink(r, new Browser(r.base), "late@example.com")).link !== null);
+    assert.deepEqual(hours(), [first + 26], "the hour 26 hours back is gone");
+  });
+
+  test("the count is in control: a restart (new Accounts, new pages, same database) keeps the count and M", async () => {
+    const first = await rig(T);
+    first.accounts.setSpots(50);
+    first.accounts.setEmailsPerHour(2);
+    assert.ok((await askLink(first, new Browser(first.base), "one@example.com")).link !== null);
+    assert.ok((await askLink(first, new Browser(first.base), "two@example.com")).link !== null);
+    // The deploy: everything closed, then a fresh process on the same control database.
+    for (const c of closers.splice(0).reverse()) await c();
+    const again = await rig(T + 60_000);
+    assert.equal(again.path, first.path);
+    assert.deepEqual(again.accounts.emailCap(), { perHour: 2, thisHour: 2, reached: true });
+    const over = await askLink(again, new Browser(again.base), "three@example.com");
+    assert.equal(over.link, null, "the restart didn't reset the count");
+    assert.equal(again.mail.sent.length, 0);
+    assert.match(over.body, /Lots of people are signing up/);
+  });
+
+  test("closed: nothing changes and nothing counts; members and invites still get their emails past M", async () => {
+    const r = await rig(T);
+    r.accounts.setSpots(1);
+    r.accounts.setEmailsPerHour(1);
+    assert.equal((await signUp(r, "member@example.com")).click?.status, 303);
+    assert.equal(r.accounts.spots().left, 0, "closed now");
+    const counted = r.accounts.emailCap().thisHour;
+    assert.equal(counted, 1);
+    const before = r.mail.sent.length;
+    const member = await askLink(r, new Browser(r.base), "member@example.com");
+    assert.ok(member.link !== null, "a member signs in");
+    const { code } = r.accounts.createInvite({ note: "invited" });
+    const invited = await askLink(r, new Browser(r.base), "invited@example.com", code);
+    assert.ok(invited.link !== null, "an invite signs up");
+    const stranger = await askLink(r, new Browser(r.base), "stranger@example.com");
+    assert.equal(stranger.link, null, "a code-less address gets nothing while closed, as before EC1");
+    assert.equal(r.mail.sent.length, before + 2);
+    assert.equal(r.accounts.emailCap().thisHour, counted, "nothing counted while closed");
+    for (const body of [member.body, invited.body, stranger.body]) {
+      assert.doesNotMatch(body, /Lots of people/);
+      assert.match(body, /join the waiting list/);
+    }
+  });
+
+  test("over the cap, a member and a stranger see word for word the same page; the member still gets a working link", async () => {
+    const r = await rig(T);
+    r.accounts.setSpots(50);
+    assert.equal((await signUp(r, "member@example.com")).click?.status, 303);
+    r.accounts.setEmailsPerHour(1);
+    assert.ok(r.accounts.emailCap().reached, "the member's own sign-up took this hour's one");
+    const knownBrowser = new Browser(r.base);
+    const known = await askLink(r, knownBrowser, "member@example.com");
+    const unknown = await askLink(r, new Browser(r.base), "newcomer@example.com");
+    assert.ok(known.link !== null, "members are never refused by the cap");
+    assert.equal(unknown.link, null, "the newcomer gets none");
+    assert.equal(known.status, unknown.status);
+    assert.equal(words(known.body), words(unknown.body));
+    assert.match(unknown.body, /Lots of people are signing up/);
+    assert.equal((await knownBrowser.go(known.link)).status, 303, "the member's link signs them in");
+  });
+
+  test("a member's ask and a stranger's count alike, so the next newcomer can't tell which came before", async () => {
+    const outcome = async (second: "member" | "stranger"): Promise<string> => {
+      const r = await rig(T);
+      r.accounts.setSpots(50);
+      assert.equal((await signUp(r, "member@example.com")).click?.status, 303);
+      r.accounts.setEmailsPerHour(2); // one counted (the member's sign-up), one left
+      await askLink(r, new Browser(r.base), second === "member" ? "member@example.com" : "someone@example.com");
+      const probe = await askLink(r, new Browser(r.base), "probe@example.com");
+      const cap = r.accounts.emailCap();
+      for (const c of closers.splice(0).reverse()) await c();
+      tmp.remove();
+      tmp = tempRoot("spots");
+      return `${String(cap.thisHour)} ${probe.link === null ? "none" : "sent"} ${words(probe.body)}`;
+    };
+    const afterMember = await outcome("member");
+    assert.equal(afterMember, await outcome("stranger"));
+    assert.match(afterMember, /^2 none /);
+  });
+});
+
 describe("main.ts spots", () => {
   const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
   const env = (): Record<string, string> => ({
@@ -352,11 +494,33 @@ describe("main.ts spots", () => {
     for (const bad of [["set"], ["set", "-1"], ["set", "1.5"], ["set", "ten"], ["set", "100001"], ["10"], ["set", "3", "4"]]) {
       const out = run(...bad);
       assert.equal(out.status, 1, bad.join(" "));
-      assert.match(String(out.stderr), /refused: spots takes nothing \(show\) or `set N`/);
+      assert.match(String(out.stderr), /refused: spots takes nothing \(show\), `set N`/);
     }
     const accounts = new Accounts({ path: join(tmp.root, "data", "control", "accounts.sqlite") });
     try {
       assert.deepEqual(accounts.spots(), { total: 10, people: 0, left: 10 });
+    } finally {
+      accounts.close();
+    }
+  });
+
+  test("EC1: shows the email cap (100 when never set); `emails M` stores it in control and leaves N alone; a bad M is refused", () => {
+    const shown = run();
+    assert.equal(shown.status, 0, String(shown.stderr));
+    assert.match(String(shown.stdout), /\nemails: 100 an hour while open \(0 this hour\)\n$/);
+    assert.equal(run("set", "10").status, 0);
+    const set = run("emails", "25");
+    assert.equal(set.status, 0, String(set.stderr));
+    assert.match(String(set.stdout), /^spots: 10 .*\npeople: 0 .*\nleft: 10 \(open.*\nemails: 25 an hour while open \(0 this hour\)\n$/);
+    for (const bad of [["emails"], ["emails", "-1"], ["emails", "2.5"], ["emails", "lots"], ["emails", "100001"], ["emails", "3", "4"], ["email", "3"]]) {
+      const out = run(...bad);
+      assert.equal(out.status, 1, bad.join(" "));
+      assert.match(String(out.stderr), /refused: spots takes nothing \(show\), `set N` .* or `emails M`/);
+    }
+    const accounts = new Accounts({ path: join(tmp.root, "data", "control", "accounts.sqlite") });
+    try {
+      assert.deepEqual(accounts.spots(), { total: 10, people: 0, left: 10 });
+      assert.equal(accounts.emailCap().perHour, 25);
     } finally {
       accounts.close();
     }

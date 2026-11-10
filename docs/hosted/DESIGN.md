@@ -243,6 +243,12 @@ allows 240 s per tool call (**V**), so plain JSON is fine.
      Only the link's own click says "the last spot went", to the person who clicked it.
    - The spot is taken at the click, in the transaction that makes the person (count and insert under one
      `BEGIN IMMEDIATE`), never at the ask: a link that is never clicked takes nothing.
+   - While spots are open, an hourly email cap (EC1, 2026-11-10; `spots emails M`, default 100) stops the form from
+     being a mail cannon from rotating IPs, which the in-memory limits above can't (and a deploy resets them). Each
+     clock hour's count is a row in control (`email_hours`), so it survives a restart. Every ask counts alike, member
+     or not, in the commit that writes its link row, so neither the time nor the next newcomer's outcome says who has
+     an account. Past M only a sign-up with no live invite code is refused: members and live codes still get their
+     link, and the page says "lots of people are signing up right now" to everyone alike. While closed it does nothing.
    - `GET /spots`: `{"left": n, "open": bool}` and nothing else; no auth; kept 5 seconds (in memory and
      `Cache-Control: max-age=5`); `Access-Control-Allow-Origin` only for `https://counterparts.ai` (its `www` host
      redirects there), with `Vary: Origin`.
@@ -631,7 +637,8 @@ stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id
                state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
 audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content)
-settings      (key PK, value, set_at -- SU1: the operator's settings; today only 'spots', absent = 0)
+settings      (key PK, value, set_at -- SU1: the operator's settings: 'spots', absent = 0; EC1 'emails_per_hour', absent = 100)
+email_hours   (hour PK -- floor(ms / 3 600 000), asks -- EC1: sign-in asks counted that hour while open; kept a day)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 ```
 
