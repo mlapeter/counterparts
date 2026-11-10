@@ -24,7 +24,10 @@
  *
  * ## The two refusals
  *
- * **127.0.0.1 only.** The model of you stays on your machine.
+ * **127.0.0.1 only.** The model of you stays on your machine. (This server. The
+ * same page and views, read-only, are also served by the hosted server to a
+ * person signed in there, over their hosted store: `respond.ts` is the shared
+ * half, `hosted/src/dashboard.ts` that door.)
  *
  * **A Host-header allowlist**, checked before any view is computed. Binding to
  * loopback stops remote connections; it does NOT stop a page in the owner's own
@@ -63,7 +66,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
 import { ownerNames } from "../../../core/sleep/index.js";
 import { onboardingView } from "../../../core/onboarding.js";
-import { dataDir } from "../../../core/store/index.js";
+import { dataDir, isStoreError } from "../../../core/store/index.js";
 import { zoneBeside, zoneOfConfig } from "../../config.js";
 import { Dashboard } from "../index.js";
 import { upgradePending, upgradePendingSentence } from "../upgrade.js";
@@ -196,6 +199,9 @@ export function router(
     if (asset !== null) return localPage(asset, opts.token);
     return json({ error: `not found: ${path}` }, 404);
   } catch (err) {
+    // A store refusal reaches the page as its code and its detail — ids and
+    // counts, never prose (as `respond.ts#viewReply` says it).
+    if (isStoreError(err)) return json({ error: `${err.code}: ${JSON.stringify(err.detail)}` }, 500);
     return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 }

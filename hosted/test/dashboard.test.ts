@@ -301,7 +301,11 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     const spawnsBefore = r.spawns.n;
     const before = await me.browser.json("/dashboard/api/activity?limit=1");
     const metaBefore = (await me.browser.json("/dashboard/api/meta")).body;
+    // COLD: the tenant closed (idle), so the next look is the one that opens it, as it is in production.
+    await r.app.tenants.close(me.storeId);
+    assert.equal(r.app.tenants.isOpen(me.storeId), false);
     for (let i = 0; i < 3; i++) {
+      if (i === 1) await r.app.tenants.close(me.storeId);
       await me.browser.go("/dashboard/");
       for (const view of ["/api/meta", "/api/overview", "/api/memories", "/api/memories/list", "/api/mind", "/api/search?q=quiet", "/api/activity?limit=40&sinceSeq=0"]) {
         assert.equal((await me.browser.go(`/dashboard${view}`)).status, 200, view);

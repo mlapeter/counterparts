@@ -64,6 +64,14 @@ persisted into dashboard state. **[M]** Totality: every registered axis appears 
 marked absent. **[A]** Views stay readable by a non-engineer — the owner is the acceptance
 test.
 
+**Two hosts, one page (HD2, 2026-11-10).** The local server and the hosted server
+(`hosted/src/dashboard.ts`, at `/dashboard/` for the signed-in owner) serve the same page,
+files and views through `web/respond.ts`, each with a `DashboardHost`. **[M]** Looking is
+the same observer stance on both. **[M]** Managing is the local host's only: the shared half
+never imports `web/actions.ts`, and the page hides every managing control where
+`HOST.canAct` is false (`shared/host.js`). Panels about the local machine (doctor, the store's
+folder path) are the local host's too. A part a host doesn't show says so in one line.
+
 **Which store it serves (2026-10-12).** Two stores on one machine (a throwaway trial store
 and the person's real one) can both try port 4747, so a reader must be able to tell whose
 dashboard answered. **[M]** `GET /api/whoami` returns `{ store, version }`: `store` is the

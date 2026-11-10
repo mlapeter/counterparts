@@ -45,7 +45,22 @@ addEventListener("resize", () => {
     // home tab's headline, the store's path on the health tab).
     const meta = await api("/api/meta");
     live.fingerprint = { rows: meta.rows, day: meta.day };
-  } catch (e) { fail("The header", e); }
+  } catch (e) {
+    // On hosted a store a look can't read (never connected yet, set to be
+    // deleted, being restored) says why in its one sentence, and nothing else
+    // is drawn or polled: every panel would only say the same thing again.
+    if (HOST.name === "hosted") {
+      const p = document.createElement("p");
+      p.className = "not-here";
+      p.textContent = e && e.message ? e.message : String(e);
+      for (const s of document.querySelectorAll("section.tab")) s.hidden = true;
+      $("nav").hidden = true;
+      $("err").before(p);
+      document.documentElement.dataset.loaded = "1";
+      return;
+    }
+    fail("The header", e);
+  }
   showTab(location.hash.slice(1) || "home", false);
   // Every tab is built once, up front: a screenshot of any of them should never
   // be waiting on a fetch, and the flow diagram needs its data before it can be
