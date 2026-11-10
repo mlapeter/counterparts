@@ -77,10 +77,12 @@ export function keyObjectId(name: string): { id: string; legacy: boolean } | nul
 }
 /**
  * A DELETE'S TOMBSTONE in the bucket (the #653 review, M1): the store id and the
- * time, no PII, written BEFORE the key object goes and never removed. A control
- * database restored from before the delete (the sidecar was down when it ran)
- * would bring the account back active, with its email; start-up finds the
- * tombstone and finishes the delete instead.
+ * time, no PII, written BEFORE the key object goes. A control database restored
+ * from before the delete (the sidecar was down when it ran) would bring the
+ * account back active, with its email; start-up finds the tombstone and
+ * finishes the delete instead. Removed with the account's tombstone rows
+ * `RETENTION_MS` after the erase, once uploads are proven landing
+ * (`app.ts#pruneRetention`; AR1, CONTRACT §31c).
  */
 export const tombstoneObject = (storeId: string): string => `deleted/${storeId}`;
 export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
@@ -1000,6 +1002,7 @@ export type UploadsEvent = { readonly state: "stale"; readonly minutes: number; 
 export class UploadWatch {
   private lastMax: bigint | null = null;
   private lastRiseAt: number | null = null;
+  private seenRise = false;
   private wasStale = false;
   private looking = false;
   private stopped = false;
@@ -1032,6 +1035,16 @@ export class UploadWatch {
   }
 
   /**
+   * Uploads PROVEN landing (AR1): a rise seen in this process, and none missed
+   * since. The accounts database's latest state is then the bucket's, so a
+   * restore can't bring back one from before an old delete (`app.ts#pruneRetention`).
+   * The grace after `begin` is not proof.
+   */
+  rose(): boolean {
+    return this.seenRise && this.state() === "ok";
+  }
+
+  /**
    * The server is closing: no more looks, and a look in flight skips its
    * heartbeat and its event (the accounts database may be closing under it, and
    * a `heartbeat-failed` line at shutdown would mislead).
@@ -1050,7 +1063,10 @@ export class UploadWatch {
       try {
         const watched = this.opts.prefix?.() ?? WATCHED_REPLICA;
         const max = maxTxid(await this.opts.objects.list(watched), watched);
-        if (this.lastMax !== null && max > this.lastMax) this.lastRiseAt = this.opts.now();
+        if (this.lastMax !== null && max > this.lastMax) {
+          this.lastRiseAt = this.opts.now();
+          this.seenRise = true;
+        }
         // Lower than before (a restore, a new bucket): the new baseline, not a rise.
         this.lastMax = max;
       } catch {

@@ -543,7 +543,7 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   | `active` / `active` | served | delete → `pending-delete`; delete everything now → the erase |
   | `pending-delete` / `pending-delete`, with `people.delete_after` | **locked**: every web session ended and every grant revoked (and the OAuth library's own login sessions), no door serves the store, no worker runs; the files, the key and the backups are kept, and the sidecar keeps replicating | keep, before `delete_after` → `active` (grants stay revoked: the person reconnects); `delete_after` passes, or delete everything now → the erase |
   | `suspended` / `deleting` | the erase has begun (below) | finished → `deleted` |
-  | `deleted` / `deleted` | tombstones | — |
+  | `deleted` / `deleted` | tombstones, for 365 days after the erase (AR1) | erased with the bucket's `deleted/<storeId>` marker and the account's audit rows (below) |
 
   - `delete_after` (now + 24 h) is a column in the replicated control database, so a restart, a crash or an R2 outage
     never forgets it and never erases early. The ten-minute finish timer and start-up begin the erase of every pending
@@ -563,7 +563,8 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
   4. the key file, the local wrapped DEK, the `keys/<storeId>.wrapped` object and the whole `tenants/<storeId>/` replica
      prefix are deleted;
   5. the tenant dir is removed;
-  6. identities, sessions and pending links are deleted, leaving the person and store as tombstones (id, dates, state).
+  6. identities, sessions and pending links are deleted, leaving the person and store as tombstones (id, dates, state)
+     for 365 days.
 
   A test checks R2 right after the delete: no wrapped key and no replica object. Every step is idempotent; a delete cut
   short (a crash, R2 down) is finished at start-up and on a ten-minute timer. `keys.sqlite` and `accounts.sqlite` run
@@ -583,7 +584,20 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
     generated configuration sets **`snapshot.interval` 12 h and `snapshot.retention` 12 h**
     (`backup.ts#SNAPSHOT_HOURS`). That leaves 12 h of room for the lag inside the 24 h promise.
   - **The cost.** Two snapshots a day instead of one, and a 12 h point-in-time window.
-  - The audit rows (person id, action codes, invite id, no address) stay as tombstones by design.
+  - The audit rows (person id, action codes, invite id, no address) stay with the tombstones, for 365 days (below).
+- **Account events and tombstones: 365 days, then erased** (Mike, 2026-11-10; AR1, `accounts.ts#RETENTION_DAYS`,
+  `app.ts#pruneRetention`, run once a day by the finish timer; the reasoning is in hosted/CONTRACT.md §31c).
+  - Every audit row older than 365 days is deleted, whoever's it is.
+  - 365 days after a deleted account's erase, it is forgotten: the bucket's `deleted/<storeId>` marker first, then
+    its remaining audit rows, its `stores` row and its `people` row.
+  - The marker exists so an accounts database from before the delete can't come back with the account active. It
+    goes only while the upload watch proves the accounts database is uploading, so the bucket's copy is this one,
+    a year after the delete went into it.
+  - The rows go only when the bucket is proven to hold nothing of the store. With backups off, tombstones wait.
+  - `client_use` (oauth.sqlite: a client id and when someone first allowed it, no person) isn't pruned. It is what
+    keeps a once-allowed client from the DCR sweep.
+  - The account page's beta note says the record of account events is "kept for 12 months, then erased", and the
+    done pages and the delete email say the same of what's left after a deletion.
   - The account page, the done pages and the 202 "didn't finish" page all say "purged within 24 hours" (of the erase).
 
 **Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
@@ -636,7 +650,7 @@ web_sessions  (id PK, person_id FK, token_hash UNIQUE, created_at, expires_at, l
 stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id FK, created_at,
                state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
-audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content)
+audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content; AR1: kept 365 days)
 settings      (key PK, value, set_at -- SU1: the operator's settings: 'spots', absent = 0; EC1 'emails_per_hour', absent = 100)
 email_hours   (hour PK -- floor(ms / 3 600 000), asks -- EC1: sign-in asks counted that hour while open; kept a day)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)

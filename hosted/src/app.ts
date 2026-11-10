@@ -36,7 +36,7 @@ import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import type { LimitReason } from "./limits.js";
@@ -176,8 +176,23 @@ export interface App {
   finishPendingDeletes(): Promise<number>;
   /** Erase every chat's delete whose 24-hour hold has passed (HD1): the timer while serving, and tests. Returns how many were erased. */
   finishDueHolds(): Promise<number>;
+  /** AR1: account events, and deleted accounts' tombstones, past `RETENTION_MS` erased (the timer once a day, and tests). */
+  pruneRetention(): Promise<RetentionReport>;
   close(): Promise<void>;
 }
+
+/** What one retention pass did (AR1). Counts only. */
+export interface RetentionReport {
+  /** Audit rows older than `RETENTION_MS`, deleted. */
+  readonly audit: number;
+  /** Deleted accounts erased more than `RETENTION_MS` ago, forgotten: tombstone rows, audit rows and `deleted/<id>` markers. */
+  readonly forgotten: number;
+  /** Expired tombstones left for a later pass: uploads not proven landing yet, the bucket not clean or unreachable. Backups off: every one waits. */
+  readonly waiting: number;
+}
+
+/** How often the timer runs the retention pass (AR1): once a day is plenty for a 365-day limit. */
+export const RETENTION_EVERY_MS = 24 * 60 * 60 * 1000;
 
 export function createApp(opts: AppOptions): App {
   if (!isAbsolute(opts.dataRoot)) throw new Error("the hosted data root must be an absolute path");
@@ -510,6 +525,67 @@ export function createApp(opts: AppOptions): App {
           ...(opts.uploadsStaleMs === undefined ? {} : { staleAfterMs: opts.uploadsStaleMs }),
           ...(opts.onUploads === undefined ? {} : { onEvent: opts.onUploads }),
         });
+  /**
+   * AR1 (Mike, 2026-11-10): THE 12-MONTH LIMIT. Audit rows older than
+   * `RETENTION_MS` go, live accounts' and deleted ones' alike. A deleted
+   * account erased more than `RETENTION_MS` ago is forgotten: its stores'
+   * `deleted/<id>` markers in the bucket first, then its audit rows and its
+   * tombstone rows in one transaction (a marker that fails to go leaves the
+   * rows that name it, for the next pass). Only when the marker is no longer
+   * needed (CONTRACT §31c):
+   *   - uploads are proven landing (`UploadWatch#rose`): the bucket's accounts
+   *     database is then this one, with the delete in it, so no restore can
+   *     bring the account back;
+   *   - the bucket holds nothing of the store (a leftover is erased first, with
+   *     the delete's own `removeStore`, and checked again).
+   * Backups off: no bucket to prove anything against, so tombstones wait.
+   */
+  let pruning: Promise<RetentionReport> | null = null;
+  const runRetention = async (): Promise<RetentionReport> => {
+    const audit = accounts.pruneAudit();
+    let forgotten = 0;
+    let waiting = 0;
+    for (const t of accounts.expiredTombstones()) {
+      if (backups === null || opts.backup === undefined || uploads === null || !uploads.rose()) {
+        waiting += 1;
+        continue;
+      }
+      try {
+        for (const id of t.storeIds) {
+          if ((await backups.objectsLeft(id)) > 0) await backups.removeStore(id);
+          if ((await backups.objectsLeft(id)) > 0) throw new Error("the bucket still holds some of it");
+          await opts.backup.objects.delete(tombstoneObject(id));
+        }
+        if (accounts.forget(t.personId)) forgotten += 1;
+        else waiting += 1;
+      } catch {
+        // R2 down, or a leftover that wouldn't go: tried again at the next pass. No audit row: it would name the person again.
+        waiting += 1;
+      }
+    }
+    return { audit, forgotten, waiting };
+  };
+  const pruneRetention = (): Promise<RetentionReport> => {
+    pruning ??= runRetention().finally(() => {
+      pruning = null;
+    });
+    return pruning;
+  };
+  let retentionAt: number | null = null;
+  /** The timer's daily pass. One with tombstones waiting is tried again at the next tick. */
+  const retentionTick = (): void => {
+    const now = (opts.now ?? Date.now)();
+    if (pruning !== null || (retentionAt !== null && now - retentionAt < RETENTION_EVERY_MS)) return;
+    retentionAt = now;
+    void pruneRetention().then(
+      (r) => {
+        if (r.waiting > 0 && backups !== null) retentionAt = null;
+      },
+      () => {
+        retentionAt = null;
+      },
+    );
+  };
   const limits = new McpLimits({
     ...opts.mcpLimits,
     sizeOf: (storeId) => dirBytes(tenantDir(tenants.root, storeId)),
@@ -666,6 +742,7 @@ export function createApp(opts: AppOptions): App {
         retryTimer = setInterval(() => {
           void finishPendingDeletes();
           void finishDueHolds();
+          retentionTick();
           try {
             o.store.sweepClients();
           } catch {
@@ -687,11 +764,13 @@ export function createApp(opts: AppOptions): App {
     keepAccount,
     finishPendingDeletes,
     finishDueHolds,
+    pruneRetention,
     async close(): Promise<void> {
       started = false;
       uploads?.stop();
       if (retryTimer !== null) clearInterval(retryTimer);
       retryTimer = null;
+      await pruning?.catch(() => undefined);
       if (uploadsTimer !== null) clearInterval(uploadsTimer);
       uploadsTimer = null;
       await tenants.closeAll();

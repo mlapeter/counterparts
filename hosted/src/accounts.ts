@@ -46,6 +46,9 @@ export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_EMAIL = 254;
 /** A delete's grace (Mike, 2026-10-27): the account is locked at once and erased this long after, unless it is kept. */
 export const DELETE_GRACE_MS = 24 * 60 * 60 * 1000;
+/** AR1 (Mike, 2026-11-10): an audit row, and a deleted account's tombstone, are kept this long (from the row's time; from the erase), then erased. */
+export const RETENTION_DAYS = 365;
+export const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS people (
@@ -777,7 +780,8 @@ export class Accounts {
   /**
    * THE ACCOUNT'S LAST STEP (after its store is gone): every way in, every
    * session and pending link is deleted; the person and the store are left as
-   * tombstones (id, dates, state) so nothing reuses their ids. The address can
+   * tombstones (id, dates, state) for `RETENTION_MS`, then `forget` erases them
+   * (AR1; what they guard is in CONTRACT §31c). The address can
    * sign up again later as a new person, with a spot or a new invite (SU1:
    * this person stops counting against the spots here).
    */
@@ -844,5 +848,48 @@ export class Accounts {
   /** For tests and the account page: the audit rows of one person, oldest first. */
   auditOf(personId: string): { action: string; detail: string | null }[] {
     return this.db.all<{ action: string; detail: string | null }>("SELECT action, detail FROM audit WHERE person_id = ? ORDER BY rowid", personId);
+  }
+
+  /**
+   * AR1: AUDIT ROWS OLDER THAN `RETENTION_MS` ARE DELETED, live accounts' and
+   * deleted ones' alike. Kept past it only while their store's tombstone is: a
+   * deleted store's `delete.backups` / `delete.leftovers`, which start-up's
+   * leftovers pass reads (they are written a moment before `deleted_at`, so the
+   * age alone would take them a moment early); `forget` takes them with it.
+   * Returns how many went.
+   */
+  pruneAudit(): number {
+    this.db.run(
+      "DELETE FROM audit WHERE at < ? AND NOT (action IN ('delete.backups', 'delete.leftovers') AND store_id IS NOT NULL AND store_id IN (SELECT id FROM stores WHERE state = 'deleted'))",
+      this.now() - RETENTION_MS,
+    );
+    return this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
+  }
+
+  /** AR1: the deleted accounts erased more than `RETENTION_MS` ago, each with its stores' ids (all tombstones). */
+  expiredTombstones(): { personId: string; storeIds: string[] }[] {
+    return this.db
+      .all<{ id: string }>("SELECT id FROM people WHERE state = 'deleted' AND deleted_at IS NOT NULL AND deleted_at < ? ORDER BY deleted_at", this.now() - RETENTION_MS)
+      .map((p) => ({ personId: p.id, storeIds: this.db.all<{ id: string }>("SELECT id FROM stores WHERE person_id = ?", p.id).map((r) => r.id) }));
+  }
+
+  /**
+   * AR1: A DELETED ACCOUNT, FORGOTTEN: its remaining audit rows (by person, or by
+   * any of its stores), its stores' tombstones and its person tombstone, in one
+   * transaction. Only a person whose every store is `deleted`; the caller has
+   * proven the bucket holds nothing of them and removed their `deleted/<id>`
+   * markers first (`app.ts#pruneRetention`). Writes no audit row: a row naming
+   * the person would be a new trace of them. True when the person went.
+   */
+  forget(personId: string): boolean {
+    return this.db.transaction((): boolean => {
+      const p = this.db.get<{ state: string }>("SELECT state FROM people WHERE id = ?", personId);
+      if (p?.state !== "deleted") return false;
+      if (this.db.get("SELECT 1 AS one FROM stores WHERE person_id = ? AND state != 'deleted' LIMIT 1", personId) !== undefined) return false;
+      this.db.run("DELETE FROM audit WHERE person_id = ? OR store_id IN (SELECT id FROM stores WHERE person_id = ?)", personId, personId);
+      this.db.run("DELETE FROM stores WHERE person_id = ?", personId);
+      this.db.run("DELETE FROM people WHERE id = ?", personId);
+      return true;
+    });
   }
 }
