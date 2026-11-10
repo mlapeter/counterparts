@@ -39,6 +39,7 @@ import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
+import { seedSample } from "./sample.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
@@ -89,7 +90,7 @@ export interface AppOptions {
    * `storeTag` too (R5); and a delete's email that didn't send
    * (`delete.mail.failed`, by `storeTag`; R9).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -282,6 +283,18 @@ export function createApp(opts: AppOptions): App {
     onRemovalHeld: (storeId, at) => {
       accounts.noteRemovalDue(storeId, at);
       accounts.audit(accounts.personOfStore(storeId), storeId, "removal.held", null);
+    },
+    // A reviewer's account (DIR1, `main.ts reviewer`): its store fills with the sample at its first
+    // open, through the tools, before any call; cleared once it ran, so it never runs twice.
+    seed: (storeId) => (accounts.seedOf(storeId) === "sample" ? (server) => seedSample(server) : null),
+    onSeed: (storeId, ok) => {
+      if (ok) accounts.clearSeed(storeId);
+      accounts.audit(accounts.personOfStore(storeId), storeId, ok ? "sample.seeded" : "sample.seed.failed", null);
+      try {
+        opts.onEvent?.(ok ? "sample.seeded" : "sample.seed.failed", storeTag(storeId));
+      } catch {
+        /* a log, not a gate */
+      }
     },
     onCreated: (storeId) => {
       // A store's dir made while the server runs is a sign-up's (already in the
