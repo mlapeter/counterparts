@@ -341,12 +341,13 @@ describe("4. stale handoffs sink", () => {
     intact(wake);
     expect(wake).not.toContain("Glaze test tiles on rack two");
     const stands = section(wake, "Where this folder stands:");
-    expect(stands.indexOf("build the cooling rack")).toBeGreaterThanOrEqual(0);
-    expect(stands.indexOf("build the cooling rack")).toBeLessThan(stands.indexOf("glaze"));
-    // It says a newer one sank, so "newest" is never untrue; the sunk one is still listed.
+    expect(stands).toContain("Handoff, SHELF");
+    // It says a newer one sank, so "newest" is never untrue.
     expect(stands).toContain("1 newer one waiting on an answer, below");
     expect(stands).not.toContain("newest of");
-    expect(stands).toContain(`- GLAZE: waiting on Wren to pick the spring glaze [${asked}].`);
+    // The sunk one is said once (SO1 step 4): as Still open's ask, not also its pointer line here.
+    expect(stands).not.toContain("- GLAZE");
+    expect(section(wake, "Still open:")).toContain(`ask when it fits: GLAZE: waiting on Wren to pick the spring glaze [${asked}].`);
   });
 
   test("a lead that waits on nobody never sinks by count, however many wakes it led", () => {

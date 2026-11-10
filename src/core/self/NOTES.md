@@ -3198,3 +3198,64 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   skill memory: mem_…". Lines past a write's cap don't move (rare; they stay in the one capped memory).
 - **Not built:** nominations and the head start reach day's end only; with the page split off the reflection writes
   the stories but its bundle has no nomination lane (split is on by default). No migration of today's practices.
+
+## 2026-11-09 — what waits on the owner: raised, backed off, parked (SO1 step 4, revised)
+- **What was true.** An `asked` open item was never parked (`carriesOpen`), so every one sat in Still open in every
+  wake of its folder (the 11-09 read: 99 of 290 live open were `asked`). A handoff WK3 sank had no end date: its only
+  trace was "N newer one(s) waiting on an answer, below" (coordinator, 11-09).
+- **Built.** `core/owner-waits.ts` and `owedOne` in the shaped wake. An `asked` item leaves Still open's lines; one
+  item that waits on the owner is said per wake, the most relevant to the folder's week first (content words of its
+  title and `settlesWhen` against the leading lead and a week of titles written there; then here before personal,
+  then oldest). A sunk handoff is a candidate (`handoffsTold` hands its sunk set out). Said in a delivered,
+  attended wake = raised: an `open.owner.raised` event whose dedup key (`<id>:<lived day>`) is the shared day latch,
+  and the chain in meta `wake.owner.raised` (written only by the latch's winner, at the item's version).
+- **The two rules collide at session start.** The brief's 3/7/14 backoff and "at most one session-start mention a
+  week" can't both bind at session start: a 3-day step is never reachable there under a weekly floor. The rule
+  taken: the next mention waits the larger of the step and the week, so the session-start sequence is 7, 7, 14,
+  then parked (day 28); the 3-day step is kept for a raise from another door (the recall lane, not built).
+- **The week is per item, not per store.** "At most one mention a week" is read per item, shared by every session
+  and folder; a wake says at most one item. Read store-wide it would take ~99 weeks to raise each item once, slower
+  than the one-a-day Mike called too slow. So with many items, each session start can carry a different one.
+- **Answered = revised.** A revision (the row's `revision`, a handoff's `version`) starts the chain; touches and
+  glimpses don't. An item that stops being `asked` or open leaves the candidates.
+- **The relevance lane (point 2, same PR after the coordinator's review).** `owedForTurn`, called from
+  `Counterpart#recallForTurn` on a turn a person started (`attended`, set by `Lifecycle#recallTurn` for
+  `startedBy: "person"`): an `asked` item Still open would carry here (not dated) or a sunk handoff here, whose words
+  the turn takes in enough of (round 3, below), comes up as one line after the recall block,
+  "Waiting on <owner>, ask when it fits: <title> · needs: <settlesWhen> · waiting <age> [id]". Its bytes come out of
+  recall's room first; it is shown only when this turn wrote the day latch. ONE record, latch and backoff with the
+  wake's mention: the turn uses the steps without the week floor, so the 3-day step is real now (a turn raise on day
+  0 can be followed by one on day 3; the session-start mention still waits a week). Its time is the `owed` step on
+  `recall.decision`.
+- **Round 3 of #796 (a reviewer's 42 real turns on a copy of the owner's store).** Two plain shared words fired on 8
+  of 42 turns: 3 right, 2 weak, 3 wrong (a turn about writing a brief raised an unrelated account question). Now a shared word counts only at
+  recall's own cue weight (`informativeness` over the store's document frequency × `everydayFactor`; no stoplist),
+  at least `OWNER_TURN_WORD_FLOOR` (1.5) each, two of them, together `OWNER_TURN_WEIGHT` (4). Replayed: 4 of the 42
+  fire (3 items), and of the reviewer's 8 only the two with a rare subject word stay.
+  **The dream-queue turn ("night" 1.3 + "dream" 1.7) no longer fires**: lexically it weighs less than the wrong
+  "step" + "brief" match (3.7), so no threshold keeps one and drops the other. On 20 fresh turns written for the
+  replay: 9 fire, each on its subject, none off-topic (the set was written knowing the items, so it flatters).
+- **Round 4: a subject word.** A blind check of 30 turns fired on none, but common verbs clear the floor ("want" 1.8,
+  "talk" 2.4, "ready" 2.7), and a turn about wanting to talk raised an item that happened to say both. The embedder's
+  word table IS loaded on the owner's store (no `embedder` block reads as the default, on); its ramp discounts only
+  function words, by design, so it can't fix this. Now one shared word must be a subject word: weighing
+  `OWNER_TURN_SUBJECT` (3), or one the table holds no whole-word row for ("npm", a name), over the floor. Without
+  a table, weight alone decides. Replayed: the probe stays quiet; the song's-name and "npm install" matches still fire.
+- **One subject, one chain.** A sunk handoff whose lead names an `asked` memory here, or whose first sentence touches
+  one's words as a turn would, is that memory's: never a candidate of its own, at the wake or in a turn (the reviewer
+  saw a memory raised one day and its handoff the next). A handoff is matched on its lead's first sentence and the
+  titles of the memories its lead names, not its whole lead.
+- **Latency.** The build (open `asked` rows, their place, `settlesWhen`, one `docFrequency` read for every item's
+  words, WK3's sunk handoffs) is cached per folder per lived day in meta `wake.owner.items`, keyed by a fingerprint of
+  the `asked` rows' ids and revisions, the folder's handoffs' versions and WK3's lead record. A turn with fewer than
+  `OWNER_TURN_MIN_WORDS` (3) content words doesn't look. Through the hook on the copy: ~3.2 ms p50 on a cached turn,
+  ~45 ms on a build (200 ms on a cold page cache); the reviewer measured 17–23 ms on every turn before.
+- **Shown once.** A sunk handoff said as the wake's ask is not also its pointer line in "Where this folder stands".
+- **Not built:** a night-written context line (the mention is title, `settlesWhen`, age, raises, id).
+- **Lived days, not calendar days.** The latch and the steps count `livedDay`, which the first turn-end of a calendar
+  day moves (`advanceClock`), not SessionStart: the morning's first wake can still be on yesterday's lived day. That
+  errs quiet (never two raises in one calendar day). A CHECK-AFTER read grouping `open.owner.raised` by `day` groups
+  by lived day.
+- **Item 4 (true blockers raised until answered) deferred 11-09:** live with the relevance lane + weekly mention
+  first; if true blockers still sink after ~a week, add an explicit field (not inference), batched with the next
+  store-format change.

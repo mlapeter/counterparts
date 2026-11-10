@@ -41,6 +41,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | the release after 2026-11-09 (SX1) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | the release after 2026-11-09 (LT2 part 1) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
 | The wake as its reader read it (WK3): "shown earlier" only for a telling in this session's context, else the items by title and id (up to 5); the night's own line drops sentences the page or day's end already tell, and is a clause the second morning running; overdue is its own count with its oldest date; a handoff whose lead waits on the owner with nothing since sinks, and one past a week nothing refers to isn't listed; Elsewhere lines say when and what; "Last said" quotes a whole first sentence; "under way" never over a journaled dream; the head names the session | the release after 2026-11-09 (WK3) | ~7 lived days after install (dated reminder set at merge): a week of wakes read by a fresh session against the brief's six points (`~/counterparts-notes/2026-11-09-briefs/WK3-wake-feedback.md`), and the delivered size against ~8.6 KB | [below](#the-wake-as-its-reader-read-it-wk3) |
+| What waits on the owner is raised, backs off, then parks (SO1 step 4, revised): an `asked` item is no longer one of Still open's lines; one item waiting on the owner is said per attended wake ("Waiting on <owner>, ask when it fits"), the most relevant to the folder's week first, a sunk WK3 handoff included; a turn a person started that touches one raises it after the recall block, with what it needs and how long it has waited; one raise per item per lived day store-wide; then 3/7/14 lived days (at session start at least a week), then parked | the release after 2026-11-09 (SO1 step 4) | **~7 lived days after install** (dated reminder set at merge): raises per day (`open.owner.raised`) by `via` (turn vs wake), distinct items raised, the `owed` step's p50 ms on `recall.decision`, answered (revised, closed or no longer `asked` after a raise) vs unanswered, items parked by backoff (`wake.owner.raised` chains at the last step), sunk handoffs raised, and items seen in more than one session a day (should be 0); a hand-read of a week of mentions for ones plainly irrelevant to their folder; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 99 of them `asked`, every one in its folder's Still open each wake) | [below](#what-waits-on-the-owner-so1-step-4) |
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | 0.3.52, 11-09 (W1, #787) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | 0.3.52, 11-09 (SX1, #788) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | 0.3.52, 11-09 (LT2 part 1, #786) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
@@ -229,12 +230,41 @@ which every road carries.
   morning (a 4.4 KB page) the wake went from 5,681 to 5,761 bytes: the session field (~45), the told reminders by title
   in place of one fold line, and the overdue words.
 - **What rides on SO1 step 4.** The backoff for items waiting on Mike (3/7/14 days, then parked; at most one session-start
-  mention a week; the shared day latch) is not here. `waitsOnOwner` is the seam: today it reads the lead's `asked` ids
-  and its words; SO1 step 4's raise events can answer there too.
+  mention a week; the shared day latch) is not here: it is [SO1 step 4](#what-waits-on-the-owner-so1-step-4), which
+  says a sunk handoff as its weekly mention. `waitsOnOwner` is the seam: it reads the lead's `asked` ids and its words.
 
 Revert: each piece is local. The fold rule is `shownEarlier`/`retold` in `shapedDelivery`; the own line's filter is
 `ownToldOnce`; the overdue clause is `lateWords`; the handoff order is `handoffsTold`; the quote is `quoteOf`; the night
 line's journaled branch is the first `if` in `nightLine`; the head field is `own` in `Lifecycle#composeWake`.
+
+## What waits on the owner (SO1 step 4)
+
+SO1 step 4, revised (Mike 11-07 12:04, lightly held; coordinator's 11-09 note on sunk handoffs), `core/owner-waits.ts`
+and `owedOne` in `core/counterpart-wake-shape.ts`. Only the shaped wake changes. No store-format change: meta
+`wake.owner.raised` and the `open.owner.raised` event.
+
+- **The read.** From the live store after a week: `SELECT day, count(*), count(DISTINCT ref) FROM events WHERE name =
+  'open.owner.raised' GROUP BY day`; for each raised id, was it revised, closed, or no longer `asked` after its last
+  raise (answered), or not (unanswered)? Chains in `wake.owner.raised` with three days and the last 14+ lived days
+  back are parked by backoff; `kind: "handoff"` ones are sunk handoffs raised. Then, from `adapter.wake.injected` and
+  the host transcripts: was any item said in two sessions on the same day (should be 0), and was any said in a folder
+  not its own (only personal ones may)? Hand-read the week's mentions: is the first one plausibly what the folder was
+  working on?
+- **Against the baseline.** The 11-05 read (`~/counterparts-notes/2026-11-09-briefs/1105-read.md`): 290 live open, 99
+  `asked`, every `asked` item in its folder's Still open each wake. After: Still open shorter by the folder's `asked`
+  items, one "Waiting on" line a wake at most.
+- **The turn lane.** Raises by `via: "turn"` against `via: "wake"`; for a hand-read of ten turn raises, did the turn
+  really touch the item (the bar: two shared words each weighing `OWNER_TURN_WORD_FLOOR` at recall's cue weight, one
+  of them a subject word, `OWNER_TURN_SUBJECT` or not in the embedder's word table,
+  together `OWNER_TURN_WEIGHT`)? The `owed` step's p50 on `recall.decision.steps`: on a copy of the owner's store
+  (11-09, day 49), through the hook, ~3.2 ms p50 on a cached turn, ~45 ms on the folder's first turn after a wake
+  or a write that changes an asked item (one build), ~200 ms when that first build meets a cold page cache.
+- **What to decide then.** Whether the week floor at session start is right (there the steps read 7, 7, 14; the
+  3-day step is the turn lane's); whether per-item weekly is too much with ~99 items (each wake may carry a
+  different one); whether true blockers still sink (point 4, deferred 11-09: then an explicit field, batched with the next store-format change).
+
+Revert: the filter `x.r?.status !== "asked"` and `owe` in `openSec`, `ownerParked` passed to `Self#stillOpen` (two
+callers), and `attended` in `Lifecycle#recallTurn` (the turn lane). The record and events are inert once nothing reads them.
 
 ## The page names what it sets down (PG1)
 

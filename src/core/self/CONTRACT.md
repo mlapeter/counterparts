@@ -851,6 +851,30 @@ always is; `recall "handoffs"` lists them all). **[A]** Every Elsewhere line car
 a live folder with nothing written says since when. SO1 step 4 (the waiting-on-owner backoff)
 is a separate change; `waitsOnOwner` is its seam.
 
+**What waits on the owner (SO1 step 4, revised, 2026-11-09; Mike 11-07, lightly held).**
+`core/owner-waits.ts`, the shaped wake's "Still open". **[M]** An open memory marked `asked` is
+no longer one of Still open's lines. At most one item waiting on the owner is said per wake,
+"Waiting on <owner>, ask when it fits: <title> · settles when … [id]", only in a session someone
+attends (a headless/agent session neither sees nor raises it), only where Still open would carry it
+(its own folder or joined ones, or anywhere if personal). A handoff WK3 sank is a candidate too, so a
+sunk wait is never hidden for good. **[M]** The most relevant first: content words of its title (and
+`settlesWhen`) found in the folder's week (the leading handoff's lead, the titles and first lines
+written there in `OWNER_CONTEXT_MS`); then this folder's before a personal one, then the oldest.
+**[M]** Said in a delivered wake = raised: one raise per item per lived day store-wide (an
+`open.owner.raised` event, dedup key `<id>:<day>`, is the latch), and the chain kept in meta
+`wake.owner.raised` at the item's version. **[M]** After each unanswered raise it waits
+`OWNER_RAISE_STEPS` lived days (3, 7, 14); at session start never sooner than `OWNER_MENTION_EVERY`
+(a week) after the last raise, so here the steps read 7, 7, 14. After the last step it parks: out of
+the wake, listed parked by `recall "still open"` and counted in the wake's "N parked". A revision
+(`revision`, a handoff's `version`) starts the chain again. **[M]** The relevance lane: on a turn
+a person started, an item the turn touches (two shared words each over `OWNER_TURN_WORD_FLOOR`, together
+`OWNER_TURN_WEIGHT`, at recall's cue weight; a turn under `OWNER_TURN_MIN_WORDS` content words doesn't look), in its own
+project or personal, comes up as one line after the recall block, "Waiting on <owner>, ask when it
+fits: <title> · needs: <settlesWhen> · waiting <age> [id]", under the same record, latch and steps
+without the week floor. **[M]** A sunk handoff said as the wake's ask is not also its pointer line; one
+that names an `asked` memory here, or touches its words, is that memory's subject and raise chain.
+Not built: true blockers raised until answered (point 4: deferred 11-09, no blocker mark exists). No store-format change.
+
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test
 (`stories.ts`); words only, nothing checks a story. **[M]** Day's end orders the day's memories
