@@ -184,7 +184,7 @@ describe("the self tab, round 3b", () => {
       const move = arriving.find((a) => a.id === titled);
       expect(move?.title).toBe("Portland move");
       const html = arriving.map(memoryItem).join("");
-      expect(html).toContain(`openMemory('${titled}')`);
+      expect(html).toContain(`data-do="open-memory" data-id="${titled}"`);
       expect(html).toContain(">Portland move</button>");
       // No title: the first sentence stands in; the rest is on hover only.
       expect(html).toContain(">The dentist is at nine on the fourth.</button>");

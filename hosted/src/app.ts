@@ -29,6 +29,7 @@ import type { CimdFetch } from "./egress.js";
 import { createOAuth } from "./oauth.js";
 import type { OAuth } from "./oauth.js";
 import { accountPages } from "./pages.js";
+import { dashboardRoute } from "./dashboard.js";
 import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import { Csrf } from "./web.js";
@@ -545,7 +546,8 @@ export function createApp(opts: AppOptions): App {
     tenants,
     publicOrigin,
     authenticate: o.authenticate,
-    routes: [o.route, pages.route],
+    // THE DASHBOARD (HD2): the local dashboard's page and views, read-only, for the signed-in owner.
+    routes: [o.route, pages.route, dashboardRoute({ pages, accounts, tenants, onError: (storeId, err) => opts.onError?.("route", storeId === null ? null : storeTag(storeId), err) })],
     limits,
     readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),

@@ -8,13 +8,23 @@
    ─────────────────────────────────────────────────────────────────────────── */
 import { api, fail } from "./shared/api.js";
 import { $ } from "./shared/dom.js";
+import { HOST } from "./shared/host.js";
 import { mountModal } from "./shared/modal.js";
 import { live, tabs } from "./shared/state.js";
 import { PAGE, PAGES, TABS } from "./shell/pages.js";
 import { poll } from "./shell/pulse.js";
 import { mountNav, showTab } from "./shell/tabs.js";
 
+// On hosted, one line under the header: who sees this page, and the way back.
+if (HOST.name === "hosted") {
+  const note = document.createElement("p");
+  note.className = "host-note";
+  note.innerHTML = 'Only you see this page: it is read from your memory each time you open it. <a href="/account">Your account</a>';
+  $("err").before(note);
+}
+
 // Each page writes its own markup into its section and wires its listeners.
+// A tab this host doesn't show is a one-line stub (shell/pages.js).
 for (const page of PAGES) page.mount($("tab-" + page.name));
 mountNav();
 mountModal();
@@ -46,6 +56,10 @@ addEventListener("resize", () => {
   try { await document.fonts.ready; } catch { /* no FontFaceSet: the fallback face stands */ }
   const current = PAGE[tabs.current];
   if (current.redraw) current.redraw();
-  setInterval(poll, 4000);
+  // The pulse: every 4 s locally; on hosted slower, and never while the tab is
+  // hidden (each poll opens the person's store on the server), with one look
+  // as soon as it is shown again (shared/host.js).
+  setInterval(() => { if (HOST.pulseWhenHidden || !document.hidden) void poll(); }, HOST.pulseMs);
+  if (!HOST.pulseWhenHidden) addEventListener("visibilitychange", () => { if (!document.hidden) void poll(); });
   document.documentElement.dataset.loaded = "1";
 })();

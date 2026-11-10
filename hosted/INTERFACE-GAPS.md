@@ -227,3 +227,22 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
 44. **Still open (G1 L5, not taken up in G1F): a 30-day sliding web session can export the whole memory** (and delete it
     now, §35) with no fresh sign-in (G1 L5). Someone at an unlocked, signed-in browser can download it. A fix would
     ask for a session younger than about 15 minutes for export and delete-now.
+
+## The dashboard on hosted (HD2, 2026-11-10)
+
+45. **First release: home, memories and self, read-only** (`src/dashboard.ts`, the shared half
+    `src/adapters/dashboard/web/respond.ts`). Owed, each on Mike's word:
+    - **The other tabs** (subjects, flow, health) say "not on hosted yet" and their views 404 (`HOSTED_VIEWS`). Health's
+      machine parts (doctor, hooks, worker, install) stay local; its store parts (the last cycle, the wake's size, the
+      archive) and the mechanisms panel could come over as they are.
+    - **The 3-D brain** is off (`HOSTED_HOST.brain`): a 600 KB module per visit, and its lights read `/api/mechanisms`.
+    - **Managing** (ask by facts / by meaning, add a memory, remove one, mark what it is about) is hidden by
+      `HOST.canAct`; it would need a hosted action door with CSRF and the tenant's queue, not `actions.ts`.
+    - **An empty store** (signed up, never connected) answers each view 409 with one sentence, so the page shows that
+      sentence in its error box; a calmer empty page would be nicer.
+46. **Every `/api` view opens an observer Counterpart inside the tenant's queue and closes it** (no cache). It also
+    opens the tenant's own handle when it is closed (as export does), which then idles out on the usual 10 minutes; the
+    page polls every 60 s, and not while hidden, so a tab left open keeps that handle warm. A memory store's open was
+    a few milliseconds in tests; measure on a large store if pages feel slow.
+47. **The page's inline `style=` attributes are allowed** (`style-src-attr 'unsafe-inline'`, nothing else inline): the
+    drawn markup uses about fifty for widths and colours. Moving them to classes would let the CSP drop it.
