@@ -2,9 +2,11 @@
  * THE ACCOUNT PAGES (OL2 step 3; design §4.2): log in by email link, the
  * account page, log out. Server-rendered HTML, no framework.
  *
- *   GET  /login            the form (email, an invite code for sign-up, `next`)
+ *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full
  *   POST /login            sends the link — the same words on the page whatever the outcome
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
+ *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): public, cached a few
+ *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
  *   GET  /account          who you are, your time zone, your connected AIs
  *   POST /account/timezone
  *   POST /logout
@@ -63,6 +65,8 @@ export interface PagesOptions {
   readonly keepAccount?: (personId: string) => boolean;
   /** A delete's email failed to send (R9): for the operator's log, by store. Never given the address or the error. */
   readonly onDeleteMailFailed?: (storeId: string | null) => void;
+  /** Origins a browser may read `/spots` from (SU1). Default `SPOTS_ORIGINS`: the site only. */
+  readonly spotsOrigins?: readonly string[];
 }
 
 /** A deadline in the person's own zone, e.g. "Tuesday, October 28 at 2:05 PM MDT". */
@@ -85,8 +89,23 @@ export interface Pages {
   readonly cookieNames: CookieNames;
 }
 
-const SENT_WORDS =
-  "If that address can sign in — or your invite code is good — a sign-in link is on its way. It works for 15 minutes, once, in this browser.";
+// THE SENT WORDS (SU1): which of the two depends on the spots only, which are
+// public (/spots), never on the address typed, so the page still says nothing
+// of who has an account (CONTRACT §12). While spots are left, any address can
+// sign in or sign up (a suspended one gets no email); with none left, only one
+// with an account or a good code gets a link.
+const SENT_WORDS_OPEN = "A link to sign in or sign up is on its way to that address. It works for 15 minutes, once, in this browser.";
+const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works for 15 minutes, once, in this browser.";
+
+/** Where a new person goes when hosted is full: the site's hosted waiting list. */
+export const WAITLIST_URL = "https://counterparts.ai/#waitlist";
+const FULL_TITLE = "Hosted is full for now";
+const FULL_HTML = `${escapeHtml("Hosted is full for now — ")}<a href="${WAITLIST_URL}">join the waiting list</a>.`;
+
+/** Who may read /spots from a browser: the site, nothing else (its www host redirects to this one). */
+export const SPOTS_ORIGINS: readonly string[] = ["https://counterparts.ai"];
+/** How long /spots's answer is kept, here and in a browser. */
+export const SPOTS_CACHE_MS = 5_000;
 
 // THE DELETE WORDS (R6, Mike 2026-10-27: plain and honest). DESIGN §5.2 and §5.4 say the same.
 const DELETE_LATER_WORDS =
@@ -166,20 +185,35 @@ export function accountPages(opts: PagesOptions): Pages {
   /** A signed-in person whose delete is pending (R6): served the pending page, keep, and delete now, and nothing else. */
   const pendingOf = (req: IncomingMessage): string | null => opts.accounts.sessionPendingDelete(parseCookies(req).get(names.session) ?? null);
 
+  // /spots's answer, kept SPOTS_CACHE_MS so a busy site page costs one read a few seconds.
+  let spotsCache: { at: number; body: string } | null = null;
+  const spotsBody = (): string => {
+    if (spotsCache !== null && now() - spotsCache.at < SPOTS_CACHE_MS) return spotsCache.body;
+    const left = opts.accounts.spots().left;
+    spotsCache = { at: now(), body: `${JSON.stringify({ left, open: left > 0 })}\n` };
+    return spotsCache.body;
+  };
+  const spotsOrigins = opts.spotsOrigins ?? SPOTS_ORIGINS;
+
   const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = ""): void => {
     const nonce = randomBytes(16).toString("base64");
+    // Full: said to everyone alike, above the form. Sign-in and a code still work.
+    const full = opts.accounts.spots().left === 0;
     page(res, status, {
       title: "Sign in",
       nonce,
       body: `<h1>Sign in to Counterparts</h1>
 ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
+${full ? `<p>${FULL_HTML}</p><p class="muted">Have an account, or an invite code? Sign in here.</p>` : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
 <form method="post" action="/login">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
 <label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
-<label>Invite code <span class="muted">(only the first time)</span><br><input type="text" name="invite" autocomplete="off"></label><br>
-<button type="submit">Email me a sign-in link</button>
+<details${full ? " open" : ""}><summary>Have an invite code?</summary>
+<label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
+</details>
+<button type="submit">Email me a link</button>
 </form>
 <script nonce="${nonce}">try{document.getElementById("tz").value=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}</script>`,
     });
@@ -239,6 +273,22 @@ ${
       redirect(res, "/account");
       return true;
     }
+    if (p === "/spots" && (req.method === "GET" || req.method === "HEAD")) {
+      // Public, for the site's "N spots left" (SU1). Nothing but the two fields.
+      req.resume();
+      const from = req.headers["origin"];
+      const cors = typeof from === "string" && spotsOrigins.includes(from) ? { "Access-Control-Allow-Origin": from } : {};
+      const body = spotsBody();
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": `public, max-age=${String(Math.round(SPOTS_CACHE_MS / 1000))}`,
+        "X-Content-Type-Options": "nosniff",
+        Vary: "Origin",
+        ...cors,
+      });
+      res.end(req.method === "HEAD" ? undefined : body);
+      return true;
+    }
     if (p === "/login" && req.method === "GET") {
       const browser = browserOf(req, res);
       if (personOf(req) !== null) {
@@ -266,6 +316,8 @@ ${
         message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
         return true;
       }
+      // The words follow the spots as they stand now (public), not this ask's outcome.
+      const open = opts.accounts.spots().left > 0;
       const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser! });
       if (!asked.send && asked.reason === "bad-email") {
         loginForm(res, browser!, next, 400, "That doesn't look like an email address.");
@@ -291,7 +343,8 @@ ${
             }
           });
       }
-      message(res, 200, "Check your email", SENT_WORDS);
+      if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
+      else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${escapeHtml("New to Counterparts? ")}${FULL_HTML}</p>` });
       return true;
     }
     if (p === "/login/link" && req.method === "GET") {
@@ -299,7 +352,10 @@ ${
       const browser = parseCookies(req).get(names.browser) ?? null;
       const used = token.length < 16 || token.length > 128 ? ({ ok: false, reason: "unknown" } as const) : opts.accounts.useLink({ token, browser });
       if (!used.ok) {
-        if (used.reason === "wrong-browser") {
+        if (used.reason === "full") {
+          // The last spot went between the ask and this click. Said only here, to the person who clicked their own link.
+          page(res, 200, { title: FULL_TITLE, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>${FULL_HTML}</p><p class="muted">The last spot went before this link was opened. Have an invite code? <a href="/login">Sign up with it here</a>.</p>` });
+        } else if (used.reason === "wrong-browser") {
           message(res, 400, "Open it in the other browser", "This link works only in the browser where you asked for it. Open it there, or ask for a new link here.", { href: "/login", text: "Ask for a new link" });
         } else {
           message(res, 400, "That link can't be used", "It has expired, was already used, or isn't one of ours. Ask for a new one.", { href: "/login", text: "Ask for a new link" });

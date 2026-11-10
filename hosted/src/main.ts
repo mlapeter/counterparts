@@ -4,6 +4,8 @@
  *
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts serve
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts invite [--uses N] [--note TEXT] [--expires DAYS]
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts spots [set N]   (SU1: how many accounts hosted takes in all; shows N,
+ *                                         people and spots left; `set` takes effect at once, no restart. Never set: 0, closed)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
@@ -60,7 +62,7 @@ import { openDb } from "../../src/core/store/db.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
-import { Accounts } from "./accounts.js";
+import { Accounts, MAX_SPOTS } from "./accounts.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
@@ -693,7 +695,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${out.text}\n`);
     return;
   }
-  if (command === "invite" || command === "migrate-keys" || command === "start-over") {
+  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
     // (the #653 review, L6), so it can never skip that check by accident.
@@ -728,6 +730,26 @@ async function main(): Promise<void> {
       return;
     }
   }
+  if (command === "spots") {
+    // SU1: N is accounts in all, every person counted (invited ones and the
+    // operator's own too), so `spots set 10` with 4 accounts opens 6. Lowering
+    // it removes nobody. A bad N is refused, never read as a default.
+    let set: number | null = null;
+    if (rest.length > 0) {
+      const n = Number(rest[1]);
+      if (rest[0] !== "set" || rest.length !== 2 || !/^\d+$/.test(rest[1] ?? "") || !Number.isInteger(n) || n > MAX_SPOTS) {
+        process.stderr.write(`[hosted] refused: spots takes nothing (show) or \`set N\`, N a whole number from 0 to ${String(MAX_SPOTS)}.\n`);
+        process.exitCode = 1;
+        return;
+      }
+      set = n;
+    }
+    const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
+    const s = set === null ? accounts.spots() : accounts.setSpots(set);
+    accounts.close();
+    process.stdout.write(`spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"})\n`);
+    return;
+  }
   if (command === "invite") {
     const uses = Number(rest[rest.indexOf("--uses") + 1] ?? "1");
     const note = rest.includes("--note") ? rest[rest.indexOf("--note") + 1] : undefined;
@@ -755,7 +777,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
-    process.stderr.write(`[hosted] commands: serve, invite, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
+    process.stderr.write(`[hosted] commands: serve, invite, spots, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }

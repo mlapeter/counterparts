@@ -14,14 +14,15 @@
      The R2 drill (item 5) again on the deployed image after that;
    - lockout: the recovery private key held offline in two places before use, both copies proven by
      `recovery-fingerprint` against the fingerprint every start logs, and the throwaway-keypair drill (item 5)
-     passing on the real binary. (Met for the KEK 11-02; owed again for the recovery key at the WB1 release.)
+     passing on the real binary. (Met for the KEK 11-02; for the recovery key, the real-R2 drill passed 2026-11-06
+    13:52 on 0.3.50.)
    - **Not closed by WB1** (it was never the goal): a leak of the volume is a leak of everything (the live stores are
      plaintext there; with the bucket, the backups' history too). And the memory stores that exist at the migration
      keep their DEKs (control is re-keyed): an old `HOSTED_KEKS` plus a copy of their old `keys/<id>.wrapped` still
      opens their backups. Accepted for Mike's and the test accounts' stores; re-keying them is not built.
-2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
-   lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
-   service. Not built now.
+2. **Deferred, not a gate for the beta (Mike, 2026-11-04, and kept deferred 2026-11-10): the account email, encrypted
+   under the person's DEK, with a keyed hash for lookup.** It was a gate from 2026-10-26, 16:21. The hash key would sit
+   next to the KEK, behind `KeyWrapper`. Not built.
    - Until then, the beta says "your account email is purged from backups within 24 hours", on the account, done and
      202 pages and in DESIGN §5.2.
    - Why that holds: with `secure_delete` on, snapshots taken after a delete are clean. The pre-delete snapshot and the
@@ -37,6 +38,7 @@
 0-10 users).** They stay owed; the lists above and item 8 say what each would take.
 - ~~The Cloudflare key service (the second gate above)~~: replaced by WB1 (2026-11-06), above.
 - The account email under the DEK (item 2): it comes with the encrypted live store, which is pending Mike's final word.
+  Mike kept it deferred on 2026-11-10: not a gate for the beta.
 - The four custom alerts (item 8): Railway's crash and deploy emails cover the start.
 - An outside uptime service (item 8): it needs Mike's account, and Railway's notices cover a crash.
 - A formal data-request process: a request to the feedback address is handled by hand at this size.
@@ -56,8 +58,8 @@
    `restore --all` on Railway's side would be; never `serve` a drill container against the production bucket).
    **WB1 (2026-11-06): passed in the new shape with `--local`** (a local S3 with SSE-C, the branch's image): the
    sealed key objects, both refusals (no private key, the wrong one), and `hold` + `recover-keys` + `RESTORE_ON_BOOT`
-   twice. **Owed:** the same on R2 (`drill.sh --sha <the release>` or after it deploys), and on Railway that `hold`
-   passes the healthcheck and `railway ssh` reaches it (unverified).
+   twice. **Passed on R2 2026-11-06 13:52, on 0.3.50.** Still unverified: on Railway, that `hold` passes the
+   healthcheck and `railway ssh` reaches it.
 6. **Volume ownership.** The image runs as `node`, and Railway mounts volumes owned by root. The RUNBOOK's answer is
    Railway's `RAILWAY_RUN_UID=0` (unverified), which runs it as root. An entrypoint that chowns and drops privileges
    would keep `node`.
@@ -101,7 +103,7 @@
 
 14. **No global or cost-weighted budget** (the #653 review, L4). The limits are per account and count calls, not
     their cost: a few accounts each inside their own limits, all running heavy calls, still slow everyone (one
-    event loop). Acceptable for an invite-only beta of about 20; a shared budget or a cost weight per tool comes
+    event loop). Acceptable for a beta capped at a few tens of accounts (spots, SU1); a shared budget or a cost weight per tool comes
     with real load.
 15. **Litestream's own log lines name database paths**, and so store ids. The server's lines carry hashed tags
     only, but the sidecar child's stderr goes to the same log unfiltered (the #653 review, L5). Since the build with

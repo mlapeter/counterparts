@@ -14,9 +14,14 @@
  *   - **A login link works once, for 15 minutes, in the browser that asked for
  *     it.** "Used" and the person's session are written in one statement that
  *     only an unused, unexpired row satisfies, so two clicks cannot both win.
- *   - **Sign-up needs an invite** (Q10). An unknown address with no valid
- *     invite gets no email — and the same answer on the page as everyone else,
- *     so the form never says who has an account.
+ *   - **Sign-up takes a spot or an invite** (SU1, 2026-11-10; Q10 before it).
+ *     An unknown address signs up with just its email while a spot is left
+ *     (`spots set N`: N accounts in all, every person counted, invited or
+ *     not); a live invite code signs up past the cap. With neither, no email —
+ *     and the same answer on the page as everyone else, so the form never says
+ *     who has an account. The spot, like the invite, is taken at the click, in
+ *     the transaction that makes the person: a link asked for and never
+ *     clicked takes nothing.
  *   - **A store id is 128 random bits**, made here at sign-up and never derived
  *     from an address or a name.
  *   - **Nothing in `audit` is content**: action codes and ids only.
@@ -101,6 +106,13 @@ CREATE TABLE IF NOT EXISTS heartbeat (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   at INTEGER NOT NULL
 );
+-- SU1 (2026-11-10): the operator's settings, one row each. Today only
+-- 'spots' (how many accounts hosted takes in all; absent ⇒ 0, closed).
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  set_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit (
   at INTEGER NOT NULL,
   person_id TEXT,
@@ -171,11 +183,24 @@ export interface Person {
 
 export type LinkRequest =
   | { readonly send: true; readonly to: string; readonly token: string; readonly signUp: boolean }
-  | { readonly send: false; readonly reason: "bad-email" | "invite-required" | "suspended" };
+  | { readonly send: false; readonly reason: "bad-email" | "full" | "suspended" };
 
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
-  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" };
+  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" | "full" };
+
+/** The spots (SU1): how many accounts hosted takes in all, how many there are, and how many more may sign up without a code. */
+export interface Spots {
+  /** The operator's number (`spots set N`); 0 when never set. */
+  readonly total: number;
+  /** People with an account: every state but `deleted` (a pending delete still holds its spot; an erased account frees it). */
+  readonly people: number;
+  /** max(0, total − people). Invite sign-ups count as people, so they can take it below zero; it reads 0 then. */
+  readonly left: number;
+}
+
+/** The most `spots set` takes: a typo of a few extra digits is refused, not obeyed. */
+export const MAX_SPOTS = 100_000;
 
 export interface AccountsOptions {
   /** `HOSTED_DATA_ROOT/control/accounts.sqlite`. */
@@ -328,6 +353,25 @@ export class Accounts {
     return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;
   }
 
+  // ── spots (SU1) ────────────────────────────────────────────────────────────
+
+  /** The spots now. Read from the database every time: `spots set` writes from another process. */
+  spots(): Spots {
+    const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'spots'")?.value;
+    const n = raw === undefined ? 0 : Number(raw);
+    const total = Number.isInteger(n) && n >= 0 ? n : 0;
+    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted'")?.n ?? 0;
+    return { total, people, left: Math.max(0, total - people) };
+  }
+
+  /** The operator sets N (`main.ts spots set N`): accounts in all. Lowering it below the people there are closes sign-up and removes nobody. */
+  setSpots(total: number): Spots {
+    if (!Number.isInteger(total) || total < 0 || total > MAX_SPOTS) throw new Error(`spots: a whole number from 0 to ${String(MAX_SPOTS)}`);
+    this.db.run("INSERT INTO settings (key, value, set_at) VALUES ('spots', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at", String(total), this.now());
+    this.audit(null, null, "spots.set", String(total));
+    return this.spots();
+  }
+
   // ── invites ────────────────────────────────────────────────────────────────
 
   /**
@@ -375,12 +419,15 @@ export class Accounts {
     if (email === null) return { send: false, reason: "bad-email" };
     const identity = this.db.get<{ id: string; person_id: string }>("SELECT id, person_id FROM identities WHERE kind = 'email' AND value = ?", email);
     let inviteId: string | null = null;
-    let refused: "invite-required" | "suspended" | null = null;
+    let refused: "full" | "suspended" | null = null;
     if (identity !== undefined) {
       if (!this.canSignIn(identity.person_id)) refused = "suspended";
     } else {
+      // A live code signs up past the cap. No code, or one that isn't good
+      // (mistyped, expired, used up), takes a spot while one is left (SU1).
+      // The spot isn't held here: the click takes it (`useLink`).
       inviteId = this.liveInvite(typeof input.inviteCode === "string" ? input.inviteCode.trim() : "");
-      if (inviteId === null) refused = "invite-required";
+      if (inviteId === null && this.spots().left === 0) refused = "full";
     }
     const token = secret("cpl_");
     const at = this.now();
@@ -413,7 +460,10 @@ export class Accounts {
   /**
    * The link was opened. One use, in time, in the browser that asked. A sign-up
    * creates the person, the email identity (verified by this very click) and the
-   * store, and spends one use of the invite.
+   * store, and spends one use of the invite — or, with no invite (or one used up
+   * since), takes a spot: the count and the insert in this one transaction
+   * (BEGIN IMMEDIATE, so a second connection waits for it), so two people racing
+   * for the last spot can't both get in (SU1).
    */
   useLink(input: { token: string; browser: string | null }): LinkUse {
     const hash = sha256(input.token);
@@ -445,15 +495,19 @@ export class Accounts {
         this.audit(existing.person_id, null, "login.link", null);
         return { ok: true, personId: existing.person_id, created: false };
       }
-      if (row.invite_id === null) return { ok: false, reason: "invite-spent" };
-      this.db.run("UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)", row.invite_id, at);
-      if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) !== 1) return { ok: false, reason: "invite-spent" };
+      let inviteId: string | null = null;
+      if (row.invite_id !== null) {
+        this.db.run("UPDATE invites SET uses = uses + 1 WHERE id = ? AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)", row.invite_id, at);
+        if ((this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1) inviteId = row.invite_id;
+      }
+      // No invite spent: a spot, counted inside this transaction.
+      if (inviteId === null && this.spots().left === 0) return { ok: false, reason: row.invite_id === null ? "full" : "invite-spent" };
       const personId = id128();
       const storeId = id128();
-      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, ?)", personId, at, row.time_zone, row.invite_id);
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, ?)", personId, at, row.time_zone, inviteId);
       this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, row.email, at, at);
       this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
-      this.audit(personId, storeId, "signup", row.invite_id);
+      this.audit(personId, storeId, "signup", inviteId ?? "spot");
       return { ok: true, personId, created: true };
     });
   }
@@ -649,7 +703,8 @@ export class Accounts {
    * THE ACCOUNT'S LAST STEP (after its store is gone): every way in, every
    * session and pending link is deleted; the person and the store are left as
    * tombstones (id, dates, state) so nothing reuses their ids. The address can
-   * sign up again later as a new person, with a new invite.
+   * sign up again later as a new person, with a spot or a new invite (SU1:
+   * this person stops counting against the spots here).
    */
   markDeleted(personId: string): void {
     const at = this.now();

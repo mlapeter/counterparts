@@ -56,11 +56,21 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - The single-use claim is one `UPDATE … WHERE used_at IS NULL`.
     - The wrong browser is refused without spending the link, so a forwarded email or a mail scanner signs nobody in
       and doesn't burn the link either.
-11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
-    the verified email identity and the store. A code expires 7 days after it is made unless `invite --expires <days>`
-    (1 to 365) says otherwise (G1 L4, 2026-11-04). Codes made before that default have no expiry and stay valid until
-    used.
-12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
+11. **Sign-up takes a spot or a live invite** (SU1, 2026-11-10; invite only before it).
+    - **Spots.** `spots set N` (stored in control's `settings`; never set ⇒ 0) is the accounts hosted takes in all.
+      Spots left = max(0, N − people), counting every person but a `deleted` tombstone: invited ones and a pending
+      delete count, an erased account frees its spot. While one is left, an unknown address with no good code gets a
+      link. The spot is taken at the click: the count and the insert run in the one `BEGIN IMMEDIATE` transaction that
+      creates the person, the verified email identity and the store, so two clicks for the last spot can't both get
+      in, and a link never clicked takes nothing. A click with none left makes nothing and says hosted is full.
+    - **Invites** sign up past N. A code is spent at the click, in that same transaction. A code expires 7 days after it
+      is made unless `invite --expires <days>` (1 to 365) says otherwise (G1 L4, 2026-11-04). Codes made before that
+      default have no expiry and stay valid until used. A code that isn't good (mistyped, expired, used up) while a
+      spot is left takes the spot instead.
+    - **`GET /spots`** answers `{"left": n, "open": bool}` and nothing else, with no auth, kept 5 seconds, and
+      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`).
+12. **The login page never says who has an account.** It shows the same words whether a link went out or not (they
+    change with the spots, which are public, never with the address: "full" is said to everyone alike), and
     the email is sent without being awaited, so the response time doesn't say it either. Every ask, refused or not,
     writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
     write doesn't say it. Rows a day past expiry are swept by the next ask.
@@ -126,6 +136,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the mail key.
 
     `invite` prints one code, once, and says on stderr when it expires (7 days, or `--expires <days>`).
+
+    `spots` prints N, the people there are and the spots left; `spots set N` (0 to 100,000) stores N and takes effect
+    at the next sign-up, no restart. Both stand behind the same volume check as `invite`. A bad N is refused.
 
     `signups` (`src/signups.ts`) prints the people there are now and the sign-ups per week (Monday 00:00 UTC), counts
     only, so its output can be pasted anywhere. It reads `people`'s dates and states on a read-only connection, needs
