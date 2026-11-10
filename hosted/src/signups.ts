@@ -8,7 +8,8 @@
  * not one. "people" is the accounts
  * that exist now (every state but `deleted`, a pending delete included); the weeks
  * count every sign-up that happened, and a deleted account's tombstone keeps its
- * date, so an old week's number never drops when someone leaves.
+ * date, so an old week's number doesn't drop when someone leaves — until the
+ * tombstone is erased, 365 days after the delete (AR1, CONTRACT §31c).
  *
  * A WEEK starts Monday 00:00 UTC and is named by that Monday's date. No week is
  * left out between the first sign-up and now, so a quiet week reads as 0.

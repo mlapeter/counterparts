@@ -302,6 +302,9 @@ export function callLine(r: HostedCallRecord): string {
  */
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
+  // AR1: counts and codes only; the second argument is never an id here.
+  if (name === "retention.failed") return `[hosted] ${name} code=${store}: a deleted account past its 365 days couldn't be forgotten this pass (r2: the bucket didn't answer; leftover: something of its store is still in the bucket; forget: its rows didn't go). It waits and is tried again\n`;
+  if (name === "retention.waiting") return `[hosted] ${name} n=${store}: deleted accounts past their 365 days are waiting to be forgotten (uploads not proven landing yet, or the bucket not clean). A stale-uploads line is the thing to fix\n`;
   if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;
   if (name === "removal.overdue") return `[hosted] ${name} storeTag=${store}: a memory deleted in chat is overdue: more than 48 h past its erase, or claimed by an erase that didn't finish (it keeps failing, or the timer never reached it). It stays hidden; the audit has removal.failed. Said once per hold\n`;
   if (name === "delete.mail.failed") return `[hosted] ${name} storeTag=${store}: a delete's email (R9) didn't send. The delete stands; the person saw its page. The audit has it\n`;
@@ -448,6 +451,11 @@ export function backupTraces(dataRoot: string): boolean {
  * Did this volume LIVE: is there anyone or anything a start against the wrong
  * bucket could lose (R7; the #661 review's HIGH 2)? A person or a store in the
  * accounts database (any state: a deleted one leaves its row), or a store's dir.
+ * A deleted account FORGOTTEN after 365 days (AR1, CONTRACT §31c) leaves no row,
+ * so a volume whose only people were forgotten reads as never lived. Harmless:
+ * the question is what a wrong-bucket start could lose, and a forgotten account
+ * has nothing left to lose (no store, no key, nothing in the bucket: the pass
+ * proved that before it forgot).
  * Not a control key, a key file or an invite alone: a first start cut short
  * leaves those, with nothing to lose. An accounts database that can't be read
  * is its own case ("unreadable", the #661 re-check's A3): never new, never
