@@ -2378,7 +2378,7 @@ export const CLAUDE_AI_WORDS: Readonly<
       "Save to long-term memory, in the moment: something about the person, a decision, how they like to work, a plan or promise with its date, how the conversation felt, a line that struck you and why. Nothing reads the conversation afterwards: what isn't saved here or in a chapter is not kept. One idea per call; keep the exact words when they matter.",
     // DIR1: "Err toward too many" said as what it rests on (unused memories fade), not as a push.
     admission:
-      "When something would be worth having back, as it comes up rather than at the end: nothing on claude.ai asks at the end of a conversation. Small things are worth saving too: memories that go unused fade on their own within days. Leave salience unset for routine things.",
+      "When something would be worth having back, as it comes up rather than at the end: nothing on claude.ai asks at the end of a conversation. Small things are worth saving too: weak memories that go unused fade on their own within days. Leave salience unset for routine things.",
     // TT1 (2026-11-04): the `feelingsNow` negative moves to its field, which says it.
     negativeExamples: REMEMBER.negativeExamples.filter((n) => !n.includes("`feelingsNow`")),
   },

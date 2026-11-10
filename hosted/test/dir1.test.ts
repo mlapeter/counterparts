@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
 import { mcpAllowedOrigins } from "../src/main.js";
+import { isLoopbackOnly } from "../src/oauth.js";
 import { MAIN, freePort, rpc, spawnServe, tempRoot } from "./helpers.js";
 import { Browser, CLAUDE_CODE_CIMD, CLAUDE_CODE_CIMD_URL, bearer, connect, csrfOf, insecure, rig } from "./oauth-rig.js";
 import type { Rig } from "./oauth-rig.js";
@@ -201,6 +202,56 @@ describe("the reviewer's test account (item 7)", () => {
     assert.equal(r.mail.sent.length, sent);
   });
 
+  test("`reviewer revoke` beside the running server ends the connection made with the code: the same token is refused at its next call", async () => {
+    const r = await open();
+    const made = r.app.accounts.createReviewer({ email: "reviewer@example.com", days: 30 });
+    assert.ok(!("refusal" in made));
+    const c = await connect(r, { signIn: withCode("reviewer@example.com", made.code) });
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 200);
+    const env = { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: r.origin, MAIL: "log", BACKUPS: "off" };
+    const revoked = spawnSync(process.execPath, [...scriptArgs(MAIN), "reviewer", "revoke", "reviewer@example.com"], { env, encoding: "utf8", timeout: 30_000 });
+    assert.equal(revoked.status, 0, revoked.stderr);
+    assert.match(revoked.stdout, /connected apps ended/);
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+    // Never a member's account.
+    const { code: invite } = r.app.accounts.createInvite();
+    await connect(r, { email: "member@example.com", invite });
+    const member = spawnSync(process.execPath, [...scriptArgs(MAIN), "reviewer", "revoke", "member@example.com"], { env, encoding: "utf8", timeout: 30_000 });
+    assert.equal(member.status, 1);
+    assert.match(member.stderr, /no reviewer account has that email/);
+  });
+
+  test("a code's expiry ends the account's connections at the next tick, as a revoke does", async () => {
+    let clock = Date.now();
+    const r = await rigAt(() => clock);
+    const made = r.app.accounts.createReviewer({ email: "reviewer@example.com", days: 1 });
+    assert.ok(!("refusal" in made));
+    const c = await connect(r, { signIn: withCode("reviewer@example.com", made.code) });
+    assert.deepEqual(r.app.endExpiredReviewers(), [], "not yet");
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 200);
+    clock += 25 * 60 * 60 * 1000;
+    assert.deepEqual(r.app.endExpiredReviewers(), [made.personId]);
+    assert.deepEqual(r.app.endExpiredReviewers(), [], "once");
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+  });
+
+  test("reviewer accounts take no public spot", async () => {
+    const r = await open();
+    r.app.accounts.setSpots(1);
+    assert.equal(r.app.accounts.spots().left, 1);
+    assert.ok(!("refusal" in r.app.accounts.createReviewer({ email: "reviewer@example.com", days: 30 })));
+    assert.ok(!("refusal" in r.app.accounts.createReviewer({ email: "reviewer2@example.com", days: 30 })));
+    assert.deepEqual(r.app.accounts.spots(), { total: 1, people: 0, left: 1 });
+    const { code } = r.app.accounts.createInvite();
+    await connect(r, { email: "member@example.com", invite: code });
+    assert.deepEqual(r.app.accounts.spots(), { total: 1, people: 1, left: 0 });
+  });
+
+  test("isLoopbackOnly: http on a loopback host, every one of them, and nothing else", () => {
+    assert.equal(isLoopbackOnly(["http://localhost/callback", "http://127.0.0.1:3118/cb", "http://[::1]/cb"]), true);
+    for (const bad of [[], ["http://localhost.evil.example/cb"], ["http://127.0.0.2/cb"], ["https://localhost/cb"], ["http://localhost/cb", "https://claude.ai/cb"], ["not a url"]]) assert.equal(isLoopbackOnly(bad), false, JSON.stringify(bad));
+  });
+
   test("expired or revoked, a code signs nobody in; revoke ends the account's web sessions", async () => {
     let clock = Date.now();
     const r = await rigAt(() => clock);
@@ -214,7 +265,7 @@ describe("the reviewer's test account (item 7)", () => {
     const personId = r.app.accounts.reviewerSignIn("reviewer2@example.com", again.code)!;
     const session = r.app.accounts.startSession(personId);
     assert.equal(r.app.accounts.sessionPerson(session), personId);
-    assert.equal(r.app.accounts.revokeReviewer("reviewer2@example.com"), 1);
+    assert.equal(r.app.accounts.revokeReviewer("reviewer2@example.com").revoked, 1);
     assert.equal(r.app.accounts.reviewerSignIn("reviewer2@example.com", again.code), null, "revoked");
     assert.equal(r.app.accounts.sessionPerson(session), null, "its sessions ended");
   });
@@ -282,7 +333,7 @@ describe("the operator's `reviewer` command (item 7)", () => {
     }
     const revoked = run("revoke", "reviewer@example.com");
     assert.equal(revoked.status, 0, revoked.stderr);
-    assert.equal(revoked.stdout.trim(), "1 reviewer code revoked");
+    assert.equal(revoked.stdout.trim(), "1 reviewer code revoked; its web sessions and connected apps ended");
     const db = openDb(join(tmp.root, "data", "control", "accounts.sqlite"));
     try {
       assert.equal(db.all("SELECT 1 FROM reviewer_codes").length, 0);

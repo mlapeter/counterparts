@@ -301,6 +301,11 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(stores)").some((c) => c.name === "seed")) {
       this.db.exec("ALTER TABLE stores ADD COLUMN seed TEXT");
     }
+    // DIR1 review (2026-11-10): what kind of account this is: 'reviewer' for one the
+    // `reviewer` command made (it never takes a public spot), NULL for everyone else.
+    if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "kind")) {
+      this.db.exec("ALTER TABLE people ADD COLUMN kind TEXT");
+    }
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -414,7 +419,8 @@ export class Accounts {
     const raw = this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = 'spots'")?.value;
     const n = raw === undefined ? 0 : Number(raw);
     const total = Number.isInteger(n) && n >= 0 ? n : 0;
-    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted'")?.n ?? 0;
+    // A reviewer's account (DIR1) is the operator's, never a public spot's.
+    const people = this.db.get<{ n: number }>("SELECT count(*) AS n FROM people WHERE state != 'deleted' AND kind IS NOT 'reviewer'")?.n ?? 0;
     return { total, people, left: Math.max(0, total - people) };
   }
 
@@ -505,7 +511,7 @@ export class Accounts {
       }
       const personId = id128();
       const storeId = id128();
-      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, NULL)", personId, at, validTimeZone(input.timeZone));
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id, kind) VALUES (?, ?, 'active', ?, NULL, 'reviewer')", personId, at, validTimeZone(input.timeZone));
       this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, email, at, at);
       this.db.run("INSERT INTO stores (id, person_id, created_at, state, seed) VALUES (?, ?, ?, 'active', 'sample')", storeId, personId, at);
       this.db.run("INSERT INTO reviewer_codes (code_hash, person_id, created_at, expires_at) VALUES (?, ?, ?, ?)", sha256(code), personId, at, expiresAt);
@@ -530,17 +536,38 @@ export class Accounts {
     return row.person_id;
   }
 
-  /** Revoke every reviewer code of the account at `email`, and end its web sessions. How many codes went. */
-  revokeReviewer(emailRaw: unknown): number {
+  /**
+   * Revoke every reviewer code of the reviewer account at `email`, and end its web sessions. How many
+   * codes went, and whose: the caller ends that person's OAuth grants too (`OidcStore#revokeAccount`),
+   * so a connection made with the code stops at its next call. Only a reviewer's account: never a member's.
+   */
+  revokeReviewer(emailRaw: unknown): { revoked: number; personId: string | null } {
     const email = normalizeEmail(emailRaw);
-    if (email === null) return 0;
-    const person = this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE kind = 'email' AND value = ?", email)?.person_id;
-    if (person === undefined) return 0;
+    if (email === null) return { revoked: 0, personId: null };
+    const person = this.db.get<{ id: string }>("SELECT p.id FROM identities i JOIN people p ON p.id = i.person_id WHERE i.kind = 'email' AND i.value = ? AND p.kind = 'reviewer'", email)?.id;
+    if (person === undefined) return { revoked: 0, personId: null };
     this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
     const n = this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
     this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
-    if (n > 0) this.audit(person, null, "reviewer.revoked", String(n));
-    return n;
+    this.audit(person, null, "reviewer.revoked", String(n));
+    return { revoked: n, personId: person };
+  }
+
+  /**
+   * A reviewer whose codes have all expired is ended as a revoke ends one (the app's timer, and start-up,
+   * call this and then revoke the returned people's grants): the code rows and web sessions go. Each
+   * person is returned once, because its rows go with it.
+   */
+  endExpiredReviewers(): string[] {
+    const due = this.db
+      .all<{ person_id: string }>("SELECT person_id FROM reviewer_codes GROUP BY person_id HAVING max(expires_at) <= ?", this.now())
+      .map((r) => r.person_id);
+    for (const person of due) {
+      this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", person);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", person);
+      this.audit(person, null, "reviewer.expired", null);
+    }
+    return due;
   }
 
   /** What this store is seeded with at its first open ('sample'), or null. */

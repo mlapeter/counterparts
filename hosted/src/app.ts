@@ -177,6 +177,8 @@ export interface App {
   finishPendingDeletes(): Promise<number>;
   /** Erase every chat's delete whose 24-hour hold has passed (HD1): the timer while serving, and tests. Returns how many were erased. */
   finishDueHolds(): Promise<number>;
+  /** End every reviewer account whose codes have all expired, its connections too (DIR1 review): start-up, the timer while serving, and tests. Returns whom. */
+  endExpiredReviewers(): string[];
   close(): Promise<void>;
 }
 
@@ -422,6 +424,20 @@ export function createApp(opts: AppOptions): App {
     return p;
   };
   deleteRef = deleteAccount;
+  /**
+   * A REVIEWER'S CODES ALL EXPIRED (DIR1 review): the account ends as `reviewer revoke` ends it, its
+   * connections too, so a token made with the code stops at its next call. At start-up and every tick.
+   */
+  const endExpiredReviewers = (): string[] => {
+    try {
+      const ended = accounts.endExpiredReviewers();
+      for (const personId of ended) o.revokeAll(personId);
+      return ended;
+    } catch {
+      return []; // the next tick
+    }
+  };
+
   const finishPendingDeletes = async (): Promise<number> => {
     // Pending deletes whose deadline has passed begin their erase here: `due`
     // turns them `deleting` only if the deadline is still passed and nobody
@@ -675,10 +691,12 @@ export function createApp(opts: AppOptions): App {
       }
       const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
+      endExpiredReviewers();
       if (retryTimer === null) {
         retryTimer = setInterval(() => {
           void finishPendingDeletes();
           void finishDueHolds();
+          endExpiredReviewers();
           try {
             o.store.sweepClients();
           } catch {
@@ -700,6 +718,7 @@ export function createApp(opts: AppOptions): App {
     keepAccount,
     finishPendingDeletes,
     finishDueHolds,
+    endExpiredReviewers,
     async close(): Promise<void> {
       started = false;
       uploads?.stop();

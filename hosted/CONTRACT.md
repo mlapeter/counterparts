@@ -64,7 +64,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       and doesn't burn the link either.
 11. **Sign-up takes a spot or a live invite** (SU1, 2026-11-10; invite only before it).
     - **Spots.** `spots set N` (stored in control's `settings`; never set ⇒ 0) is the accounts hosted takes in all.
-      Spots left = max(0, N − people), counting every person but a `deleted` tombstone: invited ones and a pending
+      Spots left = max(0, N − people), counting every person but a `deleted` tombstone and a reviewer's account
+      (§11a, `people.kind`): invited ones and a pending
       delete count, an erased account frees its spot. While one is left, an unknown address with no good code gets a
       link. The spot is taken at the click: the count and the insert run in the one `BEGIN IMMEDIATE` transaction that
       creates the person, the verified email identity and the store, so two clicks for the last spot can't both get
@@ -88,8 +89,13 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     one that has an account, so never a real person's), past the spots, and prints a sign-in code once
     (`cpr_`, stored as its SHA-256 in `reviewer_codes`, 90 days by default, 365 at most). That code in
     the login form's code field beside that email signs the browser in, with no email; `reviewer revoke
-    <email>` ends its codes and web sessions, and an erase deletes them. The lookup by the code's hash
-    runs for every ask, so a wrong code costs and reads like any ask and goes on as an invite code.
+    <email>` ends its codes, its web sessions and every OAuth grant (`OidcStore#revokeAccount`), so a
+    connection made with the code is refused at its next call; an erase deletes them too. When all of an
+    account's codes have expired, start-up and the ten-minute timer end it the same way
+    (`Accounts#endExpiredReviewers`), so expiry ends existing connections within about ten minutes, not
+    only new sign-ins. Revoke only ever touches an account the command made (`people.kind = 'reviewer'`),
+    and such an account takes no public spot. The lookup by the code's hash runs for every ask, so a
+    wrong code costs and reads like any ask and goes on as an invite code.
 12. **The login page never says who has an account.** It shows the same words whether a link went out or not (they
     change with the spots, which are public, never with the address: "full" is said to everyone alike, and so is
     "lots of people are signing up right now" once this hour's email cap is reached, chosen by the count read before

@@ -272,15 +272,17 @@ railway ssh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts reviewer REVIEWER_EMAIL --days 90
 ```
 
-It prints a code (`cpr_…`) once, on stdout. It makes a new account even with spots closed, and refuses an address
-that already has one. Its memory fills with sample data (a made-up "Sam") at its first connection. For the
+It prints a code (`cpr_…`) once, on stdout. It makes a new account even with spots closed, and a reviewer account
+never counts against the public spots. It refuses an address that already has one. Its memory fills with sample data (a made-up "Sam") at its first connection. For the
 portal's test-credentials field:
 
     Sign in at https://app.counterparts.ai/login (Claude's connector flow sends you there): email
     REVIEWER_EMAIL; open "Have an invite code?" and paste the code; "Email me a link" then signs you in
     at once, with no email. The account holds sample data only.
 
-When the review ends: `... main.ts reviewer revoke REVIEWER_EMAIL`. A re-review gets a new address.
+When the review ends: `... main.ts reviewer revoke REVIEWER_EMAIL`. That ends everything at once: the codes, the
+web sessions and every connected app (the next call is refused). Expiry (`--days`) does the same within about ten
+minutes of the last code running out. A re-review gets a new address.
 
 **Every tool once, against the live server** (the portal's step 8; after the deploy, on Mike's word), on YOUR
 reviewer account (the first one above, not the portal's). On your laptop, in a private browser window so your own

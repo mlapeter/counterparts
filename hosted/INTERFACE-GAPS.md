@@ -279,8 +279,6 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
       field. Revoke it (`reviewer revoke <email>`) when the review ends; a re-review gets a new account.
     - **The sample is seeded once.** Several reviewers (or one who turns memory off, deletes and rewrites the page)
       leave the account as they left it; there is no reset. A fresh `reviewer` account is the reset.
-    - **A reviewer account takes a spot**, like an invite sign-up: it is a person. One account against spots in the
-      tens is a rounding error; excluding it would change what `spots` counts.
     - **Inspector's web page is unverified end to end.** `MCP_ALLOWED_ORIGINS` lets its page call `/mcp` (preflight,
       CORS), but its browser-side OAuth (discovery, `/oauth/register` from the page) was not run here. Inspector's
       command line was, through its own OAuth (DCR, a loopback return, PKCE) against a local hosted server.

@@ -323,7 +323,8 @@ ${
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
       if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
-        message(res, 429, "Too many tries", "Too many sign-in emails asked for in the last hour. Try again later.");
+        // A form that carried a code may have been a reviewer's sign-in, which sends no email (DIR1 review).
+        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.");
         return true;
       }
       // A REVIEWER'S CODE (DIR1, 2026-11-10): typed in the code field beside the email of an account the

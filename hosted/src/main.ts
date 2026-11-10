@@ -64,6 +64,7 @@ import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS } from "./accounts.js";
+import { OidcStore } from "./oauth-adapter.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
@@ -257,7 +258,6 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   }
 }
 
-/** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
 /**
  * `MCP_ALLOWED_ORIGINS` (DIR1, 2026-11-10): the exact browser origins `/mcp` answers, comma-separated, for
  * a browser-based client such as MCP Inspector's web page (`http://localhost:6274`). Unset or empty: none,
@@ -280,6 +280,7 @@ export function mcpAllowedOrigins(raw: string | undefined): string[] & { refusal
   return out;
 }
 
+/** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
 export function callLine(r: HostedCallRecord): string {
   const parts = [`store=${r.store}`, `method=${r.method}`];
   if (r.tool !== undefined) parts.push(`tool=${r.tool}`);
@@ -794,9 +795,18 @@ async function main(): Promise<void> {
     // `reviewer revoke <email>` ends every code and web session of that account.
     if (rest[0] === "revoke") {
       const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
-      const n = accounts.revokeReviewer(rest[1]);
+      const { revoked: n, personId } = accounts.revokeReviewer(rest[1]);
       accounts.close();
-      process.stdout.write(`${String(n)} reviewer code${n === 1 ? "" : "s"} revoked\n`);
+      if (personId === null) {
+        process.stderr.write("[hosted] refused: no reviewer account has that email (revoke never touches a member's account).\n");
+        process.exitCode = 1;
+        return;
+      }
+      // Its connections too: every grant ends, so a token made with the code is refused at its next call.
+      const oidc = new OidcStore(join(read.dataRoot, "control", "oauth.sqlite"));
+      oidc.revokeAccount(personId);
+      oidc.close();
+      process.stdout.write(`${String(n)} reviewer code${n === 1 ? "" : "s"} revoked; its web sessions and connected apps ended\n`);
       return;
     }
     const email = rest[0];

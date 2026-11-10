@@ -1795,18 +1795,6 @@ export class McpServer {
   }
 
   /**
-   * `remember` (was `note` until 2026-10-10) — deliberate remembering in the
-   * moment; with the end-of-session ask, the only road from conversation to
-   * memory since the keyless sweep came out (2026-09-24).
-   *
-   * Two steps, and the ORDER is the point: the words ride the buffer as their
-   * own span first, then the deposit claims that span by hash. Without the
-   * claim the end-of-session sweep would find the jot's own text sitting in the
-   * buffer and mint it a second time, so the deliberate note would cost two
-   * memories — which is how a "remember this" channel becomes a duplication
-   * engine.
-   */
-  /**
    * `delete_memory` (claude.ai only, DIR1 2026-11-10): the same hold as
    * `remember`'s `remove` (`removeOutcome`), its result the outcome itself.
    * Its words say the tool's own name, never `remove`.
@@ -1819,6 +1807,18 @@ export class McpServer {
     return this.result({ tool: "delete_memory", ...said }, out["ok"] !== true);
   }
 
+  /**
+   * `remember` (was `note` until 2026-10-10) — deliberate remembering in the
+   * moment; with the end-of-session ask, the only road from conversation to
+   * memory since the keyless sweep came out (2026-09-24).
+   *
+   * Two steps, and the ORDER is the point: the words ride the buffer as their
+   * own span first, then the deposit claims that span by hash. Without the
+   * claim the end-of-session sweep would find the jot's own text sitting in the
+   * buffer and mint it a second time, so the deliberate note would cost two
+   * memories — which is how a "remember this" channel becomes a duplication
+   * engine.
+   */
   private async rememberTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("remember");
     // REMOVE (HD1, 2026-11-04): delete one memory on the person's word — a
