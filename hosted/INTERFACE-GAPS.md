@@ -250,3 +250,18 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
     a yield before each). Many people each inside their two still share one event loop, as §14 says for `/mcp`.
 47. **The page's inline `style=` attributes are allowed** (`style-src-attr 'unsafe-inline'`, nothing else inline): the
     drawn markup uses about fifty for widths and colours. Moving them to classes would let the CSP drop it.
+
+## The hourly email cap while spots are open (EC1, 2026-11-10)
+
+48. **What stays open around the cap** (`spots emails M`, CONTRACT §11).
+    - **A live invite code can ask for links to any address**, open or closed: the code is spent at the click, not the
+      ask, so one code mails as many addresses as the per-IP and per-address limits let through. While open those
+      asks count against M; while closed nothing caps them. Older than EC1; spending a use at the ask, or a cap per
+      code, would close it.
+    - **Clock hours, not a sliding hour.** Up to 2M can go out across one hour's end (M at 12:59, M more at 13:00).
+      Loose on purpose; a sliding window is a table of timestamps, as Counterparts Phone's `rate_hits` keeps.
+    - **It counts asks, not deliveries.** A refused ask (suspended account) and a member's sign-in count too, so the
+      count can't say who has an account; a mail that fails still counted. Over M, a member's ask is counted no
+      further and still sent, so a crowd of members signing in is bounded only by their own per-address limit.
+    - **No alarm when it trips.** Phone mails its operator once an hour when its sign-up cap trips (`signup_alarm`);
+      here the operator sees it only in `spots` (`… this hour: reached`).
