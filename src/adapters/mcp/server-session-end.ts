@@ -363,6 +363,7 @@ export async function depositEntries(
       ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
       ...server["recordFeelings"](result, reader.feelings, model),
       ...server["readerOwnNote"](reader),
+      ...server["readerHeldNote"](result),
       ...(server["readerSelfAbout"](result) ?? server["recordAbout"](result, reader.about)),
       ...(traits.inputs.length > 0 && server["readerHost"]() ? server["readerKeeps"](result, "traits") : server["recordTraits"](result, traits.inputs, model)),
       ...reminderEcho(result, dated, server["today"]()),

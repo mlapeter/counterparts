@@ -2013,6 +2013,7 @@ export class McpServer {
     return this.depositResult("remember", deposit, {
       ...this.recordFeelings(deposit, reader.feelings, model),
       ...this.readerOwnNote(reader),
+      ...this.readerHeldNote(deposit),
       ...(this.readerSelfAbout(deposit) ?? this.recordAbout(deposit, reader.about)),
       // A BELIEF IN THE MOMENT (lane C3), after the feelings: a vivid one is read off them.
       // From a reader host, none: a belief is about me or us, and both are the
@@ -4805,6 +4806,21 @@ export class McpServer {
     return {
       readerOwn: {
         note: `Your own ${meta[READER_FEELINGS_META_KEY] !== undefined ? "feelings (whose: self)" : ""}${meta[READER_FEELINGS_META_KEY] !== undefined && meta[READER_SAID_BY_META_KEY] !== undefined ? " and " : ""}${meta[READER_SAID_BY_META_KEY] !== undefined ? "saidBy: self" : ""} were kept on the memory, labelled as yours in ${host}: in this memory "self" is the counterpart.`,
+      },
+    };
+  }
+
+  /** A reader host's `updates` at the counterpart's identity, not taken (option B, 2026-11-10): what the result says. */
+  private readerHeldNote(deposit: DepositResult): Record<string, unknown> {
+    const h = deposit.readerHeld;
+    if (h === undefined) return {};
+    const host = this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host;
+    const what = h.about === "me" ? "about me" : h.about === "us" ? "about us" : h.why === "belief" ? "a belief" : "core to who I am";
+    return {
+      updatesNotTaken: {
+        over: h.over,
+        reason: "counterpart-identity",
+        note: `Not a revision of ${h.over}: it is the counterpart's own (${what}), and a memory written from ${host} never changes, settles or fades it. Yours was kept as a new memory of its own, linked to nothing.`,
       },
     };
   }

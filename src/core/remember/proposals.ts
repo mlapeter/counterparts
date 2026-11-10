@@ -582,6 +582,13 @@ export interface SubmitContext {
    * writer's own early turns as already written up.
    */
   cover?: false | { readonly session: string };
+  /**
+   * Does an earlier accepted proposal with the same content make this one a
+   * repeat (`DUPLICATE_CONTENT`)? Absent: every one does, as always. The core
+   * passes one so a reader host's own note never blocks the counterpart's
+   * write (option B, 2026-11-10, `reader-note.ts`).
+   */
+  repeats?: (prior: ProposalRecord) => boolean;
 }
 
 /** A proposal record as persisted (the content-idempotency ledger). */
@@ -671,7 +678,7 @@ export async function prepareProposal(
   const draft = parsed.draft;
   const contentHash = hashText(normalize(draft.content));
   const priors = buffer.proposalRecords<ProposalRecord>(ctx.scope);
-  if (priors.some((p) => p.accepted && p.contentHash === contentHash)) {
+  if (priors.some((p) => p.accepted && p.contentHash === contentHash && (ctx.repeats?.(p) ?? true))) {
     // Two identical deposits cover different spans, so their SPAN hashes differ and
     // span dedup would miss the repeat. Content is the identity (§4.1 G9).
     buffer.emit("remember.proposal.duplicate", contentHash, { session: ctx.session });

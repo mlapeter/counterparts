@@ -33,6 +33,7 @@ import { TUNABLES as PHYSICS, USE_TIER_WEIGHT, strength } from "../physics/index
 import type { CreditOutcome, ReturnOutcome, UseTier } from "../physics/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { isChapterSummary, stemTerm, tokenize } from "../store/index.js";
+import { readerNoteLine } from "../reader-note.js";
 import { activate, isBeliefRow, primeOf, seeAlso } from "./activate.js";
 import type { Candidate, LearnedCuesFn, SpreadFn, SpreadStats } from "./activate.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
@@ -905,8 +906,24 @@ export class Recall {
       }
       return standings.get(id) ?? null;
     };
+    // A reader host's own note says whose it is (CX2, `reader-note.ts`), once per id per build.
+    const readers = new Map<string, string | null>();
+    const readerOf = (id: string): string | null => {
+      if (!readers.has(id)) {
+        let line: string | null = null;
+        try {
+          line = readerNoteLine(this.store.row(id));
+        } catch {
+          line = null;
+        }
+        readers.set(id, line);
+      }
+      return readers.get(id) ?? null;
+    };
     const resolve: Resolve = (id) => {
-      const r = resolveDoc(docs.get(id), id);
+      const base = resolveDoc(docs.get(id), id);
+      const who = readerOf(id);
+      const r = who === null ? base : { ...base, reader: who };
       const st = standing(id);
       const withStanding = st === null ? r : { ...r, standing: { prefix: st.prefix, suffix: st.suffix } };
       if (alongIds.has(id)) return { ...withStanding, seeAlso: true, titleBytes: this.tunables.SEE_ALSO_TITLE_BYTES };

@@ -8,10 +8,16 @@
    it out (`isReaderSelfRow` covers both): the counterpart's us, meaning-mode "us", the self page and core lane,
    beliefs (a Codex `remember` belief is now refused whatever its `about`), page stories and the wake's us lines.
    A `remark` to `us` and a chapter `about: us` from Codex are refused/dropped, as `me` is (a chapter's copy carries
-   no label, §5). The nightly page writer is never handed a Codex `me` or `us` note (counted as omitted). Still
-   open: the meaning-mode arc and the hook's recall show the note unlabelled; with no mark the note can show among
-   a folder's titles in the wake (`reads-memories.ts`, the titles lane skips only marked-personal rows), as a
-   Codex `me` note can; and a Codex revision of the counterpart's `us` memory settles over it.
+   no label, §5). The nightly page writer is never handed a Codex `me` or `us` note (counted as omitted). The
+   label rides wherever the note surfaces: facts recall, the meaning-mode arc's moments, and the hook's ambient
+   recall lines (`recall/render.ts`). A Codex `updates` at a memory about me or us, a core one or a belief is not
+   taken (`counterpart-deposit.ts#readerIdentityTarget`): nothing is settled, faded or carried, Codex's words
+   stand as its own note, and the result says so (`updatesNotTaken`). A Codex note never blocks the counterpart's
+   own write of the same words (the content ledger's `repeats`); Codex repeating the counterpart's is still a repeat.
+   Still open (fine for now): with no mark the note can show among a folder's titles in the wake
+   (`reads-memories.ts`), as a Codex `me` note can; the null mark loses the reach `us` had as a personal mark;
+   the inner doors answer `reader-self-note` / `ABOUT_READER_SELF` for an `us` note too; and the slot detector
+   may still PROPOSE (never settle) a Codex note as the newer state of something, for the night to answer.
 2. **What waits for Claude Code.** The first meeting, the first-launch scope question, plain reminders, the update
    and maintenance lines, the write-up pointer for an owed session (a Codex session that ended unwritten is written
    up by the next Claude Code session in its folder, or the night's catch-up — in the counterpart's voice, about

@@ -2074,5 +2074,7 @@ asked for. Hosted only for now: a claude.ai connector to a local store isn't cov
   and the result says so (`about.reason: reader-self-note`). From Codex a `remember` keeps no traits, no story
   nomination and no belief; `remark` to `me` or `us` refuses. An `us` (Mike, 11-10, option B: the owner and
   that model) becomes `meta.readerUs` with no `us` mark (`about.reason: reader-us-note`), and `isReaderSelfRow`
-  keeps it out wherever a `readerSelf` note is kept out; facts recall labels both (`codex/INTERFACE-GAPS.md` §1).
+  keeps it out wherever a `readerSelf` note is kept out; facts recall, the meaning arc and ambient recall label
+  both. A Codex `updates` at the counterpart's identity is not taken (`updatesNotTaken`), and a Codex note never
+  blocks the counterpart's own write of the same words (`codex/INTERFACE-GAPS.md` §1).
 - **`initialize` carries `CODEX_INSTRUCTIONS`** (under 512 characters: Codex keeps that much).

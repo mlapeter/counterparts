@@ -701,6 +701,12 @@ export interface DepositResult {
    */
   readonly readerUs?: ReaderSelf;
   /**
+   * A reader host's `updates` at the counterpart's identity, not taken (option
+   * B, 2026-11-10, `counterpart-deposit.ts#readerIdentityTarget`): the memory it
+   * named is left as it was, and this one stands on its own.
+   */
+  readonly readerHeld?: { readonly over: string; readonly about: "me" | "us" | null; readonly why: string };
+  /**
    * The title, when the writer sent none and this revision took the one of
    * the memory it revises (2026-10-14, `counterpart-deposit.ts#carryTitle`).
    */

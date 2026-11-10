@@ -126,7 +126,10 @@ export function writesReaderUs(about: string | null | undefined): boolean {
  * A reader's own note, as recall labels it (2026-11-10): whose it is and what
  * its `me` or `us` meant — null for an ordinary memory.
  */
-export function readerNoteLine(row: { readonly meta?: unknown } | undefined | null, hostName: (host: string) => string): string | null {
+export function readerNoteLine(
+  row: { readonly meta?: unknown } | undefined | null,
+  hostName: (host: string) => string = (h) => (h.length === 0 ? h : `${h.charAt(0).toUpperCase()}${h.slice(1)}`),
+): string | null {
   const self = readerSelfOfRow(row);
   if (self !== null) return `${readerLabel(self, hostName(self.host))}'s own note about itself — not about me`;
   const us = readerUsOfRow(row);

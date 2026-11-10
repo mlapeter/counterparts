@@ -149,6 +149,12 @@ export interface Resolved {
    * Outside the clip, like the journal word. Absent: nothing to say.
    */
   readonly standing?: { readonly prefix: string; readonly suffix: string };
+  /**
+   * A reader host's own note (CX2, `core/reader-note.ts`): "gpt-x in Codex's own
+   * note about itself and the owner — not about us". After the text, outside the
+   * clip, like the standing's pointer. Absent: an ordinary memory.
+   */
+  readonly reader?: string;
 }
 
 /** Id -> text, at render time. */
@@ -225,7 +231,7 @@ function label(r: Resolved): string {
 
 /** The standing's pointer, after the text and outside the clip, like the label. */
 function after(r: Resolved): string {
-  return r.standing?.suffix ?? "";
+  return `${r.standing?.suffix ?? ""}${r.reader === undefined ? "" : ` (${r.reader})`}`;
 }
 
 function openMarker(turn: number): string {

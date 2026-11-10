@@ -26,7 +26,7 @@ import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
 import { noteCloseHintTaken } from "./close-hint.js";
-import { READER_US_META_KEY, readerUsOfMeta } from "./reader-note.js";
+import { READER_US_META_KEY, isReaderSelfRow, readerUsOfMeta } from "./reader-note.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -185,6 +185,10 @@ export async function deposit(
     ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
     ...(ctx.cover === undefined ? {} : { cover: ctx.cover }),
     resolveUpdates: (declared, content) => cp["resolveUpdatesFor"](ctx.scope, declared, content),
+    // A READER'S NOTE NEVER BLOCKS THE COUNTERPART'S OWN WRITE (option B,
+    // 2026-11-10): the same words from the counterpart's host land as its own.
+    // The other way round (a reader repeating the counterpart) stays a repeat.
+    ...(ctx.host === undefined ? { repeats: (prior: { id: string }) => !mintedReaderNote(cp, prior.id) } : {}),
   };
   // The claim waits for the memory (`settleProposal`, below the mint).
   const result = await prepareProposal(cp.spans, draft, submit);
@@ -216,8 +220,13 @@ export async function deposit(
   // `changed` or `corrected` at a memory that looks unrelated is HELD. The
   // proposal goes on without its `updates`, so nothing is linked, carried
   // over, closed or settled; the hold is recorded and handed back.
-  const held = await cp["guardUpdate"](result.proposal, ctx);
-  const carry = cp["carryReminder"](held === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null);
+  // A READER HOST NEVER REVISES THE COUNTERPART'S IDENTITY (option B,
+  // 2026-11-10): an `updates` at a memory about me or us, a core one or a
+  // belief goes on without it, so nothing is linked, carried, closed, faded or
+  // settled; the new memory is the reader's own note, and the result says why.
+  const readerHeld = ctx.host === undefined ? null : readerIdentityTarget(cp, result.proposal);
+  const held = readerHeld === null ? await cp["guardUpdate"](result.proposal, ctx) : null;
+  const carry = cp["carryReminder"](held === null && readerHeld === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null);
   // v12: the writer's three fields, a revision's carried over where unsent.
   const carried = cp["carryFacts"](carry.proposal, ctx.facts);
   // A READER HOST NEVER WRITES `said_by = self` (CX2 fix round, `reader-note.ts`):
@@ -255,7 +264,7 @@ export async function deposit(
   // does at the door. And a note about itself carries no `me` or `us` at all.
   const readerSelf =
     ctx.readerSelf ??
-    (ctx.host !== undefined && unplumbed?.about === "me" ? { host: ctx.host, model: ctx.model ?? null } : undefined);
+    (ctx.host !== undefined && (unplumbed?.about === "me" || readerHeld?.about === "me") ? { host: ctx.host, model: ctx.model ?? null } : undefined);
   // And `us` the same way (option B, 2026-11-10): from a reader host it is the
   // owner and THAT model, so an inherited `us` makes the revision the reader's
   // `us` note, as a sent one does at the door. A note about itself wins.
@@ -263,7 +272,7 @@ export async function deposit(
     readerSelf !== undefined
       ? undefined
       : (readerUsOfMeta(ctx.readerMeta ?? null) ??
-        (ctx.host !== undefined && unplumbed?.about === "us" ? { host: ctx.host, model: ctx.model ?? null } : undefined));
+        (ctx.host !== undefined && (unplumbed?.about === "us" || readerHeld?.about === "us") ? { host: ctx.host, model: ctx.model ?? null } : undefined));
   const readerMeta: Readonly<Record<string, unknown>> | undefined =
     readerUs === undefined
       ? ctx.readerMeta === undefined || readerSelf === undefined
@@ -395,7 +404,39 @@ export async function deposit(
     ...(plumbing === null ? {} : { ownPlumbing: { cue: plumbing.cue, dropped: plumbing.dropped, aboutRefused: plumbing.aboutRefused } }),
     ...(readerSelf === undefined ? {} : { readerSelf }),
     ...(readerUs === undefined ? {} : { readerUs }),
+    ...(readerHeld === null ? {} : { readerHeld }),
   };
+}
+
+/**
+ * THE COUNTERPART'S IDENTITY A READER HOST'S `updates` NAMES (option B,
+ * 2026-11-10), or null: a memory marked me or us, a core one (promoted, or in
+ * the identity band), or a belief. Any way the address was found — declared or
+ * read by content. Never throws: a row it cannot read is not held.
+ */
+function readerIdentityTarget(cp: Counterpart, p: Proposal): { over: string; about: "me" | "us" | null; why: string } | null {
+  const target = p.updates?.resolved ?? null;
+  if (target === null) return null;
+  try {
+    const row = cp.store.row(target);
+    if (row === undefined || isReaderSelfRow(row)) return null;
+    const about = row.about === "me" || row.about === "us" ? row.about : null;
+    if (about !== null) return { over: target, about, why: `about-${about}` };
+    if (row.promoted_identity === 1 || row.band === "identity") return { over: target, about: null, why: "core" };
+    if (isBeliefRow(row)) return { over: target, about: null, why: "belief" };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Did this proposal mint a reader host's own note (`reader-note.ts`)? Never throws: unknown reads as no. */
+function mintedReaderNote(cp: Counterpart, proposalId: string): boolean {
+  try {
+    return cp.store.list({ type: "memory", originRef: proposalId }).some((id) => isReaderSelfRow(cp.store.row(id)));
+  } catch {
+    return false;
+  }
 }
 
 /** The marks a plumbing memory may not carry: about me, the two of us, or the owner (TC1; owner after review of #751). */
