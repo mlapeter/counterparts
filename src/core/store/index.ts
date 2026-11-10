@@ -64,7 +64,7 @@ import type { Db, Statement, WalFold } from "./db.js";
 import { foldWal, isLocked, wroteOn } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
-import { isReaderSelfRow } from "../reader-note.js";
+import { isReaderHostRow } from "../reader-note.js";
 import type { Stance } from "../observer.js";
 import {
   BIRTH_ROUTES,
@@ -2507,7 +2507,7 @@ export class Store {
       // A READER'S NOTE ABOUT ITSELF IS NEVER THE COUNTERPART'S IDENTITY (CX2,
       // `core/reader-note.ts`): no `me` or `us` from the writer, a re-mark, the
       // reflection or the dream. The owner's door may still mark it anything.
-      if ((mark === "me" || mark === "us") && opts.by !== "owner" && isReaderSelfRow(row)) {
+      if ((mark === "me" || mark === "us") && opts.by !== "owner" && isReaderHostRow(row)) {
         throw new StoreError("ABOUT_READER_SELF", { id, mark });
       }
       const before = aboutMarkOf(row.about);

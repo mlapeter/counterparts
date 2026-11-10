@@ -430,7 +430,7 @@ export function dayJournal(
 }
 
 /** The chapters a reader host wrote, from an episode row's meta (`CHAPTER_HOSTS_META`). Never throws. */
-function readerChapters(meta: unknown): Set<number> {
+export function readerChapters(meta: unknown): Set<number> {
   try {
     const m = typeof meta === "string" ? (JSON.parse(meta) as unknown) : meta;
     if (m === null || typeof m !== "object" || Array.isArray(m)) return new Set();

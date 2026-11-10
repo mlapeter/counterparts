@@ -433,10 +433,10 @@ function readerIdentityRefusal(store: Store, holds: string, over: string, how: s
   const o = store.row(over);
   if (fromReader && (isCounterpartIdentityRow(h) || isCounterpartIdentityRow(o))) {
     const id = isCounterpartIdentityRow(o) ? over : holds;
-    return refuse("reader-over-identity", `${id} is the counterpart's own (about me or us, core, or a belief), and this settle comes from another host: nothing was settled.`);
+    return refuse("reader-over-identity", `${id} is the counterpart's own (about me or us, core, or a belief), and this settle comes from another host: nothing was settled. To say what changed, write your own memory with updates: ${id}; it is kept as yours beside it.`);
   }
   if (how !== "open" && isReaderHostRow(h) && isCounterpartIdentityRow(o)) {
-    return refuse("reader-over-identity", `${holds} was written from another host and ${over} is the counterpart's own (about me or us, core, or a belief): one never stands over the other. Nothing was settled.`);
+    return refuse("reader-over-identity", `${holds} was written from another host and ${over} is the counterpart's own (about me or us, core, or a belief): one never stands over the other. Nothing was settled. To say what changed, write your own memory with updates: ${over}; it is kept beside it.`);
   }
   return null;
 }

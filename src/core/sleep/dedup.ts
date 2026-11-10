@@ -56,7 +56,7 @@
 import { dedupVerdict } from "../physics/index.js";
 import type { DedupReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
-import { isReaderSelfRow } from "../store/index.js";
+import { isReaderHostRow } from "../store/index.js";
 import { hashText } from "../store/prose.js";
 import { ACCOMMODATION_SOURCE, MERGE_ARCHIVE_REASON, MERGE_RECORD_PREFIX } from "./tunables.js";
 import type { MergeRecord, PhaseCtx, PhaseOutcome, SleepStore } from "./types.js";
@@ -270,7 +270,7 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
     // NEVER ACROSS A READER BOUNDARY (option B, 2026-11-10, `reader-note.ts`):
     // a reader host's own note and the counterpart's memory are two writers'
     // words even when they read the same, so neither is folded into the other.
-    if (isReaderSelfRow(store.row(pair.candidateId)) !== isReaderSelfRow(store.row(pair.originalId))) {
+    if (isReaderHostRow(store.row(pair.candidateId)) !== isReaderHostRow(store.row(pair.originalId))) {
       countSkip(out, "reader-boundary");
       continue;
     }

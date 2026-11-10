@@ -193,6 +193,8 @@ import type {
   PaceOptions,
   Substance,
 } from "./episodes.js";
+import { chapterHosts } from "./episodes.js";
+import { HOST_META_KEY } from "../reader-note.js";
 import {
   backfillJournalCopies,
   noteJournalCopy,
@@ -3846,6 +3848,10 @@ export class Self {
     // Until then every summary was born with none. An episode from before
     // folders has none to give, and its summary none either.
     const folder = this.store.row(input.episodeId)?.origin_scope ?? null;
+    // A READER HOST'S CHAPTER (option B, `episodes.ts#CHAPTER_HOSTS_META`): its
+    // summary is that model's words too, so it carries the host as every row
+    // a reader host writes does (`reader-note.ts#isReaderHostRow`).
+    const readerHost = chapterHosts(doc.meta)[String(input.chapter)];
     const put: Parameters<Store["put"]>[0] = {
       type: "memory",
       kind: "self",
@@ -3857,6 +3863,7 @@ export class Self {
         [SUMMARY_CHAPTER_META]: input.chapter,
         [CHAPTER_SUMMARY_META]: input.kind,
         [CLAIMED_DEFAULT_SPELLED]: true,
+        ...(readerHost === undefined ? {} : { [HOST_META_KEY]: readerHost }),
       },
       source: "episode",
       origin: { session: input.sessionId, ref: input.episodeId, ...(folder === null || folder.length === 0 ? {} : { scope: folder }) },

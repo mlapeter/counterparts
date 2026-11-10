@@ -65,7 +65,7 @@
 import { randomBytes } from "node:crypto";
 
 import { emotionalIntensity } from "../physics/index.js";
-import { isReaderSelfRow, readerNoteLine } from "../reader-note.js";
+import { isReaderHostRow, readerWrittenLine } from "../reader-note.js";
 import { earlierMark, headOf, isHandoff, isSelfPage } from "../recall/index.js";
 import { aboutMe, acceptsReflectedFeeling, keepCore, laterFeelingWasReflections, promotionRecordKey, reconsiderWords, retireCore, selfRelevantFeeling } from "../sleep/index.js";
 import {
@@ -98,7 +98,7 @@ import type { FeelingWeeks } from "./feeling-weeks.js";
 import { isWorkMemory } from "../self/work.js";
 import { orderUnmarked, personNames } from "./unmarked.js";
 import type { UnmarkedCandidate } from "./unmarked.js";
-import { chapterEntries, entryKey, entryLine, entrySummary, fitEpisodes, leanChapterHead, leanDate, leanEntry, shownEntry, summarized, withSummaries } from "./slices.js";
+import { chapterEntries, entryKey, entryLine, entrySummary, fitEpisodes, leanChapterHead, leanDate, leanEntry, readerChapters, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
 import { setDownsBackLines, setDownsTouched } from "../self/set-down.js";
 import { PAGE_STORIES_RULE, pageCraftRule } from "../self/stories.js";
@@ -822,7 +822,7 @@ function notLivedReason(row: MemoryRow, act: "feel" | "mark" | "trait"): string 
   if (row.source === "dreamed") return "dreamed-is-a-suggestion";
   // A reader host's note about itself (CX2, `reader-note.ts`): another model's
   // words about that model — never a mark, a trait or a feeling of mine.
-  if (isReaderSelfRow(row)) return "reader-self-note";
+  if (isReaderHostRow(row)) return "reader-self-note";
   if (row.source === "reflection") {
     return act === "feel" ? "reflection-does-not-feel-itself" : act === "mark" ? "reflection-does-not-mark-itself" : "reflection-is-not-an-act";
   }
@@ -2592,7 +2592,7 @@ export class Reflections {
       if (r === undefined || !this.showable(r)) return "not-shown-or-gone";
       if (r.source === "dreamed" || r.source === "reflection") return "not-lived";
       // Never a belief's lived cite (CX2): another model's note about itself.
-      if (isReaderSelfRow(r)) return "not-lived";
+      if (isReaderHostRow(r)) return "not-lived";
       return null;
     };
     const retireOne = (beliefId: string, why: string): PartResult => {
@@ -3766,7 +3766,9 @@ export class Reflections {
       const at = row.updated_at ?? row.created_at ?? 0;
       if (row.birth_day < day - T.CHAPTER_DAYS && at < this.store.now() - T.CHAPTER_DAYS * DAY_MS) continue;
       const entries = chapterEntries(row.body);
-      const fresh = entries.filter((e) => this.entryInView(e, day));
+      // Not a reader host's chapter (option B): another model's account is not my night's material.
+      const readers = readerChapters(row.meta);
+      const fresh = entries.filter((e) => this.entryInView(e, day) && (e.chapter === null || !readers.has(e.chapter)));
       if (fresh.length > 0) episodes.push({ row, at, fresh, earlier: entries.length - fresh.length });
     }
     // A CHAPTER'S LINE IS ITS SUMMARY when the session wrote one (2026-10-15).
@@ -3862,7 +3864,8 @@ export class Reflections {
         const at = row.updated_at ?? row.created_at;
         if (at === null || localDate(at, zone) < oldest) continue;
         const all = chapterEntries(row.body);
-        const fresh = all.filter((e) => e.date !== null && said.has(e.date));
+        const readers = readerChapters(row.meta);
+        const fresh = all.filter((e) => e.date !== null && said.has(e.date) && (e.chapter === null || !readers.has(e.chapter)));
         if (fresh.length > 0) episodes.push({ row: { id, title: row.title }, at, fresh, earlier: all.length - fresh.length });
       }
       for (const ep of summarized(this.store, episodes).sort((a, b) => a.at - b.at)) {
@@ -3924,7 +3927,7 @@ export class Reflections {
       }));
     const about = row.about === null ? null : (ABOUT_MARKS as readonly string[]).includes(row.about) ? (row.about as AboutMark) : null;
     const head = headOf(this.store, row.id);
-    const reader = readerNoteLine(row);
+    const reader = readerWrittenLine(row);
     return {
       id: row.id,
       ...(head === null ? {} : { standing: earlierMark(head) }),

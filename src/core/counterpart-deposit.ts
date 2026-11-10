@@ -26,7 +26,7 @@ import { ownerNames } from "./sleep/index.js";
 import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
 import { noteCloseHintTaken } from "./close-hint.js";
-import { READER_US_META_KEY, isCounterpartIdentityRow, isReaderSelfRow, readerSelfOfRow, readerUsOfMeta, readerUsOfRow } from "./reader-note.js";
+import { READER_US_META_KEY, isCounterpartIdentityRow, isReaderHostRow, readerSelfOfRow, readerUsOfMeta, readerUsOfRow } from "./reader-note.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -441,7 +441,7 @@ function readerIdentityTarget(cp: Counterpart, p: Proposal): { over: string; abo
 /** Did this proposal mint a reader host's own note (`reader-note.ts`)? Never throws: unknown reads as no. */
 function mintedReaderNote(cp: Counterpart, proposalId: string): boolean {
   try {
-    return cp.store.list({ type: "memory", originRef: proposalId }).some((id) => isReaderSelfRow(cp.store.row(id)));
+    return cp.store.list({ type: "memory", originRef: proposalId }).some((id) => isReaderHostRow(cp.store.row(id)));
   } catch {
     return false;
   }

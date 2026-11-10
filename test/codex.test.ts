@@ -39,7 +39,8 @@ import { readerSelfOfRow, readerUsOfRow } from "../src/core/reader-note.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { strength } from "../src/core/physics/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
-import { settle } from "../src/core/reconsolidation.js";
+import { settle, supersede } from "../src/core/reconsolidation.js";
+import { DREAM_CARRIED_EVENT, DREAM_TUNABLES } from "../src/core/dream/index.js";
 
 const MODEL = "gpt-test-9";
 const HOOK = resolve(import.meta.dir, "../src/adapters/codex/bin/hook.ts");
@@ -805,7 +806,9 @@ describe("about: us from Codex is the owner and that model, labelled — never t
       const statements = handed.memories.map((m) => m.statement);
       expect(statements).toContain("Mike and I found our rhythm on long walks after dinner.");
       expect(statements.some((x) => x.includes("heronfeather"))).toBe(false);
-      expect(handed.omitted).toBe(1);
+      // Every row Codex wrote is held back (its note and its plain write alike), and counted.
+      expect(statements).not.toContain("The owner keeps reviews small.");
+      expect(handed.omitted).toBe(2);
       // The whole wake, as a fresh session gets it (the shaped composer): none of Codex's us words.
       c.store.setMeta(WAKE_SHAPE_KEY, "on");
       const woke = await hook(base("SessionStart", "cx-us-wake", null, { source: "startup" }));
@@ -1122,6 +1125,218 @@ describe("option B in core: nothing Codex wrote replaces, fades or folds into th
       const it = nb.find((n) => n["id"] === noteId);
       expect(it).toBeDefined();
       expect(it?.["reader"]).toBe(LABEL_US);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+});
+
+// ── option B, every row Codex writes (re-review of 208c9b45): meta.host, and isReaderHostRow at every guard ──
+
+const LABEL_PLAIN = `written by ${MODEL} in Codex — not mine`;
+
+describe("option B for every row Codex writes: plain notes and chapter summaries too", () => {
+  test("the readerHost flag on an MCP settle: a counterpart-written holds over the counterpart's us is refused from Codex", async () => {
+    const cc0 = openServer({ dir: store, scope: canonicalScope(project) });
+    let u: string;
+    let p: string;
+    try {
+      u = (await cc0.call("remember", { text: "Mike and I pair on the parser every Tuesday.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      p = (await cc0.call("remember", { text: "Mike and I moved parser pairing to Thursdays." })).structuredContent["id"] as string;
+    } finally {
+      cc0.counterpart.close();
+    }
+    await hook(base("SessionStart", "cx-flag", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    try {
+      await s.call("session_end", { session: "cx-flag", memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner" }] });
+      const before = strengthNow(s.counterpart, u);
+      await s.call("recall", { question: "parser pairing", mode: "facts" });
+      for (const how of ["changed", "open"]) {
+        const r = await s.call("remember", { session: "cx-flag", settle: { holds: p, over: u, how, why: "moved" } });
+        const out = r.structuredContent["settle"] as Record<string, unknown>;
+        expect({ how, reason: out["reason"] }).toEqual({ how, reason: "reader-over-identity" });
+        expect(String(out["detail"])).toContain(`updates: ${u}`);
+      }
+      expect(strengthNow(s.counterpart, u)).toBe(before);
+      expect(s.counterpart.store.contradictionBetween(p, u)).toBeUndefined();
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("the settle() rule on its own: a reversal toward a Codex row is refused BEFORE the standing settle is undone", async () => {
+    await hook(base("SessionStart", "cx-rev", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    let n: string;
+    try {
+      n = (await s.call("remember", { session: "cx-rev", text: "Mike and I moved parser pairing to Thursdays, the owner says." })).structuredContent["id"] as string;
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const u = (await cc.call("remember", { text: "Mike and I pair on the parser every Tuesday.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      // The counterpart's us over Codex's row: allowed, and it stands.
+      const first = settle(c.store, { holds: u, over: n, how: "changed", actor: "dream", actorId: "drm_a" });
+      expect(first.ok).toBe(true);
+      const pairId = first.ok ? first.pair : "";
+      // The reversal (Codex's row over the counterpart's us) is refused, and the standing settle is left as it was.
+      const back = settle(c.store, { holds: n, over: u, how: "changed", actor: "dream", actorId: "drm_b" });
+      expect(back.ok ? null : back.reason).toBe("reader-over-identity");
+      const pair = c.store.contradiction(pairId);
+      expect(pair?.state).toBe("settled");
+      expect(pair?.holds).toBe(u);
+      expect(pair?.over).toBe(n);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("the supersede() rule on its own: the one door refuses a Codex row over the counterpart's us, whoever calls it", async () => {
+    await hook(base("SessionStart", "cx-door", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    let n: string;
+    try {
+      n = (await s.call("remember", { session: "cx-door", text: "Mike and I cook risotto on Saturdays now, the owner says." })).structuredContent["id"] as string;
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const u = (await cc.call("remember", { text: "Mike and I cook risotto together on rainy Sundays.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      const before = strengthNow(c, u);
+      const out = supersede(c.store, { holds: n, over: u, how: "changed", source: "slot", actor: "dream", actorId: "drm_x" });
+      expect(out.ok ? null : out.reason).toBe("reader-over-identity");
+      expect(strengthNow(c, u)).toBe(before);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("a PLAIN Codex note (no about) is never merged, gist-folded, deduped or allowed to block the counterpart; the dream labels it", async () => {
+    const words = "Mike and I cook risotto on rainy Sundays, I stir and he tastes.";
+    await hook(base("SessionStart", "cx-plain", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    let note: string;
+    let note2: string;
+    try {
+      await s.call("session_end", { session: "cx-plain", memories: [{ content: "The owner keeps reviews small.", kind: "fact", about: "owner" }] });
+      note = (await s.call("remember", { session: "cx-plain", text: words })).structuredContent["id"] as string;
+      note2 = (await s.call("remember", { session: "cx-plain", text: "Mike and I always plate the risotto with lemon zest on Sundays." })).structuredContent["id"] as string;
+      expect((JSON.parse(s.counterpart.store.row(note)?.meta ?? "{}") as Record<string, unknown>)["host"]).toBe(CODEX_HOST);
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      // The same words from the counterpart land as its own us (repeats).
+      const same = await cc.call("remember", { text: words, about: "us", kind: "person" });
+      expect(same.structuredContent["stored"]).toBe(true);
+      const twin = same.structuredContent["id"] as string;
+      const u = (await cc.call("remember", { text: "Mike and I cook risotto together on rainy Sundays.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      const u2 = (await cc.call("remember", { text: "Mike and I eat risotto on the porch on Sundays.", about: "us", kind: "person" })).structuredContent["id"] as string;
+      // Dedup: the twin stays live and the counterpart's.
+      runCycle({ store: c.store, date: c.store.today() });
+      expect(c.store.row(twin)?.archived).toBe(0);
+      expect(c.store.row(note)?.archived).toBe(0);
+      const before = strengthNow(c, u);
+      const before2 = strengthNow(c, u2);
+      const begun = c.dreams.begin({ session: "night" });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      expect(JSON.stringify(begun.bundle)).toContain(LABEL_PLAIN);
+      const out = c.dreams.propose({
+        dream: begun.bundle.dream,
+        session: "night",
+        changes: [
+          { action: "merge", ids: [note, u], text: "We cook risotto on rainy Sundays; I stir and Mike tastes." },
+          { action: "gist", text: "Sundays are our risotto day, plated with lemon.", sources: [note2, u2], fold: true },
+        ],
+      });
+      if (!out.ok) throw new Error("propose refused");
+      expect(out.results.map((r) => r.reason)).toEqual(["reader-self-note", "reader-self-note"]);
+      expect(strengthNow(c, u)).toBe(before);
+      expect(strengthNow(c, u2)).toBe(before2);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("the fold-parts filter: a refused fold never carries Codex rows as parts", async () => {
+    await hook(base("SessionStart", "cx-carry", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    const notes: string[] = [];
+    try {
+      for (const w of ["Codex wired the hosted mailer retry loop.", "Codex tuned the hosted mailer backoff."]) {
+        notes.push((await s.call("remember", { session: "cx-carry", text: w })).structuredContent["id"] as string);
+      }
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const ids: string[] = [];
+      for (let i = 0; i < 2 * DREAM_TUNABLES.FOLDS; i += 1) {
+        ids.push((await cc.call("remember", { text: `Release step ${String(i)} of the week went through without a hitch, number ${String(i)}.` })).structuredContent["id"] as string);
+      }
+      const begun = c.dreams.begin({ session: "night" });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      const folds = Array.from({ length: DREAM_TUNABLES.FOLDS }, (_, i) => ({ action: "gist" as const, fold: true, text: `Stretch ${String(i)} shipped.`, sources: [ids[2 * i] as string, ids[2 * i + 1] as string] }));
+      const out = c.dreams.propose({ dream: begun.bundle.dream, session: "night", changes: [...folds, { action: "gist", fold: true, text: "The mailer got sturdier.", sources: notes }] });
+      if (!out.ok) throw new Error("propose refused");
+      const last = out.results[out.results.length - 1];
+      expect(last?.reason).toBe("limit-reached");
+      expect(String(last?.detail)).toContain("nothing was carried");
+      expect(c.store.eventLog({ name: DREAM_CARRIED_EVENT, ref: begun.bundle.dream })).toHaveLength(0);
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
+  test("a Codex chapter's summary carries the host: never settled over the counterpart's us, never core, and no night reads the chapter as mine", async () => {
+    const cc0 = openServer({ dir: store, scope: canonicalScope(project) });
+    let u: string;
+    try {
+      u = (await cc0.call("remember", { text: "Mike and I ship releases on Thursday evenings.", about: "us", kind: "person" })).structuredContent["id"] as string;
+    } finally {
+      cc0.counterpart.close();
+    }
+    await hook(base("SessionStart", "cx-chs", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project) });
+    let sum: string;
+    try {
+      const r = await s.call("chapter", { session: "cx-chs", text: "A chapter: the owner and I shipped the zephyrine release on Wednesday evening.", summary: "The owner and I shipped the zephyrine release on Wednesday evening.", about: "us" });
+      expect(r.structuredContent["stored"]).toBe(true);
+      sum = (r.structuredContent["summary"] as Record<string, unknown>)["memoryId"] as string;
+      expect((JSON.parse(s.counterpart.store.row(sum)?.meta ?? "{}") as Record<string, unknown>)["host"]).toBe(CODEX_HOST);
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const before = strengthNow(c, u);
+      const direct = settle(c.store, { holds: sum, over: u, how: "changed", actor: "dream", actorId: "drm_x" });
+      expect(direct.ok ? null : direct.reason).toBe("reader-over-identity");
+      expect(strengthNow(c, u)).toBe(before);
+      const begun = c.dreams.begin({ session: "night" });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      const dreamBundle = JSON.stringify(begun.bundle);
+      // The chapter is not a dream's journal entry; its summary, if shown, is labelled.
+      expect(dreamBundle.includes("A chapter: the owner and I shipped")).toBe(false);
+      const out = c.dreams.propose({ dream: begun.bundle.dream, session: "night", changes: [{ action: "nominate-core", id: sum, why: "who we are" }] });
+      if (!out.ok) throw new Error("propose refused");
+      expect(out.results[0]?.ok).toBe(false);
+      expect(c.store.row(sum)?.promoted_identity).toBe(0);
+      expect(c.dreams.journal({ dream: begun.bundle.dream, session: "night", title: "t", text: "I dreamed of a lamp." }).ok).toBe(true);
+      const rb = c.reflections.begin({ session: "night", dream: begun.bundle.dream });
+      if (!rb.ok) throw new Error(`reflect begin refused: ${String(rb.reason)}`);
+      expect(JSON.stringify(rb.bundle).includes("A chapter: the owner and I shipped")).toBe(false);
+      expect(JSON.stringify(c.pageWriterInput({ about: c.store.today() })).includes("zephyrine")).toBe(false);
     } finally {
       cc.counterpart.close();
     }

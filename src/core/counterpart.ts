@@ -44,7 +44,7 @@ import { episodeGate } from "./bridge.js";
 import { Dreams, NIGHT_LINE_READ, Reflections, nightLine } from "./dream/index.js";
 import type { NightNames } from "./dream/night-line.js";
 import { meetingDay } from "./onboarding.js";
-import { isReaderSelfRow } from "./reader-note.js";
+import { isReaderHostRow } from "./reader-note.js";
 import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
@@ -5496,7 +5496,7 @@ export class Counterpart {
     if (row.type !== "memory") return { ok: false, reason: "not-a-memory", detail: `${asked} is a ${row.type}, not a memory; only a memory is marked.` };
     const core = (CORE_ABOUT_MARKS as readonly string[]).includes(mark);
     // A reader host's note about itself never becomes me or us (CX2, `reader-note.ts`).
-    if (input.by === "self" && (mark === "me" || mark === "us") && isReaderSelfRow(row)) {
+    if (input.by === "self" && (mark === "me" || mark === "us") && isReaderHostRow(row)) {
       return {
         ok: false,
         reason: "reader-self-note",
@@ -5642,7 +5642,7 @@ export class Counterpart {
     // `reader-note.ts`): another model's words about itself, or itself and the
     // owner, are never the counterpart's page. Counted on the run's row too.
     const omit = (m: { id: string; protectedRow: boolean }): boolean =>
-      closed.has(m.id) || isReaderSelfRow(this.store.row(m.id)) || asked?.(m) === true;
+      closed.has(m.id) || isReaderHostRow(this.store.row(m.id)) || asked?.(m) === true;
     // DAY'S END READS THE DAY AS TOLD (2026-10-23, `self.DAYS_END_INPUT`, read
     // at use): every chapter of the day by its summary, a line each with its
     // address, in most of the room, and the day's few strongest memories with

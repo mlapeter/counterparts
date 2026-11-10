@@ -194,6 +194,28 @@ export function readerNoteLine(
   return null;
 }
 
+/**
+ * ANY ROW A READER HOST WROTE, as the night and a writer are shown it
+ * (2026-11-10): its own note's line, else "written by gpt-x in Codex — not
+ * mine". Null for the counterpart's own rows.
+ */
+export function readerWrittenLine(
+  row: { readonly meta?: unknown; readonly model?: string | null } | undefined | null,
+  hostName: (host: string) => string = (h) => (h.length === 0 ? h : `${h.charAt(0).toUpperCase()}${h.slice(1)}`),
+): string | null {
+  const note = readerNoteLine(row, hostName);
+  if (note !== null || row === undefined || row === null || !isReaderHostRow(row)) return note;
+  let host = "";
+  try {
+    const m = typeof row.meta === "string" ? (JSON.parse(row.meta) as Record<string, unknown>) : (row.meta as Record<string, unknown>);
+    host = typeof m[HOST_META_KEY] === "string" ? (m[HOST_META_KEY] as string) : "";
+  } catch {
+    host = "";
+  }
+  const model = typeof row.model === "string" && row.model.length > 0 ? row.model : null;
+  return `written by ${readerLabel({ host, model }, hostName(host))} — not mine`;
+}
+
 /** How a reader's self-note is named to the person and the model: "gpt-x in Codex". */
 export function readerLabel(r: ReaderSelf, hostName: string): string {
   return r.model === null ? `a model in ${hostName}` : `${r.model} in ${hostName}`;
