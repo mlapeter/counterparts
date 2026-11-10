@@ -64,6 +64,7 @@ import type { Db, Statement, WalFold } from "./db.js";
 import { foldWal, isLocked, wroteOn } from "./db.js";
 import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
+import { isReaderSelfRow } from "../reader-note.js";
 import type { Stance } from "../observer.js";
 import {
   BIRTH_ROUTES,
@@ -302,6 +303,9 @@ export { STEMMER_VERSION, stemTerm } from "./stem.js";
 
 export * from "./errors.js";
 export * from "../observer.js";
+// A reader host's note about itself (CX2): re-exported so `sleep/`, which
+// imports only types, physics and the store, can keep it out of the core.
+export { isReaderSelfRow } from "../reader-note.js";
 export * from "./paths.js";
 export * from "./private.js";
 export * from "./prose.js";
@@ -2500,6 +2504,12 @@ export class Store {
     const out = this.mutate("setAbout", () => {
       const row = this.requireRow(id);
       if (row.type !== "memory" || rowTombstoned(row)) throw new StoreError("ABOUT_NOT_A_MEMORY", { id });
+      // A READER'S NOTE ABOUT ITSELF IS NEVER THE COUNTERPART'S IDENTITY (CX2,
+      // `core/reader-note.ts`): no `me` or `us` from the writer, a re-mark, the
+      // reflection or the dream. The owner's door may still mark it anything.
+      if ((mark === "me" || mark === "us") && opts.by !== "owner" && isReaderSelfRow(row)) {
+        throw new StoreError("ABOUT_READER_SELF", { id, mark });
+      }
       const before = aboutMarkOf(row.about);
       this.ops.run("UPDATE memories SET about = ?, about_by = ? WHERE id = ?", mark, opts.by, id);
       const why = (opts.why ?? "").trim();

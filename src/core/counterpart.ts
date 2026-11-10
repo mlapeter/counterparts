@@ -44,6 +44,7 @@ import { episodeGate } from "./bridge.js";
 import { Dreams, NIGHT_LINE_READ, Reflections, nightLine } from "./dream/index.js";
 import type { NightNames } from "./dream/night-line.js";
 import { meetingDay } from "./onboarding.js";
+import { isReaderSelfRow } from "./reader-note.js";
 import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
@@ -5490,6 +5491,14 @@ export class Counterpart {
     if (row === undefined || rowTombstoned(row)) return missing;
     if (row.type !== "memory") return { ok: false, reason: "not-a-memory", detail: `${asked} is a ${row.type}, not a memory; only a memory is marked.` };
     const core = (CORE_ABOUT_MARKS as readonly string[]).includes(mark);
+    // A reader host's note about itself never becomes me or us (CX2, `reader-note.ts`).
+    if (input.by === "self" && (mark === "me" || mark === "us") && isReaderSelfRow(row)) {
+      return {
+        ok: false,
+        reason: "reader-self-note",
+        detail: `${id} is a note another model wrote about itself; it is not about me or us (the owner can mark it anything).`,
+      };
+    }
     if (input.by === "self") {
       if (core && (row.source === "dreamed" || row.source === "reflection")) {
         return {

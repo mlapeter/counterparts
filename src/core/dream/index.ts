@@ -37,6 +37,7 @@
  * the model, outside this process.
  */
 import { SELF_TUNABLES } from "../self/tunables.js";
+import { isReaderSelfRow } from "../reader-note.js";
 import { NO_RECORD_RULE, daySummaryFor, pageWriterNight } from "../self/writer.js";
 import type { DaySummary } from "../self/writer.js";
 import { createHash, randomBytes } from "node:crypto";
@@ -2628,7 +2629,8 @@ export class Dreams {
         const sources = [...new Set(Array.isArray(change.sources) ? change.sources : [])];
         const lived = sources.filter((s) => {
           const r = live(s);
-          return r !== null && r.source !== "dreamed" && r.source !== "reflection";
+          // Nor a reader host's note about itself (CX2, `reader-note.ts`).
+          return r !== null && r.source !== "dreamed" && r.source !== "reflection" && !isReaderSelfRow(r);
         });
         if (lived.length === 0) return { action, ok: false, reason: "needs-a-lived-source", detail: "sources are the lived memories it was shown that the belief rests on (not a dream's words)." };
         const notes: string[] = [];
@@ -2643,6 +2645,11 @@ export class Dreams {
         // Already core: nothing to nominate, and nothing wrong in asking
         // (2026-09-28: was refused `already-core`).
         if (row.promoted_identity === 1) return { action, ok: true, reason: "already-core", id: row.id, note: `${row.id} is already core; nothing was recorded.` };
+        // A READER HOST'S NOTE ABOUT ITSELF IS NEVER A CORE CANDIDATE (CX2,
+        // `reader-note.ts`): another model wrote it about that model.
+        if (isReaderSelfRow(row)) {
+          return { action, ok: false, reason: "reader-self-note", detail: `${row.id} is a note another model wrote about itself, read from another host; it is never core.` };
+        }
         // A NOMINATION IS THE DREAM'S SUGGESTION of what a memory is about (v9):
         // a dream cannot set the mark — only an awake model that read it can —
         // so it may nominate an unmarked memory, and the reflection decides.

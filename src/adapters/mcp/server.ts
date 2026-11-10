@@ -97,7 +97,9 @@ import { homedir } from "node:os";
 
 import { NONESSENTIAL_TRAFFIC_ENV, UPDATE_CHECK_ENV, UPDATE_OFF_KEY, askedOff, updateSwitch } from "../update-check.js";
 import type { UpdateSwitch } from "../update-check.js";
-import { CLAUDE_AI_HOST, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, wordingFor } from "../hosts.js";
+import { CLAUDE_AI_HOST, CODEX_HOST, CODEX_HOST_NAME, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, isReaderHost, wordingFor } from "../hosts.js";
+import { readerLabel, writesReaderSelf } from "../../core/reader-note.js";
+import type { ReaderSelf } from "../../core/reader-note.js";
 import { PLUGIN_ROOT_ENV, recordedForThisCopy } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
 import { sidebarBeside, versionCore } from "../host-wiring.js";
@@ -246,6 +248,19 @@ const STILL_OPEN_QUESTIONS: ReadonlySet<string> = new Set([
   "what is still unresolved",
   "whats still unresolved",
 ]);
+
+/**
+ * WHAT A CODEX CLIENT IS TOLD AT `initialize` (CX2, 2026-11-09): under 512
+ * characters, self-contained — Codex keeps the first 512 of a server's
+ * instructions (CX1 §1).
+ */
+export const CODEX_INSTRUCTIONS =
+  "Counterparts: the shared memory of this person's counterpart, the AI they work with in Claude. You read it from Codex as yourself, not as the counterpart: in these tools \"me\" means the counterpart, so write memories in your own voice, and about: me keeps a note about you. The self page, dream, reflect and meet are the counterpart's and refuse here. Codex's hooks bring the wake and recall; when asked at the end, call session_end and chapter with the session id given.";
+
+/** A `remember` belief marked about us (CX2: the one kind a reader host may still make). */
+function isUsBelief(arg: unknown): boolean {
+  return arg !== null && typeof arg === "object" && !Array.isArray(arg) && (arg as Record<string, unknown>)["about"] === "us";
+}
 
 /** True when a facts question asks for exactly the list of what is still open. */
 export function asksStillOpen(question: string): boolean {
@@ -677,6 +692,9 @@ export class McpServer {
             : { tools: { listChanged: false } },
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
           ...(this.desktop ? { instructions: this.chatInstructions() } : {}),
+          // A READER HOST (CX2): who the tools' "me" is, said once, in the
+          // first 512 characters Codex keeps of a server's instructions.
+          ...(this.host === CODEX_HOST ? { instructions: CODEX_INSTRUCTIONS } : {}),
         });
       }
       case "notifications/initialized":
@@ -1021,6 +1039,12 @@ export class McpServer {
       const verdict = this.scopeVerdict();
       if (stanceOfMode(verdict.mode) === "off") return this.refuseScopeOff(name, verdict);
     }
+    // A READER HOST (CX2, 2026-11-09: Codex). Its model reads the counterpart's
+    // memory without being the counterpart, so what is the counterpart's own
+    // — the self page, the night's tools, the first meeting — is not its to
+    // write. Reads still answer (`self_page` with no body).
+    const readerRefusal = this.readerHostRefusal(name, args);
+    if (readerRefusal !== null) return readerRefusal;
     // A WRITE-UP RUNNER WRITES UP AND NOTHING ELSE (2026-10-01, review of #308,
     // HIGH). The nightly catch-up's runner is bound to the launching session's
     // directory, so an ordinary `session_end` — or a `remember`, a `chapter`, a
@@ -1956,6 +1980,8 @@ export class McpServer {
     if ("refused" in traits) return this.refuse("remember", "traits-malformed", { detail: traits.refused });
     // v14, lane B: its tags, loose first the same way.
     const tags = readTags(args);
+    // A READER HOST'S WRITE (CX2): its host, and `me` kept as its own note.
+    const reader = this.readerDeposit(about.mark, draft["kind"], model);
     let deposit: DepositResult;
     try {
       deposit = await this.counterpart.submitJot(draft, {
@@ -1969,8 +1995,10 @@ export class McpServer {
         facts: facts.sent,
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
         // What it is about sets an unclaimed memory's default floor (2026-10-10).
-        about: about.mark,
+        about: reader.about,
         ...(model === undefined ? {} : { model }),
+        ...(reader.host === undefined ? {} : { host: reader.host }),
+        ...(reader.readerSelf === undefined ? {} : { readerSelf: reader.readerSelf }),
       });
     } catch (err) {
       // SAID AS A TOOL'S ANSWER (2026-11-01), as `session_end` says one entry's,
@@ -1988,11 +2016,14 @@ export class McpServer {
     const settle = settleArg === undefined ? null : this.settleOutcome(settleArg as Record<string, unknown>);
     return this.depositResult("remember", deposit, {
       ...this.recordFeelings(deposit, feelings.inputs, model),
-      ...this.recordAbout(deposit, about.mark),
+      ...(this.readerSelfAbout(deposit) ?? this.recordAbout(deposit, reader.about)),
       // A BELIEF IN THE MOMENT (lane C3), after the feelings: a vivid one is read off them.
-      ...this.recordBelief(deposit, args["belief"]),
-      ...this.recordTraits(deposit, traits.inputs, model),
-      ...this.recordStory(deposit, args["story"]),
+      // From a reader host, only one about us on a memory that is not its own note (CX2).
+      ...(args["belief"] !== undefined && this.readerHost() && (deposit.readerSelf !== undefined || !isUsBelief(args["belief"]))
+        ? this.readerKeeps(deposit, "belief")
+        : this.recordBelief(deposit, args["belief"])),
+      ...(traits.inputs.length > 0 && this.readerHost() ? this.readerKeeps(deposit, "traits") : this.recordTraits(deposit, traits.inputs, model)),
+      ...(args["story"] === true && this.readerHost() ? this.readerKeeps(deposit, "story") : this.recordStory(deposit, args["story"])),
       ...reminderEcho(deposit, dated, this.today()),
       ...titleEcho(deposit, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(deposit, dated, args["title"], text),
@@ -2128,6 +2159,10 @@ export class McpServer {
       // A memory deleted in chat (held) or removed is gone to remark (fix round R7).
       if (!shown.has(id) || this.denied(id)) {
         return { ok: false, reason: "not-shown-or-gone", detail: `${id} was not shown in this session: recall it by id first, then re-mark it.` };
+      }
+      // A READER HOST NEVER MARKS A MEMORY ABOUT ME (CX2): `me` is the counterpart.
+      if (this.readerHost() && arg["about"] === "me") {
+        return { ok: false, reason: "reader-host", detail: `In this memory "me" is the counterpart, and you are reading it from ${this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host}; a mark about me is not yours to set. Nothing was marked.` };
       }
       const out = this.counterpart.markAbout({
         id,
@@ -4677,6 +4712,74 @@ export class McpServer {
    */
   private nightRun(): boolean {
     return (this.env[NIGHT_CHILD_ENV] ?? "").trim().length > 0 || (this.env[NIGHT_RUN_ENV] ?? "").trim().length > 0;
+  }
+
+  // ── a reader host (CX2, 2026-11-09: Codex) ─────────────────────────────────
+
+  /** Does this server serve a host whose model is not the counterpart (`hosts.ts#isReaderHost`)? */
+  private readerHost(): boolean {
+    return isReaderHost(this.host);
+  }
+
+  /**
+   * WHAT A READER HOST MAY NOT DO (CX2; Mike, 2026-11-09): write the self page
+   * (a read still answers), run the night's tools (`dream`, `reflect` — Codex
+   * runs no night, and the reflection rewrites the page), or hold the first
+   * meeting (the counterpart getting to know its person). Null for anything else.
+   */
+  private readerHostRefusal(name: string, args: Record<string, unknown>): ToolResult | null {
+    if (!this.readerHost()) return null;
+    const host = this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host;
+    if (name === "self_page" && (args["body"] !== undefined || args["short"] !== undefined || args["summary"] !== undefined)) {
+      return this.refuse(name, "reader-host", {
+        detail: `The self page is the counterpart's own, and this is ${host}: you read this memory without being the counterpart, so its page is shown for history and is not yours to write. Nothing was written. Read it with no body; write what you learned as a memory with remember.`,
+      });
+    }
+    if (name === "dream" || name === "reflect" || name === "meet") {
+      return this.refuse(name, "reader-host", {
+        detail: `${name} is the counterpart's own and runs in Claude, not in ${host}. Nothing was done.`,
+      });
+    }
+    return null;
+  }
+
+  /**
+   * THE DEPOSIT FIELDS A READER HOST'S WRITE CARRIES (CX2): its host, always,
+   * and — for a memory `about: me` or `kind: self` — the reader's note about
+   * itself, with no `me` mark (`core/reader-note.ts`). Nothing for the
+   * counterpart's own hosts.
+   */
+  private readerDeposit(
+    about: AboutMark | null,
+    kind: unknown,
+    model: string | undefined,
+  ): { host?: string; readerSelf?: ReaderSelf; about: AboutMark | null } {
+    if (!this.readerHost()) return { about };
+    if (writesReaderSelf(about, typeof kind === "string" ? kind : null)) {
+      return { host: this.host, readerSelf: { host: this.host, model: model ?? null }, about: null };
+    }
+    return { host: this.host, about };
+  }
+
+  /** What a reader host's note about itself says in a result: where it went, and what it is not. */
+  private readerSelfAbout(deposit: DepositResult): Record<string, unknown> | null {
+    const self = deposit.readerSelf;
+    if (self === undefined) return null;
+    const label = readerLabel(self, self.host === CODEX_HOST ? CODEX_HOST_NAME : self.host);
+    return {
+      about: {
+        stored: false,
+        reason: "reader-self-note",
+        note: `Kept as your own note about yourself (${label}), recallable and labelled so — not about me: in this memory "me" is the counterpart, and its self is not yours to write.`,
+      },
+    };
+  }
+
+  /** A reader host's write keeps no traits, story or `me` belief: those are the counterpart's (CX2). */
+  private readerKeeps(deposit: DepositResult, part: "traits" | "story" | "belief"): Record<string, unknown> {
+    void deposit;
+    const host = this.host === CODEX_HOST ? CODEX_HOST_NAME : this.host;
+    return { [part]: { stored: false, reason: "reader-host", note: `Not kept: ${part === "belief" ? "a belief about me" : part === "story" ? "a story for the self page" : "a trait"} is the counterpart's own, and this memory was written from ${host}. The memory itself was kept.` } };
   }
 
   /** `remember`'s `belief` (lane C3, 2026-10-21): born beside the memory, or said why not. */

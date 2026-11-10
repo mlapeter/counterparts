@@ -314,6 +314,8 @@ export async function depositEntries(
     }
     const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
     const tags = tagsOf[n] ?? { dropped: [] };
+    // A READER HOST'S ENTRY (CX2): its host, and `me` kept as its own note.
+    const reader = server["readerDeposit"](about.mark, draft["kind"], model);
     let result: DepositResult;
     try {
       result = await server.counterpart.submitSessionEnd(draft, {
@@ -323,8 +325,10 @@ export async function depositEntries(
         at: server["today"](),
         facts: facts.sent,
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
+        ...(reader.host === undefined ? {} : { host: reader.host }),
+        ...(reader.readerSelf === undefined ? {} : { readerSelf: reader.readerSelf }),
         // What it is about sets an unclaimed entry's default floor (2026-10-10).
-        about: about.mark,
+        about: reader.about,
         // The dump's earlier entries: never read as an earlier state of this one.
         siblings: [...batch],
         ...(cover === undefined ? {} : { cover }),
@@ -357,8 +361,8 @@ export async function depositEntries(
       ...(malformed === null ? {} : { malformed }),
       ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
       ...server["recordFeelings"](result, feelings.inputs, model),
-      ...server["recordAbout"](result, about.mark),
-      ...server["recordTraits"](result, traits.inputs, model),
+      ...(server["readerSelfAbout"](result) ?? server["recordAbout"](result, reader.about)),
+      ...(traits.inputs.length > 0 && server["readerHost"]() ? server["readerKeeps"](result, "traits") : server["recordTraits"](result, traits.inputs, model)),
       ...reminderEcho(result, dated, server["today"]()),
       ...titleEcho(result, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(result, dated, draft["title"], draft["content"]),
@@ -715,7 +719,8 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       scope: server.scope,
       ...(typeof title === "string" && title.length > 0 ? { title } : {}),
       ...(model === undefined ? {} : { model }),
-      ...(about.mark === null ? {} : { about: about.mark }),
+      // A READER HOST'S CHAPTER IS NEVER ABOUT ME (CX2): `me` is the counterpart.
+      ...(about.mark === null || (about.mark === "me" && server["readerHost"]()) ? {} : { about: about.mark }),
       ...(typeof summary === "string" && summary.trim().length > 0 ? { summary } : {}),
     });
   } catch (err) {

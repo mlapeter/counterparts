@@ -242,17 +242,32 @@ export async function deposit(
   // call, a prompt or the session's own limits keeps no date, thread or me/us.
   const plumbing = ownPlumbingOf(cp, minting, carry.from, ctx.about, carriedAbout?.about ?? null);
   const minting2: Proposal = plumbing === null ? minting : plumbing.proposal;
-  const about = plumbing !== null && carriedAbout !== null && plumbing.aboutRefused === carriedAbout.about ? null : carriedAbout;
+  const unplumbed = plumbing !== null && carriedAbout !== null && plumbing.aboutRefused === carriedAbout.about ? null : carriedAbout;
   const sentAbout = plumbing !== null && plumbing.aboutRefused !== null && plumbing.aboutRefused === ctx.about ? undefined : ctx.about;
+  // A READER HOST'S REVISION (2026-11-09, CX2, `reader-note.ts`): a write from a
+  // host whose model is not the counterpart never takes `me` from the memory it
+  // revises — that would put the reader's words in the counterpart's identity —
+  // so an inherited `me` makes it the reader's note about itself, as a sent one
+  // does at the door. And a note about itself carries no `me` or `us` at all.
+  const readerSelf =
+    ctx.readerSelf ??
+    (ctx.host !== undefined && unplumbed?.about === "me" ? { host: ctx.host, model: ctx.model ?? null } : undefined);
+  const about = readerSelf !== undefined && (unplumbed?.about === "me" || unplumbed?.about === "us") ? null : unplumbed;
   let mint: MintResult;
   try {
     mint = mintProposal(cp.store, minting2, {
       self: cp.self,
       channel: "authored",
       ...(plumbing === null ? {} : { ownPlumbing: plumbing.cue }),
-      ...(about !== null ? { about: about.about, inheritedAbout: about } : sentAbout === undefined ? {} : { about: sentAbout }),
+      ...(about !== null
+        ? { about: about.about, inheritedAbout: about }
+        : sentAbout === undefined || (readerSelf !== undefined && (sentAbout === "me" || sentAbout === "us"))
+          ? {}
+          : { about: sentAbout }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.writeUp === undefined ? {} : { writeUp: ctx.writeUp }),
+      ...(ctx.host === undefined ? {} : { host: ctx.host }),
+      ...(readerSelf === undefined ? {} : { readerSelf }),
       onEvent: (name, data) => cp["emit"](name, undefined, data),
     });
   } catch (err) {
@@ -358,6 +373,7 @@ export async function deposit(
     ...(titled.asked ? { titleAsked: true as const } : {}),
     ...(slot === null ? {} : { slot }),
     ...(plumbing === null ? {} : { ownPlumbing: { cue: plumbing.cue, dropped: plumbing.dropped, aboutRefused: plumbing.aboutRefused } }),
+    ...(readerSelf === undefined ? {} : { readerSelf }),
   };
 }
 

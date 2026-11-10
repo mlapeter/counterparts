@@ -65,6 +65,7 @@
 import { randomBytes } from "node:crypto";
 
 import { emotionalIntensity } from "../physics/index.js";
+import { isReaderSelfRow } from "../reader-note.js";
 import { earlierMark, headOf, isHandoff, isSelfPage } from "../recall/index.js";
 import { aboutMe, acceptsReflectedFeeling, keepCore, laterFeelingWasReflections, promotionRecordKey, reconsiderWords, retireCore, selfRelevantFeeling } from "../sleep/index.js";
 import {
@@ -817,6 +818,9 @@ const RELABEL_SAID = 3;
  */
 function notLivedReason(row: MemoryRow, act: "feel" | "mark" | "trait"): string | null {
   if (row.source === "dreamed") return "dreamed-is-a-suggestion";
+  // A reader host's note about itself (CX2, `reader-note.ts`): another model's
+  // words about that model — never a mark, a trait or a feeling of mine.
+  if (isReaderSelfRow(row)) return "reader-self-note";
   if (row.source === "reflection") {
     return act === "feel" ? "reflection-does-not-feel-itself" : act === "mark" ? "reflection-does-not-mark-itself" : "reflection-is-not-an-act";
   }
@@ -2585,6 +2589,8 @@ export class Reflections {
       const r = this.store.row(id);
       if (r === undefined || !this.showable(r)) return "not-shown-or-gone";
       if (r.source === "dreamed" || r.source === "reflection") return "not-lived";
+      // Never a belief's lived cite (CX2): another model's note about itself.
+      if (isReaderSelfRow(r)) return "not-lived";
       return null;
     };
     const retireOne = (beliefId: string, why: string): PartResult => {

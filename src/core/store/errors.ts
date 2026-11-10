@@ -91,6 +91,11 @@ export type StoreErrorCode =
   | "ABOUT_UNKNOWN"
   /** v9: an about-mark on a schema row or a removed memory. `detail` carries `{ id }`. */
   | "ABOUT_NOT_A_MEMORY"
+  /**
+   * CX2 (2026-11-09): `me` or `us` set on a reader host's note about itself
+   * (`core/reader-note.ts`) by anyone but the owner. `detail` carries `{ id, mark }`.
+   */
+  | "ABOUT_READER_SELF"
   /** v10: a contradiction pair of a memory with itself. `detail` carries `{ id }`. */
   | "CONTRADICTION_SAME_MEMORY"
   /** v10: a settle named no pair and not both of its memories. */
