@@ -397,7 +397,8 @@ describe("about: me from Codex is the model's own self-note, never identity", ()
         threw = err;
       }
       expect(isStoreError(threw, "ABOUT_READER_SELF")).toBe(true);
-      expect(c.markAbout({ id, mark: "us", by: "self" }).reason).toBe("reader-self-note");
+      const remarked = c.markAbout({ id, mark: "us", by: "self" });
+      expect(remarked.ok ? null : remarked.reason).toBe("reader-self-note");
       // Never a belief's evidence, by the one door support comes through.
       const belief = c.sessionBelief({ memoryId: ordinaryId, statement: "They prefer small diffs." });
       expect(belief.id).not.toBeNull();
