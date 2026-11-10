@@ -260,6 +260,66 @@ extend `deniedMcpServers`. It already lists `*.trycloudflare.com`, `claude.ai co
 3. Connect, sign in, then Allow. Your account page now lists it.
 4. In a new chat, ask it to wake. The first wake offers the first meeting.
 
+## 9. The directory reviewer's account, and every tool once (DIR1, 2026-11-10)
+
+**The account.** Use an address you control (delete emails go to it), at a domain no person uses:
+
+```sh
+railway ssh
+node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts reviewer reviewer@counterparts.ai --days 90
+```
+
+It prints a code (`cpr_…`) once, on stdout. It makes a new account even with spots closed, and refuses an address
+that already has one. Its memory fills with sample data (a made-up "Sam") at its first connection. For the
+portal's test-credentials field:
+
+    Sign in at https://app.counterparts.ai/login (Claude's connector flow sends you there): email
+    reviewer@counterparts.ai; open "Have an invite code?" and paste the code; "Email me a link" then signs
+    you in at once, with no email. The account holds sample data only.
+
+When the review ends: `... main.ts reviewer revoke reviewer@counterparts.ai`. A re-review gets a new address.
+
+**Every tool once, against the live server** (the portal's step 8; after the deploy, on Mike's word). On your
+laptop, in a private browser window so your own session isn't the one signed in:
+
+```sh
+mkdir -p /tmp/dir1-live && cd /tmp/dir1-live
+export HOME=/tmp/dir1-live MCP_CATALOG_PATH=/tmp/dir1-live/mcp.json   # Inspector's login stays here
+npx @modelcontextprotocol/inspector@2.14.0 --cli https://app.counterparts.ai/mcp --method tools/list --strict
+```
+
+It prints a sign-in URL: open it in the private window, sign in with the reviewer email and code, Allow. Expect
+12 tools and "0 errors". Then each tool (the login is reused; `SESSION` is the `session` the wake returns):
+
+```sh
+I="npx @modelcontextprotocol/inspector@2.14.0 --cli https://app.counterparts.ai/mcp --method tools/call --format json"
+$I --tool-name wake
+$I --tool-name remember --tool-args-json '{"session":"SESSION","text":"Live check: the robotics club meets in room 114.","about":"owner"}'
+$I --tool-name recall --tool-args-json '{"session":"SESSION","question":"what did Sam decide about the kitchen budget?","mode":"facts"}'
+$I --tool-name status --tool-args-json '{"session":"SESSION"}'
+$I --tool-name session_end --tool-args-json '{"session":"SESSION","memories":[{"content":"Live check entry.","about":"owner"}]}'
+$I --tool-name chapter --tool-args-json '{"session":"SESSION","text":"Live check of every tool.","title":"Live check","about":"us"}'
+$I --tool-name scope --tool-args-json '{"session":"SESSION"}'
+$I --tool-name scope --tool-args-json '{"session":"SESSION","mode":"off"}'
+$I --tool-name scope --tool-args-json '{"session":"SESSION","mode":"on"}'
+$I --tool-name self_page --tool-args-json '{"session":"SESSION"}'
+$I --tool-name dream --tool-args-json '{"session":"SESSION","phase":"setting","value":"auto"}'
+$I --tool-name reflect --tool-args-json '{"session":"SESSION","phase":"launch"}'
+$I --tool-name meet --tool-args-json '{"session":"SESSION"}'
+$I --tool-name recall --tool-args-json '{"session":"SESSION","ids":["ID"]}'          # ID: the remember's id
+$I --tool-name delete_memory --tool-args-json '{"session":"SESSION","id":"ID"}'
+$I --tool-name delete_memory --tool-args-json '{"session":"SESSION","id":"ID","undo":true}'
+```
+
+Every answer should have no `"isError": true`. Keep the output: that is the record. The same run, against a local
+server, is `hosted/test/dir1.test.ts` ("every tool once"; `DIR1_RECORD=<file>` writes its table). The Claude Code
+alternative, `claude mcp add --transport http counterparts-review https://app.counterparts.ai/mcp`, works once the
+DIR1 deploy is live, but your `deniedMcpServers` (step 7) blocks `https://app.counterparts.ai/*`: use Inspector.
+
+**MCP Inspector's web page** (optional): set `MCP_ALLOWED_ORIGINS=http://localhost:6274` on the service, redeploy,
+and unset it afterwards. Unset, nothing changes for anyone. Its browser-side sign-in is unverified; the command line
+above is the tested path.
+
 ---
 
 ## Restore
