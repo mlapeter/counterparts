@@ -270,3 +270,19 @@ the threshold, and whether a quiet account's raw copies go early, are Mike's.
       live code's ask is counted no further and still sent, bounded only by the per-address and per-IP limits.
     - **No alarm when it trips.** Phone mails its operator once an hour when its sign-up cap trips (`signup_alarm`);
       here the operator sees it only in `spots` (`… this hour: reached`).
+
+## The directory connector (DIR1, 2026-11-10)
+
+49. **What DIR1 left open.**
+    - **A reviewer's code is a password for one account.** Bounded (expiry, revoke, the login form's per-IP and
+      per-address limits, never a member's address), but it is a standing secret in the portal's test-credentials
+      field. Revoke it (`reviewer revoke <email>`) when the review ends; a re-review gets a new account.
+    - **The sample is seeded once.** Several reviewers (or one who turns memory off, deletes and rewrites the page)
+      leave the account as they left it; there is no reset. A fresh `reviewer` account is the reset.
+    - **Inspector's web page is unverified end to end.** `MCP_ALLOWED_ORIGINS` lets its page call `/mcp` (preflight,
+      CORS), but its browser-side OAuth (discovery, `/oauth/register` from the page) was not run here. Inspector's
+      command line was, through its own OAuth (DCR, a loopback return, PKCE) against a local hosted server.
+    - **Ten schema portability warnings** (Inspector `--strict`): nullable fields typed `["string","null"]` (and two
+      `["array","null"]`). Legal JSON Schema, accepted by Claude; every host's schema shares them, so changing them
+      is a both-doors change, left for now.
+

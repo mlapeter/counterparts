@@ -93,6 +93,20 @@ export function redirectUriAcceptable(uri: unknown): boolean {
   }
 }
 
+/** Redirect URIs that are all plain http on a loopback address (and at least one): an app on this computer. */
+export function isLoopbackOnly(uris: unknown): boolean {
+  if (!Array.isArray(uris) || uris.length === 0) return false;
+  return uris.every((uri) => {
+    if (typeof uri !== "string") return false;
+    try {
+      const u = new URL(uri);
+      return u.protocol === "http:" && LOOPBACK_HOSTS.has(u.hostname);
+    } catch {
+      return false;
+    }
+  });
+}
+
 /** Where an app sends the person back, as they would recognise it. */
 export function returnsTo(uri: string): string {
   try {
@@ -183,7 +197,7 @@ export function createOAuth(opts: OAuthOptions): OAuth {
     pkce: { required: () => true },
     extraClientMetadata: {
       properties: [...REFUSED_CLIENT_METADATA, "redirect_uris"],
-      validator: (_ctx: unknown, key: string, value: unknown) => {
+      validator: (_ctx: unknown, key: string, value: unknown, metadata: Record<string, unknown>) => {
         if ((REFUSED_CLIENT_METADATA as readonly string[]).includes(key)) {
           if (value !== undefined) throw new errors.InvalidClientMetadata(`${key} is not accepted by this server`);
           return;
@@ -191,6 +205,14 @@ export function createOAuth(opts: OAuthOptions): OAuth {
         if (key === "redirect_uris" && Array.isArray(value) && !value.every(redirectUriAcceptable)) {
           throw new errors.InvalidRedirectUri("redirect_uris must be https, or http on a loopback address");
         }
+        // AN APP THAT RETURNS ONLY TO THIS COMPUTER IS A NATIVE APP (DIR1, 2026-11-10; RFC 8252 §7.3,
+        // and Anthropic's connector auth doc: "accept a loopback redirect on any port"). Claude Code's
+        // CIMD document lists `http://localhost/callback` and `http://127.0.0.1/callback` and no
+        // `application_type`, so the library read it as `web` and matched the port exactly: its real
+        // `localhost:<port>` return was `invalid_redirect_uri`. Native, the library ignores the
+        // loopback port (and the host still has to match), and asks for the Allow page every time.
+        // The library lets the validator set metadata; it reads it after this, in the same pass.
+        if (key === "redirect_uris" && isLoopbackOnly(value)) metadata["application_type"] = "native";
       },
     },
     // Belt and braces behind the refusal above: nothing the library fetches is unbounded.

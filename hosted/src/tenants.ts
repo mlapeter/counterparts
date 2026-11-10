@@ -108,6 +108,16 @@ export interface TenantsOptions {
    * is swallowed by the server.
    */
   readonly onRemovalHeld?: (storeId: string, at: number) => void;
+  /**
+   * What fills a store this open CREATED, before any call (DIR1: a reviewer's
+   * sample account, `sample.ts#seedSample`), or null for an ordinary new
+   * store. It runs FIRST in the store's own queue, so every call waits for it,
+   * through the same tools a conversation calls. A throw is told to `onSeed`
+   * and the store is served as it stands.
+   */
+  readonly seed?: (storeId: string) => ((server: McpServer) => Promise<void>) | null;
+  /** Told when a seed finished (`ok`) or threw. A throw here is swallowed. */
+  readonly onSeed?: (storeId: string, ok: boolean) => void;
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -412,7 +422,16 @@ export class Tenants {
       }
     }
     this.tell("tenant.open", storeId);
-    return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
+    const handle: Handle = { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
+    const seeder = fresh ? (this.opts.seed?.(storeId) ?? null) : null;
+    if (seeder !== null) {
+      // First in the queue: the caller that opened the store, and every call after it, waits for the seed.
+      void handle.serial(() => seeder(server)).then(
+        () => this.told(storeId, true),
+        () => this.told(storeId, false),
+      );
+    }
+    return handle;
   }
 
   /** Over the cap: close the least recently used idle handles. A soft cap — in-use handles are never closed. */
@@ -441,6 +460,14 @@ export class Tenants {
       }
     })();
     return h.closing;
+  }
+
+  private told(storeId: string, ok: boolean): void {
+    try {
+      this.opts.onSeed?.(storeId, ok);
+    } catch {
+      /* a listener never fails a call */
+    }
   }
 
   private tell(name: "tenant.open" | "tenant.close", storeId: string): void {

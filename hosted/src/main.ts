@@ -63,7 +63,8 @@ import { openDb } from "../../src/core/store/db.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
-import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS } from "./accounts.js";
+import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS } from "./accounts.js";
+import { OidcStore } from "./oauth-adapter.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
@@ -255,6 +256,28 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
     keys.close();
     accounts.close();
   }
+}
+
+/**
+ * `MCP_ALLOWED_ORIGINS` (DIR1, 2026-11-10): the exact browser origins `/mcp` answers, comma-separated, for
+ * a browser-based client such as MCP Inspector's web page (`http://localhost:6274`). Unset or empty: none,
+ * as before, so claude.ai (which calls server to server, with no Origin) is unchanged. Each must be a bare
+ * origin (scheme, host, port), never `*`, so a typo can't open the door to every page.
+ */
+export function mcpAllowedOrigins(raw: string | undefined): string[] & { refusal?: never } | { refusal: string } {
+  const out: string[] = [];
+  for (const part of (raw ?? "").split(",").map((p) => p.trim()).filter((p) => p.length > 0)) {
+    let origin: string | null = null;
+    try {
+      const u = new URL(part);
+      origin = (u.protocol === "http:" || u.protocol === "https:") && u.origin === part ? u.origin : null;
+    } catch {
+      origin = null;
+    }
+    if (origin === null) return { refusal: `refused: MCP_ALLOWED_ORIGINS takes exact origins like http://localhost:6274, comma-separated; "${part.slice(0, 80)}" isn't one.` };
+    out.push(origin);
+  }
+  return out;
 }
 
 /** One `/mcp` message for the container log: ids and codes only (CONTRACT §6). The record's strings are already cut to codes (`http.ts#code`). */
@@ -696,7 +719,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${out.text}\n`);
     return;
   }
-  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over") {
+  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over" || command === "reviewer") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
     // (the #653 review, L6), so it can never skip that check by accident.
@@ -764,6 +787,48 @@ async function main(): Promise<void> {
     );
     return;
   }
+  if (command === "reviewer") {
+    // DIR1 (2026-11-10): the directory reviewer's test account. `reviewer <email> [--days N] [--tz Zone]`
+    // makes a NEW account at an address the operator controls (refused for one that has an account),
+    // whose store fills with the sample at its first open (`sample.ts`), and prints its sign-in code
+    // once: typed beside that email under "Have an invite code?" on /login, it signs in with no email.
+    // `reviewer revoke <email>` ends every code and web session of that account.
+    if (rest[0] === "revoke") {
+      const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
+      const { revoked: n, personId } = accounts.revokeReviewer(rest[1]);
+      accounts.close();
+      if (personId === null) {
+        process.stderr.write("[hosted] refused: no reviewer account has that email (revoke never touches a member's account).\n");
+        process.exitCode = 1;
+        return;
+      }
+      // Its connections too: every grant ends, so a token made with the code is refused at its next call.
+      const oidc = new OidcStore(join(read.dataRoot, "control", "oauth.sqlite"));
+      oidc.revokeAccount(personId);
+      oidc.close();
+      process.stdout.write(`${String(n)} reviewer code${n === 1 ? "" : "s"} revoked; its web sessions and connected apps ended\n`);
+      return;
+    }
+    const email = rest[0];
+    const days = rest.includes("--days") ? Number(rest[rest.indexOf("--days") + 1]) : REVIEWER_DEFAULT_DAYS;
+    const tz = rest.includes("--tz") ? rest[rest.indexOf("--tz") + 1] : undefined;
+    if (email === undefined || email.startsWith("--")) {
+      process.stderr.write("[hosted] refused: reviewer takes the account's email first (an address you control: delete emails go to it), then optionally --days N (1 to 365, default 90) and --tz <IANA zone>; or `reviewer revoke <email>`.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
+    const made = accounts.createReviewer({ email, days, ...(tz === undefined ? {} : { timeZone: tz }) });
+    accounts.close();
+    if ("refusal" in made) {
+      process.stderr.write(`[hosted] refused: ${made.refusal}.\n`);
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(`${made.code}\n`);
+    process.stderr.write(`[hosted] reviewer account made for ${email}: sign in at /login with that email and this code (under "Have an invite code?"). The code expires ${new Date(made.expiresAt).toISOString()}; its memory fills with the sample at the first connection.\n`);
+    return;
+  }
   if (command === "invite") {
     const uses = Number(rest[rest.indexOf("--uses") + 1] ?? "1");
     const note = rest.includes("--note") ? rest[rest.indexOf("--note") + 1] : undefined;
@@ -791,7 +856,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
-    process.stderr.write(`[hosted] commands: serve, invite, spots, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
+    process.stderr.write(`[hosted] commands: serve, invite, reviewer, spots, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }
@@ -940,6 +1005,12 @@ async function main(): Promise<void> {
   const embedder = openEmbedder(withEmbedderDefault({}));
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
   if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
+  const allowedOrigins = mcpAllowedOrigins(env["MCP_ALLOWED_ORIGINS"]);
+  if ("refusal" in allowedOrigins) {
+    process.stderr.write(`[hosted] ${allowedOrigins.refusal}\n`);
+    process.exitCode = 1;
+    return;
+  }
   const app = createApp({
     dataRoot: read.dataRoot,
     publicOrigin: read.origin,
@@ -948,6 +1019,8 @@ async function main(): Promise<void> {
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
+    // DIR1: exact browser origins `/mcp` answers (MCP Inspector's web page while testing); unset: none.
+    ...(allowedOrigins.length === 0 ? {} : { allowedOrigins }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
     // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
     onUploads: (e) => process.stderr.write(uploadsLine(e)),

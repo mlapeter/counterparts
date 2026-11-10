@@ -165,6 +165,14 @@ export interface Refusal {
  */
 export const REFUSED_ERROR = -32050;
 
+/**
+ * WHAT A CALL THAT THREW IS TOLD (DIR1, 2026-11-10; "helpful errors", the directory's policy §5A). It
+ * still opens "internal error" and never carries the error's message (it could name a path on disk);
+ * it says what is known — the server failed partway, maybe after a write — and what to do.
+ */
+export const INTERNAL_ERROR_WORDS =
+  "internal error: the server failed while handling this call, maybe partway through; its details stay on the server. Try once more; if it fails again, tell the person.";
+
 /** Carries a `refusal` out of one message (and that message's id) to the request's answer. */
 class Refused extends Error {
   readonly refusal: Refusal;
@@ -284,7 +292,7 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
     ran.any = true; // it reached the server, and may have written before it threw
     tell(() => opts.onError?.("call", err));
     // The message stays on this machine: it could name a path on disk.
-    response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
+    response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, INTERNAL_ERROR_WORDS);
   }
   const params = request.params ?? {};
   const isInit = request.method === "initialize";
