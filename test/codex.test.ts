@@ -1297,6 +1297,31 @@ describe("option B for every row Codex writes: plain notes and chapter summaries
     }
   });
 
+  test("the reflection's timeline never tells a Codex chapter as my day", async () => {
+    const yesterday = Date.now() - 24 * 60 * 60 * 1000;
+    await hook(base("SessionStart", "cx-tl", null, { source: "startup" }));
+    const s = openServer({ dir: store, host: CODEX_HOST, scope: canonicalScope(project), storeNow: () => yesterday });
+    try {
+      const r = await s.call("chapter", { session: "cx-tl", text: "I rebuilt the obsidianwing exporter while the owner reviewed.", summary: "Rebuilt the obsidianwing exporter." });
+      expect(r.structuredContent["stored"]).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+    const cc = openServer({ dir: store, scope: canonicalScope(project) });
+    try {
+      const c = cc.counterpart;
+      const begun = c.dreams.begin({ session: "night" });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      expect(c.dreams.journal({ dream: begun.bundle.dream, session: "night", title: "t", text: "I dreamed of a lamp." }).ok).toBe(true);
+      const rb = c.reflections.begin({ session: "night", dream: begun.bundle.dream });
+      if (!rb.ok) throw new Error(`reflect begin refused: ${String(rb.reason)}`);
+      const timeline = JSON.stringify((rb.bundle as unknown as Record<string, unknown>)["timeline"]);
+      expect(timeline).not.toContain("obsidianwing");
+    } finally {
+      cc.counterpart.close();
+    }
+  });
+
   test("a Codex chapter's summary carries the host: never settled over the counterpart's us, never core, and no night reads the chapter as mine", async () => {
     const cc0 = openServer({ dir: store, scope: canonicalScope(project) });
     let u: string;
@@ -1336,6 +1361,9 @@ describe("option B for every row Codex writes: plain notes and chapter summaries
       const rb = c.reflections.begin({ session: "night", dream: begun.bundle.dream });
       if (!rb.ok) throw new Error(`reflect begin refused: ${String(rb.reason)}`);
       expect(JSON.stringify(rb.bundle).includes("A chapter: the owner and I shipped")).toBe(false);
+      // Neither night holds the Codex chapter as a journal entry of mine.
+      expect(JSON.stringify(begun.bundle.chapters)).not.toContain("zephyrine");
+      expect(JSON.stringify((rb.bundle as unknown as Record<string, unknown>)["chapters"])).not.toContain("zephyrine");
       expect(JSON.stringify(c.pageWriterInput({ about: c.store.today() })).includes("zephyrine")).toBe(false);
     } finally {
       cc.counterpart.close();
