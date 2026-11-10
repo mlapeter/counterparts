@@ -631,6 +631,7 @@ stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id
                state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
 audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content)
+settings      (key PK, value, set_at -- SU1: the operator's settings; today only 'spots', absent = 0)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 ```
 

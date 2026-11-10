@@ -2,9 +2,10 @@
  * `main.ts signups`: HOW MANY PEOPLE, AND SIGN-UPS PER WEEK, safe to paste anywhere.
  *
  * WHAT IT COUNTS. A sign-up is a `people` row: `Accounts#useLink` writes it when
- * a sign-up link is clicked, in the one transaction that also spends the invite,
- * so a redeemed invite and a sign-up are the same event. An invite made and not
- * used, or a link asked for and not clicked, is not one. "people" is the accounts
+ * a sign-up link is clicked, in the one transaction that also spends the invite
+ * or takes the spot (SU1), so a sign-up and its invite or spot are the same
+ * event. An invite made and not used, or a link asked for and not clicked, is
+ * not one. "people" is the accounts
  * that exist now (every state but `deleted`, a pending delete included); the weeks
  * count every sign-up that happened, and a deleted account's tombstone keeps its
  * date, so an old week's number never drops when someone leaves.

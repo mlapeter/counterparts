@@ -2,7 +2,7 @@
 
 ## Before any non-family user
 
-1. **Gates** (DESIGN §5.4; item 2 is one more):
+1. **Gates** (DESIGN §5.4; item 2 was one more, deferred since):
    - Railway's disk encryption confirmed in writing. Met 2026-11-04: SOC 3 (period ending 2026-04-22, unqualified) says
      AES-256 at rest, volume-level, backups too. Open from the same report: Railway snapshots volumes several times a
      day, retention unknown; Mike is asking Railway (DESIGN §5.1);

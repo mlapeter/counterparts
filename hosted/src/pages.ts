@@ -94,7 +94,7 @@ export interface Pages {
 // of who has an account (CONTRACT §12). While spots are left, any address can
 // sign in or sign up (a suspended one gets no email); with none left, only one
 // with an account or a good code gets a link.
-const SENT_WORDS_OPEN = "A link to sign in or sign up is on its way to that address. It works for 15 minutes, once, in this browser.";
+const SENT_WORDS_OPEN = "If that address can sign in or sign up, a link is on its way. It works for 15 minutes, once, in this browser.";
 const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works for 15 minutes, once, in this browser.";
 
 /** Where a new person goes when hosted is full: the site's hosted waiting list. */
