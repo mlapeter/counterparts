@@ -517,6 +517,11 @@ keep buttons primary; the delete form's red), so no page body changed. `bun host
 renders every variant through the real app to static files; `hosted/test/web.test.ts` pins the nonce and that the
 frame loads nothing.
 
+**2026-11-10 (LP1).** The sign-in pages (/login, check your email, the link's pages) take counterparts.ai/claude-ai/'s
+warm look through `page({ warm: true })`, which appends `WARM_STYLE` in the same `<style>`. The rest keep the look
+above. With no image allowed, the sidebar's fox is pixels in the page's nonce'd script drawn on one canvas (`fox.ts`),
+so the CSP didn't change. `hosted/test/sign-in-look.test.ts` pins both.
+
 ## 2026-11-06 — write-only backups (WB1)
 
 The bucket's key objects are sealed to an offline X25519 key, so the server can write them and never read them; the

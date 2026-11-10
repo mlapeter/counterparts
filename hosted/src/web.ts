@@ -171,8 +171,45 @@ export const PAGE_STYLE = [
   "@media (prefers-reduced-motion:reduce){button:active{transform:none}}",
 ].join("");
 
-/** The page frame. `nonce` gates the one inline style and any inline script. */
-export function page(res: ServerResponse, status: number, opts: { title: string; body: string; nonce?: string; headers?: Record<string, string | string[]>; formAction?: string }): void {
+/**
+ * THE WARM LOOK (LP1, Mike 2026-11-10): the sign-in pages (/login, check your
+ * email, the emailed link's landing and error pages) in counterparts.ai/claude-ai/'s
+ * look (counterparts-site features/claude-ai/claude-ai.css): the desk and the
+ * device card, light and dark by the browser, the orange link and key, rounded
+ * corners, one sans face. Opt-in (`page({ warm: true })`) and appended after
+ * PAGE_STYLE, under a class on <body>: it only re-points PAGE_STYLE's tokens
+ * and reshapes, so the selectors that give buttons their weight stay PAGE_STYLE's
+ * (test/delete.test.ts), and every other page keeps #762's look. System faces
+ * stand in for the site's Inter Tight / JetBrains Mono (its own fallback is
+ * system-ui), since the CSP loads nothing. --field holds 3:1 against the
+ * fields, as in PAGE_STYLE. `.cp-fox` sizes the fox's canvas (fox.ts).
+ */
+export const WARM_STYLE = [
+  ".cp-warm{--bg:#e9e6df;--ground:#e9e6df;--panel:#f7f5f0;--soft:#ffffff;--line:#d6d2c8;--field:#8c8579;--ink:#1a1a1a;--ink-2:#57534e;--head:#1a1a1a;--accent:#b8410e;--accent-ink:#ffffff;--accent-glow:none;--mark-glow:none;--focus:#ff6b1a;--shadow:0 1px 0 #fff inset,0 18px 40px rgba(60,50,30,.12);--serif:var(--sans);font-size:16px;line-height:1.5}",
+  "@media (prefers-color-scheme:dark){.cp-warm{--bg:#121212;--ground:#121212;--panel:#1f1f1e;--soft:#161615;--line:#33322f;--field:#6e6960;--ink:#eeebe4;--ink-2:#a8a29e;--head:#eeebe4;--accent:#ff6b1a;--accent-ink:#121212;--shadow:0 1px 0 rgba(255,255,255,.04) inset,0 18px 40px rgba(0,0,0,.5)}}",
+  "html:has(.cp-warm){background:#e9e6df}@media (prefers-color-scheme:dark){html:has(.cp-warm){background:#121212}}",
+  ".cp-warm .cp-top{border-bottom:0;padding-top:20px}",
+  ".cp-warm .cp-mark{letter-spacing:.28em}",
+  ".cp-warm .cp-main{width:min(30rem,100% - 32px);margin:clamp(8px,4vw,40px) auto 48px;padding:28px;border-radius:28px;box-shadow:var(--shadow)}",
+  "@media (max-width:480px){.cp-warm .cp-main{padding:20px;border-radius:22px}}",
+  ".cp-warm h1{font-size:clamp(1.6rem,6vw,1.9rem);font-weight:700;letter-spacing:-.01em;line-height:1.15;margin:0 0 .75rem}",
+  ".cp-warm .muted{font-size:.9em}",
+  ".cp-warm label,.cp-warm summary{font:600 14px/1.4 var(--sans);color:var(--ink)}",
+  ".cp-warm label .muted{font-weight:400;color:var(--ink-2)}",
+  ".cp-warm summary{font-weight:500;color:var(--ink-2)}",
+  ".cp-warm input[type=email],.cp-warm input[type=text]{min-height:46px;font:16px var(--sans);border-radius:12px}",
+  ".cp-warm button{min-height:46px;padding:0 20px;font:600 15px/1.2 var(--sans);border-radius:12px}",
+  ".cp-warm form[action=\"/login\"] button{width:100%;margin:.5rem 0 0}",
+  ".cp-warm :focus-visible,.cp-warm input:focus{outline:3px solid var(--focus);outline-offset:2px}",
+  ".cp-warm .cp-hero{text-align:center;margin:0 0 1.25rem}",
+  ".cp-warm .cp-hero h1{margin:0 0 .4rem}",
+  ".cp-warm .cp-hero p{margin:0}",
+  ".cp-warm .cp-hero .cp-eyebrow{font:500 13px/1.4 var(--mono);color:var(--ink-2);margin:0 0 .35rem}",
+  ".cp-fox{display:block;width:152px;height:162px;margin:-4px auto 14px;image-rendering:pixelated;image-rendering:crisp-edges;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}",
+].join("");
+
+/** The page frame. `nonce` gates the one inline style and any inline script; `warm` is the sign-in pages' look (WARM_STYLE). */
+export function page(res: ServerResponse, status: number, opts: { title: string; body: string; nonce?: string; headers?: Record<string, string | string[]>; formAction?: string; warm?: boolean }): void {
   const nonce = opts.nonce ?? randomBytes(16).toString("base64");
   const csp = [
     "default-src 'none'",
@@ -197,8 +234,8 @@ export function page(res: ServerResponse, status: number, opts: { title: string;
   res.end(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(opts.title)} · Counterparts</title>
-<style nonce="${nonce}">${PAGE_STYLE}</style>
-</head><body>
+<style nonce="${nonce}">${PAGE_STYLE}${opts.warm === true ? WARM_STYLE : ""}</style>
+</head><body${opts.warm === true ? ' class="cp-warm"' : ""}>
 <header class="cp-top"><span class="cp-mark">Counterparts</span></header>
 <main class="cp-main">
 ${opts.body}

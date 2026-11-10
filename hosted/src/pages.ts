@@ -27,6 +27,7 @@ import type { Accounts } from "./accounts.js";
 import { LINK_MS } from "./accounts.js";
 import type { Mailer } from "./egress.js";
 import type { Route } from "./server.js";
+import { foxHtml } from "./fox.js";
 import type { CookieNames } from "./web.js";
 import { Csrf, RateLimit, clientIp, cookie, cookieNames, escapeHtml, page, parseCookies, readForm, redirect, safeNext, sameOrigin } from "./web.js";
 
@@ -211,9 +212,13 @@ export function accountPages(opts: PagesOptions): Pages {
     page(res, status, {
       title: "Sign in",
       nonce,
-      body: `<h1>Sign in to Counterparts</h1>
-${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
+      warm: true,
+      body: `<div class="cp-hero">${foxHtml(nonce)}
+<p class="cp-eyebrow">Counterparts for claude.ai</p>
+<h1>Sign in to Counterparts</h1>
 ${full ? "" : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
+</div>
+${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 <form method="post" action="/login">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
@@ -229,11 +234,17 @@ ${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
     });
   };
 
-  const message = (res: ServerResponse, status: number, title: string, words: string, link?: { href: string; text: string }): void => {
+  const message = (res: ServerResponse, status: number, title: string, words: string, link?: { href: string; text: string }, warm = false): void => {
     page(res, status, {
       title,
+      warm,
       body: `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(words)}</p>${link === undefined ? "" : `<p><a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`}`,
     });
+  };
+  /** The page after "Email me a link" (LP1: the warm look, with the fox). `html` is the words, already escaped. */
+  const sentPage = (res: ServerResponse, html: string): void => {
+    const nonce = randomBytes(16).toString("base64");
+    page(res, 200, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}` });
   };
 
   /**
@@ -317,14 +328,14 @@ ${
       const browser = parseCookies(req).get(names.browser);
       const form = await readForm(req);
       if (form === null || !sameOrigin(req, opts.publicOrigin) || !csrf.check(browser, form.get("csrf"))) {
-        message(res, 403, "Start again", "This form expired or came from somewhere else. Open the sign-in page again.", { href: "/login", text: "Sign in" });
+        message(res, 403, "Start again", "This form expired or came from somewhere else. Open the sign-in page again.", { href: "/login", text: "Sign in" }, true);
         return true;
       }
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase();
       if (!perIp.take(clientIp(req, opts.trustProxy ?? 0)) || (email.length > 0 && !perEmail.take(email))) {
         // A form that carried a code may have been a reviewer's sign-in, which sends no email (DIR1 review).
-        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.");
+        message(res, 429, "Too many tries", (form.get("invite") ?? "").trim().length > 0 ? "Too many sign-in attempts in the last hour. Try again later." : "Too many sign-in emails asked for in the last hour. Try again later.", undefined, true);
         return true;
       }
       // A REVIEWER'S CODE (DIR1, 2026-11-10): typed in the code field beside the email of an account the
@@ -369,9 +380,9 @@ ${
             }
           });
       }
-      if (busy) page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>` });
-      else if (open) message(res, 200, "Check your email", SENT_WORDS_OPEN);
-      else page(res, 200, { title: "Check your email", body: `<h1>Check your email</h1><p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>` });
+      if (busy) sentPage(res, `<p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>`);
+      else if (open) sentPage(res, `<p>${escapeHtml(SENT_WORDS_OPEN)}</p>`);
+      else sentPage(res, `<p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>`);
       return true;
     }
     if (p === "/login/link" && req.method === "GET") {
@@ -381,11 +392,11 @@ ${
       if (!used.ok) {
         if (used.reason === "full") {
           // The last spot went between the ask and this click. Said only here, to the person who clicked their own link.
-          page(res, 200, { title: FULL_TITLE, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
+          page(res, 200, { title: FULL_TITLE, warm: true, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
         } else if (used.reason === "wrong-browser") {
-          message(res, 400, "Open it in the other browser", "This link works only in the browser where you asked for it. Open it there, or ask for a new link here.", { href: "/login", text: "Ask for a new link" });
+          message(res, 400, "Open it in the other browser", "This link works only in the browser where you asked for it. Open it there, or ask for a new link here.", { href: "/login", text: "Ask for a new link" }, true);
         } else {
-          message(res, 400, "That link can't be used", "It has expired, was already used, or isn't one of ours. Ask for a new one.", { href: "/login", text: "Ask for a new link" });
+          message(res, 400, "That link can't be used", "It has expired, was already used, or isn't one of ours. Ask for a new one.", { href: "/login", text: "Ask for a new link" }, true);
         }
         return true;
       }
