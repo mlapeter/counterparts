@@ -85,7 +85,8 @@ async function rig(): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
-  const clock = { at: Date.now() };
+  // Noon UTC, so a minute later is never across midnight (a run that starts at 23:59:30 UTC would be).
+  const clock = { at: Date.UTC(2026, 10, 9, 12) };
   const dataRoot = join(tmp.root, "data");
   const app = createApp({ dataRoot, publicOrigin: origin, mailer: mail, embedder: null, spawner: () => ({ pid: 1 }), now: () => clock.at });
   closers.push(() => app.close());
