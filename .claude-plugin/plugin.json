@@ -9,7 +9,7 @@
   },
   "homepage": "https://counterparts.ai",
   "repository": "https://github.com/mlapeter/counterparts",
-  "license": "MIT",
+  "license": "BUSL-1.1",
   "keywords": ["memory", "local-first", "mcp", "hooks"],
   "types": "./hooks/sidebar/types/index.d.ts",
   "mcpServers": {
