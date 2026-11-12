@@ -98,4 +98,6 @@ you want memory gone too. To remove the memory, see the `counterparts` plugin's 
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Business Source License 1.1, like Counterparts itself. See [LICENSE](LICENSE). Free to use for
+anyone; building it into a product or service you offer others needs a commercial license
+(hello@counterparts.ai).

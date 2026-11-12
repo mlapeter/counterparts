@@ -7,26 +7,34 @@ Licensed Work:        Counterparts version 0.4.0 or later. The Licensed Work is
                       (c) 2026 Mike LaPeter.
 Additional Use Grant: You may make production use of the Licensed Work, including
                       commercial use and use within an organization of any size,
-                      provided that Your use does not include a Commercial
+                      provided that your use does not include a Commercial
                       Offering.
 
                       A "Commercial Offering" is:
-                      (a) a product, application or service that You make
+                      (a) a product, application or service that you make
                           available to third parties and that includes the
                           Licensed Work, in whole or in part, in source or
                           executable form, or that downloads or installs it on
-                          its users' behalf in order to operate; or
-                      (b) offering the Licensed Work, or its functionality, to
+                          its users' behalf in order to operate;
+                      (b) a product, application or service that you make
+                          available to third parties for a fee, or with a paid
+                          tier, and that requires the Licensed Work in order to
+                          operate; or
+                      (c) offering the Licensed Work, or its functionality, to
                           third parties as a hosted, managed or application
                           programming interface (API) service.
 
                       None of the following is a Commercial Offering:
                       1. An individual's use of the Licensed Work, including in
-                         the course of their work for any employer or client.
+                         the course of their work for any employer or client,
+                         provided the individual does not make a Commercial
+                         Offering.
                       2. An organization's use of the Licensed Work for its own
                          internal purposes, including making it available to its
                          own employees and contractors, where it is not made
-                         available to anyone outside the organization.
+                         available to anyone outside the organization. An
+                         organization includes the entities it controls, that
+                         control it, or that are under common control with it.
                       3. Redistributing unmodified copies of the Licensed Work
                          free of charge, together with this License, for example
                          through a package registry or a plugin directory or
@@ -38,15 +46,18 @@ Additional Use Grant: You may make production use of the Licensed Work, includin
                          entirely free of charge, with no paid tier, fees or
                          advertising, such as a free open-source project.
                       6. Installing, configuring or administering the Licensed
-                         Work for a client's use under 1 or 2.
+                         Work, on infrastructure the client controls, for a
+                         client's use under 1 or 2.
+
+                      Uses 1 and 2 do not cover a copy of the Licensed Work
+                      obtained as part of a Commercial Offering; that copy's
+                      use is licensed by whoever made the offering, under a
+                      commercial license from the Licensor.
 Change Date:          Four years from the date the Licensed Work is published.
 Change License:       Apache License, Version 2.0
 
 For information about alternative licensing arrangements for the Licensed Work,
 please contact hello@counterparts.ai.
-
-Versions of Counterparts released before the version named above were licensed
-under the MIT License, and copies of those versions remain under it.
 
 Notice
 
