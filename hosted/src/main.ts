@@ -1124,13 +1124,41 @@ function exitFlushed(code: number, flushed: Array<() => Promise<void>>): void {
   });
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Said when the event loop ran empty with the command still waiting: it never finished. */
+export const STALLED = "stopped before it finished: the event loop ran out of work while the command was still waiting on something. What it did may be partial; run it again.";
+
+/**
+ * The entry point: `run`, then exit once stdout and stderr have flushed. A
+ * command can never exit 0 without having finished: if the event loop runs
+ * empty while `run` is still pending (something it awaited held nothing open),
+ * the process says so and exits 1, never 0 with half the work done and no
+ * report (the WB1 empty-stdout flake). Stopped is final: the exit's own wait
+ * for stderr can let the command's timers turn again, and a command revived
+ * that way neither prints to stdout nor decides the exit code.
+ */
+export function runEntry(run: () => Promise<void>): void {
   const flushed = [trackWrites(process.stdout), trackWrites(process.stderr)];
-  void main().then(
-    () => exitFlushed(process.exitCode === 1 ? 1 : 0, flushed),
+  let settled = false;
+  process.on("beforeExit", () => {
+    if (settled) return;
+    settled = true;
+    process.stdout.write = ((): boolean => true) as typeof process.stdout.write;
+    process.stderr.write(`[hosted] ${STALLED}\n`);
+    exitFlushed(1, flushed);
+  });
+  void run().then(
+    () => {
+      if (settled) return;
+      settled = true;
+      exitFlushed(process.exitCode === 1 ? 1 : 0, flushed);
+    },
     (err: unknown) => {
+      if (settled) return;
+      settled = true;
       process.stderr.write(`[hosted] did not start: ${err instanceof Error ? err.message : String(err)}\n`);
       exitFlushed(1, flushed);
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) runEntry(main);
