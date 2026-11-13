@@ -3284,6 +3284,22 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   (2 by evening count); Marcus's show 21 → 3, parked from 29 Oct by calendar day. That store's `livedDay` stayed
   1 all month (the journal's worker had no simulated date), so lived days were read as calendar days or as
   evenings.
+- **Review of #819.** Kept chains of closed items pushed a parked item's chain past the record's bound and it came
+  back as new: a raise now drops chains of memories no longer open first. An item with no chain (upgrade, or let
+  go) a fortnight untouched reads as parked; otherwise a store with hundreds of old open items would list a
+  different few as new each day for weeks. A chat `wake` the host says nobody attends takes no step. All waiting
+  and nothing listed, the assembled and published lanes now say how many are open, "none due today".
+- **Lived days, not calendar days.** The schedule counts `livedDay`, which only the sleep cycle advances
+  (`advanceClock`: the detached run after a turn-end on a new calendar day, or a night). A store whose `livedDay` never advances (the journal's simulated month stayed on
+  1) gets no backoff: every wake on that frozen day lists the item, since raised-today stays listed all day.
+- **Not fixed: the published bundle on a host that only composes it at session end.** Delivered the next day as it
+  was, it carries yesterday's lane: measured shown on days 0,1,4,5,12,13, chain 0,4,12. The fix is reading the lane
+  at delivery (a threads twin of `hintsForReader`, which can only take lines out, so the step still slips a day; or
+  assembling under the bundle's own recorded ceiling when the host reports no budget, which changes the road for
+  every budgetless host). Left for a decision.
+- **Behaviour change to see.** On the assembled and published roads an `asked` item listed in the morning wake takes
+  the day's latch and its step, so the relevance-matched turn raise won't raise it that day or that step. A
+  counterpart's own undated promise parks after three showings like any other open item.
 - **Open.** With several `asked` items, the shaped wake's one mention rotates among them (each weekly), so some
   "Waiting on" line is in most wakes. Telling a casual question from a blocker needs a mark the store doesn't
   keep (see the PR).

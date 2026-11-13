@@ -584,10 +584,14 @@ export class Lifecycle implements HostLifecycle {
    * THE WAKE, composed for this session: what the previous boundary published,
    * with the delivery preface (which system, which day, which date) and — WHERE
    * this session woke riding beside WHEN (E1) — the handoff pointer that
-   * belongs to this directory, if any. Reads only: no model call, no network,
-   * no state written (claude-code §1 G1) — since 2026-10-10 the core ASSEMBLES
-   * the lanes that are plain reads for this moment (self CONTRACT §5 G1), and
-   * the registry's sessions ride along for its "Today, elsewhere" line.
+   * belongs to this directory, if any. No model call, no network; the
+   * composition itself is reads (claude-code §1 G1) — since 2026-10-10 the core
+   * ASSEMBLES the lanes that are plain reads for this moment (self CONTRACT §5
+   * G1), and the registry's sessions ride along for its "Today, elsewhere" line.
+   * What it writes after, once composed: the expectation below, the lookup
+   * ledger, the open threads for priming, and "Still open"'s lines as raises
+   * (the putty, 2026-11-13: not a night's own wake, a headless session's or one
+   * the host says nobody attends).
    *
    * Then THE EXPECTATION, WRITTEN WHERE THE NEXT PROCESS CAN READ IT. This used
    * to be a `Map` on the adapter instance, which is a line that only looks like
