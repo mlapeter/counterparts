@@ -157,6 +157,16 @@ export interface McpServerOptions {
     readonly erasedBy?: "hosted" | "local";
     readonly onHeld?: (erasableAt: number) => void;
   };
+  /**
+   * WHO RUNS THE NIGHT on claude.ai's `wake` (JS1, 2026-11-13). `first-chat`
+   * (absent: today's behaviour, HN1) — the day's first chat is told to run the
+   * night and the day's offer is claimed (`claudeAiNight`). `host` — the host
+   * runs nights itself (its own schedule calls `dream`): an ordinary chat wake
+   * carries no night line and claims nothing; everything else in the wake
+   * stays. The `dream` tool works either way. Only claude.ai's wake reads it;
+   * Desktop's and Claude Code's dream lines are unchanged.
+   */
+  nights?: "first-chat" | "host";
   /** The package version on disk now (`sessions.ts#manifestVersionOnDisk`),
    *  injectable so the update line is provable without reinstalling. */
   manifestVersion?: () => string | null;

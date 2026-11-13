@@ -454,6 +454,7 @@ export class McpServer {
   private lifecycleInst: Lifecycle | null = null;
   private readonly wakeNotice: ((opts: { night: boolean }) => string | null) | undefined;
   private readonly removalOpts: NonNullable<McpServerOptions["removal"]>;
+  private readonly nights: NonNullable<McpServerOptions["nights"]>;
   private readonly manifestVersion: () => string | null;
   private readonly pluginVersion: () => string | null;
   private readonly env: Readonly<Record<string, string | undefined>>;
@@ -476,6 +477,7 @@ export class McpServer {
     this.lifecycleOpts = opts.lifecycle ?? {};
     this.wakeNotice = opts.wakeNotice;
     this.removalOpts = opts.removal ?? {};
+    this.nights = opts.nights ?? "first-chat";
     this.manifestVersion = opts.manifestVersion ?? manifestVersionOnDisk;
     this.env = opts.env ?? process.env;
     this.pluginVersion =
@@ -3828,7 +3830,8 @@ export class McpServer {
     // ask — in a night's own wake (`night`).
     const claudeAi = this.host === CLAUDE_AI_HOST;
     const dream = claudeAi || night ? null : this.wakeDreamLine(input);
-    const nightLine = claudeAi && !night ? this.claudeAiNight(input) : null;
+    // A host that runs nights itself (`nights: "host"`, JS1): no line, no claim.
+    const nightLine = claudeAi && !night && this.nights === "first-chat" ? this.claudeAiNight(input) : null;
     const share = night ? null : this.wakeShareLine(input);
     // A CHAT'S DELETES STILL HELD (HD1): counted, never titled — titles would
     // show again what was asked gone. Not in a night's own wake.
