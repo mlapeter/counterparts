@@ -45,7 +45,7 @@ import type { Readiness } from "./server.js";
 import type { ObjectStore } from "./egress.js";
 import { KeyStore, csrfKey } from "./keys.js";
 import type { KeyWrapper, RecoverySealer } from "./keys.js";
-import type { SharedEmbedder } from "./tenants.js";
+import type { SharedEmbedder, TenantsOptions } from "./tenants.js";
 import type { Spawner } from "../../src/adapters/spawn.js";
 
 /** Step 5's pieces. Absent in tests of steps 2–4 and in a local run with no bucket. */
@@ -109,6 +109,12 @@ export interface AppOptions {
   /** How often the upload watch looks (`backup.ts#UPLOADS_EVERY_MS` by default), and how long without a rise is `stale` (`UPLOADS_STALE_MS`). */
   readonly uploadsEveryMs?: number;
   readonly uploadsStaleMs?: number;
+  /** `TenantsOptions.newStore` (JS1): how a new store starts. Absent: `tenants.ts#startNewStore`, claude.ai's. */
+  readonly newStore?: TenantsOptions["newStore"];
+  /** `TenantsOptions.nights` (JS1): who runs the night on a chat's wake. Absent: the day's first chat (HN1). */
+  readonly nights?: TenantsOptions["nights"];
+  /** `TenantsOptions.storeClock`: each store's clock and its server's (tests that move a store across days). Absent: the system clock. Not the accounts' clock (`now`). */
+  readonly storeClock?: TenantsOptions["storeClock"];
 }
 
 export interface StartOptions {
@@ -294,6 +300,9 @@ export function createApp(opts: AppOptions): App {
     ...(opts.embedder === undefined ? {} : { embedder: opts.embedder }),
     ...(opts.spawner === undefined ? {} : { spawner: opts.spawner }),
     ...(opts.maxOpenStores === undefined ? {} : { maxOpen: opts.maxOpenStores }),
+    ...(opts.newStore === undefined ? {} : { newStore: opts.newStore }),
+    ...(opts.nights === undefined ? {} : { nights: opts.nights }),
+    ...(opts.storeClock === undefined ? {} : { storeClock: opts.storeClock }),
     // A store that lived and lost its files waits for a restore rather than
     // starting over (and being replicated over its own backup).
     openedBefore: (storeId) => accounts.wasOpened(storeId),

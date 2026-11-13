@@ -436,6 +436,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     calendar day) tells that conversation to run the night, then answer, or to ask
     first on `ask`; no other wake is told while that claim holds (a later one only if the
     night was never run, after `ABANDONED_AFTER_MS`, at most `RELAUNCHES_PER_DAY` times).
+    `nights: "host"` (JS1, 2026-11-13; absent: `first-chat`, unchanged) is for a host that
+    runs nights itself: the chat wake carries no night line and claims nothing; the rest of
+    the wake, and the `dream` tool, are as before.
 21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
     Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
     server (same name, shadowing the session's own). So a Desktop call whose `session`

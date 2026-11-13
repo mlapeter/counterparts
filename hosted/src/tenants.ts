@@ -118,6 +118,20 @@ export interface TenantsOptions {
   readonly seed?: (storeId: string) => ((server: McpServer) => Promise<void>) | null;
   /** Told when a seed finished (`ok`) or threw. A throw here is swallowed. */
   readonly onSeed?: (storeId: string, ok: boolean) => void;
+  /**
+   * How a store this open CREATED starts (JS1, 2026-11-13), run once, at that
+   * open, before `onCreated` and any seed: a product on hosted picks its own
+   * starter memories and onboarding. Absent: `startNewStore` (claude.ai's).
+   * A store it leaves with no starters is never given hosted's later; one it
+   * plants with `plantTold(store, "local")` is switched to hosted's words at
+   * the next open (`toldSurface: "hosted"`), so plant hosted's or none.
+   */
+  readonly newStore?: (server: McpServer) => void;
+  /**
+   * Who runs the night on a chat's `wake` (`McpServerOptions.nights`, JS1).
+   * Absent: `first-chat`, the day's first claude.ai chat (HN1).
+   */
+  readonly nights?: "first-chat" | "host";
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -393,6 +407,7 @@ export class Tenants {
         onHeld: (at: number) => this.opts.onRemovalHeld?.(storeId, at),
       },
       ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
+      ...(this.opts.nights === undefined ? {} : { nights: this.opts.nights }),
       lifecycle: {
         config,
         configPath,
@@ -414,7 +429,7 @@ export class Tenants {
       rmSync(marker, { force: true });
     }
     if (fresh) {
-      startNewStore(server);
+      (this.opts.newStore ?? startNewStore)(server);
       try {
         this.opts.onCreated?.(storeId);
       } catch {

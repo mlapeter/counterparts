@@ -22,6 +22,8 @@
  *     who has an account. The spot, like the invite, is taken at the click, in
  *     the transaction that makes the person: a link asked for and never
  *     clicked takes nothing.
+ *     (A product on hosted with its own way in, `signUpWithIdentity`, gates
+ *     its own sign-up and reads no spots; JS1.)
  *   - **While spots are open, sign-up emails have an hourly cap** (EC1,
  *     2026-11-10): `spots emails M`, 100 by default, counted in control so a
  *     deploy doesn't reset it. Every ask counts alike, member or not; past M a
@@ -219,6 +221,15 @@ export type LinkRequest =
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
   | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" | "full" };
+
+/** What `signUpWithIdentity` answers (JS1). `storeId` is the active store, null unless `state` is `active`. */
+export interface IdentitySignUp {
+  readonly personId: string;
+  readonly storeId: string | null;
+  /** True when this call made the person. */
+  readonly created: boolean;
+  readonly state: Person["state"];
+}
 
 /** The spots (SU1): how many accounts hosted takes in all, how many there are, and how many more may sign up without a code. */
 export interface Spots {
@@ -705,6 +716,60 @@ export class Accounts {
       this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
       this.audit(personId, storeId, "signup", inviteId ?? "spot");
       return { ok: true, personId, created: true };
+    });
+  }
+
+  // ── other ways in (JS1, 2026-11-13) ───────────────────────────────────────
+
+  /** The person who owns this identity (`kind`, `value`), or null. Any state: a deleted person has no identities left (`markDeleted`). */
+  personByIdentity(kind: string, value: string): string | null {
+    return this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE kind = ? AND value = ?", kind, value)?.person_id ?? null;
+  }
+
+  /**
+   * SIGN UP (OR IN) BY AN IDENTITY THE CALLER HAS ALREADY VERIFIED: a product
+   * on hosted with its own way in (an app's Sign in with Apple, say). In ONE
+   * transaction: an identity that exists answers its person, `created: false`;
+   * else a new person, the identity (verified now) and a store are made, as
+   * `useLink` makes them, and audited `signup` with the kind as its detail.
+   * The SPOTS are not read: the caller gates sign-up. Every person still
+   * counts in `spots().people`, as everyone does.
+   *
+   * By the person's state, when the identity exists: `active` → `storeId` is
+   * their active store. `pending-delete` → the SAME person comes back (never
+   * a second account), `storeId` null (the store is locked), so the caller can
+   * offer keep or erase (`keep`, `sessionPendingDelete`). `suspended` (an
+   * operator's, or an erase under way) → the same person, `storeId` null; the
+   * caller refuses. A DELETED person's identities are gone (`markDeleted`), so
+   * a sign-up after an erase makes a new person. `state` says which.
+   *
+   * `email` is refused (thrown): that kind is the email link's, normalized and
+   * verified there. So is a kind that isn't a short lowercase name (so no
+   * `Email`), and an empty value or one over 512 characters.
+   * The value is the caller's to choose: a hash of a provider's id works the
+   * same and keeps the raw id out of this database. The value is never
+   * audited; a sign-in by it is (`login.identity`, the kind as detail).
+   */
+  signUpWithIdentity(input: { kind: string; value: string; timeZone?: unknown }): IdentitySignUp {
+    const { kind, value } = input;
+    if (typeof kind !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(kind) || kind === "email") throw new Error("signUpWithIdentity: kind is a short lowercase name (letters, digits, hyphens) other than 'email'");
+    if (typeof value !== "string" || value.length === 0 || value.length > 512) throw new Error("signUpWithIdentity: value is 1 to 512 characters");
+    return this.db.transaction((): IdentitySignUp => {
+      const at = this.now();
+      const existing = this.personByIdentity(kind, value);
+      if (existing !== null) {
+        const p = this.person(existing);
+        const state = p?.state ?? "suspended";
+        if (state === "active" || state === "pending-delete") this.audit(existing, null, "login.identity", kind);
+        return { personId: existing, storeId: state === "active" ? (p?.storeId ?? null) : null, created: false, state };
+      }
+      const personId = id128();
+      const storeId = id128();
+      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, NULL)", personId, at, validTimeZone(input.timeZone));
+      this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, ?, ?, ?, ?)", id128(), personId, kind, value, at, at);
+      this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
+      this.audit(personId, storeId, "signup", kind);
+      return { personId, storeId, created: true, state: "active" };
     });
   }
 
