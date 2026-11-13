@@ -627,6 +627,8 @@ export class Lifecycle implements HostLifecycle {
     this.noteWakeExpectation(input, woke.sentinel);
     this.noteWakeIndex(input, woke.lined ?? []);
     this.noteWakeThreads(input, woke.threads ?? []);
+    // Still open's lines are raises (the putty, 2026-11-13): not a night's own wake.
+    if (input.nightRun !== true) this.counterpart.noteStillOpenShown(woke.threads ?? [], input.sessionId);
     return woke;
   }
 

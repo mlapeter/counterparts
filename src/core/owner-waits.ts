@@ -98,10 +98,80 @@ export function waitState(days: readonly number[], today: number, steps: readonl
 }
 
 /**
+ * "STILL OPEN"'S LINES FOLLOW THE SAME SCHEDULE (2026-11-13, the putty: a
+ * counterpart's own open questions were listed in every wake, and one subject
+ * was raised 11 times in 10 days). An open memory listed as one of the lane's
+ * lines is a raise (`noteLaneShown`), on the SAME chain and record as the turn
+ * lane's and the wake's mention, and is listed again only when the turn lane's
+ * steps let it through (3, 7, 14 lived days, no weekly floor), then parks.
+ * Listed all of the day it was raised on (the day latch), so every wake that
+ * day says it. Pure.
+ */
+export type LaneState = "list" | "waiting" | "parked";
+
+export function laneState(days: readonly number[], today: number, steps: readonly number[] = SHAPE.OWNER_RAISE_STEPS): LaneState {
+  if (days.includes(today)) return "list";
+  const st = waitState(days, today, steps, 0);
+  return st.kind === "due" ? "list" : st.kind;
+}
+
+/**
+ * What holds an open memory out of "Still open"'s lines on lived day `today`:
+ * "waiting" (raised, its step not yet waited out: counted as more open),
+ * "parked" (every step waited out), or null (listed). One record read for all.
+ * The caller exempts what keeps its own rule (a dated item, a core memory
+ * being reconsidered). Never throws: unreadable is listed, never hidden.
+ */
+export function laneHeld(store: Pick<Store, "getMeta" | "row">, today: number): (id: string) => "waiting" | "parked" | null {
+  let record: RaiseRecord = {};
+  try {
+    record = raiseRecord(store);
+  } catch {
+    record = {};
+  }
+  return (id) => {
+    try {
+      if (record[id] === undefined) return null;
+      const row = store.row(id);
+      if (row === undefined) return null;
+      const st = laneState(raisesAt(record, id, row.revision), today);
+      return st === "list" ? null : st;
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * RECORD THE LANE'S LINES AS RAISED (the putty, 2026-11-13): each id a
+ * delivered wake listed under "Still open" that is an open memory with no date
+ * of its own and not a core memory being reconsidered, through `noteRaised`
+ * (`via: "lane"`), so the day latch dedups it with any other raise that day.
+ * The caller has decided the wake was delivered to a session (not a night's
+ * own run, not observer). How many it raised. Never throws.
+ */
+export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "row" | "readProse">, ids: readonly string[], at: { readonly day: number; readonly session: string }): number {
+  let n = 0;
+  for (const id of new Set(ids)) {
+    try {
+      const row = store.row(id);
+      if (row === undefined || row.type !== "memory" || row.band === "identity" || row.archived !== 0) continue;
+      const doc = store.readProse(id);
+      if (doc.meta["unresolved"] !== true || (doc.eventDate !== undefined && doc.eventDate.trim() !== "")) continue;
+      if (noteRaised(store, { id, version: row.revision, kind: "memory", scope: row.origin_scope ?? null }, { day: at.day, session: at.session, via: "lane" })) n += 1;
+    } catch {
+      /* not raised: listed again, never hidden */
+    }
+  }
+  return n;
+}
+
+/**
  * THE OPEN MEMORIES PARKED BY THE BACKOFF on lived day `today`: their chain is
- * at the row's current `revision`, the row still `asked`, and every step is
- * waited out. Read by "Still open" (the wake and the handle), which lists them
- * parked. Never throws.
+ * at the row's current `revision` and every step is waited out. Any status
+ * since the putty (2026-11-13): a lane line raised to the end parks as an
+ * `asked` item does. Read by "Still open" (the wake and the handle), which
+ * lists them parked. Never throws.
  */
 export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number): ReadonlySet<string> {
   const out = new Set<string>();
@@ -109,7 +179,7 @@ export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number
     for (const [id, c] of Object.entries(raiseRecord(store))) {
       if (c.kind !== "memory") continue;
       const row = store.row(id);
-      if (row === undefined || row.status !== "asked") continue;
+      if (row === undefined) continue;
       if (waitState(raisesAt({ [id]: c }, id, row.revision), today).kind === "parked") out.add(id);
     }
   } catch {
@@ -128,7 +198,7 @@ export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number
 export function noteRaised(
   store: Pick<Store, "appendEvent" | "getMeta" | "setMeta">,
   item: { readonly id: string; readonly version: number; readonly kind: "memory" | "handoff"; readonly scope?: string | null },
-  at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" },
+  at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" | "lane" },
 ): boolean {
   try {
     const seq = store.appendEvent({

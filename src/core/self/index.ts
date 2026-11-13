@@ -426,6 +426,14 @@ export interface AssembleRequest
    * as the turn-end composes for no reader.
    */
   readonly reader?: ThreadReader;
+  /**
+   * "STILL OPEN" ON THE RAISE SCHEDULE (the putty, 2026-11-13;
+   * `core/owner-waits.ts#laneHeld`): what holds an open thread out of the
+   * lane's lines today. "waiting" is counted with the lane's more, "parked"
+   * with its parked; a dated thread or a core memory being reconsidered keeps
+   * its own rule. Absent: every thread as before.
+   */
+  readonly laneHeld?: (id: string) => "waiting" | "parked" | null;
 }
 
 /** One reader's folders, for "Still open" (`AssembleRequest.reader`, `Self#stillOpen`). */
@@ -1427,10 +1435,19 @@ export class Self {
     // Still open, from the open memories — and the core memories being
     // reconsidered, which wait on a decision (2026-10-11).
     const { open: openRead, carry, flagged } = this.openScanned(day);
-    const open = openRead.map(note);
     const place = req.reader === undefined ? undefined : this.threadPlaceFor(req.reader);
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13): a thread raised and not yet
+    // due again is counted with the lane's more, one raised to the end with its
+    // parked; neither is a line. Another folder's work is neither, as below.
+    const heldOf = (s: Scanned): "waiting" | "parked" | null =>
+      req.laneHeld === undefined || s.reconsidering === true || (s.doc.eventDate !== undefined && s.doc.eventDate.trim() !== "") ? null : req.laneHeld(s.id);
+    const held = new Map(openRead.map((s) => [s.id, heldOf(s)] as const));
+    const counted = (s: Scanned): boolean => !settled.has(s.id) && (place === undefined || place(s) !== "out");
+    const resting = openRead.filter((s) => held.get(s.id) === "waiting" && counted(s)).map((s) => s.id);
+    const backedOff = openRead.filter((s) => held.get(s.id) === "parked" && counted(s)).length;
+    const open = openRead.filter((s) => held.get(s.id) === null).map(note);
     // How many are parked for this reader (P2, 2026-10-28): its tail says so.
-    const parked = carry.notCarried.size === 0 ? 0 : this.parkedOf(carry, day, place).length;
+    const parked = (carry.notCarried.size === 0 ? 0 : this.parkedOf(carry, day, place).length) + backedOff;
     const fresh = rankLanes(open, horizon, this.tunables, {
       carry,
       settledOver: settled,
@@ -1481,7 +1498,7 @@ export class Self {
         identity: [...shown.more.identity],
         craft: this.tunables.CRAFT_IN_WAKE ? [...shown.more.craft] : [],
         hints: [],
-        threads: fresh.overflow?.threads ?? [],
+        threads: [...(fresh.overflow?.threads ?? []), ...resting],
         horizon: fresh.overflow?.horizon ?? [],
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
