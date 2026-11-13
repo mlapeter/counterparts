@@ -1931,7 +1931,8 @@ yet come this year being last year's under "since" and "after", as for one date.
 in November is 2025-12-05; a range's first end follows the same rule). That is `yearFor`'s rule for every date alone,
 and a look-ahead question in a later month has to name the year or use the forward words: **explicit-date
 look-ahead works only within the current month** (and a range starting in it) until `yearFor` changes, which this
-work did not do.
+work did not do. "Upcoming" (the `coming up` handle answers it), "next Saturday" and "this Saturday" are still not
+read.
 
 **Known limits, left as they are (second review of #815).** Under a look-ahead window, night-made rows (dream,
 reflection) count as dated, so a plan the night distilled without a date is filtered out where a hand-written undated
@@ -1939,5 +1940,48 @@ one is kept. And the header's count line does not mark the undated rows a look-a
 matches like the rest, only ranked after the ones inside. Two other edges from the same review are fixed: a bare
 second day before a word that goes on with the question ("Oct 12-18 at the cabin") is a range again (`RANGE_GOES_ON`,
 a closed list; a noun or an amount after it still is not), and a past question about today ("what did I do today",
-`facts.ts#PAST_ASK`) reads no reminder dates. "Upcoming" (the `coming
-up` handle answers it), "next Saturday" and "this Saturday" are still not read.
+`facts.ts#PAST_ASK`) reads no reminder dates.
+
+## Which gate refused the loud tier (2026-11-13, observation only; under `recall.STOP_COUNTS`)
+
+The Wren run showed a memory's words on 0 of 252 turns, Pepys on 4 of 254, live on under 2%, and no
+row said which gate refused. `recall.decision` now carries `loudRefusal: {by, lead, top}`. `by` is a
+code from `LOUD_GATES` (`dark dedup floor bar echo project temporal told cold cuefrac strong loudbar
+inhibited outranked trimmed`, the order the gate applies them, then the loud slot, then the render's
+bytes): the furthest any candidate got, the strongest on a tie; null when a memory showed loud;
+`empty` when nothing cued reached the gate. `lead` is that candidate's row, so `by`'s number is on
+the row; it is often a footnote, so `by` says how far the turn's best got, not why a memory went
+unshown. `top` is at most `LOUD_REFUSAL_ROWS` (5) candidates **not shown at all** (footnotes are on
+the row already), closest to the gate that stopped each first (`value` or `act` over `limit`), then
+the gates with no threshold, furthest first. Each row: id, `act`, `gate`, and where the gate has one
+the threshold it failed (`limit`) and the number it compared when that is not `act` (`value`: the
+cue fraction, or activation less priming). Ids and two-decimal numbers; rows drop from the end of
+`top` until the field is under `LOUD_REFUSAL_BYTES` (600) serialized. It has its own try/catch, so
+a throw costs the row this key and not the stop counts beside it.
+
+- **Review of #816 (owner's call): `top` lists the unshown.** The first version ranked `top` by
+  stage, so footnotes (stopped at the loud checks) filled it, and on d17-react the guitarist memory
+  was not named. The byte cap was a test's number; now the code enforces it.
+
+- **No rule moved.** The gate records the threshold it already compared on the verdict (`limit`);
+  nothing reads it but `loudRefusal`. `near-miss-logging.test.ts`'s twin test (same prompts through
+  the hook, on and off) covers it, and before/after against master (8625c93b), outside the tree: five
+  prompts on a 25-memory store through the hook, shown ids, bytes, reasons and injections (ids
+  normalized) identical.
+- **Two "below-bar"s.** As a verdict it is the admission bar (`bar`); as `loudBlockedBy` it is the
+  loud bar (`loudbar`). Pointers (`via: "link"`) are left out: they never compete for the loud tier.
+- **The d17-react replay** (Wren findings P3), on a copy of `store-day16`, schema 15 (no migration),
+  the session's wake and its three turns replayed in order at their times, static embedder on
+  (`semantic: in-line`, as the run recorded); the night between turns 1 and 2 and the model's writes
+  were not replayed. Turn 1's footnotes matched the run's exactly; d17-react's did not (the run
+  showed `mem_5876e11812ab`, which the replay had as a near miss, and `mem_70e581b5690c`, written
+  after the snapshot), so the numbers below are the replay's, not the run's. On d17-react: `by: "strong"`. The
+  best candidate, at 12.87, was under the strong floor (4.5 units, 23.43 at 364 memories); nothing
+  came close. The "guitarist" memory (`mem_dea85a8850b2`) was a candidate, cued only by its words
+  (`semantic` 0), and stopped at the admission bar: 9.41 against its bar of 10.86, 12th of 26 by
+  activation, outside `nearMiss`'s 0.1 margin (0.87 of its bar). With `top` listing the unshown,
+  the row names it, fourth: `{"id":"mem_dea85a8850b2","gate":"bar","act":9.41,"limit":10.86}`,
+  after two near misses at 0.94 and 0.92 of their bars and one at 0.875; `lead` is the strong-floor
+  footnote at 12.87. The run's own row (`store-day17`) did not list it as a near miss either. With
+  the embedder off the same turn footnoted it (11.88 against 10.79), so it is not in `top` there:
+  the turns before it carry different cues, so it sits at the margin of the bar either way.
