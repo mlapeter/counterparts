@@ -185,6 +185,13 @@ export interface SessionInput {
    * pointed at (`sessions.ts#NON_INTERACTIVE_ENTRYPOINTS`, review of #285 N2).
    */
   readonly entrypoint?: string;
+  /**
+   * WHETHER A PERSON IS THERE, when the host says so (the putty's review,
+   * 2026-11-13): false is a run nobody reads (a routine calling the chat
+   * host's `wake`, `CLAUDE_CODE_SESSION_ATTENDED=0`). Its wake follows "Still
+   * open"'s schedule but takes no step of it. Absent: not said.
+   */
+  readonly attended?: boolean;
 }
 
 export interface AdapterEvent {
@@ -630,7 +637,7 @@ export class Lifecycle implements HostLifecycle {
     // Still open's lines are raises (the putty, 2026-11-13): shown to a person, so
     // not a night's own wake and not a headless (agent) session's, which follow
     // the schedule but use none of it up.
-    if (input.nightRun !== true && !this.headlessSession(input.sessionId)) this.counterpart.noteStillOpenShown(woke.stillOpenShown ?? woke.threads ?? [], input.sessionId);
+    if (input.nightRun !== true && input.attended !== false && !this.headlessSession(input.sessionId)) this.counterpart.noteStillOpenShown(woke.stillOpenShown ?? woke.threads ?? [], input.sessionId);
     return woke;
   }
 

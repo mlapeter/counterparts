@@ -178,9 +178,9 @@ for (const shape of ["on", "off"] as const) {
       for (const d of [1, 2]) {
         const w = on(d);
         expect(w).not.toContain(MARK);
-        // The shaped road counts it behind its door; the assembled one, with nothing listed, says nothing of it.
+        // Counted, not listed, each road in its own words.
         if (shape === "on") expect(w).toMatch(/1 more open/);
-        else expect(w).toBe("");
+        else expect(w).toContain("1 — none due today");
       }
       expect(on(3)).toContain(MARK);
       for (const d of [4, 9]) expect(on(d)).not.toContain(MARK);

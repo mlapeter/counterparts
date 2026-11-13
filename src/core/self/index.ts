@@ -1208,8 +1208,8 @@ export class Self {
     const lanes: Lanes = {
       ...(parkedAll > 0 ? { parked: parkedAll } : {}),
       ...ranked,
-      // Waiting its next step: counted beside a listed line, never alone (as `assemble`).
-      ...(restingIds.length > 0 && ranked.threads.length > 0 ? { overflow: { ...(ranked.overflow ?? { identity: [], craft: [], hints: [], threads: [], horizon: [] }), threads: [...(ranked.overflow?.threads ?? []), ...restingIds] } } : {}),
+      // Waiting its next step: counted with the lane's more; alone, its line says none is due today (as `assemble`).
+      ...(restingIds.length > 0 ? { resting: restingIds, overflow: { ...(ranked.overflow ?? { identity: [], craft: [], hints: [], threads: [], horizon: [] }), threads: [...(ranked.overflow?.threads ?? []), ...restingIds] } } : {}),
       ...(coming.later.length === 0 || req.omit !== undefined ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 || req.omit !== undefined ? {} : { overdue: coming.overdue }),
     };
@@ -1518,14 +1518,14 @@ export class Self {
         identity: [...shown.more.identity],
         craft: this.tunables.CRAFT_IN_WAKE ? [...shown.more.craft] : [],
         hints: [],
-        // Waiting its next step: counted with the lane's more beside a listed line,
-        // never alone (the collapsed line would say "no room", which isn't why).
-        threads: [...(fresh.overflow?.threads ?? []), ...(fresh.threads.length > 0 ? resting : [])],
+        // Waiting its next step: counted with the lane's more; alone, its line says none is due today.
+        threads: [...(fresh.overflow?.threads ?? []), ...resting],
         horizon: fresh.overflow?.horizon ?? [],
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 ? {} : { overdue: coming.overdue }),
       ...(parked === 0 ? {} : { parked }),
+      ...(resting.length === 0 ? {} : { resting }),
     };
     return this.composeLanes(lanes, docs, sources, {
       day,
@@ -1811,6 +1811,7 @@ export class Self {
           ...(lanes.overdue === undefined || lanes.overdue.length === 0 || req.omit !== undefined ? {} : { horizonOverdue: lanes.overdue }),
           // How many open threads are parked: "Still open"'s count line says so (P2, 2026-10-28).
           ...(lanes.parked === undefined || lanes.parked === 0 || req.omit !== undefined ? {} : { threadsParked: lanes.parked }),
+          ...(lanes.resting === undefined || lanes.resting.length === 0 || req.omit !== undefined ? {} : { threadsResting: lanes.resting }),
           ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
             ? {}
             : { elsewhereShorter: req.elsewhereShorter }),

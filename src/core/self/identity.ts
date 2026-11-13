@@ -559,6 +559,10 @@ export interface Lanes {
    *  2026-10-28, `openCarry`): "Still open"'s count line says it. Set by
    *  `Self`, not by `rankLanes`. */
   parked?: number;
+  /** Open threads waiting their next raise step (the putty, 2026-11-13): in
+   *  the threads overflow, and "Still open"'s count says none is due today
+   *  when they are all it counts (`briefing.ts#collapsedLine`). */
+  resting?: readonly string[];
 }
 
 /**
