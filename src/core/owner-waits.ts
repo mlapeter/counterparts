@@ -129,13 +129,15 @@ export function laneState(days: readonly number[], today: number, steps: readonl
  * (`Store#openThreadTouches`, the carry rule's own reading of a touch). Only a
  * fresher one is "new". Decided at read time: no flag, no migration. Without
  * this a store with hundreds of old open items would list a different few as
- * new every day for weeks. Dated items are left to their date. Never throws.
+ * new every day for weeks. Dated items are left to their date; an `asked` one
+ * is raised first (the carry rule never parks it either). Never throws.
  */
 function unchainedParked(store: Pick<Store, "openThreadTouches" | "today">, record: RaiseRecord, today: number, rows: (id: string) => { readonly revision: number; readonly band?: string | null } | undefined): Set<string> {
   const out = new Set<string>();
   try {
     for (const f of store.openThreadTouches({ at: store.today() })) {
-      if (f.dated || today - f.touchedDay < SELF_TUNABLES.OPEN_CARRY_DAYS) continue;
+      // An `asked` one is raised first, on any road (its mention, or its line), then backs off: never parked unseen.
+      if (f.dated || f.asked || today - f.touchedDay < SELF_TUNABLES.OPEN_CARRY_DAYS) continue;
       const row = rows(f.id);
       // A core memory being reconsidered keeps its own rule.
       if (row === undefined || row.band === "identity" || raisesAt(record, f.id, row.revision).length > 0) continue;
@@ -209,16 +211,14 @@ export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "se
  * at the row's current `revision` and every step is waited out. Any status
  * since the putty (2026-11-13): a lane line raised to the end parks as an
  * `asked` item does. And an item with no chain that is a fortnight untouched
- * (`unchainedParked`), unless it is `asked`: that one is the shaped wake's
- * mention's to raise first (`owedOne`), which it would never be if parked
- * here. Read by "Still open" (the wake and the handle), which lists them
+ * and not `asked` (`unchainedParked`). Read by "Still open" (the wake and the handle), which lists them
  * parked. Never throws.
  */
 export function ownerParked(store: Pick<Store, "getMeta" | "row" | "openThreadTouches" | "today">, today: number): ReadonlySet<string> {
   const out = new Set<string>();
   try {
     const record = raiseRecord(store);
-    for (const id of unchainedParked(store, record, today, (x) => store.row(x))) if (store.row(id)?.status !== "asked") out.add(id);
+    for (const id of unchainedParked(store, record, today, (x) => store.row(x))) out.add(id);
     for (const [id, c] of Object.entries(record)) {
       if (c.kind !== "memory") continue;
       const row = store.row(id);

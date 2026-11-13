@@ -892,7 +892,7 @@ variable; with no word a chat `wake` counts as a person's). Those follow the sch
 Only a showing the schedule lets through is a step: a bundle composed on an earlier lived day that still
 lists a waiting item takes none. **[M]** An open item with no chain (an upgrade, or one the record's bound
 let go) that is untouched `OPEN_CARRY_DAYS` lived days is parked, not new (`unchainedParked`, read-time; an
-`asked` one is left to the mention). Writing a raise drops the chains of memories no longer open first.
+`asked` one is raised first, as the carry rule never parks it). Writing a raise drops the chains of memories no longer open first.
 **[M]** All waiting and nothing listed: the assembled and published lanes say `Still open: N — none due
 today; recall "still open" lists them` with the parked count after; the shaped one its "(N more open, M
 parked; …)" door. **[A]** The published bundle delivered as it was on a host that composes it only at
