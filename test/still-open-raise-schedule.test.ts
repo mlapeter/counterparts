@@ -26,7 +26,12 @@ import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
-import { OWNER_RAISED_EVENT, laneHeld, laneState, noteLaneShown, ownerParked, raiseRecord } from "../src/core/owner-waits.js";
+import { OWNER_RAISED_EVENT, laneHeld, laneState, noteLaneShown, noteRaised, ownerParked, raiseRecord } from "../src/core/owner-waits.js";
+import { openServer } from "../src/adapters/mcp/index.js";
+import type { McpServer } from "../src/adapters/mcp/index.js";
+import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
+import type { SpawnPlan } from "../src/adapters/spawn.js";
+import { WAKE_SHAPE_LIMITS } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
@@ -72,11 +77,11 @@ function brain(shape: "on" | "off"): Counterpart {
 }
 
 /** An open item in the counterpart's own words: its curiosity, waiting on the person. No `asked` mark. */
-function curious(c: Counterpart, more: { eventDate?: string } = {}): string {
+function curious(c: Counterpart, more: { eventDate?: string; body?: string } = {}): string {
   return c.store.put({
     type: "memory",
     kind: "fact",
-    body: "Wren had not yet told their dad the booth news. I said I'd like to hear what he says when Wren tells him.",
+    body: more.body ?? "Wren had not yet told their dad the booth news. I said I'd like to hear what he says when Wren tells him.",
     title: "Wren to tell their dad the booth news",
     meta: { unresolved: true, settlesWhen: "Wren tells their dad and shares his reaction" },
     ...(more.eventDate === undefined ? {} : { eventDate: more.eventDate }),
@@ -243,4 +248,86 @@ describe("who uses a showing up", () => {
     c.store.setMeta("livedDay", String(START + 1));
     expect(stillOpen(hook({ entrypoint: "sdk-cli" }))).not.toContain(MARK);
   });
+});
+
+describe("review of #819", () => {
+  test("1. a parked chain survives the record's bound: chains of items no longer open go first", () => {
+    const c = brain("on");
+    const id = curious(c);
+    for (const d of [0, 3, 10]) noteLaneShown(c.store, [id], { day: START + d, session: OWN });
+    expect(laneHeld(c.store, START + 24)(id)).toBe("parked");
+    // The bound's worth of other chains, for ids that are no open item (closed, gone).
+    for (let i = 0; i < WAKE_SHAPE_LIMITS.OWNER_RAISES_KEPT; i++) {
+      noteRaised(c.store, { id: `mem_gone${String(i).padStart(6, "0")}`, version: 1, kind: "memory" }, { day: START + 24, session: OWN, via: "lane" });
+    }
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START, START + 3, START + 10]);
+    expect(laneHeld(c.store, START + 24)(id)).toBe("parked");
+  });
+
+  test("2. at upgrade, an item with no chain untouched a fortnight is parked, a recent one is new; nothing old is listed for a fortnight", () => {
+    const c = brain("on");
+    const old: string[] = [];
+    for (let i = 0; i < 20; i++) old.push(curious(c, { body: `OLDITEM${String(i)} Wren had not said how the quiz night went. I asked once.` }));
+    c.store.setMeta("livedDay", String(START + 20));
+    const fresh = [curious(c, { body: "NEWITEM1 Wren is choosing between the two posters." }), curious(c, { body: "NEWITEM2 Wren has not heard back about the booth lights." })];
+    const d0 = stillOpen(hook());
+    for (const id of fresh) expect(d0).toContain(id);
+    for (const id of old) expect(d0).not.toContain(id);
+    expect(d0).toContain("20 parked");
+    for (let d = 1; d <= 14; d++) {
+      c.store.setMeta("livedDay", String(START + 20 + d));
+      const w = stillOpen(hook());
+      for (const id of old) expect(w).not.toContain(id);
+    }
+    // Nothing deleted: the handle lists them, parked.
+    const listed = c.stillOpen({ scope: HERE }).items.filter((i) => old.includes(i.id));
+    expect(listed.length).toBe(20);
+    expect(listed.every((i) => i.parked === true)).toBe(true);
+  });
+
+  test("5. the assembled road with every item waiting still says how many are open, and where", () => {
+    const c = brain("off");
+    curious(c);
+    c.rebrief({ budgetBytes: BUDGET, at: "2026-11-13" });
+    expect(stillOpen(hook())).toContain(MARK);
+    c.store.setMeta("livedDay", String(START + 1));
+    const w = stillOpen(hook());
+    expect(w).not.toContain(MARK);
+    expect(w).toContain("1 — none due today");
+    expect(w).toContain('recall "still open"');
+  });
+});
+
+describe("4. the MCP wake tool: an unattended wake follows the schedule but takes no step", () => {
+  function mcp(dir: string, host: string | undefined, env: Record<string, string>): McpServer {
+    const s = openServer({
+      dir,
+      ...(host === undefined ? {} : { host }),
+      env,
+      lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) },
+      manifestVersion: () => null,
+    });
+    open.push({ close: () => s.counterpart.close() });
+    return s;
+  }
+  // The wake tool is a chat host's (claude.ai, Desktop): a person opens the chat, unless the host says otherwise.
+  const cases: [string, Record<string, string>, Record<string, unknown>, number][] = [
+    ["the host says nobody is there (a routine)", { CLAUDE_CODE_SESSION_ATTENDED: "0" }, {}, 0],
+    ["a night's own wake", {}, { night: true }, 0],
+    ["the host says a person is there", { CLAUDE_CODE_SESSION_ATTENDED: "1" }, {}, 1],
+    ["a chat with no word either way", {}, {}, 1],
+  ];
+  for (const [name, env, args, steps] of cases) {
+    test(name, async () => {
+      const dir = join(root, `mcp-${String(next += 1)}`);
+      const s = mcp(dir, CLAUDE_AI_HOST, env);
+      const c = s.counterpart;
+      c.store.setMeta("livedDay", String(START));
+      const id = curious(c);
+      c.rebrief({ budgetBytes: BUDGET, at: "2026-11-13" });
+      const r = await s.call("wake", args);
+      expect(JSON.stringify(r)).toContain(MARK);
+      expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(steps);
+    });
+  }
 });

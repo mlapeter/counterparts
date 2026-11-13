@@ -21,15 +21,22 @@
  *   - PARKED: after the last step, the item parks: out of the wake, still
  *     listed (marked parked) under `recall "still open"`. Not closed.
  *   - ANSWERED: a revision of the item (its `revision`, a handoff's `version`)
- *     starts the chain again; an item no longer `asked` or no longer open is no
- *     longer a candidate at all.
+ *     starts the chain again; an item no longer open is no longer a candidate
+ *     at all, and its chain is dropped at the next raise written. An `asked`
+ *     mark only decides which door says it (the mention, or a "Still open"
+ *     line on the roads where `asked` items are lines).
+ *   - STILL OPEN'S LINES (the putty, 2026-11-13): every open memory listed as a
+ *     line of the lane is raised on the same chain (`noteLaneShown`), listed
+ *     only on its steps (`laneState`, no week floor), and parks after the last.
+ *     With no chain at all (an upgrade, or one the bound let go) an item
+ *     untouched `OPEN_CARRY_DAYS` lived days is parked, a fresher one new.
  *
  * Meta and events only: no store-format change. Never throws: a chain that
  * won't read is an item never raised (it may be raised again), never one hidden.
  */
 import { everydayFactor, informativeness } from "./recall/cues.js";
 import { TUNABLES as RECALL_TUNABLES } from "./recall/tunables.js";
-import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
+import { SELF_TUNABLES, WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import { tokenize } from "./store/index.js";
 import type { Store } from "./store/index.js";
 import { stemTerm } from "./store/stem.js";
@@ -116,21 +123,49 @@ export function laneState(days: readonly number[], today: number, steps: readonl
 }
 
 /**
+ * THE OPEN THREADS WITH NO CHAIN THAT COUNT AS PARKED (review of #819): an
+ * open memory never raised at its current version (an upgrade, or a chain the
+ * record's bound let go) and untouched `OPEN_CARRY_DAYS` lived days or more
+ * (`Store#openThreadTouches`, the carry rule's own reading of a touch). Only a
+ * fresher one is "new". Decided at read time: no flag, no migration. Without
+ * this a store with hundreds of old open items would list a different few as
+ * new every day for weeks. Dated items are left to their date. Never throws.
+ */
+function unchainedParked(store: Pick<Store, "openThreadTouches" | "today">, record: RaiseRecord, today: number, rows: (id: string) => { readonly revision: number; readonly band?: string | null } | undefined): Set<string> {
+  const out = new Set<string>();
+  try {
+    for (const f of store.openThreadTouches({ at: store.today() })) {
+      if (f.dated || today - f.touchedDay < SELF_TUNABLES.OPEN_CARRY_DAYS) continue;
+      const row = rows(f.id);
+      // A core memory being reconsidered keeps its own rule.
+      if (row === undefined || row.band === "identity" || raisesAt(record, f.id, row.revision).length > 0) continue;
+      out.add(f.id);
+    }
+  } catch {
+    /* none: listed, never hidden */
+  }
+  return out;
+}
+
+/**
  * What holds an open memory out of "Still open"'s lines on lived day `today`:
  * "waiting" (raised, its step not yet waited out: counted as more open),
- * "parked" (every step waited out), or null (listed). One record read for all.
- * The caller exempts what keeps its own rule (a dated item, a core memory
- * being reconsidered). Never throws: unreadable is listed, never hidden.
+ * "parked" (every step waited out, or never raised and untouched a fortnight:
+ * `unchainedParked`), or null (listed). One record read for all. The caller
+ * exempts what keeps its own rule (a dated item, a core memory being
+ * reconsidered). Never throws: unreadable is listed, never hidden.
  */
-export function laneHeld(store: Pick<Store, "getMeta" | "row">, today: number): (id: string) => "waiting" | "parked" | null {
+export function laneHeld(store: Pick<Store, "getMeta" | "row" | "openThreadTouches" | "today">, today: number): (id: string) => "waiting" | "parked" | null {
   let record: RaiseRecord = {};
   try {
     record = raiseRecord(store);
   } catch {
     record = {};
   }
+  const old = unchainedParked(store, record, today, (id) => store.row(id));
   return (id) => {
     try {
+      if (old.has(id)) return "parked";
       if (record[id] === undefined) return null;
       const row = store.row(id);
       if (row === undefined) return null;
@@ -150,7 +185,7 @@ export function laneHeld(store: Pick<Store, "getMeta" | "row">, today: number): 
  * The caller has decided the wake was delivered to a session (not a night's
  * own run, not observer). How many it raised. Never throws.
  */
-export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "row" | "readProse">, ids: readonly string[], at: { readonly day: number; readonly session: string }): number {
+export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "row" | "readProse" | "openThreadIds">, ids: readonly string[], at: { readonly day: number; readonly session: string }): number {
   let n = 0;
   for (const id of new Set(ids)) {
     try {
@@ -173,13 +208,18 @@ export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "se
  * THE OPEN MEMORIES PARKED BY THE BACKOFF on lived day `today`: their chain is
  * at the row's current `revision` and every step is waited out. Any status
  * since the putty (2026-11-13): a lane line raised to the end parks as an
- * `asked` item does. Read by "Still open" (the wake and the handle), which
- * lists them parked. Never throws.
+ * `asked` item does. And an item with no chain that is a fortnight untouched
+ * (`unchainedParked`), unless it is `asked`: that one is the shaped wake's
+ * mention's to raise first (`owedOne`), which it would never be if parked
+ * here. Read by "Still open" (the wake and the handle), which lists them
+ * parked. Never throws.
  */
-export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number): ReadonlySet<string> {
+export function ownerParked(store: Pick<Store, "getMeta" | "row" | "openThreadTouches" | "today">, today: number): ReadonlySet<string> {
   const out = new Set<string>();
   try {
-    for (const [id, c] of Object.entries(raiseRecord(store))) {
+    const record = raiseRecord(store);
+    for (const id of unchainedParked(store, record, today, (x) => store.row(x))) if (store.row(id)?.status !== "asked") out.add(id);
+    for (const [id, c] of Object.entries(record)) {
       if (c.kind !== "memory") continue;
       const row = store.row(id);
       if (row === undefined) continue;
@@ -199,7 +239,7 @@ export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number
  * Never throws.
  */
 export function noteRaised(
-  store: Pick<Store, "appendEvent" | "getMeta" | "setMeta">,
+  store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "openThreadIds">,
   item: { readonly id: string; readonly version: number; readonly kind: "memory" | "handoff"; readonly scope?: string | null },
   at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" | "lane" },
 ): boolean {
@@ -216,8 +256,18 @@ export function noteRaised(
     const before = raisesAt(was, item.id, item.version);
     const { [item.id]: _old, ...rest } = was;
     const chain: RaiseChain = { version: item.version, days: [...before, at.day], kind: item.kind, ...(item.scope ? { scope: item.scope } : {}) };
-    // Newest last; past the bound the oldest go (only lets one be raised again).
-    const kept = Object.entries(rest).slice(-(SHAPE.OWNER_RAISES_KEPT - 1));
+    // A memory no longer open has nothing left to raise: its chain goes (review
+    // of #819: kept, closed items' chains pushed a parked item's out, and it came
+    // back as new). Then, past the bound, the oldest go; one let go that is a
+    // fortnight untouched reads as parked (`unchainedParked`), not new.
+    let open: ReadonlySet<string> | null = null;
+    try {
+      open = new Set(store.openThreadIds());
+    } catch {
+      open = null;
+    }
+    const live = Object.entries(rest).filter(([id, c]) => open === null || c.kind !== "memory" || open.has(id));
+    const kept = live.slice(-(SHAPE.OWNER_RAISES_KEPT - 1));
     store.setMeta(OWNER_RAISED_KEY, JSON.stringify(Object.fromEntries([...kept, [item.id, chain]])));
     return true;
   } catch {
