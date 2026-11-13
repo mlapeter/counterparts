@@ -211,3 +211,92 @@ describe("through the recall tool", () => {
     expect(c.store.gateRecords(SESSION, "asked").map((r) => r.ref)).not.toContain(haircut);
   });
 });
+
+/** Unrelated notes, so a word a test asks for is rare in the store (a word in nearly every row weighs nothing). */
+function filler(c: Counterpart, n: number): void {
+  for (let i = 0; i < n; i++) c.store.put({ type: "memory", kind: "fact", body: `Filler note ${String(i)} about the garden, the weather and lunch number ${String(i)}.` });
+}
+
+describe("also due in this window: the review of #817", () => {
+  test("a match is never listed as not a match: matches past page 1 and its tail", () => {
+    const c = written((e) => {
+      for (let i = 0; i < 35; i++) fact(e, `zqtrip stop at kq${String(i)}town for wq${String(i)}food`, `2026-10-${String(5 + (i % 7)).padStart(2, "0")}`);
+    });
+    filler(c, 120);
+    const r = ask(c, "zqtrip next week");
+    expect(r.matched).toBe(35);
+    expect(r.memories.length).toBe(10);
+    expect(r.tail.length).toBe(20);
+    expect(r.alsoDue).toBeUndefined();
+    expect(renderFacts(r)).not.toContain("also due in this window");
+  });
+
+  test("a near-duplicate left out of the matches is not listed as not a match", () => {
+    const c = written((e) => {
+      const words = "Zqmeeting with the accountant about the quarterly figures and the receipts";
+      e.store.put({ type: "memory", kind: "fact", title: words, body: `${words}.`, eventDate: "2026-10-08" });
+      e.store.put({ type: "memory", kind: "fact", title: words, body: `${words}!`, eventDate: "2026-10-08" });
+    });
+    filler(c, 20);
+    const r = ask(c, "zqmeeting next week");
+    expect(r.matched).toBe(1);
+    expect(r.duplicates).toBe(1);
+    expect(r.alsoDue).toBeUndefined();
+  });
+
+  test("day-dated reminders first by date, then month and range ones; a month reads as one", () => {
+    const ids: Record<string, string> = {};
+    const c = written((e) => {
+      ids["month"] = fact(e, "Renew the parking permit", "2026-10");
+      ids["range"] = fact(e, "Gallery show runs", "2026-10-05..2026-10-09");
+      ids["day"] = fact(e, "Haircut with Jo", "2026-10-07");
+    });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqbike needs a chain." });
+    const r = ask(c, "zqbike next week");
+    expect(r.alsoDue?.items.map((i) => i.id)).toEqual([ids["day"] as string, ids["month"] as string, ids["range"] as string]);
+    const text = renderFacts(r);
+    expect(text).toContain("- Renew the parking permit · due in October ·");
+    expect(text).toContain("- Gallery show runs · due Mon 10-05..Fri 10-09 ·");
+  });
+
+  test("not listed: a memory this asker may not see, and an archived one", () => {
+    const ids: Record<string, string> = {};
+    const c = written((e) => {
+      ids["closed"] = fact(e, "Private appointment", "2026-10-06");
+      ids["archived"] = fact(e, "Old plan", "2026-10-07");
+      ids["open"] = fact(e, "Haircut with Jo", "2026-10-08");
+    });
+    c.store.archive(ids["archived"] as string, "test");
+    c.store.put({ type: "memory", kind: "fact", body: "The zqbike needs a chain." });
+    const r = factsRecall({ counterpart: c, sessionId: SESSION, vector: null, semantic: "embedder-off", closed: new Set([ids["closed"] as string]) }, "zqbike next week");
+    expect(r.alsoDue?.items.map((i) => i.id)).toEqual([ids["open"] as string]);
+  });
+
+  test("monthly and yearly repeats are listed once, by their occurrence in the window", async () => {
+    const c = written(() => {});
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", registryDir: join(dir, "store"), now: () => NOW });
+    const remember = async (args: Record<string, unknown>): Promise<string> => (await s.call("remember", args)).structuredContent["id"] as string;
+    const rent = await remember({ title: "Pay the rent", text: "Pay the rent for the flat to the landlord's account.", eventDate: "2026-01-07", recurring: "monthly" });
+    const bday = await remember({ title: "Sam's birthday", text: "Sam's birthday: a card and a call in the evening.", eventDate: "1990-10-09", recurring: "yearly" });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqbike needs a chain." });
+    const items = ask(c, "zqbike next week").alsoDue?.items ?? [];
+    expect(items.map((i) => [i.id, i.due])).toEqual([
+      [rent, "2026-10-07"],
+      [bday, "2026-10-09"],
+    ]);
+  });
+
+  test("a reminder due today that a newer done memory says happened is not listed; \"today\" with a topic word lists what is due today", () => {
+    const ids: Record<string, string> = {};
+    const c = written((e) => {
+      ids["launch"] = fact(e, "zqshop launch day: Saturday 3 Oct", "2026-10-03");
+      ids["bank"] = fact(e, "Call the bank about the card", "2026-10-03");
+    });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqbike needs a chain." });
+    const before = (ask(c, "zqbike today").alsoDue?.items ?? []).map((i) => i.id).sort();
+    expect(before).toEqual([ids["bank"] as string, ids["launch"] as string].sort());
+    c.store.put({ type: "memory", kind: "fact", title: "zqshop launched: 11 pieces sold", body: "The zqshop launched today, 11 pieces sold.", status: "done" });
+    const after = (ask(c, "zqbike today").alsoDue?.items ?? []).map((i) => i.id);
+    expect(after).toEqual([ids["bank"] as string]);
+  });
+});

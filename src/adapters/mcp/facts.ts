@@ -46,7 +46,10 @@
  *     the meaning did not reach follow the page as "also due in this window"
  *     (2026-11-13, after #815; `alsoDueLines`): by date, a title each, one
  *     line per memory (a daily or weekly repeat by its first occurrence in
- *     the window), at most `FACTS_ALSO_DUE_SIZE` and "+K more", page 1 only,
+ *     the window), day-dated ones first by date then month and range ones (a
+ *     month reads "due in October"), never a match on any page or a
+ *     near-duplicate left out (review of #817), at most `FACTS_ALSO_DUE_SIZE`
+ *     and "+K more", page 1 only,
  *     never counted, never in the answer's ids, never credited, the first
  *     thing dropped when the answer runs out of room. A question that is only time ("what
  *     happened last week?") answers with everything in the window. An event
@@ -162,7 +165,7 @@ import { STOPWORDS } from "../../core/recall/reference.js";
 import { recurringWindowAt, withTunables } from "../../core/prospective/index.js";
 import { statusOf, stemTerm, tokenize } from "../../core/store/index.js";
 import type { ContradictionRow, RecallRow } from "../../core/store/index.js";
-import { addDays, daysBetween, localDate, localTime, occurrenceBetween, parseCalendarDate, readableRecurrence } from "../../core/time.js";
+import { addDays, daysBetween, localDate, localTime, occurrenceBetween, parseCalendarDate, readableMonth, readableRecurrence } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
 import { UNBOUND_SESSION } from "../../core/types.js";
 import {
@@ -1225,8 +1228,14 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   // never credited. Page 1 only: it is about the window, not the ranking.
   let alsoDue: FactsResult["alsoDue"];
   if (ahead !== null && due !== undefined && !onlyTime && page === 1) {
-    const listed = new Set<string>([...shown.map((c) => c.id), ...tail.map((t) => t.id)]);
-    for (const c of shown) for (const e of c.foldedEarlier) listed.add(e);
+    // Every match is out of it, whatever page it is on, and every near-duplicate
+    // the walk left out, and what each folds (review of #817): `main` holds them
+    // all, matched and duplicate alike.
+    const listed = new Set<string>();
+    for (const c of main) {
+      listed.add(c.id);
+      for (const e of c.foldedEarlier) listed.add(e);
+    }
     const ids = new Set<string>(safe(() => store.datedMemories(ahead.from, ahead.to).map((d) => d.id), [] as string[]));
     for (const id of repeats().keys()) ids.add(id);
     const found: { id: string; line: string; due: string; every?: string }[] = [];
@@ -1240,8 +1249,11 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       const title = r.title !== null && r.title.trim().length > 0 ? r.title : (read(id)?.body ?? "");
       found.push({ id, line: plainLine(title, FACTS_ALSO_DUE_TITLE_CHARS), due: on, ...(shape?.every === undefined ? {} : { every: shape.every }) });
     }
+    // A day first, by date; a month or a range after, by its first day (review
+    // of #817: "2026-10" sorted by the 1st headed every October list).
     const first = (d: string): string => parseCalendarDate(d)?.first ?? d;
-    found.sort((a, b) => first(a.due).localeCompare(first(b.due)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const isDayDate = (d: string): number => (parseCalendarDate(d)?.precision === "day" ? 0 : 1);
+    found.sort((a, b) => isDayDate(a.due) - isDayDate(b.due) || first(a.due).localeCompare(first(b.due)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (found.length > 0) alsoDue = { items: found.slice(0, FACTS_ALSO_DUE_SIZE), more: Math.max(0, found.length - FACTS_ALSO_DUE_SIZE) };
   }
 
@@ -1744,7 +1756,12 @@ function alsoDueLines(r: FactsResult, today: string): string[] {
   if (a === undefined || a.items.length === 0) return [];
   const total = a.items.length + a.more;
   const out = [`also due in this window (${String(total)}), not matches (open any by id):`];
-  for (const i of a.items) out.push(`- ${i.line} · due ${shortDateWithWeekday(i.due, today)}${i.every === undefined ? "" : `, ${i.every}`} · ${i.id}`);
+  for (const i of a.items) {
+    // A month reads as one ("due in October", review of #817); a day or a range as the lines above write it.
+    const month = readableMonth(i.due, today);
+    const when = month === null ? shortDateWithWeekday(i.due, today) : `in ${month}`;
+    out.push(`- ${i.line} · due ${when}${i.every === undefined ? "" : `, ${i.every}`} · ${i.id}`);
+  }
   if (a.more > 0) out.push(`+${String(a.more)} more`);
   return out;
 }

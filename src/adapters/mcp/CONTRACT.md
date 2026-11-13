@@ -727,8 +727,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   under `also due in this window (N), not matches (open any by id):`, one line each
   (`- <title> · due Thu 10-15[, every Tuesday] · mem_…`), by date, at most 10 and `+K
   more`, from `Store.datedMemories` and the repeats through the same `dueIn` rules and
-  visibility; never in `matched` or `ids`, never credited, never one shown or listed on
-  the page; page 1 only; dropped first when the answer runs out of room (2026-11-13). The
+  visibility; never in `matched` or `ids`, never credited, never a match on any page, a
+  near-duplicate left out, or a version folded under one (review of #817); a day-dated
+  reminder first by date, then month and range ones (a month reads `due in October`);
+  page 1 only; dropped first when the answer runs out of room (2026-11-13). The
   line says `due <date> (in the window by this date)`. A window wholly in the past or
   otherwise ending today ("this week"), an open end ("after 7/22"), an anchor, a clock time and a soft word read no
   reminder dates: past-only questions answer as before. "Around the X"

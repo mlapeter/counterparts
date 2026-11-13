@@ -227,7 +227,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // row (each answer glosses a chapter itself). The head is untouched.
       // +97 on 2026-11-13 (after #815): the time claim names ranges, the forward
       // words, reminder dates and the "also due" list; the line claim says "due".
-      recall: { total: 3943, beforeList: 1200 },
+      // +11 on the review of #817: "today or a window ahead", "with topic words".
+      recall: { total: 3954, beforeList: 1200 },
       // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
       status: { total: 1289, beforeList: 501 },
       // +55 on 2026-11-04 (TC1): a short Do NOT on refused calls; the whole rule is on the entry's `content`.

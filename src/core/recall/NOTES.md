@@ -1953,7 +1953,11 @@ memory, so a daily repeat is one line and a weekly one over two weeks is one lin
 window with "every Tuesday"; at most 10 by date, then "+K more"; page 1 only (it is about the window, not the
 ranking); after the title tail, and the first thing dropped when the answer runs out of room, so it never pushes a
 match off; a memory shown or listed on the page (or folded under one) is not listed again; titles cut at 80, longer
-than the tail's 48, since the title is all it shows. Not counted, not in `ids`, never credited. On the replay the
+than the tail's 48, since the title is all it shows. Not counted, not in `ids`, never credited. Review of #817: the
+first cut excluded only the page's results and tail, so a match on page 3 or a near-duplicate the walk left out was
+listed as "not matches"; it now excludes every matched candidate, every near-duplicate and what each folds. A
+month-dated reminder sorted by its 1st and headed every list of its month; day-dated ones now come first, and a month
+reads "due in October". On the replay the
 model's exact d14 question now ends with the vet (`due Thu 10-15`) and the care-plan review under the heading; the
 six matches and their ids are unchanged.
 ## Which gate refused the loud tier (2026-11-13, observation only; under `recall.STOP_COUNTS`)
