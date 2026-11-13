@@ -178,7 +178,35 @@ export function r2ObjectStore(opts: R2Options): ObjectStore {
       throw new Error(`object store GET answered ${String(res.status)}`);
     },
   };
-  return store;
+  // Every call holds the process open until it settles: its signing, the request and the body read.
+  return {
+    put: (key, body) => held(() => store.put(key, body)),
+    get: (key) => held(() => store.get(key)),
+    delete: (key) => held(() => store.delete(key)),
+    list: (prefix) => held(() => store.list(prefix)),
+    deletePrefix: (prefix) => held(() => store.deletePrefix(prefix)),
+    readableWith: (key, sseKeyBase64) => held(() => store.readableWith!(key, sseKeyBase64)),
+  };
+}
+
+/**
+ * `fn()`, with the process held open until it settles. Nothing else may be
+ * holding it: in a CLI command after its last child process has exited, an
+ * object-store call can be the only work left, and under bun on Linux it did
+ * not always keep the event loop alive. The loop then ran empty mid-call and the
+ * process exited 0 with the command half done: `migrate-keys` stopped between
+ * proving the control re-key and putting its key object, and printed nothing
+ * (the WB1 tests' empty-stdout flake, CI 11-10 to 11-13). The traces point at
+ * the signing (aws4fetch, WebCrypto): each stall came after the call began and
+ * before its fetch did. That isn't proven in isolation; this holds the whole call.
+ */
+async function held<T>(fn: () => Promise<T>): Promise<T> {
+  const hold = setInterval(() => undefined, 1 << 30);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(hold);
+  }
 }
 
 function decodeXml(s: string): string {
