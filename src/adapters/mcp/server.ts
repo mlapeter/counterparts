@@ -4868,7 +4868,7 @@ export class McpServer {
   /** What the write tools' cleaning reads against: today in the store's zone, and the embedder when there is one. */
   private normalizeContext(): NormalizeContext {
     const embedder = this.embedder;
-    return { today: this.today(), placeByMeaning: embedder === null ? null : meaningPlacer(embedder) };
+    return { today: this.today(), zone: this.counterpart.store.zone(), placeByMeaning: embedder === null ? null : meaningPlacer(embedder) };
   }
 
   /**
@@ -4892,10 +4892,12 @@ export class McpServer {
   /**
    * THE DURABLE ROW FOR A WRITE THAT DID NOT LAND WHOLE (`MCP_WRITE_EVENT`,
    * 2026-11-13): which entries were refused (reason codes), which fields
-   * were dropped (field and code, list indexes folded), how many values were
-   * read as something else, and the feeling words nothing placed. Codes,
-   * counts and those words only — never a memory's text. A write that landed
-   * whole leaves no row. A telemetry write: a busy store loses the row, never
+   * were dropped (field and code, list indexes folded, read off each answer's
+   * `dropped`), how many values were read as something else, and the feeling
+   * words nothing placed (one plain word each, else "(phrase)"). Codes,
+   * counts and those words only — never a memory's text. Written only when
+   * something was refused or dropped: values only read as something else
+   * (`readAs`) leave no row. A telemetry write: a busy store loses the row, never
    * the answer.
    */
   private noteWrite(tool: "remember" | "session_end", result: ToolResult, notes: readonly WriteNotes[], outcomes?: readonly Record<string, unknown>[]): void {
@@ -4911,19 +4913,26 @@ export class McpServer {
       // A side operation alone ("remove-only", "core-only", …) wrote no memory and was asked to write none.
       else if (o["stoodDown"] !== true && typeof o["reason"] === "string" && !o["reason"].endsWith("-only")) count(refused, typeof o["malformed"] === "string" ? `${o["reason"]}:${o["malformed"]}` : o["reason"]);
     }
+    // WHAT WAS DROPPED is read off each answer's own `dropped` list (the
+    // cleaning's drops and the three fields' unreadable ones alike), so a
+    // remember row and a session_end row count the same things (review of #818).
     const dropped: Record<string, number> = {};
+    for (const o of entries) {
+      const list = o["dropped"];
+      if (!Array.isArray(list)) continue;
+      for (const d of list as { field?: unknown; reason?: unknown }[]) {
+        if (typeof d.field === "string" && typeof d.reason === "string") count(dropped, `${d.field.replace(/\[\d+\]/gu, "[]")}:${d.reason}`);
+      }
+    }
     let readAs = 0;
     const unplaced: string[] = [];
     for (const n of notes) {
-      for (const d of n.dropped) count(dropped, `${d.field.replace(/\[\d+\]/gu, "[]")}:${d.reason}`);
       readAs += n.readAs.length;
-      for (const w of n.unplaced) if (unplaced.length < 20) unplaced.push(w.slice(0, 40));
+      for (const w of n.unplaced) if (unplaced.length < 20) unplaced.push(w);
     }
-    const facts = body["facts"];
-    if (outcomes === undefined && facts !== null && typeof facts === "object" && Array.isArray((facts as Record<string, unknown>)["dropped"])) {
-      for (const d of (facts as { dropped: { field: string }[] }).dropped) count(dropped, `${d.field}:${d.field === "eventDate" ? "kept-as-occurredOn" : "unreadable"}`);
-    }
-    if (Object.keys(refused).length === 0 && Object.keys(dropped).length === 0 && readAs === 0 && unplaced.length === 0) return;
+    // Only a write that lost something — a refusal or a real drop. A value only
+    // read as something else is said in its answer and leaves no row.
+    if (Object.keys(refused).length === 0 && Object.keys(dropped).length === 0) return;
     this.telemetry(() => {
       this.counterpart.noteAdapterEvent(MCP_WRITE_EVENT, {
         tool,

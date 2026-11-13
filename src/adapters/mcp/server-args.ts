@@ -815,6 +815,8 @@ export type MeaningPlacer = (word: string) => Promise<CoreEmotion | null>;
 export interface NormalizeContext {
   /** The person's calendar day (`YYYY-MM-DD`, the store's zone): what date words are read against. */
   readonly today: string;
+  /** The store's zone: an instant sent as a date is read as its day there. */
+  readonly zone?: string;
   readonly placeByMeaning?: MeaningPlacer | null;
 }
 
@@ -1013,12 +1015,12 @@ export async function normalizeMemoryFields(
 
   readEnum(rec, "saidBy", SAID_BY, SAID_BY_SYNONYMS, notes, { leaveUnknown: true });
   readEnum(rec, "status", STATUSES, STATUS_SYNONYMS, notes, { leaveUnknown: true });
-  readReminderFields(rec, ctx.today, notes);
+  readReminderFields(rec, ctx.today, notes, ctx.zone);
   // WHEN IT HAPPENED, in words too; one this cannot read is left for
   // `readWriteFacts`, which drops it and says so beside the memory (v12).
   const occurred = rec["occurredOn"];
   if (typeof occurred === "string") {
-    const read = readLooseDate(occurred, ctx.today, "back");
+    const read = readLooseDate(occurred, ctx.today, "back", ctx.zone);
     if (read !== null && read.words) {
       rec["occurredOn"] = read.text;
       notes.read("occurredOn", occurred, read.text);
@@ -1067,7 +1069,7 @@ export async function normalizeMemoryFields(
  * happened); a synonym read; what cannot be read dropped and said. A repeat
  * beside a date that is not one day drops the repeat and keeps the date.
  */
-function readReminderFields(rec: Record<string, unknown>, today: string, notes: WriteNotes): void {
+function readReminderFields(rec: Record<string, unknown>, today: string, notes: WriteNotes, zone?: string): void {
   // `remind: true` is "say it on the day"; false, quiet.
   if (typeof rec["remind"] === "boolean") {
     const as = rec["remind"] ? "plain" : "quiet";
@@ -1094,7 +1096,7 @@ function readReminderFields(rec: Record<string, unknown>, today: string, notes: 
   const date = rec["eventDate"];
   if (date !== undefined && date !== null) {
     const done = rec["status"] === "done" && typeof rec["updates"] !== "string";
-    const read = readLooseDate(date, today, done ? "back" : "ahead");
+    const read = readLooseDate(date, today, done ? "back" : "ahead", zone);
     if (read === null) {
       notes.drop(
         "eventDate",
@@ -1837,9 +1839,11 @@ export function readTraitsLoose(raw: unknown, notes: WriteNotes): { inputs: Trai
 /**
  * The writer's three fields' drops (`readWriteFacts`, already loose since v12)
  * as the top-level `dropped` list carries them, so one list names everything
- * a write left out. A done's passed `eventDate` kept as `occurredOn` is said
- * there too, as moved rather than unreadable.
+ * a write left out. A done's passed `eventDate` kept as `occurredOn` is left
+ * out of it (only `facts.dropped` says it).
  */
 export function factsDropped(read: { readonly dropped: readonly { readonly field: string; readonly note: string }[] }): DroppedField[] {
-  return read.dropped.map((d) => ({ field: d.field, reason: d.field === "eventDate" ? "kept-as-occurredOn" : "unreadable", note: d.note }));
+  // A done's passed eventDate kept as occurredOn is NOT a drop (review of
+  // #818): nothing was lost, and `facts.dropped`'s own note says where it went.
+  return read.dropped.filter((d) => d.field !== "eventDate").map((d) => ({ field: d.field, reason: "unreadable", note: d.note }));
 }

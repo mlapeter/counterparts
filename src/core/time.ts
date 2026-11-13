@@ -828,10 +828,17 @@ const PART = "(early|mid|late|beginning of|start of|middle of|end of|the beginni
  * a time of day alone, a shape this does not know — is null, for the caller
  * to drop and say.
  */
-export function readLooseDate(value: unknown, today: string, lean: DateLean): LooseDate | null {
+export function readLooseDate(value: unknown, today: string, lean: DateLean, zone?: string): LooseDate | null {
   const exact = parseCalendarDate(value);
   if (exact !== null) return { text: exact.text, words: false };
   if (typeof value !== "string" || parseCalendarDate(today)?.precision !== "day") return null;
+  // An instant ("2026-11-14T03:00:00Z"): its day in the store's zone.
+  if (/^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(value)) {
+    const at = Date.parse(value.trim());
+    if (!Number.isFinite(at)) return null;
+    const day = zone === undefined ? value.trim().slice(0, 10) : localDate(at, zone);
+    return parseCalendarDate(day) === null ? null : { text: day, words: true };
+  }
   const said = value
     .trim()
     .toLowerCase()
@@ -845,14 +852,33 @@ export function readLooseDate(value: unknown, today: string, lean: DateLean): Lo
   const read = readWords(said, today, lean);
   if (read === null) return null;
   const held = parseCalendarDate(read);
-  return held === null ? null : { text: held.text, words: true };
+  if (held === null) return null;
+  // An absurd span ("in 999 years") is no date anyone meant: more than
+  // LOOSE_YEARS_AHEAD ahead or LOOSE_YEARS_BACK back is not read.
+  const ty = Number(today.slice(0, 4));
+  if (held.first > `${String(ty + LOOSE_YEARS_AHEAD).padStart(4, "0")}${today.slice(4)}` || held.last < `${String(ty - LOOSE_YEARS_BACK).padStart(4, "0")}${today.slice(4)}`) return null;
+  return { text: held.text, words: true };
 }
 
+/** How far a date in words may reach: ten years ahead, a hundred back. */
+export const LOOSE_YEARS_AHEAD = 10;
+export const LOOSE_YEARS_BACK = 100;
+
+/** A time of day after a day ("tomorrow morning", "friday at 3pm", "monday 9:30"): the same day. */
+const TIME_OF_DAY = /\s+(?:(?:in the\s+)?(?:morning|afternoon|evening|night)|at\s+\S+(?:\s*(?:am|pm))?|\d{1,2}:\d{2}\s*(?:am|pm)?|\d{1,2}\s*(?:am|pm))$/u;
+
 function readWords(s: string, today: string, lean: DateLean): string | null {
+  // The whole value first ("this morning", "last night" are day words), then
+  // without a time of day after it.
+  const whole = readDayWords(s, today, lean);
+  if (whole !== null) return whole;
+  const day = s.replace(TIME_OF_DAY, "").trim();
+  return day !== s && day.length > 0 ? readDayWords(day, today, lean) : null;
+}
+
+function readDayWords(s: string, today: string, lean: DateLean): string | null {
   const { y: ty, m: tm, d: td } = ymdParts(today);
-  // A time of day after a day word is the same day ("tomorrow morning", "tonight").
-  const dayWord = s.replace(/\s+(?:morning|afternoon|evening|night|at \S+|\d{1,2}(?::\d{2})?\s*(?:am|pm)?)$/u, "");
-  switch (dayWord) {
+  switch (s) {
     case "today":
     case "tonight":
     case "this morning":
@@ -917,7 +943,9 @@ function readWords(s: string, today: string, lean: DateLean): string | null {
     return range(saturday, addDays(saturday, 1));
   }
   if (s === "end of the week" || s === "the end of the week" || s === "end of this week" || s === "the end of this week") {
-    return addDays(mondayOf(today), 4);
+    // Friday; on a weekend, leaning ahead, the coming one (this week's has passed).
+    const friday = addDays(mondayOf(today), 4);
+    return lean === "ahead" && friday < today ? addDays(friday, 7) : friday;
   }
   // "early next month", "end of this month", "late last month"
   m = new RegExp(`^${PART}\\s+(?:the\\s+)?(next|this|last)\\s+month$`, "u").exec(s) ?? new RegExp(`^${PART}\\s+the\\s+month$`, "u").exec(s);
