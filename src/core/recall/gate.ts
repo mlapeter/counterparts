@@ -108,6 +108,13 @@ export interface CandidateVerdict {
    *  "The footnote tier is where the loud tier said no" is a question replay
    *  asks constantly; a bare tier label cannot answer it. */
   readonly loudBlockedBy?: Verdict;
+  /** THE NUMBER THAT REFUSED IT (2026-11-13, observation only): the threshold
+   *  of the gate named by `below-floor` (the floor) or by `loudBlockedBy`
+   *  (`cue-fraction`'s minimum, the strong floor, or the loud bar it faced),
+   *  where `bar` is not that number. Recorded as the gate compares it; no rule
+   *  reads it. Absent for every other verdict. Read by
+   *  `recall/index.ts#loudRefusal`. */
+  readonly limit?: number;
   /** `"link"` for a QUIET POINTER — a memory only links reached (2026-09-28,
    *  `activate.ts#Candidate.linkOnly`). Its verdict is one of the ordinary ones;
    *  this says which lane it came by. Absent for everything the conversation
@@ -447,6 +454,8 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   const admitted: { c: Candidate; loud: boolean }[] = [];
   const loudBlock = new Map<string, Verdict>();
   const faced = new Map<string, number>();
+  /** The threshold that refused a candidate, where `bar` is not it (`CandidateVerdict.limit`). Recorded only. */
+  const limits = new Map<string, number>();
   /** Candidates whose bar habituation raised (marked on their verdicts). */
   const habituatedIds = new Set<string>();
   /** Olders of an unsettled pair whose activation counted at a weight (E3; marked on their verdicts). */
@@ -474,6 +483,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       strength: c.strength,
       trains: c.trains,
       ...(blocked !== undefined ? { loudBlockedBy: blocked } : {}),
+      ...(limits.has(c.id) ? { limit: limits.get(c.id) as number } : {}),
       ...(c.linkOnly === true ? { via: "link" as const } : {}),
       ...(habituatedIds.has(c.id) ? { habituated: true as const } : {}),
       ...(competedIds.has(c.id) ? { competed: competedIds.get(c.id) as { with: string; factor: number } } : {}),
@@ -565,6 +575,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // On the activation WITHOUT priming (2026-10-19): the floor says how weak
     // the turn's own evidence may be, and a head start is not evidence.
     if (c.activation - primeOf(c) < bgOf(c).floor) {
+      limits.set(c.id, bgOf(c).floor);
       record(c, "below-floor");
       continue;
     }
@@ -657,12 +668,15 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     } else if (c.cueFraction < t.MIN_CUE_FRACTION) {
       loud = false;
       loudBlock.set(c.id, "cue-fraction");
+      limits.set(c.id, t.MIN_CUE_FRACTION);
     } else if (c.activation - primeOf(c) < strongFloor(t, c.kind, loudUnit)) {
       loud = false;
       loudBlock.set(c.id, "below-strong-floor");
+      limits.set(c.id, strongFloor(t, c.kind, loudUnit));
     } else if (c.activation < bars.loud) {
       loud = false;
       loudBlock.set(c.id, "below-bar");
+      limits.set(c.id, bars.loud);
     }
     admitted.push({ c, loud });
   }

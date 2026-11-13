@@ -1,27 +1,35 @@
 /**
- * THE HOST'S CUT (2026-10-09). Claude Code keeps two copies of each MCP tool
- * description: the first 2,048 characters, and the first 16,384. A tool loaded
- * through tool search gets the long copy; a tool loaded up front gets the short
- * one — with `ENABLE_TOOL_SEARCH=false`, behind a custom base URL or proxy, on a
- * model without tool search, or for an always-loaded tool (measured in the
- * 2.1.295 binary by the review of #328, and still so in 2.1.296). The field
- * descriptions in the input schema are served whole either way.
+ * THE HOST'S CUT (2026-10-09; limits restated 2026-11-13). Claude Code keeps
+ * two copies of each MCP tool description: a short one and the first 16,384
+ * characters. A tool loaded through tool search gets the long copy; a tool
+ * loaded up front gets the short one — with `ENABLE_TOOL_SEARCH=false`, behind
+ * a custom base URL or proxy, on a model without tool search, or for an
+ * always-loaded tool. The short copy is 4,096 characters from 2.1.296 (read in
+ * the 2.1.323 binary, review of #816: 4,096 up front, 16,384 through tool
+ * search; the docs say "Before v2.1.296, the shorter limit was 2,048
+ * characters"), and 2,048 on older clients (measured in the 2.1.295 binary by
+ * the review of #328). The field descriptions in the input schema are served
+ * whole either way.
  *
- * So what a model needs to call a tool correctly has to sit in the first 2,048
- * characters: what it is for, when to call it, every "Do NOT", and the claims
- * that say how to call it. `renderDescription` puts the first three before the
- * guarantees list; each list leads with the fourth. These tests hold both, and
- * record each description's length so growth shows in review.
+ * The tests below still hold what a model needs to call a tool correctly
+ * inside the first 2,048 characters — what it is for, when to call it, every
+ * "Do NOT", and the claims that say how to call it — so a client older than
+ * 2.1.296 still gets the call-critical text. `renderDescription` puts the first
+ * three before the guarantees list; each list leads with the fourth. A tool
+ * marked to load up front (`ToolSpec.alwaysLoad`) is held at 4,096 whole, at
+ * the end. These tests also record each description's length so growth shows
+ * in review.
  *
  * Pure: renders the registry, opens no store.
  */
 import { describe, expect, test } from "bun:test";
 
-import { CLAUDE_AI_TOOLS, DESKTOP_TOOLS, TOOLS, renderDescription, toolDefinitions } from "../src/adapters/mcp/tools.js";
-import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
+import { CLAUDE_AI_TOOLS, DESKTOP_TOOLS, TOOLS, renderDescription, servesAlwaysLoad, toolDefinitions, toolListFor } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../src/adapters/hosts.js";
 import type { ToolSpec } from "../src/adapters/mcp/tools.js";
 
-/** What Claude Code serves of a description when the tool is loaded up front. */
+/** What Claude Code before 2.1.296 serves of a description loaded up front (4,096 since). Kept
+ *  so older clients still get the call-critical text. */
 const HOST_DESCRIPTION_CAP = 2_048;
 /** Where `renderDescription`'s guarantees list begins. */
 const GUARANTEES = "What this tool guarantees";
@@ -214,7 +222,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // claim, last in each list (an engine row since the trim; the field says it).
       // −39 on 2026-10-21 (confidential memories removed): "with the same
       // confidentiality boundary" out of the ids claim.
-      recall: { total: 4606, beforeList: 1200 },
+      // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
+      // the claims tightened to fit the 4,096 cut, the journal claim an engine
+      // row (each answer glosses a chapter itself). The head is untouched.
+      recall: { total: 3846, beforeList: 1200 },
       // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
       status: { total: 1289, beforeList: 501 },
       // +55 on 2026-11-04 (TC1): a short Do NOT on refused calls; the whole rule is on the entry's `content`.
@@ -243,5 +254,30 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +5 on 2026-10-30 (WK1): "still open and coming up" where "nearby and arriving" was.
       wake: { total: 1963, beforeList: 1234 },
     });
+  });
+});
+
+/**
+ * LOADED UP FRONT (2026-11-13, `ToolSpec.alwaysLoad`). Claude Code loads a tool
+ * whose `tools/list` entry carries `_meta["anthropic/alwaysLoad"] === true` up
+ * front (a server's config `alwaysLoad: false` overrides it), and from 2.1.296
+ * cuts an up-front tool's description at 4,096 characters (read in the 2.1.323
+ * binary). Older clients cut at 2,048; the tests above keep the call-critical
+ * text inside that, and this one keeps a flagged tool whole at 4,096.
+ */
+describe("a tool loaded up front fits the up-front cut", () => {
+  const UP_FRONT_CAP = 4_096;
+  test("every flagged tool's rendered description is at most 4,096 characters, on every list that carries it", () => {
+    const flagged = [...TOOLS, ...DESKTOP_TOOLS, ...CLAUDE_AI_TOOLS].filter((t) => t.alwaysLoad === true);
+    expect(flagged.map((t) => t.name)).toContain("recall");
+    for (const spec of flagged) expect(renderDescription(spec).length).toBeLessThanOrEqual(UP_FRONT_CAP);
+  });
+
+  test("the flag is sent by host: every host served Claude Code's list, and no other", () => {
+    for (const host of [false, true, "", "claude-code", "some-other-host", DESKTOP_HOST, CLAUDE_AI_HOST]) {
+      expect(servesAlwaysLoad(host)).toBe(toolListFor(host) === TOOLS);
+      const flagged = toolDefinitions(host).filter((t) => "_meta" in t).map((t) => t["name"]);
+      expect(flagged).toEqual(servesAlwaysLoad(host) ? ["recall"] : []);
+    }
   });
 });
