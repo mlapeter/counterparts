@@ -623,7 +623,9 @@ describe("review of #818", () => {
   });
 
   test("5b. a datetime with no zone is its own day, not the server's (TZ=UTC, store in Denver), through remember and session_end", async () => {
-    const was = process.env["TZ"];
+    // Restored to the zone the process resolved, not by `delete`: under bun a
+    // deleted TZ leaves the process in the last zone set.
+    const was = process.env["TZ"] ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     process.env["TZ"] = "UTC";
     try {
       // The process really is in UTC: a zoneless instant parses as UTC.
@@ -647,8 +649,7 @@ describe("review of #818", () => {
       const id = (ended["outcomes"] as Record<string, unknown>[])[0]?.["id"] as string;
       expect(s.counterpart.store.row(id)?.occurred_on).toBe("2026-11-12");
     } finally {
-      if (was === undefined) delete process.env["TZ"];
-      else process.env["TZ"] = was;
+      process.env["TZ"] = was;
     }
   });
 

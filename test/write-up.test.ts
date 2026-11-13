@@ -613,10 +613,11 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(readSession(storeDir, "new-1")?.nothingNewAt).toBeUndefined();
   });
 
-  test("an answer sent as a JSON string of a list, or as one object, is read as `session_end` reads it (review of #818)", async () => {
+  test("an answer sent as a JSON string of a list, one object or text is read as `session_end` reads it (review of #818)", async () => {
     for (const [sent, from, as] of [
       [JSON.stringify([MEMORY]), "(a JSON string)", "the list it holds"],
       [MEMORY, "(one object)", "a list of one"],
+      [MEMORY.content, "(text)", "a list of one"],
     ] as const) {
       for (const c of open.splice(0)) c.close();
       rmSync(storeDir, { recursive: true, force: true });

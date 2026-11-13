@@ -361,7 +361,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `live-session` (this session's own id included), `other-project`,
     `already-written-up`, `owes-nothing` (with `why`: below-threshold, answered, no-text),
     `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
-    `part-already-written`, `memories-required` (present and not a list),
+    `part-already-written`, `memories-required` (present and not readable as a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
     landed), `part-not-landed` (a memory of this part threw and the same memories can come
     back: what landed stands and the part stays open; on a last part where one landed its
