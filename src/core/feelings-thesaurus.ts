@@ -9,7 +9,7 @@
  * such a word on a core from this table first; inflections and misspellings
  * of a wheel or thesaurus word next; the embedder, only when it is confident,
  * after that; and otherwise drops that ONE feeling and says so
- * (`adapters/mcp/server-normalize.ts`). The word itself is never replaced: it
+ * (the MCP write tools' cleaning, `server-normalize.ts`). The word itself is never replaced: it
  * is kept as the writer's own (`emotion: other`, `other_word`), so this table
  * decides a CORE, never a word, and it changes no stored row's numbers (a
  * word here is not an alias: `lookupWord` and `feelingNumbers` never read it).
@@ -23,7 +23,7 @@
  *
  * GROW IT FROM MISSES. Every feeling the door could not place is named in the
  * write's `dropped` list and counted on the durable `mcp.write` row, word
- * only (`adapters/mcp/server.ts#noteWrite`). Those words are the queue.
+ * only (the MCP server's `noteWrite`). Those words are the queue.
  */
 import { ALIASES, CORE_EMOTIONS, FEELINGS_WHEEL } from "./feelings-wheel.js";
 import type { CoreEmotion } from "./feelings-wheel.js";

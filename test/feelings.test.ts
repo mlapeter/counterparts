@@ -253,7 +253,10 @@ describe("the MCP doors", () => {
     expect([b.emotional, b.relevance, b.predictive]).toEqual([a.emotional, a.relevance, a.predictive]);
   });
 
-  test("malformed shapes refuse at the door, and never throw out of the call (review S2, S3)", async () => {
+  // Changed 2026-11-13 (write tools fail open): each of these refused the
+  // note (`feelings-malformed`). Now the field or the feeling that cannot be
+  // read is dropped and said, the note kept — and still nothing throws.
+  test("malformed shapes are dropped and said at the door, the note kept, and never throw out of the call (review S2, S3)", async () => {
     const s = server();
     const cases: unknown[] = [
       [{ whose: "owner", core: "happy", emotion: "other", other_word: {}, strength: 0.5 }],
@@ -263,14 +266,19 @@ describe("the MCP doors", () => {
       [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5, beneath: "fel_abc" }],
       [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5, beneath: 0.5 }],
     ];
+    // What each case keeps: the whole feeling dropped (no word, no whose), or only the bad field.
+    const keeps = [0, 0, 0, 1, 1, 1];
     for (const [n, feelings] of cases.entries()) {
       const out = payload(await s.call("remember", { text: `A note with malformed feelings, case ${String(n)}.`, feelings }));
-      expect({ n, stored: out["stored"], reason: out["reason"] }).toEqual({ n, stored: false, reason: "feelings-malformed" });
+      expect({ n, stored: out["stored"] }).toEqual({ n, stored: true });
+      expect((out["dropped"] as unknown[]).length).toBeGreaterThan(0);
+      expect(s.counterpart.store.feelingsFor(out["id"] as string).length).toBe(keeps[n] as number);
     }
-    expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
+    expect(s.counterpart.store.list({ type: "memory" }).length).toBe(cases.length);
   });
 
-  test("session_end: a malformed other_word refuses its own entry; the siblings land", async () => {
+  // Changed 2026-11-13: the feeling is dropped on its own entry, which lands (it was refused).
+  test("session_end: a malformed other_word drops that feeling on its own entry; every entry lands", async () => {
     recordSession(dir, { sessionId: "s-feel-2", scope: "/tmp/feelings-project", phase: "start" });
     const s = server();
     const out = payload(
@@ -283,8 +291,11 @@ describe("the MCP doors", () => {
       }),
     );
     const [bad, good] = out["outcomes"] as Record<string, unknown>[];
-    expect(bad?.["reason"]).toBe("feelings-malformed");
+    expect(bad?.["stored"]).toBe(true);
+    expect(bad?.["dropped"]).toContainEqual(expect.objectContaining({ field: "feelings[0].other_word", reason: "not-text" }));
+    expect(s.counterpart.store.feelingsFor(bad?.["id"] as string)).toEqual([]);
     expect(good?.["stored"]).toBe(true);
+    expect(good?.["dropped"]).toBeUndefined();
   });
 
   test("a duplicate note says its feelings were not stored (review N6)", async () => {
@@ -299,7 +310,10 @@ describe("the MCP doors", () => {
     expect([f["stored"], f["reason"]]).toEqual([0, "memory-not-stored"]);
   });
 
-  test("note: feelings that will not store refuse the note before it mints", async () => {
+  // Changed 2026-11-13 (write tools fail open): this refused the note. Now a
+  // core the wheel does not have is dropped and said, and the feeling placed
+  // from its own word (bored is sad's), the note kept.
+  test("note: a core the wheel does not have is dropped and said; the feeling is placed by its word; the note lands", async () => {
     const s = server();
     const out = payload(
       await s.call("remember", {
@@ -307,12 +321,13 @@ describe("the MCP doors", () => {
         feelings: [{ whose: "owner", core: "boredom", emotion: "bored", strength: 0.5 }],
       }),
     );
-    expect(out["stored"]).toBe(false);
-    expect(out["reason"]).toBe("feelings-malformed");
-    expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
+    expect(out["stored"]).toBe(true);
+    expect(out["dropped"]).toContainEqual(expect.objectContaining({ field: "feelings[0].core", reason: "core-unknown", sent: "boredom" }));
+    expect(s.counterpart.store.feelingsFor(out["id"] as string).map((f) => [f.core, f.emotion])).toEqual([["sad", "bored"]]);
   });
 
-  test("session_end: per entry — a bad one refuses itself, its sibling lands with its feelings", async () => {
+  // Changed 2026-11-13: the out-of-range strength is clamped and said on its own entry, which lands (it was refused).
+  test("session_end: per entry — a bad one is read on itself, its sibling lands with its feelings", async () => {
     recordSession(dir, { sessionId: "s-feel", scope: "/tmp/feelings-project", phase: "start", model: "claude-opus-5-5" });
     const s = server();
     const out = payload(
@@ -328,8 +343,9 @@ describe("the MCP doors", () => {
     expect(good?.["stored"]).toBe(true);
     expect((good?.["feelings"] as Record<string, unknown>)["stored"]).toBe(1);
     expect(s.counterpart.store.feelingsFor(good?.["id"] as string)[0]?.model).toBe("claude-opus-5-5");
-    expect(bad?.["stored"]).toBe(false);
-    expect(bad?.["reason"]).toBe("feelings-malformed");
+    expect(bad?.["stored"]).toBe(true);
+    expect(bad?.["readAs"]).toContainEqual({ field: "feelings[0].strength", sent: "3", readAs: "1" });
+    expect(s.counterpart.store.feelingsFor(bad?.["id"] as string)[0]?.strength).toBe(1);
   });
 });
 

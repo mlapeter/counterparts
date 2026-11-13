@@ -381,7 +381,11 @@ describe("the MCP doors: note and session_end", () => {
     expect(rows[0]?.source).toBe("session");
   });
 
-  test("note: an unknown axis or a pole on the wrong axis refuses the note before it mints, and says what is allowed", async () => {
+  // Changed 2026-11-13 (write tools fail open): each of these refused the
+  // note (`traits-malformed`). Now the pole word decides the axis (read and
+  // said), a nudge that names no pole is dropped ALONE and said with what is
+  // allowed, and the note lands every time.
+  test("note: the pole word reads to its axis; a nudge naming no pole is dropped alone, saying what is allowed; the note lands", async () => {
     const s = server();
     const bad = payload(
       await s.call("remember", {
@@ -389,23 +393,36 @@ describe("the MCP doors: note and session_end", () => {
         traits: [{ axis: "bravery", toward: "bold", strength: 0.5 }],
       }),
     );
-    expect([bad["stored"], bad["reason"]]).toEqual([false, "traits-malformed"]);
-    expect(String(bad["detail"])).toContain("axis-unknown");
-    expect(String(bad["detail"])).toContain("careful-bold");
+    expect(bad["stored"]).toBe(true);
+    expect(bad["readAs"]).toContainEqual({ field: "traits[0].axis", sent: "bravery", readAs: "careful-bold" });
+    expect(s.counterpart.store.traitsFor(bad["id"] as string).map((t) => [t.axis, t.toward])).toEqual([["careful-bold", "bold"]]);
     const wrong = payload(
       await s.call("remember", {
         text: "A note whose nudge names a pole from another axis.",
         traits: [{ axis: "careful-bold", toward: "candid", strength: 0.5 }],
       }),
     );
-    expect(wrong["reason"]).toBe("traits-malformed");
-    expect(String(wrong["detail"])).toContain("careful|bold");
-    expect(String(wrong["detail"])).toContain("agreeable-candid");
+    expect(wrong["stored"]).toBe(true);
+    expect(s.counterpart.store.traitsFor(wrong["id"] as string).map((t) => [t.axis, t.toward])).toEqual([["agreeable-candid", "candid"]]);
+    const none = payload(
+      await s.call("remember", {
+        text: "A note whose nudge names no pole of any axis.",
+        traits: [{ axis: "careful-bold", toward: "brave", strength: 0.5 }, "kind — held the door", "bold — said it first"],
+      }),
+    );
+    expect(none["stored"]).toBe(true);
+    const dropped = none["dropped"] as Record<string, unknown>[];
+    expect(dropped.map((d) => [d["field"], d["reason"]])).toEqual([
+      ["traits[0]", "trait-invalid"],
+      ["traits[1]", "trait-unknown"],
+    ]);
+    expect(String(dropped[0]?.["note"])).toContain("careful|bold");
+    expect(s.counterpart.store.traitsFor(none["id"] as string).map((t) => [t.toward, t.carried_by])).toEqual([["bold", "said it first"]]);
     for (const traits of ["candid", [null], [{ axis: 1, toward: "bold", strength: 0.5 }], [{ axis: "careful-bold", toward: "bold", strength: 0.5, carried_by: {} }]]) {
-      const out = payload(await s.call("remember", { text: `A note with malformed traits: ${JSON.stringify(traits)}.`, traits }));
-      expect(out["reason"]).toBe("traits-malformed");
+      const out = payload(await s.call("remember", { text: `A note with odd traits: ${JSON.stringify(traits)}.`, traits }));
+      expect(out["stored"]).toBe(true);
     }
-    expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
+    expect(s.counterpart.store.list({ type: "memory" }).length).toBe(7);
   });
 
   test("a duplicate note says its nudges were not stored", async () => {
@@ -417,7 +434,8 @@ describe("the MCP doors: note and session_end", () => {
     expect((again["traits"] as Record<string, unknown>)["reason"]).toBe("memory-not-stored");
   });
 
-  test("session_end: per entry — a bad nudge refuses its own entry, its sibling lands with its nudge and the session's model", async () => {
+  // Changed 2026-11-13: the out-of-range strength is clamped and said; the entry lands (it was refused).
+  test("session_end: per entry — a bad nudge is read on its own entry, its sibling lands with its nudge and the session's model", async () => {
     recordSession(dir, { sessionId: "s-traits", scope: "/tmp/traits-project", phase: "start", model: "claude-opus-5-5" });
     const s = server();
     const out = payload(
@@ -436,7 +454,9 @@ describe("the MCP doors: note and session_end", () => {
     expect(good?.["stored"]).toBe(true);
     expect(good?.["traits"]).toEqual({ stored: 1 });
     expect(s.counterpart.store.traitsFor(good?.["id"] as string)[0]?.model).toBe("claude-opus-5-5");
-    expect([bad?.["stored"], bad?.["reason"]]).toEqual([false, "traits-malformed"]);
+    expect(bad?.["stored"]).toBe(true);
+    expect(bad?.["readAs"]).toContainEqual({ field: "traits[0].strength", sent: "3", readAs: "1" });
+    expect(good?.["readAs"]).toBeUndefined();
   });
 });
 

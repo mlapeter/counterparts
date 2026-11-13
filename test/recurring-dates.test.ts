@@ -408,21 +408,29 @@ describe("note and session_end take recurring", () => {
     expect(s.counterpart.prospective.plainDue({ at: "2026-10-12" }).map((d) => d.memoryId)).toEqual([id]);
   });
 
-  test("an unknown word is REFUSED before anything is stored, and the refusal lists the four", async () => {
+  // Changed 2026-11-13 (write tools fail open): an unknown repeat is dropped
+  // and said, the date and the memory kept (it was refused); a synonym is read.
+  test("an unknown word is dropped and said, listing the four; the date and the memory are kept", async () => {
     const s = server();
-    const before = s.counterpart.store.list().length;
     const result = await s.call("remember", { text: BIRTHDAY, eventDate: "1955-10-09", recurring: "fortnightly" });
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent["reason"]).toBe("recurring-unknown");
-    expect(String(result.structuredContent["detail"])).toContain('"daily", "weekly", "monthly" or "yearly"');
-    expect(s.counterpart.store.list().length).toBe(before);
+    expect(result.structuredContent["stored"]).toBe(true);
+    const dropped = result.structuredContent["dropped"] as Record<string, unknown>[];
+    expect(dropped[0]).toMatchObject({ field: "recurring", reason: "recurring-unknown", sent: "fortnightly" });
+    expect(String(dropped[0]?.["note"])).toContain('"daily", "weekly", "monthly" or "yearly"');
+    const id = result.structuredContent["id"] as string;
+    expect(s.counterpart.store.row(id)?.event_date).toBe("1955-10-09");
+    expect(s.counterpart.store.readProse(id).meta[RECURRING_META]).toBeUndefined();
+    const annual = await s.call("remember", { text: "Mum's birthday falls on the third of March every year.", eventDate: "1950-03-03", recurring: "annually" });
+    expect(annual.structuredContent["readAs"]).toContainEqual({ field: "recurring", sent: "annually", readAs: "yearly" });
   });
 
-  test("a repeat beside a month is refused by name: only a day repeats", async () => {
+  // Changed 2026-11-13: the repeat goes, the month stays (it was refused).
+  test("a repeat beside a month drops the repeat by name and keeps the date: only a day repeats", async () => {
     const s = server();
     const result = await s.call("remember", { text: "The flu shot clinic runs every October at the pharmacy.", eventDate: "2026-10", recurring: "yearly" });
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent["reason"]).toBe("recurring-needs-day");
+    expect(result.structuredContent["stored"]).toBe(true);
+    expect(result.structuredContent["dropped"]).toContainEqual(expect.objectContaining({ field: "recurring", reason: "recurring-needs-day" }));
+    expect(s.counterpart.store.row(result.structuredContent["id"] as string)?.event_date).toBe("2026-10");
   });
 
   test("recurring with no date is kept out and said, and the memory still lands", async () => {
@@ -432,7 +440,8 @@ describe("note and session_end take recurring", () => {
     expect(s.counterpart.store.readProse(body["id"] as string).meta[RECURRING_META]).toBeUndefined();
   });
 
-  test("session_end: a bad word refuses ITS entry by name, and a recurring sibling lands", async () => {
+  // Changed 2026-11-13: the bad word is dropped on its own entry, which lands once.
+  test("session_end: a bad word is dropped on ITS entry by name, and both land", async () => {
     const s = server();
     const body = (
       await s.call("session_end", {
@@ -444,8 +453,8 @@ describe("note and session_end take recurring", () => {
       })
     ).structuredContent;
     const outcomes = body["outcomes"] as Record<string, unknown>[];
-    expect(outcomes[0]?.["stored"]).toBe(false);
-    expect(outcomes[0]?.["reason"]).toBe("recurring-unknown");
+    expect(outcomes[0]?.["stored"]).toBe(true);
+    expect(outcomes[0]?.["dropped"]).toContainEqual(expect.objectContaining({ field: "recurring", reason: "recurring-unknown", sent: "biweekly" }));
     expect(outcomes[1]?.["stored"]).toBe(true);
     expect(outcomes[1]?.["reminder"]).toEqual({
       eventDate: "2026-10-12",
