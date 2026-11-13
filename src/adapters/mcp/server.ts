@@ -4908,7 +4908,8 @@ export class McpServer {
     let stored = 0;
     for (const o of entries) {
       if (o["stored"] === true) stored += 1;
-      else if (o["stoodDown"] !== true && typeof o["reason"] === "string") count(refused, typeof o["malformed"] === "string" ? `${o["reason"]}:${o["malformed"]}` : o["reason"]);
+      // A side operation alone ("remove-only", "core-only", …) wrote no memory and was asked to write none.
+      else if (o["stoodDown"] !== true && typeof o["reason"] === "string" && !o["reason"].endsWith("-only")) count(refused, typeof o["malformed"] === "string" ? `${o["reason"]}:${o["malformed"]}` : o["reason"]);
     }
     const dropped: Record<string, number> = {};
     let readAs = 0;

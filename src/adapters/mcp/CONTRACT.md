@@ -157,9 +157,14 @@ actually wrote (chapter), the written self page or the version a write to it pro
    model to set salience, so silence is the common case, and a mechanism that only works
    when the model remembers to speak is the same class of gap this guarantee exists for.
    An author's own **dimensions** (relevance, emotional, predictive) may be given per note
-   and per session-end entry; they reach the row exactly as written, an out-of-range one is
-   refused by name rather than clamped or dropped, and `novelty` remains unclaimable —
-   prediction error is measured, never asserted.
+   and per session-end entry; one in range reaches the row exactly as written, and `novelty`
+   remains unclaimable — prediction error is measured, never asserted. Since 2026-11-13
+   (the write tools fail open, §6d″) a dimension, like every optional field, is **dropped
+   and said, never refused by name**: a number sent as text is read, one out of range is
+   clamped to 0-1 and echoed in `readAs`, and one that is no number is dropped and named in
+   `dropped` — the memory kept either way. (It was refused by name before, on the ground
+   that a dimension quietly vanishing is worse than one never offered; it is not quiet now,
+   and the refusal cost the memory.)
 
    **Stated ⇒ mechanized; mechanized ⇏ stated (2026-10-11, the context-trims lane).** A
    description is loaded into the model's context every time its tool is (`session_end`
@@ -585,6 +590,39 @@ done` with an `eventDate` whose last day is on or before today, no `recurring` a
 the eventDate is dropped and said in `facts.dropped` (`server-args.ts#doneDateAsOccurred`).
 A date ending after today, a repeat and a revision are left as they were; `prospective/`
 keeps a done row dated today or earlier out of Coming up whichever way it was written.
+
+## 6d″. The write tools fail open (2026-11-13, owner-approved that day)
+
+`remember` and `session_end` are the only road from conversation to memory, so an optional
+field never costs the memory. **[M]** Each `remember` call and each `session_end` entry
+(write-ups included) is cleaned before any reader sees it (`server-normalize.ts`):
+- **Kept always:** the content. The content-level refusals stand: no text, the stub floor,
+  a duplicate, a credential alone, a size limit.
+- **Read and said** (`readAs: [{field, sent, readAs}]`): enum synonyms for kind, how, remind,
+  recurring, about, saidBy and status; `text` and `content` as one field; numbers sent as
+  text; numbers out of range, clamped; `eventDate` and `occurredOn` written as words
+  ("next Friday", "Oct 15", "late October", "in two weeks", "yesterday"), read by
+  `core/loose-date.ts` against the server's day in the store's zone, the field's whole value
+  only (never a date out of the memory's text); `remove` given as an id; trait pole words
+  ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self: relieved
+  — the test passed"; whose defaults to self) or one string where the list goes; a session_end
+  entry sent as a string, as that memory.
+- **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
+  order, the thesaurus (`core/feelings-thesaurus.ts`), an inflection or a misspelling of a
+  wheel or thesaurus word (`core/feelings-place.ts`), or the embedder when one is live and
+  sure (cosine ≥ 0.60 to a core's centroid and 0.15 ahead of the runner-up). The writer's
+  word is kept as theirs (`other` + `other_word`). Never a guessed core.
+- **Dropped and said** (`dropped: [{field, reason, sent?, note?}]`): whatever still cannot
+  be read — one feeling or one trait alone, never its siblings; a repeat beside a date that
+  is not one day (the date kept); a malformed side operation (`core`, `remark`, `remove`,
+  `settle`, `feelingsNow`) sent beside text (the text stored; alone, it is still refused by
+  name, there being nothing to keep). On claude.ai, `remove` beside text deletes nothing and
+  keeps the text.
+- **Counted:** a write that did not land whole leaves one durable `mcp.write` row (entries
+  refused by reason code, fields dropped by field and code, how many read as something else,
+  and the feeling words nothing placed); the `mcp.session_end` log line carries one count
+  per refusal code. Codes, counts and those words only.
+`remember/intake` stays strict; the cleaning only ever hands it what it takes.
 
 ## 6d'. Tags (2026-10-21, schema v14, wave 2 lane B)
 

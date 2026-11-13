@@ -2113,3 +2113,59 @@ word with the question and is 106th by meaning, past `FACTS_MEANING_CAP` (100). 
 12 and 18 October", "what's on next week") it is found, `due Thu 10-15 (in the window by this date)`. Pooling every
 reminder in a look-ahead window, or the `coming up` handle listing every pending dated item (findings P5b), would close
 that gap; neither is built.
+
+## 2026-11-13 — the write tools fail open (trim PR 1, owner-approved that day)
+
+**Why.** `remember` and `session_end` are the only road to memory, and the thinner tool
+definitions coming next will draw looser input. Until now an unreadable `eventDate`, a feeling
+word off the wheel with no core, a malformed trait or `about`, a number out of range, an
+unknown `kind` or `how`, or a malformed side operation beside text refused the whole memory
+(or the whole entry), and its words were lost: intake's "degrades to a span" is read only by
+the crash fallback. CONTRACT §6d″ is the rule; this is what the build learned.
+
+**Where the leniency lives.** All of it in the adapter (`server-normalize.ts`), BEFORE the
+readers; `remember/intake`, `checkFeelings`, `checkTraits`, the wheel's `lookupWord` and
+`ALIASES` stay strict. The cleaning hands the readers only shapes they already took, and each
+remaining `"refused" in …` branch in `rememberCore` and `depositEntries` became drop-and-say
+too, as a net (`readReminderLoose` and friends). Adding thesaurus words as wheel ALIASES was
+the other road, rejected: an alias replaces the writer's word, and `lookupWord` feeds the
+numbers of every stored `other` row, so it would have moved old rows' defaults.
+
+**Placement, and the embedder's bar.** The thesaurus (`core/feelings-thesaurus.ts`, 563 words,
+40+ per core) decides a CORE, never a word: the writer's word is stored as `other` +
+`other_word`. Order: wheel and aliases; thesaurus; an inflection by `stemTerm`; a misspelling
+(distance 1 from five letters, 2 from eight, a swap counted as one); then the embedder. Every
+step past the thesaurus answers only when all its best candidates agree on the core; a
+negation ("not happy") or a negating prefix of a known word ("unhappy", "uncaring") is never
+placed past the thesaurus. The embedder's bar was measured on potion-base-8M by holding each
+thesaurus word out of its core's centroid: at cosine ≥ 0.60 with a margin ≥ 0.15 it placed 25
+of 563 held-out words, all right, and none of 50 non-feeling words or negations; every looser
+bar let a wrong core through ("unhappy" → angry at 0.65 / 0.14, "not happy" → happy at 0.59).
+So the step is rare on purpose. Unplaced words are counted on the `mcp.write` row; grow the
+thesaurus from them, not the bar.
+
+**Dates in words.** `core/loose-date.ts`, self-contained (it does not import
+`recall/time-ask.ts`), reads one field's whole value, anchored. `eventDate` leans ahead ("Oct
+15" is the next one; a bare "Friday" is today or the next), `occurredOn` back. "next Friday" is
+the first Friday after today, whatever the lean: early is seen, late is missed. A done
+memory's `eventDate` (no `updates`) leans back, so "yesterday" there becomes when it happened
+by the existing done-date rule. Every answer is held to `parseCalendarDate`.
+
+**Defaults chosen.** A trait sent as a pole word has no strength; it takes
+`DEFAULT_TRAIT_STRENGTH` (0.5, middling). A feeling with no `whose` is self's. A `whose` that is
+neither (e.g. "both") drops that feeling rather than guess. Numbers out of range are clamped
+and said (`readAs`), not dropped: the writer's intent ("very high") is closer to 1 than to
+nothing. One object where `feelings`, `traits` or `feelingsNow` takes a list is that one item.
+
+**Where the refusal reasons land (PR 0).** `emit` goes to the in-memory ring and, through
+`onEvent`, to the MCP process's 7-day log (`sessions/log/<day>.log`, `adapters/log`), not the
+store. The `mcp.session_end` line now carries one flat count per refusal code
+(`refused.<code>`; the log writes maps as their size, so flat keys) and the drop count; the
+new durable `mcp.write` row (the `events` table, a telemetry write that never fails the call)
+carries the reasons, the drops by field and code, the readAs count and the unplaced words,
+only for a write that did not land whole. `remember`'s own refusals were and still are
+`mcp.refused` log lines; they now reach `mcp.write` too.
+
+**Left for PR 2.** `tools.ts` still says what is no longer true — "an unreadable one is
+refused" on `eventDate`, `feelings[].emotion`'s cores, traits' required `strength` — because
+another PR is editing that file; the trim PR rewrites them.
