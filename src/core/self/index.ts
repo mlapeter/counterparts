@@ -1498,7 +1498,9 @@ export class Self {
         identity: [...shown.more.identity],
         craft: this.tunables.CRAFT_IN_WAKE ? [...shown.more.craft] : [],
         hints: [],
-        threads: [...(fresh.overflow?.threads ?? []), ...resting],
+        // Waiting its next step: counted with the lane's more beside a listed line,
+        // never alone (the collapsed line would say "no room", which isn't why).
+        threads: [...(fresh.overflow?.threads ?? []), ...(fresh.threads.length > 0 ? resting : [])],
         horizon: fresh.overflow?.horizon ?? [],
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
