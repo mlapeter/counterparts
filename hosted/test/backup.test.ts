@@ -696,4 +696,51 @@ describe("UploadWatch", () => {
     await w.look(); // the next one is its own look
     assert.equal(lists, 2);
   });
+
+  test("a look asked for just after one finished is its own look, never a join on the finished one's older clock", async () => {
+    // Every microtask count between the LIST's answer and the look's promise settling: none may join the old look.
+    for (let k = 0; k <= 7; k++) {
+      const inner = memoryObjectStore();
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((r) => (release = r));
+      const objects: ObjectStore = { ...inner, list: async (p) => (await gate, inner.list(p)) };
+      const events: UploadsEvent[] = [];
+      let t = 0;
+      const w = new UploadWatch({ objects, heartbeat: () => undefined, now: () => t, staleAfterMs: 30 * 60_000, onEvent: (e) => events.push(e) });
+      w.begin();
+      const boot = w.look();
+      release();
+      let p: Promise<unknown> = gate;
+      for (let i = 0; i < k; i++) p = p.then(() => undefined);
+      await p;
+      t = 31 * 60_000;
+      await w.look();
+      assert.deepEqual(events, [{ state: "stale", minutes: 31, reason: "no-rise" }], `after ${String(k)} microtasks`);
+      await boot;
+    }
+  });
+
+  test("a prefix that throws before any await: list-failed, and the next look still runs (the slot doesn't stick)", async () => {
+    let asked = 0;
+    const events: UploadsEvent[] = [];
+    let t = 0;
+    const w = new UploadWatch({
+      objects: memoryObjectStore(),
+      heartbeat: () => undefined,
+      prefix: () => {
+        asked += 1;
+        throw new Error("no control key yet");
+      },
+      now: () => t,
+      staleAfterMs: 30 * 60_000,
+      onEvent: (e) => events.push(e),
+    });
+    w.begin();
+    t = 31 * 60_000;
+    await w.look();
+    assert.deepEqual(events, [{ state: "stale", minutes: 31, reason: "list-failed" }]);
+    await w.look();
+    assert.equal(asked, 2);
+    assert.equal(events.length, 2);
+  });
 });

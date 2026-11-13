@@ -1055,17 +1055,25 @@ export class UploadWatch {
   }
 
   /**
-   * One look: the LIST, then the heartbeat. Never throws. A look still running
-   * isn't doubled: this call waits for that one and settles with it, so once it
-   * resolves a look has finished and its event (if any) is sent. (A call that
+   * One look: the LIST, then the heartbeat. Never throws. A look still out on
+   * its LIST isn't doubled: this call joins it and settles with it, so once it
+   * resolves, a look has finished and its event (if any) is sent. Not a look
+   * that started after this call: the joined LIST may have gone out before it,
+   * so a caller that PUTs and then joins may not see its own PUT. (A call that
    * returned at once let `lookAtUploads` resolve while the boot's look was still
    * out on its LIST, its stale line still to come.)
    */
   look(): Promise<void> {
     if (this.stopped || this.lastRiseAt === null) return Promise.resolve();
-    this.looking ??= this.lookOnce().finally(() => {
-      this.looking = null;
-    });
+    if (this.looking === null) {
+      // lookOnce frees the slot itself the moment its LIST settles (all after that is synchronous), so nothing
+      // joins a look whose clock is already read. This `finally` is the backstop for a look that never awaited
+      // (a `prefix()` that throws): it ran to its end before this assignment.
+      const running: Promise<void> = this.lookOnce().finally(() => {
+        if (this.looking === running) this.looking = null;
+      });
+      this.looking = running;
+    }
     return this.looking;
   }
 
@@ -1085,6 +1093,8 @@ export class UploadWatch {
     } catch {
       reason = "list-failed";
     }
+    // The LIST is answered and the rest runs without yielding: a look asked for from here on is its own.
+    this.looking = null;
     if (this.stopped) return;
     try {
       this.opts.heartbeat();
