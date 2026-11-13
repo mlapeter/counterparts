@@ -169,7 +169,11 @@ export interface App {
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
   readiness(): Promise<Readiness>;
-  /** One look of the upload watch now (its timer does this every `uploadsEveryMs`); a no-op without a sidecar. */
+  /**
+   * One look of the upload watch now (its timer does this every `uploadsEveryMs`); a no-op without a sidecar.
+   * Resolves once a look has finished, its event sent. A look already out on its LIST is joined, not doubled:
+   * that LIST may predate this call, so an upload put just before it may not be seen until the next look.
+   */
   lookAtUploads(): Promise<void>;
   /** Delete one person's account and memory, at once, everywhere ("delete everything now"). Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;

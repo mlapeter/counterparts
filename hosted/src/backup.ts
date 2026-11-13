@@ -1004,7 +1004,8 @@ export class UploadWatch {
   private lastRiseAt: number | null = null;
   private seenRise = false;
   private wasStale = false;
-  private looking = false;
+  /** The look in flight, or null: a second caller waits on it instead of starting another LIST. */
+  private looking: Promise<void> | null = null;
   private stopped = false;
   private readonly opts: {
     readonly objects: ObjectStore;
@@ -1053,44 +1054,63 @@ export class UploadWatch {
     this.stopped = true;
   }
 
-  /** One look: the LIST, then the heartbeat. Never throws; a look still running makes this one a no-op. */
-  async look(): Promise<void> {
-    if (this.stopped || this.looking || this.lastRiseAt === null) return;
-    this.looking = true;
-    try {
-      const riseBefore = this.lastRiseAt;
-      let reason: UploadsReason = "no-rise";
-      try {
-        const watched = this.opts.prefix?.() ?? WATCHED_REPLICA;
-        const max = maxTxid(await this.opts.objects.list(watched), watched);
-        if (this.lastMax !== null && max > this.lastMax) {
-          this.lastRiseAt = this.opts.now();
-          this.seenRise = true;
-        }
-        // Lower than before (a restore, a new bucket): the new baseline, not a rise.
-        this.lastMax = max;
-      } catch {
-        reason = "list-failed";
-      }
-      if (this.stopped) return;
-      try {
-        this.opts.heartbeat();
-      } catch {
-        if (reason === "no-rise") reason = "heartbeat-failed";
-      }
-      const stale = this.state() === "stale";
-      // Stale: minutes since the last rise. Back to ok: how long it was without one.
-      const minutes = Math.floor((this.opts.now() - riseBefore) / 60_000);
-      try {
-        if (stale) this.opts.onEvent?.({ state: "stale", minutes, reason });
-        else if (this.wasStale) this.opts.onEvent?.({ state: "ok", minutes });
-      } catch {
-        /* a log, not a gate */
-      }
-      this.wasStale = stale;
-    } finally {
-      this.looking = false;
+  /**
+   * One look: the LIST, then the heartbeat. Never throws. A look still out on
+   * its LIST isn't doubled: this call joins it and settles with it, so once it
+   * resolves, a look has finished and its event (if any) is sent. Not a look
+   * that started after this call: the joined LIST may have gone out before it,
+   * so a caller that PUTs and then joins may not see its own PUT. (A call that
+   * returned at once let `lookAtUploads` resolve while the boot's look was still
+   * out on its LIST, its stale line still to come.)
+   */
+  look(): Promise<void> {
+    if (this.stopped || this.lastRiseAt === null) return Promise.resolve();
+    if (this.looking === null) {
+      // lookOnce frees the slot itself the moment its LIST settles (all after that is synchronous), so nothing
+      // joins a look whose clock is already read. This `finally` is the backstop for a look that never awaited
+      // (a `prefix()` that throws): it ran to its end before this assignment.
+      const running: Promise<void> = this.lookOnce().finally(() => {
+        if (this.looking === running) this.looking = null;
+      });
+      this.looking = running;
     }
+    return this.looking;
+  }
+
+  private async lookOnce(): Promise<void> {
+    const riseBefore = this.lastRiseAt;
+    if (riseBefore === null) return;
+    let reason: UploadsReason = "no-rise";
+    try {
+      const watched = this.opts.prefix?.() ?? WATCHED_REPLICA;
+      const max = maxTxid(await this.opts.objects.list(watched), watched);
+      if (this.lastMax !== null && max > this.lastMax) {
+        this.lastRiseAt = this.opts.now();
+        this.seenRise = true;
+      }
+      // Lower than before (a restore, a new bucket): the new baseline, not a rise.
+      this.lastMax = max;
+    } catch {
+      reason = "list-failed";
+    }
+    // The LIST is answered and the rest runs without yielding: a look asked for from here on is its own.
+    this.looking = null;
+    if (this.stopped) return;
+    try {
+      this.opts.heartbeat();
+    } catch {
+      if (reason === "no-rise") reason = "heartbeat-failed";
+    }
+    const stale = this.state() === "stale";
+    // Stale: minutes since the last rise. Back to ok: how long it was without one.
+    const minutes = Math.floor((this.opts.now() - riseBefore) / 60_000);
+    try {
+      if (stale) this.opts.onEvent?.({ state: "stale", minutes, reason });
+      else if (this.wasStale) this.opts.onEvent?.({ state: "ok", minutes });
+    } catch {
+      /* a log, not a gate */
+    }
+    this.wasStale = stale;
   }
 }
 
