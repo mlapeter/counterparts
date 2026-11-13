@@ -10,8 +10,11 @@
  *   1. the wheel itself and its aliases (`lookupWord`), then the thesaurus
  *      (`feelings-thesaurus.ts`) — whole value only;
  *   2. an inflection (`stemTerm`: "worrying" meets "worried") of a wheel,
- *      alias or thesaurus word, then a misspelling (edit distance 1 for a word
- *      of five letters or more, 2 for eight or more) — single words only;
+ *      alias or thesaurus participle or a core, then a misspelling with the
+ *      same first letter: for 6-7 letters only a typo's shape (two letters
+ *      swapped, one doubled or undoubled), one edit from 8 letters, two from
+ *      10 — single words only. A real word one letter from a feeling word
+ *      ("better", "wired", "closed") is not a misspelling of it;
  *   3. the embedder, only when it is confident — that step needs a live
  *      embedder, so it is the MCP adapter's (`server-normalize.ts`), not here.
  *
@@ -23,7 +26,7 @@
  * The caller keeps the writer's own word (`other` + `other_word`): this
  * decides only the core.
  */
-import { ALIASES, FEELINGS_WHEEL, lookupWord } from "./feelings-wheel.js";
+import { ALIASES, FEELINGS_WHEEL, isCoreEmotion, lookupWord } from "./feelings-wheel.js";
 import type { CoreEmotion } from "./feelings-wheel.js";
 import { FEELINGS_THESAURUS } from "./feelings-thesaurus.js";
 import { stemTerm } from "./store/stem.js";
@@ -80,9 +83,16 @@ const KNOWN: readonly Known[] = (() => {
   return out.filter((k) => /^[a-z]+$/u.test(k.word));
 })();
 
+/**
+ * The words an inflection may meet: the participles ("worried", "unsettled":
+ * "worrying" and "unsettling" mean them) and the seven cores ("calming"). Not
+ * a bare verb-shaped word ("close", "open", "present", "cross", "alert"):
+ * "closed", "opened" and "crossed" are ordinary words, not those feelings.
+ */
 const BY_STEM: ReadonlyMap<string, readonly Known[]> = (() => {
   const out = new Map<string, Known[]>();
   for (const k of KNOWN) {
+    if (!(k.word.endsWith("ed") || k.word.endsWith("ing") || isCoreEmotion(k.word))) continue;
     const s = stemTerm(k.word);
     const list = out.get(s) ?? [];
     list.push(k);
@@ -105,9 +115,34 @@ function prefixedOpposite(a: string, b: string): boolean {
   return false;
 }
 
-/** The edit distance a misspelling may be from the word, by the word's length (0: none). */
+/**
+ * The edit distance a misspelling may be from the word, by the word's length
+ * (0: none). Under 8 letters only a TYPO's shape counts (`typoShaped`), never a
+ * free edit: "better" is one letter from "bitter", "wired" from "tired",
+ * "yucky" from "lucky", and each is a real word, not a slip.
+ */
 export function spellingReach(length: number): number {
-  return length >= 8 ? 2 : length >= 5 ? 1 : 0;
+  return length >= 10 ? 2 : length >= 6 ? 1 : 0;
+}
+
+/**
+ * The slips a short word is allowed: two neighbouring letters swapped
+ * ("lonley"), or a letter doubled or undoubled ("happpy", "hapy").
+ */
+function typoShaped(a: string, b: string): boolean {
+  if (a.length === b.length) {
+    const diff: number[] = [];
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i);
+    return diff.length === 2 && diff[1] === (diff[0] as number) + 1 && a[diff[0] as number] === b[diff[1] as number] && a[diff[1] as number] === b[diff[0] as number];
+  }
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  if (long.length !== short.length + 1) return false;
+  for (let i = 0; i < long.length; i++) {
+    if (long.slice(0, i) + long.slice(i + 1) === short) {
+      return (i > 0 && long[i] === long[i - 1]) || (i + 1 < long.length && long[i] === long[i + 1]);
+    }
+  }
+  return false;
 }
 
 /**
@@ -135,7 +170,10 @@ export function placeFeelingWord(word: string): Placement | null {
   let near: Known[] = [];
   for (const k of KNOWN) {
     if (Math.abs(k.word.length - form.length) > reach) continue;
+    // A slip keeps the first letter ("believed" is not a slip for "relieved").
+    if (k.word[0] !== form[0]) continue;
     if (prefixedOpposite(form, k.word)) continue;
+    if (form.length < 8 && !typoShaped(form, k.word)) continue;
     const d = editDistance(form, k.word, reach);
     if (d > reach) continue;
     if (d < best) {

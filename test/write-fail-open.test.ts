@@ -160,6 +160,17 @@ describe("placing a feeling word on a core", () => {
     expect(placed("meep")).toBeNull();
   });
 
+  test("a real word one slip from a feeling word is not a misspelling of it: never placed", () => {
+    // Each sits one edit (or one inflection) from a wheel or thesaurus word with a core it does not mean.
+    for (const w of ["better", "worse", "wired", "tried", "yucky", "closed", "opened", "presented", "crossed", "alerted", "safer", "believed", "discussed", "demoted"]) {
+      expect({ w, placed: placeFeelingWord(w) }).toEqual({ w, placed: null });
+    }
+    // …while the slips a writer makes still place.
+    for (const [w, core] of [["lonley", "sad"], ["happpy", "happy"], ["exicted", "happy"], ["worreid", "uneasy"], ["hopefull", "happy"], ["frustated", "angry"], ["dissapointed", "sad"], ["surprized", "curious"]] as const) {
+      expect({ w, core: placeFeelingWord(w)?.core }).toEqual({ w, core });
+    }
+  });
+
   test("by meaning only when sure: the bar and the margin, never a negation or a prefixed opposite", async () => {
     const at = (core: CoreEmotion, s: number): number[] => CORE_EMOTIONS.map((c) => (c === core ? s : 0));
     const lean = (a: CoreEmotion, b: CoreEmotion, sa: number, sb: number): number[] => CORE_EMOTIONS.map((c) => (c === a ? sa : c === b ? sb : 0));
@@ -192,6 +203,15 @@ describe("the cleaning, rule by rule", () => {
     expect(parseFeelingString("proud because it shipped")).toEqual({ whose: "self", emotion: "proud", carried_by: "it shipped" });
     expect(parseFeelingString("user: worried: the deadline moved")).toEqual({ whose: "owner", emotion: "worried", carried_by: "the deadline moved" });
     expect(parseFeelingString("  ")).toBeNull();
+    // A name where whose goes is kept as sent, so the feeling is dropped as whose-unknown, not stored as "Mike".
+    expect(parseFeelingString("Mike: frustrated")).toEqual({ whose: "Mike", emotion: "frustrated" });
+    expect(parseFeelingString("relieved: the test passed")).toEqual({ whose: "self", emotion: "relieved", carried_by: "the test passed" });
+  });
+
+  test("remind: true is plain, false quiet", async () => {
+    const yes = await normalizeMemoryFields({ text: "x", eventDate: "2026-12-01", remind: true }, "text", ctx, new WriteNotes());
+    const no = await normalizeMemoryFields({ text: "x", eventDate: "2026-12-01", remind: false }, "text", ctx, new WriteNotes());
+    expect([yes["remind"], no["remind"]]).toEqual(["plain", "quiet"]);
   });
 
   test("enum synonyms are read and said; an unknown word is dropped and said", async () => {
@@ -336,6 +356,44 @@ describe("remember: every former refusal keeps the memory, names the field in dr
     }
   });
 
+  test("each side operation against junk, beside text: the text is stored every time", async () => {
+    const s = server();
+    const junk: unknown[] = [null, 7, "", "junk", [], [null], { nested: [1] }, true];
+    let n = 0;
+    for (const field of ["core", "remark", "remove", "settle", "feelingsNow"]) {
+      for (const value of junk) {
+        n += 1;
+        const text = `Side note ${String(n)}: ${field} sent ${JSON.stringify(value)} beside a real memory about the greenhouse vents.`;
+        const out = body(await s.call("remember", { text, [field]: value }));
+        expect({ field, value, stored: out["stored"] }).toEqual({ field, value, stored: true });
+      }
+    }
+  });
+
+  test("an unreadable date beside reminder-like text: dropped, and the reminderHint still says it won't come back", async () => {
+    const s = server();
+    const out = body(await s.call("remember", { text: "Remind me to call the plumber on Friday about the kitchen leak.", eventDate: "whenever he's free" }));
+    expect(out["stored"]).toBe(true);
+    expect(out["dropped"]).toContainEqual(expect.objectContaining({ field: "eventDate", reason: "event-date-unreadable" }));
+    expect(String(out["reminderHint"])).toContain("has no eventDate");
+  });
+
+  test("a name where whose goes drops that feeling by name; a phrase nothing placed is logged as a phrase, never its words", async () => {
+    const s = server();
+    const out = body(
+      await s.call("remember", {
+        text: "The biopsy results came back clear after two weeks of waiting.",
+        feelings: ["Mike: frustrated", "self: the diagnosis scared me half to death"],
+      }),
+    );
+    expect(out["stored"]).toBe(true);
+    const dropped = out["dropped"] as Record<string, unknown>[];
+    expect(dropped.map((d) => `${String(d["field"])}:${String(d["reason"])}`)).toEqual(["feelings[0]:whose-unknown", "feelings[1]:feeling-unplaced"]);
+    const row = JSON.parse(s.counterpart.store.eventLog({ name: MCP_WRITE_EVENT, limit: 1 })[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(row["unplaced"]).toEqual(["(phrase)"]);
+    expect(JSON.stringify(row)).not.toContain("diagnosis");
+  });
+
   test("claude.ai: remove beside text deletes nothing and keeps the text (it was lost before)", async () => {
     const s = server({ host: CLAUDE_AI_HOST });
     const kept = body(await s.call("remember", { text: "Wren's bike lock code changed to 5582 last week.", kind: "fact" }));
@@ -457,6 +515,25 @@ describe("session_end: every entry lands", () => {
     expect(payload).toMatchObject({ tool: "session_end", entries: 5, stored: 5, refused: {} });
     expect(payload["dropped"]).toMatchObject({ "eventDate:event-date-unreadable": 1, "feelings:feelings-not-a-list": 1, "how:how-unknown": 1 });
     expect(JSON.stringify(payload)).not.toContain("Biscuit");
+  });
+
+  test("each optional field against junk on an entry: every entry is stored", async () => {
+    const s = server();
+    const fields = ["eventDate", "remind", "recurring", "occurredOn", "saidBy", "status", "about", "kind", "how", "title", "updates", "salience", "relevance", "emotional", "predictive", "feelings", "traits", "tags", "unresolved", "settlesWhen"];
+    const junk: unknown[] = [null, 7, -1, "", "junk words here", {}, [], [null], { nested: [1, 2] }];
+    let n = 0;
+    const memories: Record<string, unknown>[] = [];
+    for (const field of fields) {
+      for (const value of junk) {
+        n += 1;
+        memories.push({ content: `Entry fuzz ${String(n)}: the ${field} field sent ${JSON.stringify(value)} beside a real memory about the orchard.`, [field]: value });
+      }
+    }
+    const out = body(await s.call("session_end", { session: SESSION, memories }));
+    const outcomes = out["outcomes"] as Record<string, unknown>[];
+    const lost = outcomes.map((o, i) => ({ i, sent: memories[i], reason: o["reason"] })).filter((_, i) => outcomes[i]?.["stored"] !== true);
+    expect(lost).toEqual([]);
+    expect(out["deposited"]).toBe(memories.length);
   });
 
   test("the session_end log line carries per-entry refusal codes, not just a count", async () => {

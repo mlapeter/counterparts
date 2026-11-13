@@ -346,12 +346,13 @@ export async function normalizeMemoryFields(
  * beside a date that is not one day drops the repeat and keeps the date.
  */
 function readReminderFields(rec: Record<string, unknown>, today: string, notes: WriteNotes): void {
-  readEnum(rec, "remind", ["plain", "quiet"], REMIND_SYNONYMS, notes);
+  // `remind: true` is "say it on the day"; false, quiet.
   if (typeof rec["remind"] === "boolean") {
     const as = rec["remind"] ? "plain" : "quiet";
     notes.read("remind", rec["remind"], as);
     rec["remind"] = as;
   }
+  readEnum(rec, "remind", ["plain", "quiet"], REMIND_SYNONYMS, notes);
   if (rec["remind"] !== undefined && rec["remind"] !== null && rec["remind"] !== "plain" && rec["remind"] !== "quiet") {
     notes.drop("remind", "remind-unknown", rec["remind"]);
     delete rec["remind"];
@@ -411,9 +412,16 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
   let whose: string | undefined;
   const head = /^([A-Za-z]+)\s*[:：]\s*/u.exec(rest);
   if (head !== null) {
-    const w = WHOSE_SYNONYMS[(head[1] as string).toLowerCase()];
+    const said = head[1] as string;
+    const w = WHOSE_SYNONYMS[said.toLowerCase()];
     if (w !== undefined) {
       whose = w;
+      rest = rest.slice(head[0].length);
+    } else if (lookupWord(said) === undefined && placeFeelingWord(said) === null) {
+      // "Mike: frustrated" — a name where whose goes, not a feeling before its
+      // nuance: kept as sent, so the feeling is dropped as whose-unknown
+      // rather than stored as a feeling called "Mike".
+      whose = said;
       rest = rest.slice(head[0].length);
     }
   }
@@ -433,6 +441,16 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
   word = word.trim();
   if (word.length === 0) return null;
   return { whose: whose ?? "self", emotion: word, ...(carried.trim().length === 0 ? {} : { carried_by: carried.trim() }) };
+}
+
+/**
+ * What the durable row may carry of a word nothing placed: the word itself
+ * when it is one short word or two (what the thesaurus could grow by), else
+ * only that it was a phrase — a longer value can be a sentence of the memory.
+ */
+export function missedWord(word: string): string {
+  const form = feelingWordForm(word);
+  return /^[a-z][a-z'-]{0,29}(?: [a-z][a-z'-]{0,29})?$/u.test(form) && form.length <= 40 ? form : "(phrase)";
 }
 
 /** A list field sent as one item, or as the list. Undefined when it is neither. */
@@ -575,7 +593,7 @@ async function fixFeeling(f: Record<string, unknown>, at: string, ctx: Normalize
     if (isCoreEmotion(c) || (V10_CORES as readonly string[]).includes(c)) {
       if (c !== core) f["core"] = c;
     } else {
-      const placed = c.length > 0 ? placeFeelingWord(c) : null;
+      const placed = c.length > 0 && c.length <= 40 ? placeFeelingWord(c) : null;
       if (placed !== null && (placed.by === "wheel" || placed.by === "thesaurus")) {
         notes.read(`${at}.core`, core, placed.core);
         f["core"] = placed.core;
@@ -603,8 +621,7 @@ async function fixFeeling(f: Record<string, unknown>, at: string, ctx: Normalize
     notes.read(`${at}.core`, word, meant);
     return f;
   }
-  const missed = feelingWordForm(word).slice(0, 40);
-  notes.unplaced.push(missed);
+  notes.unplaced.push(missedWord(word));
   notes.drop(
     at,
     "feeling-unplaced",

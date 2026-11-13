@@ -424,6 +424,9 @@ export async function depositEntries(
  */
 export async function writeUpField(server: McpServer, args: Record<string, unknown>, extra: Record<string, unknown>): Promise<ToolResult> {
   const session = server.session as string;
+  // What the write-up's entries left out, for the durable `mcp.write` row (2026-11-13).
+  const notes: WriteNotes[] = [];
+  const written: Record<string, unknown>[] = [];
   const out = await writeUpDoor({
     counterpart: server.counterpart,
     registryDir: server["registryDir"],
@@ -431,8 +434,14 @@ export async function writeUpField(server: McpServer, args: Record<string, unkno
     session,
     now: server["nowFn"](),
     args,
-    deposit: (raw, cover, scope, writeUp) => server["depositEntries"](raw, session, cover, scope, writeUp),
+    deposit: async (raw, cover, scope, writeUp) => {
+      const done = await server["depositEntries"](raw, session, cover, scope, writeUp);
+      notes.push(...done.notes);
+      written.push(...done.outcomes);
+      return done;
+    },
   });
+  if (written.length > 0) server["noteWrite"]("session_end", server["result"]({}, false), notes, written);
   const body = out.body;
   // The ref is the ENDED session's id only when it is one this registry
   // knows: the argument is model-typed, and a word shaped like an id is
