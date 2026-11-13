@@ -292,10 +292,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the store leaves the sidecar, and the delete waits for the old Litestream child to EXIT (its last upload done);
     - the key file, the wrapped DEK, its R2 key objects (`.sealed`, and an old `.wrapped`) and the whole R2 replica prefix are deleted;
     - the tenant dir is removed;
-    - identities, sessions and links are deleted, and tombstones stay.
+    - identities, sessions and links are deleted, and tombstones stay (for 365 days: §31c).
 
-    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written, and it is never removed
-    (§31a). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
+    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written. It stays until the
+    account's tombstone rows are erased, 365 days after the erase (§31a, §31c). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
     its way out. The store turns `deleting` first, durably: start-up never gives it a new key, and a delete cut short
     (a crash, R2 down) is finished at start-up and on a timer. Both deletes ask for the typed address and a CSRF token.
 28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
@@ -424,6 +424,55 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     The restore CLI never restores a tombstoned store.
 31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
     start-up writes the configuration but starts nothing.
+31c. **Account events and a deleted account's tombstone are kept 365 days, then erased** (AR1, Mike 2026-11-10;
+    `accounts.ts#RETENTION_DAYS`, `app.ts#pruneRetention`). The finish timer runs the pass once a day. With a sidecar (its
+    upload watch), a pass that left a tombstone waiting runs again at the next tick (ten minutes); without one, the next
+    day. Only a person who is `deleted`, past 365 days, with no store that isn't `deleted` is ever selected, and
+    `Accounts#forgettable` checks that again before any bucket call for them (a wrong selection never reaches
+    `removeStore`).
+    - Audit rows older than 365 days are deleted, a live account's or a deleted one's. The one exception: a deleted
+      store's `delete.backups` / `delete.leftovers` rows (§31a's leftovers pass reads them) stay while its tombstone
+      does, and go with it.
+    - 365 days after a deleted account's erase (`people.deleted_at`), it is forgotten:
+      - first, each of its stores' `deleted/<storeId>` markers is removed from the bucket;
+      - then, in one transaction, its remaining audit rows (naming the person or any of its stores), its `stores`
+        rows and its `people` row are deleted.
+      - No audit row records this, because it would name the person again.
+      - A marker that fails to go leaves the rows that name it, for the next pass.
+    - **What the marker guards.** It guards against one thing: an accounts database from before the delete coming
+      back, with the account active and its email (a restore after the sidecar was down at the delete).
+      - Every reader of the marker acts only on a store the accounts database calls live: start-up's
+        `tombstoned()`, the restore CLI, R5's mint (d), `start-over`, and `recover-keys`' skip.
+      - A restore brings back the bucket's LATEST upload of `accounts.sqlite`, however old it is, so the marker's
+        age alone proves nothing.
+      - So it goes only while uploads are proven to be landing (`UploadWatch#rose`: the accounts replica's TXID rose
+        in this process, and isn't stale since). The bucket's latest accounts database is then this one, written a
+        year after the delete went into it.
+      - The other way back, a copy on the volume (`control.aside-*`, `*.pre-restore-*`), is deleted at the first start a day or more later
+        (§31a). An older accounts database in the bucket's own history is gone within the 24 h purge's bound
+        (DESIGN §5.4: max(snapshot interval, retention), both 12 h, plus Litestream's unmeasured lag).
+      - Until uploads are proven, the marker stays, and so do the account's rows.
+    - **What the rows guard.**
+      - Store and person ids are 128 random bits made at sign-up (`id128`), so no id is ever reused.
+      - An invite's uses are counted on the invite, so nothing reads `people.invite_id` after sign-up.
+      - The `stores` row is §31a's index of deletes that may have left something in the bucket. So the row goes
+        only once the bucket is proven to hold nothing of the store (`objectsLeft` = 0, the key objects and the
+        replica). A leftover is erased first with the delete's own `removeStore`, then checked again.
+      - Without that check, a delete made with backups off would leave a key object and a replica that nothing
+        ever looks for again, and `recover-keys` would bring that key back.
+    - **Backups off:** there is no bucket to prove anything against, so tombstones wait. Audit rows still go.
+    - **Backups:** an erased row lasts in the control database's backups at most about 24 h more (the 24 h purge's
+      bound). So while uploads land and the bucket answers, "12 months" means 365 days, plus up to a day for the
+      pass, plus about a day for the backups. While uploads are stale or R2 is down, a tombstone waits as long as
+      that lasts. With backups off (or no sidecar), a tombstone is never erased. A waiting pass writes no audit row
+      (it would name the person). It logs counts and codes only: `retention.failed code=r2|leftover|forget`, and
+      `retention.waiting n=<count>` when the count changes.
+    - `signups`' weeks count tombstones, so a week more than 365 days old loses those who later left and were
+      forgotten.
+    - **`client_use` (oauth.sqlite) isn't pruned.** It holds no person: just a client id and when someone first
+      allowed it. It is the flag that keeps a once-allowed client from the DCR sweep (§35), and the open backfills
+      it from live grants. Pruning it by age would sweep clients still in use, held back only by the
+      belt-and-braces check.
 32. **A store that lived and lost its files waits for a restore.** `stores.opened_at` (in the replicated control
     database) records the first open, and every start marks each live store whose database is present (a database
     from before the column heals). A store opened before whose DATABASE FILE is missing (a dir left behind by a

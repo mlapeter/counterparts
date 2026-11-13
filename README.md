@@ -186,4 +186,16 @@ engram, and bansai) were each used daily before the next was written.
 
 ## License and contributing
 
-MIT. Contributions are welcome; see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Counterparts is source-available under the Business Source License 1.1 from version 0.4.0
+(see [`LICENSE`](LICENSE)). In short:
+
+- **Free to use**, for anyone: personally or at work, at a company of any size, including
+  rolling it out inside your own organization.
+- **Building it into a product or service you offer others**, selling one that needs it to
+  run, or offering it as a hosted or API service, needs a commercial license:
+  hello@counterparts.ai. Free, unmonetized projects and free plugins and connectors don't.
+- **Each version becomes Apache 2.0** four years after it's released.
+- Versions released before 0.4.0 were MIT-licensed, and copies of those stay MIT.
+
+`LICENSE` is the binding text; this summary isn't. Contributions are welcome; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
