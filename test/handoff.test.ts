@@ -791,9 +791,11 @@ describe("the field on the session_end ask", () => {
   test("a malformed memories array still leaves the handoff — the two halves are not one fate", async () => {
     const s = mcp();
     // NOT an array at all: the caller sent the wrong TYPE and wants to be told.
-    // The handoff still lands, which is what "not one fate" means.
+    // The handoff still lands, which is what "not one fate" means. (Changed
+    // 2026-11-13, review of #818: a string is read as one entry now, so the
+    // wrong type here is a number.)
     const out = payload(
-      await s.call("session_end", { session: SESSION, memories: "not an array", handoff: BODY }),
+      await s.call("session_end", { session: SESSION, memories: 42, handoff: BODY }),
     );
     expect(out["reason"]).toBe("memories-required");
     expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
