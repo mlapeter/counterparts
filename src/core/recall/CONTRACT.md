@@ -426,11 +426,13 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     `STOP_COUNTS` on or off (`near-miss-logging.test.ts`). Since 2026-11-13, under the same
     switch, `loudRefusal`: which gate kept a memory's words off the turn (`by`, a stable
     code from `LOUD_GATES` in the order the gates apply, the furthest any candidate got;
-    null when one showed loud, `empty` when nothing cued reached the gate) and at most
-    `LOUD_REFUSAL_CAP` candidates that did not show loud, each with its code, activation
-    and the threshold it failed — ids and numbers only (`loudRefusal`,
-    `loud-refusal.test.ts`). The gate records that threshold on the verdict (`limit`);
-    no rule reads it.
+    null when one showed loud, `empty` when nothing cued reached the gate; `lead`, the row
+    of the candidate that got there, which may have been shown as a footnote) and at most
+    `LOUD_REFUSAL_ROWS` candidates NOT SHOWN AT ALL, closest to the gate that stopped each
+    first, each with its code, activation and the threshold it failed — ids and numbers
+    only, under `LOUD_REFUSAL_BYTES` serialized (`loudRefusal`, `loud-refusal.test.ts`).
+    Guarded on its own: a throw costs the row that key, not the stop counts. The gate
+    records that threshold on the verdict (`limit`); no rule reads it.
 16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
     vocabulary (`none`, `lagged`, `in-line`, `in-line-skipped`, `stale`, `other-model`,
     `unreadable`, and the worker's four named failures; `other-model`, 2026-09-23: a lag row

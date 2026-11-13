@@ -25,7 +25,7 @@ import { RECALL_DECISION_EVENT } from "../src/core/counterpart-events.js";
 import type { Candidate } from "../src/core/recall/activate.js";
 import { floorUnit, gate } from "../src/core/recall/gate.js";
 import type { CandidateVerdict, GateInput } from "../src/core/recall/gate.js";
-import { LOUD_GATES, LOUD_REFUSAL_CAP, loudRefusal } from "../src/core/recall/index.js";
+import { LOUD_GATES, loudRefusal } from "../src/core/recall/index.js";
 import type { LoudGate } from "../src/core/recall/index.js";
 import { freshGateState } from "../src/core/recall/session.js";
 import { TUNABLES } from "../src/core/recall/tunables.js";
@@ -68,9 +68,9 @@ function run(targets: Candidate[], extra: Partial<GateInput> = {}, t: RecallTuna
   return gate({ candidates: [...background(), ...targets], state: freshGateState("s"), storeSize: STORE, affectStated: false, turn: 1, ...extra }, t);
 }
 
-/** The code the row gives the one candidate `id`, judged alone. */
+/** The code the row gives the one candidate `id`, judged alone and not shown. */
 function codeOf(r: ReturnType<typeof gate>, id: string): ReturnType<typeof loudRefusal> {
-  return loudRefusal(r.verdicts.filter((v) => v.id === id), r.surfaced.map((c) => c.id));
+  return loudRefusal(r.verdicts.filter((v) => v.id === id), r.surfaced.map((c) => c.id), [], TUNABLES);
 }
 
 describe("each gate has its code, from the real gate", () => {
@@ -84,6 +84,8 @@ describe("each gate has its code, from the real gate", () => {
     const floor = codeOf(run([cand("t", "weak zebra", 0.5)]), "t");
     expect(floor.by).toBe("floor");
     expect(floor.top[0]).toEqual({ id: "t", gate: "floor", act: 0.5, limit: Math.round(TUNABLES.FLOOR_GLOBAL_UNITS * UNIT * 100) / 100 });
+    // `by`'s own number rides on `lead`.
+    expect(floor.lead).toEqual(floor.top[0]);
 
     const barRun = run([cand("t", "middling zebra", 12)]);
     const bar = codeOf(barRun, "t");
@@ -122,14 +124,19 @@ describe("each gate has its code, from the real gate", () => {
 
     const two = run([cand("a", "the zebra crossing on fifth street", 30), cand("b", "a giraffe at the city zoo", 29)]);
     expect(two.surfaced.map((c) => c.id)).toEqual(["a"]);
-    const out = loudRefusal(two.verdicts, ["a"]);
-    // A memory showed loud: nothing refused the tier, and the rest still listed.
+    // `b` lost the loud slot; unshown, it is `outranked`.
+    expect(codeOf(two, "b").top[0]).toEqual({ id: "b", gate: "outranked", act: 29 });
+    // A memory showed loud: nothing refused the tier, no lead; what was shown
+    // (loud or as a footnote) is not in `top`.
+    const quiet = two.footnotes.map((c) => c.id);
+    expect(quiet).toContain("b");
+    const out = loudRefusal(two.verdicts, ["a"], quiet, TUNABLES);
     expect(out.by).toBeNull();
-    expect(out.top[0]).toEqual({ id: "b", gate: "outranked", act: 29 });
-    expect(out.top.some((r) => r.id === "a")).toBe(false);
+    expect("lead" in out).toBe(false);
+    expect(out.top.some((r) => r.id === "a" || r.id === "b")).toBe(false);
 
     // The gate surfaced it; the render cut it for bytes.
-    expect(loudRefusal(two.verdicts, []).by).toBe("trimmed");
+    expect(loudRefusal(two.verdicts, [], [], TUNABLES).by).toBe("trimmed");
   });
 });
 
@@ -138,41 +145,85 @@ function verdict(id: string, v: CandidateVerdict["verdict"], activation: number,
   return { id, kind: "fact", verdict: v, activation, cue: activation, temporal: 0, semantic: 0, arrival: 0, hops: 0, cueFraction: 1, sal: 0.5, strength: 1, trains: true, bar: 5, ...extra };
 }
 
-describe("the row: furthest first, capped, small", () => {
-  test("by is the furthest gate any candidate reached; the strongest leads a tie; quiet pointers are left out", () => {
+describe("the row: by and lead from the furthest, top from the unshown, capped, small", () => {
+  test("by is the furthest gate any candidate reached, even a footnoted one, with its number on lead; quiet pointers are left out", () => {
     const vs = [
-      verdict("mem_floor_strong", "below-floor", 40, { limit: 1 }),
+      verdict("mem_floor", "below-floor", 0.5, { limit: 1 }),
       verdict("mem_bar", "below-bar", 3),
       verdict("mem_cf_a", "footnoted", 9, { loudBlockedBy: "cue-fraction", cueFraction: 0.3, limit: 0.5 }),
       verdict("mem_cf_b", "footnoted", 11, { loudBlockedBy: "cue-fraction", cueFraction: 0.4, limit: 0.5 }),
       verdict("mem_pointer", "footnoted", 50, { via: "link" }),
     ];
-    const r = loudRefusal(vs, []);
+    const r = loudRefusal(vs, [], ["mem_cf_a", "mem_cf_b", "mem_pointer"], TUNABLES);
     expect(r.by).toBe("cuefrac");
-    expect(r.top.map((x) => x.id)).toEqual(["mem_cf_b", "mem_cf_a", "mem_bar", "mem_floor_strong"]);
-    expect(r.top.map((x) => x.gate)).toEqual(["cuefrac", "cuefrac", "bar", "floor"]);
-    expect(r.top[2]).toEqual({ id: "mem_bar", gate: "bar", act: 3, limit: 5 });
+    expect(r.lead).toEqual({ id: "mem_cf_b", gate: "cuefrac", act: 11, limit: 0.5, value: 0.4 });
+    // Only the unshown, closest to their gate first: 3/5 = 0.6 of the bar, 0.5/1 of the floor.
+    expect(r.top.map((x) => x.id)).toEqual(["mem_bar", "mem_floor"]);
+    expect(r.top[0]).toEqual({ id: "mem_bar", gate: "bar", act: 3, limit: 5 });
+  });
+
+  test("the d17 shape: footnotes fill nothing in top; an unshown memory at ~0.87 of its admission bar is named", () => {
+    const vs = [
+      // Three footnotes refused the loud tier at the strong floor (the turn's best, and `by`).
+      verdict("mem_foot_1", "footnoted", 12.87, { loudBlockedBy: "below-strong-floor", limit: 23.43 }),
+      verdict("mem_foot_2", "footnoted", 12.64, { loudBlockedBy: "below-strong-floor", limit: 23.43 }),
+      verdict("mem_foot_3", "footnoted", 12.1, { loudBlockedBy: "below-strong-floor", limit: 23.43 }),
+      // Unshown, below their admission bars: stronger in activation, further from their bars.
+      verdict("mem_far_1", "below-bar", 11.2, { bar: 16.9 }),
+      verdict("mem_far_2", "below-bar", 11.1, { bar: 16.0 }),
+      verdict("mem_far_3", "below-bar", 10.9, { bar: 15.8 }),
+      verdict("mem_far_4", "below-bar", 10.5, { bar: 15.1 }),
+      verdict("mem_far_5", "below-bar", 10.2, { bar: 14.9 }),
+      verdict("mem_far_6", "below-bar", 9.9, { bar: 14.6 }),
+      // The guitarist: 9.41 against 10.86, 0.87 of its bar.
+      verdict("mem_dea85a8850b2", "below-bar", 9.41, { bar: 10.86 }),
+      verdict("mem_dark", "dark-uncued", 0),
+    ];
+    const r = loudRefusal(vs, [], ["mem_foot_1", "mem_foot_2", "mem_foot_3"], TUNABLES);
+    expect(r.by).toBe("strong");
+    expect(r.lead).toEqual({ id: "mem_foot_1", gate: "strong", act: 12.87, limit: 23.43 });
+    expect(r.top.some((x) => x.id.startsWith("mem_foot"))).toBe(false);
+    expect(r.top[0]).toEqual({ id: "mem_dea85a8850b2", gate: "bar", act: 9.41, limit: 10.86 });
+    expect(r.top.length).toBe(TUNABLES.LOUD_REFUSAL_ROWS);
+    // A gate with no threshold comes after every one with.
+    expect(r.top.some((x) => x.id === "mem_dark")).toBe(false);
   });
 
   test("no cued candidate: empty; the codes are the documented fifteen, in order", () => {
-    expect(loudRefusal([], [])).toEqual({ by: "empty", top: [] });
-    expect(loudRefusal([verdict("p", "dark-uncued", 0, { via: "link" })], [])).toEqual({ by: "empty", top: [] });
+    expect(loudRefusal([], [], [], TUNABLES)).toEqual({ by: "empty", top: [] });
+    expect(loudRefusal([verdict("p", "dark-uncued", 0, { via: "link" })], [], [], TUNABLES)).toEqual({ by: "empty", top: [] });
     expect([...LOUD_GATES]).toEqual(["dark", "dedup", "floor", "bar", "echo", "project", "temporal", "told", "cold", "cuefrac", "strong", "loudbar", "inhibited", "outranked", "trimmed"]);
   });
 
-  test(`at most ${String(LOUD_REFUSAL_CAP)} rows, two decimals, ids and numbers only, and small`, () => {
+  test(`at most ${String(TUNABLES.LOUD_REFUSAL_ROWS)} rows, two decimals, ids and numbers only`, () => {
     const many = Array.from({ length: 40 }, (_, i) =>
-      verdict(`mem_${"abcdef0123456789".slice(0, 12)}${String(i).padStart(2, "0")}`, "footnoted", 1000.123456 + i, { loudBlockedBy: "below-strong-floor", limit: 2000.987654, primed: { link: 0.3333, train: 0.1, from: ["used"] } }),
+      verdict(`mem_abcdef0123${String(i).padStart(2, "0")}`, "footnoted", 1000.123456 + i, { loudBlockedBy: "below-strong-floor", limit: 2000.987654, primed: { link: 0.3333, train: 0.1, from: ["used"] } }),
     );
-    const r = loudRefusal(many, []);
-    expect(r.top.length).toBe(LOUD_REFUSAL_CAP);
-    for (const row of r.top) {
+    const r = loudRefusal(many, [], [], TUNABLES);
+    expect(r.top.length).toBe(TUNABLES.LOUD_REFUSAL_ROWS);
+    for (const row of [...r.top, r.lead]) {
+      if (row === undefined) throw new Error("no lead");
       expect(Object.keys(row).every((k) => ["id", "gate", "act", "limit", "value"].includes(k))).toBe(true);
       for (const n of [row.act, row.limit, row.value]) if (n !== undefined) expect(Math.round(n * 100) / 100).toBe(n);
       // The strong floor compares activation less priming: that is `value`.
       expect(row.value).toBe(Math.round((row.act - 0.4333) * 100) / 100);
     }
-    expect(JSON.stringify(r).length).toBeLessThan(600);
+    expect(new TextEncoder().encode(JSON.stringify(r)).length).toBeLessThan(TUNABLES.LOUD_REFUSAL_BYTES);
+  });
+
+  test("the byte cap is enforced: long ids drop rows from the end of top until the field is under it", () => {
+    const long = (i: number): string => `mem_${"x".repeat(90)}${String(i).padStart(2, "0")}`;
+    const many = Array.from({ length: 12 }, (_, i) => verdict(long(i), "below-bar", 9 - i * 0.1, { bar: 10 }));
+    const r = loudRefusal(many, [], [], TUNABLES);
+    const bytes = new TextEncoder().encode(JSON.stringify(r)).length;
+    expect(bytes).toBeLessThan(TUNABLES.LOUD_REFUSAL_BYTES);
+    expect(r.top.length).toBeGreaterThan(0);
+    expect(r.top.length).toBeLessThan(TUNABLES.LOUD_REFUSAL_ROWS);
+    // What is kept is the head of the ranking, in order.
+    expect(r.top.map((x) => x.id)).toEqual(many.slice(0, r.top.length).map((v) => v.id));
+    // One more row would have been at or past the cap.
+    const withOne = { ...r, top: [...r.top, { id: long(99), gate: "bar" as const, act: 8.88, limit: 10 }] };
+    expect(new TextEncoder().encode(JSON.stringify(withOne)).length).toBeGreaterThanOrEqual(TUNABLES.LOUD_REFUSAL_BYTES);
   });
 });
 
@@ -195,7 +246,7 @@ describe("through the real hook, on a temp store", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("a one-memory store: the row names cold start as the gate that refused, and the memory under it", () => {
+  test("a one-memory store: the row names cold start as the gate that refused, with the memory that reached it as its lead", () => {
     const dir = join(root, "store");
     const a = openAdapter({ dataDir: dir, injectionBudgetBytes: 9_000, timeZone: "America/Denver" }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null });
     closers.push(a.counterpart);
@@ -210,9 +261,11 @@ describe("through the real hook, on a temp store", () => {
     expect(out.footnotes).toContain(id);
     const rows = a.counterpart.store.eventLog({ name: RECALL_DECISION_EVENT, order: "asc" }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
     expect(rows.length).toBe(1);
-    const refusal = rows[0]?.["loudRefusal"] as { by: LoudGate; top: { id: string; gate: LoudGate }[] };
+    const refusal = rows[0]?.["loudRefusal"] as { by: LoudGate; lead?: { id: string; gate: LoudGate }; top: { id: string; gate: LoudGate }[] };
     expect(refusal.by).toBe("cold");
-    expect(refusal.top[0]).toMatchObject({ id, gate: "cold" });
+    // The memory was shown, as a footnote: it is the lead, and not in `top` (the unshown).
+    expect(refusal.lead).toMatchObject({ id, gate: "cold" });
+    expect(refusal.top.some((r) => r.id === id)).toBe(false);
     // Ids and numbers only: no word of the memory or the prompt.
     const text = JSON.stringify(refusal);
     for (const word of ["guitarist", "twelve", "zebra"]) expect(text).not.toContain(word);

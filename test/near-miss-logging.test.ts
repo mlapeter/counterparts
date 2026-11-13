@@ -321,8 +321,43 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
     expect(shown).toBeGreaterThan(0);
     const dOn = rows(on, RECALL_DECISION_EVENT);
     expect(dOn.length).toBe(PROMPTS.length + 1);
-    for (const r of dOn) for (const k of NEW_KEYS) expect(k in r).toBe(false);
+    // The five counts are gone; `loudRefusal` is guarded on its own (2026-11-13) and stays.
+    for (const r of dOn) {
+      for (const k of NEW_KEYS) expect(k in r).toBe(k === "loudRefusal");
+    }
     expect(rows(on, RECALL_DELIVERED_EVENT).some((r) => "nearMissCount" in r)).toBe(false);
+  });
+
+  test("loudRefusal that throws costs the row that one key: the stop counts stay, and the turn's recall is untouched", () => {
+    const { on, off } = twins();
+    // Its first read throws, on the quiet path and the full one alike.
+    Object.defineProperty(on.counterpart.recall.tunables, "LOUD_REFUSAL_ROWS", {
+      get() {
+        throw new Error("boom");
+      },
+    });
+    let shown = 0;
+    for (const text of [...PROMPTS, "what time does the tram to the airport leave"]) {
+      const a = turn(on, "s-9", text);
+      const b = turn(off, "s-9", text);
+      expect(a.out.ok).toBe(true);
+      expect(a.stdout).toBe(b.stdout);
+      expect(a.out.surfaced).toEqual(b.out.surfaced);
+      expect(a.out.footnotes).toEqual(b.out.footnotes);
+      shown += a.out.surfaced.length + a.out.footnotes.length;
+    }
+    expect(shown).toBeGreaterThan(0);
+    const dOn = rows(on, RECALL_DECISION_EVENT);
+    const dOff = rows(off, RECALL_DECISION_EVENT);
+    expect(dOn.length).toBe(PROMPTS.length + 1);
+    for (let i = 0; i < dOn.length; i++) {
+      const r = dOn[i] as Record<string, unknown>;
+      expect("loudRefusal" in r).toBe(false);
+      for (const k of NEW_KEYS.filter((k) => k !== "loudRefusal")) expect(k in r).toBe(true);
+      expect("loudRefusal" in (dOff[i] as Record<string, unknown>)).toBe(true);
+      expect(without(r, ["elapsedMs", "steps"])).toEqual(without(dOff[i] as Record<string, unknown>, ["loudRefusal", "elapsedMs", "steps"]));
+    }
+    expect(rows(on, RECALL_DELIVERED_EVENT).every((r) => "nearMissCount" in r)).toBe(true);
   });
 
   test("a quiet turn counts nothing stopped, and still carries the margin", () => {

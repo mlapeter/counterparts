@@ -64,9 +64,6 @@ export const MOOD_MATCHED_IDS_CAP = 64;
 /** How many near misses a decision row names (`stopCounts`, F1, 2026-10-30); `nearMiss.count` is the whole of them. */
 export const NEAR_MISS_IDS_CAP = 3;
 
-/** How many candidates a decision row names under `loudRefusal.top` (2026-11-13). */
-export const LOUD_REFUSAL_CAP = 5;
-
 /**
  * WHICH GATE KEPT A MEMORY'S WORDS OFF THE TURN (2026-11-13, observation only):
  * a stable short code per gate, in the order the gate applies them
@@ -121,13 +118,24 @@ export interface LoudRejected {
   readonly value?: number;
 }
 
-/** `by`: the gate that refused the loud tier this turn — the furthest any
- *  candidate got (`LOUD_GATES` order), the strongest on a tie; null when a
- *  memory showed loud; `empty` when no cued candidate reached the gate.
- *  `top`: the candidates that did not show loud, furthest first, at most
- *  `LOUD_REFUSAL_CAP`. */
+/**
+ * `by`: the gate that refused the loud tier this turn — the furthest any
+ * candidate got (`LOUD_GATES` order), the strongest on a tie; null when a
+ * memory showed loud; `empty` when no cued candidate reached the gate. The
+ * candidate that set it may well have been shown as a footnote: `by` names
+ * how far the turn's best got, not why a memory went unshown.
+ * `lead`: that candidate's row, so `by`'s number is on the row (absent when
+ * `by` is null or `empty`).
+ * `top`: candidates NOT SHOWN AT ALL — neither loud nor a footnote (those
+ * are on the row already, under `surfaced` and `footnotes`) — closest to the
+ * gate that stopped each first: `value` (or `act`) over `limit` where the
+ * gate has a threshold, then the gates without one, furthest stage first and
+ * strongest within it. At most `LOUD_REFUSAL_ROWS`, and rows are dropped from
+ * the end until the field is under `LOUD_REFUSAL_BYTES` serialized.
+ */
 export interface LoudRefusal {
   readonly by: LoudGate | "empty" | null;
+  readonly lead?: LoudRejected;
   readonly top: readonly LoudRejected[];
 }
 
@@ -776,6 +784,7 @@ export class Recall {
         projectSkipped: 0,
         crossProjectLifted: 0,
         ...this.stops(turn.sessionId, () => NO_STOPS(this.tunables)),
+        ...this.refusal(turn.sessionId, () => loudRefusal([], [], [], this.tunables)),
         primed: plan === null ? null : { ...NO_PRIME, sources: plan.sources, train: plan.activation.train !== null },
         beliefs: null,
         spread: null,
@@ -1074,7 +1083,8 @@ export class Recall {
       crossProjectLifted: alongIds.size === 0 ? gated.crossLifted.length : gated.crossLifted.filter((id) => !alongIds.has(id)).length,
       // The gate's own verdicts, not the see-also copies: which loud check
       // stopped a memory is the gate's to say (2026-11-13).
-      ...this.stops(turn.sessionId, () => ({ ...stopCounts(verdicts, gated.crossLifted, rendered.trimmed, this.tunables), loudRefusal: loudRefusal(gated.verdicts, rendered.surfaced) })),
+      ...this.stops(turn.sessionId, () => stopCounts(verdicts, gated.crossLifted, rendered.trimmed, this.tunables)),
+      ...this.refusal(turn.sessionId, () => loudRefusal(gated.verdicts, rendered.surfaced, rendered.footnotes, this.tunables)),
       ...(competing === null ? {} : { pairsCompeted: gated.competed.length }),
       primed,
       beliefs: beliefPicks === null ? null : { offered: beliefPicks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
@@ -1614,6 +1624,22 @@ export class Recall {
     }
   }
 
+  /**
+   * `loudRefusal` for the decision row, or none: switched off with the stop
+   * counts (`STOP_COUNTS`), or a read that threw. Guarded on its own, so a
+   * throw here costs the row this one key — never the stop counts beside it,
+   * and never the turn its recall.
+   */
+  private refusal(sessionId: string, make: () => LoudRefusal): { loudRefusal?: LoudRefusal } {
+    if (!this.tunables.STOP_COUNTS) return {};
+    try {
+      return { loudRefusal: make() };
+    } catch (err) {
+      this.emit("recall.loudrefusal.failed", sessionId, { code: err instanceof Error ? err.name : "unknown" });
+      return {};
+    }
+  }
+
   private readonly ring: RecallEvent[] = [];
 
   private emit(
@@ -1794,11 +1820,11 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
 }
 
 /** What stopped a memory this turn (N1, 2026-10-25): the counts `RecallDecision` carries. */
-export type StopCounts = Pick<RecallDecision, "habituationCut" | "nearMiss" | "capped" | "budgetTrimmed" | "inhibited" | "loudRefusal">;
+export type StopCounts = Pick<RecallDecision, "habituationCut" | "nearMiss" | "capped" | "budgetTrimmed" | "inhibited">;
 
 /** A quiet turn's: nothing reached the gate, so nothing was stopped there. */
 function NO_STOPS(t: RecallTunables): StopCounts {
-  return { habituationCut: 0, nearMiss: { margin: t.NEAR_MISS_MARGIN, count: 0 }, capped: 0, budgetTrimmed: 0, inhibited: 0, loudRefusal: { by: "empty", top: [] } };
+  return { habituationCut: 0, nearMiss: { margin: t.NEAR_MISS_MARGIN, count: 0 }, capped: 0, budgetTrimmed: 0, inhibited: 0 };
 }
 
 /** A gate's own verdict, or the loud check it named, as its `LOUD_GATES` code. */
@@ -1817,22 +1843,32 @@ const VERDICT_GATE: Partial<Record<Verdict, LoudGate>> = {
 };
 
 /**
- * WHY NO MEMORY'S WORDS SHOWED, OR WHAT ELSE DIDN'T (2026-11-13, observation
+ * WHY NO MEMORY'S WORDS SHOWED, AND WHAT WENT UNSHOWN (2026-11-13, observation
  * only; the Wren findings' P3). Read after the turn is decided from the gate's
- * verdicts and the ids the render showed loud: no store read, no judgement,
- * nothing here is compared against by any rule. Quiet pointers (`via: "link"`)
- * are left out: they never compete for the loud tier.
+ * own verdicts and the ids the render showed, loud and quiet: no store read,
+ * no judgement, nothing here is compared against by any rule. Quiet pointers
+ * (`via: "link"`) are left out: they never compete for the loud tier.
  *
  * A candidate's code: its verdict's gate; for one admitted quiet, the loud
  * check that stopped it (`loudBlockedBy`, the loud bar as `loudbar`); for one
  * the gate surfaced, `trimmed` when the render cut it; for one admitted
  * loud-eligible and not surfaced (footnoted or capped with no loud check
- * named), `outranked`; inhibited with no loud check named, `inhibited`.
+ * named), `outranked`; inhibited with no loud check named, `inhibited`. A
+ * footnote the render cut for bytes is unshown, and keeps the loud code.
  */
-export function loudRefusal(verdicts: readonly CandidateVerdict[], shownLoud: readonly string[]): LoudRefusal {
+export function loudRefusal(
+  verdicts: readonly CandidateVerdict[],
+  shownLoud: readonly string[],
+  shownQuiet: readonly string[],
+  t: Pick<RecallTunables, "LOUD_REFUSAL_ROWS" | "LOUD_REFUSAL_BYTES">,
+): LoudRefusal {
+  const rowsCap = t.LOUD_REFUSAL_ROWS;
+  const bytesCap = t.LOUD_REFUSAL_BYTES;
   const two = (x: number): number => Math.round(x * 100) / 100;
   const loud = new Set(shownLoud);
-  const rows: { row: LoudRejected; stage: number; act: number }[] = [];
+  const quiet = new Set(shownQuiet);
+  type Row = { row: LoudRejected; stage: number; act: number; near: number | null; shown: boolean };
+  const rows: Row[] = [];
   for (const v of verdicts) {
     if (v.via === "link" || loud.has(v.id)) continue;
     let gate: LoudGate | undefined;
@@ -1853,12 +1889,20 @@ export function loudRefusal(verdicts: readonly CandidateVerdict[], shownLoud: re
       ...(limit === undefined ? {} : { limit: two(limit) }),
       ...(limit === undefined || two(compared) === two(v.activation) ? {} : { value: two(compared) }),
     };
-    rows.push({ row, stage: LOUD_GATES.indexOf(gate), act: v.activation });
+    rows.push({ row, stage: LOUD_GATES.indexOf(gate), act: v.activation, near: limit !== undefined && limit > 0 ? compared / limit : null, shown: quiet.has(v.id) });
   }
-  rows.sort((a, b) => b.stage - a.stage || b.act - a.act || (a.row.id < b.row.id ? -1 : 1));
-  const top = rows.slice(0, LOUD_REFUSAL_CAP).map((r) => r.row);
-  const by: LoudRefusal["by"] = shownLoud.length > 0 ? null : (top[0]?.gate ?? "empty");
-  return { by, top };
+  const furthest = (a: Row, b: Row): number => b.stage - a.stage || b.act - a.act || (a.row.id < b.row.id ? -1 : 1);
+  const lead = [...rows].sort(furthest)[0];
+  const by: LoudRefusal["by"] = shownLoud.length > 0 ? null : (lead?.row.gate ?? "empty");
+  // Closest to its gate first; the gates with no threshold after, furthest first.
+  const unshown = rows
+    .filter((r) => !r.shown)
+    .sort((a, b) => (a.near === null ? 1 : 0) - (b.near === null ? 1 : 0) || (a.near !== null && b.near !== null ? b.near - a.near : 0) || furthest(a, b));
+  const top = unshown.slice(0, Math.max(0, rowsCap)).map((r) => r.row);
+  const out = (): LoudRefusal => ({ by, ...(by === null || lead === undefined ? {} : { lead: lead.row }), top });
+  const size = (x: LoudRefusal): number => new TextEncoder().encode(JSON.stringify(x)).length;
+  while (top.length > 0 && size(out()) >= bytesCap) top.pop();
+  return out();
 }
 
 /**

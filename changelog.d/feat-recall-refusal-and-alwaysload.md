@@ -4,5 +4,6 @@
   Code's limit for tools loaded this way. Claude Desktop and claude.ai are unchanged.
 - **Each turn's recall record says which check kept a memory's words from showing.** The
   `recall.decision` row now names the check that kept a memory's words off the turn (the strong
-  floor, the cue fraction, the bar and so on), with up to five memories that did not show in full and
-  the threshold each one missed. It holds ids and numbers only. What recall shows is unchanged.
+  floor, the cue fraction, the bar and so on), with up to five memories that did not show at all,
+  closest to the threshold each one missed first. It holds ids and numbers only. What recall shows
+  is unchanged.

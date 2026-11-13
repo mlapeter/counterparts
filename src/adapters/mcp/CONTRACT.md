@@ -210,9 +210,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
    **`recall` loads up front on Claude Code (2026-11-13).** Claude Code defers MCP tools behind
    its tool search unless a `tools/list` entry carries `"_meta": {"anthropic/alwaysLoad":
    true}`, and cuts an up-front tool's description at 4,096 characters (its docs, MCP page,
-   "Scale with MCP tool search"). `ToolSpec.alwaysLoad` marks `recall`; `toolDefinitions`
-   emits the key on Claude Code's list (`TOOLS`) only, since the key is Claude Code's and
-   Desktop's and claude.ai's copies spread the same spec. Its served claims were tightened
+   "Scale with MCP tool search"; 4,096 from 2.1.296, read in the 2.1.323 binary, and 2,048
+   before). `ToolSpec.alwaysLoad` marks `recall`; `toolDefinitions` emits the key for a
+   Claude Code client only (`servesAlwaysLoad`, by host: not Desktop, not claude.ai), since
+   the key is Claude Code's and Desktop's and claude.ai's copies spread the same spec. Its served claims were tightened
    to fit (4,606 → 3,846 characters), the journal claim moved to the engine rows, and
    `test/description-cut.test.ts` holds every flagged tool at 4,096 or under and the key on
    `recall` alone, over the server's own `tools/list`.

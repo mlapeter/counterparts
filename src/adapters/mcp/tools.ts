@@ -189,11 +189,13 @@ export interface ToolSpec {
    * LOADED UP FRONT ON CLAUDE CODE (2026-11-13). Claude Code defers MCP tools
    * behind its tool search unless a tool's `tools/list` entry carries
    * `"_meta": {"anthropic/alwaysLoad": true}` (its docs, MCP page, "Scale with
-   * MCP tool search"); an up-front tool's description is cut at 4,096
-   * characters, so a flagged tool's rendered description stays under that
-   * (`test/description-cut.test.ts`). Emitted only on Claude Code's list
-   * (`toolDefinitions`): the key is Claude Code's, and Desktop's and
-   * claude.ai's copies of a tool are not flagged. `recall` only.
+   * MCP tool search"; a server's config `alwaysLoad: false` overrides it); from
+   * 2.1.296 an up-front tool's description is cut at 4,096 characters (2,048
+   * before), so a flagged tool's rendered description stays under 4,096
+   * (`test/description-cut.test.ts`). Emitted only for a Claude Code client
+   * (`toolDefinitions`, `servesAlwaysLoad`): the key is Claude Code's, and
+   * Desktop's and claude.ai's copies of a tool are not flagged (Desktop's
+   * Code-tab sessions are a possible follow-up, unmeasured). `recall` only.
    */
   readonly alwaysLoad?: true;
 }
@@ -2998,10 +3000,11 @@ export function toolSpec(name: string, desktop: boolean | string = false): ToolS
  * registry entry, which means naming the code that enforces it.
  *
  * The order is what a model reads when a host serves only the start (2026-10-09).
- * Claude Code keeps the first 2,048 characters of a tool description when the
- * tool is loaded up front — tool search off, a custom base URL or proxy, a model
- * without tool search — and the whole of it (to 16,384) only through tool
- * search; the field descriptions in the schema are served whole either way. So
+ * Claude Code keeps the first 4,096 characters of a tool description (2,048
+ * before 2.1.296) when the tool is loaded up front — tool search off, a custom
+ * base URL or proxy, a model without tool search, an always-loaded tool — and
+ * the whole of it (to 16,384) only through tool search; the field descriptions
+ * in the schema are served whole either way. So
  * the summary, the admission test and every negative example come before the
  * list, and each list leads with the claims that say how to call the tool
  * (`test/description-cut.test.ts` holds both).
@@ -3016,19 +3019,30 @@ export function renderDescription(spec: ToolSpec): string {
   return lines.join("\n");
 }
 
+/**
+ * WHO IS SENT `_meta["anthropic/alwaysLoad"]` (2026-11-13): the hosts that are
+ * not Desktop and not claude.ai — Claude Code, and any other host, which
+ * `toolListFor` serves Claude Code's list. Decided by the HOST, not by which
+ * list object came back, so a list derived from `TOOLS` later cannot drop the
+ * flag silently; Desktop's and claude.ai's copies spread the same spec, and
+ * the key is not theirs.
+ */
+export function servesAlwaysLoad(host: boolean | string): boolean {
+  return !(host === true || host === DESKTOP_HOST || host === CLAUDE_AI_HOST);
+}
+
 /** The `tools/list` payload. Shape is MCP's; content is the registry's. A
  *  Claude Desktop client (`desktop`) is offered `wake` too, last. A tool
- *  flagged `alwaysLoad` carries Claude Code's `_meta` key on Claude Code's
- *  list (`TOOLS`) only: Desktop's and claude.ai's copies spread the same spec,
- *  and the key is not theirs. */
+ *  flagged `alwaysLoad` carries Claude Code's `_meta` key only where
+ *  `servesAlwaysLoad` says. */
 export function toolDefinitions(desktop: boolean | string = false): Record<string, unknown>[] {
-  const list = toolListFor(desktop);
-  return list.map((spec) => ({
+  const alwaysLoad = servesAlwaysLoad(desktop);
+  return toolListFor(desktop).map((spec) => ({
     name: spec.name,
     title: spec.annotations.title,
     description: renderDescription(spec),
     inputSchema: spec.inputSchema,
     annotations: spec.annotations,
-    ...(spec.alwaysLoad === true && list === TOOLS ? { _meta: { [ALWAYS_LOAD_META_KEY]: true } } : {}),
+    ...(spec.alwaysLoad === true && alwaysLoad ? { _meta: { [ALWAYS_LOAD_META_KEY]: true } } : {}),
   }));
 }
