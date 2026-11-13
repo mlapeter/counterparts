@@ -351,8 +351,8 @@ export const STORY_PROPERTY = {
  */
 const FEELINGS_PROPERTY = {
   type: "array",
-  items: { type: "string" },
-  description: "One per feeling: \"self: relieved — what carried it\" (or owner:). One feeling word, then what carried it.",
+  items: { type: ["string", "object"] },
+  description: "One per feeling: \"self: relieved — what carried it\" (or owner:). One feeling word, then what carried it; an unusual word takes its core in parentheses: \"word (calm) — …\".",
 } as const;
 
 /**
@@ -362,7 +362,7 @@ const FEELINGS_PROPERTY = {
  */
 const FEELINGS_NOW_PROPERTY = {
   type: "array",
-  items: { type: "string" },
+  items: { type: ["string", "object"] },
   description: "When a memory shown here feels different now: \"<id>: word — what changed\".",
 } as const;
 
@@ -375,7 +375,7 @@ const FEELINGS_NOW_PROPERTY = {
  */
 const TRAITS_PROPERTY = {
   type: "array",
-  items: { type: "string" },
+  items: { type: ["string", "object"] },
   description:
     "Rare: how you acted, as \"pole — what showed it\": careful/bold, agreeable/candid, guarded/open, focused/curious, following/initiating, inward/outward, serious/playful.",
 } as const;
@@ -486,7 +486,7 @@ const HOW_PROPERTY = {
 
 /** The id a memory revises, said once for both write tools. */
 const UPDATES_TEXT =
-  "Id of a memory this revises. To close a done one: its id with `eventDate: null` or `unresolved: false`; a repeating reminder done this once: status \"done\", no eventDate.";
+  "Id of a memory this revises. To close a done one: its id with `eventDate: null` or `unresolved: false`, and a line saying it is done; a repeating reminder done this once: status \"done\", no eventDate.";
 
 /** Settling two memories that already exist, on `remember` (2026-09-29). */
 const SETTLE_PROPERTY = {
@@ -639,7 +639,7 @@ const REMEMBER: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      text: { type: "string", description: "What to remember, in your own words; lists, numbers and quotes word for word." },
+      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
       title: { type: "string", description: "One line naming it; recall opens it by exact title." },
       about: ABOUT_PROPERTY,
       kind: KIND_PROPERTY,
@@ -1029,7 +1029,7 @@ const SESSION_END: ToolSpec = {
         items: {
           type: "object",
           properties: {
-            content: { type: "string", description: "The memory, in your own words; lists, numbers and quotes word for word." },
+            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
             title: { type: "string" },
             about: { ...ABOUT_PROPERTY, description: "Mark anything personal owner or us so it reaches every folder." },
             kind: KIND_PROPERTY,
@@ -1308,11 +1308,11 @@ const SELF_PAGE: ToolSpec = {
     type: "object",
     properties: {
       body: { type: "string", description: `The whole page, first person. Aim under ${String(PAGE_ROOM_BYTES)} bytes. Omit to read.` },
-      short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)} bytes.` },
+      short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)} bytes. Sent alone (no body, with ifVersion), it adds one to the page as it stands.` },
       reason: { type: "string", description: "What changed and why, one line." },
       ifVersion: { type: "integer", minimum: -1, description: "The version your read gave (-1: no page)." },
       session: { type: "string", description: "Only when day's end asks, the id it named." },
-      cites: { type: "array", items: { type: "string" } },
+      cites: { type: "array", items: { type: "string" }, description: "With body: ids of the memories the page rests on." },
       claims: { type: "array" },
       setDown: { type: "array" },
       summary: { type: "string" },
@@ -1657,6 +1657,8 @@ function chatAnnotations(a: ToolAnnotations): ToolAnnotations {
 function withDesktopSession(spec: ToolSpec): ToolSpec {
   const schema = spec.inputSchema as { properties?: Record<string, unknown> };
   const properties = schema.properties ?? {};
+  // `session_end`'s and `chapter`'s "the id the ask named" (review of #822): on Desktop the id is wake's.
+  if (properties["session"] === ASK_SESSION_PROPERTY) return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...properties, session: DESKTOP_SESSION_PROPERTY } } };
   if ("session" in properties) return spec;
   return { ...spec, annotations: chatAnnotations(spec.annotations), inputSchema: { ...spec.inputSchema, properties: { ...properties, session: DESKTOP_SESSION_PROPERTY } } };
 }

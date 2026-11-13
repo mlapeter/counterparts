@@ -91,8 +91,8 @@ describe("the vocabulary: seven axes, each between two good things", () => {
   // Trim PR 2 (owner choice 1): traits are short strings, "pole — what showed it", on `remember` only;
   // the field names every axis as its two poles, and the reflection's `begin` names the axes (its own test).
   test("remember's traits field names the same seven axes, as their fourteen poles, as the store", () => {
-    const note = TOOLS.find((t) => t.name === "remember")?.inputSchema as { properties: { traits: { description: string; items: { type: string } } } };
-    expect(note.properties.traits.items.type).toBe("string");
+    const note = TOOLS.find((t) => t.name === "remember")?.inputSchema as { properties: { traits: { description: string; items: { type: unknown } } } };
+    expect(note.properties.traits.items.type).toEqual(["string", "object"]);
     for (const a of TRAIT_AXES) expect(note.properties.traits.description).toContain(a.poles.join("/"));
     expect(note.properties.traits.description).toContain("Rare");
     const entry = (TOOLS.find((t) => t.name === "session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, unknown> } } } }).properties.memories.items.properties;

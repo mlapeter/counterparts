@@ -38,6 +38,10 @@ import {
 import type { FeelingsRead, ReminderRead, AboutRead, TraitsRead, FactsRead, TagsRead } from "./server-args.js";
 import type { McpServer } from "./server.js";
 
+/** What a wordless entry is told (review of #822): every entry needs its words, a close too. */
+export const ENTRY_CONTENT_REQUIRED =
+  "Every entry needs `content` (or `text`): the memory in words. To close one that is done, send `updates` with its id, `unresolved: false` or `eventDate: null`, and a line saying it is done.";
+
 /**
  * `session_end` — the MEMORIES half of the Stop ask's return channel.
  *
@@ -400,6 +404,9 @@ export async function depositEntries(
       ...(result.gate === null ? {} : { gate: result.gate }),
       ...(malformed === null ? {} : { malformed }),
       ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
+      // Review of #822: an entry with no words (often a close — `{updates, unresolved: false}`
+      // alone) is refused; say what to send rather than leave the author to guess.
+      ...(malformed === "CONTENT_MISSING" || malformed === "CONTENT_EMPTY" ? { detail: ENTRY_CONTENT_REQUIRED } : {}),
       ...server["recordFeelings"](result, feelings.inputs, model),
       ...server["recordAbout"](result, about.mark),
       ...server["recordTraits"](result, traits.inputs, model),

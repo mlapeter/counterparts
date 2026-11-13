@@ -314,7 +314,7 @@ describe("dream: refusals that protected nothing on the keep list became notes",
     for (const name of ["remember", "session_end"]) {
       const spec = TOOLS.find((t) => t.name === name)!.inputSchema as { properties: Record<string, { description?: string; items?: { properties: Record<string, { description?: string }> } }> };
       const feelings = name === "remember" ? spec.properties["feelings"] : spec.properties["memories"]?.items?.properties["feelings"];
-      expect(feelings?.description).toContain("One feeling word, then what carried it.");
+      expect(feelings?.description).toContain("One feeling word, then what carried it");
     }
   });
 

@@ -462,7 +462,7 @@ describe("4. the tool words for chat", () => {
     // the old feeling object's fields (feelings are strings; the object form is still read).
     const entry = (by["session_end"]?.inputSchema as { properties: { memories: { items: { properties: Record<string, unknown> } } } }).properties.memories.items.properties;
     expect(entry["traits"]).toBeUndefined();
-    expect((entry["feelings"] as { items: { type: string } }).items.type).toBe("string");
+    expect((entry["feelings"] as { items: { type: unknown } }).items.type).toEqual(["string", "object"]);
     expect(texts.some(([p]) => p === "remember.traits")).toBe(true);
 
     // The size, loosely: 92,335 B before TT1 (on 0.3.47's words), 65,044 B after, 67,293 B on 0.3.54's,
@@ -512,6 +512,12 @@ describe("4. the tool words for chat", () => {
     const stale = await tool(http.url, "remember", { session, remove: { id } });
     expect(stale.structured["reason"]).toBe("remove-moved");
     expect(String(stale.structured["detail"])).toContain("delete_memory");
+    // Review of #822: the refusal that says which fields stand in for text names no `remove` here.
+    const wordless = await tool(http.url, "remember", { session, updates: id, unresolved: false });
+    expect(wordless.structured["reason"]).toBe("text-required");
+    expect(String(wordless.structured["detail"])).toContain("`settle`, `feelingsNow`, `remark` or `core` alone");
+    expect(String(wordless.structured["detail"])).not.toContain("`remove`");
+    expect(String(wordless.structured["detail"])).toContain("a line in `text` saying it is done");
     const held = (await tool(http.url, "delete_memory", { session, id })).structured;
     expect(held["ok"]).toBe(true);
     expect(held["reason"]).toBe("held");

@@ -439,6 +439,12 @@ describe("the Code-tab wake line, and the descriptions", () => {
     const session = ((note["inputSchema"] as { properties: Record<string, { description: string }> }).properties["session"]);
     expect(session?.description).toContain("in Desktop's Code tab, your session's id");
     expect(DESKTOP_INSTRUCTIONS).toContain("pass your own session id, the one your wake or Stop ask names");
+    // Review of #822: session_end's and chapter's "the id the ask named" is wake's id on Desktop.
+    for (const name of ["session_end", "chapter"]) {
+      const def = toolDefinitions(true).find((d) => d["name"] === name) as Record<string, unknown>;
+      const own = (def["inputSchema"] as { properties: Record<string, { description: string }> }).properties["session"];
+      expect(own?.description).toBe(session?.description);
+    }
   });
 });
 

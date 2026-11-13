@@ -1986,7 +1986,7 @@ export class McpServer {
     if (typeof text !== "string" || text.trim().length === 0) {
       // What the field's text said until trim PR 2 ("Required unless …"), said where it is needed.
       return this.refuse("remember", "text-required", {
-        detail: `Send \`text\`: what to remember, in your own words. Without text, send one of \`settle\`, \`feelingsNow\`, \`remark\`${this.host === CLAUDE_AI_HOST ? " or `core`" : ", `core` or `remove`"} alone.`,
+        detail: `Send \`text\`: what to remember, in your own words. Without text, send one of \`settle\`, \`feelingsNow\`, \`remark\`${this.host === CLAUDE_AI_HOST ? " or `core`" : ", `core` or `remove`"} alone. To close one that is done: \`updates\` with its id, \`unresolved: false\` or \`eventDate: null\`, and a line in \`text\` saying it is done.`,
       });
     }
     // The cleaning already read these (`server-args.ts#normalizeMemoryFields`); what is still

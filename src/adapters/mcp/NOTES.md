@@ -2286,3 +2286,14 @@ folders. `CLAUDE_AI_WORDS` keeps the chat's summaries where the base names an as
 never makes; `status` keeps "Memory status" first for tool search.
 
 **No new files.** The plugin bundle's margins (core 492 of 490) are unchanged by this PR.
+
+**Review of #822 (fix round).** A close sent with no words (`{updates, unresolved: false}`
+alone) is refused on both tools, so the words say it: `text` and the entry's `content` open
+"Required", `updates` asks for "a line saying it is done", and both refusals say what to send
+(`text-required`'s detail; a wordless entry's new `ENTRY_CONTENT_REQUIRED` detail). The entry
+still publishes no `required`, since `text` alone is read. A feeling string may name its core in
+parentheses ("flibbertigibbet (calm) — the rain", `server-args.ts#CORE_IN_PARENS`), and the note
+for an unplaced word says exactly that shape. `feelings`, `feelingsNow` and `traits` items are
+`["string", "object"]`, so a validating client still takes the object forms. self_page's `short`
+says it can go alone, and `cites` says what it is for. Desktop's `session_end` and `chapter`
+take wake's `session` words. The manual's folder clause on `about` is marked `[local]`.
