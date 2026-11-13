@@ -81,6 +81,8 @@ import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
 import { calendarOverlaps, daysBetween, isDay, isRecurrence, localDate, occurrenceOnOrAfter, readableRecurrence } from "../../core/time.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
 import { TOLD_SOURCE, isTold } from "../../core/told.js";
+import { readerNoteLine } from "../../core/reader-note.js";
+import { CODEX_HOST, CODEX_HOST_NAME } from "../hosts.js";
 
 // ── the numbers (working defaults, 2026-10-03; tune at the revisit) ──────────
 
@@ -143,6 +145,8 @@ export type MeaningLens =
 export interface MeaningMoment {
   readonly id: string;
   readonly title: string;
+  /** A reader host's own note, labelled (CX2, `core/reader-note.ts`): absent on an ordinary memory. */
+  readonly reader?: string;
   /** `YYYY-MM-DD`, local, when it was written. */
   readonly date: string;
   /**
@@ -1296,7 +1300,7 @@ export function renderMeaning(r: MeaningResult): string {
         const sides = [mine.length > 0 ? `${r.whose.self}: ${mine}` : null, theirs.length > 0 ? `${r.whose.owner}: ${theirs}` : null].filter((x) => x !== null);
         out.push(`  feelings — ${sides.join(" | ")}`);
       }
-      for (const m of e.moments) out.push(`  ${m.id}  ${m.standing === undefined ? "" : `${m.standing}: `}${m.title}`);
+      for (const m of e.moments) out.push(`  ${m.id}  ${m.standing === undefined ? "" : `${m.standing}: `}${m.title}${m.reader === undefined ? "" : ` · ${m.reader}`}`);
       if (e.momentCount > e.moments.length) out.push(`  (+${String(e.momentCount - e.moments.length)} more of its moments hold it)`);
     }
   }
@@ -1751,9 +1755,11 @@ function ownerNamesLower(c: Counterpart): string[] {
 }
 
 function momentOf(r: MemoryRow, zone: string | undefined): MeaningMoment {
+  const reader = readerNoteLine(r, (h) => (h === CODEX_HOST ? CODEX_HOST_NAME : h));
   return {
     id: r.id,
     title: clip(oneLine(r.title !== null && r.title.trim().length > 0 ? r.title : firstLine(r.body)), TITLE_CHARS),
+    ...(reader === null ? {} : { reader }),
     date: (r.created_at === null ? null : localDay(r.created_at, zone)) ?? r.learned_on,
   };
 }

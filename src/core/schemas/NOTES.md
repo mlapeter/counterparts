@@ -927,3 +927,9 @@ this module's side of the seam: `beliefsNamedIn` never offers the self subject (
 left out by id), and 4 of the 6 beliefs held are about me or us; the fifth, on the Mike card,
 is under recall's floor. The table and the reading are in `src/core/recall/NOTES.md` ("the
 beliefs slot shows one belief"). No change.
+
+## 2026-11-09 — a reader host's note about itself (CX2)
+
+- `fileSupport`, the one door support comes through, refuses a reader host's note about itself
+  (`reader-self-note`, `core/reader-note.ts`): another model's words about that model are never a belief's evidence,
+  whichever road asks (a session's belief, a reflection's birth, a dream candidate's adoption).

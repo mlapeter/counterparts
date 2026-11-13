@@ -521,8 +521,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // (`dashboard/bin/dashboard.ts`) is about exactly that; neither command has
   // ever shipped, so nothing in the world passes it. `uninstall` keeps it — it
   // still asks, and its question is about somebody's memory.
-  connect: ["config", "dry-run"],
-  disconnect: ["config", "dry-run"],
+  connect: ["config", "dry-run", "host"],
+  disconnect: ["config", "dry-run", "host"],
   uninstall: ["config", "yes", "park", "delete-memories", "keep-memories", "nothing-is-open", "json"],
   // `init` takes `--name` for the same reason `install` does: §3 routes second
   // and scratch stores here, and a store with no identity core is a store the
@@ -639,9 +639,9 @@ export const COMMAND_BLURB: Record<Command, string> = {
   status: "What is held, what left, what was removed. Read-only.",
   install:
     "Cold start: create the store and write claude-code.json under ~/.counterparts/ (the path the hooks read unless --config names another). At a terminal it asks your name, turns on recall by meaning (a local table — nothing leaves this machine), connects Claude Code (counterparts disconnect undoes that), and offers back any memory a parked uninstall set aside. Anywhere else — a pipe, a script, a CI job — and with --no-connect it prints the host's hooks block and MCP line and changes nothing of the host's.",
-  connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools, and keep Counterparts Online's claude.ai connector out of Claude Code with one deniedMcpServers entry. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. Claude Code is the one host it knows today.",
+  connect: "Connect an AI to your memory: put the five hooks in the host's settings file and register the memory tools, and keep Counterparts Online's claude.ai connector out of Claude Code with one deniedMcpServers entry. It backs the settings file up first and says the path, keeps every other tool's hooks exactly where they are, repairs an entry of ours that names a path that is gone, and refuses a settings file it cannot parse. With --host codex it connects OpenAI Codex instead: four hooks appended to $CODEX_HOME/hooks.json (default ~/.codex) and a counterparts MCP server in its config.toml, both backed up first; then you approve the hooks once in Codex's /hooks. Codex reads your memory as itself, not as your counterpart, and runs no dreams.",
   disconnect:
-    "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. Your memory is not touched.",
+    "Disconnect an AI: take the Counterparts hooks back out of the host's settings file and deregister the memory server. It removes only what it recognises as ours; another tool's hooks are never candidates. --host codex takes ours out of Codex's hooks.json and config.toml instead. Your memory is not touched.",
   uninstall:
     "Leave: disconnect Claude Code, then say where your memory still is and how to remove the package. At a terminal it then asks whether to delete your memory too (Enter keeps it; a yes asks you to type a phrase). Otherwise it never touches your memory unless you say --park (one rename, dated) or --delete-memories (which counts first and asks you to type a phrase).",
   init: "init makes a bare store, with no starter notes; install sets up yours. It creates a data dir and PRINTS the install steps: for a second store or a scratch one.",
@@ -725,8 +725,8 @@ const COMMAND_ARGS: Partial<Record<Command, string>> = {
   // `counterparts connect claude-code` are the same command, and any other name
   // is refused with the one it knows. The synopsis says so rather than offering
   // a menu of one (owner item 3).
-  connect: " [claude-code]",
-  disconnect: " [claude-code]",
+  connect: " [claude-code | --host codex]",
+  disconnect: " [claude-code | --host codex]",
   help: " [advanced | <command>]",
   dream: " [--list [--all] | --show <id> | --undo <id>]",
   night: " [list [--all] | last | last-reflection | [show] <drm_…|rfl_…>]",
@@ -908,6 +908,7 @@ const HOST_FLAG_HELP: Record<string, string> = {
   "nothing-is-open":
     "you are asserting you have closed every session, dashboard and worker. It is the way past a check that could NOT LOOK — no usable `ps` — and never past one that found something",
   "dry-run": "print what would change and change nothing (this command is NOT dry by default)",
+  host: "codex connects (or disconnects) OpenAI Codex instead of Claude Code: its hooks.json and config.toml under $CODEX_HOME (default ~/.codex), backed up first, every other tool's hooks left where they are",
   dir: "REFUSED on this command: what it acts on is decided by the configuration, not by a path on this line. Name the configuration instead, with --config",
 };
 

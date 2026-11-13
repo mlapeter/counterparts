@@ -59,7 +59,8 @@ import { tilde, realSpawner, realProcessLister, wire, unwire, sessionsNote, look
 import type { WireResult, Spawner, WireInput, ProcessLister } from "./wire.js";
 import { desktopUnavailable, connectDesktop, repairDesktop } from "./desktop.js";
 import type { DesktopRepair } from "./desktop.js";
-import { DESKTOP_ALWAYS_ALLOW } from "../hosts.js";
+import { CODEX_HOST, DESKTOP_ALWAYS_ALLOW } from "../hosts.js";
+import { codexWired, wireCodex } from "./codex.js";
 // `humanBytes` comes from `uninstall.ts` rather than from the private one
 // below: the two spell a size differently ("7.6 MB" against "7.6 MiB"), and
 // the folder `install` offers to bring back is the one `uninstall --park` set
@@ -1144,8 +1145,12 @@ export async function hostWiringCommand(
   // know is a command line that does not mean what it says — and the refusal
   // NAMES the one it knows, because "unknown host" without a list is the
   // refusal that teaches nothing (constitution 16).
-  const askedHost = parsed.positional[0];
-  if (command !== "uninstall" && askedHost !== undefined && !KNOWN_HOSTS.includes(askedHost)) {
+  // `--host codex` (CX2, 2026-11-09), or `codex` as the host's name: Codex's
+  // two files instead of Claude Code's (`cli/codex.ts`).
+  const hostFlag = parsed.flags["host"];
+  const askedHost = typeof hostFlag === "string" && hostFlag.length > 0 ? hostFlag : parsed.positional[0];
+  const codex = command !== "uninstall" && askedHost === CODEX_HOST;
+  if (command !== "uninstall" && askedHost !== undefined && !KNOWN_HOSTS.includes(askedHost) && !codex) {
     io.err(
       `refused: '${command}' does not know a host called '${askedHost}'. The one it knows is ` +
         `${KNOWN_HOSTS.join(", ")} — and \`${BIN.cli} ${command}\` on its own means that one.`,
@@ -1205,6 +1210,16 @@ export async function hostWiringCommand(
   }
 
   const store = host.config.dataDir ?? join(dirname(configPath), DEFAULT_STORE_DIR);
+
+  // CODEX (CX2): its hooks.json and config.toml, and nothing of Claude Code's.
+  if (codex) {
+    const outcome = wireCodex(
+      { io, env, home: home_, configPath, custom: custom !== undefined, store, now: now(), dryRun: parsed.flags["dry-run"] === true },
+      command === "connect" ? "wire" : "unwire",
+    );
+    return outcome === "ok" ? EXIT.ok : outcome === "refused" ? EXIT.refused : EXIT.failed;
+  }
+
   const spawner = opts.spawner ?? realSpawner(env);
   const lister = opts.processes ?? realProcessLister(env);
 
@@ -1230,11 +1245,16 @@ export async function hostWiringCommand(
       lister,
     };
     // `--json`: the plugin command's door (`uninstall.ts#uninstallJson`).
-    return exitFor(
-      parsed.flags["json"] === true
-        ? await uninstallJson(uninstallInput)
-        : await uninstall(uninstallInput),
-    );
+    const json = parsed.flags["json"] === true;
+    const left = json ? await uninstallJson(uninstallInput) : await uninstall(uninstallInput);
+    // CODEX TOO (CX2 fix round): an uninstall that went ahead takes our hooks and
+    // MCP entry out of Codex's files, as `disconnect --host codex` does. The JSON
+    // door prints one object, so there it is said on stderr instead.
+    if (left === "ok" && codexWired(home_, env)) {
+      if (json) io.err(`Codex still has the Counterparts hooks and MCP entry: run \`${BIN.cli} disconnect --host codex\`.`);
+      else wireCodex({ io, env, home: home_, configPath, custom: custom !== undefined, store, now: now() }, "unwire");
+    }
+    return exitFor(left);
   }
 
   const input: WireInput = {

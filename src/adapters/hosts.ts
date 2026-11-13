@@ -57,6 +57,32 @@ export const DESKTOP_HOST = "claude-desktop";
  */
 export const CLAUDE_AI_HOST = "claude-ai";
 
+/**
+ * OPENAI'S CODEX (2026-11-09, CX2: `adapters/codex/`). A host with hooks and
+ * directories, like Claude Code — SessionStart, UserPromptSubmit, Stop and
+ * SessionEnd drive the same lifecycle — whose model is NOT the counterpart
+ * (Mike, 2026-11-09, option 2): it reads the counterpart's shared memory as a
+ * record and writes as itself. Its MCP server is told so at launch
+ * (`--host codex`), never by the client's name. Codex runs no night.
+ */
+export const CODEX_HOST = "codex";
+
+/** The host's name as a person reads it, in a frame or a label. */
+export const CODEX_HOST_NAME = "Codex";
+
+/**
+ * A READER HOST: one whose model reads this memory without being its
+ * counterpart (`core/reader-note.ts`). Its writes carry the host in meta, a
+ * `me` mark becomes the model's own note about itself, and the self page is
+ * not its to write. Codex alone, today.
+ */
+export const READER_HOSTS: ReadonlySet<string> = new Set([CODEX_HOST]);
+
+/** Is `host` a reader host (`READER_HOSTS`)? */
+export function isReaderHost(host: string | undefined | null): boolean {
+  return typeof host === "string" && READER_HOSTS.has(host);
+}
+
 /** The one place every claude.ai chat shares, as Desktop's chats share theirs. */
 export const CLAUDE_AI_SCOPE = "claude-ai:";
 
@@ -304,6 +330,26 @@ export const HOST_WORDING: Readonly<Record<string, HostWording>> = {
     scopeReadSet: "One account is one memory: they can pause it or turn it off, and back on. This is what it is set to now.",
     scopeReadUnset: "One account is one memory: they can pause it or turn it off, and back on. Nothing is set, so it is on.",
     scopeShowsRegistry: false,
+  },
+  // Codex starts its MCP servers with each session (CX2, 2026-11-09): a newer
+  // build loads in the next Codex session. Its directories are real ones, so
+  // the scope words are Claude Code's, with Codex's machinery named.
+  [CODEX_HOST]: {
+    reconnect: "Start a new Codex session to load it.",
+    reconnectFirst: "Start a new Codex session",
+    scopeOff:
+      "This directory is no longer recorded or read. The Codex hooks will produce nothing here and every other tool will refuse until it is turned back on — including in a new session, which is the point.",
+    scopeOn:
+      "Recorded. This takes effect for the tools immediately, and for the Codex hooks at their next boundary in this session. Nothing said before now is recorded — the conversation that happened while this directory was off or paused is passed over, not collected — and remembering starts from here.",
+    offRefusal: (at) =>
+      at.inherited === null
+        ? `Counterparts is off for this directory (${at.here}). Nothing is recorded or read here — call \`scope\` with mode \`on\`, or run \`${at.hereCommand("--on")}\`.`
+        : `Counterparts is off for ${at.inherited}, which includes this directory (${at.here}). Nothing is recorded or read here — call \`scope\` with mode \`on\`, or run \`${at.hereCommand("--on")}\`, to turn it on here alone; \`${at.entryCommand("--on")}\` turns all of ${at.inherited} back on.`,
+    pausedRefusal: (at) =>
+      `Counterparts is paused for ${at.inherited ?? `this directory (${at.here})`}. Nothing is recorded or read here until it is resumed — run \`${at.entryCommand("--resume")}\`.`,
+    scopeReadSet: "This is what the host's scope registry says about this directory.",
+    scopeReadUnset: "Nothing is set for this directory or any parent, so it is on by default. Ask the user before setting it.",
+    scopeShowsRegistry: true,
   },
 };
 

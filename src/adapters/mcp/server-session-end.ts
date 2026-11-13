@@ -314,6 +314,8 @@ export async function depositEntries(
     }
     const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
     const tags = tagsOf[n] ?? { dropped: [] };
+    // A READER HOST'S ENTRY (CX2): its host, and `me` kept as its own note.
+    const reader = server["readerDeposit"](about.mark, draft["kind"], model, feelings.inputs, facts.sent);
     let result: DepositResult;
     try {
       result = await server.counterpart.submitSessionEnd(draft, {
@@ -321,10 +323,13 @@ export async function depositEntries(
         scope: scope ?? server.scope,
         // The day this server reads, for a done that closes one occurrence (2026-10-20).
         at: server["today"](),
-        facts: facts.sent,
+        facts: reader.facts,
+        ...(reader.readerMeta === undefined ? {} : { readerMeta: reader.readerMeta }),
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
+        ...(reader.host === undefined ? {} : { host: reader.host }),
+        ...(reader.readerSelf === undefined ? {} : { readerSelf: reader.readerSelf }),
         // What it is about sets an unclaimed entry's default floor (2026-10-10).
-        about: about.mark,
+        about: reader.about,
         // The dump's earlier entries: never read as an earlier state of this one.
         siblings: [...batch],
         ...(cover === undefined ? {} : { cover }),
@@ -356,9 +361,11 @@ export async function depositEntries(
       ...(result.gate === null ? {} : { gate: result.gate }),
       ...(malformed === null ? {} : { malformed }),
       ...(malformed === "KIND_UNKNOWN" ? { kinds: [...MEMORY_KINDS] } : {}),
-      ...server["recordFeelings"](result, feelings.inputs, model),
-      ...server["recordAbout"](result, about.mark),
-      ...server["recordTraits"](result, traits.inputs, model),
+      ...server["recordFeelings"](result, reader.feelings, model),
+      ...server["readerOwnNote"](reader),
+      ...server["readerHeldNote"](result),
+      ...(server["readerSelfAbout"](result) ?? server["recordAbout"](result, reader.about)),
+      ...(traits.inputs.length > 0 && server["readerHost"]() ? server["readerKeeps"](result, "traits") : server["recordTraits"](result, traits.inputs, model)),
       ...reminderEcho(result, dated, server["today"]()),
       ...titleEcho(result, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(result, dated, draft["title"], draft["content"]),
@@ -708,6 +715,11 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
   // The model the hooks last saw answer in this session. A Stop records it
   // before its ask goes out, so the chapter that answers the ask has it.
   const model = readSession(server["registryDir"], session)?.model;
+  // A READER HOST'S CHAPTER IS NEVER ABOUT ME OR US (CX2; `us` since option B,
+  // 2026-11-10): both are the counterpart's, and a chapter's copy carries no
+  // reader label to keep the reader's own sense of them (INTERFACE-GAPS §5).
+  const readerDrops = server["readerHost"]() && (about.mark === "me" || about.mark === "us");
+  const chapterAbout = readerDrops ? null : about.mark;
   let written: ChapterResult;
   try {
     written = server.counterpart.appendEpisode(session, text, {
@@ -715,7 +727,9 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       scope: server.scope,
       ...(typeof title === "string" && title.length > 0 ? { title } : {}),
       ...(model === undefined ? {} : { model }),
-      ...(about.mark === null ? {} : { about: about.mark }),
+      ...(chapterAbout === null ? {} : { about: chapterAbout }),
+      // Which reader host wrote it (option B): the page writer never reads it as the counterpart's day.
+      ...(server["readerHost"]() ? { host: server["host"] } : {}),
       ...(typeof summary === "string" && summary.trim().length > 0 ? { summary } : {}),
     });
   } catch (err) {
@@ -739,7 +753,8 @@ export async function chapterTool(server: McpServer, args: Record<string, unknow
       chapter: written.chapter,
       created: written.created,
       ...(written.gate === null ? {} : { gate: written.gate }),
-      ...(about.mark === null || !written.appended ? {} : { about: about.mark }),
+      ...(chapterAbout === null || !written.appended ? {} : { about: chapterAbout }),
+      ...(readerDrops && written.appended ? { aboutDropped: { mark: about.mark, reason: "reader-host", note: `Not marked about ${String(about.mark)}: in this memory that is the counterpart's, and this chapter was written from another host.` } } : {}),
       ...(written.summary === null ? {} : { summary: summaryAnswer(written.summary) }),
       ...withDrewOn,
     },

@@ -108,6 +108,16 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - [hosted] The account page lists the connected AIs, with when each was last used, and disconnects one.
 - A tool that refuses says why and what to do. Pass that on in plain words, don't retry blindly.
 
+## Codex (new)
+
+[local] OpenAI's Codex can use this memory after `counterparts connect --host codex`, as itself rather than as the counterpart.
+
+- [local] `counterparts connect --host codex` adds four hooks to Codex's hooks.json and the memory server to its config.toml (in ~/.codex, or CODEX_HOME). The person then approves the hooks once in Codex's /hooks and restarts Codex; until then the tools work and the hooks are skipped. `counterparts doctor` says which hooks are approved.
+- What works there: a wake at the start of each session, recall on each prompt, the end-of-session ask, and each turn kept for write-up. Memories written there are labelled with Codex and the model.
+- Codex's model reads this memory as itself, not as the counterpart whose memory it is: the self page is shown for history, and it writes in its own voice. A memory it marks "about: me" is kept as its own note, never the counterpart's self, and one it marks "about: us" as its own note about it and the person, never the counterpart's us. It can't write the self page, dream, reflect or hold the first meeting.
+- No nights run in Codex: dreams and reflection stay in Claude Code. A Codex that Claude Code itself starts (the Codex plugin's rescue or review) does nothing, since Claude Code already records that work.
+- [local] `counterparts disconnect --host codex` takes out only what connect put in. Windows isn't wired for Codex yet.
+
 ## Hosted
 
 [hosted] Counterparts Online is this memory on a server, used from claude.ai with the `wake` tool.

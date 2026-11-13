@@ -2063,3 +2063,18 @@ asked for. Hosted only for now: a claude.ai connector to a local store isn't cov
 - **In a chat, the final message is the reply** (review of #740). The launch prompt, journal's `next` and the
   reflection's all say the final message is the hand-back: the night routine's rule (`night: true`), left as it is. The
   wake line says the chat's own: the reply to the person, with the dream's line in it once.
+
+## 2026-11-09 — a reader host: Codex (CX2)
+
+- **`--host codex` at launch, never the client's name** (the claude.ai precedent): `bin/serve.ts#launchOptions` keeps
+  only a host this build names. `hosts.ts#isReaderHost` is the one predicate; `readerHostRefusal` refuses `self_page`
+  writes (a read still answers), `dream`, `reflect` and `meet` before dispatch.
+- **Every write carries the host** (`DepositContext.host` → `meta.host`) beside the `model` column the registry
+  already relayed. A `me` (or `kind: self` with no mark) becomes `readerSelf` (`core/reader-note.ts`): no `me` mark,
+  and the result says so (`about.reason: reader-self-note`). From Codex a `remember` keeps no traits, no story
+  nomination and no belief; `remark` to `me` or `us` refuses. An `us` (Mike, 11-10, option B: the owner and
+  that model) becomes `meta.readerUs` with no `us` mark (`about.reason: reader-us-note`), and `isReaderSelfRow`
+  keeps it out wherever a `readerSelf` note is kept out; facts recall, the meaning arc and ambient recall label
+  both. A Codex `updates` at the counterpart's identity is not taken (`updatesNotTaken`), and a Codex note never
+  blocks the counterpart's own write of the same words (`codex/INTERFACE-GAPS.md` §1).
+- **`initialize` carries `CODEX_INSTRUCTIONS`** (under 512 characters: Codex keeps that much).

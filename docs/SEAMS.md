@@ -269,3 +269,15 @@ only — no live stores exist yet, so there is no migration path and none was wr
 12. **Caller-universality test** — once entrances exist (adapters), enumerate every
     ingestion entrance and prove the gate battery covers each (encode's caller-side
     half).
+
+## CX2 — the Codex host (2026-11-09)
+
+- **Reader host → core**: `DepositContext.host` / `readerSelf` → `MintOptions` → `meta.host` / `meta.readerSelf`
+  (`core/reader-note.ts`), decided at the MCP door (`mcp/server.ts#readerDeposit`) and by the deposit for a revision
+  that would inherit `me`. Proven by `test/codex.test.ts` ("about: me from Codex is the model's own self-note").
+- **Identity doors that refuse a reader's self-note**: `Store#setAbout` (`ABOUT_READER_SELF`), `Counterpart#markAbout`,
+  `Schemas#fileSupport`, the dream's belief candidate and `nominate-core`, the reflection's `lived`/`notLivedReason`,
+  and the core lane (`sleep/consolidate.ts`). The night's own refusals are covered through `fileSupport` and
+  `setAbout`; a dream run over a reader's note is not exercised end to end (open).
+- **Host seam**: `hosts.ts#CODEX_HOST`, `READER_HOSTS`, a `HOST_WORDING` entry; `codex/adapter.ts` extends
+  `lifecycle.ts` without importing `claude-code/` (asserted in `test/codex.test.ts`).

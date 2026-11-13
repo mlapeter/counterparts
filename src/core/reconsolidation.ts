@@ -88,6 +88,7 @@ import { CUE_MODE_META, DATE_FROM_META, DATE_MOVED_TO_META, cueModeOf, recurrenc
 import { earlierMark, headOf, isBeliefRow, isHandoff } from "./recall/index.js";
 import { similarity } from "./remember/index.js";
 import { RECURRING_META, isStoreError, rowTombstoned, statusOf } from "./store/index.js";
+import { isCounterpartIdentityRow, isReaderHostRow, readerNoteLine } from "./reader-note.js";
 import type { ContradictionRow, MemoryRow, Store } from "./store/index.js";
 import { SETTLE_HOWS } from "./types.js";
 import type { Band, MemoryPhysics, SettleHow } from "./types.js";
@@ -281,6 +282,8 @@ export type SettleRefusal =
   /** A belief settled over by a dream, or by a reflection while it is not contested (lane C): it takes pressure instead. */
   | "belief-takes-pressure"
   | "pending-date"
+  /** A reader host's words over the counterpart's identity, or a reader host's settle touching it (option B, 2026-11-10). */
+  | "reader-over-identity"
   | "failed";
 
 export type SettleOutcome =
@@ -313,6 +316,11 @@ export interface SettleInput {
   /** The session, dream or reflection id. */
   readonly actorId?: string | null;
   readonly day?: number;
+  /**
+   * The settle comes from a reader host (Codex, option B, 2026-11-10): it may
+   * not touch the counterpart's identity at all, whichever way and however.
+   */
+  readonly readerHost?: boolean;
 }
 
 function refuse(reason: SettleRefusal, detail: string): SettleOutcome {
@@ -413,6 +421,26 @@ function beliefOverRefusal(store: Store, over: string, actor: SettleActor): Sett
  * takes pressure). The doors that ARE the core's path (pressure, a fulfilled
  * plan) and the dream merge (its own refusals) call `supersede` directly.
  */
+/**
+ * OPTION B'S RULE AT THE SETTLE (2026-11-10, `reader-note.ts`), or null: words
+ * written from a reader host (its own note, or any memory it wrote) never hold
+ * over the counterpart's identity — a memory about me or us, a core one, a
+ * belief — except side by side (`open`); and a settle FROM a reader host
+ * touches no identity row at all, `open` included.
+ */
+function readerIdentityRefusal(store: Store, holds: string, over: string, how: string, fromReader: boolean): SettleOutcome | null {
+  const h = store.row(holds);
+  const o = store.row(over);
+  if (fromReader && (isCounterpartIdentityRow(h) || isCounterpartIdentityRow(o))) {
+    const id = isCounterpartIdentityRow(o) ? over : holds;
+    return refuse("reader-over-identity", `${id} is the counterpart's own (about me or us, core, or a belief), and this settle comes from another host: nothing was settled. To say what changed, write your own memory with updates: ${id}; it is kept as yours beside it.`);
+  }
+  if (how !== "open" && isReaderHostRow(h) && isCounterpartIdentityRow(o)) {
+    return refuse("reader-over-identity", `${holds} was written from another host and ${over} is the counterpart's own (about me or us, core, or a belief): one never stands over the other. Nothing was settled. To say what changed, write your own memory with updates: ${over}; it is kept beside it.`);
+  }
+  return null;
+}
+
 function memoryRefusal(store: Store, id: string, moves: boolean): SettleOutcome | null {
   const door = doorRefusal(store, id, { beliefMay: moves });
   if (door !== null) return door;
@@ -464,6 +492,13 @@ export function settle(store: Store, input: SettleInput, opts: { closeFlags?: bo
     }
     if (holds === over) return refuse("same-memory", `holds and over are both ${holds}.`);
     pair = store.contradictionBetween(holds, over);
+  }
+  // OPTION B (2026-11-10, `reader-note.ts`), before anything is undone: a
+  // reader host's settle never touches the counterpart's identity, and a
+  // reader's words never stand over it. The owner's door has no such guard.
+  if (input.actor !== "owner") {
+    const blocked = readerIdentityRefusal(store, holds, over, how, input.readerHost === true);
+    if (blocked !== null) return blocked;
   }
   const reversalNotes: string[] = [];
   // THE OWNER'S SETTLE IS HIS RULING (decided by the coordinator, 2026-10-11,
@@ -672,6 +707,14 @@ export function supersede(store: Store, input: SupersedeInput, opts: { retarget?
   if (store.observer) return refuse("observer", "This session is an observer: it reads the store and writes nothing. Nothing was settled.");
   const { holds, over, how } = input;
   if (holds === over) return refuse("same-memory", `holds and over are both ${holds}.`);
+  // THE ONE DOOR HOLDS OPTION B TOO (2026-11-10): every road that stands one
+  // memory over another — a settle, a write's `updates`, a slot confirmed, a
+  // dream's merge or fold, interference — refuses a reader host's words over
+  // the counterpart's identity. The owner's ruling still stands.
+  if (input.actor !== "owner") {
+    const blocked = readerIdentityRefusal(store, holds, over, how, false);
+    if (blocked !== null) return blocked;
+  }
   const bad = doorRefusal(store, over, { beliefMay: true }) ?? doorRefusal(store, holds) ?? (how === "open" ? null : beliefOverRefusal(store, over, input.actor));
   if (bad !== null) return bad;
   const day = input.day ?? store.livedDay();
@@ -1639,6 +1682,8 @@ export interface Neighbour {
   readonly standing?: string;
   readonly title: string | null;
   readonly excerpt: string;
+  /** A reader host's own note, labelled (option B, `reader-note.ts#readerNoteLine`). Absent: an ordinary memory. */
+  readonly reader?: string;
 }
 
 function excerptOf(body: string, chars: number): string {
@@ -1745,9 +1790,16 @@ export function writeNeighbours(
       ...(head === null ? {} : { standing: earlierMark(head) }),
       title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: s.row.body }) || null : s.row.title,
       excerpt: excerptOf(s.row.body, T.EXCERPT_CHARS),
+      ...readerLabelOf(s.row),
     });
   }
   return out;
+}
+
+/** A reader host's own note's label, for a line a writer is shown (option B, 2026-11-10). */
+function readerLabelOf(row: MemoryRow): { reader?: string } {
+  const line = readerNoteLine(row);
+  return line === null ? {} : { reader: line };
 }
 
 // ── THE UPDATE GUARD (2026-10-09) ───────────────────────────────────────────

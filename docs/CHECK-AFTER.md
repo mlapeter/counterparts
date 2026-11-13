@@ -39,6 +39,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 |---|---|---|---|
 | The wake as its reader read it (WK3): "shown earlier" only for a telling in this session's context, else the items by title and id (up to 5); the night's own line drops sentences the page or day's end already tell, and is a clause the second morning running; overdue is its own count with its oldest date; a handoff whose lead waits on the owner with nothing since sinks, and one past a week nothing refers to isn't listed; Elsewhere lines say when and what; "Last said" quotes a whole first sentence; "under way" never over a journaled dream; the head names the session | 0.3.53, 11-09 (WK3, #792) | ~7 lived days after install (dated reminder set at merge): a week of wakes read by a fresh session against the brief's six points (`~/counterparts-notes/2026-11-09-briefs/WK3-wake-feedback.md`), and the delivered size against ~8.6 KB | [below](#the-wake-as-its-reader-read-it-wk3) |
 | What waits on the owner is raised, backs off, then parks (SO1 step 4, revised): an `asked` item is no longer one of Still open's lines; one item waiting on the owner is said per attended wake ("Waiting on <owner>, ask when it fits"), the most relevant to the folder's week first, a sunk WK3 handoff included; a turn a person started that touches one raises it after the recall block, with what it needs and how long it has waited; one raise per item per lived day store-wide; then 3/7/14 lived days (at session start at least a week), then parked | 0.3.53, 11-09 (SO1 step 4, #796) | **~7 lived days after install** (dated reminder set at merge): raises per day (`open.owner.raised`) by `via` (turn vs wake), distinct items raised, the `owed` step's p50 ms on `recall.decision`, answered (revised, closed or no longer `asked` after a raise) vs unanswered, items parked by backoff (`wake.owner.raised` chains at the last step), sunk handoffs raised, and items seen in more than one session a day (should be 0); a hand-read of a week of mentions for ones plainly irrelevant to their folder; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 99 of them `asked`, every one in its folder's Still open each wake) | [below](#what-waits-on-the-owner-so1-step-4) |
+| Mike's first real Codex week (CX2): the Codex host — wake with the reader frame, recall, Stop capture through the cursor, the end ask in the model's own voice, SessionEnd ~1 min after `/exit`, `about: me` kept as the model's own note, the stand-down inside Claude Code | the branch, from 2026-11-09 (CX2) | ~7 days of Codex use after Mike approves the hooks: Codex sessions in `counterparts log`, their spans and asks, `meta.host = 'codex'` rows, `readerSelf` rows, the plugin probe's log | [below](#mikes-first-real-codex-week-cx2) |
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | 0.3.52, 11-09 (W1, #787) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | 0.3.52, 11-09 (SX1, #788) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
 | Recall's steps are timed (LT2 part 1): `recall.decision` carries `steps`, ms per step of the pass; doctor's `Recall steps` line gives the week's p50 per step | 0.3.52, 11-09 (LT2 part 1, #786) | ~3 lived days after install (dated reminder set at merge): per-step p50 by lived day, and which step grows; that read briefs the fix | [below](#recalls-steps-are-timed-lt2-part-1) |
@@ -151,6 +152,31 @@ run in Git Bash, else PowerShell)? Did the first session wake, did recall answer
 What would change it: a hook line one of the shells can't run (then pin `"shell"` on the hook, or write the exec form);
 a Node not on PATH by name (then the absolute path, which only Git Bash runs); a launcher still running `/bin/sh` (the
 postinstall didn't run). Revert: none needed; Windows was unsupported before.
+
+## Mike's first real Codex week (CX2)
+
+CX2 (2026-11-09) connects OpenAI's Codex (`counterparts connect --host codex`): four hooks in `$CODEX_HOME/hooks.json`,
+the MCP server in `config.toml` launched `--host codex`. Codex's model reads the memory as the counterpart's, not as
+itself (Mike's option 2). Proven hermetically on a fixture rollout shaped like the 11-09 probe's; nobody has used it for
+a week. **Read after ~7 days of Mike's Codex use**, counted from when he approves the hooks in `/hooks`.
+
+What to look at, read-only:
+
+- **The hooks fire and are approved:** `counterparts doctor`'s Codex hooks line green; `counterparts log` shows
+  `codex-hook:*` processes for each event, and `inside-claude-code` only for a Codex that Claude Code started.
+- **Capture:** Codex sessions' spans (`counterparts coverage`), and no `<hook_prompt` or wake text in them.
+- **The ask was answered as the model:** `SELECT id, model, json_extract(meta,'$.host') FROM memories WHERE
+  json_extract(meta,'$.host') = 'codex' ORDER BY created_at DESC LIMIT 20;` — written, in the model's own voice.
+- **`me` stayed out of identity:** `SELECT id, about, json_extract(meta,'$.readerSelf') FROM memories WHERE
+  json_extract(meta,'$.readerSelf') IS NOT NULL;` — every `about` NULL, none promoted, none a belief's support.
+- **SessionEnd** arrives about a minute after `/exit` (the app-server daemon) and stands no worse than the last Stop.
+- **The plugin stand-down:** run `tools/codex-standdown-probe.sh` once as its header says, with codex-plugin-cc, and
+  read which signal held (environment or originator). If neither, the stand-down needs another signal.
+- **The wake's frame:** does the model say it is reading the counterpart's memory, and not speak as it?
+
+What would change it: a wake that spills to a file (raise `CODEX_CONTEXT_LIMIT_TOKENS`); a model that still speaks as
+the counterpart (strengthen the frame); `us` from Codex read the wrong way (the open question in
+`codex/INTERFACE-GAPS.md`). Revert: `counterparts disconnect --host codex`.
 
 ## A password named in a sentence is redacted (SX1)
 

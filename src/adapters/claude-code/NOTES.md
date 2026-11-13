@@ -3039,3 +3039,11 @@ for its target (an `.exe`, or a `.js` given to `node`) rather than running it th
 prompt as arguments. Proven in CI by `.github/workflows/windows.yml` (`tools/door/npm-door.mjs`), which installs Claude
 Code from npm so `claude` is the `.cmd`; a full night needs a Claude login a runner doesn't have, so the door checks the
 night starts and reaches `claude -p`.
+
+## 2026-11-09 — a second hooked host borrows this entry's readers (CX2)
+
+- `codex/bin/hook.ts` imports `hookConfigChoice`, `hostConfig`, `eventDirectory`, `sessionScope` and
+  `hookScopeVerdict` from `bin/hook.ts`, and `openEmbedder`: an entry point borrowing, as `mcp/bin/serve.ts` does.
+  `sessionScope`'s `opensASession` keys on `SessionStart`, which is Codex's spelling too. Nothing here changed; the
+  Codex hook's command (`adapters/codex/bin/hook.ts`) does not match `HOOK_COMMAND_MARK`, so neither host's
+  `connect` reads the other's line as its own.

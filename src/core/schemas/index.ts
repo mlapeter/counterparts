@@ -48,6 +48,7 @@ import {
   TUNABLES as PHYSICS_TUNABLES,
 } from "../physics/index.js";
 import type { MemoryPhysics, SupportRoute } from "../physics/index.js";
+import { isReaderHostRow } from "../reader-note.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { nameRegex, occursAsWholeWord } from "../encode/words.js";
@@ -1096,6 +1097,10 @@ export class Schemas {
       if ((memory.type !== "memory" && memory.type !== "episode") || NOT_LIVED_SOURCES.has(memory.source ?? "")) {
         return refuse("not-lived", beliefId);
       }
+      // THE ONE DOOR SUPPORT COMES THROUGH keeps a reader host's note about
+      // itself out of every belief (CX2, `core/reader-note.ts`): the session's
+      // own, a reflection's, a dream candidate's.
+      if (isReaderHostRow(memory)) return refuse("reader-self-note", beliefId);
       // Testimony and choice are what the memory says it is, never a claim.
       const read: SupportRoute | null = memory.said_by === "owner" ? "testimony" : memory.said_by === "self" ? "choice" : null;
       if (read !== null && read !== route) {

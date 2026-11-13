@@ -1,6 +1,7 @@
 /** The composition root's option, input and report shapes (moved out of `counterpart.ts`, 2026-10-11). */
 import type { FlushReport } from "./associate/index.js";
 import type { MintResult } from "./mint.js";
+import type { ReaderSelf } from "./reader-note.js";
 import type { Stance } from "./observer.js";
 import type { ToldSurface } from "./told.js";
 import type { PlainDue } from "./prospective/index.js";
@@ -554,6 +555,18 @@ export interface DepositContext {
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
   model?: string;
   /**
+   * A READER HOST's write (2026-11-09, CX2, `reader-note.ts`): the host's name,
+   * written to meta (`MintOptions.host`). Absent for the counterpart's own hosts.
+   */
+  host?: string;
+  /**
+   * A reader's note about ITSELF (CX2): kept, labelled, recallable, never
+   * identity material. The door sets it and sends `about` as null beside it.
+   */
+  readerSelf?: ReaderSelf;
+  /** A reader host's own feelings, said-by and `us`, as meta (CX2 fix round, option B; `reader-note.ts`). */
+  readerMeta?: Readonly<Record<string, unknown>>;
+  /**
    * Memories the same call wrote before this one (a dump's earlier entries):
    * the writer's own words of the same moment, never read as an earlier state
    * of this one by the slot detector (review of #420; the neighbours' rule,
@@ -676,6 +689,23 @@ export interface DepositResult {
    * one of the memory it revises (2026-10-11, `Counterpart#carryAbout`).
    */
   readonly aboutCarried?: { readonly mark: AboutMark; readonly from: string };
+  /**
+   * A reader host's note about itself (2026-11-09, CX2, `reader-note.ts`):
+   * sent so by the door, or made so because a revision would have carried `me`.
+   */
+  readonly readerSelf?: ReaderSelf;
+  /**
+   * A reader host's note about itself and the owner (2026-11-10, option B,
+   * `reader-note.ts`): sent `about: us` at the door, or made so because a
+   * revision would have carried `us`.
+   */
+  readonly readerUs?: ReaderSelf;
+  /**
+   * A reader host's `updates` at the counterpart's identity, not taken (option
+   * B, 2026-11-10, `counterpart-deposit.ts#readerIdentityTarget`): the memory it
+   * named is left as it was, and this one stands on its own.
+   */
+  readonly readerHeld?: { readonly over: string; readonly about: "me" | "us" | null; readonly why: string };
   /**
    * The title, when the writer sent none and this revision took the one of
    * the memory it revises (2026-10-14, `counterpart-deposit.ts#carryTitle`).
