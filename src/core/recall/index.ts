@@ -64,6 +64,73 @@ export const MOOD_MATCHED_IDS_CAP = 64;
 /** How many near misses a decision row names (`stopCounts`, F1, 2026-10-30); `nearMiss.count` is the whole of them. */
 export const NEAR_MISS_IDS_CAP = 3;
 
+/** How many candidates a decision row names under `loudRefusal.top` (2026-11-13). */
+export const LOUD_REFUSAL_CAP = 5;
+
+/**
+ * WHICH GATE KEPT A MEMORY'S WORDS OFF THE TURN (2026-11-13, observation only):
+ * a stable short code per gate, in the order the gate applies them
+ * (`gate.ts#gate`, then the loud tier's one slot, then the render's bytes).
+ * Index order IS stage order: a later code got further. Codes are kept stable
+ * once written, since rows are read across releases.
+ *
+ *   dark      uncued (`dark-uncued`), hard gate (a)
+ *   dedup     already shown this session (`dedup-suppressed`)
+ *   floor     under the absolute floor (`below-floor`), hard gate (b)
+ *   bar       under the turn's admission bar (`below-bar` as a verdict)
+ *   echo      this session wrote it (`echo-skipped`)
+ *   project   another project's work (`project-skipped`)
+ *   temporal  the only cue was a date (`cue-only-temporal`)
+ *   told      a starter memory, quiet at most (`told-quiet`)
+ *   cold      the store too small to tell (`cold-start-undiscriminating`)
+ *   cuefrac   too little of it from cues (`cue-fraction`), hard gate (c)
+ *   strong    under the loud tier's strong floor (`below-strong-floor`)
+ *   loudbar   under the loud bar (`below-bar` as `loudBlockedBy`)
+ *   inhibited a near-duplicate or earlier version of one admitted (`inhibited`)
+ *   outranked loud-eligible, but the loud slot went to a stronger one
+ *   trimmed   the gate surfaced it and the render cut it for bytes
+ */
+export const LOUD_GATES = [
+  "dark",
+  "dedup",
+  "floor",
+  "bar",
+  "echo",
+  "project",
+  "temporal",
+  "told",
+  "cold",
+  "cuefrac",
+  "strong",
+  "loudbar",
+  "inhibited",
+  "outranked",
+  "trimmed",
+] as const;
+export type LoudGate = (typeof LOUD_GATES)[number];
+
+/** One candidate that did not show loud: id, activation, the gate that stopped
+ *  it, and — where the gate has one — the threshold it failed (`limit`) and the
+ *  number compared to it when that is not `act` (`value`: the cue fraction, or
+ *  activation less priming). Two decimals, ids and numbers only. */
+export interface LoudRejected {
+  readonly id: string;
+  readonly gate: LoudGate;
+  readonly act: number;
+  readonly limit?: number;
+  readonly value?: number;
+}
+
+/** `by`: the gate that refused the loud tier this turn — the furthest any
+ *  candidate got (`LOUD_GATES` order), the strongest on a tie; null when a
+ *  memory showed loud; `empty` when no cued candidate reached the gate.
+ *  `top`: the candidates that did not show loud, furthest first, at most
+ *  `LOUD_REFUSAL_CAP`. */
+export interface LoudRefusal {
+  readonly by: LoudGate | "empty" | null;
+  readonly top: readonly LoudRejected[];
+}
+
 /** A turn priming ran on and touched nothing (a quiet turn's numbers). */
 const NO_PRIME: PrimeSummary = {
   sources: { used: 0, wrote: 0, open: 0 },
@@ -401,6 +468,10 @@ export interface RecallDecision {
   /** Lateral inhibition (`inhibited`): an earlier version whose head was
    *  brought in, or a near-duplicate of a stronger admitted one. */
   readonly inhibited?: number;
+  /** WHICH GATE REFUSED THE LOUD TIER (2026-11-13, observation only, with the
+   *  counts above and under the same switch): `LoudRefusal`, read off the
+   *  gate's own verdicts and what the render showed (`loudRefusal`). */
+  readonly loudRefusal?: LoudRefusal;
   /** How many olders of an unsettled pair counted at a weight this turn, their
    *  newer a candidate too (E3, 2026-10-24; which ones: `competed` on their
    *  verdicts and shown tier rows). Absent when `UNSETTLED_COMPETES` is off or
@@ -1001,7 +1072,9 @@ export class Recall {
       projectSkipped: verdicts.filter((v) => v.verdict === "project-skipped").length,
       // What the lift alone kept back, less what see-also then showed.
       crossProjectLifted: alongIds.size === 0 ? gated.crossLifted.length : gated.crossLifted.filter((id) => !alongIds.has(id)).length,
-      ...this.stops(turn.sessionId, () => stopCounts(verdicts, gated.crossLifted, rendered.trimmed, this.tunables)),
+      // The gate's own verdicts, not the see-also copies: which loud check
+      // stopped a memory is the gate's to say (2026-11-13).
+      ...this.stops(turn.sessionId, () => ({ ...stopCounts(verdicts, gated.crossLifted, rendered.trimmed, this.tunables), loudRefusal: loudRefusal(gated.verdicts, rendered.surfaced) })),
       ...(competing === null ? {} : { pairsCompeted: gated.competed.length }),
       primed,
       beliefs: beliefPicks === null ? null : { offered: beliefPicks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
@@ -1721,11 +1794,71 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
 }
 
 /** What stopped a memory this turn (N1, 2026-10-25): the counts `RecallDecision` carries. */
-export type StopCounts = Pick<RecallDecision, "habituationCut" | "nearMiss" | "capped" | "budgetTrimmed" | "inhibited">;
+export type StopCounts = Pick<RecallDecision, "habituationCut" | "nearMiss" | "capped" | "budgetTrimmed" | "inhibited" | "loudRefusal">;
 
 /** A quiet turn's: nothing reached the gate, so nothing was stopped there. */
 function NO_STOPS(t: RecallTunables): StopCounts {
-  return { habituationCut: 0, nearMiss: { margin: t.NEAR_MISS_MARGIN, count: 0 }, capped: 0, budgetTrimmed: 0, inhibited: 0 };
+  return { habituationCut: 0, nearMiss: { margin: t.NEAR_MISS_MARGIN, count: 0 }, capped: 0, budgetTrimmed: 0, inhibited: 0, loudRefusal: { by: "empty", top: [] } };
+}
+
+/** A gate's own verdict, or the loud check it named, as its `LOUD_GATES` code. */
+const VERDICT_GATE: Partial<Record<Verdict, LoudGate>> = {
+  "dark-uncued": "dark",
+  "dedup-suppressed": "dedup",
+  "below-floor": "floor",
+  "below-bar": "bar",
+  "echo-skipped": "echo",
+  "project-skipped": "project",
+  "cue-only-temporal": "temporal",
+  "told-quiet": "told",
+  "cold-start-undiscriminating": "cold",
+  "cue-fraction": "cuefrac",
+  "below-strong-floor": "strong",
+};
+
+/**
+ * WHY NO MEMORY'S WORDS SHOWED, OR WHAT ELSE DIDN'T (2026-11-13, observation
+ * only; the Wren findings' P3). Read after the turn is decided from the gate's
+ * verdicts and the ids the render showed loud: no store read, no judgement,
+ * nothing here is compared against by any rule. Quiet pointers (`via: "link"`)
+ * are left out: they never compete for the loud tier.
+ *
+ * A candidate's code: its verdict's gate; for one admitted quiet, the loud
+ * check that stopped it (`loudBlockedBy`, the loud bar as `loudbar`); for one
+ * the gate surfaced, `trimmed` when the render cut it; for one admitted
+ * loud-eligible and not surfaced (footnoted or capped with no loud check
+ * named), `outranked`; inhibited with no loud check named, `inhibited`.
+ */
+export function loudRefusal(verdicts: readonly CandidateVerdict[], shownLoud: readonly string[]): LoudRefusal {
+  const two = (x: number): number => Math.round(x * 100) / 100;
+  const loud = new Set(shownLoud);
+  const rows: { row: LoudRejected; stage: number; act: number }[] = [];
+  for (const v of verdicts) {
+    if (v.via === "link" || loud.has(v.id)) continue;
+    let gate: LoudGate | undefined;
+    if (v.verdict === "surfaced") gate = "trimmed";
+    else if (v.loudBlockedBy !== undefined) gate = v.loudBlockedBy === "below-bar" ? "loudbar" : VERDICT_GATE[v.loudBlockedBy];
+    else if (v.verdict === "inhibited") gate = "inhibited";
+    else if (v.verdict === "footnoted" || v.verdict === "capped") gate = "outranked";
+    else gate = VERDICT_GATE[v.verdict];
+    if (gate === undefined) continue;
+    // The number the gate compared, where it is not the activation itself.
+    const compared =
+      gate === "cuefrac" ? v.cueFraction : gate === "floor" || gate === "strong" ? v.activation - (v.primed === undefined ? 0 : v.primed.link + v.primed.train) : v.activation;
+    const limit = gate === "bar" ? v.bar : v.limit;
+    const row: LoudRejected = {
+      id: v.id,
+      gate,
+      act: two(v.activation),
+      ...(limit === undefined ? {} : { limit: two(limit) }),
+      ...(limit === undefined || two(compared) === two(v.activation) ? {} : { value: two(compared) }),
+    };
+    rows.push({ row, stage: LOUD_GATES.indexOf(gate), act: v.activation });
+  }
+  rows.sort((a, b) => b.stage - a.stage || b.act - a.act || (a.row.id < b.row.id ? -1 : 1));
+  const top = rows.slice(0, LOUD_REFUSAL_CAP).map((r) => r.row);
+  const by: LoudRefusal["by"] = shownLoud.length > 0 ? null : (top[0]?.gate ?? "empty");
+  return { by, top };
 }
 
 /**

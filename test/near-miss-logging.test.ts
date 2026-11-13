@@ -32,7 +32,7 @@ import { findable } from "./store-fixture.js";
 
 const SCOPE = "/work/bakery";
 const ZONE = "America/Denver";
-const NEW_KEYS = ["habituationCut", "nearMiss", "capped", "budgetTrimmed", "inhibited"] as const;
+const NEW_KEYS = ["habituationCut", "nearMiss", "capped", "budgetTrimmed", "inhibited", "loudRefusal"] as const;
 
 /** Ordinary background, so rarity can discriminate (recall §9 G4). */
 const FILLER = [

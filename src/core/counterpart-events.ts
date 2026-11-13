@@ -936,6 +936,11 @@ export const RECALL_DECISION_FIELDS = [
   "capped",
   "budgetTrimmed",
   "inhibited",
+  // Which gate refused the loud tier (2026-11-13, observation only, under
+  // `STOP_COUNTS`): the furthest gate any candidate reached, and the top
+  // candidates that did not show loud, ids and numbers only, capped. Added the
+  // way `echoSkipped` was; `tools/parallel`'s hash moves with it.
+  "loudRefusal",
   // An unsettled pair competes (E3, 2026-10-24, an experiment): how many olders
   // counted at a weight. Undefined, so left out of the written row, while
   // `UNSETTLED_COMPETES` is off: an off turn's row is byte-identical.
@@ -1115,6 +1120,8 @@ export function recallDecisionRecord(
     capped: d.capped,
     budgetTrimmed: d.budgetTrimmed,
     inhibited: d.inhibited,
+    // WHICH GATE REFUSED THE LOUD TIER (2026-11-13): copied; undefined while off.
+    loudRefusal: d.loudRefusal,
     // AN UNSETTLED PAIR COMPETES (E3): undefined while off, so not written.
     pairsCompeted: d.pairsCompeted,
     // CONTEXT PRIMING (2026-10-19, an experiment): null on a turn it did not run.

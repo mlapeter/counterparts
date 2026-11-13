@@ -1898,3 +1898,36 @@ stdout and decision rows (timing fields removed, ids normalized) byte-identical.
 
 **Read by** doctor's `Recall steps` line (`adapters/claude-code/doctor-recall-steps.ts`): the last 7 lived days'
 p50 per step, the eight largest by name, all in `--json` as `p50.<step>`. The read itself is `docs/CHECK-AFTER.md`.
+
+## Which gate refused the loud tier (2026-11-13, observation only; under `recall.STOP_COUNTS`)
+
+The Wren run showed a memory's words on 0 of 252 turns, Pepys on 4 of 254, live on under 2%, and no
+row said which gate refused. `recall.decision` now carries `loudRefusal: {by, top}`. `by` is a code
+from `LOUD_GATES` (`dark dedup floor bar echo project temporal told cold cuefrac strong loudbar
+inhibited outranked trimmed`, the order the gate applies them, then the loud slot, then the render's
+bytes): the furthest any candidate got, the strongest on a tie; null when a memory showed loud;
+`empty` when nothing cued reached the gate. `top` is at most `LOUD_REFUSAL_CAP` (5) candidates that
+did not show loud, furthest first: id, `act`, `gate`, and where the gate has one the threshold it
+failed (`limit`) and the number it compared when that is not `act` (`value`: the cue fraction, or
+activation less priming). Ids and two-decimal numbers; the test holds it under 600 bytes.
+
+- **No rule moved.** The gate records the threshold it already compared on the verdict (`limit`);
+  nothing reads it but `loudRefusal`. `near-miss-logging.test.ts`'s twin test (same prompts through
+  the hook, on and off) covers it, and before/after against master (8625c93b), outside the tree: five
+  prompts on a 25-memory store through the hook, shown ids, bytes, reasons and injections (ids
+  normalized) identical.
+- **Two "below-bar"s.** As a verdict it is the admission bar (`bar`); as `loudBlockedBy` it is the
+  loud bar (`loudbar`). Pointers (`via: "link"`) are left out: they never compete for the loud tier.
+- **The d17-react replay** (Wren findings P3), on a copy of `store-day16`, schema 15 (no migration),
+  the session's wake and its three turns replayed in order at their times, static embedder on
+  (`semantic: in-line`, as the run recorded); the night between turns 1 and 2 and the model's writes
+  were not replayed. Turn 1's footnotes matched the run's exactly; d17-react's did not (the run
+  showed `mem_5876e11812ab`, which the replay had as a near miss, and `mem_70e581b5690c`, written
+  after the snapshot), so the numbers below are the replay's, not the run's. On d17-react: `by: "strong"`. The
+  best candidate, at 12.87, was under the strong floor (4.5 units, 23.43 at 364 memories); nothing
+  came close. The "guitarist" memory (`mem_dea85a8850b2`) was a candidate, cued only by its words
+  (`semantic` 0), and stopped at the admission bar: 9.41 against its bar of 10.86, 12th of 26 by
+  activation. That is outside `nearMiss`'s 0.1 margin (0.87 of its bar) and below `top`'s five, so the
+  row does not name it. The run's own row (`store-day17`) did not list it as a near miss either. With
+  the embedder off the same turn footnoted it (11.88 against 10.79): the turns before it carry
+  different cues, so it sits at the margin of the bar either way.
