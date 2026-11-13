@@ -554,7 +554,7 @@ function rangeAsk(text: string, today: string): TimeAsk | null {
       // left", "Oct 5 - 12 attendees"; review of #815).
       const year = /^,?\s+(\d{4})\b/.exec(tail);
       if (year !== null) b = { ...b, end: b.end + year[0].length, year: Number(year[1]) };
-      else if (!/^\s*(?:$|[^\w\s])/.test(tail)) continue;
+      else if (!/^\s*(?:$|[^\w\s])/.test(tail) && !RANGE_GOES_ON.test(tail)) continue;
     }
     const gap = text.slice(a.end, b.at);
     const before = text.slice(0, a.at);
@@ -622,6 +622,26 @@ function rangeAsk(text: string, today: string): TimeAsk | null {
   }
   return null;
 }
+
+/**
+ * After a bare second day, the words that go on with the question rather than
+ * count something (second review of #815): "Oct 12-18 at the cabin", "from
+ * Oct 12 to 18 with the kids". A noun or an amount after it is still no
+ * range ("Oct 5 - 12 attendees"). A closed list.
+ */
+const RANGE_GOES_ON = new RegExp(
+  "^\\s+(?:" +
+    [
+      "at", "with", "in", "on", "for", "to", "from", "of", "about", "near", "by", "around", "over", "across", "before", "after",
+      "and", "or", "but", "so", "then", "when", "while", "during", "because", "if", "whether",
+      "we", "i", "you", "they", "he", "she", "it", "us", "me", "them",
+      "the", "a", "an", "my", "our", "your", "their", "his", "her", "its", "this", "that",
+      "did", "do", "does", "was", "were", "is", "are", "will", "would", "should", "could", "can", "have", "had", "has",
+      "what", "who", "where", "how", "which", "why",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
 
 /** The longest a range rolled into the next year may run: a year-end crossing, about two months (review of #815). */
 const RANGE_ROLL_DAYS = 62;

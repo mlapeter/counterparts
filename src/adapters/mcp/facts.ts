@@ -248,6 +248,22 @@ const ASKS_NOTHING = new Set([
   "many", "much", "often", "typical", "typically", "usually",
 ]);
 
+/**
+ * A question about what has happened (second review of #815): under "today"
+ * it reads no reminder dates, so "what did I do today" answers as it always
+ * did. A closed list of past markers.
+ */
+const PAST_ASK = new RegExp(
+  "\\b(?:" +
+    [
+      "did", "didn['’]t", "happened", "was", "wasn['’]t", "were", "went", "done", "said", "decided", "finished", "worked",
+      "talked", "learned", "learnt", "wrote", "made", "had", "got", "spent", "ate", "met", "saw", "fixed", "changed",
+      "discussed", "mentioned", "told", "asked", "sent", "bought",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
+
 /** The words only a facts question's own wording carries, never its content. */
 function contentTokens(text: string): string[] {
   return [...new Set(tokenize(text))].filter((t) => !STOPWORDS.has(t) && !ASKS_NOTHING.has(t) && !/^\d{1,2}$/.test(t));
@@ -813,7 +829,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   // ends today reads none ("this week" is a past question), unless it is
   // today alone.
   const said = time?.anchor === null && time.soft !== true && time.clock === null ? time.said : null;
-  const reachesAhead = said !== null && said.to !== OPEN_END && (said.to > today || (said.from === today && said.to === today));
+  // Today alone reads them only when the question is not about the past
+  // ("what's on today", not "what did I do today": second review of #815).
+  const todayAhead = said !== null && said.from === today && said.to === today && !PAST_ASK.test(question);
+  const reachesAhead = said !== null && said.to !== OPEN_END && (said.to > today || todayAhead);
   const ahead: DayWindow | null = window !== null && said !== null && reachesAhead ? { from: said.from > today ? said.from : today, to: said.to } : null;
   /**
    * A window that starts today or later and runs past it ("next week",

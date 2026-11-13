@@ -1931,5 +1931,13 @@ yet come this year being last year's under "since" and "after", as for one date.
 in November is 2025-12-05; a range's first end follows the same rule). That is `yearFor`'s rule for every date alone,
 and a look-ahead question in a later month has to name the year or use the forward words: **explicit-date
 look-ahead works only within the current month** (and a range starting in it) until `yearFor` changes, which this
-work did not do. "Upcoming" (the `coming
+work did not do.
+
+**Known limits, left as they are (second review of #815).** Under a look-ahead window, night-made rows (dream,
+reflection) count as dated, so a plan the night distilled without a date is filtered out where a hand-written undated
+one is kept. And the header's count line does not mark the undated rows a look-ahead window kept: they are counted as
+matches like the rest, only ranked after the ones inside. Two other edges from the same review are fixed: a bare
+second day before a word that goes on with the question ("Oct 12-18 at the cabin") is a range again (`RANGE_GOES_ON`,
+a closed list; a noun or an amount after it still is not), and a past question about today ("what did I do today",
+`facts.ts#PAST_ASK`) reads no reminder dates. "Upcoming" (the `coming
 up` handle answers it), "next Saturday" and "this Saturday" are still not read.

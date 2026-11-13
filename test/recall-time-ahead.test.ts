@@ -154,6 +154,16 @@ describe("a range of days is one window (time-ask.ts)", () => {
     expect(one("Oct 12-18?")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
   });
 
+  test("a bare second day before a word that goes on with the question is a range; before a noun or an amount it is not", () => {
+    const week = { from: "2026-10-12", to: "2026-10-18" };
+    for (const q of ["what did we do Oct 12-18 at the cabin", "Oct 12-18 with the kids", "from Oct 12 to 18 with the kids", "October 12 through 18 in Denver"]) {
+      expect({ q, said: readTimeAsk(q, clock)?.said }).toEqual({ q, said: week });
+    }
+    expect(readTimeAsk("Nov 1 - 5 tasks left", clock)?.said).toEqual({ from: "2025-11-01", to: "2025-11-01" });
+    expect(readTimeAsk("Oct 5 - 12 attendees", clock)?.said).toEqual({ from: "2026-10-05", to: "2026-10-05" });
+    expect(readTimeAsk("October 12 - 14 attendees", clock)?.said).toEqual({ from: "2026-10-12", to: "2026-10-12" });
+  });
+
   test("a year after a bare second day is both ends' year", () => {
     for (const q of ["Oct 12-18 2025", "Oct 12 - 18, 2025", "October 12 through 18, 2025"]) {
       const r = readTimeAsk(q, clock);
@@ -301,6 +311,24 @@ describe("a window still to come reads reminder dates (facts.ts)", () => {
     // Only time: master returns the one thing in the window, and no reminder.
     expect(ask(c, "what happened this week").memories.map((m) => m.id)).toEqual([gutter]);
     expect(ask(c, "what did I do this month").memories.map((m) => m.id)).toEqual([gutter]);
+  });
+
+  test("a past question about today reads no reminder dates: \"what did I do today\", \"what happened today\" answer as on master", async () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    early.store.put({ type: "memory", kind: "fact", title: "Call the zqbank", body: "Call the zqbank about the card.", eventDate: "2026-10-03" });
+    early.close();
+    const c = brain();
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", registryDir: join(dir, "store"), now: () => NOW });
+    // A daily repeat, written earlier (its anchor) and due every day.
+    const daily = (await s.call("remember", { title: "Water the plants", text: "Water the plants every day.", eventDate: "2026-09-01", recurring: "daily" })).structuredContent["id"] as string;
+    const fixed = c.store.put({ type: "memory", kind: "fact", body: "Fixed the gate latch.", occurredOn: "2026-10-03" });
+    // What master answers: the gate by its event date and the plants note by the day it was written; no reminder by its due date.
+    for (const q of ["what did I do today", "what happened today"]) {
+      const r = ask(c, q);
+      expect({ q, ids: [...r.memories.map((m) => m.id)].sort(), due: r.memories.filter((m) => m.timeBy === "due").length }).toEqual({ q, ids: [daily, fixed].sort(), due: 0 });
+    }
+    // Not a past question: the reminder due today is there.
+    expect(renderFacts(ask(c, "what's on today"))).toContain("Call the zqbank");
   });
 
   test("\"today\" takes a reminder due today, unless it is done or a newer done memory says it happened; otherwise as on master", () => {
