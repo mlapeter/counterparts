@@ -670,4 +670,30 @@ describe("UploadWatch", () => {
     assert.equal(beats, 0);
     assert.deepEqual(events, []);
   });
+
+  test("a look asked for while one is out on its LIST waits for that one: it resolves after the event, and the LIST isn't doubled", async () => {
+    // The boot's look is not awaited (app.ts); a look asked for straight after must not resolve before it lands.
+    const inner = memoryObjectStore();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    let lists = 0;
+    const objects: ObjectStore = { ...inner, list: async (p) => ((lists += 1), await gate, inner.list(p)) };
+    const events: UploadsEvent[] = [];
+    let t = 0;
+    const w = new UploadWatch({ objects, heartbeat: () => undefined, now: () => t, staleAfterMs: 30 * 60_000, onEvent: (e) => events.push(e) });
+    w.begin();
+    const boot = w.look();
+    t = 31 * 60_000;
+    let settled = false;
+    const asked = w.look().then(() => void (settled = true));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(settled, false, "still waiting on the boot's LIST");
+    release();
+    await asked;
+    assert.deepEqual(events, [{ state: "stale", minutes: 31, reason: "no-rise" }]);
+    await boot;
+    assert.equal(lists, 1);
+    await w.look(); // the next one is its own look
+    assert.equal(lists, 2);
+  });
 });
