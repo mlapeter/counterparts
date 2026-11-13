@@ -1059,7 +1059,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   // a window lists by date, soonest first ("what's on next week").
   const outsideAhead = (c: Candidate): number => (lookAhead && c.timeBy === undefined ? 1 : 0);
   const dated = new Map<string, string>();
-  const dateOf = (c: Candidate): string => {
+  const whenOf = (c: Candidate): string => {
     if (!(onlyTime && ahead !== null)) return "";
     const held = dated.get(c.id);
     if (held !== undefined) return held;
@@ -1074,8 +1074,8 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     return d;
   };
   const byDate = (a: Candidate, b: Candidate): number => {
-    const x = dateOf(a);
-    const y = dateOf(b);
+    const x = whenOf(a);
+    const y = whenOf(b);
     return x < y ? -1 : x > y ? 1 : 0;
   };
   const order = (a: Candidate, b: Candidate): number =>
