@@ -19,10 +19,58 @@
  *     past Saturday": the most recent Saturday BEFORE today, so asked on a
  *     Saturday it is a week ago; 2026-10-09). "This Saturday" and "on
  *     Saturday" are not read: either can be the coming one;
- *   - **weeks**: "last week" (Monday to Sunday), "this week", "N weeks ago"
+ *   - **weeks**: "last week" (Monday to Sunday), "this week" (Monday to
+ *     today: a past question, kept so on the review of #815), "N weeks ago"
  *     (and "2-3 weeks ago": both weeks), "the past week";
- *   - **months**: "last month", "this month", "in September", "early / mid /
- *     late October", "the end of August";
+ *   - **months**: "last month", "this month" (the 1st to today, as "this
+ *     week"), "in September", "early / mid / late October", "the end of
+ *     August";
+ *   - **ahead** (2026-11-13, the look-ahead fix, lightly held): "tomorrow"
+ *     ("tomorrow morning" is the whole day; and "the day after tomorrow"),
+ *     "this weekend" (this week's Saturday and
+ *     Sunday), "next week" (next Monday to Sunday), "next month" (the calendar
+ *     month), "the coming week" / "this coming week" / "the week ahead" / "the
+ *     next week" (today and the seven days after it), "the next N days" /
+ *     "the coming N days" (today and the N after it), "the next month" / "the
+ *     coming month" (today to the same day next month). The mirrors of the
+ *     backward words, except that a window still to come does NOT stretch:
+ *     nothing is learned in the future, so a stretch back would only pull in
+ *     what was learned the last two days, and a plan has its day. "Upcoming",
+ *     "next Saturday" and "this Saturday" are not read (the `coming up` handle
+ *     answers the first; the others can be either Saturday). The caller reads
+ *     a window that reaches past today (or is today) against reminder dates (`mcp/
+ *     facts.ts`);
+ *   - **ranges** (2026-11-13): "between 12 and 18 October", "between 12
+ *     October and 18 October", "from 12 to 18 October", "12 October to 18
+ *     October", "October 12 through 18", "12-18 October", "Oct 12-18", "the
+ *     12th to the 18th of October", "between 2026-10-12 and 2026-10-18",
+ *     "10/12 to 10/18": one window from the first day through the second,
+ *     exact, the whole phrase out of the question. Each end is a date in a
+ *     shape below, or a bare day that takes the other end's month ("12" in
+ *     "between 12 and 18 October"). "between" asks for "and"; the others for
+ *     "to", "through", "thru", "till", "until" or a dash, "from" in front
+ *     optional. A year written on one end only is the other's too, moved a
+ *     year so the range runs forward ("between 28 December and 3 January
+ *     2027" starts in 2026); written on both, each keeps its own (a range
+ *     that then runs backward is none); with none, the first end's year is
+ *     `yearFor`'s, as a date alone, and the second end is the next time its
+ *     month and day come round on or after the first (so a range across the
+ *     new year ends in January). A range that has to roll into the next year
+ *     to run forward is one only when it spans at most `RANGE_ROLL_DAYS` (a
+ *     year-end crossing; "between 3/4 and 1/2" is no range); within one
+ *     month a second day before the first is none ("October 20 - 3 things").
+ *     A BARE second day ("Oct 12-18", "Oct 5 to 7") ends a range only when
+ *     the text ends after it, or punctuation or a year follows it ("Oct 12-18
+ *     2025", "Oct 12 - 18, 2025": that year is both ends'); a word or a number
+ *     after it makes it an amount ("Nov 1 - 5 tasks left", "Oct 5 - 12
+ *     attendees", "Oct 5 - 7:30"). An end with a day number right after it
+ *     is none either: "sets of 8 - 12 Oct 3" is October 3. An `M/D` that is
+ *     an amount is no end; "between 3 and 5 may" asks a capital May; two
+ *     bare days alone are no range. A word that bounds a date in front of a
+ *     range bounds the range (review of #815): "until" / "till" / "by" / "up
+ *     to" through its last day, "before" every day before its first, "after"
+ *     every day after its last, "since" from its first day to today ("by
+ *     10/12-10/18" is through 10-18), exact;
  *   - **dates**: `2026-09-21`, `2026-09`, `09-21`, `9/21` (month first),
  *     `9/21/2026`, "Sep 21", "September 21st", "21 September", "September 21,
  *     2026" — a year written with the date is the year meant; without one,
@@ -51,7 +99,8 @@
  *
  * STRETCH. A fuzzy window (a week, a month, part of a month) widens two days
  * each side, a near one ("3 days ago") one day; a named day or date stays
- * exact. `said` is the window as asked, `window` the one that filters.
+ * exact, and so does a window still to come ("next week"; see **ahead**).
+ * `said` is the window as asked, `window` the one that filters.
  *
  * Deliberate only, and facts only. NO MODEL CALL: fixed lists and the store's
  * clock. Pure: `now` and `zone` come in.
@@ -424,6 +473,179 @@ function firstShortDate(text: string): RegExpExecArray | null {
   return null;
 }
 
+/**
+ * One end of a range as written (`rangeAsk`): a whole date, a month and day,
+ * or a bare day ("12" in "between 12 and 18 October") with no month of its
+ * own. Every alternative is anchored on a word edge; the bare day comes last,
+ * so "12 October" is read whole before "12" alone.
+ */
+const RANGE_END = new RegExp(
+  [
+    "\\b(\\d{4})-(\\d{2})-(\\d{2})\\b",
+    `\\b(${MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:,?\\s+(\\d{4})\\b)?`,
+    `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_ALT})\\b\\.?(?:,?\\s+(\\d{4})\\b)?`,
+    "\\b(\\d{1,2})/(\\d{1,2})(?:/(\\d{4}))?\\b",
+    "\\b(\\d{1,2})(?:st|nd|rd|th)?\\b",
+  ].join("|"),
+  "gi",
+);
+
+interface RangeEnd {
+  readonly at: number;
+  readonly end: number;
+  readonly day: number;
+  readonly month: number | null;
+  readonly year: number | null;
+}
+
+/** The ends `RANGE_END` finds in `text`, in order; a token that is no end (an amount, a lowercase "may") is left out. */
+function rangeEnds(text: string): RangeEnd[] {
+  const out: RangeEnd[] = [];
+  RANGE_END.lastIndex = 0;
+  for (let m = RANGE_END.exec(text); m !== null; m = RANGE_END.exec(text)) {
+    const at = m.index;
+    const end = at + m[0].length;
+    const after = text.slice(end);
+    const num = (i: number): number | null => (m?.[i] === undefined ? null : Number(m[i]));
+    if (m[1] !== undefined) {
+      out.push({ at, end, day: Number(m[3]), month: Number(m[2]), year: Number(m[1]) });
+    } else if (m[4] !== undefined || m[8] !== undefined) {
+      const name = (m[4] ?? m[8]) as string;
+      // "may" as a month asks a capital, as "in May" does: "3 and 5 may be" is not May.
+      if (name.toLowerCase() === "may" && !/\bMay\b/.test(m[0])) continue;
+      out.push({ at, end, day: Number(m[5] ?? m[7]), month: monthOf(name), year: num(m[4] !== undefined ? 6 : 9) });
+    } else if (m[10] !== undefined) {
+      // An `M/D` that is an amount ("3/4 cup") is no end; `isQuantity` reads groups 1-3.
+      const shaped = Object.assign([m[0], m[10], m[11], m[12]], { index: at, input: text }) as unknown as RegExpExecArray;
+      if (isQuantity(text, shaped)) continue;
+      out.push({ at, end, day: Number(m[11]), month: Number(m[10]), year: num(12) });
+    } else if (m[13] !== undefined) {
+      // A bare day with an amount or a clock after it ("7 people", "7:30") is no end.
+      if (QUANTITY_AFTER.test(after) || /^:\d/.test(after)) continue;
+      out.push({ at, end, day: Number(m[13]), month: null, year: null });
+    }
+  }
+  return out;
+}
+
+/** Month and day as one number, for comparing two ends within a year. */
+const monthDay = (month: number, day: number): number => month * 100 + day;
+
+/**
+ * A RANGE OF DAYS the question names (2026-11-13, the wren findings' P1): "between
+ * 12 and 18 October", "from 12 October to 18 October", "Oct 12-18" — one window
+ * from the first day through the second, exact, the whole phrase out of the
+ * question. Null when no two ends make one (the header's **ranges**).
+ */
+function rangeAsk(text: string, today: string): TimeAsk | null {
+  const ends = rangeEnds(text);
+  for (let i = 0; i + 1 < ends.length; i += 1) {
+    const a = ends[i] as RangeEnd;
+    let b = ends[i + 1] as RangeEnd;
+    if (a.month === null && b.month === null) continue;
+    const tail = text.slice(b.end);
+    // A day number right after the second end starts a date of its own: "sets
+    // of 8 - 12 Oct 3" is October 3, not the 8th to the 12th (review of #815).
+    if (/^\s+\d{1,2}\b/.test(tail)) continue;
+    if (b.month === null) {
+      // A bare second day ends a range only at the text's end, before
+      // punctuation, or before a year, which is then both ends' ("Oct 12-18
+      // 2025"); a word after it makes the pair an amount ("Nov 1 - 5 tasks
+      // left", "Oct 5 - 12 attendees"; review of #815).
+      const year = /^,?\s+(\d{4})\b/.exec(tail);
+      if (year !== null) b = { ...b, end: b.end + year[0].length, year: Number(year[1]) };
+      else if (!/^\s*(?:$|[^\w\s])/.test(tail) && !RANGE_GOES_ON.test(tail)) continue;
+    }
+    const gap = text.slice(a.end, b.at);
+    const before = text.slice(0, a.at);
+    const between = /\bbetween\s+(?:the\s+)?$/i.exec(before);
+    let start: number;
+    if (between !== null) {
+      if (!/^\s+and\s+(?:the\s+)?$/i.test(gap)) continue;
+      start = between.index;
+    } else {
+      if (!/^(?:\s+(?:to|through|thru|till|until)\s+(?:the\s+)?|\s*[-–—]\s*)$/i.test(gap)) continue;
+      const from = /\bfrom\s+(?:the\s+)?$/i.exec(before);
+      const the = /\bthe\s+$/i.exec(before);
+      start = from !== null ? from.index : the !== null ? the.index : a.at;
+    }
+    const m1 = a.month ?? (b.month as number);
+    const m2 = b.month ?? m1;
+    // One month, the second day before the first ("October 20 - 3 things",
+    // "between 18 and 12 October"): no range. Only a new month rolls a year.
+    if (m1 === m2 && b.day < a.day && (a.year === null || b.year === null || a.year === b.year)) continue;
+    let y1: number;
+    let y2: number;
+    if (a.year !== null && b.year !== null) {
+      y1 = a.year;
+      y2 = b.year;
+    } else if (a.year !== null) {
+      y1 = a.year;
+      y2 = monthDay(m2, b.day) < monthDay(m1, a.day) ? y1 + 1 : y1;
+    } else if (b.year !== null) {
+      y2 = b.year;
+      y1 = monthDay(m1, a.day) > monthDay(m2, b.day) ? y2 - 1 : y2;
+    } else {
+      y1 = yearFor(m1, today);
+      y2 = monthDay(m2, b.day) < monthDay(m1, a.day) ? y1 + 1 : y1;
+    }
+    const from = `${String(y1).padStart(4, "0")}-${pad(m1)}-${pad(a.day)}`;
+    const to = `${String(y2).padStart(4, "0")}-${pad(m2)}-${pad(b.day)}`;
+    if (parseCalendarDate(from)?.precision !== "day" || parseCalendarDate(to)?.precision !== "day" || to < from) continue;
+    // A year this read rolled to run forward is a year-end crossing only when
+    // short: "between 3/4 and 1/2" is no ten-month window (review of #815).
+    const yearsWritten = a.year !== null && b.year !== null;
+    if (!yearsWritten && y2 > y1 && daysBetween(from, to) > RANGE_ROLL_DAYS) continue;
+    // A bound word in front bounds the range (review of #815): "by
+    // 10/12-10/18" is through 10-18, "since Oct 12-18" from 10-12 to today.
+    const bound = new RegExp(`\\b(${BOUND_ALT})\\s+$`, "i").exec(text.slice(0, start));
+    if (bound !== null) {
+      const word = (bound[1] as string).toLowerCase().replace(/\s+/g, " ");
+      // "Since" or "after" a range not yet come this year is last year's, as for one date (`dated`).
+      if ((word === "since" || word === "after") && a.year === null && b.year === null && from > today) {
+        const back = (d: string): string => `${String(Number(d.slice(0, 4)) - 1).padStart(4, "0")}${d.slice(4)}`;
+        if (isDay(back(from)) && isDay(back(to))) return ask(text.slice(bound.index, b.end), word === "since" ? { from: back(from), to: today } : { from: addDays(back(to), 1), to: OPEN_END }, 0, without(text, text.slice(bound.index, b.end)));
+      }
+      const said: DayWindow =
+        word === "before" || word === "prior to"
+          ? { from: OPEN_START, to: addDays(from, -1) }
+          : word === "after"
+            ? { from: addDays(to, 1), to: OPEN_END }
+            : word === "since"
+              ? { from, to: today }
+              : { from: OPEN_START, to };
+      const phrase = text.slice(bound.index, b.end);
+      return ask(phrase, said, 0, without(text, phrase));
+    }
+    const phrase = text.slice(start, b.end);
+    return ask(phrase, { from, to }, 0, without(text, phrase));
+  }
+  return null;
+}
+
+/**
+ * After a bare second day, the words that go on with the question rather than
+ * count something (second review of #815): "Oct 12-18 at the cabin", "from
+ * Oct 12 to 18 with the kids". A noun or an amount after it is still no
+ * range ("Oct 5 - 12 attendees"). A closed list.
+ */
+const RANGE_GOES_ON = new RegExp(
+  "^\\s+(?:" +
+    [
+      "at", "with", "in", "on", "for", "to", "from", "of", "about", "near", "by", "around", "over", "across", "before", "after",
+      "and", "or", "but", "so", "then", "when", "while", "during", "because", "if", "whether",
+      "we", "i", "you", "they", "he", "she", "it", "us", "me", "them",
+      "the", "a", "an", "my", "our", "your", "their", "his", "her", "its", "this", "that",
+      "did", "do", "does", "was", "were", "is", "are", "will", "would", "should", "could", "can", "have", "had", "has",
+      "what", "who", "where", "how", "which", "why",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
+
+/** The longest a range rolled into the next year may run: a year-end crossing, about two months (review of #815). */
+const RANGE_ROLL_DAYS = 62;
+
 /** Remove `found` (and a preposition just before it) from `text`, once. */
 function without(text: string, found: string): string {
   const at = text.toLowerCase().indexOf(found.toLowerCase());
@@ -491,6 +713,10 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
     return ask(session, null, 0, removeWords(text, session), { anchor: { kind: "session" } });
   }
 
+  // ── a range of days: before any one date, which would read one end alone ──
+  const range = rangeAsk(text, today);
+  if (range !== null) return range;
+
   // ── explicit dates ───────────────────────────────────────────────────────
   const iso = /\b(\d{4})-(\d{2})(?:-(\d{2}))?\b/.exec(text);
   if (iso !== null) {
@@ -550,6 +776,17 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   if (/\bthis month\b/i.test(text)) {
     return ask("this month", { from: `${String(ty)}-${pad(tm)}-01`, to: today }, FUZZY_STRETCH_DAYS, without(text, "this month"));
   }
+  // ── ahead: a window still to come is exact (the header's **ahead**) ──────
+  // The rolling month ahead, as "the past month" is behind.
+  const comingMonth = /\b(?:in|over|within|during|for)\s+the\s+(?:next|coming)\s+month\b(?!\s+of\b)|\bthe\s+(?:next|coming)\s+month\b(?!\s+of\b)/i.exec(text);
+  if (comingMonth !== null) {
+    return ask(comingMonth[0], { from: today, to: monthsBack(today, -1) }, 0, without(text, comingMonth[0]));
+  }
+  if (/(?<!\bthe\s)\bnext month\b/i.test(text)) {
+    const y = tm === 12 ? ty + 1 : ty;
+    const m = tm === 12 ? 1 : tm + 1;
+    return ask("next month", { from: `${String(y)}-${pad(m)}-01`, to: lastDayOf(y, m) }, 0, without(text, "next month"));
+  }
   const part = new RegExp(`\\b(early|mid|late|the start of|the beginning of|the end of|the middle of)[\\s-]+(${MONTH_ALT})\\b`, "i").exec(text);
   if (part !== null) {
     const month = monthOf(part[2] as string);
@@ -595,6 +832,21 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   }
   if (/\bthis week\b/i.test(text)) {
     return ask("this week", { from: mondayOf(today), to: today }, FUZZY_STRETCH_DAYS, without(text, "this week"));
+  }
+  // ── ahead ──
+  // The week ahead, rolling: today and the seven days after it ("this coming
+  // week" asked on a Sunday is Monday to Sunday, and today besides).
+  const comingWeek = /\b(?:(?:this|the)\s+coming\s+week|the\s+week\s+ahead|the\s+next\s+(?:week|7 days|seven days))\b/i.exec(text);
+  if (comingWeek !== null) {
+    return ask(comingWeek[0], { from: today, to: addDays(today, 7) }, 0, without(text, comingWeek[0]));
+  }
+  if (/(?<!\bthe\s)\bnext week\b/i.test(text)) {
+    const monday = addDays(mondayOf(today), 7);
+    return ask("next week", { from: monday, to: addDays(monday, 6) }, 0, without(text, "next week"));
+  }
+  if (/\bthis weekend\b/i.test(text)) {
+    const saturday = addDays(mondayOf(today), 5);
+    return ask("this weekend", { from: saturday, to: addDays(saturday, 1) }, 0, without(text, "this weekend"));
   }
   const pastWeek = /\b(the\s+)?(past|last)\s+(7 days|seven days|week)\b/i.exec(text);
   if (pastWeek !== null) {
@@ -650,6 +902,26 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   if (pastDays !== null) {
     const n = Math.max(1, numberOf(pastDays[3] as string) ?? 3);
     return ask(pastDays[0], { from: addDays(today, -(n - 1)), to: today }, 0, without(text, pastDays[0]));
+  }
+  // ── ahead ──
+  // "The next 3 days": today and the three after it.
+  const nextDays = new RegExp(`\\b(the\\s+)?(next|coming)\\s+(${NUMBER_ALT})\\s+days\\b`, "i").exec(text);
+  if (nextDays !== null) {
+    const n = Math.max(1, numberOf(nextDays[3] as string) ?? 3);
+    return ask(nextDays[0], { from: today, to: addDays(today, n) }, 0, without(text, nextDays[0]));
+  }
+  // Before "tomorrow" is read on its own, as "the day before yesterday" is.
+  const dayAfter = /\bthe day after tomorrow\b/i.exec(text);
+  if (dayAfter !== null) {
+    const day = addDays(today, 2);
+    return ask(dayAfter[0], { from: day, to: day }, 0, without(text, dayAfter[0]));
+  }
+  // "Tomorrow morning" is the day, its part taken out with it: a plan has its
+  // day, and nothing is learned at a clock time still to come.
+  const tomorrow = /\btomorrow(?:['’]s)?(?:\s+(?:morning|afternoon|evening|night)\b)?/i.exec(text);
+  if (tomorrow !== null) {
+    const day = addDays(today, 1);
+    return ask("tomorrow", { from: day, to: day }, 0, without(text, tomorrow[0]));
   }
   // SOFT words (2026-10-20, from the benchmark loss read; helps real recall
   // too; lightly held, revisit): "lately" is how a person talks, not a

@@ -246,6 +246,12 @@ export interface RecallRow {
   readonly created_at: number | null;
   readonly updated_at: number | null;
   readonly occurred_on: string | null;
+  /**
+   * The reminder date (v7 `event_date`), as stored: a day, a month, a range or a
+   * year; a repeat's anchor. Facts mode prints it and reads it under a window
+   * still to come (2026-11-13). Null when none, and on a file from before v7.
+   */
+  readonly event_date: string | null;
   readonly said_by: string | null;
   readonly status: string | null;
   readonly source: string | null;

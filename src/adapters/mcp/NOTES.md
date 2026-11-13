@@ -2063,3 +2063,53 @@ asked for. Hosted only for now: a claude.ai connector to a local store isn't cov
 - **In a chat, the final message is the reply** (review of #740). The launch prompt, journal's `next` and the
   reflection's all say the final message is the hand-back: the night routine's rule (`night: true`), left as it is. The
   wake line says the chat's own: the reply to the person, with the dream's line in it once.
+
+## 2026-11-13 — reminder dates in facts mode (the wren findings' P2 and P5, owner-approved, lightly held)
+
+**The line.** A memory with a reminder date (`event_date`) and no `occurred_on` printed "no event date", and in the
+wren run the model wrote itself a false note from it ("on record with no reminder date"). The line now says `due
+<date>` in the same style (`due Thu 10-15`; a repeat's occurrence, `, every Tuesday`); beside `happened` only when the
+days differ. `RecallRow` carries `event_date` for it (read only, no schema change).
+
+**The window.** `inWindow` read `occurred_on`, else the learned date, never `event_date`, so a correctly read week
+ahead still could not find a reminder written days earlier. A window whose days as asked (`said`, not the stretched
+window: "last week" asked on a Monday stretches into tomorrow) run past today now also takes a row whose reminder date
+falls in those days, unstretched, from today on (`dueIn`), as its own match kind, `due`, ranked ahead of `learned`.
+Unstretched because a reminder has its day. A window ending today ("this week", "this weekend" asked on a Sunday)
+reads none, but today alone does ("what's on today", review of #815). A repeat is read by its
+occurrence (`occurrenceBetween` over `Store.recurringMemories`, as the prospective horizon finds them; store reads only,
+so a store-only `FactsSource` still works), an occurrence closed as done (its firing row `suppressed`) skipped for the
+next. A one-off marked done whose date ends by today is not still to come (`derive.ts`'s "done" rule), nor one due
+today that a newer done memory says happened (`happenedAlready`, called without the wake's folder fence: facts mode
+has its own denied set); one done with a date ahead stays in, as the wake leaves it. "happening" joined `ASKS_NOTHING`
+(beside "happened", "happen", "happens"), so "what is happening tomorrow" is a question only of time; it applies to
+every facts question. 
+
+**Review of #815.** Three faults in the first cut, fixed:
+- *Forward words dropped answers.* Read as a hard filter, "next week" or "tomorrow" kept out every match with no date
+  of its own, and those are most plans as written: "dinner with Sam next week" lost "Dinner with Sam next Thursday at
+  7…", and "what did we decide about tomorrow's shop launch" lost the decision. A window that starts today or later and
+  runs past it now filters only what carries a date (an event date or a reminder date outside it); the undated stay,
+  after the matches inside (`lookAhead`), not scored up. "No date" means a memory row: a journal, its chapter copy and
+what the night wrote are accounts of days already lived and stay filtered (on the wren replay the first cut of this
+kept 17 of them under "between 12 and 18 October"; with them out, 5 undated notes remain beside the one in-window
+match, the price of not dropping undated plans). Chosen over the soft words' bonus as the simpler of the two:
+  no score moves, the order alone says it.
+- *A moved reminder read as in the window.* A reminder for 10-06 changed to 10-20 was listed under the week of 10-06 as
+  `due Tue 10-20 (in the window by this date)`: the earlier version matched by its old date and the fold carried that
+  onto the current one. An earlier version of a `changed` pair now reads no reminder date (`nowOf`, read before the
+  window now); the current one matches by its own.
+- *"This week"/"this month" ran to their ends*: reverted (recall NOTES).
+Also: `happenedAlready` gets the asking folder as its fence (the wake's own rule when the host has none; the console
+asks with no folder and none is passed); `recurringMemories` is read only when a reminder date is; a question that is
+only a window ahead lists by date. Daily repeats are taken too: they are on every day of the week asked. An
+open end ("after 7/22") reads no reminder dates: it is a cutoff on what happened, and would take every pending one.
+
+**The replay** (d14-q-week, `trace-w2.jsonl.store-day13.sqlite` copied, clock 2026-10-12T02:00Z, America/Denver,
+embedder on). The model's own question ("appointments, meetings, deliveries, fittings or other non-movie events
+between 12 and 18 October") went from "0 match · time: 18 October → 10-18" to "3 match · time: between 12 and 18
+October → 10-12..10-18", but **still without the vet**: the window filters, it does not pool, and the vet shares no
+word with the question and is 106th by meaning, past `FACTS_MEANING_CAP` (100). Asked as only time ("what's on between
+12 and 18 October", "what's on next week") it is found, `due Thu 10-15 (in the window by this date)`. Pooling every
+reminder in a look-ahead window, or the `coming up` handle listing every pending dated item (findings P5b), would close
+that gap; neither is built.

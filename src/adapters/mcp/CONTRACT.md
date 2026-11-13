@@ -697,7 +697,35 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   ("$5-10"), or a fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
   still January 2); one written with a leading zero ("09-28 minutes") is a date. A range
   of days or weeks ago ("3-4 days ago", "two or three weeks ago") covers both ends
-  (review of #345). "Around the X"
+  (review of #345). A RANGE of days (2026-11-13) is one window, exact: "between 12 and
+  18 October", "from 12 October to 18 October", "Oct 12-18", "12-18 October", "the 12th
+  to the 18th of October", "10/12 to 10/18" (a bare day takes the other end's month;
+  yearless, the first end's year as a date alone and the second the next time it comes
+  round, so a range across the new year ends in January; a year roll longer than 62 days
+  is no range; a bare second day ends a range only before the text's end, punctuation
+  or a year, so "Oct 5 - 12 attendees" is October 5; a bound word in front bounds the
+  range, "by 10/12-10/18" through 10-18); before, one end alone was read ("between 12 and
+  18 October" was 10-18, "from 12 October to 18 October" was 10-12, "Oct 12-18" was
+  December 18). Forward words (2026-11-13):
+  "tomorrow", "the day after tomorrow", "this weekend", "next week" (next Monday to
+  Sunday), "next month", "the coming week" / "the week ahead" / "the next week" (today and
+  the seven after), "the next N days", "the next month" (rolling); a window still to
+  come does not stretch, and filters only what carries a date: a match with neither an
+  event date nor a reminder date stays, ranked after those inside (review of #815).
+  "This week" and "this month" end today, as before.
+  "Upcoming", "next Saturday" and "this Saturday" are not read. **A window whose days as
+  asked run past today, or that is today alone, also takes a memory by its reminder
+  date** (`event_date`;
+  2026-11-13, lightly held) when that date falls in the window's days as asked
+  (unstretched), from today on: a repeat by its occurrence there (`occurrenceBetween`,
+  as the wake finds it), an occurrence closed as done skipped for the next; a one-off
+  marked done whose date is today (`prospective/derive.ts` "done"), or due today and
+  said done by a newer memory (the wake's `happenedAlready`, fenced to the asking
+  folder), is not taken, nor the earlier version of a `changed` pair (a reminder moved
+  out of the window is not in it). Asked as only time, such a window lists by date. The
+  line says `due <date> (in the window by this date)`. A window wholly in the past or
+  otherwise ending today ("this week"), an open end ("after 7/22"), an anchor, a clock time and a soft word read no
+  reminder dates: past-only questions answer as before. "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
 - **[M]** **Soft time words do not filter** (2026-10-20, from the benchmark loss read;
@@ -713,7 +741,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   (the chapter, labeled journal); near-duplicates (token overlap ≥ 0.85) are left out and
   counted; the self page and handoffs are never results.
 - **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
-  | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
+  | due <date> | no event date` (`due` is the reminder date, 2026-11-13: a repeat's
+  occurrence with `, every Tuesday`; beside `happened` only when it is another day; "no
+  event date" only when it has neither, since a memory with a reminder date read as
+  having none); `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
   (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
   current one in); corrected ones never results, but named under the one that corrected
   them — `corrected (was wrong): "…" (learned <date>), corrected <date> · mem_…`, the
