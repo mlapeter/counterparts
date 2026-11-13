@@ -609,8 +609,13 @@ const THESAURUS_WORDS: Readonly<Record<CoreEmotion, readonly string[]>> = {
     "speculative", "analytical", "puzzlement", "confusion", "perplexity", "mystery", "spellbound",
     "enthralled", "riveted", "gripped", "nosy", "nosey", "probing", "inquiring mind", "seeking",
   ],
-  // Loss, distance, regret, and low energy.
+  // Loss, distance and regret. Not pure low ENERGY (owner, 2026-11-13, lightly
+  // held): tired, exhausted, drained, weary, worn out, fatigued, burned out,
+  // spent, listless and sleepy name no feeling the wheel has, so they go
+  // unplaced and counted. The crisis words (suicidal, abused) are here so a
+  // feeling that matters most is never the one dropped.
   sad: [
+    "suicidal", "abused", "terrible", "horrible", "hurting",
     "unhappy", "sorrowful", "sorrow", "sadness", "down", "blue", "low", "glum", "gloomy", "melancholy",
     "melancholic", "mournful", "morose", "downcast", "downhearted", "dejected", "despondent", "crestfallen",
     "dispirited", "discouraged", "disheartened", "demoralized", "demoralised", "deflated", "defeated",
@@ -618,13 +623,14 @@ const THESAURUS_WORDS: Readonly<Record<CoreEmotion, readonly string[]>> = {
     "tearful", "weepy", "crying", "mourning", "bereaved", "grief", "homesick", "longing", "yearning",
     "pining", "missing", "nostalgia", "regret", "apologetic", "left out", "excluded", "unwanted", "unloved",
     "neglected", "forgotten", "overlooked", "alone", "lonesome", "disconnected", "letdown", "underwhelmed",
-    "flat", "meh", "numb", "hollow", "blah", "listless", "unmotivated", "uninspired", "resigned", "aching",
-    "broken", "crushed", "gutted", "shattered", "tired", "exhausted", "drained", "weary", "worn out",
-    "fatigued", "burned out", "burnt out", "spent", "loneliness", "disappointment", "heartache",
+    "flat", "meh", "numb", "hollow", "blah", "unmotivated", "uninspired", "resigned", "aching",
+    "broken", "crushed", "gutted", "shattered", "loneliness", "disappointment", "heartache",
     "sorry for myself", "down in the dumps", "bummed out", "sombre", "somber", "grim", "dismal", "low-spirited",
   ],
   // Something is off, from caught out to afraid.
   uneasy: [
+    // Crisis words, beside afraid and shocked (2026-11-13).
+    "traumatized", "traumatised", "triggered", "unsafe",
     "tense", "stressed", "stressed out", "on edge", "edgy", "jittery", "jumpy", "restless", "uncomfortable",
     "awkward", "self-conscious", "shame", "embarrassment", "mortified", "flustered", "rattled", "shaken",
     "shaky", "unnerved", "spooked", "alarmed", "panicked", "panicky", "panic", "dread", "dreading",
@@ -640,6 +646,8 @@ const THESAURUS_WORDS: Readonly<Record<CoreEmotion, readonly string[]>> = {
   ],
   // Something is wrong and shouldn't be.
   angry: [
+    // Beside threatened and violated, where the wheel puts being wronged by someone (2026-11-13).
+    "harassed",
     "irked", "peeved", "miffed", "cross", "vexed", "exasperated", "aggravated", "fed up", "sick of it",
     "indignant", "outraged", "livid", "fuming", "seething", "incensed", "irate", "wrathful", "bitter",
     "spiteful", "vindictive", "frustration", "annoyance", "irritation", "rage", "fury", "resentment",

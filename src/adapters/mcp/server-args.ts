@@ -849,7 +849,9 @@ const RECURRING_SYNONYMS: Readonly<Record<string, string>> = {
 
 const ABOUT_SYNONYMS: Readonly<Record<string, string>> = {
   myself: "me", self: "me", i: "me", assistant: "me", claude: "me",
-  user: "owner", them: "owner", person: "owner", human: "owner", they: "owner", him: "owner", her: "owner", personal: "owner", "the owner": "owner", "the user": "owner",
+  // "them" is the owner here: the field's own words are "owner (them as a person)".
+  // "they", "him", "her", "person" may be someone else: dropped (review of #818).
+  user: "owner", them: "owner", personal: "owner", "the owner": "owner", "the user": "owner",
   "both of us": "us", "the two of us": "us", together: "us", relationship: "us", we: "us", "you and me": "us",
   project: "work", code: "work", codebase: "work", repo: "work", job: "work", task: "work", here: "work", folder: "work",
   other: "world", general: "world", news: "world", everything: "world", external: "world", fact: "world", facts: "world",
@@ -857,7 +859,8 @@ const ABOUT_SYNONYMS: Readonly<Record<string, string>> = {
 
 const SAID_BY_SYNONYMS: Readonly<Record<string, string>> = {
   me: "self", i: "self", assistant: "self", claude: "self", myself: "self", ai: "self", model: "self",
-  user: "owner", they: "owner", them: "owner", person: "owner", human: "owner", "the user": "owner", "the owner": "owner",
+  // "they", "them", "person" may be someone else: dropped (review of #818).
+  user: "owner", "the user": "owner", "the owner": "owner",
   guess: "inferred", guessed: "inferred", inference: "inferred", assumed: "inferred", assumption: "inferred", implied: "inferred", deduced: "inferred",
 };
 
@@ -870,7 +873,10 @@ const STATUS_SYNONYMS: Readonly<Record<string, string>> = {
 
 const WHOSE_SYNONYMS: Readonly<Record<string, "self" | "owner">> = {
   self: "self", me: "self", i: "self", my: "self", mine: "self", myself: "self", assistant: "self", claude: "self", ai: "self",
-  owner: "owner", user: "owner", them: "owner", they: "owner", their: "owner", theirs: "owner", him: "owner", her: "owner", his: "owner", person: "owner", human: "owner",
+  // Only the words that mean the owner in this tool's vocabulary (review of
+  // #818): "her", "him", "they" or a name may be a third person, so that
+  // feeling is dropped as whose-unknown, its memory's text carrying it.
+  owner: "owner", user: "owner", "the user": "owner", "the owner": "owner",
 };
 
 const BOOLEAN_WORDS: Readonly<Record<string, boolean>> = { true: true, yes: true, y: true, "1": true, false: false, no: false, n: false, "0": false };
@@ -921,17 +927,35 @@ function numberOf(v: unknown): number | null {
   return null;
 }
 
-/** A number field held to its range: read, clamped and said, or dropped and said. Null/absent pass as sent. */
+/**
+ * A number field held to its range (0-1, or -1-1 for valence). A number sent
+ * as text is read. Out of range is NOT clamped (review of #818: a salience of
+ * 7 clamped to 1 fed ranking at its maximum): a writer on a 0-10 or 0-100
+ * scale is read on it — 1 < n <= 10 as n/10, 10 < n <= 100 as n/100 (by size,
+ * the sign kept, for valence) — and echoed in `readAs`; anything else out of
+ * range, or a negative on a 0-1 field, is dropped and said. Null/absent pass.
+ */
 function readRanged(rec: Record<string, unknown>, key: string, lo: number, hi: number, notes: WriteNotes, field: string = key): void {
   const v = rec[key];
   if (v === undefined || v === null) return;
   const n = numberOf(v);
+  const range = `${String(lo)} to ${String(hi)}`;
   if (n === null) {
     delete rec[key];
-    notes.drop(field, "not-a-number", v, `${field} is a number from ${String(lo)} to ${String(hi)}; the memory was kept without it.`);
+    notes.drop(field, "not-a-number", v, `${field} is a number from ${range}; the memory was kept without it.`);
     return;
   }
-  const kept = Math.min(hi, Math.max(lo, n));
+  let kept: number | null = n;
+  if (n < lo || n > hi) {
+    const size = Math.abs(n);
+    const scaled = size > 1 && size <= 10 ? n / 10 : size > 10 && size <= 100 ? n / 100 : null;
+    kept = scaled !== null && scaled >= lo && scaled <= hi ? scaled : null;
+  }
+  if (kept === null) {
+    delete rec[key];
+    notes.drop(field, "out-of-range", v, `${field} is a number from ${range} (a score out of 10 or 100 is read as such); the memory was kept without it.`);
+    return;
+  }
   if (kept !== v) {
     rec[key] = kept;
     notes.read(field, v, kept);
@@ -1143,12 +1167,15 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
 
 /**
  * What the durable row may carry of a word nothing placed: the word itself
- * when it is one short word or two (what the thesaurus could grow by), else
- * only that it was a phrase — a longer value can be a sentence of the memory.
+ * when it is one word of plain lower-case letters, at most 20 (what the
+ * thesaurus could grow by), else only that it was a phrase — anything more
+ * can be a person's words.
  */
 export function missedWord(word: string): string {
   const form = feelingWordForm(word);
-  return /^[a-z][a-z'-]{0,29}(?: [a-z][a-z'-]{0,29})?$/u.test(form) && form.length <= 40 ? form : "(phrase)";
+  // ONE word of plain lower-case letters (review of #818): "owner: sarah's
+  // biopsy" must not put a person's words on a durable row.
+  return /^[a-z]{1,20}$/u.test(form) ? form : "(phrase)";
 }
 
 /** A list field sent as one item, or as the list. Undefined when it is neither. */
@@ -1458,12 +1485,13 @@ export function normalizeTraits(raw: unknown, notes: WriteNotes): Record<string,
  *
  *   1. the wheel itself and its aliases (`lookupWord`), then the thesaurus
  *      (`feelings-wheel.ts#FEELINGS_THESAURUS`) — whole value only;
- *   2. an inflection (`stemTerm`: "worrying" meets "worried") of a wheel,
- *      alias or thesaurus participle or a core, then a misspelling with the
- *      same first letter: for 6-7 letters only a typo's shape (two letters
- *      swapped, one doubled or undoubled), one edit from 8 letters, two from
- *      10 — single words only. A real word one letter from a feeling word
- *      ("better", "wired", "closed") is not a misspelling of it;
+ *   2. an inflection ("worrying" → worried: an "-ing" form of a participle or
+ *      a core, `BY_STEM`), then a misspelling by a TYPO's shape only, the
+ *      first letter kept (`slips`: two letters swapped, one doubled or
+ *      undoubled; from 9 letters one dropped or added; from 10, two slips) —
+ *      single words of 6 letters or more. Never a free substitution: a real
+ *      word one letter from a feeling word ("better", "homeless", "graceful")
+ *      is not a misspelling of it;
  *   3. the embedder, only when it is confident — that step needs a live
  *      embedder, so it is `meaningPlacer`, below.
  *
@@ -1527,16 +1555,32 @@ const KNOWN: readonly Known[] = (() => {
   return out.filter((k) => /^[a-z]+$/u.test(k.word));
 })();
 
+/** Every known single word, to its entry (a word under two cores keeps both, so `agreed` can refuse it). */
+const KNOWN_BY_WORD: ReadonlyMap<string, readonly Known[]> = (() => {
+  const out = new Map<string, Known[]>();
+  for (const k of KNOWN) {
+    const list = out.get(k.word) ?? [];
+    list.push(k);
+    out.set(k.word, list);
+  }
+  return out;
+})();
+
 /**
- * The words an inflection may meet: the participles ("worried", "unsettled":
- * "worrying" and "unsettling" mean them) and the seven cores ("calming"). Not
- * a bare verb-shaped word ("close", "open", "present", "cross", "alert"):
- * "closed", "opened" and "crossed" are ordinary words, not those feelings.
+ * An INFLECTION (2026-11-13, tightened in review): only an "-ing" form of a
+ * participle ON THE WHEEL ("worrying" → worried, "relieving" → relieved,
+ * "terrifying" → terrified), or of a core ("calming"). A bare word that merely
+ * shares a stem is an ordinary word in its own right ("wrong", "long", "sort",
+ * "focus", "correct", "please"); an "-ing" word whose stem is short ("moving",
+ * "boring") is too often one too; and a thesaurus participle's "-ing" can
+ * mean something else ("chilled" is calm, "chilling" is not; "concerning"
+ * means "about"). Those go through the thesaurus by name or not at all.
  */
 const BY_STEM: ReadonlyMap<string, readonly Known[]> = (() => {
   const out = new Map<string, Known[]>();
-  for (const k of KNOWN) {
-    if (!(k.word.endsWith("ed") || k.word.endsWith("ing") || isCoreEmotion(k.word))) continue;
+  for (const e of FEELINGS_WHEEL) {
+    const k: Known = { word: e.key, core: e.core };
+    if (!/^[a-z]+$/u.test(k.word) || !(k.word.endsWith("ed") || isCoreEmotion(k.word))) continue;
     const s = stemTerm(k.word);
     const list = out.get(s) ?? [];
     list.push(k);
@@ -1544,6 +1588,9 @@ const BY_STEM: ReadonlyMap<string, readonly Known[]> = (() => {
   }
   return out;
 })();
+
+/** The shortest stem an "-ing" form is read through (core names aside). */
+const INFLECTION_MIN_STEM = 5;
 
 /** One core all of these agree on, or null. */
 function agreed(list: readonly Known[]): CoreEmotion | null {
@@ -1559,35 +1606,51 @@ function prefixedOpposite(a: string, b: string): boolean {
   return false;
 }
 
+/** The shortest word a misspelling is looked for in; shorter words are too often real ones. */
+export const SPELLING_MIN_LETTERS = 6;
+/** From this length a slip may also drop or add any one letter, not only double or swap. */
+export const SPELLING_FREE_LETTER_FROM = 9;
+/** From this length two slips are allowed ("dissapointed": one s too many, one p too few). */
+export const SPELLING_TWO_SLIPS_FROM = 10;
+
+const LETTERS = "abcdefghijklmnopqrstuvwxyz";
+
 /**
- * The edit distance a misspelling may be from the word, by the word's length
- * (0: none). Under 8 letters only a TYPO's shape counts (`typoShaped`), never a
- * free edit: "better" is one letter from "bitter", "wired" from "tired",
- * "yucky" from "lucky", and each is a real word, not a slip.
+ * The words one TYPO away from `w`, by shape only — never a free
+ * substitution, the edit that turns one real word into another ("homeless"
+ * / "hopeless", "graceful" / "grateful"): two neighbouring letters swapped,
+ * a letter doubled or undoubled, and (long words only, `free`) one letter
+ * dropped or added INSIDE the word — never at its end, where a dropped or
+ * added letter is another form of the word ("frustrate", "fascinate").
  */
-export function spellingReach(length: number): number {
-  return length >= 10 ? 2 : length >= 6 ? 1 : 0;
+function slips(w: string, free: boolean): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i + 1 < w.length; i++) {
+    if (w[i] !== w[i + 1]) out.add(w.slice(0, i) + w[i + 1] + w[i] + w.slice(i + 2));
+    else out.add(w.slice(0, i) + w.slice(i + 1));
+  }
+  for (let i = 0; i < w.length; i++) out.add(w.slice(0, i + 1) + w[i] + w.slice(i + 1));
+  if (free) {
+    for (let i = 1; i < w.length - 1; i++) out.add(w.slice(0, i) + w.slice(i + 1));
+    for (let i = 1; i < w.length; i++) for (const c of LETTERS) out.add(w.slice(0, i) + c + w.slice(i));
+  }
+  out.delete(w);
+  return out;
 }
 
 /**
- * The slips a short word is allowed: two neighbouring letters swapped
- * ("lonley"), or a letter doubled or undoubled ("happpy", "hapy").
+ * Ordinary English words one slip from a feeling word, never read as a
+ * misspelling of it: found by running `/usr/share/dict/words` (and the
+ * review of #818's list) through the spelling step. Add to it when the
+ * dictionary run finds another.
  */
-function typoShaped(a: string, b: string): boolean {
-  if (a.length === b.length) {
-    const diff: number[] = [];
-    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i);
-    return diff.length === 2 && diff[1] === (diff[0] as number) + 1 && a[diff[0] as number] === b[diff[1] as number] && a[diff[1] as number] === b[diff[0] as number];
-  }
-  const [long, short] = a.length > b.length ? [a, b] : [b, a];
-  if (long.length !== short.length + 1) return false;
-  for (let i = 0; i < long.length; i++) {
-    if (long.slice(0, i) + long.slice(i + 1) === short) {
-      return (i > 0 && long[i] === long[i - 1]) || (i + 1 < long.length && long[i] === long[i + 1]);
-    }
-  }
-  return false;
-}
+const NOT_SLIPS: ReadonlySet<string> = new Set([
+  "sacred", "scarred", "dotting", "pinning", "thrusting", "insulated", "acknowledge", "determine", "appreciate", "recognize",
+  "affliction", "forgetting", "indigestion", "invitation", "irrigation", "conclusion", "confession", "concussion", "commission",
+  "comparison", "compulsion", "contribute", "homeless", "graceful", "interior", "better", "worse", "wired", "tried", "yucky",
+  "closed", "opened", "believed", "discussed", "demoted", "sorted", "focus", "wrong", "long", "sort", "correct", "moving",
+  "plea", "please", "interset", "regreet", "fiendship",
+]);
 
 /**
  * Steps 1 and 2: the core this word is placed on, how, and the word it
@@ -1601,58 +1664,35 @@ export function placeFeelingWord(word: string): Placement | null {
   if (onWheel !== undefined) return { core: onWheel.entry.core, by: "wheel", match: onWheel.entry.key };
   const listed = FEELINGS_THESAURUS.get(form);
   if (listed !== undefined) return { core: listed, by: "thesaurus", match: form };
-  if (feelingWordNegated(form) || !/^[a-z]+$/u.test(form)) return null;
-  const stemmed = BY_STEM.get(stemTerm(form));
-  if (stemmed !== undefined && stemmed.length > 0) {
-    const core = agreed(stemmed);
-    if (core !== null) return { core, by: "stem", match: (stemmed[0] as Known).word };
-    return null;
+  if (feelingWordNegated(form) || !/^[a-z]+$/u.test(form) || NOT_SLIPS.has(form)) return null;
+  if (form.endsWith("ing")) {
+    const stem = stemTerm(form);
+    const stemmed = (BY_STEM.get(stem) ?? []).filter((k) => isCoreEmotion(k.word) || stem.length >= INFLECTION_MIN_STEM);
+    if (stemmed.length > 0) {
+      const core = agreed(stemmed);
+      return core === null ? null : { core, by: "stem", match: (stemmed[0] as Known).word };
+    }
   }
-  const reach = spellingReach(form.length);
-  if (reach === 0) return null;
-  let best = Number.POSITIVE_INFINITY;
-  let near: Known[] = [];
-  for (const k of KNOWN) {
-    if (Math.abs(k.word.length - form.length) > reach) continue;
-    // A slip keeps the first letter ("believed" is not a slip for "relieved").
-    if (k.word[0] !== form[0]) continue;
-    if (prefixedOpposite(form, k.word)) continue;
-    if (form.length < 8 && !typoShaped(form, k.word)) continue;
-    const d = editDistance(form, k.word, reach);
-    if (d > reach) continue;
-    if (d < best) {
-      best = d;
-      near = [k];
-    } else if (d === best) near.push(k);
+  if (form.length < SPELLING_MIN_LETTERS) return null;
+  const first = slips(form, form.length >= SPELLING_FREE_LETTER_FROM);
+  const found = (cands: Iterable<string>): Known[] => {
+    const out: Known[] = [];
+    for (const c of cands) {
+      // A slip keeps the first letter ("believed" is not a slip for "relieved").
+      if (c[0] !== form[0] || prefixedOpposite(form, c)) continue;
+      out.push(...(KNOWN_BY_WORD.get(c) ?? []));
+    }
+    return out;
+  };
+  let near = found(first);
+  if (near.length === 0 && form.length >= SPELLING_TWO_SLIPS_FROM) {
+    const second = new Set<string>();
+    for (const c of slips(form, false)) for (const d of slips(c, false)) second.add(d);
+    near = found(second);
   }
   if (near.length === 0) return null;
   const core = agreed(near);
   return core === null ? null : { core, by: "spelling", match: (near[0] as Known).word };
-}
-
-/**
- * Edit distance with a swap of two neighbouring letters counted as one edit
- * (optimal string alignment: "lonley" is one from "lonely"), stopping early
- * once every path is past `cap` (it returns cap + 1 then).
- */
-function editDistance(a: string, b: string, cap: number): number {
-  let before: number[] = [];
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const row = [i];
-    let rowMin = i;
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let v = Math.min((prev[j] as number) + 1, (row[j - 1] as number) + 1, (prev[j - 1] as number) + cost);
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, (before[j - 2] as number) + 1);
-      row.push(v);
-      if (v < rowMin) rowMin = v;
-    }
-    if (rowMin > cap) return cap + 1;
-    before = prev;
-    prev = row;
-  }
-  return prev[b.length] as number;
 }
 
 // ── the embedder's step ─────────────────────────────────────────────────────
