@@ -877,18 +877,21 @@ Not built: true blockers raised until answered (point 4: deferred 11-09, no bloc
 
 **Still open's lines follow the raise schedule (the putty, 2026-11-13; owner-approved direction, lightly
 held).** `core/owner-waits.ts#laneHeld`, `#noteLaneShown`. **[M]** An open memory listed as one of "Still
-open"'s lines, on either wake road (the shaped `openSec`, the assembled `Self#assemble` threads lane), is
+open"'s lines, on every wake road (the shaped `openSec`, the assembled `Self#assemble` threads lane, and
+the published bundle `Self#buildWithLanes` composes at a boundary, delivered as it was), is
 a raise on the same record, latch and chain as above (`via: "lane"`): listed every wake of the day it is
 new, then only when the turn lane's steps let it through (3, 7, 14 lived days, no week floor: days 0, 3,
 10), then parked from day 24, counted in the wake's "N parked", listed parked by `recall "still open"`.
 Between steps it is not a line: the shaped road counts it in "N more open"; the assembled road counts it
 in the lane's more only beside a listed line (alone, the collapsed line would say "no room"). **[M]**
-Recorded by the host for a session's own wake (`Lifecycle#composeWake` → `Counterpart#noteStillOpenShown`),
-never a night's own run, never under observer; any session, attended or not (raised-today stays listed all
-that day). **[M]** Exempt: a dated item (its date's rule) and a core memory being reconsidered. One chain
+Recorded by the host for a session's own wake (`Lifecycle#composeWake` → `Counterpart#noteStillOpenShown`,
+from `WakeOutcome.stillOpenShown`), never a night's own run, a headless (agent) session or under observer:
+those follow the schedule but use none of it. Only a showing the schedule lets through is a step: a bundle
+composed on an earlier lived day that still lists a waiting item takes none. **[M]** Exempt: a dated item (its date's rule) and a core memory being reconsidered. One chain
 per item: a raise by the turn lane or the wake's mention counts here too. A revision starts it again.
-Nothing is closed or deleted; `carriesOpen`/`openCarry` are unchanged. No store-format change. Not
-covered: the published bundle delivered as-is when assembly declines.
+On the roads where `asked` items are lines (assembled, published), the wake's listing takes the day's latch
+and a step of the chain the turn lane reads. Nothing is closed or deleted; `carriesOpen`/`openCarry` are
+unchanged. No store-format change.
 
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test
