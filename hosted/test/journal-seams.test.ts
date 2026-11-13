@@ -77,6 +77,11 @@ describe("accounts by identity (JS1)", () => {
 
     // The email link's kind is not this door's.
     assert.throws(() => accounts.signUpWithIdentity({ kind: "email", value: "someone@example.com" }));
+    // Nor a spelling of it, nor a kind or value past the limits.
+    assert.throws(() => accounts.signUpWithIdentity({ kind: "Email", value: "someone@example.com" }));
+    assert.throws(() => accounts.signUpWithIdentity({ kind: "email ", value: "someone@example.com" }));
+    assert.throws(() => accounts.signUpWithIdentity({ kind: "a".repeat(65), value: "x" }));
+    assert.throws(() => accounts.signUpWithIdentity({ kind: "apple", value: "x".repeat(513) }));
     assert.throws(() => accounts.signUpWithIdentity({ kind: "apple", value: "" }));
 
     // A pending delete: the same person, no store to serve, a session only for the pending pages.

@@ -115,7 +115,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     redirects and the OAuth library's answers have it too (G1 L1). `includeSubDomains` on `app.counterparts.ai`
     covers only names under it, never the site at the apex or `www`.
 15a. **Another way in** (JS1, 2026-11-13): `Accounts.signUpWithIdentity` / `personByIdentity` make or find a person
-    by a non-email identity the caller has verified (not `email`, which stays the link's). It skips the spots (the
+    by a non-email identity the caller has verified (not `email`, which stays the link's). It skips the spots, though its people still count in `spots().people`, so on a control database shared with email sign-ups they use those up (the
     caller gates sign-up), returns a pending-delete person rather than making a second, and after an erase makes a
     new one. The email path is unchanged.
 

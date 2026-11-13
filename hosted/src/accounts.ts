@@ -744,14 +744,15 @@ export class Accounts {
    * a sign-up after an erase makes a new person. `state` says which.
    *
    * `email` is refused (thrown): that kind is the email link's, normalized and
-   * verified there. An empty kind or value, or one over 512 characters, too.
+   * verified there. So is a kind that isn't a short lowercase name (so no
+   * `Email`), and an empty value or one over 512 characters.
    * The value is the caller's to choose: a hash of a provider's id works the
    * same and keeps the raw id out of this database. The value is never
    * audited; a sign-in by it is (`login.identity`, the kind as detail).
    */
   signUpWithIdentity(input: { kind: string; value: string; timeZone?: unknown }): IdentitySignUp {
     const { kind, value } = input;
-    if (typeof kind !== "string" || kind.length === 0 || kind.length > 64 || kind === "email") throw new Error("signUpWithIdentity: kind is a short name other than 'email'");
+    if (typeof kind !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(kind) || kind === "email") throw new Error("signUpWithIdentity: kind is a short lowercase name (letters, digits, hyphens) other than 'email'");
     if (typeof value !== "string" || value.length === 0 || value.length > 512) throw new Error("signUpWithIdentity: value is 1 to 512 characters");
     return this.db.transaction((): IdentitySignUp => {
       const at = this.now();
