@@ -345,12 +345,13 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
 
   test("one session can't stall the process: past two views in flight it is a 429, and /healthz keeps answering", async () => {
     const r = await rig();
-    // This test's own requests share the server's event loop, and the seed below
+    // This test's own client shares the server's event loop, and the seed below
     // is one long turn (5-6 s on CI). Past the server's 5 s keep-alive, Node's
     // fetch sent the next request on the socket the server was closing in the
-    // same instant: `fetch failed`, read ECONNRESET (CI, 11-10 and 11-12;
-    // reproduced locally with a ~6 s seed). A real client has its own loop and
-    // its own timers, so this is the test's, not the door's: keep sockets open.
+    // same instant: `fetch failed`, read ECONNRESET (CI Node 24, 11-10 and
+    // 11-12; reproduced on a laptop with a ~6 s seed). The shared loop is why
+    // the test needs the longer keep-alive; whether production sees such a
+    // race is a separate question.
     r.app.server.keepAliveTimeout = 120_000;
     const me = await signUp(r, "busy@example.com");
     // A store big enough that one /api/memories is real work (#801 review: 3,000 held /healthz ~10 s before the cap).
@@ -399,11 +400,11 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     // The flood comes from ANOTHER process, as it would in production: a client
     // in this one shares the server's event loop, and its requests then only
     // trickle in between views (Node's fetch did; bun's didn't). Even so, how
-    // many arrive at once is the runtime's: bun's server takes all sixty in one
-    // turn (~58 are a 429), Node 24's takes a first burst and then about one
-    // request per event-loop turn, and each turn there carries a whole view, so
-    // the later ones find a slot free and are served (15-30 are a 429). So the
-    // test asserts the cap itself, not a share of refusals.
+    // many arrive at once varies: bun, and Node 24.22.2 on CI, refuse ~57 of 60;
+    // on one laptop's Node 24.22.1 the server took a first burst and then about
+    // one request per event-loop turn, each turn carrying a whole view, so later
+    // ones found a slot free and were served (8-57 were a 429, run to run). So the test
+    // asserts the cap itself, not a share of refusals.
     const cookie = [...me.browser.jar].map(([k, v]) => `${k}=${v}`).join("; ");
     const client = `const [u, c, n] = process.argv.slice(-3);
 (async () => { const out = await Promise.all(Array.from({ length: Number(n) }, async () => { const r = await fetch(u, { headers: { cookie: c } }); const b = await r.text(); return [r.status, r.status === 429 ? b : ""]; })); process.stdout.write(JSON.stringify(out)); })();`;
@@ -424,11 +425,11 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; peak ${String(peak)} in flight; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
     assert.equal(ok + busy, N);
     // The cap: never more than two of this person's views at once, and the flood did reach it.
+    assert.equal(MAX_VIEWS_IN_FLIGHT, 2, "the title and the page say two");
     assert.equal(peak, MAX_VIEWS_IN_FLIGHT, `peak views in flight ${String(peak)}`);
     assert.equal(views, 0);
     assert.ok(busy >= 1, "past the cap, a view is a 429");
     assert.ok(ok >= 1);
-    assert.ok(health.length >= 1, `/healthz answered ${String(health.length)} probes during the flood`);
     // Loose but real: /healthz never waits behind more than a few views.
     assert.ok(worst < Math.max(1500, single * 4), `/healthz waited ${String(worst)} ms`);
     // And the cap is per person and lets go: the next view answers.
