@@ -657,7 +657,7 @@ describe("review of #818", () => {
 
   test("8. energy words go unplaced; crisis and everyday words are placed; vague ones stay unplaced", () => {
     for (const w of ["tired", "exhausted", "drained", "sleepy", "weary", "fatigued", "fine", "okay", "busy", "bad"]) expect({ w, placed: placeFeelingWord(w) }).toEqual({ w, placed: null });
-    const cores: Record<string, string> = {
+    const cores: Record<string, CoreEmotion> = {
       suicidal: "sad", hopeless: "sad", abused: "sad", traumatized: "uneasy", triggered: "uneasy", unsafe: "uneasy", harassed: "angry",
       terrible: "sad", horrible: "sad", hurting: "sad", awful: "angry",
     };
