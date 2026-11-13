@@ -685,7 +685,8 @@ describe("the tool-description audit", () => {
     // claude.ai's own `scope` (2026-11-03) is held the same way.
     // claude.ai's own `delete_memory` (DIR1, 2026-11-10) the same way.
     for (const spec of [...TOOLS, WAKE, CLAUDE_AI_WAKE, CLAUDE_AI_SCOPE, CLAUDE_AI_DELETE]) {
-      expect(spec.privileges.length).toBeGreaterThan(0);
+      // Since trim PR 2 most tools serve no claim: every row is the engine's, audited the same.
+      expect(spec.privileges.length + (spec.engine ?? []).length).toBeGreaterThan(0);
       // The engine's rows too (2026-10-11): kept out of the description, never
       // out of this audit — a pointer nobody reads rots fastest.
       for (const privilege of [...spec.privileges, ...(spec.engine ?? [])]) {

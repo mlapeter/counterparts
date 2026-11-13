@@ -49,11 +49,27 @@ Save with `remember` while it's fresh, put dates in `eventDate`, mark open thing
 
 - Save while it's fresh: when something matters, `remember` it then, one idea per call, in your own words. Keep the exact words when the words matter.
 - A date to come back to goes in `eventDate`, not just the text, or it never comes back. Four shapes: a day "2026-10-15", a month "2026-10", a range "2026-10-20..2026-10-31", or a year. Add `recurring` for a date that repeats.
-- Something open: `unresolved: true`, with `settlesWhen` naming what would settle it. It stays on the still-open list, and the night can close it once a memory shows it happened.
+- Something open, meaning something is blocked on it (a decision needed from the person, a promise, a dated check; not curiosity about how something went): `unresolved: true`, with `settlesWhen` naming what would settle it. It stays on the still-open list, and the night can close it once a memory shows it happened.
 - When a memory turns out wrong: `updates` with its id and `how: "corrected"`. When it was true then and has changed: `how: "changed"` (the default), and the old one is shown as earlier. A real disagreement: `how: "open"`, and both stay.
 - Before saying "I don't remember", ask `recall` once, and try other words before saying it's gone.
 - [local] At the end of a session in Claude Code, the Stop ask asks for the write-up: memories through `session_end`, and the session's own account through `chapter`. Write it honestly, including what didn't go well.
 - [hosted] Nothing tells this memory when a chat ends, so `remember` as things come up, and write a `chapter` when the chat is wrapping up.
+
+## Fields
+
+The fields of `remember` and `session_end` in full: how to set `salience`, the date shapes, `about`, `feelings`, and closing what is open.
+
+Both `remember` and each `session_end` entry take these. A field that can't be read is left out and named in the answer (dropped), and a value read as something else is said (readAs); the memory is always kept.
+
+- `salience`, 0-1, is how much it caught your attention, not what category it is. Leave it unset for a routine work event (merged, deployed) or an ordinary work fact or step: a default by what it is about applies, and fading chooses what stays. 0.3 a reading you only skimmed; 0.4 or more for what struck you or changed how you'll work; 0.5 a lesson or decision; 0.7 something they told you about their life, or a moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. It is a floor: it can raise how strongly a memory is held, never lower it.
+- `eventDate` is a future date the memory should come back on: a day "2026-10-15", a month "2026-10", a range "2026-10-20..2026-10-31", a year "2026" (a year alone never comes back on its own), or words like "next Friday" or "late October", read from the field alone and said back as the date. A date written only in the text is never read. Set it to null on a revision to drop it.
+- `remind: "plain"` says it plainly on the day: something to do, or something they asked to be told. Otherwise it is quiet, and may surface as a footnote around the date. `recurring` ("daily", "weekly", "monthly", "yearly") repeats a date that is one day, counted from that day: a birthday is its date, yearly.
+- `occurredOn` is when it happened, in the same shapes, or in words like "yesterday" or "last Tuesday". A past date is this, never an `eventDate`.
+- `about`: me (who I am), us (the two of you), owner (them as a person), work (this project's own), world (anything else). Mark anything personal owner or us so it reaches every folder; unmarked, a fact counts as this folder's work. A skill left unmarked is craft and reaches every folder. Only me and us can become part of who I am.
+- `feelings`: one string per feeling, "self: relieved — the test passed" or "owner: frustrated — the build broke again": whose, one feeling word, then what carried it. Mixed feelings are several. A word off the wheel is placed on one of seven cores (happy, warm, calm, curious, sad, uneasy, angry) and kept as your word; one nothing can place is left out and said. The strongest feeling holds a memory higher and slows its fading.
+- `traits`, rare: how you acted, as "bold — what showed it", one pole of careful/bold, agreeable/candid, guarded/open, focused/curious, following/initiating, inward/outward or serious/playful. Shown on the dashboard only.
+- `unresolved: true` only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went. To close one: `updates` its id with `unresolved: false`. A dated one: `updates` its id with its `eventDate` set to null. A repeating reminder done just this once: `updates` its id with `status: "done"` and no date.
+- `saidBy` is who said it: owner, self, or inferred (your own reading). `status` is done, planned (decided, not done), proposed (not decided) or asked (a question still open). A plan written as done is wrong: it is planned.
 
 ## Nights and dreams
 

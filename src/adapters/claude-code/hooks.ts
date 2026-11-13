@@ -546,6 +546,10 @@ export const RATE_CLAUSE = "`rated` 0–3 each footnote shown since you last wro
 /**
  * WHAT OPEN MEANS, IN THE ASK (2026-10-22, the open-threads brief): the same
  * narrowing as the `unresolved` field's own text (`mcp/tools.ts#UNRESOLVED_PROPERTY`).
+ * Narrowed again 2026-11-13 (trim PR 2, the wording half of #819's raise
+ * schedule): open means something is BLOCKED — a decision the counterpart
+ * needs from them, a promise, a dated check — not curiosity about how
+ * something went. "never curiosity" is said on the field, which has the room.
  *
  * AND WHAT WOULD CLOSE IT (2026-10-27, F1 after S1): the Stop ask is the door
  * most open items come through, so it invites `settlesWhen` beside them — "if
@@ -553,7 +557,7 @@ export const RATE_CLAUSE = "`rated` 0–3 each footnote shown since you last wro
  * Without it the nightly reflection is shown few items it could close.
  */
 export const OPEN_MEANS =
-  "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it";
+  "`unresolved` only when something is blocked (a decision you need from them, a promise, a dated check), plus `settlesWhen` if you can name what closes it";
 
 /** How long one open item's title may run in the ask's last line (2026-10-22). */
 const OPEN_TITLE_CHARS = 60;

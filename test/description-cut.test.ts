@@ -46,7 +46,10 @@ function served(desktop: boolean | string): Map<string, string> {
 }
 
 describe("tool descriptions, as a host that serves only the first 2,048 characters shows them", () => {
-  test("every tool's summary, When: line and each Do NOT line sit whole inside the cut, before the guarantees", () => {
+  // TRIM PR 2 (2026-11-13): every tool but `recall` serves no guarantees list on any host — each
+  // claim is an engine row, still audited (`mcp.test.ts`) — so the whole description is what must fit.
+  // `recall` keeps its list until trim PR 3, and its call-critical text still leads it.
+  test("every tool's summary, When: line and each Do NOT line sit whole inside the cut; only recall serves a guarantees list, after them", () => {
     const failures: string[] = [];
     for (const [desktop, specs] of [
       [false, TOOLS],
@@ -57,11 +60,13 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       for (const spec of specs as readonly ToolSpec[]) {
         const description = descriptions.get(spec.name) ?? "";
         expect(description).toBe(renderDescription(spec));
-        // claude.ai serves no claims (DIR1, `tools.ts#withClaimsAsEngine`): no list, so the whole
-        // description is what must fit; every other host leads its list with the rest.
-        const list = desktop === CLAUDE_AI_HOST ? description.length + 1 : description.indexOf(GUARANTEES);
-        if (desktop === CLAUDE_AI_HOST) expect(description).not.toContain(GUARANTEES);
-        else expect(list).toBeGreaterThan(0);
+        const listed = desktop !== CLAUDE_AI_HOST && spec.name === "recall";
+        const list = listed ? description.indexOf(GUARANTEES) : description.length + 1;
+        if (listed) expect(list).toBeGreaterThan(0);
+        else {
+          expect(description).not.toContain(GUARANTEES);
+          if (description.length > HOST_DESCRIPTION_CAP) failures.push(`${spec.name}: ${String(description.length)} characters, past the cut`);
+        }
         if (!description.startsWith(spec.summary)) failures.push(`${spec.name}: the summary does not open the description`);
         for (const part of [`When: ${spec.admission}`, ...spec.negativeExamples]) {
           const end = endOf(description, part);
@@ -75,54 +80,17 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
   });
 
   /**
-   * The claims each tool leads its guarantees with because they say how to
-   * call it — each named by how it begins, and each held whole inside the cut.
-   * Not listed: `status`, `scope` and `wake`, which are served whole; `dream`,
-   * where no claim fits in the 179 characters left (its `begin` prompt states
-   * the limits a dreamer needs); and the rest of every list, which a host that
-   * loads the tool up front cuts.
+   * The claims `recall` leads its guarantees with because they say how to call
+   * it — each named by how it begins, and each held whole inside the cut. Since
+   * trim PR 2 the other tools serve none (their claims are engine rows).
    */
   const LEADS: Readonly<Record<string, readonly string[]>> = {
-    // THE PIN MOVED (2026-10-10, Group 1c). 01 C1's summary, admission and
-    // negatives, verbatim, plus f8's "in the moment, as things catch your
-    // attention", take 1,387 characters before the list (951 before), so three
-    // how-to-call claims fit, not six. The three that left are each said on a
-    // field the host serves whole: the default floor on `salience` ("A floor:
-    // unset, a default by what it is about applies"), the dimensions on their
-    // own fields, and a stub is refused by name when it is sent. Decided by
-    // g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
-    // the brief's words are verbatim unless a measured limit forces a change,
-    // and the limit here binds the privileges, not the words that invite.
-    remember: ["`updates` is a FIELD", "`eventDate` is a FIELD", "A salience you claim is a FLOOR"],
     // The faded line joined the cut on 2026-10-10 (inline faded matches): a
     // model that reads only the start must know a faded result is shown, labeled.
     recall: ["A question needs mode", "A handle expands exactly that memory", "Pass ids to read those memories whole", "In facts mode a faded match"],
-    session_end: [
-      "It is bound to ONE session",
-      "`updates` is a FIELD on an entry",
-      "A salience you claim is a floor",
-      "An entry that claims no salience",
-      // "An EMPTY `memories` array is a real answer" left the cut on
-      // 2026-10-10 (the head grew from 811 to 1,088 with 01 C1's text); the
-      // `memories` field says it, served whole: "`[]` only when nothing
-      // happened since you last wrote".
-    ],
-    chapter: [
-      "It is bound to ONE session exactly as `session_end` is",
-      "The chapter number comes back from what was actually WRITTEN",
-      "A second call inside the same chapter continues it",
-      "Each chapter has ONE summary memory, written once",
-      "`about` is carried to this chapter's summary",
-    ],
-    self_page: ["It writes ONE row, kept with its versions"],
-    reflect: [
-      "It is bound to ONE session as `dream` is",
-      "It is shown only what could surface in this session anyway",
-      "`settle` settles two memories it was shown",
-    ],
   };
 
-  test("each tool's how-to-call claims lead its guarantees, whole inside the cut", () => {
+  test("recall's how-to-call claims lead its guarantees, whole inside the cut; no other tool serves a claim", () => {
     const failures: string[] = [];
     for (const [name, leads] of Object.entries(LEADS)) {
       const spec = TOOLS.find((t) => t.name === name);
@@ -141,17 +109,22 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       }
     }
     expect(failures).toEqual([]);
+    for (const spec of [...TOOLS, ...DESKTOP_TOOLS, ...CLAUDE_AI_TOOLS]) {
+      if (spec.name !== "recall") expect([spec.name, spec.privileges]).toEqual([spec.name, []]);
+    }
   });
 
-  // Review of #751 (TC1): `saidBy: owner` is the plumbing gate's exemption, so the sentence that says
-  // `saidBy` is a field to fill stays inside the cut with the plumbing Do NOT before it.
-  test("session_end's fields sentence (occurredOn, saidBy, status) ends inside the cut on every host", () => {
-    const sentence = "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text.";
-    // Not claude.ai's since DIR1: it serves no claims, and the entry's `saidBy` field is there.
-    for (const desktop of [false, true]) {
-      const end = endOf(served(desktop).get("session_end") ?? "", sentence);
-      expect(end).toBeGreaterThan(0);
-      expect(end).toBeLessThanOrEqual(HOST_DESCRIPTION_CAP);
+  // Review of #751 (TC1): `saidBy: owner` is the plumbing gate's exemption. Since trim PR 2 the
+  // claim that said `saidBy` is a field is an engine row; the entry publishes the field itself, on
+  // every host, beside the plumbing Do NOT.
+  test("session_end's entry publishes saidBy (and occurredOn, status), and the plumbing Do NOT is served, on every host", () => {
+    for (const host of [false, true, CLAUDE_AI_HOST]) {
+      const def = toolDefinitions(host).find((t) => t["name"] === "session_end")!;
+      const entry = (def["inputSchema"] as { properties: { memories: { items: { properties: Record<string, { enum?: string[] }> } } } }).properties.memories.items.properties;
+      expect(entry["saidBy"]?.enum).toEqual(["owner", "self", "inferred"]);
+      expect(entry["occurredOn"]).toBeDefined();
+      expect(entry["status"]?.enum).toContain("planned");
+      expect(String(def["description"])).toContain("Do NOT save refused calls unless the person raised it.");
     }
   });
 
@@ -167,20 +140,18 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     }
   });
 
-  // The chapter wording (2026-10-11): a diary of what happened, the details
-  // kept, lessons left to the nightly reflection. The `text` field is served
-  // whole; the summary and the Do NOT line sit inside the cut (held above).
+  // The chapter wording (2026-10-11; shortened in trim PR 2): a diary of what
+  // happened, the details kept, lessons left to the nightly reflection.
   test("chapter asks for a diary of what happened and leaves lessons to the nightly reflection", () => {
     const spec = TOOLS.find((t) => t.name === "chapter")!;
     const text = String((spec.inputSchema["properties"] as Record<string, { description: string }>)["text"]!.description);
     for (const phrase of [
-      "the way a person keeps a diary of their day",
+      "like a diary",
       "what was said (exact words when they matter)",
       "what was decided and why",
-      "Keep a list, a table or a pasted text word for word when its specifics matter.",
-      "Leave out what the repo, the PR or the logs already hold",
-      "lessons and patterns belong to the nightly reflection",
-      "a quiet hour is a few lines",
+      "Skip what the repo or logs hold",
+      "lessons are the night's",
+      "A quiet hour is a few lines",
     ]) {
       expect(text).toContain(phrase);
     }
@@ -194,8 +165,9 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
   /**
    * THE LENGTHS, RECORDED. When this fails because a description changed,
    * update the numbers: the diff is the record of the growth. `beforeList` is
-   * the summary, the When: line and the Do NOT lines; past 2,048 in `total`, the
-   * tail is what a host that loads the tool up front cuts.
+   * the summary, the When: line and the Do NOT lines (-1: no list, the whole
+   * description is that); past 2,048 in `total`, the tail is what a host that
+   * loads the tool up front cuts.
    */
   test("each description's length is recorded, so a change shows in review", () => {
     const lengths = Object.fromEntries(
@@ -207,21 +179,11 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       }),
     );
     expect(lengths).toEqual({
-      // `note` became `remember` on 2026-10-10 (Group 1c, 01 C1's text): the
-      // head grew from 951 to 1,387 and session_end's from 811 to 1,088, both
-      // well inside the cut with their leading claims.
-      // +227 on 2026-10-11 (about-marks): the `remark` claim, last in the
-      // list, past the cut; the field's own description is served whole.
-      // THE TRIM (2026-10-11, the context-trims lane): the claims that change
-      // nothing the model writes or calls moved to each tool's `engine` rows,
-      // audited and not served — remember 5,839 → 2,533, recall 6,163 → 4,645,
-      // session_end 7,825 → 2,485, chapter 2,417 → 1,778 (now whole inside the
-      // cut). The heads are untouched.
-      remember: { total: 2533, beforeList: 1387 },
-      // session_end and chapter grew by 305 each on 2026-10-11: the `drewOn`
-      // claim, last in each list (an engine row since the trim; the field says it).
-      // −39 on 2026-10-21 (confidential memories removed): "with the same
-      // confidentiality boundary" out of the ids claim.
+      // TRIM PR 2 (2026-11-13, the tool-trim design §7): every claim but recall's an engine row,
+      // the words shortened — remember 2,533 → 741, status 1,289 → 240, session_end 2,540 → 602,
+      // chapter 1,980 → 531, scope 1,795 → 414, self_page 4,909 → 720, dream 3,721 → 777,
+      // reflect 3,704 → 764, meet 459 → 208, wake 1,963 → 384. Recall untouched (PR 3).
+      remember: { total: 741, beforeList: -1 },
       // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
       // the claims tightened to fit the 4,096 cut, the journal claim an engine
       // row (each answer glosses a chapter itself). The head is untouched.
@@ -229,33 +191,16 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // words, reminder dates and the "also due" list; the line claim says "due".
       // +11 on the review of #817: "today or a window ahead", "with topic words".
       recall: { total: 3954, beforeList: 1200 },
-      // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
-      status: { total: 1289, beforeList: 501 },
-      // +55 on 2026-11-04 (TC1): a short Do NOT on refused calls; the whole rule is on the entry's `content`.
-      session_end: { total: 2540, beforeList: 1143 },
-      // chapter +33 on 2026-10-11 (chapter wording): "a diary of what
-      // happened" in the summary and the diary-vs-log Do NOT line. The
-      // `about` claim, last of its leads, ends at 1,778, the description's end.
-      // +202 on 2026-10-15 (chapter summaries): the summary claim replaces the
-      // ingestion one; the `about` claim still ends inside the cut, at 1,980.
-      chapter: { total: 1980, beforeList: 761 },
-      // scope +281 on 2026-10-28 (U1b): `updates` alone, in the summary and its claim.
-      scope: { total: 1795, beforeList: 825 },
-      // +63 on 2026-10-20 (the nightly writers held to the room): the wake
-      // claim says a page past the room with a short version shows it. Past
-      // the list's start; the head is untouched.
-      self_page: { total: 4909, beforeList: 1772 },
-      // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
-      // dream −58 and reflect −16 on 2026-10-21 (confidential memories removed):
-      // the bundle claim's and the self-close claim's confidentiality words.
-      dream: { total: 3721, beforeList: 1774 },
-      // reflect +382 on 2026-10-21 (lane C2): the beliefs claim, after the list's start.
-      // +5 on 2026-11-04 (TC1): `told` only for a share your own `launch` handed back; a carried one is marked as it arrives.
-      reflect: { total: 3704, beforeList: 1491 },
+      status: { total: 240, beforeList: -1 },
+      session_end: { total: 602, beforeList: -1 },
+      chapter: { total: 531, beforeList: -1 },
+      scope: { total: 414, beforeList: -1 },
+      self_page: { total: 720, beforeList: -1 },
+      dream: { total: 777, beforeList: -1 },
+      reflect: { total: 764, beforeList: -1 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
-      meet: { total: 459, beforeList: 210 },
-      // +5 on 2026-10-30 (WK1): "still open and coming up" where "nearby and arriving" was.
-      wake: { total: 1963, beforeList: 1234 },
+      meet: { total: 208, beforeList: -1 },
+      wake: { total: 384, beforeList: -1 },
     });
   });
 });

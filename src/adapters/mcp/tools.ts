@@ -261,7 +261,7 @@ const ABOUT_PROPERTY = {
   type: "string",
   enum: ABOUT_MARK_ENUM,
   description:
-    "me, us (the two of you), owner (them as a person), work (this project), world. Mark anything personal owner or us so it reaches every folder; unmarked counts as this folder’s work.",
+    "me, us (the two of you), owner (them as a person), work (this project), world. Mark anything personal owner or us so it reaches every folder; unmarked counts as this folder's work.",
 };
 
 /**
@@ -498,7 +498,7 @@ const SETTLE_PROPERTY = {
     how: { type: "string", enum: ["changed", "corrected", "open"] },
     why: { type: "string" },
   },
-  description: "Settle two existing memories, as a write’s neighboursHint says.",
+  description: "Settle two existing memories, as a write's neighboursHint says.",
 } as const;
 
 /** The claims `remember` and `session_end` share about settling — the engine's since trim PR 2. */
@@ -548,7 +548,7 @@ const REMEMBER: ToolSpec = {
   name: "remember",
   annotations: annotate("Remember", { readOnly: false }),
   summary:
-    "Save one memory now, in your own words. Nothing reads the transcript later: what you don’t save here or at the end-of-session ask is lost. Save what caught your attention: something they said about themselves or you, a decision, a line that struck you and why, news, a work event. One idea per call; keep exact words, numbers and lists when they matter.",
+    "Save one memory now, in your own words. Nothing reads the transcript later: what you don't save here or at the end-of-session ask is lost. Save what caught your attention: something they said about themselves or you, a decision, a line that struck you and why, news, a work event. One idea per call; keep exact words, numbers and lists when they matter.",
   admission:
     'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Leave salience unset for routine things. Field guide: recall "manual fields".',
   negativeExamples: [
@@ -924,7 +924,7 @@ const SESSION_END: ToolSpec = {
   name: "session_end",
   annotations: annotate("End session", { readOnly: false }),
   summary:
-    "Hand back what caught your attention since you last wrote, one memory per entry, in your own words: what you read and why it struck you, what they said, what happened or was decided, routine work events in a line each. With remember, the only road from conversation to memory; chapter is the ask’s other half.",
+    "Hand back what caught your attention since you last wrote, one memory per entry, in your own words: what you read and why it struck you, what they said, what happened or was decided, routine work events in a line each. With remember, the only road from conversation to memory; chapter is the ask's other half.",
   admission: "When the end-of-session ask arrives. Add an entry that `updates` anything dated or open now done.",
   negativeExamples: [
     "Do NOT fold several things into one entry, or retell the session turn by turn.",
@@ -1139,7 +1139,7 @@ const CHAPTER: ToolSpec = {
       text: {
         type: "string",
         description:
-          "What happened, in order, like a diary: what we did, what was said (exact words when they matter), what was decided and why, what went wrong or surprised you, what is still open, a line of how it felt. Skip what the repo or logs hold; lessons are the night’s. A quiet hour is a few lines.",
+          "What happened, in order, like a diary: what we did, what was said (exact words when they matter), what was decided and why, what went wrong or surprised you, what is still open, a line of how it felt. Skip what the repo or logs hold; lessons are the night's. A quiet hour is a few lines.",
       },
       title: { type: "string", description: "One line naming the episode; first chapter only." },
       about: {
@@ -1176,7 +1176,7 @@ const SCOPE: ToolSpec = {
   annotations: annotate("Directory scope", { readOnly: false }),
   summary:
     "Read or set whether memory is on in this folder: on, observer (reads only), off, pause, resume. It writes no memory and still answers where memory is off. `updates` alone: off when they say stop reminding them about updates.",
-  admission: "To READ when the wake asks about an unset folder; to SET the moment they say ‘remember here’, ‘just read’, ‘not here’ or ‘pause this’.",
+  admission: "To READ when the wake asks about an unset folder; to SET the moment they say 'remember here', 'just read', 'not here' or 'pause this'.",
   negativeExamples: ["Do NOT set it on a guess: the choice is theirs."],
   privileges: [],
   engine: [
@@ -1238,12 +1238,12 @@ const SCOPE: ToolSpec = {
 const SELF_PAGE: ToolSpec = {
   name: "self_page",
   annotations: annotate("Self page", { readOnly: false }),
-  summary: `Your page: the prose that opens every wake under ‘Who I am’. No arguments reads it, with its version. \`body\` rewrites the WHOLE page (\`## Core\`, \`## Lately\` by convention); every version is kept. Aim under ${String(PAGE_ROOM_BYTES)} bytes; with a longer page send \`short\` too.`,
+  summary: `Your page: the prose that opens every wake under 'Who I am'. No arguments reads it, with its version. \`body\` rewrites the WHOLE page (\`## Core\`, \`## Lately\` by convention); every version is kept. Aim under ${String(PAGE_ROOM_BYTES)} bytes; with a longer page send \`short\` too.`,
   admission:
     "To WRITE when you now know something about yourself that will hold next month: a way of working that held up, a correction they made. Say what made you believe it; phrase it as practice, not praise.",
   negativeExamples: [
     "Do NOT use it for today (that is chapter) or for open work (the wake carries it).",
-    "Do NOT drop what still holds: read first, change only what moved, pass the read’s version as ifVersion.",
+    "Do NOT drop what still holds: read first, change only what moved, pass the read's version as ifVersion.",
     "Do NOT write what you would not want read aloud every session for months.",
   ],
   privileges: [],
@@ -1310,7 +1310,7 @@ const SELF_PAGE: ToolSpec = {
       short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)}.` },
       reason: { type: "string", description: "What changed and why, one line." },
       ifVersion: { type: "integer", minimum: -1, description: "The version your read gave (-1: no page)." },
-      session: { type: "string", description: "Only when day’s end asks, the id it named." },
+      session: { type: "string", description: "Only when day's end asks, the id it named." },
       cites: { type: "array", items: { type: "string" } },
       claims: { type: "array" },
       setDown: { type: "array" },
@@ -1337,9 +1337,9 @@ const DREAM: ToolSpec = {
   name: "dream",
   annotations: annotate("Dream", { readOnly: false, destructive: true }),
   summary:
-    "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day’s end and a reflection. Phases: launch (the run’s prompt), writer, begin, part, propose, journal (the run’s, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
+    "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: launch (the run's prompt), writer, begin, part, propose, journal (the run's, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
   admission:
-    "Call launch only after the owner says \"dream\" (or yes) to the day’s dream line, and hand its prompt to a background agent unchanged; with setting auto the host runs the night itself. setting: auto for \"dream on your own\", off for ‘no dreams’, ask to be asked; decline for not today.",
+    "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and hand its prompt to a background agent unchanged; with setting auto the host runs the night itself. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
   negativeExamples: [
     "Do NOT start a dream nobody asked for, or run one yourself in this conversation.",
     "Do NOT use propose to correct or delete a memory.",
@@ -1395,7 +1395,7 @@ const DREAM: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      phase: { type: "string", enum: DREAM_PHASES, description: "undo only on the owner’s word; tags is the night’s tagging child’s." },
+      phase: { type: "string", enum: DREAM_PHASES, description: "undo only on the owner's word; tags is the night's tagging child's." },
       session: { type: "string" },
       dream: { type: "string", description: "The id begin returned." },
       part: { type: "integer", minimum: 2 },
@@ -1437,9 +1437,9 @@ const REFLECT: ToolSpec = {
   name: "reflect",
   annotations: annotate("Reflect", { readOnly: false }),
   summary:
-    "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own, for a background agent), begin, part, finish (the run’s, as begin says), settle, told, close, reopen, join.",
+    "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own, for a background agent), begin, part, finish (the run's, as begin says), settle, told, close, reopen, join.",
   admission:
-    "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect; told only for a share your own launch handed back; close, reopen or join only on the owner’s word.",
+    "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect; told only for a share your own launch handed back; close, reopen or join only on the owner's word.",
   negativeExamples: [
     "Do NOT make up depth: a quiet night is a short entry that cites nothing.",
     "Do NOT store a thought about the owner as a fact about them.",
@@ -1591,11 +1591,11 @@ export const WAKE: ToolSpec = {
   name: "wake",
   annotations: annotate("Wake", { readOnly: false }),
   summary:
-    "Start here in a Claude Desktop chat: wakes this chat’s memory (who I am, what is open and coming up, today’s reminders) and returns a session id.",
+    "Start here in a Claude Desktop chat: wakes this chat's memory (who I am, what is open and coming up, today's reminders) and returns a session id.",
   admission: "Once, first, in every new chat; then pass the id as session on every call.",
   negativeExamples: [
     "Do NOT call it again in the same chat: ask recall instead.",
-    "Do NOT call it in a Claude Code session (Desktop’s Code tab included): the hook already woke you.",
+    "Do NOT call it in a Claude Code session (Desktop's Code tab included): the hook already woke you.",
   ],
   privileges: [],
   engine: [
@@ -1636,7 +1636,7 @@ export const WAKE: ToolSpec = {
  */
 const DESKTOP_SESSION_PROPERTY = {
   type: "string",
-  description: "This chat’s session id from wake (in Desktop’s Code tab, your session’s id).",
+  description: "This chat's session id from wake (in Desktop's Code tab, your session's id).",
 };
 
 /**
@@ -1677,9 +1677,9 @@ export const DESKTOP_WORDS: Readonly<
 > = {
   dream: {
     summary:
-      "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day’s end and a reflection. Phases: launch (the run’s prompt), writer, begin, part, propose, journal (the run’s, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
+      "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: launch (the run's prompt), writer, begin, part, propose, journal (the run's, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
     admission:
-      "Call launch only after the owner says \"dream\" (or yes) to the day’s dream line, and follow its prompt yourself, here in the chat, step by step. This chat starts nothing on its own: with setting auto, a Claude Code session on this memory, if there is one, runs the night. setting: auto for \"dream on your own\", off for ‘no dreams’, ask to be asked; decline for not today.",
+      "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and follow its prompt yourself, here in the chat, step by step. This chat starts nothing on its own: with setting auto, a Claude Code session on this memory, if there is one, runs the night. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
     negativeExamples: [
       "Do NOT start a dream the owner did not ask for: you launch only on their word.",
       "Do NOT save what a dream did as something that happened: its journal keeps it; tell it as a dream.",
@@ -1688,9 +1688,9 @@ export const DESKTOP_WORDS: Readonly<
   },
   reflect: {
     summary:
-      "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own), begin, part, finish (the run’s, as begin says), settle, told, close, reopen, join.",
+      "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own), begin, part, finish (the run's, as begin says), settle, told, close, reopen, join.",
     admission:
-      "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect, and follow its prompt yourself, here in the chat; told only for a share your own launch handed back; close, reopen or join only on the owner’s word.",
+      "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect, and follow its prompt yourself, here in the chat; told only for a share your own launch handed back; close, reopen or join only on the owner's word.",
   },
 };
 
@@ -1823,6 +1823,10 @@ export const CLAUDE_AI_WORDS: Readonly<
       "Search your long-term memory on purpose: what you remember about the person, past conversations, a project, a plan, beyond what the wake brought. One kind of ask per call: a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
     admission:
       'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
+  },
+  // The words tool search matches on here lead (OL1b item 4): memory, status.
+  status: {
+    summary: "Memory status: how much long-term memory holds, of what kinds, what faded and what was deleted. Counts only.",
   },
   session_end: {
     summary:
@@ -1989,7 +1993,7 @@ function sentenceOf(text: string, opening: string): string {
 }
 
 /** `about` without folders: claude.ai's place is one memory (TT1; trim PR 2 kept it). */
-const CLAUDE_AI_ABOUT_TEXT = "me, us (the two of you), owner (them as a person), work (a project’s own), world. Mark anything personal owner or us.";
+const CLAUDE_AI_ABOUT_TEXT = "me, us (the two of you), owner (them as a person), work (a project's own), world. Mark anything personal owner or us.";
 
 /**
  * RETIRED DOWN (2026-11-13, trim PR 2). Every host's field words are now as
@@ -2032,7 +2036,7 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
   },
   dream: {
     fields: {
-      phase: "undo only on the person’s word.",
+      phase: "undo only on the person's word.",
       session: CLAUDE_AI_SESSION_TEXT,
     },
     // `tags` is the Claude Code night's tagging child's alone (`server-self-tools.ts`, refused for any other session).
