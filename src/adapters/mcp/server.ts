@@ -327,8 +327,8 @@ import {
   readFeelingsLoose,
   readReminderLoose,
   readTraitsLoose,
-} from "./server-normalize.js";
-import type { NormalizeContext } from "./server-normalize.js";
+} from "./server-args.js";
+import type { NormalizeContext } from "./server-args.js";
 import * as sessionEndPart from "./server-session-end.js";
 import * as selfTools from "./server-self-tools.js";
 
@@ -1834,7 +1834,7 @@ export class McpServer {
   private async rememberTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("remember");
     // FAIL OPEN (2026-11-13): the call is cleaned BEFORE any reader sees it
-    // (`server-normalize.ts`), so an optional field that cannot be read is
+    // (`server-args.ts#normalizeMemoryFields`), so an optional field that cannot be read is
     // dropped and said, never the memory; what was dropped or read as
     // something else rides out on the answer, whatever the answer is.
     const notes = new WriteNotes();
@@ -1986,7 +1986,7 @@ export class McpServer {
     if (typeof text !== "string" || text.trim().length === 0) {
       return this.refuse("remember", "text-required", {});
     }
-    // The cleaning already read these (`server-normalize.ts`); what is still
+    // The cleaning already read these (`server-args.ts#normalizeMemoryFields`); what is still
     // unusable here is dropped and said, never a refusal (2026-11-13).
     let salience = args["salience"] === null ? undefined : args["salience"];
     if (salience !== undefined && (typeof salience !== "number" || !Number.isFinite(salience) || salience < 0 || salience > 1)) {

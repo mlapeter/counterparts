@@ -33,7 +33,7 @@ import {
   readFeelingsLoose,
   readReminderLoose,
   readTraitsLoose,
-} from "./server-normalize.js";
+} from "./server-args.js";
 import type { FeelingsRead, ReminderRead, AboutRead, TraitsRead, FactsRead, TagsRead } from "./server-args.js";
 import type { McpServer } from "./server.js";
 
@@ -265,7 +265,7 @@ export async function depositEntries(
   const factsOf: FactsRead[] = [];
   const tagsOf: TagsRead[] = [];
   // FAIL OPEN (2026-11-13): each entry is cleaned before any reader sees it
-  // (`server-normalize.ts`). An optional field that cannot be read is dropped
+  // (`server-args.ts#normalizeMemoryFields`). An optional field that cannot be read is dropped
   // and said on THAT entry's outcome; the entry itself is refused only for
   // what is wrong with its content (none, a stub, a duplicate, a credential).
   const notesOf: WriteNotes[] = [];

@@ -595,21 +595,21 @@ keeps a done row dated today or earlier out of Coming up whichever way it was wr
 
 `remember` and `session_end` are the only road from conversation to memory, so an optional
 field never costs the memory. **[M]** Each `remember` call and each `session_end` entry
-(write-ups included) is cleaned before any reader sees it (`server-normalize.ts`):
+(write-ups included) is cleaned before any reader sees it (`server-args.ts#normalizeMemoryFields`):
 - **Kept always:** the content. The content-level refusals stand: no text, the stub floor,
   a duplicate, a credential alone, a size limit.
 - **Read and said** (`readAs: [{field, sent, readAs}]`): enum synonyms for kind, how, remind,
   recurring, about, saidBy and status; `text` and `content` as one field; numbers sent as
   text; numbers out of range, clamped; `eventDate` and `occurredOn` written as words
   ("next Friday", "Oct 15", "late October", "in two weeks", "yesterday"), read by
-  `core/loose-date.ts` against the server's day in the store's zone, the field's whole value
+  `core/time.ts#readLooseDate` against the server's day in the store's zone, the field's whole value
   only (never a date out of the memory's text); `remove` given as an id; trait pole words
   ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self: relieved
   — the test passed"; whose defaults to self) or one string where the list goes; a session_end
   entry sent as a string, as that memory.
 - **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
-  order, the thesaurus (`core/feelings-thesaurus.ts`), an inflection or a misspelling of a
-  wheel or thesaurus word (`core/feelings-place.ts`), or the embedder when one is live and
+  order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an inflection or a misspelling of a
+  wheel or thesaurus word (`server-args.ts#placeFeelingWord`), or the embedder when one is live and
   sure (cosine ≥ 0.60 to a core's centroid and 0.15 ahead of the runner-up). The writer's
   word is kept as theirs (`other` + `other_word`). Never a guessed core.
 - **Dropped and said** (`dropped: [{field, reason, sent?, note?}]`): whatever still cannot

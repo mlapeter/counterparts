@@ -2,10 +2,10 @@
  * THE WRITE TOOLS FAIL OPEN (2026-11-13): `remember` and `session_end` keep
  * the memory whatever an optional field says. A field that cannot be read is
  * dropped and named in `dropped`; a value read as something else is echoed in
- * `readAs`. Unit tests per rule of the cleaning (`server-normalize.ts`), the
- * loose date reader (`core/loose-date.ts`) and the feeling placement
- * (`core/feelings-place.ts`, `core/feelings-thesaurus.ts`), then the real path
- * through `McpServer.call` for every refusal this removed.
+ * `readAs`. Unit tests per rule of the cleaning (`server-args.ts#normalizeMemoryFields`), the
+ * loose date reader (`core/time.ts#readLooseDate`) and the feeling placement
+ * (`placeFeelingWord`, `core/feelings-wheel.ts#FEELINGS_THESAURUS`), then the
+ * real path through `McpServer.call` for every refusal this removed.
  *
  * Hermetic (CLAUDE.md): a fresh temp dir per test, removed in `afterEach`.
  */
@@ -15,12 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { MCP_WRITE_EVENT } from "../src/core/counterpart.js";
-import { ALIASES, CORE_EMOTIONS, FEELINGS_WHEEL } from "../src/core/feelings-wheel.js";
+import { ALIASES, CORE_EMOTIONS, FEELINGS_THESAURUS, FEELINGS_WHEEL, thesaurusCore } from "../src/core/feelings-wheel.js";
 import type { CoreEmotion } from "../src/core/feelings-wheel.js";
-import { FEELINGS_THESAURUS, thesaurusCore } from "../src/core/feelings-thesaurus.js";
-import { placeFeelingWord } from "../src/core/feelings-place.js";
-import { readLooseDate } from "../src/core/loose-date.js";
-import { parseCalendarDate } from "../src/core/time.js";
+import { parseCalendarDate, readLooseDate } from "../src/core/time.js";
 import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
@@ -31,7 +28,8 @@ import {
   meaningPlacer,
   normalizeMemoryFields,
   parseFeelingString,
-} from "../src/adapters/mcp/server-normalize.js";
+  placeFeelingWord,
+} from "../src/adapters/mcp/server-args.js";
 
 let dir: string;
 const open: { close(): void }[] = [];

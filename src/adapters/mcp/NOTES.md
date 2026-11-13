@@ -2123,7 +2123,7 @@ unknown `kind` or `how`, or a malformed side operation beside text refused the w
 (or the whole entry), and its words were lost: intake's "degrades to a span" is read only by
 the crash fallback. CONTRACT §6d″ is the rule; this is what the build learned.
 
-**Where the leniency lives.** All of it in the adapter (`server-normalize.ts`), BEFORE the
+**Where the leniency lives.** All of it in the adapter (`server-args.ts#normalizeMemoryFields`), BEFORE the
 readers; `remember/intake`, `checkFeelings`, `checkTraits`, the wheel's `lookupWord` and
 `ALIASES` stay strict. The cleaning hands the readers only shapes they already took, and each
 remaining `"refused" in …` branch in `rememberCore` and `depositEntries` became drop-and-say
@@ -2131,7 +2131,7 @@ too, as a net (`readReminderLoose` and friends). Adding thesaurus words as wheel
 the other road, rejected: an alias replaces the writer's word, and `lookupWord` feeds the
 numbers of every stored `other` row, so it would have moved old rows' defaults.
 
-**Placement, and the embedder's bar.** The thesaurus (`core/feelings-thesaurus.ts`, 563 words,
+**Placement, and the embedder's bar.** The thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`, 563 words,
 40+ per core) decides a CORE, never a word: the writer's word is stored as `other` +
 `other_word`. Order: wheel and aliases; thesaurus; an inflection by `stemTerm` (meeting only a
 participle or a core: "closed" is not "close"); a misspelling with the same first letter (6-7
@@ -2147,7 +2147,7 @@ bar let a wrong core through ("unhappy" → angry at 0.65 / 0.14, "not happy" �
 So the step is rare on purpose. Unplaced words are counted on the `mcp.write` row; grow the
 thesaurus from them, not the bar.
 
-**Dates in words.** `core/loose-date.ts`, self-contained (it does not import
+**Dates in words.** `core/time.ts#readLooseDate`, self-contained (it does not import
 `recall/time-ask.ts`), reads one field's whole value, anchored. `eventDate` leans ahead ("Oct
 15" is the next one; a bare "Friday" is today or the next), `occurredOn` back. "next Friday" is
 the first Friday after today, whatever the lean: early is seen, late is missed. A done
@@ -2173,6 +2173,13 @@ is logged as `(phrase)`, since a long value can be a sentence of the memory.
 
 **Not built.** `memories` sent as something other than a list (one object, a JSON string) is
 still refused `memories-required`; it was outside the design's list of refusal sites.
+
+**No new files, on purpose.** The first cut added four (`core/loose-date.ts`,
+`core/feelings-thesaurus.ts`, `core/feelings-place.ts`, `server-normalize.ts`) and took the
+plugin bundle past its margins (core 492 of 490; directory 514, over the directory's 512). So
+the date reader lives in `core/time.ts` (the one module that converts dates, which the
+hand-built-date scan also wants), the thesaurus beside the wheel in `core/feelings-wheel.ts`,
+and the placement and the cleaning in `server-args.ts` beside the readers they feed.
 
 **Left for PR 2.** `tools.ts` still says what is no longer true — "an unreadable one is
 refused" on `eventDate`, `feelings[].emotion`'s cores, traits' required `strength` — because
