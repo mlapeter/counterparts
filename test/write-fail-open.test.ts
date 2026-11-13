@@ -614,9 +614,42 @@ describe("review of #818", () => {
     expect(readLooseDate("the 31st", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("Feb 29", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("2026-11-14T03:00:00Z", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-13");
+    expect(readLooseDate("2026-11-14T03:00+01:00", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-13");
+    expect(readLooseDate("2026-11-14T03:00", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-14");
+    expect(readLooseDate("2026-11-14T23:30:00", TODAY, "ahead", "Asia/Tokyo")?.text).toBe("2026-11-14");
     expect(readLooseDate("in 999 years", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("200 years ago", TODAY, "back")).toBeNull();
     expect(readLooseDate("in 5 years", TODAY, "ahead")?.text).toBe("2031-11-13");
+  });
+
+  test("5b. a datetime with no zone is its own day, not the server's (TZ=UTC, store in Denver), through remember and session_end", async () => {
+    const was = process.env["TZ"];
+    process.env["TZ"] = "UTC";
+    try {
+      // The process really is in UTC: a zoneless instant parses as UTC.
+      expect(Date.parse("2026-11-14T03:00")).toBe(Date.parse("2026-11-14T03:00:00Z"));
+      const s = openServer({ dir, session: SESSION, scope: "/scope/fail-open", now: () => NOON, timeZone: "America/Denver" });
+      open.push(s.counterpart);
+      expect(s.counterpart.store.zone()).toBe("America/Denver");
+      const due = body(await s.call("remember", { text: "Pick up the repaired chainsaw from the shop on Main Street.", eventDate: "2026-11-14T03:00", remind: "plain" }));
+      expect(due["stored"]).toBe(true);
+      expect(s.counterpart.store.row(due["id"] as string)?.event_date).toBe("2026-11-14");
+      // With a zone it is still converted into the store's: 03:00Z is the 13th in Denver.
+      const zoned = body(await s.call("remember", { text: "Call the feed store back about the hay delivery window.", eventDate: "2026-11-14T03:00:00Z", remind: "plain" }));
+      expect(s.counterpart.store.row(zoned["id"] as string)?.event_date).toBe("2026-11-13");
+      const ended = body(
+        await s.call("session_end", {
+          session: SESSION,
+          memories: [{ content: "The north fence post finally came down in the wind and needs resetting.", occurredOn: "2026-11-12T03:00" }],
+        }),
+      );
+      expect(ended["deposited"]).toBe(1);
+      const id = (ended["outcomes"] as Record<string, unknown>[])[0]?.["id"] as string;
+      expect(s.counterpart.store.row(id)?.occurred_on).toBe("2026-11-12");
+    } finally {
+      if (was === undefined) delete process.env["TZ"];
+      else process.env["TZ"] = was;
+    }
   });
 
   test("6. memories as one object, a JSON string of a list, or text; text as a list of lines", async () => {

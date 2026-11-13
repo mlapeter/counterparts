@@ -601,13 +601,40 @@ describe("the door: `session_end` with `writeUp`", () => {
     // Now fetched: the wrong part and a malformed batch.
     expect((await fetch({ writeUp: "old-1" }))["reason"]).toBe("part");
     expect((await call({ writeUp: "old-1", part: 2 }))["reason"]).toBe("wrong-part");
-    expect((await call({ writeUp: "old-1", memories: "the valve" }))["reason"]).toBe("memories-required");
+    // Not readable as memories at all (review of #818: text, one object and a
+    // JSON string of a list are read, as `session_end` reads them).
+    expect((await call({ writeUp: "old-1", memories: 42 }))["reason"]).toBe("memories-required");
+    expect((await call({ writeUp: "old-1", memories: null }))["reason"]).toBe("memories-required");
 
     // Nothing landed from any of it.
     const records = s.counterpart.spans.proposalRecords<ProposalRecord>(PROJ).filter((p) => p.session === "new-1");
     expect(records).toEqual([]);
     expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
     expect(readSession(storeDir, "new-1")?.nothingNewAt).toBeUndefined();
+  });
+
+  test("an answer sent as a JSON string of a list, or as one object, is read as `session_end` reads it (review of #818)", async () => {
+    for (const [sent, from, as] of [
+      [JSON.stringify([MEMORY]), "(a JSON string)", "the list it holds"],
+      [MEMORY, "(one object)", "a list of one"],
+    ] as const) {
+      for (const c of open.splice(0)) c.close();
+      rmSync(storeDir, { recursive: true, force: true });
+      seeded();
+      const { s, fetched } = await pointAndFetch("new-1");
+      expect(fetched["reason"]).toBe("part");
+      const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: sent }));
+      expect(out).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+      expect(out["readAs"]).toEqual([{ field: "memories", sent: from, readAs: as }]);
+    }
+  });
+
+  test("a JSON string of an empty list before any fetch is still the fetch (m2)", async () => {
+    seeded();
+    expect(start("new-1").ask ?? "").toContain("writeUp: old-1");
+    const s = server();
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: "[]" }));
+    expect(out).toMatchObject({ reason: "part", part: 1 });
   });
 
   test("a fetch returns the words AND its replies, labelled (2026-10-01) — and fetching again hands back the same part", async () => {
