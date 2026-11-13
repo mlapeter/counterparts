@@ -2240,8 +2240,8 @@ the feelingsNow "one object each" wording.
 The design is `~/counterparts-notes/2026-11-13-tool-trim-design.md` §7, checked against what the
 code does after #818 and #821 rather than pasted.
 
-**What a description serves now.** Summary, admission and Do NOTs, every one under 810
-characters, so no client's cut (2,048 or 4,096) touches them. No guarantees list on any host
+**What a description serves now.** Summary, admission and Do NOTs, every one under 1,000
+characters on every host, so no client's cut (2,048 or 4,096) touches them. No guarantees list on any host
 but `recall`'s (PR 3 trims recall). The claims moved to `engine` in the source (`privileges: []`
 on every spec but recall), not by a mapping at list time, so `TOOLS` says what it serves.
 
@@ -2251,10 +2251,16 @@ on `remember` only). Not published, still read: `relevance`, `emotional`, `predi
 feeling's `core`/`strength`/`valence`/`beneath`/`other_word`, traits on a `session_end` entry,
 the old object forms. The write tools and their nested objects carry no
 `additionalProperties: false`, so a client that validates cannot reject a shape the server
-takes. The night's own fields (dream `changes` items, reflect `finish` fields, self_page's
-day's-end fields, the tagging child's answers) are typed only: their prompts state each shape
-(`dream/index.ts` begin, `dream/reflect.ts` begin, `self/writer.ts`, `dream/tags.ts#tagsPrompt`),
-which is checked, so nothing that a night writes lost its instructions.
+takes. The night's own fields are typed only, and read against what states their shapes:
+dream `changes` items (the `begin` prompt lists every action's fields, `dream/index.ts`),
+reflect `finish` fields (its `begin` lists feelings, about, core, traits, closeNow/close, the
+beliefs shapes and the page's claims and setDown, `dream/reflect.ts`), the tagging child's
+`tagged`/`merges`/`kinds` (`dream/tags.ts#tagsPrompt`), and self_page's `claims` (day's end,
+`self/writer.ts`) and `setDown` (the nightly block's `SET_DOWN_RULE`; a session-side write goes
+without, and the diff records what it drops). None of them is exercised by Tier 0 (its night
+seat refuses reflect, day's end and tags): the night compare is the check. `settle`'s fields
+are taught by the result's `neighboursHint`; the `text-required` refusal now says which side
+operations stand in for text, which the `text` field said before.
 
 **Claims the fail-open PR made false, fixed.** The `eventDate` row ("an unreadable one is
 refused by name before anything is stored") now says it is dropped and said; the dimensions row
