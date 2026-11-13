@@ -54,7 +54,7 @@
  * Telemetry is content-by-reference throughout: ids, counts, tiers, reasons.
  * No body text, no question text, no note text ever reaches an event.
  */
-import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
+import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, MCP_WRITE_EVENT, boundedIds } from "../../core/counterpart.js";
 import { closeHints, mayCloseSubject, noteCloseHintsShown } from "../../core/close-hint.js";
 import type { OpenItemHead } from "../../core/close-hint.js";
 import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
@@ -301,10 +301,6 @@ import type {
 } from "./server-options.js";
 import {
   readDimensions,
-  readReminder,
-  readFeelings,
-  readAbout,
-  readTraits,
   readWriteFacts,
   doneDateAsOccurred,
   readTags,
@@ -319,6 +315,20 @@ import {
   resolvedIdOf,
 } from "./server-args.js";
 import type { RecallRowFields, ReminderRead } from "./server-args.js";
+import {
+  WriteNotes,
+  dropDimensions,
+  factsDropped,
+  isHow,
+  isKind,
+  meaningPlacer,
+  normalizeMemoryFields,
+  readAboutLoose,
+  readFeelingsLoose,
+  readReminderLoose,
+  readTraitsLoose,
+} from "./server-normalize.js";
+import type { NormalizeContext } from "./server-normalize.js";
 import * as sessionEndPart from "./server-session-end.js";
 import * as selfTools from "./server-self-tools.js";
 
@@ -1823,19 +1833,56 @@ export class McpServer {
    */
   private async rememberTool(args: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("remember");
+    // FAIL OPEN (2026-11-13): the call is cleaned BEFORE any reader sees it
+    // (`server-normalize.ts`), so an optional field that cannot be read is
+    // dropped and said, never the memory; what was dropped or read as
+    // something else rides out on the answer, whatever the answer is.
+    const notes = new WriteNotes();
+    let clean: Record<string, unknown>;
+    try {
+      clean = await normalizeMemoryFields(args, "text", this.normalizeContext(), notes);
+    } catch {
+      clean = args;
+    }
+    const done = await this.rememberRouted(clean, notes);
+    const out = this.withWriteNotes(done, notes);
+    this.noteWrite("remember", out, [notes]);
+    return out;
+  }
+
+  /** A text to keep came with the call: a malformed side operation beside it is dropped, not the text. */
+  private static hasText(args: Record<string, unknown>): boolean {
+    return typeof args["text"] === "string" && args["text"].trim().length > 0;
+  }
+
+  /** `remember`, cleaned: the side operations, then the note (`rememberCore`). */
+  private async rememberRouted(args: Record<string, unknown>, notes: WriteNotes): Promise<ToolResult> {
     // REMOVE (HD1, 2026-11-04): delete one memory on the person's word — a
     // 24-hour hold, never an erase (`core/removal-hold.ts`). Alone, or beside
     // anything else the call does; the hold is answered first.
     const removeArg = args["remove"];
     // ON CLAUDE.AI A DELETE IS ITS OWN TOOL (DIR1, 2026-11-10): `remember` there
     // only adds, so its annotations are true. A call from a cached list that still
-    // sends `remove` is told where the delete went, and nothing else runs.
+    // sends `remove` is told where the delete went; nothing is deleted. Text sent
+    // beside it is still kept (2026-11-13): it was lost here before.
     if (removeArg !== undefined && this.host === CLAUDE_AI_HOST) {
-      return this.refuse("remember", "remove-moved", { detail: "To delete a memory here, call the delete_memory tool with {id} (or {id, undo: true} to bring one back). Nothing was saved or deleted." });
+      if (!McpServer.hasText(args)) {
+        return this.refuse("remember", "remove-moved", { detail: "To delete a memory here, call the delete_memory tool with {id} (or {id, undo: true} to bring one back). Nothing was saved or deleted." });
+      }
+      notes.drop("remove", "remove-moved", undefined, "Nothing was deleted: to delete a memory here, call the delete_memory tool with {id}. The memory you sent was kept.");
+      const rest = { ...args };
+      delete rest["remove"];
+      return this.rememberRouted(rest, notes);
     }
     if (removeArg !== undefined) {
       if (removeArg === null || typeof removeArg !== "object" || Array.isArray(removeArg)) {
-        return this.refuse("remember", "remove-malformed", { detail: "remove is one object: {id} to delete a memory, or {id, undo: true} to bring it back." });
+        if (!McpServer.hasText(args)) {
+          return this.refuse("remember", "remove-malformed", { detail: "remove is one object: {id} to delete a memory, or {id, undo: true} to bring it back." });
+        }
+        notes.drop("remove", "remove-malformed", removeArg, "remove is one object: {id}. Nothing was deleted; the memory you sent was kept.");
+        const rest = { ...args };
+        delete rest["remove"];
+        return this.rememberRouted(rest, notes);
       }
       const rest = { ...args };
       delete rest["remove"];
@@ -1846,7 +1893,7 @@ export class McpServer {
       const hasRest = Object.entries(rest).some(([k, v]) => k !== "session" && v !== undefined && v !== null);
       const out = this.removeOutcome(removeArg as Record<string, unknown>);
       if (!hasRest) return this.result({ stored: false, reason: "remove-only", remove: out }, out["ok"] !== true);
-      const done = await this.rememberTool(rest);
+      const done = await this.rememberRouted(rest, notes);
       const body = (done as { structuredContent?: Record<string, unknown> }).structuredContent;
       if (body === undefined) return done;
       return this.result({ ...body, remove: out }, (done as { isError?: boolean }).isError === true && out["ok"] !== true);
@@ -1856,14 +1903,20 @@ export class McpServer {
     const coreArg = args["core"];
     if (coreArg !== undefined) {
       if (coreArg === null || typeof coreArg !== "object" || Array.isArray(coreArg)) {
-        return this.refuse("remember", "core-malformed", { detail: 'core is one object: {id, decision: "keep" | "retire", why}.' });
+        if (!McpServer.hasText(args)) {
+          return this.refuse("remember", "core-malformed", { detail: 'core is one object: {id, decision: "keep" | "retire", why}.' });
+        }
+        notes.drop("core", "core-malformed", coreArg, 'core is one object: {id, decision: "keep" | "retire", why}; nothing was decided, and the memory you sent was kept.');
+        const rest = { ...args };
+        delete rest["core"];
+        return this.rememberRouted(rest, notes);
       }
       const rest = { ...args };
       delete rest["core"];
       const hasRest = (typeof rest["text"] === "string" && rest["text"].trim().length > 0) || rest["settle"] !== undefined || rest["feelingsNow"] !== undefined || rest["remark"] !== undefined;
       const out = this.coreDecisionOutcome(coreArg as Record<string, unknown>);
       if (!hasRest) return this.result({ stored: false, reason: "core-only", core: out }, out["ok"] !== true);
-      const done = await this.rememberTool(rest);
+      const done = await this.rememberRouted(rest, notes);
       const body = (done as { structuredContent?: Record<string, unknown> }).structuredContent;
       if (body === undefined) return done;
       return this.result({ ...body, core: out }, (done as { isError?: boolean }).isError === true && out["ok"] !== true);
@@ -1872,16 +1925,22 @@ export class McpServer {
     // session was shown is about, changed in the moment, as me. Alone, or
     // beside anything else the call does.
     const remarkArg = args["remark"];
-    if (remarkArg === undefined) return this.rememberCore(args);
+    if (remarkArg === undefined) return this.rememberCore(args, notes);
     if (remarkArg === null || typeof remarkArg !== "object" || Array.isArray(remarkArg)) {
-      return this.refuse("remember", "remark-malformed", { detail: "remark is one object: {id, about, why}." });
+      if (!McpServer.hasText(args)) {
+        return this.refuse("remember", "remark-malformed", { detail: "remark is one object: {id, about, why}." });
+      }
+      notes.drop("remark", "remark-malformed", remarkArg, "remark is one object: {id, about, why}; nothing was re-marked, and the memory you sent was kept.");
+      const rest = { ...args };
+      delete rest["remark"];
+      return this.rememberCore(rest, notes);
     }
-    const hasText = typeof args["text"] === "string" && args["text"].trim().length > 0;
+    const hasText = McpServer.hasText(args);
     if (!hasText && args["settle"] === undefined && args["feelingsNow"] === undefined) {
       const out = this.remarkOutcome(remarkArg as Record<string, unknown>);
       return this.result({ stored: false, reason: "remark-only", remark: out }, out["ok"] !== true);
     }
-    const done = await this.rememberCore(args);
+    const done = await this.rememberCore(args, notes);
     const body = (done as { structuredContent?: Record<string, unknown> }).structuredContent;
     if (body === undefined) return done;
     const out = this.remarkOutcome(remarkArg as Record<string, unknown>);
@@ -1890,25 +1949,34 @@ export class McpServer {
   }
 
   /** `remember` without its `remark`: the note, the settle, the feelings now. */
-  private async rememberCore(args: Record<string, unknown>): Promise<ToolResult> {
+  private async rememberCore(args: Record<string, unknown>, notes: WriteNotes = new WriteNotes()): Promise<ToolResult> {
     if (this.observer) return this.standDown("remember");
     const text = args["text"];
-    // SETTLE (2026-09-29, contradictions): two memories that already exist,
-    // settled without writing a new one. With `text` too, both happen.
-    const settleArg = args["settle"];
-    if (settleArg !== undefined && (settleArg === null || typeof settleArg !== "object" || Array.isArray(settleArg))) {
-      return this.refuse("remember", "settle-malformed", {
-        detail: "settle is an object: {pair} or {holds, over}, with how (changed, corrected or open) and a short why.",
-      });
-    }
     const hasText = typeof text === "string" && text.trim().length > 0;
+    // SETTLE (2026-09-29, contradictions): two memories that already exist,
+    // settled without writing a new one. With `text` too, both happen — and a
+    // malformed one beside text is dropped and said, the text kept (2026-11-13).
+    let settleArg = args["settle"];
+    if (settleArg !== undefined && (settleArg === null || typeof settleArg !== "object" || Array.isArray(settleArg))) {
+      if (!hasText) {
+        return this.refuse("remember", "settle-malformed", {
+          detail: "settle is an object: {pair} or {holds, over}, with how (changed, corrected or open) and a short why.",
+        });
+      }
+      notes.drop("settle", "settle-malformed", settleArg, "settle is an object: {pair} or {holds, over}, with how and a short why; nothing was settled.");
+      settleArg = undefined;
+    }
     // FEELINGS NOW (2026-10-02, lane B): how a memory this session was shown
     // feels now, recorded beside the first. With `text` too, both happen.
-    const nowArg = args["feelingsNow"];
+    let nowArg = args["feelingsNow"];
     if (nowArg !== undefined && !Array.isArray(nowArg)) {
-      return this.refuse("remember", "feelings-now-malformed", {
-        detail: "feelingsNow is a list: one object each, {id, emotion, core?, strength?, carried_by?, whose?}.",
-      });
+      if (!hasText) {
+        return this.refuse("remember", "feelings-now-malformed", {
+          detail: "feelingsNow is a list: one object each, {id, emotion, core?, strength?, carried_by?, whose?}.",
+        });
+      }
+      notes.drop("feelingsNow", "feelings-now-malformed", nowArg, 'feelingsNow is a list, one per memory: "<id>: word — what changed".');
+      nowArg = undefined;
     }
     if (!hasText && settleArg === undefined && nowArg !== undefined) return this.feelingsNowOnly(nowArg as unknown[]);
     if (!hasText && settleArg !== undefined) {
@@ -1918,21 +1986,18 @@ export class McpServer {
     if (typeof text !== "string" || text.trim().length === 0) {
       return this.refuse("remember", "text-required", {});
     }
-    const salience = args["salience"];
-    if (salience !== undefined && (typeof salience !== "number" || !Number.isFinite(salience))) {
-      return this.refuse("remember", "salience-not-a-number", {});
+    // The cleaning already read these (`server-normalize.ts`); what is still
+    // unusable here is dropped and said, never a refusal (2026-11-13).
+    let salience = args["salience"] === null ? undefined : args["salience"];
+    if (salience !== undefined && (typeof salience !== "number" || !Number.isFinite(salience) || salience < 0 || salience > 1)) {
+      notes.drop("salience", "not-a-number", salience);
+      salience = undefined;
     }
-    const dims = readDimensions(args);
-    if (dims === null) {
-      return this.refuse("remember", "dimension-out-of-range", {
-        detail: "relevance, emotional and predictive are each a number from 0 to 1.",
-      });
-    }
-    // THE REMINDER DATE AND HOW IT COMES BACK (2026-09-26) — checked before
-    // anything is captured, so an unreadable one is a refusal that says which
-    // shapes ARE readable rather than a note that lands without its date.
-    const datedRead = readReminder(args);
-    if ("refused" in datedRead) return this.refuse("remember", datedRead.refused, { detail: datedRead.detail });
+    const dims = readDimensions(args) ?? dropDimensions(args, notes);
+    // THE REMINDER DATE AND HOW IT COMES BACK (2026-09-26) — read before
+    // anything is captured. One this cannot read is dropped and said beside
+    // the memory that landed (2026-11-13: it refused the memory).
+    const datedRead = readReminderLoose(args, notes);
     // v12: when it happened, who said it, what kind — never a refusal: what
     // cannot be read is dropped and said beside the memory that landed. Read
     // here, beside the date, since a done with a passed date keeps it as
@@ -1949,7 +2014,9 @@ export class McpServer {
     const ownSpanHash = captured.spans[0]?.hash ?? captured.heldLine ?? null;
 
     const draft: Record<string, unknown> = { content: text };
-    if (typeof args["kind"] === "string") draft["kind"] = args["kind"];
+    // Only what intake takes reaches it (2026-11-13): its refusal is the memory's loss.
+    if (isKind(args["kind"])) draft["kind"] = args["kind"];
+    else if (args["kind"] !== undefined && args["kind"] !== null) notes.drop("kind", "kind-unknown", args["kind"]);
     if (typeof args["title"] === "string") draft["title"] = args["title"];
     // `updates` travels as a FIELD, exactly as it does on a `session_end` entry
     // (added 2026-09-04: the Stop ask told the model to write `updates: <id>`
@@ -1958,9 +2025,10 @@ export class McpServer {
     // validates it, `mint.ts` writes the RESOLVED id — and one that resolves to
     // nothing lands unlinked rather than refusing the note.
     if (typeof args["updates"] === "string") draft["updates"] = args["updates"];
-    // HOW it settles the memory it updates (2026-09-29). Validated by intake:
-    // an unknown kind is refused `HOW_UNKNOWN`, and one without `updates` is dropped.
-    if (args["how"] !== undefined) draft["how"] = args["how"];
+    // HOW it settles the memory it updates (2026-09-29). Intake drops one
+    // without `updates`; an unknown one is dropped and said here (2026-11-13).
+    if (isHow(args["how"]) || args["how"] === null) draft["how"] = args["how"];
+    else if (args["how"] !== undefined) notes.drop("how", "how-unknown", args["how"]);
     if (salience !== undefined) draft["claimed"] = salience;
     if (Object.keys(dims).length > 0) draft["salience"] = dims;
     // AN OPEN THREAD, or the closing of one (2026-10-01, lane 8): a boolean
@@ -1971,14 +2039,9 @@ export class McpServer {
     Object.assign(draft, dated.fields);
 
     const model = this.sessionModel(session);
-    const feelings = readFeelings(args["feelings"]);
-    if ("refused" in feelings) {
-      return this.refuse("remember", "feelings-malformed", { detail: feelings.refused });
-    }
-    const about = readAbout(args["about"]);
-    if ("refused" in about) return this.refuse("remember", "about-malformed", { detail: about.refused });
-    const traits = readTraits(args["traits"]);
-    if ("refused" in traits) return this.refuse("remember", "traits-malformed", { detail: traits.refused });
+    const feelings = readFeelingsLoose(args["feelings"], notes);
+    const about = readAboutLoose(args["about"], notes);
+    const traits = readTraitsLoose(args["traits"], notes);
     // v14, lane B: its tags, loose first the same way.
     const tags = readTags(args);
     let deposit: DepositResult;
@@ -4357,7 +4420,7 @@ export class McpServer {
     cover?: false | { readonly session: string },
     scope?: string,
     writeUp?: { readonly session: string; readonly happenedOn: string | null },
-  ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
+  ): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[]; notes: WriteNotes[] }> {
     return sessionEndPart.depositEntries(this, raw, session, cover, scope, writeUp);
   }
 
@@ -4800,6 +4863,77 @@ export class McpServer {
       },
       true,
     );
+  }
+
+  /** What the write tools' cleaning reads against: today in the store's zone, and the embedder when there is one. */
+  private normalizeContext(): NormalizeContext {
+    const embedder = this.embedder;
+    return { today: this.today(), placeByMeaning: embedder === null ? null : meaningPlacer(embedder) };
+  }
+
+  /**
+   * A `remember` answer with what the cleaning dropped and read as something
+   * else (`dropped`, `readAs`), whatever the answer was — and the three
+   * fields' own drops (`facts.dropped`) beside them, so one list names
+   * everything the write left out.
+   */
+  private withWriteNotes(result: ToolResult, notes: WriteNotes): ToolResult {
+    const body = result.structuredContent;
+    const facts = body["facts"];
+    const factDrops =
+      facts !== null && typeof facts === "object" && Array.isArray((facts as Record<string, unknown>)["dropped"])
+        ? factsDropped({ dropped: (facts as { dropped: { field: string; note: string }[] }).dropped })
+        : [];
+    const extra = notes.payload(factDrops);
+    if (Object.keys(extra).length === 0) return result;
+    return this.result({ ...body, ...extra }, result.isError === true);
+  }
+
+  /**
+   * THE DURABLE ROW FOR A WRITE THAT DID NOT LAND WHOLE (`MCP_WRITE_EVENT`,
+   * 2026-11-13): which entries were refused (reason codes), which fields
+   * were dropped (field and code, list indexes folded), how many values were
+   * read as something else, and the feeling words nothing placed. Codes,
+   * counts and those words only — never a memory's text. A write that landed
+   * whole leaves no row. A telemetry write: a busy store loses the row, never
+   * the answer.
+   */
+  private noteWrite(tool: "remember" | "session_end", result: ToolResult, notes: readonly WriteNotes[], outcomes?: readonly Record<string, unknown>[]): void {
+    const body = result.structuredContent;
+    const refused: Record<string, number> = {};
+    const count = (bag: Record<string, number>, key: string): void => {
+      bag[key] = (bag[key] ?? 0) + 1;
+    };
+    const entries = outcomes ?? [body];
+    let stored = 0;
+    for (const o of entries) {
+      if (o["stored"] === true) stored += 1;
+      else if (o["stoodDown"] !== true && typeof o["reason"] === "string") count(refused, typeof o["malformed"] === "string" ? `${o["reason"]}:${o["malformed"]}` : o["reason"]);
+    }
+    const dropped: Record<string, number> = {};
+    let readAs = 0;
+    const unplaced: string[] = [];
+    for (const n of notes) {
+      for (const d of n.dropped) count(dropped, `${d.field.replace(/\[\d+\]/gu, "[]")}:${d.reason}`);
+      readAs += n.readAs.length;
+      for (const w of n.unplaced) if (unplaced.length < 20) unplaced.push(w.slice(0, 40));
+    }
+    const facts = body["facts"];
+    if (outcomes === undefined && facts !== null && typeof facts === "object" && Array.isArray((facts as Record<string, unknown>)["dropped"])) {
+      for (const d of (facts as { dropped: { field: string }[] }).dropped) count(dropped, `${d.field}:${d.field === "eventDate" ? "kept-as-occurredOn" : "unreadable"}`);
+    }
+    if (Object.keys(refused).length === 0 && Object.keys(dropped).length === 0 && readAs === 0 && unplaced.length === 0) return;
+    this.telemetry(() => {
+      this.counterpart.noteAdapterEvent(MCP_WRITE_EVENT, {
+        tool,
+        entries: entries.length,
+        stored,
+        refused,
+        dropped,
+        readAs,
+        unplaced,
+      });
+    });
   }
 
   private refuse(

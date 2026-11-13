@@ -1001,6 +1001,22 @@ export const NARRATORS = {
         : `${said}; it went out whole, as nothing in it was one long text to cut.`,
     );
   },
+  // What a write left out, the memory kept (2026-11-13).
+  "mcp.write": (t) => {
+    const tool = typeof t.p["tool"] === "string" ? t.p["tool"] : "a write";
+    const bag = (k: string): number => {
+      const v = t.p[k];
+      return v !== null && typeof v === "object" ? Object.values(v as Record<string, unknown>).reduce<number>((s, x) => s + (typeof x === "number" ? x : 0), 0) : 0;
+    };
+    const refused = bag("refused");
+    const dropped = bag("dropped");
+    const parts = [
+      refused > 0 ? `${String(refused)} entr${refused === 1 ? "y" : "ies"} not kept` : "",
+      dropped > 0 ? `${String(dropped)} field${dropped === 1 ? "" : "s"} left out, the memory kept` : "",
+    ].filter((x) => x.length > 0);
+    const said = `${tool}: ${parts.length === 0 ? "values read as something else" : parts.join("; ")}.`;
+    return refused > 0 ? amber(said) : calm(said);
+  },
   // The host's cut, read from the night run's own transcript (2026-10-09).
   "mcp.result.spilled": (t) => {
     const tool = typeof t.p["tool"] === "string" ? t.p["tool"].replace(/^mcp__counterparts__/, "") : "a tool";
@@ -1304,6 +1320,7 @@ export const REF_KIND = {
   "mcp.part": "none",
   "mcp.result.oversize": "none",
   "mcp.result.spilled": "none",
+  "mcp.write": "none",
   "adapter.envelope.overcap": "none",
   "adapter.notice.dropped": "none",
   "adapter.envelope.gave-way": "none",

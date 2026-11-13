@@ -476,6 +476,19 @@ export const MCP_PART_EVENT = "mcp.part";
 export const MCP_OVERSIZE_EVENT = "mcp.result.oversize";
 
 /**
+ * WHAT A WRITE LEFT OUT (2026-11-13, the write tools' fail-open lane). One row
+ * per `remember` call or `session_end` call that did not land whole: entries
+ * refused (by reason code), optional fields dropped (by field and reason
+ * code, list indexes folded), how many values were read as something else,
+ * and the feeling WORDS nothing could place on a core (each a word or two,
+ * cut short; never a memory's text) — so lost writes can be counted, and the
+ * feelings thesaurus grown from real misses. Before it the only trace was the
+ * MCP process's 7-day log (`mcp.refused`, `mcp.session_end` with counts).
+ * Never written for a write that landed whole. No `dedupKey`: each is a call.
+ */
+export const MCP_WRITE_EVENT = "mcp.write";
+
+/**
  * …AND WHAT THE HOST DID AFTER (2026-10-09, U14 item 3). The two rows above
  * are the server's view: what it handed, what it cut. Neither can see the host
  * cut a result the server sized under the ceiling — a remote flag can lower
@@ -600,6 +613,7 @@ export type AdapterDurableEventName =
   | typeof MCP_PART_EVENT
   | typeof MCP_OVERSIZE_EVENT
   | typeof MCP_SPILLED_EVENT
+  | typeof MCP_WRITE_EVENT
   | DeliveryWarningName
   | typeof CHECKOUT_EVENT
   | typeof SNAPSHOT_TAKEN_EVENT
