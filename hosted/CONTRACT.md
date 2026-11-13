@@ -114,6 +114,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`, set once before routing, so the pages,
     redirects and the OAuth library's answers have it too (G1 L1). `includeSubDomains` on `app.counterparts.ai`
     covers only names under it, never the site at the apex or `www`.
+15a. **Another way in** (JS1, 2026-11-13): `Accounts.signUpWithIdentity` / `personByIdentity` make or find a person
+    by a non-email identity the caller has verified (not `email`, which stays the link's). It skips the spots (the
+    caller gates sign-up), returns a pending-delete person rather than making a second, and after an erase makes a
+    new one. The email path is unchanged.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 
@@ -202,8 +206,6 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 - **Seams for a product on hosted** (JS1, 2026-11-13; defaults unchanged): `TenantsOptions.newStore` replaces
   `startNewStore` for a store an open creates, `TenantsOptions.nights: "host"` leaves the first-chat night out of a
   chat's wake (the host calls `dream` itself), and `AppOptions` passes both, and `storeClock`, through to `Tenants`.
-  `Accounts.signUpWithIdentity` / `personByIdentity` make or find a person by a non-email identity the caller has
-  verified; it skips the spots (the caller gates sign-up) and never duplicates a pending-delete person.
 - **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
 
 ### Keys, backups, export, delete (step 5: `src/keys.ts`, `src/backup.ts`, `src/egress.ts`, `src/app.ts`)

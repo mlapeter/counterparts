@@ -22,6 +22,8 @@
  *     who has an account. The spot, like the invite, is taken at the click, in
  *     the transaction that makes the person: a link asked for and never
  *     clicked takes nothing.
+ *     (A product on hosted with its own way in, `signUpWithIdentity`, gates
+ *     its own sign-up and reads no spots; JS1.)
  *   - **While spots are open, sign-up emails have an hourly cap** (EC1,
  *     2026-11-10): `spots emails M`, 100 by default, counted in control so a
  *     deploy doesn't reset it. Every ask counts alike, member or not; past M a
