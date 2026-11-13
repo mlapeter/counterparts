@@ -88,22 +88,16 @@ describe("the vocabulary: seven axes, each between two good things", () => {
     expect(TRAIT_AXES.map((a): string => a.id)).toEqual(TRAIT_AXES.map((a) => a.poles.join("-")));
   });
 
-  test("the tool schemas name the same seven axes and fourteen poles as the store", () => {
-    const note = TOOLS.find((t) => t.name === "remember")?.inputSchema as {
-      properties: { traits: { items: { properties: { axis: { enum: string[] }; toward: { enum: string[] } } } } };
-    };
-    expect(note.properties.traits.items.properties.axis.enum).toEqual(TRAIT_AXES.map((a): string => a.id));
-    expect(note.properties.traits.items.properties.toward.enum).toEqual(TRAIT_AXES.flatMap((a) => [...a.poles]));
-    for (const name of ["remember", "session_end"]) {
-      const spec = TOOLS.find((t) => t.name === name);
-      const text = JSON.stringify(spec?.inputSchema);
-      for (const a of TRAIT_AXES) expect(text).toContain(a.id);
-      expect(text).toContain("most carry none");
-      expect(text).toContain("Don't make up depth");
-      expect(renderDescription(spec!).length).toBeGreaterThan(0);
-    }
-    const reflect = JSON.stringify(TOOLS.find((t) => t.name === "reflect")?.inputSchema);
-    expect(reflect).toContain("serious-playful");
+  // Trim PR 2 (owner choice 1): traits are short strings, "pole — what showed it", on `remember` only;
+  // the field names every axis as its two poles, and the reflection's `begin` names the axes (its own test).
+  test("remember's traits field names the same seven axes, as their fourteen poles, as the store", () => {
+    const note = TOOLS.find((t) => t.name === "remember")?.inputSchema as { properties: { traits: { description: string; items: { type: string } } } };
+    expect(note.properties.traits.items.type).toBe("string");
+    for (const a of TRAIT_AXES) expect(note.properties.traits.description).toContain(a.poles.join("/"));
+    expect(note.properties.traits.description).toContain("Rare");
+    const entry = (TOOLS.find((t) => t.name === "session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, unknown> } } } }).properties.memories.items.properties;
+    expect(entry["traits"]).toBeUndefined();
+    expect(renderDescription(TOOLS.find((t) => t.name === "remember")!).length).toBeGreaterThan(0);
   });
 
   test("an unknown axis or pole is refused by name, with what is allowed; the call writes nothing", () => {

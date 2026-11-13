@@ -432,11 +432,13 @@ describe("the Code-tab wake line, and the descriptions", () => {
     const wake = renderDescription(WAKE);
     expect(wake).not.toContain("it is not offered there");
     expect(wake).toContain("Desktop's Code tab");
-    expect(wake).toContain("Pass your session id");
+    // Trim PR 2: wake's Do NOT and the Desktop `session` say it short; the whole rule — pass the id your
+    // wake or Stop ask names — is DESKTOP_INSTRUCTIONS', which every Desktop session is sent.
+    expect(wake).toContain("the hook already woke you");
     const note = toolDefinitions(true).find((d) => d["name"] === "remember") as Record<string, unknown>;
     const session = ((note["inputSchema"] as { properties: Record<string, { description: string }> }).properties["session"]);
-    expect(session?.description).toContain("in a Claude Code session");
-    expect(session?.description).toContain("wake or Stop ask names");
+    expect(session?.description).toContain("in Desktop's Code tab, your session's id");
+    expect(DESKTOP_INSTRUCTIONS).toContain("pass your own session id, the one your wake or Stop ask names");
   });
 });
 

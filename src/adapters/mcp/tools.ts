@@ -1029,7 +1029,7 @@ const SESSION_END: ToolSpec = {
         items: {
           type: "object",
           properties: {
-            content: { type: "string", description: "The memory, in your own words; quotes and numbers exact." },
+            content: { type: "string", description: "The memory, in your own words; lists, numbers and quotes word for word." },
             title: { type: "string" },
             about: { ...ABOUT_PROPERTY, description: "Mark anything personal owner or us so it reaches every folder." },
             kind: KIND_PROPERTY,
@@ -1307,7 +1307,7 @@ const SELF_PAGE: ToolSpec = {
     type: "object",
     properties: {
       body: { type: "string", description: `The whole page, first person. Aim under ${String(PAGE_ROOM_BYTES)} bytes. Omit to read.` },
-      short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)}.` },
+      short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)} bytes.` },
       reason: { type: "string", description: "What changed and why, one line." },
       ifVersion: { type: "integer", minimum: -1, description: "The version your read gave (-1: no page)." },
       session: { type: "string", description: "Only when day's end asks, the id it named." },
