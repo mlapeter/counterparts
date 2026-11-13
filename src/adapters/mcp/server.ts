@@ -1984,7 +1984,10 @@ export class McpServer {
       return nowArg === undefined ? settled : this.withFeelingsNow(settled, nowArg as unknown[]);
     }
     if (typeof text !== "string" || text.trim().length === 0) {
-      return this.refuse("remember", "text-required", {});
+      // What the field's text said until trim PR 2 ("Required unless …"), said where it is needed.
+      return this.refuse("remember", "text-required", {
+        detail: `Send \`text\`: what to remember, in your own words. Without text, send one of \`settle\`, \`feelingsNow\`, \`remark\`${this.host === CLAUDE_AI_HOST ? " or `core`" : ", `core` or `remove`"} alone.`,
+      });
     }
     // The cleaning already read these (`server-args.ts#normalizeMemoryFields`); what is still
     // unusable here is dropped and said, never a refusal (2026-11-13).

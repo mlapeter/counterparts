@@ -1009,6 +1009,8 @@ describe("note — the ambient exception", () => {
     const s = server();
     expect(payload(await s.call("remember", {}))["reason"]).toBe("text-required");
     expect(payload(await s.call("remember", { text: "  " }))["reason"]).toBe("text-required");
+    // Trim PR 2: the field no longer says which side operations stand in for text; the refusal does.
+    expect(String(payload(await s.call("remember", {}))["detail"])).toContain("`settle`, `feelingsNow`, `remark`, `core` or `remove` alone");
     // Changed 2026-11-13: a salience that is not a number is dropped and said
     // beside the memory (it was refused `salience-not-a-number`).
     const loose = payload(await s.call("remember", { text: "The retry loop backs off for ninety seconds.", salience: "high" }));

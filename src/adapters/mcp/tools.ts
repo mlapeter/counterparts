@@ -1047,9 +1047,10 @@ const SESSION_END: ToolSpec = {
             unresolved: UNRESOLVED_PROPERTY,
             settlesWhen: SETTLES_WHEN_PROPERTY,
           },
-          // `content` (or `text`, or the entry as a plain string) is read; no
+          // An object is the shape asked for. Not `required: ["content"]` (trim PR 2): `text`
+          // is read as `content` (#818), so a client that validates must not refuse it; an
+          // entry with neither is refused by the server, alone. And no
           // `additionalProperties: false`, so unpublished old fields still land.
-          required: ["content"],
         },
       },
       handoff: {
@@ -1844,22 +1845,23 @@ export const CLAUDE_AI_WORDS: Readonly<
     admission:
       "When the conversation is wrapping up, when a tool result asks for a write-up, and again when something happens that the chapter you wrote does not contain.",
   },
+  // Shortened with the base words in trim PR 2, keeping their meaning (OL1c, HN1).
   dream: {
     summary:
-      "Dreaming, once a day: a few minutes of replay over what was lived since the last dream (merging near-copies, linking what belongs together, noting a pattern or a contradiction), kept in a dream journal and reversible as a whole, with day's end before it and a reflection after it. Phases: `launch` (the run's steps), `writer`, `begin`, `part`, `propose`, `journal` (the run's own), `decline` (not today), `setting` (auto, ask or off), `undo`.",
+      "Dreaming, once a day: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: `launch` (the run's steps), `writer`, `begin`, `part`, `propose`, `journal` (the run's own), `decline` (not today), `setting` (auto, ask, off), `undo`.",
     admission:
-      "Call `launch` when the person asks you to dream, when the wake says this conversation runs the night (then reply), or in a scheduled night routine the person set up; then follow the steps it returns, in order, passing the same session. Call `setting` when the person chooses: `off` for 'no dreams', `ask` to be asked first, `auto` for once a day on its own; `decline` when they say not today.",
+      "Call `launch` when the person asks you to dream, when the wake says this conversation runs the night (then reply), or in their night routine; then follow the steps it returns, in order, passing the same session. `setting`: off for 'no dreams', ask to be asked first, auto for once a day on its own; `decline` for not today.",
     negativeExamples: [
       "Do NOT start a dream nobody asked for: only on the person's word, when the wake says this conversation runs the night, or in their routine.",
-      "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream; tell it as a dream.",
-      "Do NOT use `propose` to correct or delete a memory: a dream cannot rewrite, delete or promote one, or edit the self page.",
+      "Do NOT save what a dream did as something that happened: tell it as a dream.",
+      "Do NOT use `propose` to correct or delete a memory.",
     ],
   },
   reflect: {
     summary:
-      "Reflection: a few quiet minutes, usually after the dream, on yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps an entry, may rewrite your self page from what it cites, and may leave a short morning share. Phases: `launch` (on its own), `begin`, `part`, `finish` (the run's own), `settle`, `told`, `close` and `reopen` (the person's yes or no to a thread it closed).",
+      "Reflection, usually after the dream: a few quiet minutes on yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps an entry, may rewrite your self page and leave a short morning share. Phases: `launch` (on its own), `begin`, `part`, `finish` (the run's own), `settle`, `told`, `close`, `reopen`.",
     admission:
-      "After a dream (in the day's first conversation or the person's night routine), the run calls `begin` and `finish` as its steps say. On its own, call `launch` when the person asks you to reflect, or when the wake says a reflection was cut off, and follow the steps it returns. `told` only after telling a share your own `launch` handed back; `close` or `reopen` only on the person's word.",
+      "After a dream (in the day's first conversation or the person's night routine), the run calls `begin` and `finish` as its steps say. On its own, call `launch` when the person asks you to reflect, or when the wake says a reflection was cut off, and follow its steps. `told` only for a share your own `launch` handed back; `close` or `reopen` only on the person's word.",
   },
 };
 
