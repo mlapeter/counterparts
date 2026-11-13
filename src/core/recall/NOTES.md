@@ -1898,3 +1898,22 @@ stdout and decision rows (timing fields removed, ids normalized) byte-identical.
 
 **Read by** doctor's `Recall steps` line (`adapters/claude-code/doctor-recall-steps.ts`): the last 7 lived days'
 p50 per step, the eight largest by name, all in `--json` as `p50.<step>`. The read itself is `docs/CHECK-AFTER.md`.
+
+## Time asks: ranges and the forward words (2026-11-13, the wren findings' P1 and P5, owner-approved, lightly held)
+
+**What was wrong.** `readTimeAsk` read one date of a range: "between 12 and 18 October" was 10-18 (the named-date
+match is "18 October"), "from 12 October to 18 October" was 10-12, and "Oct 12-18" or "12-18 October" was December 18
+(the short-date match is `12-18`). In the wren run the model asked for its owner's week "between 12 and 18 October"
+and got "0 match · 38 more match outside it". "Tomorrow", "next week", "next month", "this weekend" and "this coming
+week" read as no time at all.
+
+**What it does now** (`time-ask.ts`'s header lists every form). A range is read before any single date, one window,
+exact. The forward words mirror the backward ones but do not stretch: nothing is learned in the future, so a stretch
+back from "next week" asked on a Saturday would only pull in what was learned that weekend. "This week" and "this
+month" run to their last day (they ended at today); the learned date is unaffected (nothing is learned after today),
+so past questions read as before; a planned `occurred_on` later this week now counts.
+
+**Left as it was, on purpose.** A yearless day whose month has not begun is still last year's ("on 5 December" asked
+in November is 2025-12-05; a range's first end follows the same rule). That is `yearFor`'s rule for every date alone,
+and a look-ahead question in a later month has to name the year or use the forward words. "Upcoming" (the `coming
+up` handle answers it), "next Saturday" and "this Saturday" are still not read.

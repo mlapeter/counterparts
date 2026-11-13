@@ -538,7 +538,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     revisit — an experiment, Mike's go via BENCHMARK): "lately", "recently", "these
     days", "nowadays" (`time-ask.ts#SOFT_WORDS`) come back marked `soft`, and facts mode
     ranks the past week first instead of filtering, unless the question is only time;
-    explicit windows are unchanged (mcp CONTRACT §6f). Facts answers also list the next
+    explicit windows are unchanged (mcp CONTRACT §6f). Ranges of days ("between 12 and
+    18 October") are one window, and the forward words ("tomorrow", "next week", "next
+    month", "this weekend", "the coming week") are read, exact (2026-11-13; `time-ask.ts`'s
+    header lists every form); a window reaching past today also reads reminder dates in
+    facts mode (mcp CONTRACT §6f). Facts answers also list the next
     20 matches as title lines after the page (the title tail, §6f there): listed is not
     shown, and credits nothing. What this guarantee said, for the record:
     **A deliberate question about time leads with the session it means**

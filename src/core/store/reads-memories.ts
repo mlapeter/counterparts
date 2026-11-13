@@ -275,9 +275,11 @@ export function recurringMemories(store: Store, opts: { archived?: boolean } = {
 
 export function recallRows(store: Store): RecallRow[] {
   const v12 = store.hasColumn("memories", "occurred_on");
+  const v7 = store.hasColumn("memories", "event_date");
   return store["ops"].all<RecallRow>(
     `SELECT id, type, kind, title, learned_on, created_at, updated_at,
               ${v12 ? "occurred_on, said_by, status" : "NULL AS occurred_on, NULL AS said_by, NULL AS status"},
+              ${v7 ? "event_date" : "NULL AS event_date"},
               source, origin_session, origin_scope, origin_ref,
               CASE WHEN type = 'memory' THEN NULL ELSE meta END AS meta
          FROM memories
