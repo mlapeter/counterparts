@@ -185,7 +185,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
      memory habituated (an experiment since 2026-10-19; check ~10-22).
    - `recall`: the bookkeeping a call writes; what facts mode considers and how it ranks;
      the count header and paging; the bounded answer; every
-     memory's provenance; observer stand-down.
+     memory's provenance; observer stand-down; and since 2026-11-13 what a journal chapter
+     is (a facts answer and an ids or handle read mark and gloss one themselves; meaning
+     mode's own claim says its answer is chapters), moved when `recall` began loading up
+     front (below).
    - `chapter`: the journal's gate; earlier states kept on revision; observer stand-down;
      `drewOn`'s credit.
    Most are also guarantees elsewhere in this section (1, 4–6, 12, 16, 6b–6f) or in the
@@ -204,6 +207,15 @@ actually wrote (chapter), the written self page or the version a write to it pro
    read-only, their writes being bookkeeping) and its own `delete_memory` (`CLAUDE_AI_DELETE`,
    destructive), which carries `remember`'s `remove` there, so `remember` only adds. The test now
    holds served = none and engine = the base's rows.
+   **`recall` loads up front on Claude Code (2026-11-13).** Claude Code defers MCP tools behind
+   its tool search unless a `tools/list` entry carries `"_meta": {"anthropic/alwaysLoad":
+   true}`, and cuts an up-front tool's description at 4,096 characters (its docs, MCP page,
+   "Scale with MCP tool search"). `ToolSpec.alwaysLoad` marks `recall`; `toolDefinitions`
+   emits the key on Claude Code's list (`TOOLS`) only, since the key is Claude Code's and
+   Desktop's and claude.ai's copies spread the same spec. Its served claims were tightened
+   to fit (4,606 → 3,846 characters), the journal claim moved to the engine rows, and
+   `test/description-cut.test.ts` holds every flagged tool at 4,096 or under and the key on
+   `recall` alone, over the server's own `tools/list`.
 3. **[M] Every tool carries an admission test and at least one named negative example** in
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero

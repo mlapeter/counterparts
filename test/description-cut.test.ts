@@ -214,7 +214,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // claim, last in each list (an engine row since the trim; the field says it).
       // −39 on 2026-10-21 (confidential memories removed): "with the same
       // confidentiality boundary" out of the ids claim.
-      recall: { total: 4606, beforeList: 1200 },
+      // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
+      // the claims tightened to fit the 4,096 cut, the journal claim an engine
+      // row (each answer glosses a chapter itself). The head is untouched.
+      recall: { total: 3846, beforeList: 1200 },
       // status +77 on 2026-10-29 (review of #679): "writes nothing" became true on a chat host too.
       status: { total: 1289, beforeList: 501 },
       // +55 on 2026-11-04 (TC1): a short Do NOT on refused calls; the whole rule is on the entry's `content`.
@@ -243,5 +246,20 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +5 on 2026-10-30 (WK1): "still open and coming up" where "nearby and arriving" was.
       wake: { total: 1963, beforeList: 1234 },
     });
+  });
+});
+
+/**
+ * LOADED UP FRONT (2026-11-13, `ToolSpec.alwaysLoad`). Claude Code loads a tool
+ * whose `tools/list` entry carries `_meta["anthropic/alwaysLoad"]` up front, and
+ * cuts an up-front tool's description at 4,096 characters (its docs, MCP page).
+ * The 2,048 above is what this file has held since 2.1.295; both hold.
+ */
+describe("a tool loaded up front fits the up-front cut", () => {
+  const UP_FRONT_CAP = 4_096;
+  test("every flagged tool's rendered description is at most 4,096 characters, on every list that carries it", () => {
+    const flagged = [...TOOLS, ...DESKTOP_TOOLS, ...CLAUDE_AI_TOOLS].filter((t) => t.alwaysLoad === true);
+    expect(flagged.map((t) => t.name)).toContain("recall");
+    for (const spec of flagged) expect(renderDescription(spec).length).toBeLessThanOrEqual(UP_FRONT_CAP);
   });
 });

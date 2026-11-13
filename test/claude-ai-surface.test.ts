@@ -316,15 +316,17 @@ const REVIEWED: Record<string, unknown> = {
   },
   "recall": {
     "claims": [
-      "913873af41",
-      "312153695b",
-      "288907549d",
+      // Re-read 2026-11-13 (recall loads up front on Claude Code): the served claims
+      // tightened and the journal claim moved to the engine rows; claude.ai serves no
+      // claims and its own field words already carry what the meaning and time claims said.
+      "174c2c7f2f",
+      "73cab9e6ba",
+      "10aa831937",
       "056871d394",
-      "6e1b0ef218",
-      "ca4f6302b5",
+      "c914c85898",
+      "5545078fcd",
       "ab397b31e7",
-      "17c340725c",
-      "0ed0b658cf"
+      "50182c13e0"
     ],
     "fields": {
       "question": "090112a6c7",

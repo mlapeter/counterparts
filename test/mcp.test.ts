@@ -726,6 +726,26 @@ describe("the tool-description audit", () => {
     }
   });
 
+  test("tools/list over the wire: Claude Code's list carries alwaysLoad on recall and on nothing else; Desktop's and claude.ai's carry no _meta", async () => {
+    const listOf = async (host?: string): Promise<Record<string, unknown>[]> => {
+      const s = server(host === undefined ? {} : { host, env: {}, manifestVersion: () => null });
+      const [response] = await pump(s, [rpc(1, "tools/list")]);
+      return (response as unknown as { result: { tools: Record<string, unknown>[] } }).result.tools;
+    };
+    const code = await listOf();
+    const flagged = code.filter((t) => "_meta" in t).map((t) => t["name"]);
+    expect(flagged).toEqual(["recall"]);
+    const recall = code.find((t) => t["name"] === "recall") as Record<string, unknown>;
+    expect(recall["_meta"]).toEqual({ "anthropic/alwaysLoad": true });
+    // Within Claude Code's up-front cut (its docs: 4,096 characters).
+    expect(String(recall["description"]).length).toBeLessThanOrEqual(4_096);
+    for (const host of ["claude-desktop", "claude-ai"]) {
+      const list = await listOf(host);
+      expect(list.some((t) => t["name"] === "recall")).toBe(true);
+      expect(list.filter((t) => "_meta" in t).map((t) => t["name"])).toEqual([]);
+    }
+  });
+
   test("the annotation table: what is read-only, what is destructive", () => {
     const tableOf = (desktop: boolean): Record<string, boolean[]> => Object.fromEntries(
       toolDefinitions(desktop).map((t) => {

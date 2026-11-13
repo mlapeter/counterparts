@@ -185,7 +185,21 @@ export interface ToolSpec {
    *  shows or acts on — a short human name, and whether the tool writes,
    *  destroys or reaches beyond this machine. Served in `tools/list`. */
   readonly annotations: ToolAnnotations;
+  /**
+   * LOADED UP FRONT ON CLAUDE CODE (2026-11-13). Claude Code defers MCP tools
+   * behind its tool search unless a tool's `tools/list` entry carries
+   * `"_meta": {"anthropic/alwaysLoad": true}` (its docs, MCP page, "Scale with
+   * MCP tool search"); an up-front tool's description is cut at 4,096
+   * characters, so a flagged tool's rendered description stays under that
+   * (`test/description-cut.test.ts`). Emitted only on Claude Code's list
+   * (`toolDefinitions`): the key is Claude Code's, and Desktop's and
+   * claude.ai's copies of a tool are not flagged. `recall` only.
+   */
+  readonly alwaysLoad?: true;
 }
+
+/** The `_meta` key Claude Code reads to load a tool up front (`ToolSpec.alwaysLoad`). */
+export const ALWAYS_LOAD_META_KEY = "anthropic/alwaysLoad";
 
 /**
  * MCP TOOL ANNOTATIONS (2026-10-14, for the Software Directory's policy §5E:
@@ -868,6 +882,9 @@ const REMEMBER: ToolSpec = {
 const RECALL: ToolSpec = {
   name: "recall",
   annotations: annotate("Recall memories", { readOnly: false }),
+  // Loaded up front on Claude Code (2026-11-13): the deliberate look is the
+  // one a session should not have to search for first (`ToolSpec.alwaysLoad`).
+  alwaysLoad: true,
   summary:
     "Deliberate retrieval: a look you take on purpose, beyond the ambient reminding you already get. Three kinds of ask, one per call — a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
   admission:
@@ -883,18 +900,18 @@ const RECALL: ToolSpec = {
   privileges: [
     {
       claim:
-        "A question needs mode: \"facts\" or \"meaning\". Each is its own path, with its own ranking and its own answer, returned as labeled lines in `answer`; tuning one does not change the other.",
+        "A question needs mode: \"facts\" or \"meaning\", each its own path with its own ranking, answered as labeled lines in `answer`.",
       mechanizedBy:
         "src/adapters/mcp/server.ts#recallTool (mode-required, mode-unknown) + src/adapters/mcp/facts.ts#factsRecall + src/adapters/mcp/meaning.ts#meaningRecall",
     },
     {
       claim:
-        "A handle expands exactly that memory. It never degrades into a fuzzy search when the handle does not resolve.",
+        "A handle expands exactly that memory, never a fuzzy search when it does not resolve.",
       mechanizedBy: "src/adapters/mcp/deliberate.ts#expandHandle (store.resolve; no search fallback)",
     },
     {
       claim:
-        `Pass ids to read those memories whole. It takes up to ${RECALL_MAX_IDS}, each resolved as an exact address; a long body comes in parts, and ids past the result's room wait, named. Ids and a handle take no mode.`,
+        `Pass ids to read those memories whole: up to ${RECALL_MAX_IDS}, each an exact address; a long body comes in parts, and ids past the result's room wait, named. Ids and a handle take no mode.`,
       mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id) + src/adapters/mcp/deliberate.ts#boundById (RECALL_BODY_CHARS parts, RECALL_ID_RESULT_CHARS)",
     },
     {
@@ -909,13 +926,13 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one, by id or by title handle, is using it, and so is QUOTING the words a question's answer showed you in your reply: either is credited at the session boundary, once per lived day.",
+        "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one (by id or title) or QUOTING an answer's words in your reply is using it, credited at the session boundary once per lived day.",
       mechanizedBy:
         "src/adapters/mcp/facts.ts#factsRecall (reads only) + src/adapters/expansions.ts#recordHandleResolution -> src/adapters/lifecycle.ts#creditAtBoundary -> src/core/recall/reference.ts (expansion and quote) + src/adapters/mcp/server.ts#noteAsked -> src/core/counterpart.ts#noteAsked / creditReferences (asked records) -> src/core/recall/index.ts#resolveUse (once per lived day)",
     },
     {
       claim:
-        "A time in the question filters: \"last week\", \"in September\", \"early October\", \"3 days ago\", \"last Saturday\", a date, \"since 09-20\", \"before 09-20\", \"this morning\" — only memories inside the window come back, by when the thing happened or, with no event date, when it was learned, and the header counts the matches outside it. A week or a month stretches two days each side; a date stays exact; \"before\" a date is every day before it, \"after\" every day after, \"until\" or \"by\" every day through it. \"Around the cut-over\" resolves the event to the date of the memory that best names it, shown in the header as \"cut-over → 09-21\"; \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, and its own rows come first.",
+        "A time in the question filters (\"last week\", \"in September\", \"early October\", \"3 days ago\", \"last Saturday\", a date, \"since 09-20\", \"before 09-20\", \"this morning\"): only memories inside the window come back, by when it happened or else when it was learned; the header counts matches outside it. A week or month stretches two days each side; a date is exact; \"before\" or \"after\" a date leaves that day out, \"until\" or \"by\" takes it in. \"Around the cut-over\" resolves to the date of the memory that best names it (header: \"cut-over → 09-21\"); \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, its rows first.",
       mechanizedBy: "src/core/recall/time-ask.ts#readTimeAsk + src/adapters/mcp/facts.ts#factsRecall (inWindow, lastSession)",
     },
     {
@@ -925,20 +942,27 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. When it names several, the arc follows the one the question asks about (\"what has X been to Y\" is X's; named alike, the first, and it says so), and the rest are listed to ask for by name. In a question about feeling, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
+        "Meaning mode answers with the arc of what the question names (a person, a project, \"us\", a feeling): its chapters in time order, each with what happened, its moments by id and the feelings in it, whose each is; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. Naming several, it follows the one asked about (\"what has X been to Y\" is X's; named alike, the first, saying so) and lists the rest by name. In a feeling question \"I\" and \"me\" mean YOU, the counterpart, and \"you\" the owner: for the owner's feelings say \"the owner\" or their name, never the owner's own words unchanged.",
       mechanizedBy:
         "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#subjectOf + src/adapters/mcp/meaning.ts#renderMeaning + src/core/recall/feeling-ask.ts#whoseAsked (asker: self, src/adapters/mcp/server.ts#askQuestion)",
-    },
-    {
-      claim:
-        "A chapter of the journal can come back — it is a first-person account and may rightly come to mind — and every one that does is marked journal. It is the account a memory was made from, not a memory: it is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is. A chapter and the memory made from it come back as one result.",
-      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (the chapter-copy fold, FACTS_JOURNAL_GLOSS) + src/adapters/mcp/deliberate.ts#JOURNAL_GLOSS (ProseDoc.type === episode)",
     },
   ],
   // The engine's (2026-10-11): how a facts answer is gathered, ranked, paged
   // and bounded, and what it withholds — each said by the answer itself or by
   // the `page` field (`ToolSpec.engine`).
   engine: [
+    // Served until 2026-11-13, when `recall` became loaded up front on Claude
+    // Code and its description had to fit the 4,096-character cut
+    // (`ToolSpec.alwaysLoad`). A facts answer, and an ids or handle read, that
+    // returns a chapter marks it journal and glosses it in the answer itself
+    // (`FACTS_JOURNAL_GLOSS`, `JOURNAL_GLOSS`), which is the engine rows' rule:
+    // what a result already says. Meaning mode's answer is built of chapters,
+    // and its own claim says so.
+    {
+      claim:
+        "A chapter of the journal can come back — it is a first-person account and may rightly come to mind — and every one that does is marked journal. It is the account a memory was made from, not a memory: it is outside decay, dedup and the prune, and it is not a claim about the world the way a memory is. A chapter and the memory made from it come back as one result.",
+      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (the chapter-copy fold, FACTS_JOURNAL_GLOSS) + src/adapters/mcp/deliberate.ts#JOURNAL_GLOSS (ProseDoc.type === episode)",
+    },
     {
       claim:
         "The tool never writes a memory; what it writes is bookkeeping — which memory a title reached, which memories an answer showed this session, and one count row per call.",
@@ -2993,13 +3017,18 @@ export function renderDescription(spec: ToolSpec): string {
 }
 
 /** The `tools/list` payload. Shape is MCP's; content is the registry's. A
- *  Claude Desktop client (`desktop`) is offered `wake` too, last. */
+ *  Claude Desktop client (`desktop`) is offered `wake` too, last. A tool
+ *  flagged `alwaysLoad` carries Claude Code's `_meta` key on Claude Code's
+ *  list (`TOOLS`) only: Desktop's and claude.ai's copies spread the same spec,
+ *  and the key is not theirs. */
 export function toolDefinitions(desktop: boolean | string = false): Record<string, unknown>[] {
-  return toolListFor(desktop).map((spec) => ({
+  const list = toolListFor(desktop);
+  return list.map((spec) => ({
     name: spec.name,
     title: spec.annotations.title,
     description: renderDescription(spec),
     inputSchema: spec.inputSchema,
     annotations: spec.annotations,
+    ...(spec.alwaysLoad === true && list === TOOLS ? { _meta: { [ALWAYS_LOAD_META_KEY]: true } } : {}),
   }));
 }
