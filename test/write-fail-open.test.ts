@@ -164,7 +164,7 @@ describe("placing a feeling word on a core", () => {
       expect({ w, placed: placeFeelingWord(w) }).toEqual({ w, placed: null });
     }
     // …while the slips a writer makes still place.
-    for (const [w, core] of [["lonley", "sad"], ["happpy", "happy"], ["exicted", "happy"], ["worreid", "uneasy"], ["hopefull", "happy"], ["frustated", "angry"], ["dissapointed", "sad"], ["surprized", "curious"]] as const) {
+    for (const [w, core] of [["lonley", "sad"], ["happpy", "happy"], ["exicted", "happy"], ["worreid", "uneasy"], ["hopefull", "happy"], ["frustated", "angry"], ["dissapointed", "sad"]] as const) {
       expect({ w, core: placeFeelingWord(w)?.core }).toEqual({ w, core });
     }
   });
@@ -240,17 +240,21 @@ describe("the cleaning, rule by rule", () => {
     expect(bad.dropped.map((d) => `${d.field}:${d.reason}`).sort()).toEqual(["about:about-unknown", "how:how-unknown", "kind:kind-unknown", "remind:remind-unknown"]);
   });
 
-  test("numbers sent as text are read; out of range clamped and said; not a number dropped", async () => {
+  test("numbers sent as text are read; a score out of 10 or 100 read on its scale; negative or past 100 dropped; not a number dropped", async () => {
     const notes = new WriteNotes();
     const out = await normalizeMemoryFields({ text: "x", salience: "0.7", relevance: 7, emotional: -1, predictive: "lots" }, "text", ctx, notes);
-    expect(out).toMatchObject({ salience: 0.7, relevance: 1, emotional: 0 });
+    expect(out).toMatchObject({ salience: 0.7, relevance: 0.7 });
+    expect(out["emotional"]).toBeUndefined();
     expect(out["predictive"]).toBeUndefined();
     expect(notes.readAs).toEqual([
       { field: "salience", sent: "0.7", readAs: "0.7" },
-      { field: "relevance", sent: "7", readAs: "1" },
-      { field: "emotional", sent: "-1", readAs: "0" },
+      { field: "relevance", sent: "7", readAs: "0.7" },
     ]);
-    expect(notes.dropped.map((d) => d.field)).toEqual(["predictive"]);
+    expect(notes.dropped.map((d) => `${d.field}:${d.reason}`)).toEqual(["emotional:out-of-range", "predictive:not-a-number"]);
+    // Review of #818: 7 is never clamped to 1 (it fed ranking at its maximum).
+    const scale = await normalizeMemoryFields({ text: "x", salience: 70, relevance: 1000, emotional: "10" }, "text", ctx, new WriteNotes());
+    expect(scale).toMatchObject({ salience: 0.7, emotional: 1 });
+    expect(scale["relevance"]).toBeUndefined();
   });
 
   test("text and content are one field; remove given as an id means {id}; recurring beside a month keeps the date", async () => {
@@ -502,7 +506,7 @@ describe("session_end: every entry lands", () => {
       "eventDate:event-date-unreadable",
       "feelings:feelings-not-a-list",
     ]);
-    expect(outcomes[2]?.["readAs"]).toContainEqual({ field: "salience", sent: "3", readAs: "1" });
+    expect(outcomes[2]?.["readAs"]).toContainEqual({ field: "salience", sent: "3", readAs: "0.3" });
     expect(outcomes[3]?.["readAs"]).toEqual([{ field: "entry", sent: "(text)", readAs: "{content}" }]);
     expect(s.counterpart.store.read(outcomes[4]?.["id"] as string).about).toBe("owner");
     expect(s.counterpart.store.traitsFor(outcomes[4]?.["id"] as string).map((t) => t.toward)).toEqual(["playful"]);
@@ -546,5 +550,133 @@ describe("session_end: every entry lands", () => {
     expect(codes.length).toBeGreaterThan(0);
     const row = JSON.parse(s.counterpart.store.eventLog({ name: MCP_WRITE_EVENT, limit: 1 })[0]?.payload ?? "{}") as Record<string, unknown>;
     expect(Object.values(row["refused"] as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(2);
+  });
+});
+
+// ── review of #818 ──────────────────────────────────────────────────────────
+
+describe("review of #818", () => {
+  const rowOf = (s: McpServer): Record<string, unknown> | null => {
+    const r = s.counterpart.store.eventLog({ name: MCP_WRITE_EVENT, limit: 1 })[0];
+    return r === undefined ? null : (JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+  };
+
+  test("1. ordinary words are never misspellings of a feeling word; real inflections still place", () => {
+    const ordinary = [
+      "affliction", "forgetting", "indigestion", "invitation", "irrigation", "conclusion", "confession", "concussion",
+      "commission", "comparison", "compulsion", "contribute", "homeless", "graceful", "interior", "better", "wired",
+      "closed", "believed", "sacred", "scarred", "insulated", "thrusting", "frustrate", "fascinate", "determine",
+      "wrong", "long", "sort", "focus", "correct", "moving", "plea", "please", "chilling", "concerning", "cheating",
+      "kitchen", "garden", "meeting", "printer", "careful", "general", "station", "personal", "tenderloin",
+    ];
+    expect(ordinary.filter((w) => placeFeelingWord(w) !== null)).toEqual([]);
+    for (const [w, core] of [["relieving", "calm"], ["worrying", "uneasy"], ["terrifying", "uneasy"], ["calming", "calm"], ["overwelmed", "uneasy"], ["embarassed", "uneasy"]] as const) {
+      expect({ w, core: placeFeelingWord(w)?.core }).toEqual({ w, core });
+    }
+  });
+
+  test("2. the durable row carries a missed word only when it is one plain word", async () => {
+    const s = server();
+    await s.call("remember", { text: "Sarah's biopsy came back and we talked for an hour about it.", feelings: ["owner: sarah's biopsy", "self: Zorbish2"] });
+    expect(rowOf(s)?.["unplaced"]).toEqual(["(phrase)", "(phrase)"]);
+    expect(JSON.stringify(rowOf(s))).not.toContain("sarah");
+  });
+
+  test("3. a done memory's passed date kept as occurredOn is no drop and leaves no row", async () => {
+    const s = server();
+    const out = body(await s.call("remember", { text: "We shipped the release to everyone on Tuesday afternoon.", status: "done", eventDate: "2026-11-10" }));
+    expect(out["stored"]).toBe(true);
+    expect(out["dropped"]).toBeUndefined();
+    expect(String(((out["facts"] as Record<string, unknown>)["dropped"] as { note: string }[])[0]?.note)).toContain("occurredOn");
+    expect(rowOf(s)).toBeNull();
+    // A value only read as something else leaves no row either.
+    body(await s.call("remember", { text: "The garden beds arrived and the soil goes in at the weekend.", kind: "lesson" }));
+    expect(rowOf(s)).toBeNull();
+  });
+
+  test("4. a salience out of 10 or 100 is read on its scale; negative or past 100 dropped; never clamped to 1", async () => {
+    const s = server();
+    const seven = body(await s.call("remember", { text: "The kiln cracked a shelf during the glaze firing on Monday.", salience: 7 }));
+    expect(s.counterpart.store.row(seven["id"] as string)?.claimed).toBe(0.7);
+    for (const [n, v] of [[1, -0.5], [2, 150]] as const) {
+      const out = body(await s.call("remember", { text: `Note ${String(n)}: the glaze test tiles came out of the kiln all streaky.`, salience: v }));
+      expect(out["stored"]).toBe(true);
+      expect(out["dropped"]).toContainEqual(expect.objectContaining({ field: "salience", reason: "out-of-range" }));
+    }
+  });
+
+  test("5. date words: day words with a time, times after a day, end of week on a weekend, impossible days, instants, absurd spans", () => {
+    expect(readLooseDate("last night", TODAY, "back")?.text).toBe("2026-11-12");
+    for (const w of ["this morning", "this afternoon", "this evening"]) expect(readLooseDate(w, TODAY, "back")?.text).toBe(TODAY);
+    expect(readLooseDate("friday at 3pm", "2026-11-11", "ahead")?.text).toBe("2026-11-13");
+    expect(readLooseDate("monday morning", TODAY, "ahead")?.text).toBe("2026-11-16");
+    expect(readLooseDate("end of the week", "2026-11-14", "ahead")?.text).toBe("2026-11-20");
+    expect(readLooseDate("the 31st", TODAY, "ahead")).toBeNull();
+    expect(readLooseDate("Feb 29", TODAY, "ahead")).toBeNull();
+    expect(readLooseDate("2026-11-14T03:00:00Z", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-13");
+    expect(readLooseDate("in 999 years", TODAY, "ahead")).toBeNull();
+    expect(readLooseDate("200 years ago", TODAY, "back")).toBeNull();
+    expect(readLooseDate("in 5 years", TODAY, "ahead")?.text).toBe("2031-11-13");
+  });
+
+  test("6. memories as one object, a JSON string of a list, or text; text as a list of lines", async () => {
+    const s = server();
+    const one = body(await s.call("session_end", { session: SESSION, memories: { content: "The orchard's north row needs netting before the birds find it." } }));
+    expect(one["deposited"]).toBe(1);
+    expect(one["readAs"]).toEqual([{ field: "memories", sent: "(one object)", readAs: "a list of one" }]);
+    const json = body(await s.call("session_end", { session: SESSION, memories: JSON.stringify([{ content: "The cider press needs a new gasket before October." }, "The ladder's top rung is cracked and needs replacing."]) }));
+    expect(json["deposited"]).toBe(2);
+    const text = body(await s.call("session_end", { session: SESSION, memories: "The well pump was serviced and the pressure holds at forty." }));
+    expect(text["deposited"]).toBe(1);
+    const lines = body(await s.call("remember", { text: ["The hives were checked today.", "Two queens were spotted, both laying."] }));
+    expect(lines["stored"]).toBe(true);
+    expect(s.counterpart.store.readProse(lines["id"] as string).body).toContain("Two queens were spotted");
+    expect(body(await s.call("remember", { text: [1, 2] }))["reason"]).toBe("text-required");
+  });
+
+  test("7. a third person is not the owner: whose her or a name, saidBy they, about him dropped; about them kept", async () => {
+    const s = server();
+    const out = body(
+      await s.call("remember", {
+        text: "Mike's sister called about the farm sale and she sounded worn down by it all.",
+        feelings: [{ whose: "her", emotion: "sad" }, "Mike: frustrated", { whose: "user", emotion: "worried" }],
+        saidBy: "they",
+      }),
+    );
+    expect(out["stored"]).toBe(true);
+    const dropped = (out["dropped"] as Record<string, unknown>[]).map((d) => `${String(d["field"])}:${String(d["reason"])}`);
+    expect(dropped).toContain("feelings[0]:whose-unknown");
+    expect(dropped).toContain("feelings[1]:whose-unknown");
+    expect(dropped).toContain("saidBy:unreadable");
+    expect(s.counterpart.store.feelingsFor(out["id"] as string).map((f) => f.whose)).toEqual(["owner"]);
+    const him = body(await s.call("remember", { text: "The farm buyer asked twice about the water rights on the east field.", about: "him" }));
+    expect(him["dropped"]).toContainEqual(expect.objectContaining({ field: "about", reason: "about-unknown" }));
+    const them = body(await s.call("remember", { text: "Mike would rather keep the east field and sell the barn instead.", about: "them" }));
+    expect(s.counterpart.store.read(them["id"] as string).about).toBe("owner");
+  });
+
+  test("8. energy words go unplaced; crisis and everyday words are placed; vague ones stay unplaced", () => {
+    for (const w of ["tired", "exhausted", "drained", "sleepy", "weary", "fatigued", "fine", "okay", "busy", "bad"]) expect({ w, placed: placeFeelingWord(w) }).toEqual({ w, placed: null });
+    const cores: Record<string, string> = {
+      suicidal: "sad", hopeless: "sad", abused: "sad", traumatized: "uneasy", triggered: "uneasy", unsafe: "uneasy", harassed: "angry",
+      terrible: "sad", horrible: "sad", hurting: "sad", awful: "angry",
+    };
+    for (const [w, core] of Object.entries(cores)) expect({ w, core: placeFeelingWord(w)?.core }).toEqual({ w, core });
+  });
+
+  test("9. commas, labels and notes: 'happy, because x'; 'self: happy, sad' is two; 'Note: happy'; every drop says what to resend", async () => {
+    expect(parseFeelingString("happy, because it shipped")).toEqual({ whose: "self", emotion: "happy", carried_by: "it shipped" });
+    expect(parseFeelingString("Note: happy")).toEqual({ whose: "self", emotion: "happy" });
+    const s = server();
+    const out = body(
+      await s.call("remember", {
+        text: "The orchard tour went well and the kids picked two bushels of apples.",
+        feelings: ["self: happy, sad", { whose: "self" }, { whose: "self", emotion: "glad", beneath: "x" }],
+        title: { a: 1 },
+        unresolved: "maybe",
+      }),
+    );
+    expect(s.counterpart.store.feelingsFor(out["id"] as string).map((f) => f.emotion).sort()).toEqual(["glad", "happy", "sad"]);
+    for (const d of out["dropped"] as Record<string, unknown>[]) expect({ d, note: typeof d["note"] }).toEqual({ d, note: "string" });
   });
 });

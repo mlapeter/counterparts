@@ -879,19 +879,19 @@ describe("the tool-description audit", () => {
   });
 
   // Changed 2026-11-13 (write tools fail open): an out-of-range dimension
-  // used to refuse the memory; now it is clamped and SAID, never silent.
-  test("an out-of-range dimension is clamped and said in readAs, the memory kept", async () => {
+  // used to refuse the memory; now a score out of 10 or 100 is read on its scale and SAID (review of #818: never clamped to 1).
+  test("an out-of-range dimension is read on its scale (7 as 0.7) and said in readAs, the memory kept", async () => {
     const s = server();
     const body = payload(
       await s.call("remember", { text: "A perfectly ordinary thing to remember.", relevance: 7 }),
     );
     expect(body["stored"]).toBe(true);
-    expect(s.counterpart.store.row(body["id"] as string)?.relevance).toBe(1);
-    expect(body["readAs"]).toContainEqual({ field: "relevance", sent: "7", readAs: "1" });
+    expect(s.counterpart.store.row(body["id"] as string)?.relevance).toBe(0.7);
+    expect(body["readAs"]).toContainEqual({ field: "relevance", sent: "7", readAs: "0.7" });
   });
 
-  // Changed 2026-11-13: the bad sibling is clamped and said, and lands too.
-  test("session_end entries carry their own dimensions, and a bad one is clamped on itself alone", async () => {
+  // Changed 2026-11-13: the bad sibling is read on its scale and said, and lands too.
+  test("session_end entries carry their own dimensions, and a bad one is read on itself alone", async () => {
     const s = server();
     const body = payload(
       await s.call("session_end", {
@@ -911,7 +911,7 @@ describe("the tool-description audit", () => {
     const outcomes = body["outcomes"] as Record<string, unknown>[];
     expect(outcomes[0]?.["stored"]).toBe(true);
     expect(outcomes[1]?.["stored"]).toBe(true);
-    expect(outcomes[1]?.["readAs"]).toContainEqual({ field: "relevance", sent: "4", readAs: "1" });
+    expect(outcomes[1]?.["readAs"]).toContainEqual({ field: "relevance", sent: "4", readAs: "0.4" });
     expect(outcomes[0]?.["readAs"]).toBeUndefined();
     expect(outcomes[2]?.["stored"]).toBe(true);
     const first = s.counterpart.store.row(outcomes[0]?.["id"] as string);

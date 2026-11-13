@@ -326,7 +326,7 @@ describe("the MCP doors", () => {
     expect(s.counterpart.store.feelingsFor(out["id"] as string).map((f) => [f.core, f.emotion])).toEqual([["sad", "bored"]]);
   });
 
-  // Changed 2026-11-13: the out-of-range strength is clamped and said on its own entry, which lands (it was refused).
+  // Changed 2026-11-13: the out-of-range strength is read as 3 out of 10 and said on its own entry, which lands (it was refused).
   test("session_end: per entry — a bad one is read on itself, its sibling lands with its feelings", async () => {
     recordSession(dir, { sessionId: "s-feel", scope: "/tmp/feelings-project", phase: "start", model: "claude-opus-5-5" });
     const s = server();
@@ -344,8 +344,8 @@ describe("the MCP doors", () => {
     expect((good?.["feelings"] as Record<string, unknown>)["stored"]).toBe(1);
     expect(s.counterpart.store.feelingsFor(good?.["id"] as string)[0]?.model).toBe("claude-opus-5-5");
     expect(bad?.["stored"]).toBe(true);
-    expect(bad?.["readAs"]).toContainEqual({ field: "feelings[0].strength", sent: "3", readAs: "1" });
-    expect(s.counterpart.store.feelingsFor(bad?.["id"] as string)[0]?.strength).toBe(1);
+    expect(bad?.["readAs"]).toContainEqual({ field: "feelings[0].strength", sent: "3", readAs: "0.3" });
+    expect(s.counterpart.store.feelingsFor(bad?.["id"] as string)[0]?.strength).toBe(0.3);
   });
 });
 

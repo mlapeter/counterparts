@@ -434,7 +434,7 @@ describe("the MCP doors: note and session_end", () => {
     expect((again["traits"] as Record<string, unknown>)["reason"]).toBe("memory-not-stored");
   });
 
-  // Changed 2026-11-13: the out-of-range strength is clamped and said; the entry lands (it was refused).
+  // Changed 2026-11-13: the out-of-range strength is read as 3 out of 10 and said; the entry lands (it was refused).
   test("session_end: per entry — a bad nudge is read on its own entry, its sibling lands with its nudge and the session's model", async () => {
     recordSession(dir, { sessionId: "s-traits", scope: "/tmp/traits-project", phase: "start", model: "claude-opus-5-5" });
     const s = server();
@@ -455,7 +455,7 @@ describe("the MCP doors: note and session_end", () => {
     expect(good?.["traits"]).toEqual({ stored: 1 });
     expect(s.counterpart.store.traitsFor(good?.["id"] as string)[0]?.model).toBe("claude-opus-5-5");
     expect(bad?.["stored"]).toBe(true);
-    expect(bad?.["readAs"]).toContainEqual({ field: "traits[0].strength", sent: "3", readAs: "1" });
+    expect(bad?.["readAs"]).toContainEqual({ field: "traits[0].strength", sent: "3", readAs: "0.3" });
     expect(good?.["readAs"]).toBeUndefined();
   });
 });
