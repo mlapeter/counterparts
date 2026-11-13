@@ -981,7 +981,16 @@ export async function normalizeMemoryFields(
   notes: WriteNotes,
 ): Promise<Record<string, unknown>> {
   const rec: Record<string, unknown> = { ...raw };
-  // THE CONTENT, under either name: `text` and `content` are one field.
+  // THE CONTENT, under either name: `text` and `content` are one field. A list
+  // of strings is its lines, joined; any other non-string is left for the
+  // content-level refusal (review of #818).
+  for (const key of ["text", "content"]) {
+    const v = rec[key];
+    if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string")) {
+      rec[key] = (v as string[]).join("\n");
+      notes.read(key, "(a list of text)", "its lines, joined");
+    }
+  }
   const other = contentKey === "text" ? "content" : "text";
   const main = rec[contentKey];
   const alt = rec[other];

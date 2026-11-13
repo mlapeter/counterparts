@@ -98,7 +98,10 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
     retired = refused === null ? null : [refused];
   }
 
-  const raw = args["memories"];
+  // `memories` not sent as a list (review of #818): one object is a list of
+  // one; a JSON string of a list is that list; a plain string is one entry.
+  // Said in `readAs`. Anything else is still `memories-required` below.
+  const { list: raw, readAs: memoriesReadAs } = readMemoriesList(args["memories"]);
   // NOTHING WORTH KEEPING IS A REAL ANSWER — and until 2026-09-21 it was not
   // one on this door (new-user finding #12). A session that learned nothing
   // durable but is leaving work half-finished sends the handoff and an empty
@@ -183,6 +186,7 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
         ...(handoff === null ? {} : { handoff }),
         ...(retired === null ? {} : { retired }),
         ...extra,
+        ...memoriesReadAs,
       },
       handoffFailed,
     );
@@ -217,11 +221,31 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
       ...(handoff === null ? {} : { handoff }),
       ...(retired === null ? {} : { retired }),
       ...extra,
+      ...memoriesReadAs,
     },
     deposited === 0,
   );
   server["noteWrite"]("session_end", answer, notes, outcomes);
   return answer;
+}
+
+/** `memories` as sent, read as a list where it plainly is one (see the call site). */
+export function readMemoriesList(sent: unknown): { list: unknown; readAs: Record<string, unknown> } {
+  const said = (as: string, from: string): Record<string, unknown> => ({ readAs: [{ field: "memories", sent: from, readAs: as }] });
+  if (sent !== null && typeof sent === "object" && !Array.isArray(sent)) return { list: [sent], readAs: said("a list of one", "(one object)") };
+  if (typeof sent === "string" && sent.trim().length > 0) {
+    const t = sent.trim();
+    if (t.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(t);
+        if (Array.isArray(parsed)) return { list: parsed, readAs: said("the list it holds", "(a JSON string)") };
+      } catch {
+        /* not JSON: one entry, below */
+      }
+    }
+    return { list: [sent], readAs: said("a list of one", "(text)") };
+  }
+  return { list: sent, readAs: {} };
 }
 
 /** One flat count per refusal code (`refused.<code>`), for the log line: its values are scalars only. */
