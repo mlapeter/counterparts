@@ -251,20 +251,28 @@ describe("the three fields on note and session_end", () => {
     expect(s.counterpart.store.row(third["id"] as string)?.said_by).toBe("owner");
   });
 
+  // Changed 2026-11-13 (write tools fail open): "last week" and "the owner"
+  // are read now (a date in words, a synonym, both said in readAs), so the
+  // unreadable pair is one nothing reads.
   test("an unreadable date or an unknown word is dropped and said; the memory is stored all the same", async () => {
     const s = server();
     const out = payload(
-      await s.call("remember", { text: "We shipped the dashboard fix to everyone this morning.", occurredOn: "last week", saidBy: "the owner", status: "done" }),
+      await s.call("remember", { text: "We shipped the dashboard fix to everyone this morning.", occurredOn: "back in the day", saidBy: "the cat", status: "done" }),
     );
     expect(out["stored"]).toBe(true);
     const facts = out["facts"] as Record<string, unknown>;
     expect(facts["status"]).toBe("done");
     const dropped = facts["dropped"] as { field: string; note: string }[];
     expect(dropped.map((d) => d.field)).toEqual(["occurredOn", "saidBy"]);
-    expect(dropped[0]?.note).toContain("last week");
+    expect(dropped[0]?.note).toContain("back in the day");
     expect(dropped[0]?.note).toContain('"2026-09-24"');
     const row = s.counterpart.store.row(out["id"] as string);
     expect([row?.occurred_on, row?.said_by, row?.status]).toEqual([null, null, "done"]);
+    const read = payload(
+      await s.call("remember", { text: "We fixed the flaky export test in the release branch.", occurredOn: "last week", saidBy: "the owner" }),
+    );
+    expect(read["readAs"]).toContainEqual(expect.objectContaining({ field: "saidBy", sent: "the owner", readAs: "owner" }));
+    expect(read["readAs"]).toContainEqual(expect.objectContaining({ field: "occurredOn", sent: "last week" }));
   });
 
   test("a date in the future is kept, with a note that a reminder date is eventDate", async () => {

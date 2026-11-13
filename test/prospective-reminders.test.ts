@@ -324,17 +324,31 @@ describe("note and session_end take eventDate + remind", () => {
     expect(s.counterpart.store.row(id)?.event_date).toBe("2026-10-15");
   });
 
-  test("an unreadable date is REFUSED before anything is stored, and the refusal lists the shapes", async () => {
+  // Changed 2026-11-13 (write tools fail open): a date in words is read and
+  // echoed; one that cannot be read is dropped and said, the memory kept with
+  // no date (it was refused, and the memory lost).
+  test("a date in words is read and echoed; an unreadable one is dropped and said, listing the shapes", async () => {
     const s = server();
-    const before = s.counterpart.store.list().length;
+    const read = (
+      await s.call("remember", {
+        text: "The launch happens sometime in late October, after the beta closes.",
+        eventDate: "late October",
+      })
+    ).structuredContent;
+    expect(read["stored"]).toBe(true);
+    expect(read["readAs"]).toContainEqual({ field: "eventDate", sent: "late October", readAs: "2026-10-21..2026-10-31" });
+    expect(s.counterpart.store.readProse(read["id"] as string).eventDate).toBe("2026-10-21..2026-10-31");
+
     const result = await s.call("remember", {
-      text: "The launch happens sometime in late October, after the beta closes.",
-      eventDate: "late October",
+      text: "The relaunch happens whenever the beta finally closes, nobody knows when.",
+      eventDate: "when the beta closes",
     });
-    expect(result.isError).toBe(true);
-    expect(result.structuredContent["reason"]).toBe("event-date-unreadable");
-    expect(String(result.structuredContent["detail"])).toContain("2026-10-20..2026-10-31");
-    expect(s.counterpart.store.list().length).toBe(before);
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent["stored"]).toBe(true);
+    const dropped = result.structuredContent["dropped"] as Record<string, unknown>[];
+    expect(dropped[0]).toMatchObject({ field: "eventDate", reason: "event-date-unreadable", sent: "when the beta closes" });
+    expect(String(dropped[0]?.["note"])).toContain("2026-10-20..2026-10-31");
+    expect(s.counterpart.store.readProse(result.structuredContent["id"] as string).eventDate ?? null).toBeNull();
   });
 
   test("no date is ever read out of the TEXT", async () => {
@@ -357,7 +371,9 @@ describe("note and session_end take eventDate + remind", () => {
     expect(s.counterpart.store.readProse(body["id"] as string).meta[CUE_MODE_META]).toBeUndefined();
   });
 
-  test("session_end: a bad date refuses ITS entry by name, and a dated sibling lands with its date", async () => {
+  // Changed 2026-11-13: words are read on the entry; an unreadable date is
+  // dropped and said on ITS entry, which lands undated (it was refused).
+  test("session_end: a date in words is read on its entry, a bad one dropped on its own entry, and every sibling lands", async () => {
     const s = server();
     const body = (
       await s.call("session_end", {
@@ -368,13 +384,17 @@ describe("note and session_end take eventDate + remind", () => {
             content: "The venue walkthrough for the offsite happens in late October.",
             eventDate: "2026-10-20..2026-10-31",
           },
+          { content: "The board review happens at some point after the audit wraps up.", eventDate: "after the audit" },
         ],
       })
     ).structuredContent;
     const outcomes = body["outcomes"] as Record<string, unknown>[];
-    expect(outcomes[0]?.["stored"]).toBe(false);
-    expect(outcomes[0]?.["reason"]).toBe("event-date-unreadable");
+    expect(outcomes[0]?.["stored"]).toBe(true);
+    expect(outcomes[0]?.["readAs"]).toContainEqual({ field: "eventDate", sent: "next month", readAs: "2026-10" });
+    expect(outcomes[2]?.["stored"]).toBe(true);
+    expect(outcomes[2]?.["dropped"]).toContainEqual(expect.objectContaining({ field: "eventDate", reason: "event-date-unreadable" }));
     expect(outcomes[1]?.["stored"]).toBe(true);
+    expect(outcomes[1]?.["dropped"]).toBeUndefined();
     expect(outcomes[1]?.["reminder"]).toEqual({ eventDate: "2026-10-20..2026-10-31", remind: "quiet" });
     expect(s.counterpart.store.readProse(outcomes[1]?.["id"] as string).eventDate).toBe("2026-10-20..2026-10-31");
   });

@@ -8,11 +8,7 @@ import { writeUpDoor } from "./write-up.js";
 import type { ToolResult } from "./server-options.js";
 import {
   readDimensions,
-  pickDimensions,
-  readReminder,
-  readFeelings,
   readAbout,
-  readTraits,
   readWriteFacts,
   doneDateAsOccurred,
   readTags,
@@ -26,6 +22,18 @@ import {
   threadOf,
 } from "./server-args.js";
 import { TITLE_ASKED_NOTE, chatWordsFor, threwDetail } from "./server-words.js";
+import {
+  WriteNotes,
+  dropDimensions,
+  factsDropped,
+  isHow,
+  isKind,
+  normalizeMemoryFields,
+  readAboutLoose,
+  readFeelingsLoose,
+  readReminderLoose,
+  readTraitsLoose,
+} from "./server-args.js";
 import type { FeelingsRead, ReminderRead, AboutRead, TraitsRead, FactsRead, TagsRead } from "./server-args.js";
 import type { McpServer } from "./server.js";
 
@@ -90,7 +98,10 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
     retired = refused === null ? null : [refused];
   }
 
-  const raw = args["memories"];
+  // `memories` not sent as a list (review of #818): one object is a list of
+  // one; a JSON string of a list is that list; a plain string is one entry.
+  // Said in `readAs`. Anything else is still `memories-required` below.
+  const { list: raw, readAs: memoriesReadAs } = readMemoriesList(args["memories"]);
   // NOTHING WORTH KEEPING IS A REAL ANSWER — and until 2026-09-21 it was not
   // one on this door (new-user finding #12). A session that learned nothing
   // durable but is leaving work half-finished sends the handoff and an empty
@@ -175,6 +186,7 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
         ...(handoff === null ? {} : { handoff }),
         ...(retired === null ? {} : { retired }),
         ...extra,
+        ...memoriesReadAs,
       },
       handoffFailed,
     );
@@ -186,14 +198,18 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
       ...extra,
     });
   }
-  const { outcomes, deposited, entries } = await server["depositEntries"](raw, session);
+  const { outcomes, deposited, entries, notes } = await server["depositEntries"](raw, session);
   server["emit"]("mcp.session_end", session, {
     entries: entries.length,
     deposited,
     refused: entries.length - deposited,
     handoff: handoff === null ? false : handoff["written"] === true,
+    // PER-ENTRY REASONS (2026-11-13, PR 0 of the tool trim): one flat count per
+    // refusal code, and how many fields were dropped — codes only, the log's rule.
+    ...refusalCounts(outcomes),
+    dropped: notes.reduce((s, n) => s + n.dropped.length, 0),
   });
-  return server["result"](
+  const answer = server["result"](
     {
       session,
       entries: entries.length,
@@ -205,9 +221,43 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
       ...(handoff === null ? {} : { handoff }),
       ...(retired === null ? {} : { retired }),
       ...extra,
+      ...memoriesReadAs,
     },
     deposited === 0,
   );
+  server["noteWrite"]("session_end", answer, notes, outcomes);
+  return answer;
+}
+
+/** `memories` as sent, read as a list where it plainly is one (see the call site). */
+export function readMemoriesList(sent: unknown): { list: unknown; readAs: Record<string, unknown> } {
+  const said = (as: string, from: string): Record<string, unknown> => ({ readAs: [{ field: "memories", sent: from, readAs: as }] });
+  if (sent !== null && typeof sent === "object" && !Array.isArray(sent)) return { list: [sent], readAs: said("a list of one", "(one object)") };
+  if (typeof sent === "string" && sent.trim().length > 0) {
+    const t = sent.trim();
+    if (t.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(t);
+        if (Array.isArray(parsed)) return { list: parsed, readAs: said("the list it holds", "(a JSON string)") };
+      } catch {
+        /* not JSON: one entry, below */
+      }
+    }
+    return { list: [sent], readAs: said("a list of one", "(text)") };
+  }
+  return { list: sent, readAs: {} };
+}
+
+/** One flat count per refusal code (`refused.<code>`), for the log line: its values are scalars only. */
+function refusalCounts(outcomes: readonly Record<string, unknown>[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const o of outcomes) {
+    if (o["stored"] === true || typeof o["reason"] !== "string") continue;
+    const code = typeof o["malformed"] === "string" ? `${o["reason"]}.${o["malformed"]}` : o["reason"];
+    const key = `refused.${code}`.replace(/[^A-Za-z0-9_.-]/gu, "_").slice(0, 64);
+    out[key] = (out[key] ?? 0) + 1;
+  }
+  return out;
 }
 
 /**
@@ -230,7 +280,7 @@ export async function depositEntries(
   scope?: string,
   /** A WRITE-UP's memories (2026-10-01): whose stretch they write up and the
    *  day it was lived — carried on each memory, marked second-hand. */
-  writeUp?: { readonly session: string; readonly happenedOn: string | null },): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[] }> {
+  writeUp?: { readonly session: string; readonly happenedOn: string | null },): Promise<{ outcomes: Record<string, unknown>[]; deposited: number; duplicates: number; entries: Record<string, unknown>[]; notes: WriteNotes[] }> {
   const entries: Record<string, unknown>[] = [];
   const feelingsOf: FeelingsRead[] = [];
   const datedOf: ReminderRead[] = [];
@@ -238,8 +288,22 @@ export async function depositEntries(
   const traitsOf: TraitsRead[] = [];
   const factsOf: FactsRead[] = [];
   const tagsOf: TagsRead[] = [];
+  // FAIL OPEN (2026-11-13): each entry is cleaned before any reader sees it
+  // (`server-args.ts#normalizeMemoryFields`). An optional field that cannot be read is dropped
+  // and said on THAT entry's outcome; the entry itself is refused only for
+  // what is wrong with its content (none, a stub, a duplicate, a credential).
+  const notesOf: WriteNotes[] = [];
   const today = server["today"]();
-  for (const item of raw) {
+  const ctx = server["normalizeContext"]();
+  for (const sent of raw) {
+    const notes = new WriteNotes();
+    notesOf.push(notes);
+    // An entry sent as its words alone is that memory.
+    let item: unknown = sent;
+    if (typeof sent === "string" && sent.trim().length > 0) {
+      item = { content: sent };
+      notes.read("entry", "(text)", "{content}");
+    }
     if (item === null || typeof item !== "object" || Array.isArray(item)) {
       entries.push({ content: "" });
       feelingsOf.push({ inputs: [] });
@@ -250,33 +314,42 @@ export async function depositEntries(
       tagsOf.push({ dropped: [] });
       continue;
     }
-    const rec = item as Record<string, unknown>;
+    let rec: Record<string, unknown>;
+    try {
+      rec = await normalizeMemoryFields(item as Record<string, unknown>, "content", ctx, notes);
+    } catch {
+      rec = item as Record<string, unknown>;
+    }
     const draft: Record<string, unknown> = { content: rec["content"] };
-    if (typeof rec["kind"] === "string") draft["kind"] = rec["kind"];
+    // Only what intake takes reaches it: its refusal would be the entry's loss.
+    if (isKind(rec["kind"])) draft["kind"] = rec["kind"];
+    else if (rec["kind"] !== undefined && rec["kind"] !== null) notes.drop("kind", "kind-unknown", rec["kind"]);
     if (typeof rec["title"] === "string") draft["title"] = rec["title"];
     if (typeof rec["updates"] === "string") draft["updates"] = rec["updates"];
-    if (rec["how"] !== undefined) draft["how"] = rec["how"];
+    if (isHow(rec["how"]) || rec["how"] === null) draft["how"] = rec["how"];
+    else if (rec["how"] !== undefined) notes.drop("how", "how-unknown", rec["how"]);
     if (typeof rec["unresolved"] === "boolean") draft["unresolved"] = rec["unresolved"];
     if (rec["settlesWhen"] !== undefined) draft["settlesWhen"] = rec["settlesWhen"];
-    if (rec["salience"] !== undefined) draft["claimed"] = rec["salience"];
-    // A bad dimension does NOT fail the batch and is not silently dropped:
-    // the dimensions ride into the draft and `remember/intake` refuses that
-    // one entry as malformed, which is this tool's per-entry isolation rule.
-    const entryDims = readDimensions(rec) ?? pickDimensions(rec);
+    const claimed = rec["salience"];
+    if (claimed === null || (typeof claimed === "number" && Number.isFinite(claimed) && claimed >= 0 && claimed <= 1)) draft["claimed"] = claimed;
+    else if (claimed !== undefined) notes.drop("salience", "not-a-number", claimed);
+    // A bad dimension is dropped and said, the entry kept (2026-11-13: it
+    // rode to intake, which refused the whole entry).
+    const entryDims = readDimensions(rec) ?? dropDimensions(rec, notes);
     if (Object.keys(entryDims).length > 0) draft["salience"] = entryDims;
-    // The reminder date (2026-09-26), per entry: an unreadable one refuses
-    // THIS entry below, by name, and its siblings still land.
+    // The reminder date (2026-09-26), per entry: one that cannot be read is
+    // dropped and said on this entry, which still lands (2026-11-13).
     // A done whose date has passed keeps it as occurredOn instead (SO1 step 2).
-    const datedRead = readReminder(rec);
+    const datedRead = readReminderLoose(rec, notes);
     const factsRead = readWriteFacts(rec, today);
-    const doneAt = "refused" in datedRead ? { dated: datedRead, facts: factsRead } : doneDateAsOccurred(rec, datedRead, factsRead, today);
+    const doneAt = doneDateAsOccurred(rec, datedRead, factsRead, today);
     const dated = doneAt.dated;
-    if (!("refused" in dated)) Object.assign(draft, dated.fields);
+    Object.assign(draft, dated.fields);
     datedOf.push(dated);
     entries.push(draft);
-    feelingsOf.push(readFeelings(rec["feelings"]));
-    aboutOf.push(readAbout(rec["about"]));
-    traitsOf.push(readTraits(rec["traits"]));
+    feelingsOf.push(readFeelingsLoose(rec["feelings"], notes));
+    aboutOf.push(readAboutLoose(rec["about"], notes));
+    traitsOf.push(readTraitsLoose(rec["traits"], notes));
     factsOf.push(doneAt.facts);
     tagsOf.push(readTags(rec));
   }
@@ -289,27 +362,16 @@ export async function depositEntries(
   let listed = 0;
   const model = server["sessionModel"]();
   for (const [n, draft] of entries.entries()) {
-    // Feelings that cannot be stored refuse THEIR entry before it mints, so
-    // no memory lands with its feelings silently dropped; siblings still run.
+    // Feelings, the date, `about` and traits that could not be read were
+    // dropped and said above (2026-11-13); they no longer refuse the entry.
     const feelings = feelingsOf[n] ?? { inputs: [] };
-    if ("refused" in feelings) {
-      outcomes.push({ stored: false, reason: "feelings-malformed", detail: feelings.refused });
-      continue;
-    }
     const dated = datedOf[n] ?? { fields: {}, remindIgnored: false };
-    if ("refused" in dated) {
-      outcomes.push({ stored: false, reason: dated.refused, detail: dated.detail });
-      continue;
-    }
     const about = aboutOf[n] ?? { mark: null };
-    if ("refused" in about) {
-      outcomes.push({ stored: false, reason: "about-malformed", detail: about.refused });
-      continue;
-    }
-    // Trait nudges refuse THEIR entry before it mints, like its feelings.
     const traits = traitsOf[n] ?? { inputs: [] };
-    if ("refused" in traits) {
-      outcomes.push({ stored: false, reason: "traits-malformed", detail: traits.refused });
+    const notes = notesOf[n] ?? new WriteNotes();
+    if ("refused" in feelings || "refused" in dated || "refused" in about || "refused" in traits) {
+      // Unreachable since the loose readers; kept so a type change cannot lose an entry in silence.
+      outcomes.push({ stored: false, reason: "threw", detail: "an optional field could not be read", ...notes.payload() });
       continue;
     }
     const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
@@ -335,7 +397,7 @@ export async function depositEntries(
       });
     } catch (err) {
       // Isolation, not a lost dump: this entry failed, the rest still run.
-      outcomes.push({ stored: false, reason: "threw", detail: threwDetail(err) });
+      outcomes.push({ stored: false, reason: "threw", detail: threwDetail(err), ...notes.payload(factsDropped(facts)) });
       continue;
     }
     if (result.deposited) deposited += 1;
@@ -372,9 +434,11 @@ export async function depositEntries(
       ...server["stillDatedNear"](result, dated, facts.sent.status, batch, session),
       ...server["mayCloseOf"](result, { title: draft["title"], text: draft["content"], status: facts.sent.status }, batch),
       ...server["answersReminder"](result, facts.sent, neighbours),
+      // What this entry's cleaning dropped or read as something else (2026-11-13).
+      ...notes.payload(factsDropped(facts)),
     });
   }
-  return { outcomes, deposited, duplicates, entries };
+  return { outcomes, deposited, duplicates, entries, notes: notesOf };
 }
 
 /**
@@ -384,6 +448,9 @@ export async function depositEntries(
  */
 export async function writeUpField(server: McpServer, args: Record<string, unknown>, extra: Record<string, unknown>): Promise<ToolResult> {
   const session = server.session as string;
+  // What the write-up's entries left out, for the durable `mcp.write` row (2026-11-13).
+  const notes: WriteNotes[] = [];
+  const written: Record<string, unknown>[] = [];
   const out = await writeUpDoor({
     counterpart: server.counterpart,
     registryDir: server["registryDir"],
@@ -391,8 +458,14 @@ export async function writeUpField(server: McpServer, args: Record<string, unkno
     session,
     now: server["nowFn"](),
     args,
-    deposit: (raw, cover, scope, writeUp) => server["depositEntries"](raw, session, cover, scope, writeUp),
+    deposit: async (raw, cover, scope, writeUp) => {
+      const done = await server["depositEntries"](raw, session, cover, scope, writeUp);
+      notes.push(...done.notes);
+      written.push(...done.outcomes);
+      return done;
+    },
   });
+  if (written.length > 0) server["noteWrite"]("session_end", server["result"]({}, false), notes, written);
   const body = out.body;
   // The ref is the ENDED session's id only when it is one this registry
   // knows: the argument is model-typed, and a word shaped like an id is

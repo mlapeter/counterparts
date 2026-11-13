@@ -584,6 +584,17 @@ export const MECHANISMS: readonly Mechanism[] = [
     since: "2026-09-20",
   },
   {
+    // Built 2026-11-13: the write tools fail open; what a write still left
+    // out (a refused entry, a dropped field, an unplaced feeling word) is
+    // one row, so lost writes can be counted.
+    id: "write-left-out",
+    label: "a remember or session_end call kept its memory but left a field out, or refused an entry, and said which",
+    module: "mcp/server.ts (noteWrite)",
+    cadence: { kind: "occasion", when: "a write sends a field that cannot be read, or an entry that cannot be kept" },
+    evidence: { kind: "event", names: ["mcp.write"] },
+    since: "2026-11-13",
+  },
+  {
     // Built 2026-10-02: every MCP result is measured against the one ceiling
     // (`fit/TOOL_RESULT_CEILING`); one over it is cut there with a note,
     // rather than saved by the host where the model cannot read it.

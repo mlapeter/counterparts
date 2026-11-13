@@ -445,6 +445,8 @@ export const EVENT_NODE = {
   "mcp.part": "sleep",
   "mcp.result.oversize": "sleep",
   "mcp.result.spilled": "sleep",
+  // What a write left out (2026-11-13) is remembering's own answer.
+  "mcp.write": "remember",
   // A reminder arriving is a CUE offered into the turn (§12: arrival is a cue,
   // not a command), so both rows land on the prospective node.
   "prospective.fire": "prospective",
