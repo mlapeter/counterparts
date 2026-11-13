@@ -770,6 +770,27 @@ export interface ReadAsField {
   readonly readAs: string;
 }
 
+/** What to resend, for a drop whose site gave no note of its own. */
+const DROP_NOTES: Readonly<Record<string, string>> = {
+  "title-not-text": "title is one line of text.",
+  "updates-not-text": "updates is one memory's id; the memory was kept as a new one.",
+  "not-true-or-false": "unresolved is true or false.",
+  "not-a-number": "A number from 0 to 1.",
+  "kind-unknown": "kind is one of self, person, entity, skill, place, fact.",
+  "how-unknown": "how is changed, corrected or open.",
+  "remind-unknown": 'remind is "plain" or "quiet".',
+  "emotion-missing": 'Each feeling needs its word: "self: relieved — what carried it".',
+  "not-text": "Text only; the feeling or trait was kept without it.",
+  "beneath-not-kept": "beneath is the index of another feeling kept in the same list.",
+  "beneath-not-an-index": "beneath is the index of another feeling in the same list.",
+  "beneath-cycle": "Two feelings cannot each sit beneath the other; the feelings were kept flat.",
+  "feelings-invalid": 'One feeling each: "self: relieved — what carried it".',
+  "traits-not-a-list": 'traits is a list: "bold — what showed it".',
+  "trait-unreadable": 'A trait is one pole word and what showed it: "bold — what showed it".',
+  "feelings-malformed": 'feelings is a list, one each: "self: relieved — what carried it".',
+  "traits-malformed": 'traits is a list: "bold — what showed it".',
+};
+
 /** What one call or one entry's cleaning said: what it dropped, what it read as something else, which feeling words it could not place. */
 export class WriteNotes {
   readonly dropped: DroppedField[] = [];
@@ -778,7 +799,9 @@ export class WriteNotes {
   readonly unplaced: string[] = [];
 
   drop(field: string, reason: string, sent?: unknown, note?: string): void {
-    this.dropped.push({ field, reason, ...(sent === undefined ? {} : { sent: shown(sent) }), ...(note === undefined ? {} : { note }) });
+    // Every drop says what to resend (review of #818): its own note, else its reason's.
+    const said = note ?? DROP_NOTES[reason];
+    this.dropped.push({ field, reason, ...(sent === undefined ? {} : { sent: shown(sent) }), ...(said === undefined ? {} : { note: said }) });
   }
 
   read(field: string, sent: unknown, readAs: unknown): void {
@@ -1140,9 +1163,23 @@ const FEELING_BREAK = /\s*[—–]\s*|\s+-\s+|\s*[:;]\s*|\s+because\s+|\s+as\s+|
  * "because" or a parenthesis. Null for an empty one.
  */
 export function parseFeelingString(s: string): Record<string, unknown> | null {
+  return parseFeelingStrings(s)[0] ?? null;
+}
+
+/** A label before a colon that names no one ("Note: happy", "Feeling: proud"): dropped, the feeling read. */
+const FEELING_LABELS: ReadonlySet<string> = new Set(["note", "feeling", "feelings", "emotion", "emotions", "mood", "felt"]);
+
+/**
+ * A string feeling, read as one feeling or several: `"self: happy, sad"` is
+ * two (every comma-part a word or two), `"happy, because it shipped"` one
+ * with its nuance. See `parseFeelingString`.
+ */
+export function parseFeelingStrings(s: string): Record<string, unknown>[] {
   let rest = s.trim();
-  if (rest.length === 0) return null;
+  if (rest.length === 0) return [];
   let whose: string | undefined;
+  const label = /^([A-Za-z]+)\s*[:：]\s*/u.exec(rest);
+  if (label !== null && FEELING_LABELS.has((label[1] as string).toLowerCase())) rest = rest.slice(label[0].length);
   const head = /^([A-Za-z]+)\s*[:：]\s*/u.exec(rest);
   if (head !== null) {
     const said = head[1] as string;
@@ -1158,6 +1195,12 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
       rest = rest.slice(head[0].length);
     }
   }
+  const by = whose ?? "self";
+  // A list of feeling words ("happy, sad"): one feeling each, never the second in carried_by.
+  const parts = rest.split(",").map((p) => p.trim());
+  if (parts.length > 1 && parts.every((p) => /^[A-Za-z'-]+(?: [A-Za-z'-]+)?$/u.test(p))) {
+    return parts.map((p) => ({ whose: by, emotion: p }));
+  }
   const cut = FEELING_BREAK.exec(rest);
   let word = rest;
   let carried = "";
@@ -1171,9 +1214,10 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
       carried = rest.slice(at + 1);
     }
   }
-  word = word.trim();
-  if (word.length === 0) return null;
-  return { whose: whose ?? "self", emotion: word, ...(carried.trim().length === 0 ? {} : { carried_by: carried.trim() }) };
+  // "happy, because it shipped": the comma before the break is not the word's.
+  word = word.trim().replace(/[,.;!]+$/u, "").trim();
+  if (word.length === 0) return [];
+  return [{ whose: by, emotion: word, ...(carried.trim().length === 0 ? {} : { carried_by: carried.trim() }) }];
 }
 
 /**
@@ -1216,14 +1260,22 @@ export async function normalizeFeelings(
     return undefined;
   }
   const kept: { from: number; f: Record<string, unknown> }[] = [];
+  // Each item as one feeling or more ("happy, sad" is two); a second one from
+  // one string has no index `beneath` can name (`from` below zero).
+  const read: { i: number; from: number; f: Record<string, unknown> | null; item: unknown }[] = [];
+  let extra = -1;
   for (const [i, item] of items.entries()) {
+    if (typeof item === "string") {
+      const fs = parseFeelingStrings(item);
+      if (fs.length === 0) read.push({ i, from: i, f: null, item });
+      fs.forEach((f, k) => read.push({ i, from: k === 0 ? i : extra--, f, item }));
+    } else if (item !== null && typeof item === "object" && !Array.isArray(item)) read.push({ i, from: i, f: { ...(item as Record<string, unknown>) }, item });
+    else read.push({ i, from: i, f: null, item });
+  }
+  for (const { i, from, f, item } of read) {
     const at = `${field}[${String(i)}]`;
-    let f: Record<string, unknown> | null;
-    if (typeof item === "string") f = parseFeelingString(item);
-    else if (item !== null && typeof item === "object" && !Array.isArray(item)) f = { ...(item as Record<string, unknown>) };
-    else f = null;
     if (f === null) {
-      notes.drop(at, "feeling-unreadable", item);
+      notes.drop(at, "feeling-unreadable", item, 'One feeling each: "self: relieved — what carried it", or {whose, emotion}.');
       continue;
     }
     const fixed = await fixFeeling(f, at, ctx, notes);
@@ -1235,7 +1287,7 @@ export async function normalizeFeelings(
       notes.drop(at, "feeling-invalid", fixed["emotion"], check.refused.replace(/^feelings\[0\]/u, at));
       continue;
     }
-    kept.push({ from: i, f: fixed });
+    kept.push({ from, f: fixed });
   }
   if (kept.length === 0) return undefined;
   // `beneath` is an index into the list as SENT: renumbered past the ones dropped.
