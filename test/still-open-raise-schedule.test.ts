@@ -86,12 +86,12 @@ function curious(c: Counterpart, more: { eventDate?: string } = {}): string {
   });
 }
 
-function hook(o: { session?: string } = {}): string {
+function hook(o: { session?: string; entrypoint?: string; budget?: number } = {}): string {
   const config = join(conf, "claude-code.json");
-  writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: "UTC" }));
+  writeFileSync(config, JSON.stringify({ dataDir: storeDir, injectionBudgetBytes: o.budget ?? BUDGET, timeZone: "UTC" }));
   if (!existsSync(join(conf, "scopes.json"))) writeScopes(join(conf, "scopes.json"), setScope(null, HERE, "on", { at: "2026-09-22" }));
   const session = o.session ?? sid((next += 1));
-  const env: Record<string, string | undefined> = { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home"), CLAUDE_CODE_ENTRYPOINT: "cli" };
+  const env: Record<string, string | undefined> = { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_DATA_DIR: storeDir, COUNTERPARTS_CONFIG: config, HOME: join(root, "home"), CLAUDE_CODE_ENTRYPOINT: o.entrypoint ?? "cli" };
   delete env["CLAUDE_CODE_SESSION_ATTENDED"];
   const r = spawnSync(process.execPath, ["run", new URL("../src/adapters/claude-code/bin/hook.ts", import.meta.url).pathname], {
     encoding: "utf8",
@@ -191,3 +191,56 @@ for (const shape of ["on", "off"] as const) {
     });
   });
 }
+
+describe("through the SessionStart wake (the published bundle, delivered as it was)", () => {
+  // Another ceiling at the session start than the bundle was composed under: the bundle goes as it was.
+  const deliver = (): string => {
+    const w = hook({ budget: BUDGET + 1 });
+    expect(w).toContain("composed at the last boundary");
+    return stillOpen(w);
+  };
+
+  test("a bundle each turn-end composes follows the same days", () => {
+    const c = brain("off");
+    const id = curious(c);
+    const on = (d: number): string => {
+      c.store.setMeta("livedDay", String(START + d));
+      c.rebrief({ budgetBytes: BUDGET, at: "2026-11-13" });
+      return deliver();
+    };
+    expect(on(0)).toContain(MARK);
+    for (const d of [1, 2]) expect(on(d)).not.toContain(MARK);
+    expect(on(3)).toContain(MARK);
+    expect(on(9)).not.toContain(MARK);
+    expect(on(10)).toContain(MARK);
+    const d24 = on(24);
+    expect(d24).not.toContain(MARK);
+    expect(d24).toMatch(/1 parked/);
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START, START + 3, START + 10]);
+  });
+
+  test("a bundle composed before the step, delivered on a waiting day, lists it but takes no step", () => {
+    const c = brain("off");
+    const id = curious(c);
+    c.rebrief({ budgetBytes: BUDGET, at: "2026-11-13" });
+    expect(deliver()).toContain(MARK);
+    // Lived day 1 with day 0's bundle: shown again (stale), but no step taken.
+    c.store.setMeta("livedDay", String(START + 1));
+    expect(deliver()).toContain(MARK);
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START]);
+  });
+});
+
+describe("who uses a showing up", () => {
+  test("a headless (agent) session follows the schedule but takes no step; the next attended one does", () => {
+    const c = brain("on");
+    const id = curious(c);
+    expect(stillOpen(hook({ entrypoint: "sdk-cli" }))).toContain(MARK);
+    expect(c.store.eventLog({ name: OWNER_RAISED_EVENT, ref: id }).length).toBe(0);
+    expect(stillOpen(hook())).toContain(MARK);
+    expect(raiseRecord(c.store)[id]?.days).toEqual([START]);
+    // Day 1: waiting, for the agent too.
+    c.store.setMeta("livedDay", String(START + 1));
+    expect(stillOpen(hook({ entrypoint: "sdk-cli" }))).not.toContain(MARK);
+  });
+});

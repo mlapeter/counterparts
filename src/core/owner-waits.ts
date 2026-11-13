@@ -158,6 +158,9 @@ export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "se
       if (row === undefined || row.type !== "memory" || row.band === "identity" || row.archived !== 0) continue;
       const doc = store.readProse(id);
       if (doc.meta["unresolved"] !== true || (doc.eventDate !== undefined && doc.eventDate.trim() !== "")) continue;
+      // Only a showing the schedule lets through counts: a bundle composed on an
+      // earlier day may still list one waiting its step, which is no step taken.
+      if (laneState(raisesAt(raiseRecord(store), id, row.revision), at.day) !== "list") continue;
       if (noteRaised(store, { id, version: row.revision, kind: "memory", scope: row.origin_scope ?? null }, { day: at.day, session: at.session, via: "lane" })) n += 1;
     } catch {
       /* not raised: listed again, never hidden */

@@ -627,9 +627,21 @@ export class Lifecycle implements HostLifecycle {
     this.noteWakeExpectation(input, woke.sentinel);
     this.noteWakeIndex(input, woke.lined ?? []);
     this.noteWakeThreads(input, woke.threads ?? []);
-    // Still open's lines are raises (the putty, 2026-11-13): not a night's own wake.
-    if (input.nightRun !== true) this.counterpart.noteStillOpenShown(woke.threads ?? [], input.sessionId);
+    // Still open's lines are raises (the putty, 2026-11-13): shown to a person, so
+    // not a night's own wake and not a headless (agent) session's, which follow
+    // the schedule but use none of it up.
+    if (input.nightRun !== true && !this.headlessSession(input.sessionId)) this.counterpart.noteStillOpenShown(woke.stillOpenShown ?? woke.threads ?? [], input.sessionId);
     return woke;
+  }
+
+  /** Whether the registry names this session as one nobody attends (an agent's, `NON_INTERACTIVE_ENTRYPOINTS`). Unknown: attended. */
+  private headlessSession(session: string): boolean {
+    try {
+      const e = readSession(this.counterpart.store.dir, session)?.entrypoint;
+      return e !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(e);
+    } catch {
+      return false;
+    }
   }
 
   /**

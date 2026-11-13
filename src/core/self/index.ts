@@ -533,6 +533,12 @@ export interface HorizonItem {
 
 export interface BoundaryRequest extends BriefingRequest {
   /**
+   * "STILL OPEN" ON THE RAISE SCHEDULE for the published bundle (the putty,
+   * 2026-11-13), as `AssembleRequest.laneHeld`: the owner's wake only
+   * (ignored with `omit`). Absent: every thread as before.
+   */
+  readonly laneHeld?: (id: string) => "waiting" | "parked" | null;
+  /**
    * THE CALENDAR DATE THE WAKE IS COMPOSED FOR (2026-10-16), `YYYY-MM-DD`:
    * the date the horizon was asked about (`core/briefing.ts#selfRenderer`,
    * `Counterpart#assembleWake`). Its year is the one a date prints short in
@@ -1157,7 +1163,14 @@ export class Self {
     const all = scanActive(this.store, req.day);
     // `omit` (see the field): the owner's wake passes none and this is a no-op;
     // a composition bound for a model call outside this machine passes one.
-    const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
+    const kept = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13), as `assemble` reads it: an
+    // open thread waiting its next step, or parked, is no line of the bundle.
+    const heldOf = (s: Scanned): "waiting" | "parked" | null =>
+      req.laneHeld === undefined || req.omit !== undefined || !s.unresolved || s.band === "identity" || s.reconsidering === true || (s.doc.eventDate !== undefined && s.doc.eventDate.trim() !== "") ? null : req.laneHeld(s.id);
+    const held = new Map(kept.map((s) => [s.id, heldOf(s)] as const));
+    const settledNow = req.laneHeld === undefined ? new Set<string>() : settledOver(this.store);
+    const scanned = kept.filter((s) => held.get(s.id) === null || held.get(s.id) === undefined);
     // A PLAIN REMINDER DUE THE DAY THE WAKE IS READ LEADS THE LANE (2026-10-10),
     // the rest in the order supplied: the lane trims from its end, and its
     // head is what no lane below it may take (`briefing.ts#arrivingHead`).
@@ -1174,9 +1187,7 @@ export class Self {
     // Which open threads are still carried (2026-10-22, `openCarry`), and
     // how many are parked — counted on "Still open"'s tail (P2, 2026-10-28).
     const carry = openCarry(this.store, req.day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH);
-    const lanes: Lanes = {
-      ...(req.omit === undefined && carry.notCarried.size > 0 ? { parked: carry.notCarried.size } : {}),
-      ...rankLanes(scanned, horizon, this.tunables, {
+    const ranked = rankLanes(scanned, horizon, this.tunables, {
         carry,
         settledOver: settledOver(this.store),
         // "Still open"'s unsettled ones rank after the rest (2026-10-18): one
@@ -1189,7 +1200,16 @@ export class Self {
         craftSince: craftSince(this.store),
         ...(coming.more.length === 0 || req.omit !== undefined ? {} : { horizonMore: coming.more }),
         ...(coming.later.length === 0 ? {} : { later: coming.later }),
-      }),
+      });
+    // What the carry already parks is counted there, not twice.
+    const restingIds = kept.filter((s) => held.get(s.id) === "waiting" && !settledNow.has(s.id) && !carry.notCarried.has(s.id)).map((s) => s.id);
+    const backedOff = kept.filter((s) => held.get(s.id) === "parked" && !settledNow.has(s.id) && !carry.notCarried.has(s.id)).length;
+    const parkedAll = (req.omit === undefined ? carry.notCarried.size : 0) + backedOff;
+    const lanes: Lanes = {
+      ...(parkedAll > 0 ? { parked: parkedAll } : {}),
+      ...ranked,
+      // Waiting its next step: counted beside a listed line, never alone (as `assemble`).
+      ...(restingIds.length > 0 && ranked.threads.length > 0 ? { overflow: { ...(ranked.overflow ?? { identity: [], craft: [], hints: [], threads: [], horizon: [] }), threads: [...(ranked.overflow?.threads ?? []), ...restingIds] } } : {}),
       ...(coming.later.length === 0 || req.omit !== undefined ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 || req.omit !== undefined ? {} : { overdue: coming.overdue }),
     };

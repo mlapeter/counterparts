@@ -83,6 +83,8 @@ export interface RendererOptions {
    *  what the bundle showed so a session start can assemble its wake under the
    *  same ceiling (`self/#WAKE_SHOWN_KEY`, 2026-10-10). */
   ceilingBytes?: number;
+  /** "Still open" on the raise schedule for the composition's lived day (the putty, 2026-11-13; `self/#BoundaryRequest.laneHeld`). */
+  laneHeld?: (day: number) => (id: string) => "waiting" | "parked" | null;
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -110,6 +112,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       ...(opts.lendBytes === undefined || opts.lendBytes <= 0 ? {} : { lendBytes: opts.lendBytes }),
       ...(opts.handoffLendBytes === undefined || opts.handoffLendBytes <= 0 ? {} : { handoffLendBytes: opts.handoffLendBytes }),
       ...(opts.handoffKeepBytes === undefined || opts.handoffKeepBytes <= 0 ? {} : { handoffKeepBytes: opts.handoffKeepBytes }),
+      ...(opts.laneHeld === undefined ? {} : { laneHeld: opts.laneHeld(ctx.day) }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };

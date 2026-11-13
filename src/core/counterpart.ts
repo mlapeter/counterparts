@@ -867,6 +867,7 @@ export class Counterpart {
           budgetBytes: this.reportedBudget,
           lined: shaped.lined,
           threads: shaped.threads,
+          stillOpenShown: shaped.threads,
           ...(shaped.tagged ? { tagged: true } : {}),
           shape: { sections: shaped.sections, page: shaped.page, assembled: true },
         };
@@ -891,6 +892,7 @@ export class Counterpart {
     let threads: readonly string[] = [];
     let tagged = false;
     let assembledHere = false;
+    let openShown: readonly string[] = [];
     this.delivering = delivery !== undefined;
     try {
       this.yesterdayLeftOut = null;
@@ -932,6 +934,8 @@ export class Counterpart {
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
       assembledHere = assembled !== null;
+      // What this delivery listed under "Still open" (the putty): the published bundle's when it went as it was.
+      openShown = delivery === undefined || !result.ok ? [] : assembled !== null ? threads : [...threadsShown(this.store)];
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
       // THE PROJECT LINE (lane E, an experiment): last, in what room is left.
       if (delivery !== undefined) withPointer = this.withProjectLine(withPointer, here);
@@ -972,6 +976,7 @@ export class Counterpart {
       budgetBytes: this.reportedBudget,
       lined,
       threads,
+      ...(delivery === undefined ? {} : { stillOpenShown: openShown }),
       ...(tagged ? { tagged } : {}),
       ...(delivery === undefined ? {} : { shape: { ...boundaryPart.wakeShape(withPointer.text), assembled: assembledHere } }),
     };
