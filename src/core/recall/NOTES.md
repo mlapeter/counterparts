@@ -1942,6 +1942,20 @@ second day before a word that goes on with the question ("Oct 12-18 at the cabin
 a closed list; a noun or an amount after it still is not), and a past question about today ("what did I do today",
 `facts.ts#PAST_ASK`) reads no reminder dates.
 
+
+**Also due in this window (2026-11-13, the follow-up to #815; `mcp/facts.ts#alsoDueLines`).** The replay of the
+wren beat showed the window could not find the vet on the model's own question: a window filters what the words and
+the meaning reached, and the vet was 106th by meaning. A topical question with a window ahead (a look-ahead window, or
+"today" under the today rule) now lists, after the page, the reminders due in the window that nothing reached. Choices:
+the source is the dated rows themselves (`Store.datedMemories` plus the repeats), through the same rules as a match
+(`dueIn`: done, closed occurrence, `happenedAlready`, the moved-out version) and the same visibility; one line per
+memory, so a daily repeat is one line and a weekly one over two weeks is one line, at its first occurrence in the
+window with "every Tuesday"; at most 10 by date, then "+K more"; page 1 only (it is about the window, not the
+ranking); after the title tail, and the first thing dropped when the answer runs out of room, so it never pushes a
+match off; a memory shown or listed on the page (or folded under one) is not listed again; titles cut at 80, longer
+than the tail's 48, since the title is all it shows. Not counted, not in `ids`, never credited. On the replay the
+model's exact d14 question now ends with the vet (`due Thu 10-15`) and the care-plan review under the heading; the
+six matches and their ids are unchanged.
 ## Which gate refused the loud tier (2026-11-13, observation only; under `recall.STOP_COUNTS`)
 
 The Wren run showed a memory's words on 0 of 252 turns, Pepys on 4 of 254, live on under 2%, and no

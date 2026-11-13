@@ -41,7 +41,14 @@
  *     week") FILTERS ONLY WHAT CARRIES A DATE (review of #815): a match with no
  *     event date and no reminder date stays, after the matches inside it, so
  *     "dinner with Sam next week" still finds the undated "dinner with Sam next
- *     Thursday"; asked as only time, it lists by date, soonest first. A question that is only time ("what
+ *     Thursday"; asked as only time, it lists by date, soonest first. Asked
+ *     with topic words, the reminders due in the window that the words and
+ *     the meaning did not reach follow the page as "also due in this window"
+ *     (2026-11-13, after #815; `alsoDueLines`): by date, a title each, one
+ *     line per memory (a daily or weekly repeat by its first occurrence in
+ *     the window), at most `FACTS_ALSO_DUE_SIZE` and "+K more", page 1 only,
+ *     never counted, never in the answer's ids, never credited, the first
+ *     thing dropped when the answer runs out of room. A question that is only time ("what
  *     happened last week?") answers with everything in the window. An event
  *     anchor ("around the cut-over") is resolved by searching the phrase and
  *     taking the top match's date, shown in the header; "the last session" is
@@ -214,6 +221,16 @@ export const FACTS_ANCHOR_DAYS = 2;
 export const FACTS_TAIL_SIZE = 20;
 /** A tail line's title, cut here: 20 lines stay near 1.5 KB with an id and a date (2026-10-20, from the benchmark loss read; helps real recall too; lightly held, revisit; Mike's review). */
 export const FACTS_TAIL_TITLE_CHARS = 48;
+
+/**
+ * How many reminders "also due in this window" lists, by date, before saying
+ * how many more (2026-11-13): the wake's "Coming up" lists about as many. One
+ * line per memory, so a daily repeat is one line, not seven.
+ */
+export const FACTS_ALSO_DUE_SIZE = 10;
+
+/** A title in that list, cut here: longer than the tail's, since the title is all it shows (a reminder's day and hour live there). */
+export const FACTS_ALSO_DUE_TITLE_CHARS = 80;
 
 /**
  * SOFT TIME WORDS (2026-10-20, from the benchmark loss read; helps real recall
@@ -455,6 +472,16 @@ export interface FactsResult {
    * answer's `ids`, never credited for being listed.
    */
   readonly tail: readonly FactTailItem[];
+  /**
+   * The reminders due in a window still to come that the question's words and
+   * meaning did not reach (`FACTS_ALSO_DUE_SIZE` at most, by date; `more` the
+   * rest). Not results: not in `matched`, not in the answer's `ids`, never
+   * credited. Absent when there are none, or the question is only time.
+   */
+  readonly alsoDue?: {
+    readonly items: readonly { readonly id: string; readonly line: string; readonly due: string; readonly every?: string }[];
+    readonly more: number;
+  };
   /** How many of the `matched` facts are faded (below reach): ranked with the rest, each labeled. */
   readonly faded: number;
   readonly weak: number;
@@ -1190,6 +1217,34 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     };
   });
 
+  // ── also due in this window (2026-11-13, after #815) ───────────────────
+  // A window still to come, asked with topic words, filters what the words
+  // and the meaning reached; a reminder in the window that neither reached
+  // was never offered (the wren run's vet, 106th by meaning). Listed apart,
+  // by date, from the dated rows themselves: never a match, never counted,
+  // never credited. Page 1 only: it is about the window, not the ranking.
+  let alsoDue: FactsResult["alsoDue"];
+  if (ahead !== null && due !== undefined && !onlyTime && page === 1) {
+    const listed = new Set<string>([...shown.map((c) => c.id), ...tail.map((t) => t.id)]);
+    for (const c of shown) for (const e of c.foldedEarlier) listed.add(e);
+    const ids = new Set<string>(safe(() => store.datedMemories(ahead.from, ahead.to).map((d) => d.id), [] as string[]));
+    for (const id of repeats().keys()) ids.add(id);
+    const found: { id: string; line: string; due: string; every?: string }[] = [];
+    for (const id of ids) {
+      if (listed.has(id)) continue;
+      const r = rows.get(id);
+      if (r === undefined || r.type !== "memory" || neverAResult(r)) continue;
+      const on = due(r);
+      if (on === null) continue;
+      const shape = dueLine(r, "due");
+      const title = r.title !== null && r.title.trim().length > 0 ? r.title : (read(id)?.body ?? "");
+      found.push({ id, line: plainLine(title, FACTS_ALSO_DUE_TITLE_CHARS), due: on, ...(shape?.every === undefined ? {} : { every: shape.every }) });
+    }
+    const first = (d: string): string => parseCalendarDate(d)?.first ?? d;
+    found.sort((a, b) => first(a.due).localeCompare(first(b.due)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (found.length > 0) alsoDue = { items: found.slice(0, FACTS_ALSO_DUE_SIZE), more: Math.max(0, found.length - FACTS_ALSO_DUE_SIZE) };
+  }
+
   return {
     mode: "facts",
     reason: matched === 0 ? "nothing-came" : "answered",
@@ -1199,6 +1254,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     pages,
     memories,
     tail,
+    ...(alsoDue === undefined ? {} : { alsoDue }),
     faded: fadedMatched,
     weak,
     duplicates,
@@ -1636,15 +1692,18 @@ export function renderFacts(r: FactsResult): string {
   // benchmark loss read; helps real recall too; lightly held, revisit; first
   // after the excerpts reached 60, changed on the review of #544): the page's
   // own results outrank a sight of the next ones.
-  const steps: readonly (readonly [number, boolean])[] = [
-    [RECALL_EXCERPT_CHARS, true],
-    [RECALL_EXCERPT_CHARS, false],
-    [150, false],
-    [60, false],
-    [0, false],
+  // "Also due in this window" goes first of all (2026-11-13): it is not a
+  // match, and never pushes one off the page.
+  const steps: readonly (readonly [number, boolean, boolean])[] = [
+    [RECALL_EXCERPT_CHARS, true, true],
+    [RECALL_EXCERPT_CHARS, true, false],
+    [RECALL_EXCERPT_CHARS, false, false],
+    [150, false, false],
+    [60, false, false],
+    [0, false, false],
   ];
-  for (const [excerpt, withTail] of steps) {
-    const text = renderAt(r, r.today, excerpt, withTail);
+  for (const [excerpt, withTail, withAlso] of steps) {
+    const text = renderAt(r, r.today, excerpt, withTail, withAlso);
     if (text.length <= RECALL_RESULT_CHARS || excerpt === 0) return text.length <= RECALL_RESULT_CHARS ? text : cutExcerpt(text, RECALL_RESULT_CHARS);
   }
   return "";
@@ -1671,7 +1730,26 @@ function tailLines(r: FactsResult, today: string): string[] {
   return out;
 }
 
-function renderAt(r: FactsResult, today: string, excerpt: number, withTail = true): string {
+/**
+ * "Also due in this window" (2026-11-13): the reminders due in a window still
+ * to come that the question's words did not reach, by date, a title each.
+ *
+ *   also due in this window (3), not matches (open any by id):
+ *   - Biscuit's vet: Thu 15 Oct 2026, 14:30 · due Thu 10-15 · mem_…
+ *   - Put the bins out · due Tue 10-13, every Tuesday · mem_…
+ *   +2 more
+ */
+function alsoDueLines(r: FactsResult, today: string): string[] {
+  const a = r.alsoDue;
+  if (a === undefined || a.items.length === 0) return [];
+  const total = a.items.length + a.more;
+  const out = [`also due in this window (${String(total)}), not matches (open any by id):`];
+  for (const i of a.items) out.push(`- ${i.line} · due ${shortDateWithWeekday(i.due, today)}${i.every === undefined ? "" : `, ${i.every}`} · ${i.id}`);
+  if (a.more > 0) out.push(`+${String(a.more)} more`);
+  return out;
+}
+
+function renderAt(r: FactsResult, today: string, excerpt: number, withTail = true, withAlso = true): string {
   const lines: string[] = [];
   const first = (r.page - 1) * FACTS_PAGE_SIZE;
   const shown = r.memories.length;
@@ -1724,9 +1802,11 @@ function renderAt(r: FactsResult, today: string, excerpt: number, withTail = tru
   if (r.duplicates > 0) {
     lines.push(`${String(r.duplicates)} near-duplicate${r.duplicates === 1 ? "" : "s"} of a result shown left out`);
   }
+  const also = withAlso ? alsoDueLines(r, today) : [];
   if (r.matched === 0) {
     lines.push("");
     lines.push("Nothing matched. Try the words the memory itself would use, a person or project it names, or a wider time.");
+    if (also.length > 0) lines.push("", ...also);
     return lines.join("\n");
   }
   const times = sameDayTimes(r.memories);
@@ -1741,6 +1821,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number, withTail = tru
     lines.push("");
     lines.push(...tail);
   }
+  if (also.length > 0) lines.push("", ...also);
   lines.push("");
   const foot: string[] = [];
   if (r.memories.some((m) => !m.whole) || tail.length > 0) foot.push(`read any whole with ids: [...] (up to ${String(RECALL_MAX_IDS)})`);
