@@ -25,7 +25,8 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { factsRecall, renderFacts } from "../src/adapters/mcp/facts.js";
 import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { readTimeAsk } from "../src/core/recall/index.js";
+import { settle } from "../src/core/reconsolidation.js";
+import { OPEN_END, OPEN_START, readTimeAsk } from "../src/core/recall/index.js";
 import { findable } from "./store-fixture.js";
 
 const ZONE = "America/Los_Angeles";
@@ -139,6 +140,41 @@ describe("a range of days is one window (time-ask.ts)", () => {
     expect(readTimeAsk("October 20 - 3 things to do", clock)?.said).toEqual({ from: "2026-10-20", to: "2026-10-20" });
     expect(readTimeAsk("between 18 and 12 October", clock)?.said).toEqual({ from: "2026-10-12", to: "2026-10-12" });
   });
+
+  // Review of #815: each of these is the single date master read, not a range.
+  test("a dash and a number after a date is an amount, not a range; a long year roll is none; a day after the second end starts its own date", () => {
+    const one = (q: string): { from: string; to: string } | null | undefined => readTimeAsk(q, clock)?.said;
+    expect(one("Nov 1 - 5 tasks left")).toEqual({ from: "2025-11-01", to: "2025-11-01" });
+    expect(one("Oct 5 - 12 attendees")).toEqual({ from: "2026-10-05", to: "2026-10-05" });
+    expect(one("October 12 - 14 attendees")).toEqual({ from: "2026-10-12", to: "2026-10-12" });
+    expect(one("sets of 8 - 12 Oct 3")).toEqual({ from: "2026-10-12", to: "2026-10-12" });
+    expect(one("between 3/4 and 1/2")).toEqual({ from: "2026-03-04", to: "2026-03-04" });
+    // Still ranges: the text ends, or punctuation follows.
+    expect(one("what's on Oct 12-18")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+    expect(one("Oct 12-18?")).toEqual({ from: "2026-10-12", to: "2026-10-18" });
+  });
+
+  test("a year after a bare second day is both ends' year", () => {
+    for (const q of ["Oct 12-18 2025", "Oct 12 - 18, 2025", "October 12 through 18, 2025"]) {
+      const r = readTimeAsk(q, clock);
+      expect({ q, said: r?.said, rest: r?.rest }).toEqual({ q, said: { from: "2025-10-12", to: "2025-10-18" }, rest: "" });
+    }
+  });
+
+  test("a bound word in front of a range bounds the range: through its last day, before its first, after its last, since its first", () => {
+    const by = readTimeAsk("by 10/12-10/18", clock);
+    expect(by?.said).toEqual({ from: OPEN_START, to: "2026-10-18" });
+    expect(by?.rest).toBe("");
+    const until = readTimeAsk("what's due until 12 to 18 October", clock);
+    expect(until?.said).toEqual({ from: OPEN_START, to: "2026-10-18" });
+    expect(until?.rest).toBe("what's due");
+    expect(readTimeAsk("before 12 to 18 October", clock)?.said).toEqual({ from: OPEN_START, to: "2026-10-11" });
+    // "After" a range not yet come this year is last year's too, as "after 10/25" asked on 10-03 is.
+    expect(readTimeAsk("after Oct 12-18", clock)?.said).toEqual({ from: "2025-10-19", to: OPEN_END });
+    expect(readTimeAsk("after Oct 12-18 2026", clock)?.said).toEqual({ from: "2026-10-19", to: OPEN_END });
+    // "since" a range not yet come this year is last year's, as for one date.
+    expect(readTimeAsk("since Oct 12-18", clock)?.said).toEqual({ from: "2025-10-12", to: "2026-10-03" });
+  });
 });
 
 describe("the forward words (time-ask.ts)", () => {
@@ -166,11 +202,11 @@ describe("the forward words (time-ask.ts)", () => {
     expect(readTimeAsk("what's on this weekend", clock)?.said).toEqual({ from: "2026-10-03", to: "2026-10-04" });
   });
 
-  test("this week and this month run to their ends; still fuzzy; the past words unchanged", () => {
+  test("this week and this month still end today, as on master; the past words unchanged", () => {
     const week = readTimeAsk("this week", clock);
-    expect(week?.said).toEqual({ from: "2026-09-28", to: "2026-10-04" });
+    expect(week?.said).toEqual({ from: "2026-09-28", to: "2026-10-03" });
     expect(week?.stretch).toBe(2);
-    expect(readTimeAsk("this month", clock)?.said).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    expect(readTimeAsk("this month", clock)?.said).toEqual({ from: "2026-10-01", to: "2026-10-03" });
     expect(readTimeAsk("last week", clock)?.window).toEqual({ from: "2026-09-19", to: "2026-09-29" });
     expect(readTimeAsk("last month", clock)?.said).toEqual({ from: "2026-09-01", to: "2026-09-30" });
   });
@@ -239,21 +275,99 @@ describe("a window still to come reads reminder dates (facts.ts)", () => {
     expect(id).toMatch(/^mem_/);
   });
 
-  test("a window across today (this week) takes what is due later in it; an open end (after a date) does not", () => {
+  test("a window across today (the coming week) takes what is due in it, unstretched; an open end (after a date) does not", () => {
     const early = brain(Date.parse("2026-09-10T18:00:00Z"));
     const later = early.store.put({ type: "memory", kind: "fact", body: "The zqkiln repair visit.", eventDate: "2026-10-04" });
     const far = early.store.put({ type: "memory", kind: "fact", body: "The zqkiln annual service.", eventDate: "2026-12-01" });
-    // Next Monday: inside "this week" only through its two-day stretch, which a reminder date does not take.
-    early.store.put({ type: "memory", kind: "fact", body: "The zqkiln shelf delivery.", eventDate: "2026-10-05" });
     early.close();
     const c = brain();
     seed(c);
-    const week = ask(c, "zqkiln this week");
+    const week = ask(c, "zqkiln the coming week");
     expect(week.memories.map((m) => m.id)).toEqual([later]);
     expect(week.memories[0]?.timeBy).toBe("due");
     // "After 9/20" is a cutoff on what happened: no reminder date reads it, so neither is taken by one.
     expect(ask(c, "zqkiln after 9/20").memories.map((m) => m.id)).toEqual([]);
     expect(far).toMatch(/^mem_/);
+  });
+
+  test("past questions with future reminders present answer as on master: \"what happened this week\", \"what did I do this month\"", () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    early.store.put({ type: "memory", kind: "fact", body: "The dentist.", eventDate: "2026-10-04" });
+    early.store.put({ type: "memory", kind: "fact", body: "The car service.", eventDate: "2026-10-20" });
+    early.store.put({ type: "memory", kind: "fact", body: "The boiler check.", eventDate: "2026-10-03" });
+    early.close();
+    const c = brain();
+    const gutter = c.store.put({ type: "memory", kind: "fact", body: "Fixed the gutter.", occurredOn: "2026-09-29" });
+    // Only time: master returns the one thing in the window, and no reminder.
+    expect(ask(c, "what happened this week").memories.map((m) => m.id)).toEqual([gutter]);
+    expect(ask(c, "what did I do this month").memories.map((m) => m.id)).toEqual([gutter]);
+  });
+
+  test("\"today\" takes a reminder due today, unless it is done or a newer done memory says it happened; otherwise as on master", () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    const bank = early.store.put({ type: "memory", kind: "fact", title: "Call the zqbank", body: "Call the zqbank about the card.", eventDate: "2026-10-03" });
+    const paid = early.store.put({ type: "memory", kind: "fact", title: "Pay the zqrates", body: "Pay the zqrates bill.", status: "done", eventDate: "2026-10-03" });
+    const launch = early.store.put({ type: "memory", kind: "fact", title: "zqshop launch day: Saturday 3 Oct", body: "zqshop launch day is Saturday 3 Oct.", eventDate: "2026-10-03" });
+    early.close();
+    const c = brain();
+    seed(c);
+    const r = ask(c, "what's on today");
+    expect(r.memories.map((m) => m.id)).toContain(bank);
+    expect(r.memories.find((m) => m.id === bank)?.timeBy).toBe("due");
+    expect(renderFacts(r)).toContain("due Sat 10-03 (in the window by this date)");
+    expect(r.memories.map((m) => m.id)).toContain(launch);
+    expect(r.memories.map((m) => m.id)).not.toContain(paid);
+    // A newer done memory says the launch happened (`happenedAlready`): no longer due today.
+    const done = c.store.put({ type: "memory", kind: "fact", title: "zqshop launched: 11 pieces sold", body: "The zqshop launched today, 11 pieces sold.", status: "done" });
+    const after = ask(c, "what's on today").memories.map((m) => m.id);
+    expect(after).toContain(done); // learned today
+    expect(after).not.toContain(launch);
+    expect(after).toContain(bank);
+  });
+
+  test("forward words do not drop what carries no date: undated plans and decisions still answer, after what is inside", () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    const dinner = early.store.put({ type: "memory", kind: "fact", body: "Dinner with Sam next Thursday at 7 at the Thai place." });
+    const launch = early.store.put({ type: "memory", kind: "fact", title: "zqshop launch tomorrow", body: "Decided the zqshop launch goes ahead tomorrow with 11 pieces." });
+    const dated = early.store.put({ type: "memory", kind: "fact", body: "Dinner with Sam booked at the Thai place.", eventDate: "2026-10-08" });
+    const elsewhere = early.store.put({ type: "memory", kind: "fact", body: "Dinner with Sam last month at the pier.", occurredOn: "2026-09-02" });
+    early.close();
+    const c = brain();
+    seed(c);
+    const week = ask(c, "dinner with Sam next week");
+    // In the window by its reminder date first, then the undated plan; a row dated outside stays outside.
+    expect(week.memories.map((m) => m.id)).toEqual([dated, dinner]);
+    expect(week.time?.outside).toBe(1);
+    expect(elsewhere).toMatch(/^mem_/);
+    expect(ask(c, "what did we decide about tomorrow's zqshop launch").memories.map((m) => m.id)).toEqual([launch]);
+    expect(ask(c, "zqshop launch tomorrow").memories.map((m) => m.id)).toEqual([launch]);
+  });
+
+  test("a reminder moved out of the window (a settled changed pair) is not listed in it, by either version", () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    const old = early.store.put({ type: "memory", kind: "fact", title: "zqdentist Tue 6 Oct", body: "The zqdentist is Tuesday 6 Oct.", eventDate: "2026-10-06" });
+    const moved = early.store.put({ type: "memory", kind: "fact", title: "zqdentist moved to Tue 20 Oct", body: "The zqdentist moved to Tuesday 20 Oct.", eventDate: "2026-10-20" });
+    early.close();
+    const c = brain();
+    seed(c);
+    expect(settle(c.store, { holds: moved, over: old, how: "changed", why: "the day moved", actor: "session" }).ok).toBe(true);
+    const r = ask(c, "zqdentist next week");
+    expect(r.memories.map((m) => m.id)).toEqual([]);
+    expect(renderFacts(r)).not.toContain("(in the window by this date)");
+    // Asked over the 20th, the current one is there by its own date.
+    const later = ask(c, "zqdentist between 18 and 22 October");
+    expect(later.memories.map((m) => m.id)).toEqual([moved]);
+    expect(renderFacts(later)).toContain("due Tue 10-20 (in the window by this date)");
+  });
+
+  test("only time, a window ahead: listed by date, soonest first", () => {
+    const early = brain(Date.parse("2026-09-10T18:00:00Z"));
+    const fri = early.store.put({ type: "memory", kind: "fact", body: "The recital.", eventDate: "2026-10-09" });
+    const mon = early.store.put({ type: "memory", kind: "fact", body: "The haircut.", eventDate: "2026-10-05" });
+    const wed = early.store.put({ type: "memory", kind: "fact", body: "The plumber comes.", occurredOn: "2026-10-07", status: "planned" });
+    early.close();
+    const c = brain();
+    expect(ask(c, "what's on next week").memories.map((m) => m.id)).toEqual([mon, wed, fri]);
   });
 
   test("a one-off marked done whose date is today is not still to come; one done with a date ahead is left in, as the wake leaves it", () => {

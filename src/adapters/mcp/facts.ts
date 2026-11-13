@@ -25,16 +25,23 @@
  *     only memories inside it, by when the thing happened (`occurred_on`) or,
  *     with no event date, when it was learned (and the line says which), plus a
  *     count of the matches outside it. A window that reaches past today ("next
- *     week", "between 12 and 18 October" asked on the 11th, "this week") also
- *     takes a memory whose REMINDER date (`event_date`) falls in its days as
- *     asked (unstretched), from today on (2026-11-13, the wren findings' P5,
+ *     week", "between 12 and 18 October" asked on the 11th), or is today alone,
+ *     also takes a memory whose REMINDER date (`event_date`) falls in its days
+ *     as asked (unstretched), from today on (2026-11-13, the wren findings' P5,
  *     lightly held; `dueIn`): a repeat by its next occurrence there, the way
  *     the wake's "Coming up" counts it, one closed as done skipped for the
  *     next; a one-off marked done whose date is today, or due today and said
- *     done by a newer memory (`happenedAlready`), is not still to come. Its
- *     line says `due <date> (in the window by this date)`. A window wholly in
- *     the past or ending today, an open-ended one ("after 7/22"), an anchor, a
- *     clock time and a soft word read no reminder dates. A question that is only time ("what
+ *     done by a newer memory (`happenedAlready`, fenced to this folder as the
+ *     wake's own read), is not still to come; nor an earlier version of a
+ *     `changed` pair (a reminder moved). Its line says `due <date> (in the
+ *     window by this date)`. A window wholly in the past or otherwise ending
+ *     today ("this week"), an open-ended one ("after 7/22"), an anchor, a
+ *     clock time and a soft word read no reminder dates. A window that starts
+ *     today or later and runs past it ("next week", "tomorrow", "the coming
+ *     week") FILTERS ONLY WHAT CARRIES A DATE (review of #815): a match with no
+ *     event date and no reminder date stays, after the matches inside it, so
+ *     "dinner with Sam next week" still finds the undated "dinner with Sam next
+ *     Thursday"; asked as only time, it lists by date, soonest first. A question that is only time ("what
  *     happened last week?") answers with everything in the window. An event
  *     anchor ("around the cut-over") is resolved by searching the phrase and
  *     taking the top match's date, shown in the header; "the last session" is
@@ -779,14 +786,22 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     window = null;
   }
   // ── a window still to come reads reminder dates too (`dueIn`) ──────────
-  // Only a window the question named whose days as asked run past today: a
-  // window wholly in the past is read exactly as before. Not an anchor (it
-  // resolves to a past date), an open end ("after 7/22", a cutoff on what
-  // happened, which would take every pending reminder), a clock time or a
-  // soft word. Only the window's days from today on: what was due before
-  // today is past, read by when it happened or was learned, as ever.
-  const repeats = new Map<string, { anchor: string; rule: Recurrence }>();
-  for (const r of safe(() => store.recurringMemories(), [])) repeats.set(r.id, { anchor: r.eventDate, rule: r.recurring });
+  // Only a window the question named whose days as asked run past today, or
+  // that is today itself ("what's on today"): a window wholly in the past is
+  // read exactly as before. Not an anchor (it resolves to a past date), an
+  // open end ("after 7/22", a cutoff on what happened, which would take every
+  // pending reminder), a clock time or a soft word. Only the window's days
+  // from today on: what was due before today is past, read by when it
+  // happened or was learned, as ever.
+  let repeatsHeld: Map<string, { anchor: string; rule: Recurrence }> | null = null;
+  /** The repeating reminders, read once and only when a reminder date is read. */
+  const repeats = (): Repeats => {
+    if (repeatsHeld === null) {
+      repeatsHeld = new Map();
+      for (const r of safe(() => store.recurringMemories(), [])) repeatsHeld.set(r.id, { anchor: r.eventDate, rule: r.recurring });
+    }
+    return repeatsHeld;
+  };
   const prospectiveTunables = withTunables({});
   /** An occurrence closed as done (`Prospective#closeOccurrence`): its window's firing row is `suppressed`. */
   const closedOccurrence = (id: string, occurrence: string, anchor: string, rule: Recurrence): boolean =>
@@ -794,14 +809,43 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       const key = recurringWindowAt(anchor, rule, occurrence, prospectiveTunables, id)?.key;
       return key !== undefined && store.prospectiveFor(id).some((p) => p.window_key === key && p.state === "suppressed");
     }, false);
-  // The days AS ASKED, not stretched: a reminder has its day, and "this week"
-  // stretched would take next Monday's. A window ending today reads none.
+  // The days AS ASKED, not stretched: a reminder has its day. A window that
+  // ends today reads none ("this week" is a past question), unless it is
+  // today alone.
   const said = time?.anchor === null && time.soft !== true && time.clock === null ? time.said : null;
-  const ahead: DayWindow | null =
-    window !== null && said !== null && said.to > today && said.to !== OPEN_END ? { from: said.from > today ? said.from : today, to: said.to } : null;
+  const reachesAhead = said !== null && said.to !== OPEN_END && (said.to > today || (said.from === today && said.to === today));
+  const ahead: DayWindow | null = window !== null && said !== null && reachesAhead ? { from: said.from > today ? said.from : today, to: said.to } : null;
+  /**
+   * A window that starts today or later and runs past it ("next week",
+   * "tomorrow", "the coming week"): what carries no date of its own (no event
+   * date, no reminder date) is not filtered out by it but ranked after what is
+   * inside it (review of #815): "dinner with Sam next Thursday", written with
+   * no date, still answers "dinner with Sam next week". A row that carries a
+   * date outside the window is still outside it.
+   */
+  const lookAhead = ahead !== null && said !== null && said.from >= today && said.to > today;
+  // A journal, its chapter copy and what the night wrote are accounts of days
+  // already lived, dated by them: never "no date" here (the replay of the wren
+  // run kept 17 of them under a week still to come).
+  const undated = (r: RecallRow): boolean =>
+    r.type === "memory" && r.source !== "episode" && nightlyMade(r) === null && (r.occurred_on ?? "") === "" && (r.event_date ?? "") === "";
+  // The reader's fence, as the wake's own read with no host fence: what was written in this folder.
+  const here = ctx.scope?.trim().replace(/\/+$/, "");
+  const happenedOpts = here === undefined || here.length === 0 ? {} : { open: (r: { origin_scope: string | null }) => (r.origin_scope ?? "").trim().replace(/\/+$/, "") === here };
   /** Due today and already said done by a newer memory (`happenedAlready`, the wake's own read): not still to come. */
-  const happened = (id: string): boolean => safe(() => happenedAlready(store, id, today) !== null, false);
-  const due = ahead === null ? undefined : (r: RecallRow): string | null => dueIn(r, ahead, today, repeats, closedOccurrence, happened);
+  const happened = (id: string): boolean => safe(() => happenedAlready(store, id, today, happenedOpts) !== null, false);
+  // The current memory of a `changed` pair, by the one it settled over: an earlier
+  // version's reminder date is not the reminder's any more (review of #815: a
+  // reminder moved from 10-06 to 10-20 was listed under the week of 10-06).
+  const pairs = safe(() => store.contradictions({ limit: 100_000 }), [] as ContradictionRow[]).filter(
+    (p) => p.via === null && p.state !== "withdrawn",
+  );
+  const nowOf = new Map<string, string>();
+  for (const p of pairs) {
+    if (p.state === "settled" && p.how === "changed" && p.over !== null && p.holds !== null) nowOf.set(p.over, p.holds);
+  }
+  const due =
+    ahead === null ? undefined : (r: RecallRow): string | null => (nowOf.has(r.id) ? null : dueIn(r, ahead, today, repeats(), closedOccurrence, happened));
   /**
    * The reminder date a result's line names (`FactItem.due`): a one-off's as
    * stored; a repeat's occurrence — the one the window took it by, else the
@@ -809,7 +853,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
    */
   const dueLine = (r: RecallRow, by: TimeBy | undefined): { date: string; every?: string } | null => {
     if (r.event_date === null || r.event_date.length === 0) return null;
-    const repeat = repeats.get(r.id);
+    const repeat = repeats().get(r.id);
     if (repeat === undefined) return { date: r.event_date };
     const at = (by === "due" && due !== undefined ? due(r) : null) ?? occurrenceBetween(repeat.anchor, repeat.rule, today, OPEN_END) ?? r.event_date;
     const every = readableRecurrence(repeat.anchor, repeat.rule);
@@ -887,6 +931,8 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     }
     if (window !== null) {
       const by = inWindow(r, window, time?.clock ?? null, zone, chapterDates, due);
+      // A window still to come keeps what carries no date (`lookAhead`): unlabeled, after what is inside.
+      if (by === null && lookAhead && undated(r)) continue;
       if (by === null) {
         beyond.set(id, c);
         pool.delete(id);
@@ -917,13 +963,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   };
 
   // ── current first: an earlier version that matched brings its current one ──
-  const pairs = safe(() => store.contradictions({ limit: 100_000 }), [] as ContradictionRow[]).filter(
-    (p) => p.via === null && p.state !== "withdrawn",
-  );
-  const nowOf = new Map<string, string>();
-  for (const p of pairs) {
-    if (p.state === "settled" && p.how === "changed" && p.over !== null && p.holds !== null) nowOf.set(p.over, p.holds);
-  }
+  // (`pairs` and `nowOf` are read above, where the reminder dates are.)
   const foldEarlier = (into: Map<string, Candidate>): void => {
     for (const [id, c] of [...into]) {
       let head = id;
@@ -1014,8 +1054,37 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   // `core/told.ts`): whatever the scores, lived matches first, then the seeds,
   // each by its match. A seed is never dropped for a lived one either (the weak
   // tail above sets a lived match's bar from lived matches only).
+  // A WINDOW STILL TO COME (review of #815): what is inside it before what
+  // carries no date and was kept (`lookAhead`); a question that is only such
+  // a window lists by date, soonest first ("what's on next week").
+  const outsideAhead = (c: Candidate): number => (lookAhead && c.timeBy === undefined ? 1 : 0);
+  const dated = new Map<string, string>();
+  const dateOf = (c: Candidate): string => {
+    if (!(onlyTime && ahead !== null)) return "";
+    const held = dated.get(c.id);
+    if (held !== undefined) return held;
+    const r = rows.get(c.id) as RecallRow;
+    const d =
+      c.timeBy === "due"
+        ? (dueLine(r, "due")?.date ?? "")
+        : c.timeBy === "event"
+          ? (parseCalendarDate(r.occurred_on ?? "")?.first ?? "")
+          : (learnedOf(r, zone) ?? "");
+    dated.set(c.id, d);
+    return d;
+  };
+  const byDate = (a: Candidate, b: Candidate): number => {
+    const x = dateOf(a);
+    const y = dateOf(b);
+    return x < y ? -1 : x > y ? 1 : 0;
+  };
   const order = (a: Candidate, b: Candidate): number =>
-    (told(a.id) ? 1 : 0) - (told(b.id) ? 1 : 0) || b.score - a.score || moment(b.id) - moment(a.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    (told(a.id) ? 1 : 0) - (told(b.id) ? 1 : 0) ||
+    outsideAhead(a) - outsideAhead(b) ||
+    byDate(a, b) ||
+    b.score - a.score ||
+    moment(b.id) - moment(a.id) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   main.sort(order);
 
   // ── near-duplicates, walked in order as far as this page needs ─────────

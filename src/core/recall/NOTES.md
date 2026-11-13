@@ -1909,11 +1909,27 @@ week" read as no time at all.
 
 **What it does now** (`time-ask.ts`'s header lists every form). A range is read before any single date, one window,
 exact. The forward words mirror the backward ones but do not stretch: nothing is learned in the future, so a stretch
-back from "next week" asked on a Saturday would only pull in what was learned that weekend. "This week" and "this
-month" run to their last day (they ended at today); the learned date is unaffected (nothing is learned after today),
-so past questions read as before; a planned `occurred_on` later this week now counts.
+back from "next week" asked on a Saturday would only pull in what was learned that weekend.
+
+**"This week" and "this month" still end today** (review of #815). The first cut ran them to Sunday and the month's
+end, and claimed past questions read as before; they did not: with the window reaching past today, facts mode read
+reminder dates under it, and "what happened this week" went from 1 result to 5, four of them reminders still to
+come. Reverted: they are past questions; "the coming week", "next week", "this weekend" and "the next N days" look
+ahead.
+
+**The range grammar, tightened on the review of #815.** A bare second day ("Oct 12-18", "Oct 5 to 7") ends a range
+only at the text's end, before punctuation, or before a year (which is then both ends'): "Nov 1 - 5 tasks left", "Oct
+5 - 12 attendees" are dates with an amount after them, as master read them. A day number right after the second end
+starts a date of its own ("sets of 8 - 12 Oct 3"). A range whose second end has to roll into the next year is one only
+when it spans at most 62 days (`RANGE_ROLL_DAYS`, a year-end crossing): "between 3/4 and 1/2" was a ten-month window.
+A bound word in front bounds the range as a whole, chosen over reading one end as master did (master read "by
+10/12-10/18" as by 10-12 and "until 12 to 18 October" as until 10-18, the two ends of the same phrase): "until"/"by"
+through its last day, "before" before its first, "after" after its last, "since" from its first, a yearless one not
+yet come this year being last year's under "since" and "after", as for one date.
 
 **Left as it was, on purpose.** A yearless day whose month has not begun is still last year's ("on 5 December" asked
 in November is 2025-12-05; a range's first end follows the same rule). That is `yearFor`'s rule for every date alone,
-and a look-ahead question in a later month has to name the year or use the forward words. "Upcoming" (the `coming
+and a look-ahead question in a later month has to name the year or use the forward words: **explicit-date
+look-ahead works only within the current month** (and a range starting in it) until `yearFor` changes, which this
+work did not do. "Upcoming" (the `coming
 up` handle answers it), "next Saturday" and "this Saturday" are still not read.
