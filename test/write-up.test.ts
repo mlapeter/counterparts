@@ -601,13 +601,66 @@ describe("the door: `session_end` with `writeUp`", () => {
     // Now fetched: the wrong part and a malformed batch.
     expect((await fetch({ writeUp: "old-1" }))["reason"]).toBe("part");
     expect((await call({ writeUp: "old-1", part: 2 }))["reason"]).toBe("wrong-part");
-    expect((await call({ writeUp: "old-1", memories: "the valve" }))["reason"]).toBe("memories-required");
+    // Not readable as memories at all (review of #818: text, one object and a
+    // JSON string of a list are read, as `session_end` reads them).
+    expect((await call({ writeUp: "old-1", memories: 42 }))["reason"]).toBe("memories-required");
+    expect((await call({ writeUp: "old-1", memories: null }))["reason"]).toBe("memories-required");
 
     // Nothing landed from any of it.
     const records = s.counterpart.spans.proposalRecords<ProposalRecord>(PROJ).filter((p) => p.session === "new-1");
     expect(records).toEqual([]);
     expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
     expect(readSession(storeDir, "new-1")?.nothingNewAt).toBeUndefined();
+  });
+
+  test("an answer sent as a JSON string of a list, one object or text is read as `session_end` reads it (review of #818)", async () => {
+    for (const [sent, from, as] of [
+      [JSON.stringify([MEMORY]), "(a JSON string)", "the list it holds"],
+      [MEMORY, "(one object)", "a list of one"],
+      [MEMORY.content, "(text)", "a list of one"],
+    ] as const) {
+      for (const c of open.splice(0)) c.close();
+      rmSync(storeDir, { recursive: true, force: true });
+      seeded();
+      const { s, fetched } = await pointAndFetch("new-1");
+      expect(fetched["reason"]).toBe("part");
+      const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: sent }));
+      expect(out).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+      expect(out["readAs"]).toEqual([{ field: "memories", sent: from, readAs: as }]);
+    }
+  });
+
+  test("JSON-shaped text that does not parse is refused and the part stays open; a JSON string of one object is that object (review of #821)", async () => {
+    seeded();
+    const { s, fetched } = await pointAndFetch("new-1");
+    expect(fetched["reason"]).toBe("part");
+    const two = `[${JSON.stringify(MEMORY)},${JSON.stringify({ content: "The pump's intake screen clogs with leaves every autumn.", kind: "fact" })}`;
+    for (const junk of [`${two},]`, two.slice(0, 60), `{"content": "The relief valve is seated first",`]) {
+      const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: junk }));
+      expect({ junk, reason: out["reason"] }).toEqual({ junk, reason: "memories-required" });
+    }
+    // Nothing was kept and the part is still open: the real answer lands.
+    expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: JSON.stringify(MEMORY) }));
+    expect(out).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+    expect(out["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string of one object)", readAs: "a list of one" }]);
+  });
+
+  test("\"[]\" AFTER a fetch is the real empty answer, as [] is", async () => {
+    seeded();
+    const { s, fetched } = await pointAndFetch("new-1");
+    expect(fetched["reason"]).toBe("part");
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: "[]" }));
+    expect(out).toMatchObject({ reason: "written-up", deposited: 0, marked: true });
+    expect(out["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string)", readAs: "the list it holds" }]);
+  });
+
+  test("a JSON string of an empty list before any fetch is still the fetch (m2)", async () => {
+    seeded();
+    expect(start("new-1").ask ?? "").toContain("writeUp: old-1");
+    const s = server();
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: "[]" }));
+    expect(out).toMatchObject({ reason: "part", part: 1 });
   });
 
   test("a fetch returns the words AND its replies, labelled (2026-10-01) — and fetching again hands back the same part", async () => {

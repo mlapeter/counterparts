@@ -614,9 +614,43 @@ describe("review of #818", () => {
     expect(readLooseDate("the 31st", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("Feb 29", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("2026-11-14T03:00:00Z", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-13");
+    expect(readLooseDate("2026-11-14T03:00+01:00", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-13");
+    expect(readLooseDate("2026-11-14T03:00", TODAY, "ahead", "America/Denver")?.text).toBe("2026-11-14");
+    expect(readLooseDate("2026-11-14T23:30:00", TODAY, "ahead", "Asia/Tokyo")?.text).toBe("2026-11-14");
     expect(readLooseDate("in 999 years", TODAY, "ahead")).toBeNull();
     expect(readLooseDate("200 years ago", TODAY, "back")).toBeNull();
     expect(readLooseDate("in 5 years", TODAY, "ahead")?.text).toBe("2031-11-13");
+  });
+
+  test("5b. a datetime with no zone is its own day, not the server's (TZ=UTC, store in Denver), through remember and session_end", async () => {
+    // Restored to the zone the process resolved, not by `delete`: under bun a
+    // deleted TZ leaves the process in the last zone set.
+    const was = process.env["TZ"] ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    process.env["TZ"] = "UTC";
+    try {
+      // The process really is in UTC: a zoneless instant parses as UTC.
+      expect(Date.parse("2026-11-14T03:00")).toBe(Date.parse("2026-11-14T03:00:00Z"));
+      const s = openServer({ dir, session: SESSION, scope: "/scope/fail-open", now: () => NOON, timeZone: "America/Denver" });
+      open.push(s.counterpart);
+      expect(s.counterpart.store.zone()).toBe("America/Denver");
+      const due = body(await s.call("remember", { text: "Pick up the repaired chainsaw from the shop on Main Street.", eventDate: "2026-11-14T03:00", remind: "plain" }));
+      expect(due["stored"]).toBe(true);
+      expect(s.counterpart.store.row(due["id"] as string)?.event_date).toBe("2026-11-14");
+      // With a zone it is still converted into the store's: 03:00Z is the 13th in Denver.
+      const zoned = body(await s.call("remember", { text: "Call the feed store back about the hay delivery window.", eventDate: "2026-11-14T03:00:00Z", remind: "plain" }));
+      expect(s.counterpart.store.row(zoned["id"] as string)?.event_date).toBe("2026-11-13");
+      const ended = body(
+        await s.call("session_end", {
+          session: SESSION,
+          memories: [{ content: "The north fence post finally came down in the wind and needs resetting.", occurredOn: "2026-11-12T03:00" }],
+        }),
+      );
+      expect(ended["deposited"]).toBe(1);
+      const id = (ended["outcomes"] as Record<string, unknown>[])[0]?.["id"] as string;
+      expect(s.counterpart.store.row(id)?.occurred_on).toBe("2026-11-12");
+    } finally {
+      process.env["TZ"] = was;
+    }
   });
 
   test("6. memories as one object, a JSON string of a list, or text; text as a list of lines", async () => {
@@ -628,6 +662,20 @@ describe("review of #818", () => {
     expect(json["deposited"]).toBe(2);
     const text = body(await s.call("session_end", { session: SESSION, memories: "The well pump was serviced and the pressure holds at forty." }));
     expect(text["deposited"]).toBe(1);
+    const object = body(await s.call("session_end", { session: SESSION, memories: JSON.stringify({ content: "The barn roof's east panel rattles in any wind over twenty." }) }));
+    expect(object["deposited"]).toBe(1);
+    expect(object["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string of one object)", readAs: "a list of one" }]);
+    // JSON-shaped text that does not parse is refused whole, nothing kept, and
+    // the handoff sent beside it still lands and rides out (review of #821).
+    const two = `[${JSON.stringify({ content: "The orchard gate latch sticks after rain." })},${JSON.stringify({ content: "The compost bin by the shed needs turning weekly." })}`;
+    const before = s.counterpart.store.countMemories();
+    for (const junk of [`${two},]`, two.slice(0, 50), `{"content": "The orchard gate latch sticks",`]) {
+      const out = body(await s.call("session_end", { session: SESSION, memories: junk, handoff: "Gate latch and compost: next up." }));
+      expect({ junk, reason: out["reason"] }).toEqual({ junk, reason: "memories-required" });
+      expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
+    }
+    // One row more: the handoff's own (one live row per directory), no memory.
+    expect(s.counterpart.store.countMemories()).toBe(before + 1);
     const lines = body(await s.call("remember", { text: ["The hives were checked today.", "Two queens were spotted, both laying."] }));
     expect(lines["stored"]).toBe(true);
     expect(s.counterpart.store.readProse(lines["id"] as string).body).toContain("Two queens were spotted");

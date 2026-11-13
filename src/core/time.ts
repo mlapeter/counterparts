@@ -832,11 +832,17 @@ export function readLooseDate(value: unknown, today: string, lean: DateLean, zon
   const exact = parseCalendarDate(value);
   if (exact !== null) return { text: exact.text, words: false };
   if (typeof value !== "string" || parseCalendarDate(today)?.precision !== "day") return null;
-  // An instant ("2026-11-14T03:00:00Z"): its day in the store's zone.
+  // An instant ("2026-11-14T03:00:00Z", "…T03:00-07:00"): its day in the
+  // store's zone. A datetime with NO zone ("2026-11-14T03:00") is already the
+  // writer's own wall clock: its day is its first ten characters (review of
+  // #818) — `Date.parse` would read it in the SERVER's zone, a day early on a
+  // UTC host for a store west of it.
   if (/^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(value)) {
-    const at = Date.parse(value.trim());
+    const t = value.trim();
+    const at = Date.parse(t);
     if (!Number.isFinite(at)) return null;
-    const day = zone === undefined ? value.trim().slice(0, 10) : localDate(at, zone);
+    const zoned = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/iu.test(t);
+    const day = zone === undefined || !zoned ? t.slice(0, 10) : localDate(at, zone);
     return parseCalendarDate(day) === null ? null : { text: day, words: true };
   }
   const said = value

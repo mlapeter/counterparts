@@ -1908,3 +1908,36 @@ export function factsDropped(read: { readonly dropped: readonly { readonly field
   // #818): nothing was lost, and `facts.dropped`'s own note says where it went.
   return read.dropped.filter((d) => d.field !== "eventDate").map((d) => ({ field: d.field, reason: "unreadable", note: d.note }));
 }
+
+/**
+ * `memories` as sent, read as a list where it plainly is one (review of #818):
+ * one object is a list of one; a JSON string of a list is that list, of one
+ * object a list of that object; other non-empty text is one entry. Said in
+ * `readAs`. Text that starts like JSON (`[` or `{`) and does not parse as a
+ * list or an object — a trailing comma, a list cut off — is NOT one entry
+ * (review of #821): it would be kept as raw JSON, and on the write-up door
+ * close the part so the host could not resend. It comes back as sent, like
+ * anything else unreadable, for the caller's own `memories-required`: a
+ * refusal the host can retry, nothing kept. Read alike by `session_end` and
+ * the write-up door (`write-up.ts#writeUpDoor`).
+ */
+export function readMemoriesList(sent: unknown): { list: unknown; readAs: Record<string, unknown> } {
+  const said = (as: string, from: string): Record<string, unknown> => ({ readAs: [{ field: "memories", sent: from, readAs: as }] });
+  if (sent !== null && typeof sent === "object" && !Array.isArray(sent)) return { list: [sent], readAs: said("a list of one", "(one object)") };
+  if (typeof sent === "string" && sent.trim().length > 0) {
+    const t = sent.trim();
+    if (t.startsWith("[") || t.startsWith("{")) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(t);
+      } catch {
+        return { list: sent, readAs: {} };
+      }
+      if (Array.isArray(parsed)) return { list: parsed, readAs: said("the list it holds", "(a JSON string)") };
+      if (parsed !== null && typeof parsed === "object") return { list: [parsed], readAs: said("a list of one", "(a JSON string of one object)") };
+      return { list: sent, readAs: {} };
+    }
+    return { list: [sent], readAs: said("a list of one", "(text)") };
+  }
+  return { list: sent, readAs: {} };
+}

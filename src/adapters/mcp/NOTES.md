@@ -2176,7 +2176,10 @@ the evidence to decide from.
 the first Friday after today, whatever the lean: early is seen, late is missed. A day word is
 read whole first ("this morning", "last night"), then without a time after it ("friday at
 3pm", "monday morning"). "end of the week" on a weekend, leaning ahead, is the coming Friday.
-An instant ("2026-11-14T03:00Z") is its day in the store's zone. A day that does not exist
+An instant ("2026-11-14T03:00Z", or with an offset) is its day in the store's zone. A
+datetime with no zone ("2026-11-14T03:00") is the day it names, its first ten characters:
+`Date.parse` reads it in the SERVER's zone, so on a UTC host a Denver store's 03:00 landed
+the day before (review of #818). A day that does not exist
 ("the 31st" in November, "Feb 29" in 2027) and anything past 10 years ahead or 100 back ("in
 999 years") are not read: dropped and said. A done memory's `eventDate` (no `updates`) leans
 back, so "yesterday" there becomes when it happened by the existing done-date rule, and that
@@ -2192,7 +2195,16 @@ dropped. A 0-1 number out of range is never clamped (review of #818: salience 7 
 fed ranking at its maximum): 1 < n ≤ 10 is read as n/10, 10 < n ≤ 100 as n/100, and said;
 anything else, or a negative, is dropped and said. One object where `feelings`, `traits`,
 `feelingsNow` or `memories` takes a list is that one item; `memories` as a JSON string of a
-list is that list, as plain text one entry; `text` or `content` as a list of strings is its
+list is that list, as plain text one entry — on a write-up's answer too (review of #818:
+the door kept refusing them `memories-required`; it now reads them through the same
+`server-args.ts#readMemoriesList`, after which the FETCH rule applies, so `"[]"` before any
+fetch is a fetch, and after a fetch the real empty answer, as `[]` is). A JSON string of one
+object is that object. Text that starts like JSON and does not parse (a trailing comma, a list
+cut off) is NOT one entry (review of #821): kept, it was a memory of raw JSON, and on the
+write-up door it closed the part so the host could not resend. It is `memories-required`,
+the path a `memories: 42` already took: the handoff (and `drewOn`, `rated`) still land and
+ride out on the refusal, nothing else is kept, and the call can be sent again. `text` or
+`content` as a list of strings is its
 lines, joined. "self: happy, sad" is two feelings; "Note:" or "Feeling:" before a feeling is a
 label, not a whose. Every drop carries a `note` saying what to send instead.
 

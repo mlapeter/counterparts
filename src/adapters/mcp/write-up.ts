@@ -70,7 +70,9 @@
  *   - `wrong-part` — an answer naming a part other than the one fetched;
  *   - `part-already-written` — the part this session fetched already came back
  *     (the next one comes at a later start);
- *   - `memories-required` — `memories` present and not a list;
+ *   - `memories-required` — `memories` present and not readable as a list
+ *     (`server-args.ts#readMemoriesList`: one object, a JSON string of a list
+ *     or text is read as one);
  *   - `nothing-landed` — every entry of a non-empty batch was refused by the
  *     gate battery (a duplicate counts as landed: the store already holds it);
  *   - `io-failed` — the fetch could not record that it handed the part over,
@@ -129,6 +131,7 @@ import {
   writeUpStanding,
 } from "../sessions.js";
 import type { WriteUpAnswer, WriteUpClaim, WriteUpProgress } from "../sessions.js";
+import { readMemoriesList } from "./server-args.js";
 import type { HeldSession } from "../../core/remember/index.js";
 
 /** Every way the door refuses. */
@@ -322,14 +325,19 @@ export async function writeUpDoor(input: WriteUpDoorInput): Promise<WriteUpOutco
   }
 
   const mine = record?.writeUpFor?.session === ended ? record.writeUpFor : undefined;
-  const raw = args["memories"];
+  // `memories` not sent as a list is read as `session_end` reads it (review of
+  // #818, `server-args.ts#readMemoriesList`): one object is a list of one, a
+  // JSON string of a list is that list, other text one entry — and said in
+  // `readAs`. Anything else stays `memories-required` in `takeBack`.
+  const { list: raw, readAs } = readMemoriesList(args["memories"]);
   // A FETCH is no `memories` — or an empty list before any fetch is on record
   // (m2): a host that honours `required` sends `[]`, and with nothing fetched
   // there is nothing yet that `[]` could be the answer to.
   const fetching = raw === undefined || (Array.isArray(raw) && raw.length === 0 && mine === undefined);
   // On the granted path the grant is the evidence the pointer is otherwise.
   if (fetching) return handOver(input, ended, st, st.granted ? ended : record?.writeUpPointer, mine);
-  return takeBack(input, ended, st, mine, raw);
+  const out = await takeBack(input, ended, st, mine, raw);
+  return Object.keys(readAs).length === 0 ? out : { ...out, body: { ...out.body, ...readAs } };
 }
 
 // ── FETCH ───────────────────────────────────────────────────────────────────

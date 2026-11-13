@@ -341,7 +341,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `WRITE_UP_CLAIM_MS`); while another session's claim is young, a fetch or an answer
     from here is refused `claimed`, and the SessionStart pointer passes the subject over.
     An ordinary writer lets its claim go when its part comes back. **ANSWER**
-    (`writeUp` with `memories`) deposits for the part last fetched; an EMPTY batch is a
+    (`writeUp` with `memories`; one object, a JSON string of a list or text is read as
+    `session_end` reads it, `server-args.ts#readMemoriesList`, and said in `readAs`)
+    deposits for the part last fetched; an EMPTY batch is a
     real answer — nothing worth keeping — and closes the part without minting. The last
     part's answer marks the ended session's words here as kept (coverage), then marks it
     written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`, `by:
@@ -359,7 +361,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `live-session` (this session's own id included), `other-project`,
     `already-written-up`, `owes-nothing` (with `why`: below-threshold, answered, no-text),
     `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
-    `part-already-written`, `memories-required` (present and not a list),
+    `part-already-written`, `memories-required` (present and not readable as a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
     landed), `part-not-landed` (a memory of this part threw and the same memories can come
     back: what landed stands and the part stays open; on a last part where one landed its
@@ -607,12 +609,16 @@ field never costs the memory. **[M]** Each `remember` call and each `session_end
   read on that scale (never clamped); `eventDate` and `occurredOn` written as words ("next
   Friday", "Oct 15", "late October", "in two weeks", "yesterday", "this morning", "friday
   at 3pm"), or as an instant, read by `core/time.ts#readLooseDate` against the server's day
-  in the store's zone, the field's whole value only (never a date out of the memory's
+  in the store's zone (an instant with a zone is its day in the store's zone; a datetime
+  with none is the day it names, never read in the server's zone), the field's whole value only (never a date out of the memory's
   text), no further than 10 years ahead or 100 back; `remove` given as an id; trait pole
   words ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self:
   relieved — the test passed"; whose defaults to self; "happy, sad" is two) or one string
   where the list goes; a session_end entry sent as a string, and `memories` sent as one
-  object, a JSON string of a list or a string.
+  object, a JSON string of a list or of one object, or a string — on an ordinary
+  `session_end` and a write-up's answer alike. Text that starts like JSON (`[` or `{`) and
+  does not parse as a list or an object is not read: `memories-required`, nothing kept, a
+  write-up's part left open, and a handoff sent beside it still lands.
 - **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
   order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an "-ing" form of a
   wheel participle or a core, a typo-shaped misspelling of a wheel or thesaurus word (two
