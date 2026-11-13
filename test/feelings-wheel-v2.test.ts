@@ -220,7 +220,7 @@ describe("numbers on each feeling", () => {
       ["owner", "sad"],
       ["self", "calm"],
     ]);
-    for (const r of placedRows) expect([...CORE_EMOTIONS]).toContain(r.core);
+    for (const r of placedRows) expect(([...CORE_EMOTIONS] as string[]).includes(String(r.core))).toBe(true);
   });
 });
 

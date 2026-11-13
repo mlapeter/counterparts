@@ -1339,7 +1339,7 @@ const DREAM: ToolSpec = {
   summary:
     "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: launch (the run's prompt), writer, begin, part, propose, journal (the run's, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
   admission:
-    "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and hand its prompt to a background agent unchanged; with setting auto the host runs the night itself. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
+    "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and hand its prompt to a background agent unchanged; with setting auto the host runs the night itself: this session launches nothing. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
   negativeExamples: [
     "Do NOT start a dream nobody asked for, or run one yourself in this conversation.",
     "Do NOT use propose to correct or delete a memory.",

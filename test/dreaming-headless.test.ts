@@ -220,7 +220,7 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
   test("the dream tool's own description never ties `launch` to `auto` (review finding 2)", () => {
     const dream = toolDefinitions().find((t) => t["name"] === "dream");
     const text = JSON.stringify(dream);
-    expect(text).toContain("Call `launch` only after the owner said");
+    expect(text).toContain("Call launch only after the owner says");
     expect(text).toContain("this session launches nothing");
     expect(text).toContain("dream on your own");
     expect(text).not.toContain("the owner's setting `auto`), or after");

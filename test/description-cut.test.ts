@@ -181,7 +181,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     expect(lengths).toEqual({
       // TRIM PR 2 (2026-11-13, the tool-trim design §7): every claim but recall's an engine row,
       // the words shortened — remember 2,533 → 741, status 1,289 → 240, session_end 2,540 → 602,
-      // chapter 1,980 → 531, scope 1,795 → 414, self_page 4,909 → 720, dream 3,721 → 777,
+      // chapter 1,980 → 531, scope 1,795 → 414, self_page 4,909 → 720, dream 3,721 → 808,
       // reflect 3,704 → 764, meet 459 → 208, wake 1,963 → 384. Recall untouched (PR 3).
       remember: { total: 741, beforeList: -1 },
       // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
@@ -196,7 +196,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       chapter: { total: 531, beforeList: -1 },
       scope: { total: 414, beforeList: -1 },
       self_page: { total: 720, beforeList: -1 },
-      dream: { total: 777, beforeList: -1 },
+      dream: { total: 808, beforeList: -1 },
       reflect: { total: 764, beforeList: -1 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 208, beforeList: -1 },
