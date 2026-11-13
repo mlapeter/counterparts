@@ -345,6 +345,13 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
 
   test("one session can't stall the process: past two views in flight it is a 429, and /healthz keeps answering", async () => {
     const r = await rig();
+    // This test's own requests share the server's event loop, and the seed below
+    // is one long turn (5-6 s on CI). Past the server's 5 s keep-alive, Node's
+    // fetch sent the next request on the socket the server was closing in the
+    // same instant: `fetch failed`, read ECONNRESET (CI, 11-10 and 11-12;
+    // reproduced locally with a ~6 s seed). A real client has its own loop and
+    // its own timers, so this is the test's, not the door's: keep sockets open.
+    r.app.server.keepAliveTimeout = 120_000;
     const me = await signUp(r, "busy@example.com");
     // A store big enough that one /api/memories is real work (#801 review: 3,000 held /healthz ~10 s before the cap).
     await r.app.tenants.withTenant(me.storeId, {}, (t, server) =>
