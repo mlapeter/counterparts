@@ -556,6 +556,19 @@ const MONTH_NAMES = [
 ] as const;
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 
+/**
+ * A month date (`2026-10`) as a person says it: "October", or "October 2027"
+ * when its year is not `today`'s. Null for any other shape. (2026-11-13,
+ * facts mode's "also due in this window": `due in October`.)
+ */
+export function readableMonth(ym: string, today: string): string | null {
+  const c = parseCalendarDate(ym);
+  if (c === null || c.precision !== "month") return null;
+  const name = MONTH_NAMES[Number(c.first.slice(5, 7)) - 1];
+  if (name === undefined) return null;
+  return c.first.slice(0, 4) === today.slice(0, 4) ? name : `${name} ${c.first.slice(0, 4)}`;
+}
+
 /** A month `k` months after `(y, m)`, with the day held to that month's length. */
 function monthsAfter(y: number, m: number, d: number, k: number): number {
   const total = y * 12 + (m - 1) + k;

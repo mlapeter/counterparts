@@ -324,8 +324,13 @@ const REVIEWED: Record<string, unknown> = {
       "10aa831937",
       "056871d394",
       "c914c85898",
-      "5545078fcd",
-      "ab397b31e7",
+      // Re-read 2026-11-13 (after #815): the time claim names ranges, the forward
+      // words, reminder dates and the "also due" list; the line claim says "due".
+      // claude.ai serves neither claim; its `question` field ("A time in it ...
+      // filters a facts answer to that window") is still true there. Re-read on the
+      // review of #817 ("today or a window ahead", "with topic words"): the same.
+      "df100cc372",
+      "dab0653dc7",
       "50182c13e0"
     ],
     "fields": {

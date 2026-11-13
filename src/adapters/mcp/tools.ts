@@ -934,12 +934,12 @@ const RECALL: ToolSpec = {
     },
     {
       claim:
-        "A time in the question filters (\"last week\", \"in September\", \"early October\", \"3 days ago\", \"last Saturday\", a date, \"since 09-20\", \"before 09-20\", \"this morning\"): only memories inside the window come back, by when it happened or else when it was learned; the header counts matches outside it. A week or month stretches two days each side; a date is exact; \"before\" or \"after\" a date leaves that day out, \"until\" or \"by\" takes it in. \"Around the cut-over\" resolves to the date of the memory that best names it (header: \"cut-over → 09-21\"); \"the last session\" or \"where did we leave off\" means the session the session-start \"Last here\" line named, its rows first.",
-      mechanizedBy: "src/core/recall/time-ask.ts#readTimeAsk + src/adapters/mcp/facts.ts#factsRecall (inWindow, lastSession)",
+        "A time in the question filters (\"last week\", \"in September\", \"3 days ago\", a date, \"since 09-20\", \"this morning\", \"between 12 and 18 Oct\", \"tomorrow\", \"next week\", \"the next 5 days\"): only memories in the window return, by when it happened, is due (today or a window ahead) or was learned; the header counts matches outside. A past week or month stretches two days each side; a date, range or window ahead is exact; \"before\"/\"after\" a date leave that day out, \"until\"/\"by\" take it in. A window ahead keeps undated matches; with topic words it lists what else is due. \"Around the cut-over\" takes the date of the memory best naming it (header: \"cut-over → 09-21\"); \"the last session\" or \"where did we leave off\" is the session \"Last here\" named, its rows first.",
+      mechanizedBy: "src/core/recall/time-ask.ts#readTimeAsk (rangeAsk, the forward words) + src/adapters/mcp/facts.ts#factsRecall (inWindow, dueIn, lookAhead, alsoDue, lastSession)",
     },
     {
       claim:
-        "Each fact says who said it (\"you said\" is the owner, \"I said\" is you, or \"inferred\"), what kind of thing it is (done, planned, proposed, asked), when it happened (or \"no event date\"), when and where it was learned, and whether it is CURRENT. A field the writer did not record says so (\"speaker unknown\"). Earlier versions are folded under the current one with their dates; a corrected one was wrong and is never a result, but is named under it as \"corrected (was wrong)\" with its id, to open by id.",
+        "Each fact says who said it (\"you said\" is the owner, \"I said\" is you, or \"inferred\"), what kind of thing it is (done, planned, proposed, asked), when it happened or is due (else \"no event date\"), when and where it was learned, and whether it is CURRENT. A field the writer did not record says so (\"speaker unknown\"). Earlier versions are folded under the current one with their dates; a corrected one was wrong and is never a result, but is named under it as \"corrected (was wrong)\" with its id, to open by id.",
       mechanizedBy: "src/adapters/mcp/facts.ts#factItem (occurred_on, said_by, status; versions rows + contradictions pairs) + src/adapters/mcp/deliberate.ts#provenanceParts",
     },
     {
