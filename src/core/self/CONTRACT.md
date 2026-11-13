@@ -875,6 +875,35 @@ without the week floor. **[M]** A sunk handoff said as the wake's ask is not als
 that names an `asked` memory here, or touches its words, is that memory's subject and raise chain.
 Not built: true blockers raised until answered (point 4: deferred 11-09, no blocker mark exists). No store-format change.
 
+**Still open's lines follow the raise schedule (the putty, 2026-11-13; owner-approved direction, lightly
+held).** `core/owner-waits.ts#laneHeld`, `#noteLaneShown`. **[M]** An open memory listed as one of "Still
+open"'s lines, on every wake road (the shaped `openSec`, the assembled `Self#assemble` threads lane, and
+the published bundle `Self#buildWithLanes` composes at a boundary, delivered as it was), is
+a raise on the same record, latch and chain as above (`via: "lane"`): listed every wake of the day it is
+new, then only when the turn lane's steps let it through (3, 7, 14 lived days, no week floor: days 0, 3,
+10), then parked from day 24, counted in the wake's "N parked", listed parked by `recall "still open"`.
+Between steps it is not a line: the shaped road counts it in "N more open"; the assembled road counts it
+in the lane's more only beside a listed line (alone, the collapsed line would say "no room"). **[M]**
+Recorded by the host for a session's own wake (`Lifecycle#composeWake` → `Counterpart#noteStillOpenShown`,
+from `WakeOutcome.stillOpenShown`). Not recorded for a night's own run, under observer, for a session the
+registry names by a non-interactive entrypoint (`sdk-cli`, the SDKs), or for one the host says nobody attends
+(`SessionInput.attended` false: the hook's `CLAUDE_CODE_SESSION_ATTENDED=0`, and the chat `wake` tool's same
+variable; with no word a chat `wake` counts as a person's). Those follow the schedule but use none of it.
+Only a showing the schedule lets through is a step: a bundle composed on an earlier lived day that still
+lists a waiting item takes none. **[M]** An open item with no chain (an upgrade, or one the record's bound
+let go) that is untouched `OPEN_CARRY_DAYS` lived days is parked, not new (`unchainedParked`, read-time; an
+`asked` one is raised first, as the carry rule never parks it). Writing a raise drops the chains of memories no longer open first.
+**[M]** All waiting and nothing listed: the assembled and published lanes say `Still open: N — none due
+today; recall "still open" lists them` with the parked count after; the shaped one its "(N more open, M
+parked; …)" door. **[A]** The published bundle delivered as it was on a host that composes it only at
+session end: a showing slips a day and repeats the day after (measured days 0,1,4,5,12,13); the fix is a
+delivery-time read, not built. **[M]** Exempt: a dated item (its date's rule) and a core memory being reconsidered. One chain
+per item: a raise by the turn lane or the wake's mention counts here too. A revision starts it again.
+On the roads where `asked` items are lines (assembled, published), the wake's listing takes the day's latch
+and a step of the chain the turn lane reads, so the relevance-matched raise won't raise it that day or that
+step. A counterpart's own undated promise is an open item like any other: it parks after three showings. Nothing is closed or deleted; `carriesOpen`/`openCarry` are
+unchanged. No store-format change.
+
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test
 (`stories.ts`); words only, nothing checks a story. **[M]** Day's end orders the day's memories

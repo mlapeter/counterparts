@@ -788,7 +788,10 @@ export function collapsedLine(lane: LaneName, ids: readonly string[], counted?: 
   const none = lane === "horizon" && later !== undefined && ids.length > 0 && ids.every((id) => later.includes(id));
   // Those past their date said as such (review of #511): `none due today, 2 overdue`.
   const late = none ? overdueAmong(lane, ids, counted?.horizonOverdue) : 0;
-  const why = none ? `${NONE_TODAY_WORDS}${late === 0 ? "" : `, ${String(late)} ${OVERDUE_WORD}`}` : COLLAPSED_WORDS;
+  // "Still open" counting only threads that wait their next raise step (the putty): none is due today.
+  const resting = counted?.threadsResting;
+  const idle = lane === "threads" && resting !== undefined && ids.length > 0 && ids.every((id) => resting.includes(id));
+  const why = none ? `${NONE_TODAY_WORDS}${late === 0 ? "" : `, ${String(late)} ${OVERDUE_WORD}`}` : idle ? NONE_TODAY_WORDS : COLLAPSED_WORDS;
   // No ids (WK1): the handle's words for a lane it lists, else the count
   // alone. "Still open"'s parked after them (P2, `parkedTail`).
   return `${laneHeading(lane)} ${String(ids.length)} — ${why}${handleTail(lane)}${lane === "threads" ? parkedTail(counted?.threadsParked) : ""}`;
@@ -797,7 +800,7 @@ export function collapsedLine(lane: LaneName, ids: readonly string[], counted?: 
 /** What "Coming up" counts rather than lists, as a composition's request
  *  carries it (`BriefingRequest.horizonLater`, `.horizonOverdue`) — and
  *  what "Still open" parked (`.threadsParked`, P2). */
-export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue" | "threadsParked">;
+export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue" | "threadsParked" | "threadsResting">;
 
 /** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
 export function collapsedLane(line: string): LaneName | null {
@@ -1074,6 +1077,12 @@ export interface BriefingRequest {
    * paren (`parkedTail`). Absent or 0: nothing said.
    */
   readonly threadsParked?: number;
+  /**
+   * THE OPEN THREADS WAITING THEIR NEXT RAISE STEP (the putty, 2026-11-13;
+   * `core/owner-waits.ts#laneHeld`), counted and not listed: when they are
+   * all "Still open" counts, its line says none is due today, not "no room".
+   */
+  readonly threadsResting?: readonly string[];
 }
 
 export interface TrimEvent {

@@ -303,7 +303,7 @@ import * as depositPart from "./counterpart-deposit.js";
 import * as projectsPart from "./counterpart-projects.js";
 import { reviseTold } from "./told.js";
 import type { ToldSurface } from "./told.js";
-import { noteRaised, ownerParked } from "./owner-waits.js";
+import { laneHeld, noteLaneShown, noteRaised, ownerParked } from "./owner-waits.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -867,6 +867,7 @@ export class Counterpart {
           budgetBytes: this.reportedBudget,
           lined: shaped.lined,
           threads: shaped.threads,
+          stillOpenShown: shaped.threads,
           ...(shaped.tagged ? { tagged: true } : {}),
           shape: { sections: shaped.sections, page: shaped.page, assembled: true },
         };
@@ -891,6 +892,7 @@ export class Counterpart {
     let threads: readonly string[] = [];
     let tagged = false;
     let assembledHere = false;
+    let openShown: readonly string[] = [];
     this.delivering = delivery !== undefined;
     try {
       this.yesterdayLeftOut = null;
@@ -932,6 +934,8 @@ export class Counterpart {
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
       assembledHere = assembled !== null;
+      // What this delivery listed under "Still open" (the putty): the published bundle's when it went as it was.
+      openShown = delivery === undefined || !result.ok ? [] : assembled !== null ? threads : [...threadsShown(this.store)];
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
       // THE PROJECT LINE (lane E, an experiment): last, in what room is left.
       if (delivery !== undefined) withPointer = this.withProjectLine(withPointer, here);
@@ -972,6 +976,7 @@ export class Counterpart {
       budgetBytes: this.reportedBudget,
       lined,
       threads,
+      ...(delivery === undefined ? {} : { stillOpenShown: openShown }),
       ...(tagged ? { tagged } : {}),
       ...(delivery === undefined ? {} : { shape: { ...boundaryPart.wakeShape(withPointer.text), assembled: assembledHere } }),
     };
@@ -1072,6 +1077,8 @@ export class Counterpart {
         // "Still open" for this reader (O2): this folder's first, another
         // folder's work left out; a delivery naming no folder fails closed.
         reader: this.threadReader(here?.scope, here?.exportsFrom),
+        // Still open on the raise schedule (the putty, 2026-11-13; `owner-waits.ts#laneHeld`).
+        laneHeld: laneHeld(this.store, day),
       });
       if (out === null) return null;
       this.emit("counterpart.wake.assembled", undefined, {
@@ -1673,6 +1680,23 @@ export class Counterpart {
       // words aren't a person's, in the door as in the wake.
       ...(this.wakeShapeOn() ? { skip: headlessOf(sessions) } : {}),
     });
+  }
+
+  /**
+   * "STILL OPEN"'S LINES, SHOWN (the putty, 2026-11-13): the ids a delivered
+   * wake listed under "Still open" (`WakeOutcome.threads`, either road) are
+   * raised on the item's chain (`owner-waits.ts#noteLaneShown`), so the lane
+   * lists each again only on its 3/7/14 steps, then parks it. The host calls
+   * this for a session's own wake, never a night's. Under observer, nothing.
+   * How many it raised; never throws.
+   */
+  noteStillOpenShown(ids: readonly string[], session: string): number {
+    if (this.observer || session.length === 0 || ids.length === 0) return 0;
+    try {
+      return noteLaneShown(this.store, ids, { day: this.store.livedDay(), session });
+    } catch {
+      return 0;
+    }
   }
 
   /**

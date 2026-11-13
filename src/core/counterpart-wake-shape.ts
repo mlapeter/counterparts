@@ -70,7 +70,7 @@ import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake
 import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, contentWords, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
 import type { PreparedPage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
-import { NO_TERMS, noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
+import { NO_TERMS, laneHeld, noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
 import type { TermWeights } from "./owner-waits.js";
 import { hashText } from "./store/prose.js";
 
@@ -501,6 +501,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders, closing: sunkClosing }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom), ownerParked(store, day)), { items: [], parked: 0 });
+  const lane = safe(() => laneHeld(store, day), (_id: string) => null as "waiting" | "parked" | null);
   const folders = ourFolders;
   const rule = { craftTravels: cp.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(store) };
   const openRows = open.items
@@ -790,7 +791,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const openSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const cap = spareOn.has("open") ? SHAPE.OPEN_SHOWN_SPARE : SHAPE.OPEN_SHOWN;
     // What waits on the owner is said once, as `owed`, or not at all (SO1 step 4).
-    const carried = openRows.filter((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
+    const all = openRows.filter((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13; `owner-waits.ts#laneHeld`):
+    // a line listed on a day is raised, and listed again on its 3/7/14 steps;
+    // between, counted as more open. A dated item or a core memory being
+    // reconsidered keeps its own rule. Parked ones are already out (`ownerParked`).
+    const carried = all.filter((x) => x.i.date !== undefined || x.i.reconsidering === true || lane(x.i.id) === null);
+    const resting = all.length - carried.length;
     // A memory another section said is said; a sunk handoff's pointer line above isn't the ask, so it is still said here.
     const owe = owed !== null && (owed.kind === "handoff" || !claim.has(owed.id)) ? owed : null;
     const oweLines = owe === null ? [] : aged([{ text: owe.text, age: ageOf(owe.at), tail: owe.tail }]);
@@ -800,7 +807,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       tail: `${x.i.reconsidering === true ? " · a core memory being reconsidered" : ""}${x.i.settlesWhen === undefined ? "" : ` · settles when ${flatten(x.i.settlesWhen)}`} [${x.i.id}]`,
     });
     const render = (k: number): string[] => {
-      const more = carried.length - k;
+      const more = carried.length - k + resting;
       const door = more > 0 || open.parked > 0 ? `(${[more > 0 ? `${String(more)} more open` : "", open.parked > 0 ? `${String(open.parked)} parked` : ""].filter((w) => w.length > 0).join(", ")}; recall "still open")` : "";
       // Nothing open and nothing parked: no section (WF1), not "Nothing open."
       if (k === 0 && door === "" && oweLines.length === 0) return [];

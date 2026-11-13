@@ -395,6 +395,14 @@ export interface WakeOutcome extends WakeResult {
    * here. Empty when it kept none or the published bundle was delivered.
    */
   readonly threads?: readonly string[];
+  /**
+   * The open memories this delivery listed under "Still open", whatever its
+   * road: the shaped and assembled ones' `threads`, or the published bundle's
+   * (`self/#THREADS_SHOWN_KEY`) when it was delivered as it was. The host
+   * records them as raised (`Counterpart#noteStillOpenShown`; the putty,
+   * 2026-11-13). Absent on a read that isn't a delivery.
+   */
+  readonly stillOpenShown?: readonly string[];
   /** The head tag carries `WakeHere.headFields` (2026-10-20, ONE TAG). */
   readonly tagged?: boolean;
   /**

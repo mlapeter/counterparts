@@ -185,6 +185,13 @@ export interface SessionInput {
    * pointed at (`sessions.ts#NON_INTERACTIVE_ENTRYPOINTS`, review of #285 N2).
    */
   readonly entrypoint?: string;
+  /**
+   * WHETHER A PERSON IS THERE, when the host says so (the putty's review,
+   * 2026-11-13): false is a run nobody reads (a routine calling the chat
+   * host's `wake`, `CLAUDE_CODE_SESSION_ATTENDED=0`). Its wake follows "Still
+   * open"'s schedule but takes no step of it. Absent: not said.
+   */
+  readonly attended?: boolean;
 }
 
 export interface AdapterEvent {
@@ -577,10 +584,14 @@ export class Lifecycle implements HostLifecycle {
    * THE WAKE, composed for this session: what the previous boundary published,
    * with the delivery preface (which system, which day, which date) and — WHERE
    * this session woke riding beside WHEN (E1) — the handoff pointer that
-   * belongs to this directory, if any. Reads only: no model call, no network,
-   * no state written (claude-code §1 G1) — since 2026-10-10 the core ASSEMBLES
-   * the lanes that are plain reads for this moment (self CONTRACT §5 G1), and
-   * the registry's sessions ride along for its "Today, elsewhere" line.
+   * belongs to this directory, if any. No model call, no network; the
+   * composition itself is reads (claude-code §1 G1) — since 2026-10-10 the core
+   * ASSEMBLES the lanes that are plain reads for this moment (self CONTRACT §5
+   * G1), and the registry's sessions ride along for its "Today, elsewhere" line.
+   * What it writes after, once composed: the expectation below, the lookup
+   * ledger, the open threads for priming, and "Still open"'s lines as raises
+   * (the putty, 2026-11-13: not a night's own wake, a headless session's or one
+   * the host says nobody attends).
    *
    * Then THE EXPECTATION, WRITTEN WHERE THE NEXT PROCESS CAN READ IT. This used
    * to be a `Map` on the adapter instance, which is a line that only looks like
@@ -627,7 +638,21 @@ export class Lifecycle implements HostLifecycle {
     this.noteWakeExpectation(input, woke.sentinel);
     this.noteWakeIndex(input, woke.lined ?? []);
     this.noteWakeThreads(input, woke.threads ?? []);
+    // Still open's lines are raises (the putty, 2026-11-13): shown to a person, so
+    // not a night's own wake and not a headless (agent) session's, which follow
+    // the schedule but use none of it up.
+    if (input.nightRun !== true && input.attended !== false && !this.headlessSession(input.sessionId)) this.counterpart.noteStillOpenShown(woke.stillOpenShown ?? woke.threads ?? [], input.sessionId);
     return woke;
+  }
+
+  /** Whether the registry names this session as one nobody attends (an agent's, `NON_INTERACTIVE_ENTRYPOINTS`). Unknown: attended. */
+  private headlessSession(session: string): boolean {
+    try {
+      const e = readSession(this.counterpart.store.dir, session)?.entrypoint;
+      return e !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(e);
+    } catch {
+      return false;
+    }
   }
 
   /**

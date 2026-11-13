@@ -3806,11 +3806,18 @@ export class McpServer {
     const lc = this.lifecycle();
     const store = this.counterpart.store;
     const now = this.nowFn();
+    // WHO READS THIS WAKE (the putty's review, 2026-11-13): the host's word
+    // (`CLAUDE_CODE_SESSION_ATTENDED`) when it gives one; with none, a chat a
+    // person opened, since this tool is only a chat host's. Not attended, the
+    // wake follows "Still open"'s schedule but takes no step of it.
+    const said = (this.env["CLAUDE_CODE_SESSION_ATTENDED"] ?? "").trim().toLowerCase();
+    const nobody = ["0", "false"].includes(said);
     const input: SessionInput = {
       sessionId: randomUUID(),
       scope: this.scope,
       at: localDate(now, store.zone()),
       ...(night ? { nightRun: true } : {}),
+      ...(nobody ? { attended: false } : {}),
     };
     lc.noteSession("start", input);
     // The first meeting's marker rides in the wake's head tag (2026-10-20,

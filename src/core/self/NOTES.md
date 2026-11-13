@@ -3259,3 +3259,48 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **Item 4 (true blockers raised until answered) deferred 11-09:** live with the relevance lane + weekly mention
   first; if true blockers still sink after ~a week, add an explicit field (not inference), batched with the next
   store-format change.
+
+## 2026-11-13 — Still open's lines on the raise schedule (the putty)
+
+- **What was wrong.** A journal counterpart kept asking its person how a video went; in a simulated month the
+  wake's "Still open" listed the counterpart's own curiosities ("I said I'd like to hear what he says when Wren
+  tells him · settles when Wren tells their dad…") every evening, one 12 times. SO1 step 4's backoff governed only
+  `asked` items' one mention (shaped road) and the turn lane (a directory scope only: a chat scope never gets
+  it). The shaped lane's other lines, the assembled lane and the published bundle (the default roads,
+  `WAKE_SHAPE` off; asked items included) had no schedule. The journal's wakes were the published bundle
+  delivered as it was ("composed at the last boundary": its MCP wake reported no budget), and `carriesOpen` never parks an item with `settlesWhen` or `asked`. The
+  night's close sweep closes only release steps, so an item waiting on the person answering stays open until a
+  write settles it.
+- **Built.** On all three roads, a listed line is a raise (`noteLaneShown`, `via: "lane"`; not a night's own wake,
+  not a headless session, not a stale bundle's waiting item), and the lane lists only what
+  `laneState` lets through: new, raised today, or due on the turn lane's steps (3/7/14, no week floor). The
+  shaped mention keeps its week floor. `ownerParked` now parks any status's exhausted chain, not only `asked`.
+  Dated items and core memories being reconsidered are exempt.
+- **Chosen over** parking in `openCarry` (it also feeds the night's `settlesOpen` door, doctor and close hints)
+  and over a new per-item field (no store change: the record and latch already exist per item).
+- **Replay** (a copy of the journal's `sim-wren-full2`, its 28 stored evening wakes, all the published bundle,
+  where every open item is a line; the lane's room and order assumed unchanged): "settles when Wren tells their dad and shares his reaction" was listed 12 times, the
+  schedule would list it 3; "how closing night and Dad in the booth went" 4 → 2; the lemonade story 10 → 3
+  (2 by evening count); Marcus's show 21 → 3, parked from 29 Oct by calendar day. That store's `livedDay` stayed
+  1 all month (the journal's worker had no simulated date), so lived days were read as calendar days or as
+  evenings.
+- **Review of #819.** Kept chains of closed items pushed a parked item's chain past the record's bound and it came
+  back as new: a raise now drops chains of memories no longer open first. An item with no chain (upgrade, or let
+  go) a fortnight untouched reads as parked; otherwise a store with hundreds of old open items would list a
+  different few as new each day for weeks. A chat `wake` the host says nobody attends takes no step. All waiting
+  and nothing listed, the assembled and published lanes now say how many are open, "none due today".
+- **Lived days, not calendar days.** The schedule counts `livedDay`, which only the sleep cycle advances
+  (`advanceClock`: the detached run after a turn-end on a new calendar day, or a night). A store whose `livedDay` never advances (the journal's simulated month stayed on
+  1) gets no backoff: every wake on that frozen day lists the item, since raised-today stays listed all day.
+- **Not fixed: the published bundle on a host that only composes it at session end.** Delivered the next day as it
+  was, it carries yesterday's lane: measured shown on days 0,1,4,5,12,13, chain 0,4,12. The fix is reading the lane
+  at delivery (a threads twin of `hintsForReader`, which can only take lines out, so the step still slips a day; or
+  assembling under the bundle's own recorded ceiling when the host reports no budget, which changes the road for
+  every budgetless host). Left for a decision.
+- **Behaviour change to see.** On the assembled and published roads an `asked` item listed in the morning wake takes
+  the day's latch and its step, so the relevance-matched turn raise won't raise it that day or that step. A
+  counterpart's own undated promise parks after three showings like any other open item.
+- **Open.** With several `asked` items, the shaped wake's one mention rotates among them (each weekly), so some
+  "Waiting on" line is in most wakes. Telling a casual question from a blocker needs a mark the store doesn't
+  keep (see the PR).
+

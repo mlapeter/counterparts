@@ -426,6 +426,14 @@ export interface AssembleRequest
    * as the turn-end composes for no reader.
    */
   readonly reader?: ThreadReader;
+  /**
+   * "STILL OPEN" ON THE RAISE SCHEDULE (the putty, 2026-11-13;
+   * `core/owner-waits.ts#laneHeld`): what holds an open thread out of the
+   * lane's lines today. "waiting" is counted with the lane's more, "parked"
+   * with its parked; a dated thread or a core memory being reconsidered keeps
+   * its own rule. Absent: every thread as before.
+   */
+  readonly laneHeld?: (id: string) => "waiting" | "parked" | null;
 }
 
 /** One reader's folders, for "Still open" (`AssembleRequest.reader`, `Self#stillOpen`). */
@@ -524,6 +532,12 @@ export interface HorizonItem {
 }
 
 export interface BoundaryRequest extends BriefingRequest {
+  /**
+   * "STILL OPEN" ON THE RAISE SCHEDULE for the published bundle (the putty,
+   * 2026-11-13), as `AssembleRequest.laneHeld`: the owner's wake only
+   * (ignored with `omit`). Absent: every thread as before.
+   */
+  readonly laneHeld?: (id: string) => "waiting" | "parked" | null;
   /**
    * THE CALENDAR DATE THE WAKE IS COMPOSED FOR (2026-10-16), `YYYY-MM-DD`:
    * the date the horizon was asked about (`core/briefing.ts#selfRenderer`,
@@ -1149,7 +1163,14 @@ export class Self {
     const all = scanActive(this.store, req.day);
     // `omit` (see the field): the owner's wake passes none and this is a no-op;
     // a composition bound for a model call outside this machine passes one.
-    const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
+    const kept = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13), as `assemble` reads it: an
+    // open thread waiting its next step, or parked, is no line of the bundle.
+    const heldOf = (s: Scanned): "waiting" | "parked" | null =>
+      req.laneHeld === undefined || req.omit !== undefined || !s.unresolved || s.band === "identity" || s.reconsidering === true || (s.doc.eventDate !== undefined && s.doc.eventDate.trim() !== "") ? null : req.laneHeld(s.id);
+    const held = new Map(kept.map((s) => [s.id, heldOf(s)] as const));
+    const settledNow = req.laneHeld === undefined ? new Set<string>() : settledOver(this.store);
+    const scanned = kept.filter((s) => held.get(s.id) === null || held.get(s.id) === undefined);
     // A PLAIN REMINDER DUE THE DAY THE WAKE IS READ LEADS THE LANE (2026-10-10),
     // the rest in the order supplied: the lane trims from its end, and its
     // head is what no lane below it may take (`briefing.ts#arrivingHead`).
@@ -1166,9 +1187,7 @@ export class Self {
     // Which open threads are still carried (2026-10-22, `openCarry`), and
     // how many are parked — counted on "Still open"'s tail (P2, 2026-10-28).
     const carry = openCarry(this.store, req.day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH);
-    const lanes: Lanes = {
-      ...(req.omit === undefined && carry.notCarried.size > 0 ? { parked: carry.notCarried.size } : {}),
-      ...rankLanes(scanned, horizon, this.tunables, {
+    const ranked = rankLanes(scanned, horizon, this.tunables, {
         carry,
         settledOver: settledOver(this.store),
         // "Still open"'s unsettled ones rank after the rest (2026-10-18): one
@@ -1181,7 +1200,16 @@ export class Self {
         craftSince: craftSince(this.store),
         ...(coming.more.length === 0 || req.omit !== undefined ? {} : { horizonMore: coming.more }),
         ...(coming.later.length === 0 ? {} : { later: coming.later }),
-      }),
+      });
+    // What the carry already parks is counted there, not twice.
+    const restingIds = kept.filter((s) => held.get(s.id) === "waiting" && !settledNow.has(s.id) && !carry.notCarried.has(s.id)).map((s) => s.id);
+    const backedOff = kept.filter((s) => held.get(s.id) === "parked" && !settledNow.has(s.id) && !carry.notCarried.has(s.id)).length;
+    const parkedAll = (req.omit === undefined ? carry.notCarried.size : 0) + backedOff;
+    const lanes: Lanes = {
+      ...(parkedAll > 0 ? { parked: parkedAll } : {}),
+      ...ranked,
+      // Waiting its next step: counted with the lane's more; alone, its line says none is due today (as `assemble`).
+      ...(restingIds.length > 0 ? { resting: restingIds, overflow: { ...(ranked.overflow ?? { identity: [], craft: [], hints: [], threads: [], horizon: [] }), threads: [...(ranked.overflow?.threads ?? []), ...restingIds] } } : {}),
       ...(coming.later.length === 0 || req.omit !== undefined ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 || req.omit !== undefined ? {} : { overdue: coming.overdue }),
     };
@@ -1427,10 +1455,19 @@ export class Self {
     // Still open, from the open memories — and the core memories being
     // reconsidered, which wait on a decision (2026-10-11).
     const { open: openRead, carry, flagged } = this.openScanned(day);
-    const open = openRead.map(note);
     const place = req.reader === undefined ? undefined : this.threadPlaceFor(req.reader);
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13): a thread raised and not yet
+    // due again is counted with the lane's more, one raised to the end with its
+    // parked; neither is a line. Another folder's work is neither, as below.
+    const heldOf = (s: Scanned): "waiting" | "parked" | null =>
+      req.laneHeld === undefined || s.reconsidering === true || (s.doc.eventDate !== undefined && s.doc.eventDate.trim() !== "") ? null : req.laneHeld(s.id);
+    const held = new Map(openRead.map((s) => [s.id, heldOf(s)] as const));
+    const counted = (s: Scanned): boolean => !settled.has(s.id) && (place === undefined || place(s) !== "out");
+    const resting = openRead.filter((s) => held.get(s.id) === "waiting" && counted(s)).map((s) => s.id);
+    const backedOff = openRead.filter((s) => held.get(s.id) === "parked" && counted(s)).length;
+    const open = openRead.filter((s) => held.get(s.id) === null).map(note);
     // How many are parked for this reader (P2, 2026-10-28): its tail says so.
-    const parked = carry.notCarried.size === 0 ? 0 : this.parkedOf(carry, day, place).length;
+    const parked = (carry.notCarried.size === 0 ? 0 : this.parkedOf(carry, day, place).length) + backedOff;
     const fresh = rankLanes(open, horizon, this.tunables, {
       carry,
       settledOver: settled,
@@ -1481,12 +1518,14 @@ export class Self {
         identity: [...shown.more.identity],
         craft: this.tunables.CRAFT_IN_WAKE ? [...shown.more.craft] : [],
         hints: [],
-        threads: fresh.overflow?.threads ?? [],
+        // Waiting its next step: counted with the lane's more; alone, its line says none is due today.
+        threads: [...(fresh.overflow?.threads ?? []), ...resting],
         horizon: fresh.overflow?.horizon ?? [],
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 ? {} : { overdue: coming.overdue }),
       ...(parked === 0 ? {} : { parked }),
+      ...(resting.length === 0 ? {} : { resting }),
     };
     return this.composeLanes(lanes, docs, sources, {
       day,
@@ -1772,6 +1811,7 @@ export class Self {
           ...(lanes.overdue === undefined || lanes.overdue.length === 0 || req.omit !== undefined ? {} : { horizonOverdue: lanes.overdue }),
           // How many open threads are parked: "Still open"'s count line says so (P2, 2026-10-28).
           ...(lanes.parked === undefined || lanes.parked === 0 || req.omit !== undefined ? {} : { threadsParked: lanes.parked }),
+          ...(lanes.resting === undefined || lanes.resting.length === 0 || req.omit !== undefined ? {} : { threadsResting: lanes.resting }),
           ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
             ? {}
             : { elsewhereShorter: req.elsewhereShorter }),
