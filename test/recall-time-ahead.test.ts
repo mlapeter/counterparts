@@ -135,6 +135,9 @@ describe("a range of days is one window (time-ask.ts)", () => {
     expect(readTimeAsk("between 3 and 5 may be", clock)?.said).not.toEqual({ from: "2026-05-03", to: "2026-05-05" });
     // Two dates joined by "and" without "between" are two dates, not a range.
     expect(readTimeAsk("12 October and 18 October", clock)?.said).toEqual({ from: "2026-10-12", to: "2026-10-12" });
+    // One month, the second day before the first: no range, and no year rolled.
+    expect(readTimeAsk("October 20 - 3 things to do", clock)?.said).toEqual({ from: "2026-10-20", to: "2026-10-20" });
+    expect(readTimeAsk("between 18 and 12 October", clock)?.said).toEqual({ from: "2026-10-12", to: "2026-10-12" });
   });
 });
 
@@ -240,6 +243,8 @@ describe("a window still to come reads reminder dates (facts.ts)", () => {
     const early = brain(Date.parse("2026-09-10T18:00:00Z"));
     const later = early.store.put({ type: "memory", kind: "fact", body: "The zqkiln repair visit.", eventDate: "2026-10-04" });
     const far = early.store.put({ type: "memory", kind: "fact", body: "The zqkiln annual service.", eventDate: "2026-12-01" });
+    // Next Monday: inside "this week" only through its two-day stretch, which a reminder date does not take.
+    early.store.put({ type: "memory", kind: "fact", body: "The zqkiln shelf delivery.", eventDate: "2026-10-05" });
     early.close();
     const c = brain();
     seed(c);

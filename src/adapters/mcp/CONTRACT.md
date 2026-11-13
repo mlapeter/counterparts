@@ -696,13 +696,14 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   come does not stretch. "This week" and "this month" now run to their last day.
   "Upcoming", "next Saturday" and "this Saturday" are not read. **A window whose days as
   asked run past today also takes a memory by its reminder date** (`event_date`;
-  2026-11-13, lightly held) when that date falls in the window from today on: a repeat
-  by its occurrence there (`occurrenceBetween`, as the wake finds it), an occurrence
-  closed as done skipped for the next; a one-off marked done whose date is today is not
-  taken (`prospective/derive.ts` "done"). The line says `due <date> (in the window by
-  this date)`. A window wholly in the past, an open end ("after 7/22"), an anchor, a
-  clock time and a soft word read no reminder dates: past-only questions answer as
-  before. "Around the X"
+  2026-11-13, lightly held) when that date falls in the window's days as asked
+  (unstretched), from today on: a repeat by its occurrence there (`occurrenceBetween`,
+  as the wake finds it), an occurrence closed as done skipped for the next; a one-off
+  marked done whose date is today (`prospective/derive.ts` "done"), or due today and
+  said done by a newer memory (the wake's `happenedAlready`), is not taken. The line
+  says `due <date> (in the window by this date)`. A window wholly in the past or ending
+  today, an open end ("after 7/22"), an anchor, a clock time and a soft word read no
+  reminder dates: past-only questions answer as before. "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
 - **[M]** **Soft time words do not filter** (2026-10-20, from the benchmark loss read;

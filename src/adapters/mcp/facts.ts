@@ -26,14 +26,15 @@
  *     with no event date, when it was learned (and the line says which), plus a
  *     count of the matches outside it. A window that reaches past today ("next
  *     week", "between 12 and 18 October" asked on the 11th, "this week") also
- *     takes a memory whose REMINDER date (`event_date`) falls in it from today
- *     on (2026-11-13, the wren findings' P5, lightly held; `dueIn`): a repeat
- *     by its next occurrence there, the way the wake's "Coming up" counts it,
- *     one closed as done skipped for the next; a one-off marked done whose date
- *     is today is not still to come (`prospective/derive.ts` "done"). Its line
- *     says `due <date> (in the window by this date)`. A window wholly in the
- *     past, an open-ended one ("after 7/22"), an anchor, a clock time and a soft
- *     word read no reminder dates. A question that is only time ("what
+ *     takes a memory whose REMINDER date (`event_date`) falls in its days as
+ *     asked (unstretched), from today on (2026-11-13, the wren findings' P5,
+ *     lightly held; `dueIn`): a repeat by its next occurrence there, the way
+ *     the wake's "Coming up" counts it, one closed as done skipped for the
+ *     next; a one-off marked done whose date is today, or due today and said
+ *     done by a newer memory (`happenedAlready`), is not still to come. Its
+ *     line says `due <date> (in the window by this date)`. A window wholly in
+ *     the past or ending today, an open-ended one ("after 7/22"), an anchor, a
+ *     clock time and a soft word read no reminder dates. A question that is only time ("what
  *     happened last week?") answers with everything in the window. An event
  *     anchor ("around the cut-over") is resolved by searching the phrase and
  *     taking the top match's date, shown in the header; "the last session" is
@@ -128,6 +129,7 @@
  */
 import type { Counterpart } from "../../core/counterpart.js";
 import { sessionsHere } from "../../core/coverage/index.js";
+import { happenedAlready } from "../../core/counterpart-wake-news.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
 
 import {
@@ -501,10 +503,19 @@ type Repeats = ReadonlyMap<string, { readonly anchor: string; readonly rule: Rec
  * them), an occurrence already closed as done (`closeOccurrence`: its firing
  * row `suppressed`) skipped for the next. A one-off marked done whose date
  * ends by today is when it happened, not a reminder (`prospective/derive.ts`
- * "done"); one marked done with a date still ahead is left in, as the wake
- * leaves it. Reads only.
+ * "done"), nor one due today that a newer done memory says happened (the
+ * wake's `happenedAlready`, which settles nothing dated after today); one
+ * marked done with a date still ahead is left in, as the wake leaves it.
+ * Reads only.
  */
-function dueIn(row: RecallRow, ahead: DayWindow, today: string, repeats: Repeats, closed: (id: string, occurrence: string, anchor: string, rule: Recurrence) => boolean): string | null {
+function dueIn(
+  row: RecallRow,
+  ahead: DayWindow,
+  today: string,
+  repeats: Repeats,
+  closed: (id: string, occurrence: string, anchor: string, rule: Recurrence) => boolean,
+  happened: (id: string) => boolean,
+): string | null {
   const date = row.event_date;
   if (date === null || date.length === 0) return null;
   const repeat = repeats.get(row.id);
@@ -522,6 +533,7 @@ function dueIn(row: RecallRow, ahead: DayWindow, today: string, repeats: Repeats
   const c = parseCalendarDate(date);
   if (c === null || c.first > ahead.to || c.last < ahead.from) return null;
   if (statusOf(row.status) === "done" && c.last <= today) return null;
+  if (c.precision === "day" && c.first === today && happened(row.id)) return null;
   return date;
 }
 
@@ -782,10 +794,14 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       const key = recurringWindowAt(anchor, rule, occurrence, prospectiveTunables, id)?.key;
       return key !== undefined && store.prospectiveFor(id).some((p) => p.window_key === key && p.state === "suppressed");
     }, false);
+  // The days AS ASKED, not stretched: a reminder has its day, and "this week"
+  // stretched would take next Monday's. A window ending today reads none.
   const said = time?.anchor === null && time.soft !== true && time.clock === null ? time.said : null;
   const ahead: DayWindow | null =
-    window !== null && said !== null && said.to > today && said.to !== OPEN_END ? { from: window.from > today ? window.from : today, to: window.to } : null;
-  const due = ahead === null ? undefined : (r: RecallRow): string | null => dueIn(r, ahead, today, repeats, closedOccurrence);
+    window !== null && said !== null && said.to > today && said.to !== OPEN_END ? { from: said.from > today ? said.from : today, to: said.to } : null;
+  /** Due today and already said done by a newer memory (`happenedAlready`, the wake's own read): not still to come. */
+  const happened = (id: string): boolean => safe(() => happenedAlready(store, id, today) !== null, false);
+  const due = ahead === null ? undefined : (r: RecallRow): string | null => dueIn(r, ahead, today, repeats, closedOccurrence, happened);
   /**
    * The reminder date a result's line names (`FactItem.due`): a one-off's as
    * stored; a repeat's occurrence — the one the window took it by, else the

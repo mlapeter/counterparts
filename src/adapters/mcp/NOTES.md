@@ -2074,11 +2074,17 @@ days differ. `RecallRow` carries `event_date` for it (read only, no schema chang
 **The window.** `inWindow` read `occurred_on`, else the learned date, never `event_date`, so a correctly read week
 ahead still could not find a reminder written days earlier. A window whose days as asked (`said`, not the stretched
 window: "last week" asked on a Monday stretches into tomorrow) run past today now also takes a row whose reminder date
-falls in it from today on (`dueIn`), as its own match kind, `due`, ranked ahead of `learned`. A repeat is read by its
+falls in those days, unstretched, from today on (`dueIn`), as its own match kind, `due`, ranked ahead of `learned`.
+Unstretched because a reminder has its day: "this week" stretched would take next Monday's. A window ending today
+("today", "this weekend" asked on a Sunday) reads none: it does not reach past today. A repeat is read by its
 occurrence (`occurrenceBetween` over `Store.recurringMemories`, as the prospective horizon finds them; store reads only,
 so a store-only `FactsSource` still works), an occurrence closed as done (its firing row `suppressed`) skipped for the
-next. A one-off marked done whose date ends by today is not still to come (`derive.ts`'s "done" rule); one done with a
-date ahead stays in, as the wake leaves it. Daily repeats are taken too: they are on every day of the week asked. An
+next. A one-off marked done whose date ends by today is not still to come (`derive.ts`'s "done" rule), nor one due
+today that a newer done memory says happened (`happenedAlready`, called without the wake's folder fence: facts mode
+has its own denied set); one done with a date ahead stays in, as the wake leaves it. "happening" joined `ASKS_NOTHING`
+(beside "happened", "happen", "happens"), so "what is happening tomorrow" is a question only of time; it applies to
+every facts question. A window wholly in the future now keeps out what was merely learned (nothing is learned ahead),
+as it always did for a window wholly in the past. Daily repeats are taken too: they are on every day of the week asked. An
 open end ("after 7/22") reads no reminder dates: it is a cutoff on what happened, and would take every pending one.
 
 **The replay** (d14-q-week, `trace-w2.jsonl.store-day13.sqlite` copied, clock 2026-10-12T02:00Z, America/Denver,

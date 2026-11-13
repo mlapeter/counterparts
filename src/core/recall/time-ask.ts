@@ -55,7 +55,8 @@
  *     that then runs backward is none); with none, the first end's year is
  *     `yearFor`'s, as a date alone, and the second end is the next time its
  *     month and day come round on or after the first (so a range across the
- *     new year ends in January). A bare day with an amount after it ("Oct 5 to
+ *     new year ends in January; within one month a second day before the first
+ *     is no range: "October 20 - 3 things"). A bare day with an amount after it ("Oct 5 to
  *     7 people", "Oct 5 - 7:30") is not an end, nor an `M/D` that is an amount;
  *     "between 3 and 5 may" asks a capital May. Two bare days alone are no
  *     range;
@@ -546,6 +547,9 @@ function rangeAsk(text: string, today: string): TimeAsk | null {
     }
     const m1 = a.month ?? (b.month as number);
     const m2 = b.month ?? m1;
+    // One month, the second day before the first ("October 20 - 3 things",
+    // "between 18 and 12 October"): no range. Only a new month rolls a year.
+    if (m1 === m2 && b.day < a.day && (a.year === null || b.year === null || a.year === b.year)) continue;
     let y1: number;
     let y2: number;
     if (a.year !== null && b.year !== null) {
