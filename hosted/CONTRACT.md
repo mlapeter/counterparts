@@ -199,6 +199,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
   - The src lane OL1d makes "auto on a hookless host spawns no night run" true in `src/` too, and makes launch refuse
     while dreaming is `off`.
 - **A store that already exists is never re-initialized.**
+- **Seams for a product on hosted** (JS1, 2026-11-13; defaults unchanged): `TenantsOptions.newStore` replaces
+  `startNewStore` for a store an open creates, `TenantsOptions.nights: "host"` leaves the first-chat night out of a
+  chat's wake (the host calls `dream` itself), and `AppOptions` passes both, and `storeClock`, through to `Tenants`.
+  `Accounts.signUpWithIdentity` / `personByIdentity` make or find a person by a non-email identity the caller has
+  verified; it skips the spots (the caller gates sign-up) and never duplicates a pending-delete person.
 - **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
 
 ### Keys, backups, export, delete (step 5: `src/keys.ts`, `src/backup.ts`, `src/egress.ts`, `src/app.ts`)
