@@ -2133,8 +2133,11 @@ numbers of every stored `other` row, so it would have moved old rows' defaults.
 
 **Placement, and the embedder's bar.** The thesaurus (`core/feelings-thesaurus.ts`, 563 words,
 40+ per core) decides a CORE, never a word: the writer's word is stored as `other` +
-`other_word`. Order: wheel and aliases; thesaurus; an inflection by `stemTerm`; a misspelling
-(distance 1 from five letters, 2 from eight, a swap counted as one); then the embedder. Every
+`other_word`. Order: wheel and aliases; thesaurus; an inflection by `stemTerm` (meeting only a
+participle or a core: "closed" is not "close"); a misspelling with the same first letter (6-7
+letters: only a swap or a doubled letter; one edit from 8; two from 10), because a real word one
+free edit from a feeling word is common ("better"/"bitter", "wired"/"tired", "yucky"/"lucky",
+caught in review and now pinned by a must-not-place test); then the embedder. Every
 step past the thesaurus answers only when all its best candidates agree on the core; a
 negation ("not happy") or a negating prefix of a known word ("unhappy", "uncaring") is never
 placed past the thesaurus. The embedder's bar was measured on potion-base-8M by holding each
@@ -2163,8 +2166,13 @@ store. The `mcp.session_end` line now carries one flat count per refusal code
 (`refused.<code>`; the log writes maps as their size, so flat keys) and the drop count; the
 new durable `mcp.write` row (the `events` table, a telemetry write that never fails the call)
 carries the reasons, the drops by field and code, the readAs count and the unplaced words,
-only for a write that did not land whole. `remember`'s own refusals were and still are
-`mcp.refused` log lines; they now reach `mcp.write` too.
+only for a write that did not land whole (a write-up's entries included). `remember`'s own
+refusals were and still are `mcp.refused` log lines; they now reach `mcp.write` too. An
+unplaced feeling is logged as its word only when it is one or two short words; anything longer
+is logged as `(phrase)`, since a long value can be a sentence of the memory.
+
+**Not built.** `memories` sent as something other than a list (one object, a JSON string) is
+still refused `memories-required`; it was outside the design's list of refusal sites.
 
 **Left for PR 2.** `tools.ts` still says what is no longer true — "an unreadable one is
 refused" on `eventDate`, `feelings[].emotion`'s cores, traits' required `strength` — because
