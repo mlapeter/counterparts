@@ -1908,3 +1908,28 @@ export function factsDropped(read: { readonly dropped: readonly { readonly field
   // #818): nothing was lost, and `facts.dropped`'s own note says where it went.
   return read.dropped.filter((d) => d.field !== "eventDate").map((d) => ({ field: d.field, reason: "unreadable", note: d.note }));
 }
+
+/**
+ * `memories` as sent, read as a list where it plainly is one (review of #818):
+ * one object is a list of one; a JSON string of a list is that list; other
+ * non-empty text is one entry. Said in `readAs`. Anything else comes back as
+ * sent, for the caller's own `memories-required`. Read alike by `session_end`
+ * and the write-up door (`write-up.ts#writeUpDoor`).
+ */
+export function readMemoriesList(sent: unknown): { list: unknown; readAs: Record<string, unknown> } {
+  const said = (as: string, from: string): Record<string, unknown> => ({ readAs: [{ field: "memories", sent: from, readAs: as }] });
+  if (sent !== null && typeof sent === "object" && !Array.isArray(sent)) return { list: [sent], readAs: said("a list of one", "(one object)") };
+  if (typeof sent === "string" && sent.trim().length > 0) {
+    const t = sent.trim();
+    if (t.startsWith("[")) {
+      try {
+        const parsed: unknown = JSON.parse(t);
+        if (Array.isArray(parsed)) return { list: parsed, readAs: said("the list it holds", "(a JSON string)") };
+      } catch {
+        /* not JSON: one entry, below */
+      }
+    }
+    return { list: [sent], readAs: said("a list of one", "(text)") };
+  }
+  return { list: sent, readAs: {} };
+}

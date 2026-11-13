@@ -30,6 +30,7 @@ import {
   isKind,
   normalizeMemoryFields,
   readAboutLoose,
+  readMemoriesList,
   readFeelingsLoose,
   readReminderLoose,
   readTraitsLoose,
@@ -227,25 +228,6 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
   );
   server["noteWrite"]("session_end", answer, notes, outcomes);
   return answer;
-}
-
-/** `memories` as sent, read as a list where it plainly is one (see the call site). */
-export function readMemoriesList(sent: unknown): { list: unknown; readAs: Record<string, unknown> } {
-  const said = (as: string, from: string): Record<string, unknown> => ({ readAs: [{ field: "memories", sent: from, readAs: as }] });
-  if (sent !== null && typeof sent === "object" && !Array.isArray(sent)) return { list: [sent], readAs: said("a list of one", "(one object)") };
-  if (typeof sent === "string" && sent.trim().length > 0) {
-    const t = sent.trim();
-    if (t.startsWith("[")) {
-      try {
-        const parsed: unknown = JSON.parse(t);
-        if (Array.isArray(parsed)) return { list: parsed, readAs: said("the list it holds", "(a JSON string)") };
-      } catch {
-        /* not JSON: one entry, below */
-      }
-    }
-    return { list: [sent], readAs: said("a list of one", "(text)") };
-  }
-  return { list: sent, readAs: {} };
 }
 
 /** One flat count per refusal code (`refused.<code>`), for the log line: its values are scalars only. */
