@@ -291,7 +291,7 @@ export const DURABLE_EVENTS = {
   "mcp.recall": "the session went looking for a memory on purpose (what kind of ask, how much came back, and every verdict that kept something out)",
   "mcp.part": "a later part of a dream's or a reflection's bundle was handed over (which part of how many, and its size)",
   "mcp.result.oversize": "a tool result came to more than the host shows in one answer, and was cut to fit with a note saying so",
-  "mcp.write": "a remember or session_end call did not land whole: which entries were refused and why, which optional fields were dropped (the memory kept), and the feeling words nothing could place",
+  "mcp.write": "a remember or session_end call refused an entry or dropped a field: which entries and why, which optional fields (the memory kept), and the feeling words nothing could place",
   "mcp.result.spilled": "the host showed one of the nightly run's tool results only as a short preview, so the run read part of it (found in the run's own transcript)",
   // What a delivery could not carry (durable since 2026-10-02; ring-only
   // before, so a dropped notice or a hook past the host's cap left nothing).

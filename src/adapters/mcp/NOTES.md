@@ -2133,46 +2133,81 @@ numbers of every stored `other` row, so it would have moved old rows' defaults.
 
 **Placement, and the embedder's bar.** The thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`, 563 words,
 40+ per core) decides a CORE, never a word: the writer's word is stored as `other` +
-`other_word`. Order: wheel and aliases; thesaurus; an inflection by `stemTerm` (meeting only a
-participle or a core: "closed" is not "close"); a misspelling with the same first letter (6-7
-letters: only a swap or a doubled letter; one edit from 8; two from 10), because a real word one
-free edit from a feeling word is common ("better"/"bitter", "wired"/"tired", "yucky"/"lucky",
-caught in review and now pinned by a must-not-place test); then the embedder. Every
-step past the thesaurus answers only when all its best candidates agree on the core; a
-negation ("not happy") or a negating prefix of a known word ("unhappy", "uncaring") is never
-placed past the thesaurus. The embedder's bar was measured on potion-base-8M by holding each
-thesaurus word out of its core's centroid: at cosine ≥ 0.60 with a margin ≥ 0.15 it placed 25
-of 563 held-out words, all right, and none of 50 non-feeling words or negations; every looser
-bar let a wrong core through ("unhappy" → angry at 0.65 / 0.14, "not happy" → happy at 0.59).
-So the step is rare on purpose. Unplaced words are counted on the `mcp.write` row; grow the
-thesaurus from them, not the bar.
+`other_word`. Order: wheel and aliases; thesaurus; an "-ing" form of a WHEEL participle or a
+core, with a stem of five letters or more ("worrying", "relieving", "calming"; not "moving",
+"chilling", "concerning"); a misspelling by a typo's shape only, the first letter kept (two
+letters swapped, one doubled or undoubled; from 9 letters one dropped or added inside the
+word; from 10 two such slips), never a substitution; then the embedder. Every step past the
+thesaurus answers only when all its best candidates agree on the core; a negation ("not
+happy") or a negating prefix of a known word ("unhappy", "uncaring") is never placed past the
+thesaurus.
+
+*The dictionary run (review of #818).* `/usr/share/dict/words` (about 209k lower-case words)
+through the placement: the first cut placed 781 real words by spelling and 404 by stem
+("affliction" → warm, "homeless" → sad, "graceful" → warm, "wrong" → angry). After the
+typo-shape rule, the wheel-only "-ing" rule and `NOT_SLIPS` (ordinary words the run found one
+slip from a feeling word: "sacred", "scarred", "insulated", "thrusting", …): 11 by spelling,
+all rare dictionary words read as their plain slip ("vindicative" → vindictive, "clamer" →
+calmer), and 41 by stem, all "-ing" forms of a wheel participle ("annoying", "terrifying";
+the shakiest "engaging", "respecting", "warming"). Rerun it when the wheel or the thesaurus
+grows; add what it finds to `NOT_SLIPS`.
+
+The embedder's bar was measured on potion-base-8M by holding each thesaurus word out of its
+core's centroid: at cosine ≥ 0.60 with a margin ≥ 0.15 it placed 25 of 563 held-out words,
+all right, and none of 50 non-feeling words or negations; every looser bar let a wrong core
+through ("unhappy" → angry at 0.65 / 0.14, "not happy" → happy at 0.59). So the step is rare
+on purpose. Unplaced words are counted on the `mcp.write` row; grow the thesaurus from them,
+not the bar.
+
+*Owner's rulings, 2026-11-13 (lightly held).* Pure-energy words (tired, exhausted, drained,
+weary, worn out, fatigued, burned/burnt out, spent, listless, sleepy) are not in the thesaurus
+and the wheel names none of them, so they go unplaced, dropped and counted. focused and
+determined → happy, alert → curious, corrected → uneasy stand. Crisis words are placed so the
+feeling that matters most is never the one dropped: suicidal, abused → sad (beside despair
+and victimized); traumatized, triggered, unsafe → uneasy (beside afraid and shocked); harassed
+→ angry (beside threatened and violated); hopeless was already sad. terrible, horrible,
+hurting → sad; awful is the wheel's (angry). fine, okay, busy, bad stay unplaced. The core
+emotions may need adjusting or adding to later (Mike, 2026-11-13); the unplaced-word log is
+the evidence to decide from.
 
 **Dates in words.** `core/time.ts#readLooseDate`, self-contained (it does not import
 `recall/time-ask.ts`), reads one field's whole value, anchored. `eventDate` leans ahead ("Oct
 15" is the next one; a bare "Friday" is today or the next), `occurredOn` back. "next Friday" is
-the first Friday after today, whatever the lean: early is seen, late is missed. A done
-memory's `eventDate` (no `updates`) leans back, so "yesterday" there becomes when it happened
-by the existing done-date rule. Every answer is held to `parseCalendarDate`.
+the first Friday after today, whatever the lean: early is seen, late is missed. A day word is
+read whole first ("this morning", "last night"), then without a time after it ("friday at
+3pm", "monday morning"). "end of the week" on a weekend, leaning ahead, is the coming Friday.
+An instant ("2026-11-14T03:00Z") is its day in the store's zone. A day that does not exist
+("the 31st" in November, "Feb 29" in 2027) and anything past 10 years ahead or 100 back ("in
+999 years") are not read: dropped and said. A done memory's `eventDate` (no `updates`) leans
+back, so "yesterday" there becomes when it happened by the existing done-date rule, and that
+move is not a drop (only `facts.dropped` says it). Every answer is held to `parseCalendarDate`.
 
 **Defaults chosen.** A trait sent as a pole word has no strength; it takes
 `DEFAULT_TRAIT_STRENGTH` (0.5, middling). A feeling with no `whose` is self's. A `whose` that is
-neither (e.g. "both") drops that feeling rather than guess. Numbers out of range are clamped
-and said (`readAs`), not dropped: the writer's intent ("very high") is closer to 1 than to
-nothing. One object where `feelings`, `traits` or `feelingsNow` takes a list is that one item.
+neither self nor the owner's words ("owner", "user", "the user") — "her", "him", "they", a
+name, "both" — drops that feeling rather than guess: it may be a third person, and the
+memory's text carries it. `saidBy` "they" or "person" is dropped the same way; `about`
+"them" stays owner (the field's own words are "them as a person"), "him", "her", "they" are
+dropped. A 0-1 number out of range is never clamped (review of #818: salience 7 clamped to 1
+fed ranking at its maximum): 1 < n ≤ 10 is read as n/10, 10 < n ≤ 100 as n/100, and said;
+anything else, or a negative, is dropped and said. One object where `feelings`, `traits`,
+`feelingsNow` or `memories` takes a list is that one item; `memories` as a JSON string of a
+list is that list, as plain text one entry; `text` or `content` as a list of strings is its
+lines, joined. "self: happy, sad" is two feelings; "Note:" or "Feeling:" before a feeling is a
+label, not a whose. Every drop carries a `note` saying what to send instead.
 
 **Where the refusal reasons land (PR 0).** `emit` goes to the in-memory ring and, through
 `onEvent`, to the MCP process's 7-day log (`sessions/log/<day>.log`, `adapters/log`), not the
 store. The `mcp.session_end` line now carries one flat count per refusal code
 (`refused.<code>`; the log writes maps as their size, so flat keys) and the drop count; the
 new durable `mcp.write` row (the `events` table, a telemetry write that never fails the call)
-carries the reasons, the drops by field and code, the readAs count and the unplaced words,
-only for a write that did not land whole (a write-up's entries included). `remember`'s own
-refusals were and still are `mcp.refused` log lines; they now reach `mcp.write` too. An
-unplaced feeling is logged as its word only when it is one or two short words; anything longer
-is logged as `(phrase)`, since a long value can be a sentence of the memory.
-
-**Not built.** `memories` sent as something other than a list (one object, a JSON string) is
-still refused `memories-required`; it was outside the design's list of refusal sites.
+carries the reasons, the drops by field and code (read off each answer's own `dropped`, so
+remember and session_end count alike), the readAs count and the unplaced words. It is written
+only when an entry was refused or a field dropped (a write-up's entries included), never for
+values only read as something else. `remember`'s own refusals were and still are `mcp.refused`
+log lines; they now reach `mcp.write` too. An unplaced feeling is logged as its word only when
+it is one plain lower-case word of at most 20 letters; anything else is `(phrase)`, since it
+can be a person's words ("owner: sarah's biopsy").
 
 **No new files, on purpose.** The first cut added four (`core/loose-date.ts`,
 `core/feelings-thesaurus.ts`, `core/feelings-place.ts`, `server-normalize.ts`) and took the
@@ -2181,6 +2216,9 @@ the date reader lives in `core/time.ts` (the one module that converts dates, whi
 hand-built-date scan also wants), the thesaurus beside the wheel in `core/feelings-wheel.ts`,
 and the placement and the cleaning in `server-args.ts` beside the readers they feed.
 
-**Left for PR 2.** `tools.ts` still says what is no longer true — "an unreadable one is
-refused" on `eventDate`, `feelings[].emotion`'s cores, traits' required `strength` — because
-another PR is editing that file; the trim PR rewrites them.
+**Left for PR 2.** `tools.ts` still says what is no longer true, because another PR is editing
+that file; the trim PR rewrites them: the `eventDate` claim row ("an unreadable one is refused
+by name") and field text; the dimensions claim ("stored exactly as you gave them"); `feelings[]`
+`whose` listed as required and `emotion`'s "ONE word … from the wheel" with its cores; the
+`memories` item schema allowing only objects; traits `required: ["axis","toward","strength"]`;
+the feelingsNow "one object each" wording.

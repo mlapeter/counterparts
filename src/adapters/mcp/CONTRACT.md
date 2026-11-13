@@ -160,9 +160,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
    and per session-end entry; one in range reaches the row exactly as written, and `novelty`
    remains unclaimable — prediction error is measured, never asserted. Since 2026-11-13
    (the write tools fail open, §6d″) a dimension, like every optional field, is **dropped
-   and said, never refused by name**: a number sent as text is read, one out of range is
-   clamped to 0-1 and echoed in `readAs`, and one that is no number is dropped and named in
-   `dropped` — the memory kept either way. (It was refused by name before, on the ground
+   and said, never refused by name**: a number sent as text is read; one out of range is
+   never clamped — read on a 0-10 or 0-100 scale (7 as 0.7, 70 as 0.7) and echoed in
+   `readAs`, or, negative or past 100, dropped and named in `dropped` along with one that is
+   no number — the memory kept either way. (It was refused by name before, on the ground
    that a dimension quietly vanishing is worse than one never offered; it is not quiet now,
    and the refusal cost the memory.)
 
@@ -599,17 +600,25 @@ field never costs the memory. **[M]** Each `remember` call and each `session_end
 - **Kept always:** the content. The content-level refusals stand: no text, the stub floor,
   a duplicate, a credential alone, a size limit.
 - **Read and said** (`readAs: [{field, sent, readAs}]`): enum synonyms for kind, how, remind,
-  recurring, about, saidBy and status; `text` and `content` as one field; numbers sent as
-  text; numbers out of range, clamped; `eventDate` and `occurredOn` written as words
-  ("next Friday", "Oct 15", "late October", "in two weeks", "yesterday"), read by
-  `core/time.ts#readLooseDate` against the server's day in the store's zone, the field's whole value
-  only (never a date out of the memory's text); `remove` given as an id; trait pole words
-  ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self: relieved
-  — the test passed"; whose defaults to self) or one string where the list goes; a session_end
-  entry sent as a string, as that memory.
+  recurring, about, saidBy and status — only words that mean the owner in this tool's
+  vocabulary read as owner ("user", "the user", and "them" for `about`), never a third
+  person ("her", "him", "they", a name: dropped); `text` and `content` as one field, a list
+  of strings joined as lines; numbers sent as text; a 0-1 number sent out of 10 or 100,
+  read on that scale (never clamped); `eventDate` and `occurredOn` written as words ("next
+  Friday", "Oct 15", "late October", "in two weeks", "yesterday", "this morning", "friday
+  at 3pm"), or as an instant, read by `core/time.ts#readLooseDate` against the server's day
+  in the store's zone, the field's whole value only (never a date out of the memory's
+  text), no further than 10 years ahead or 100 back; `remove` given as an id; trait pole
+  words ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self:
+  relieved — the test passed"; whose defaults to self; "happy, sad" is two) or one string
+  where the list goes; a session_end entry sent as a string, and `memories` sent as one
+  object, a JSON string of a list or a string.
 - **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
-  order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an inflection or a misspelling of a
-  wheel or thesaurus word (`server-args.ts#placeFeelingWord`), or the embedder when one is live and
+  order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an "-ing" form of a
+  wheel participle or a core, a typo-shaped misspelling of a wheel or thesaurus word (two
+  letters swapped, one doubled or undoubled, and from 9 letters one dropped or added inside
+  the word; never a substitution; ordinary words found one slip away listed in
+  `NOT_SLIPS`) (`server-args.ts#placeFeelingWord`), or the embedder when one is live and
   sure (cosine ≥ 0.60 to a core's centroid and 0.15 ahead of the runner-up). The writer's
   word is kept as theirs (`other` + `other_word`). Never a guessed core.
 - **Dropped and said** (`dropped: [{field, reason, sent?, note?}]`): whatever still cannot
@@ -618,10 +627,15 @@ field never costs the memory. **[M]** Each `remember` call and each `session_end
   `settle`, `feelingsNow`) sent beside text (the text stored; alone, it is still refused by
   name, there being nothing to keep). On claude.ai, `remove` beside text deletes nothing and
   keeps the text.
-- **Counted:** a write that did not land whole leaves one durable `mcp.write` row (entries
-  refused by reason code, fields dropped by field and code, how many read as something else,
-  and the feeling words nothing placed); the `mcp.session_end` log line carries one count
-  per refusal code. Codes, counts and those words only.
+  Every drop carries a `note` saying what to send instead. A done memory's passed
+  `eventDate` kept as `occurredOn` is not a drop: only `facts.dropped` says it.
+- **Counted:** a remember or session_end call in which something was refused or dropped
+  leaves one durable `mcp.write` row: entries refused by reason code, fields dropped by field
+  and code (read off each answer's own `dropped`, the same way for both tools), how many
+  values were read as something else, and the feeling words nothing placed — each one plain
+  lower-case word of at most 20 letters, else `(phrase)`. A call whose values were only read
+  as something else leaves no row. The `mcp.session_end` log line carries one count per
+  refusal code. Codes, counts and those words only.
 `remember/intake` stays strict; the cleaning only ever hands it what it takes.
 
 ## 6d'. Tags (2026-10-21, schema v14, wave 2 lane B)
