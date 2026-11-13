@@ -662,6 +662,20 @@ describe("review of #818", () => {
     expect(json["deposited"]).toBe(2);
     const text = body(await s.call("session_end", { session: SESSION, memories: "The well pump was serviced and the pressure holds at forty." }));
     expect(text["deposited"]).toBe(1);
+    const object = body(await s.call("session_end", { session: SESSION, memories: JSON.stringify({ content: "The barn roof's east panel rattles in any wind over twenty." }) }));
+    expect(object["deposited"]).toBe(1);
+    expect(object["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string of one object)", readAs: "a list of one" }]);
+    // JSON-shaped text that does not parse is refused whole, nothing kept, and
+    // the handoff sent beside it still lands and rides out (review of #821).
+    const two = `[${JSON.stringify({ content: "The orchard gate latch sticks after rain." })},${JSON.stringify({ content: "The compost bin by the shed needs turning weekly." })}`;
+    const before = s.counterpart.store.countMemories();
+    for (const junk of [`${two},]`, two.slice(0, 50), `{"content": "The orchard gate latch sticks",`]) {
+      const out = body(await s.call("session_end", { session: SESSION, memories: junk, handoff: "Gate latch and compost: next up." }));
+      expect({ junk, reason: out["reason"] }).toEqual({ junk, reason: "memories-required" });
+      expect((out["handoff"] as Record<string, unknown>)["written"]).toBe(true);
+    }
+    // One row more: the handoff's own (one live row per directory), no memory.
+    expect(s.counterpart.store.countMemories()).toBe(before + 1);
     const lines = body(await s.call("remember", { text: ["The hives were checked today.", "Two queens were spotted, both laying."] }));
     expect(lines["stored"]).toBe(true);
     expect(s.counterpart.store.readProse(lines["id"] as string).body).toContain("Two queens were spotted");

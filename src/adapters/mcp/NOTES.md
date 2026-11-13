@@ -2198,7 +2198,13 @@ anything else, or a negative, is dropped and said. One object where `feelings`, 
 list is that list, as plain text one entry — on a write-up's answer too (review of #818:
 the door kept refusing them `memories-required`; it now reads them through the same
 `server-args.ts#readMemoriesList`, after which the FETCH rule applies, so `"[]"` before any
-fetch is a fetch); `text` or `content` as a list of strings is its
+fetch is a fetch, and after a fetch the real empty answer, as `[]` is). A JSON string of one
+object is that object. Text that starts like JSON and does not parse (a trailing comma, a list
+cut off) is NOT one entry (review of #821): kept, it was a memory of raw JSON, and on the
+write-up door it closed the part so the host could not resend. It is `memories-required`,
+the path a `memories: 42` already took: the handoff (and `drewOn`, `rated`) still land and
+ride out on the refusal, nothing else is kept, and the call can be sent again. `text` or
+`content` as a list of strings is its
 lines, joined. "self: happy, sad" is two feelings; "Note:" or "Feeling:" before a feeling is a
 label, not a whose. Every drop carries a `note` saying what to send instead.
 

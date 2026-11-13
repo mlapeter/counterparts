@@ -630,6 +630,31 @@ describe("the door: `session_end` with `writeUp`", () => {
     }
   });
 
+  test("JSON-shaped text that does not parse is refused and the part stays open; a JSON string of one object is that object (review of #821)", async () => {
+    seeded();
+    const { s, fetched } = await pointAndFetch("new-1");
+    expect(fetched["reason"]).toBe("part");
+    const two = `[${JSON.stringify(MEMORY)},${JSON.stringify({ content: "The pump's intake screen clogs with leaves every autumn.", kind: "fact" })}`;
+    for (const junk of [`${two},]`, two.slice(0, 60), `{"content": "The relief valve is seated first",`]) {
+      const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: junk }));
+      expect({ junk, reason: out["reason"] }).toEqual({ junk, reason: "memories-required" });
+    }
+    // Nothing was kept and the part is still open: the real answer lands.
+    expect(s.counterpart.spans.writeUps(PROJ)).toEqual([]);
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: JSON.stringify(MEMORY) }));
+    expect(out).toMatchObject({ reason: "written-up", deposited: 1, marked: true });
+    expect(out["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string of one object)", readAs: "a list of one" }]);
+  });
+
+  test("\"[]\" AFTER a fetch is the real empty answer, as [] is", async () => {
+    seeded();
+    const { s, fetched } = await pointAndFetch("new-1");
+    expect(fetched["reason"]).toBe("part");
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", memories: "[]" }));
+    expect(out).toMatchObject({ reason: "written-up", deposited: 0, marked: true });
+    expect(out["readAs"]).toEqual([{ field: "memories", sent: "(a JSON string)", readAs: "the list it holds" }]);
+  });
+
   test("a JSON string of an empty list before any fetch is still the fetch (m2)", async () => {
     seeded();
     expect(start("new-1").ask ?? "").toContain("writeUp: old-1");

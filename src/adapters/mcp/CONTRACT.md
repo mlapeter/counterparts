@@ -615,8 +615,10 @@ field never costs the memory. **[M]** Each `remember` call and each `session_end
   words ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self:
   relieved — the test passed"; whose defaults to self; "happy, sad" is two) or one string
   where the list goes; a session_end entry sent as a string, and `memories` sent as one
-  object, a JSON string of a list or a string — on an ordinary `session_end` and a
-  write-up's answer alike.
+  object, a JSON string of a list or of one object, or a string — on an ordinary
+  `session_end` and a write-up's answer alike. Text that starts like JSON (`[` or `{`) and
+  does not parse as a list or an object is not read: `memories-required`, nothing kept, a
+  write-up's part left open, and a handoff sent beside it still lands.
 - **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
   order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an "-ing" form of a
   wheel participle or a core, a typo-shaped misspelling of a wheel or thesaurus word (two
