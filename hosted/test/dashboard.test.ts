@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
-import { DASHBOARD_CSP } from "../src/dashboard.js";
+import { DASHBOARD_CSP, MAX_VIEWS_IN_FLIGHT } from "../src/dashboard.js";
 import { memoryMailer } from "../src/egress.js";
 import { tenantDir } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
@@ -345,6 +345,14 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
 
   test("one session can't stall the process: past two views in flight it is a 429, and /healthz keeps answering", async () => {
     const r = await rig();
+    // This test's own client shares the server's event loop, and the seed below
+    // is one long turn (5-6 s on CI). Past the server's 5 s keep-alive, Node's
+    // fetch sent the next request on the socket the server was closing in the
+    // same instant: `fetch failed`, read ECONNRESET (CI Node 24, 11-10 and
+    // 11-12; reproduced on a laptop with a ~6 s seed). The shared loop is why
+    // the test needs the longer keep-alive; whether production sees such a
+    // race is a separate question.
+    r.app.server.keepAliveTimeout = 120_000;
     const me = await signUp(r, "busy@example.com");
     // A store big enough that one /api/memories is real work (#801 review: 3,000 held /healthz ~10 s before the cap).
     await r.app.tenants.withTenant(me.storeId, {}, (t, server) =>
@@ -360,6 +368,23 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     assert.equal((await me.browser.go("/dashboard/api/memories")).status, 200);
     const single = Date.now() - one;
 
+    // Count this person's views running or waiting, at the one place a view
+    // enters (the route calls `withTenant` only past the cap), and keep the peak.
+    const tenants = r.app.tenants;
+    const realWithTenant = tenants.withTenant.bind(tenants);
+    let views = 0;
+    let peak = 0;
+    tenants.withTenant = async (storeId, opts, fn) => {
+      if (storeId !== me.storeId) return realWithTenant(storeId, opts, fn);
+      views += 1;
+      peak = Math.max(peak, views);
+      try {
+        return await realWithTenant(storeId, opts, fn);
+      } finally {
+        views -= 1;
+      }
+    };
+
     const N = 60;
     const health: number[] = [];
     let flooding = true;
@@ -374,7 +399,12 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     const t0 = Date.now();
     // The flood comes from ANOTHER process, as it would in production: a client
     // in this one shares the server's event loop, and its requests then only
-    // trickle in between views (Node's fetch did; bun's didn't).
+    // trickle in between views (Node's fetch did; bun's didn't). Even so, how
+    // many arrive at once varies: bun, and Node 24.22.2 on CI, refuse ~57 of 60;
+    // on one laptop's Node 24.22.1 the server took a first burst and then about
+    // one request per event-loop turn, each turn carrying a whole view, so later
+    // ones found a slot free and were served (8-57 were a 429, run to run). So the test
+    // asserts the cap itself, not a share of refusals.
     const cookie = [...me.browser.jar].map(([k, v]) => `${k}=${v}`).join("; ");
     const client = `const [u, c, n] = process.argv.slice(-3);
 (async () => { const out = await Promise.all(Array.from({ length: Number(n) }, async () => { const r = await fetch(u, { headers: { cookie: c } }); const b = await r.text(); return [r.status, r.status === 429 ? b : ""]; })); process.stdout.write(JSON.stringify(out)); })();`;
@@ -391,9 +421,14 @@ describe("HD2: the dashboard on hosted, through the real door", () => {
     const ok = statuses.filter((s) => s === 200).length;
     const busy = statuses.filter((s) => s === 429).length;
     const worst = Math.max(...health);
-    console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
+    tenants.withTenant = realWithTenant;
+    console.log(`[HD2 flood] one view ${String(single)} ms; ${String(N)} at once: ${String(ok)} × 200, ${String(busy)} × 429 in ${String(flood)} ms; peak ${String(peak)} in flight; /healthz ${String(health.length)} probes, worst ${String(worst)} ms`);
     assert.equal(ok + busy, N);
-    assert.ok(busy >= N - 10, `most of the flood was refused (${String(busy)} of ${String(N)})`);
+    // The cap: never more than two of this person's views at once, and the flood did reach it.
+    assert.equal(MAX_VIEWS_IN_FLIGHT, 2, "the title and the page say two");
+    assert.equal(peak, MAX_VIEWS_IN_FLIGHT, `peak views in flight ${String(peak)}`);
+    assert.equal(views, 0);
+    assert.ok(busy >= 1, "past the cap, a view is a 429");
     assert.ok(ok >= 1);
     // Loose but real: /healthz never waits behind more than a few views.
     assert.ok(worst < Math.max(1500, single * 4), `/healthz waited ${String(worst)} ms`);
