@@ -2234,3 +2234,49 @@ by name") and field text; the dimensions claim ("stored exactly as you gave them
 `whose` listed as required and `emotion`'s "ONE word … from the wheel" with its cores; the
 `memories` item schema allowing only objects; traits `required: ["axis","toward","strength"]`;
 the feelingsNow "one object each" wording.
+
+## 2026-11-13 — the tool text trim (trim PR 2, owner-approved that day)
+
+The design is `~/counterparts-notes/2026-11-13-tool-trim-design.md` §7, checked against what the
+code does after #818 and #821 rather than pasted.
+
+**What a description serves now.** Summary, admission and Do NOTs, every one under 810
+characters, so no client's cut (2,048 or 4,096) touches them. No guarantees list on any host
+but `recall`'s (PR 3 trims recall). The claims moved to `engine` in the source (`privileges: []`
+on every spec but recall), not by a mapping at list time, so `TOOLS` says what it serves.
+
+**What the schema publishes.** A line per field; strings for `feelings` ("self: relieved — what
+carried it"), `feelingsNow` ("<id>: word — what changed") and `traits` ("bold — what showed it",
+on `remember` only). Not published, still read: `relevance`, `emotional`, `predictive`, a
+feeling's `core`/`strength`/`valence`/`beneath`/`other_word`, traits on a `session_end` entry,
+the old object forms. The write tools and their nested objects carry no
+`additionalProperties: false`, so a client that validates cannot reject a shape the server
+takes. The night's own fields (dream `changes` items, reflect `finish` fields, self_page's
+day's-end fields, the tagging child's answers) are typed only: their prompts state each shape
+(`dream/index.ts` begin, `dream/reflect.ts` begin, `self/writer.ts`, `dream/tags.ts#tagsPrompt`),
+which is checked, so nothing that a night writes lost its instructions.
+
+**Claims the fail-open PR made false, fixed.** The `eventDate` row ("an unreadable one is
+refused by name before anything is stored") now says it is dropped and said; the dimensions row
+("stored exactly as you gave them") now says a 0-10 or 0-100 score is read and said; the field
+words no longer say an unreadable date is refused, that `whose`/`emotion` are required, that a
+feeling is ONE word from the wheel with its cores, that traits need axis, toward and strength,
+or that feelingsNow is one object each.
+
+**`unresolved`, narrowed again (the wording half of #819).** True only when something is
+blocked on it: a decision the counterpart needs from the person, a promise, a dated check —
+never curiosity about how something went. The Stop ask's `OPEN_MEANS` says the same in its
+770-character pin ("never curiosity" is the field's alone: no room).
+
+**The words moved, not lost.** The manual's new "Fields" section (`recall "manual fields"`)
+carries the whole salience scale, the date shapes, the `about` rule, the feelings and traits
+forms and the closing rules; `remember`'s admission points at it. The `rated` field is the
+anchors word for word; that a score counts as use is the engine's row and the Stop ask's.
+The Desktop `wake` no longer says "recall alone is a slice" (DESKTOP_INSTRUCTIONS does).
+
+**claude.ai.** `CLAUDE_AI_TRIM` is down to `remember`'s `remove` dropped, the tagging child
+dropped, the chat's `session` on the session-bound tools, and `about`/`handoff` without
+folders. `CLAUDE_AI_WORDS` keeps the chat's summaries where the base names an ask claude.ai
+never makes; `status` keeps "Memory status" first for tool search.
+
+**No new files.** The plugin bundle's margins (core 492 of 490) are unchanged by this PR.

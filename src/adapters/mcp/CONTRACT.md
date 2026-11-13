@@ -223,6 +223,20 @@ actually wrote (chapter), the written self page or the version a write to it pro
    to fit (4,606 → 3,846 characters), the journal claim moved to the engine rows, and
    `test/description-cut.test.ts` holds every flagged tool at 4,096 or under and the key on
    `recall` alone, over the server's own `tools/list`.
+   **And every host serves no claim but `recall`'s (2026-11-13, trim PR 2, owner-approved).**
+   Every other tool's claims — Claude Code's and Desktop's too, and Desktop's `wake` — are
+   its `engine` rows, still mechanized and audited; what one said that changes a call is said
+   on its field, in the result (`dropped`, `readAs`, `neighboursHint`, `reminder`), in the
+   Stop ask, the wake or the night's prompts, or in the manual's "Fields" section (recall
+   "manual fields"). The field words are a line each, and the write tools publish strings
+   for `feelings`, `feelingsNow` and `traits` (traits on `remember` only), no
+   `relevance`/`emotional`/`predictive` and no old feeling-object fields, and no
+   `additionalProperties: false` — every old shape is still read (§6d″). The ten tools on
+   Claude Code went from 90,686 to about 26,300 characters; Desktop's 93,867 to about 27,600;
+   claude.ai's 40,203 to about 26,300, its `CLAUDE_AI_TRIM` retired down to what is false or
+   missing there. `recall` keeps its served claims until trim PR 3. The remember claim the
+   fail-open PR made false is reworded as engine rows: an unreadable `eventDate` is dropped
+   and said, not refused; a dimension on a 0-10 or 0-100 scale is read, not stored as given.
 3. **[M] Every tool carries an admission test and at least one named negative example** in
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero
