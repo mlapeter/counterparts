@@ -205,10 +205,22 @@ describe("numbers on each feeling", () => {
       ["warm", "trusted", 0.5, null],
       ["warm", "moved", 0.4, 0.3],
     ]);
+    // Trim PR 2: the schema no longer lists the cores — feelings are strings, and the server places a
+    // word on one of the seven (the wheel, then the thesaurus, a misspelling, the embedder when sure).
     const text = JSON.stringify(TOOLS.find((t) => t.name === "remember")?.inputSchema);
-    expect(text).toContain(JSON.stringify([...CORE_EMOTIONS]));
     expect(text).not.toContain('"fear"');
     expect(text).not.toContain("sheepish (fear");
+    const placed = (await s.call("remember", {
+      text: "The old dog's last walk round the reservoir, the long way.",
+      feelings: ["owner: heartbroken — the dog's last walk", "self: relieved — it was gentle"],
+    })).structuredContent as Record<string, unknown>;
+    expect(placed["stored"]).toBe(true);
+    const placedRows = s.counterpart.store.feelingsFor(placed["id"] as string);
+    expect(placedRows.map((r) => [r.whose, r.core])).toEqual([
+      ["owner", "sad"],
+      ["self", "calm"],
+    ]);
+    for (const r of placedRows) expect([...CORE_EMOTIONS]).toContain(r.core);
   });
 });
 
