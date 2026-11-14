@@ -1535,10 +1535,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
     const night = dreams.nightRun();
     if (night === null || night.state === "started" || night.state === "could-not-start") return [];
     // A run the host cut is told even when it journaled nothing: the cut may be why.
-    // A catch-up-only night that wrote sessions up hands back its re-check (2026-11-14).
-    if (night.dream === null && night.reflection === null && (night.spills ?? 0) === 0 && !this.caughtUpAny(night.run)) return [];
     // A READ on the per-prompt path once it is handed: nothing is written again.
     if (night.handedAt !== undefined) return [];
+    // A catch-up-only night that wrote sessions up hands back its re-check (2026-11-14).
+    if (night.dream === null && night.reflection === null && (night.spills ?? 0) === 0 && !this.caughtUpAny(night.run)) return [];
     const claimed = dreams.claimNightHandBack(night.run, input.sessionId);
     // Marked whether this prompt won the latch or found it held, so no later
     // prompt tries again (the same run and state: the event latch adds no row).
