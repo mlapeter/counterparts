@@ -113,6 +113,10 @@ export interface AppOptions {
   readonly newStore?: TenantsOptions["newStore"];
   /** `TenantsOptions.nights` (JS1): who runs the night on a chat's wake. Absent: the day's first chat (HN1). */
   readonly nights?: TenantsOptions["nights"];
+  /** `TenantsOptions.shares` (2026-11-13, an experiment): `off` and no store's night offers a morning share. Absent: on. */
+  readonly shares?: TenantsOptions["shares"];
+  /** `TenantsOptions.sharesPerWeek` (2026-11-13): at most this many shares told over the last 7 lived days. Absent: no cap. */
+  readonly sharesPerWeek?: TenantsOptions["sharesPerWeek"];
   /** `TenantsOptions.storeClock`: each store's clock and its server's (tests that move a store across days). Absent: the system clock. Not the accounts' clock (`now`). */
   readonly storeClock?: TenantsOptions["storeClock"];
 }
@@ -306,6 +310,8 @@ export function createApp(opts: AppOptions): App {
     ...(opts.maxOpenStores === undefined ? {} : { maxOpen: opts.maxOpenStores }),
     ...(opts.newStore === undefined ? {} : { newStore: opts.newStore }),
     ...(opts.nights === undefined ? {} : { nights: opts.nights }),
+    ...(opts.shares === undefined ? {} : { shares: opts.shares }),
+    ...(opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: opts.sharesPerWeek }),
     ...(opts.storeClock === undefined ? {} : { storeClock: opts.storeClock }),
     // A store that lived and lost its files waits for a restore rather than
     // starting over (and being replicated over its own backup).

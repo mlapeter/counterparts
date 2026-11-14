@@ -132,6 +132,14 @@ export interface TenantsOptions {
    * Absent: `first-chat`, the day's first claude.ai chat (HN1).
    */
   readonly nights?: "first-chat" | "host";
+  /**
+   * The morning share (2026-11-13, an experiment, lightly held;
+   * `CounterpartOptions.shares` / `sharesPerWeek`): written into each store's
+   * `config.json` for the worker's night and handed to its server. Absent:
+   * on, no cap (claude.ai's).
+   */
+  readonly shares?: "on" | "off";
+  readonly sharesPerWeek?: number;
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -383,6 +391,8 @@ export class Tenants {
       // NO DAILY COPY: Litestream is a hosted store's backup (DESIGN §2.4). A
       // copy here would be unencrypted, outside Litestream, and on this person's quota.
       snapshots: { daily: false },
+      ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
+      ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
     };
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(configPath, 0o600);
@@ -408,6 +418,8 @@ export class Tenants {
       },
       ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
       ...(this.opts.nights === undefined ? {} : { nights: this.opts.nights }),
+      ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
+      ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
       lifecycle: {
         config,
         configPath,
