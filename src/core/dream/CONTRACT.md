@@ -571,6 +571,19 @@ dream having run.
     tool call (2026-11-04, TC1) (Claude Code on a prompt, once the reflecting session ended or went
     quiet; a hookless chat host on its `wake`, where a chat's session, never ended, counts
     ended once it reflected: `sessions.ts#reflectorDone`). A memory promoted on reflection alone is named in the next share.
+    A host may hold it (2026-11-13, an experiment; `CounterpartOptions.shares` /
+    `sharesPerWeek`, the configuration's `shares` / `sharesPerWeek`, hosted's `createApp`):
+    `off` (or a cap of 0), or a cap on shares offered by the reflections dated in the
+    `SHARE_WEEK_DAYS` (7) calendar days ending on this night's date, in the store's zone
+    (told or not yet: an offered share stays deliverable). Held, the entry and everything
+    else are written and nothing is offered (`share: {offered: false, reason: "host-off" |
+    "weekly-cap"}`, `detail.shareHeld`, no retry); a `closeNow` is listed as "may be done"
+    instead of closing unsaid, and no join is proposed. Nothing changes the self unsaid
+    (CONSTITUTION §4, §16): a re-label into me, us or the owner and a core retire are
+    deferred, not applied (`deferred-share-held`, `detail.deferred`), and stay to be asked
+    again; a keep stands. A share this reflection already offered is not withdrawn. Off,
+    no share offered earlier is delivered (`pendingShare`, `carryLine` return nothing); a
+    cap still lets an older one through. Absent: on, no cap.
   - **Feelings** are the self's, recorded later (`source: reflection`, `recorded_later`
     = today), and may be stronger than anything felt at the time (at most 5) — on a
     lived memory only: not on a dream's gist or a reflection's own entry (review of #256).

@@ -48,7 +48,7 @@ import {
   scopesPath,
   stanceOfMode,
 } from "../../scopes.js";
-import { loadConfig, withEmbedderDefault } from "../../config.js";
+import { loadConfig, shareOptions, withEmbedderDefault } from "../../config.js";
 import type { AdapterConfig } from "../../config.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 import type { LiveEmbedder } from "../../claude-code/embed-client.js";
@@ -516,6 +516,8 @@ async function main(): Promise<void> {
     ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
     ...(timeZone === undefined ? {} : { timeZone }),
     ...(pageWriterMode === undefined ? {} : { pageWriterMode }),
+    // The host's morning-share setting (2026-11-13): the night's reflection finishes here.
+    ...shareOptions(config),
     lifecycle: {
       config,
       configPath: choice.path,

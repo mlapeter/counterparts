@@ -105,7 +105,7 @@ import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { installedVersion } from "../sessions.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
-import { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, TUNABLES, nightDebugDir } from "../config.js";
+import { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, TUNABLES, nightDebugDir, shareOptions } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { awakeMeter } from "./awake.js";
 import type { AwakeMeter } from "./awake.js";
@@ -1659,6 +1659,7 @@ export function openNightCounterpart(config: AdapterConfig, onEvent?: (e: Counte
     ...(config.injectionBudgetBytes === undefined ? {} : { budgetBytes: config.injectionBudgetBytes }),
     ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
     ...(config.pageWriter?.mode === undefined ? {} : { pageWriterMode: config.pageWriter.mode }),
+    ...shareOptions(config),
     ...(config.identity === undefined ? {} : { identity: { name: config.identity.name, aliases: [...(config.identity.aliases ?? [])] } }),
     build: installedVersion(),
     // The headless night runs on the person's computer (EX1).
