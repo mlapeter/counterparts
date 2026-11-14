@@ -446,16 +446,17 @@ export function nightOrder(): NightPart[] {
   return parts;
 }
 
-/** Tonight's run in a few words, in its order: "updates your self page, then dreams, then reflects". */
 /**
  * WHILE THE NIGHT RUNS (2026-11-14, fable-continuity's $12 miss): the run
- * writes up yesterday's unwritten sessions first, so until it hands back, what
- * was said in them is in neither the wake nor recall. The session is told once,
- * at launch, not to fill that gap from a guess.
+ * writes up earlier sessions not yet written up first, so until it finishes,
+ * what was said in them may be missing from the wake and from recall (what was
+ * saved in the moment, chapters and journal rows are there). The session is
+ * told at the start not to fill that gap from a guess.
  */
 export const NIGHT_GAP_LINE =
-  "Until it hands back, sessions that ended before they were written up may be missing from your wake and from recall: if a question turns on what was said in one, say you may not have it yet rather than fill the gap, and check again once the run is done.";
+  "Until the run finishes, earlier sessions not yet written into memory may be missing from your wake and recall: if a question turns on one, say you may not have it yet rather than guess.";
 
+/** Tonight's run in a few words, in its order: "updates your self page, then dreams, then reflects". */
 export function nightSummary(): string {
   const words: Record<NightPart, string> = { writer: "closes the day", dream: "dreams", reflection: "reflects" };
   return nightOrder()

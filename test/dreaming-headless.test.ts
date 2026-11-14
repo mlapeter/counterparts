@@ -926,7 +926,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     expect(turn.dream?.offer).toBeNull();
     expect(turn.injection).toContain("there is nothing for you to launch");
     // The gap (2026-11-14): until it hands back, unwritten sessions are in neither the wake nor recall.
-    expect(turn.injection).toContain("say you may not have it yet rather than fill the gap");
+    expect(turn.injection).toContain("say you may not have it yet rather than guess");
     // Neutral about the terminal: the envelope may have had no room (review finding 6).
     expect(turn.injection).not.toContain("Shown to Mike just now");
     // The session says it once, in its first reply (lane 8, build 4); the terminal line is the extra.
@@ -1068,7 +1068,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     const next = a.userPromptSubmit(input({ prompt: "back again" }));
     expect(next.injection).toContain("the nightly run caught up on sessions that had ended before they were written up — caught up 3 of 4 sessions (40 parts written); 1 session still owed, 6 parts.");
     // The re-check (2026-11-14, the $12 miss): what was answered before the run finished is recalled again.
-    expect(next.injection).toContain("Anything you answered earlier today that turned on those sessions was answered without them: recall it now");
+    expect(next.injection).toContain("if something you said earlier in this conversation turned on those sessions, recall that topic now");
   });
 
   test("a partial run's hand-back says it was partial; the reflection-alone run after it hands back no second dream line (review finding 5)", () => {
