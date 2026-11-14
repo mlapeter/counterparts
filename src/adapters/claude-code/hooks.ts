@@ -1546,7 +1546,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
     try {
       const cu = catchUpOf(this.counterpart.store, night.run);
       if (cu !== null && cu.granted > 0) {
-        out.push(`Counterparts: before it dreamed, the nightly run caught up on sessions that had ended before they were written up — ${catchUpWords(cu)}. Nothing to do; mention it only if asked.`);
+        out.push(`Counterparts: before it dreamed, the nightly run caught up on sessions that had ended before they were written up — ${catchUpWords(cu)}. Mention it only if asked. ${cu.written > 0 ? "Anything you answered earlier today that turned on those sessions was answered without them: recall it now, and if what you said was off, say so plainly." : ""}`.trimEnd());
       }
     } catch {
       /* the line is a courtesy */
