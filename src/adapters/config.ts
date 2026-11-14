@@ -410,6 +410,17 @@ export interface AdapterConfig {
    */
   readonly updateCheck?: false;
   /**
+   * THE MORNING SHARE, as the host wants it (2026-11-13, an experiment,
+   * lightly held; `CounterpartOptions.shares` / `sharesPerWeek`): `"shares":
+   * "off"` and the night's reflection offers no share; `"sharesPerWeek": n`
+   * caps the shares offered over the last 7 calendar days (0 is off). A product on hosted sets
+   * them through `createApp`, which writes them here for the worker's night.
+   * Read leniently and quietly: only `"off"`/`"on"` and a number of zero or
+   * more are read; anything else is ignored. Absent: on, no cap.
+   */
+  readonly shares?: "on" | "off";
+  readonly sharesPerWeek?: number;
+  /**
    * SETTINGS THIS BUILD NO LONGER READS, phrased for a person — e.g.
    * `"credentialsFile" is no longer used …`. Present only when the file named
    * one. A REPORT, not a stance: the setting was ignored and nothing else
@@ -476,6 +487,8 @@ export function loadConfig(raw: unknown): LoadedConfig {
     retention?: { afterWriteUpDays?: number; maxDays?: number; ignored?: string[] };
     debug?: { nightTranscripts?: boolean };
     updateCheck?: false;
+    shares?: "on" | "off";
+    sharesPerWeek?: number;
     retired?: string[];
     timeZone?: string;
     timeZoneUnknown?: string;
@@ -670,6 +683,11 @@ export function loadConfig(raw: unknown): LoadedConfig {
   ) {
     out.updateCheck = false;
   }
+  // THE MORNING SHARE (2026-11-13): lenient and quiet, like the update check.
+  const shares = rec["shares"];
+  if (shares === "off" || shares === "on") out.shares = shares;
+  const sharesPerWeek = rec["sharesPerWeek"];
+  if (typeof sharesPerWeek === "number" && Number.isFinite(sharesPerWeek) && sharesPerWeek >= 0) out.sharesPerWeek = Math.floor(sharesPerWeek);
   const identity = rec["identity"];
   if (identity !== undefined) {
     const i = identity as Record<string, unknown>;
@@ -1000,6 +1018,14 @@ function readSnapshots(raw: unknown): {
 export function pageWriterMode(config: AdapterConfig): PageWriterMode {
   if (config.observer === true) return "off";
   return config.pageWriter?.mode ?? "session";
+}
+
+/** The configuration's morning-share setting (2026-11-13), as `Counterpart.open` and `openServer` take it: only what the file set. */
+export function shareOptions(config: AdapterConfig): { shares?: "on" | "off"; sharesPerWeek?: number } {
+  return {
+    ...(config.shares === undefined ? {} : { shares: config.shares }),
+    ...(config.sharesPerWeek === undefined ? {} : { sharesPerWeek: config.sharesPerWeek }),
+  };
 }
 
 /**

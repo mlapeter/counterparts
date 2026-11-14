@@ -16,6 +16,7 @@
  * runs); no network, backups off; every word is invented.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
@@ -220,5 +221,37 @@ describe("who runs the night, and how a new store starts (JS1)", () => {
     const before = await day();
     r.storeClock.at += 2 * 24 * 60 * 60 * 1000;
     assert.equal(await day(), addDays(before, 2));
+  });
+});
+
+describe("the morning share, as the product wants it (2026-11-13)", () => {
+  test("shares and sharesPerWeek reach the store's config.json (the worker's night) and its own server: a reflection there offers no share", async () => {
+    const r = await rig({ nights: "host", shares: "off", sharesPerWeek: 2 });
+    const signed = r.app.accounts.signUpWithIdentity({ kind: "apple", value: "invented-shares" });
+    const storeId = signed.storeId!;
+    await owed(r.app, storeId);
+    const config = JSON.parse(readFileSync(join(tmp.root, "data", "tenants", storeId, "config.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(config["shares"], "off");
+    assert.equal(config["sharesPerWeek"], 2);
+
+    const wake = await call(r.app, storeId, "wake", {});
+    const session = String(wake.out["session"]);
+    const begun = await call(r.app, storeId, "reflect", { phase: "begin", session });
+    assert.equal(begun.isError, false, begun.text);
+    const reflection = String(begun.out["reflection"]);
+    const done = await call(r.app, storeId, "reflect", { phase: "finish", session, reflection, entry: "A short look back at the garden.", cites: ["m1"], share: { text: "The cold frame lid keeps sticking.", cites: ["m1"] } });
+    assert.equal(done.isError, false, done.text);
+    assert.deepEqual((done.out["share"] as Record<string, unknown>)["reason"], "host-off");
+    const state = await r.app.tenants.withTenant(storeId, {}, async (_t, s) => s.counterpart.store.reflection(reflection)?.share_state);
+    assert.equal(state, "none");
+  });
+
+  test("absent: nothing written to config.json, and the store's config reads as on", async () => {
+    const r = await rig({});
+    const signed = r.app.accounts.signUpWithIdentity({ kind: "apple", value: "invented-shares-default" });
+    await r.app.tenants.withTenant(signed.storeId!, {}, async () => undefined);
+    const config = JSON.parse(readFileSync(join(tmp.root, "data", "tenants", signed.storeId!, "config.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(config["shares"], undefined);
+    assert.equal(config["sharesPerWeek"], undefined);
   });
 });

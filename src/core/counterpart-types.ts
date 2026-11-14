@@ -347,6 +347,22 @@ export interface CounterpartOptions extends Stance {
    */
   pageWriterMode?: PageWriterMode;
   /**
+   * THE MORNING SHARE, as the host wants it (2026-11-13, an experiment,
+   * lightly held): `off` and the reflection still writes its entry but offers
+   * no share (`reason: "host-off"`), and a share offered before is not
+   * delivered. Absent or `on`: today's behavior.
+   */
+  shares?: "on" | "off";
+  /**
+   * At most this many morning shares offered a week — by the reflections dated
+   * in the last 7 calendar days, in the store's zone
+   * (`REFLECT_TUNABLES.SHARE_WEEK_DAYS`); past it, none is offered
+   * (`reason: "weekly-cap"`). Every offered share counts, told or not yet.
+   * 0 is the same as `off` (`reason: "host-off"`). Absent, or not a number of
+   * zero or more: no cap.
+   */
+  sharesPerWeek?: number;
+  /**
    * Which surface the door that opens this store serves (EX1, 2026-11-04):
    * `local` from the console, the hooks, the night run and the stdio memory
    * server; `hosted` from hosted's own server. A store whose starter memories

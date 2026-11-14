@@ -1503,3 +1503,40 @@ An experiment, Mike's go, lightly held; check on the live store around 2026-11-1
   (`NIGHT_LOOKBACK_DAYS`). The dream's day summary (`told`, `daySummaryFor`) reads it as before; the summary
   is matched by session first, and the night holds that day through the run. The bundle's heading carries
   the date, so it reads plainly either way.
+
+## 2026-11-13 — a host can hold the morning share (lightly held, an experiment)
+
+- The living journal (a product on hosted's `createApp`) saw a Haiku-run night share 7 times in a month, several
+  intrusive. Mike's ruling (11-13): build a host setting, lightly held. `shares: "off"`, or `sharesPerWeek: n`;
+  absent, today's behavior — the owner's own store shares every night and still does.
+- Decided once per finish, before anything that rides in a share (`Reflections#shareHeld`), and not for a
+  reflection that already offered one. The window is CALENDAR days (the coordinator's ruling in review): the
+  reflections dated in the 7 days ending on this night's date, in the store's zone. First built on lived days, like
+  other windows here, but to a host "per week" is a week, and lived days stand still while the person is away (the
+  reviewer's probe: away 30 days, still held). Counted by the night that wrote the share, not the day it was told.
+  A cap of 0 is the same as off (`host-off`). It counts every
+  share offered in it, told or not yet: first built to count only `told`/`carried`, but an offered share stays
+  deliverable (`pendingShare` finds the newest offered one however old, then the next), so "never told" can't be
+  told apart from "not told yet", and a week nobody woke would have offered every night and delivered the backlog
+  one per wake. A true delivery cap would gate the carry too; out of scope here. Held nights count nothing.
+- Every way a share gets offered goes through the same gate, not only the reflection's own words: a became-core or
+  re-label line, the closed line, the core line, a join proposal. A self-close is listed as "may be done" instead
+  of closing unsaid; a join is not proposed (it would rest as asked); a became-core line waits for a night that
+  may share (its "mentioned" mark needs an offered share). Not a retry: nothing the reflection could send again
+  changes the host's setting.
+- A held night must not change the self silently (CONSTITUTION §4, §16; the coordinator's ruling in review, for
+  Mike): a re-label into me, us or the owner and a core retire are deferred, not applied — the part comes back
+  `deferred-share-held` (not a retry) and `detail.deferred` lists them. The memory keeps its mark, the core memory
+  stays waiting, so a night that may share, or the waking session, can still act on it. A keep changes nothing and
+  stands. First built applying them with their line dropped.
+- Off, a share offered BEFORE the host turned shares off is not delivered after: `pendingShare` and `carryLine`
+  return nothing, and every delivery (the hooks, a chat host's wake, the dream's hand-back) goes through them. A
+  cap only stops new offers: an older offered share can still be delivered under it.
+- Still able to put a held night's words in front of the person, named, not fixed: the wake's night own-line
+  (`counterpart-wake-shape.ts#ownToldOnce`, the reflection's `line`), which no share setting reads; and on hosted
+  with `nights: "first-chat"`, the night runs in the person's own chat, so the model wrote its share there in
+  front of them before the finish held it. And `begin` still asks for a share and says `closeNow` closes tonight,
+  so a held night spends a little effort on words nobody hears.
+- Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`, written too when the
+  only thing held was a self-close), and whether self-closes piling up as "may be done" is a cost. Revisit or drop
+  freely.

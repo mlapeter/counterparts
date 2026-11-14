@@ -572,3 +572,10 @@ read from the call record, not from `initialize`**: claude.ai reuses one connect
 first call is `wake` (the instruction block's rule 1), so the record's `tool === "wake"` is the one signal that
 means a person came back. The door's `onCall` runs before the answer is written, so the day is in place when the
 client reads the wake.
+
+### The morning share, as a product wants it (2026-11-13, an experiment)
+
+- `AppOptions.shares` / `sharesPerWeek` → `TenantsOptions` → each store's synthesized `config.json` (where the
+  worker's night reads it: the night's reflection finishes on `mcp/bin/serve.ts`, which reads that file) and the
+  tenant's own server (`openServer`). Absent: on, no cap, as claude.ai's stores have it. The rule itself lives in
+  `core/dream/reflect.ts#shareHeld`; its NOTES entry says what is held and what is counted. Lightly held.

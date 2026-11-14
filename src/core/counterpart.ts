@@ -744,6 +744,10 @@ export class Counterpart {
       },
       pageWrites: opts.pageWriterMode !== "off",
       pageRoom: this.self.tunables.PAGE_ROOM_BYTES,
+      // The host's morning-share setting (2026-11-13, an experiment): absent, on and uncapped.
+      ...(opts.shares === undefined && opts.sharesPerWeek === undefined
+        ? {}
+        : { shares: { mode: opts.shares === "off" ? ("off" as const) : ("on" as const), ...(opts.sharesPerWeek === undefined ? {} : { perWeek: opts.sharesPerWeek }) } }),
       today: () => this.store.today(),
       closed: () => this.nightClosed,
       ownerName: () => this.ownerDisplayName(),
