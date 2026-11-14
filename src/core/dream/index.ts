@@ -46,7 +46,7 @@ import { AliasMap, FIT_TUNABLES, clipWire, fidelityOf, fit, leanNumber, lineOf, 
 import type { Fidelity, FitCandidate, Placed } from "../fit/index.js";
 import { belowReach, curveSal, emotionalIntensity, strength } from "../physics/index.js";
 import type { MemoryPhysics } from "../physics/index.js";
-import { SEE_ALSO_NAMES_READ, earlierMark, headOf, isHandoff, isSelfPage, namedIds, recallableRow } from "../recall/index.js";
+import { SEE_ALSO_NAMES_READ, earlierMark, foldedOver, headOf, isHandoff, isSelfPage, namedIds, recallableRow } from "../recall/index.js";
 import { namesOwner, ownerNames } from "../sleep/index.js";
 import {
   CARRIED_BY_MAX_CHARS,
@@ -1763,7 +1763,7 @@ export class Dreams {
         "The dream — how it goes (the brain's, borrowed):",
         "- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).",
         '- The day\'s replay: the bundle\'s "today" lists what the day used or found useful, strongest first. A "reward" one (drawn on, or rated "changed what I did or said") is the plainest "replay me". "todayPairs" were used together: replay both, and link them if they belong together.',
-        "- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).",
+        "- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Never list a ruling (something the person said is always or never so) or a lesson (what was learned to do or avoid) as a fold's source: mention it in the fold's text instead, so it stays its own memory and keeps holding. The parts stay, folded in, and fade (readings, and strongly felt memories about you or someone, keep their own weight).",
         "- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).",
         // NO RECORD IS UNKNOWN (2026-10-26, roadmap S3, guidance only): a gist
         // or a fold says what you did or didn't from a memory that says so.
@@ -2483,8 +2483,8 @@ export class Dreams {
         const linkedSources = ties.landed.map((p) => (p.a === id ? p.b : p.a));
         // THE FOLD HOLDS OVER EACH PART, THROUGH THE ONE DOOR (2026-10-11,
         // Group 3 part B; item 15, D6): a plain `changed`, source `fold` — the
-        // part fades x0.5 (`CHANGED_FADE`), stays live and is labelled earlier
-        // under the fold, which stands for it in ambient recall and folds it
+        // part fades x0.5 (`CHANGED_FADE`), stays live and is labelled folded
+        // into the fold (2026-11-14: "earlier" read as replaced; `foldedOver`), which stands for it in ambient recall and folds it
         // in deliberate recall; and it joins the fold's slot, so its settled
         // uses count toward the fold's recurrence. Its open questions stay
         // open (`closeFlags: false`): a fold answers none of them. EXEMPT, kept
@@ -3531,7 +3531,7 @@ export class Dreams {
     const head = headOf(this.store, row.id);
     return {
       id: row.id,
-      ...(head === null ? {} : { standing: earlierMark(head) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id, head)) }),
       kind: row.kind,
       why,
       fidelity: placed.fidelity === "id" ? "line" : placed.fidelity,

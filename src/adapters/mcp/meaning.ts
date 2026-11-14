@@ -72,7 +72,7 @@ import { chaptersOf } from "../../core/handoff/last-here.js";
 import { UNRESOLVED_META_KEY } from "../../core/mint.js";
 import { softenedFeeling, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/physics/index.js";
-import { askedNames, earlierMark, feelingTokens, headOf, isFeelingFrameWord, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
+import { askedNames, earlierMark, feelingTokens, foldedOver, headOf, isFeelingFrameWord, readFeelingAsk, semanticTuning, stampCores } from "../../core/recall/index.js";
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, findIdentityCore, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
@@ -952,7 +952,8 @@ function showEntry(
   shown = shown.map((m) => {
     const head = safe(() => headOf(store, m.id), null);
     if (head === null) return m;
-    return { ...m, standing: opts.usable(head) === null ? "earlier (now a later version)" : earlierMark(head) };
+    const folded = safe(() => foldedOver(store, m.id, head), false);
+    return { ...m, standing: earlierMark(opts.usable(head) === null ? "a later version" : head, folded) };
   });
   const ids = [...new Set([...span.map((r) => r.id), ...e.moments.map((h) => h.row.id)])];
   const fs = [...safe(() => store.feelingsOn(ids), new Map<string, (FeelingRow & { birth_day: number })[]>()).values()].flat();

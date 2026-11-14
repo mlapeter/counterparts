@@ -33,6 +33,7 @@
  */
 import { cosine } from "../physics/index.js";
 import type { ContradictionRow, Store } from "../store/index.js";
+import { FOLD_SOURCE } from "../types.js";
 
 /** At most this many pointers of one kind on one memory. */
 export const STANDING_MAX_POINTERS = 2;
@@ -174,6 +175,7 @@ export function standingOf(
   const pairs = (opts.pairs ?? store.contradictionsOf([id]).get(id) ?? []).filter((p) => p.via === null && p.state !== "withdrawn");
   let changedOver = false;
   const earlier: string[] = [];
+  const parts: string[] = [];
   const correctedBy: string[] = [];
   const corrects: string[] = [];
   const disagrees: string[] = [];
@@ -183,7 +185,7 @@ export function standingOf(
     if (p.state === "settled") {
       if (p.how === "changed") {
         if (p.over === id && p.holds !== null) changedOver = true;
-        else if (p.holds === id && p.over !== null) earlier.push(p.over);
+        else if (p.holds === id && p.over !== null) (isFoldPair(p) ? parts : earlier).push(p.over);
       } else if (p.how === "corrected") {
         if (p.over === id && p.holds !== null) correctedBy.push(p.holds);
         else if (p.holds === id && p.over !== null) corrects.push(p.over);
@@ -195,10 +197,11 @@ export function standingOf(
     }
   }
   const rank = opts.rank;
-  if (rank !== undefined && earlier.length > 1) {
-    const at = new Map(earlier.map((x) => [x, rank(x)]));
+  for (const list of [earlier, parts]) {
+    if (rank === undefined || list.length < 2) continue;
+    const at = new Map(list.map((x) => [x, rank(x)]));
     // Stable: equal or unranked keep their pair order.
-    earlier.sort((x, y) => {
+    list.sort((x, y) => {
       const a = at.get(x);
       const b = at.get(y);
       if (a === undefined || b === undefined) return a === undefined && b === undefined ? 0 : a === undefined ? 1 : -1;
@@ -227,8 +230,14 @@ export function standingOf(
     said.push(`corrected by ${correctedBy.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
   }
   if (now.length > 0) {
-    front.push(`Earlier (now ${ids(now)})`);
-    said.push(`earlier — now ${now.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
+    // A dream fold's part is part of the fold, not replaced by it (`foldedOver`).
+    if (foldedOverIn(pairs, id, head)) {
+      front.push(`Folded into ${ids(now)}`);
+      said.push(`folded into ${now.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
+    } else {
+      front.push(`Earlier (now ${ids(now)})`);
+      said.push(`earlier — now ${now.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
+    }
   }
   if (unsettled.length > 0) {
     front.push(`Unsettled — may be out of date, see ${ids(unsettled)}`);
@@ -237,6 +246,10 @@ export function standingOf(
   if (earlier.length > 0) {
     back.push(`earlier: ${ids(earlier)}`);
     said.push(`earlier: ${earlier.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
+  }
+  if (parts.length > 0) {
+    back.push(`folds in ${ids(parts)}`);
+    said.push(`folds in ${parts.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
   }
   if (corrects.length > 0) {
     back.push(`corrects ${ids(corrects)}`);
@@ -300,13 +313,61 @@ export function pairOrder(a: Pick<ContradictionRow, "flagged_day" | "created_at"
   return a.flagged_day - b.flagged_day || a.created_at - b.created_at;
 }
 
-/** The `holds` of the newest standing direct changed/corrected settle in which `id` is the `over`; else null. */
-function newestHolder(store: HeadStore, id: string): string | null {
-  const pairs = [...(store.contradictionsOf([id]).get(id) ?? [])]
+/**
+ * The newest standing direct changed/corrected settle in which `id` is the
+ * `over`, of `pairs` as the store reads them (newest first); else undefined.
+ */
+function newestOverIn(pairs: readonly ContradictionRow[], id: string): ContradictionRow | undefined {
+  const mine = [...pairs]
     .reverse()
     .filter((p) => p.state === "settled" && p.via === null && p.over === id && p.holds !== null && (p.how === "changed" || p.how === "corrected"))
     .sort(pairOrder);
-  return pairs[pairs.length - 1]?.holds ?? null;
+  return mine[mine.length - 1];
+}
+
+function newestOver(store: HeadStore, id: string): ContradictionRow | undefined {
+  return newestOverIn(store.contradictionsOf([id]).get(id) ?? [], id);
+}
+
+/** The `holds` of the newest standing direct changed/corrected settle in which `id` is the `over`; else null. */
+function newestHolder(store: HeadStore, id: string): string | null {
+  return newestOver(store, id)?.holds ?? null;
+}
+
+/** A pair a dream FOLD wrote over one of its parts (`changed`, source `fold`). */
+export function isFoldPair(p: Pick<ContradictionRow, "how" | "source">): boolean {
+  return p.how === "changed" && p.source === FOLD_SOURCE;
+}
+
+/**
+ * FOLDED, NOT REPLACED (2026-11-14, lightly held; we check its effect later):
+ * true when the pair that makes `id` earlier — the newest standing direct
+ * settle over it, the one `headOf` starts from — is a dream fold's, AND its
+ * fold is `head`, the id the label prints (`headOf(id)`). A fold later
+ * changed itself (F over the part, then G over F) leaves the part earlier
+ * under G: G never gathered it, so it does not read "folded into G". A fold's
+ * part is not out of date: a standing rule folded into a dated snapshot
+ * ("no shellfish on the menu, ever" under "the eve of its first night") still
+ * holds, and "earlier"/"changed" told the reader it was replaced. Words only:
+ * the part still fades and still reads as not current everywhere it did; a
+ * part settled over again later by a real change reads earlier as before.
+ * Never throws.
+ */
+export function foldedOver(store: HeadStore, id: string, head: string | null): boolean {
+  if (head === null) return false;
+  try {
+    const p = newestOver(store, id);
+    return p !== undefined && isFoldPair(p) && p.holds === head;
+  } catch {
+    return false;
+  }
+}
+
+/** `foldedOver` over pairs the caller already read (every pair naming `id`, or more): no store read. */
+export function foldedOverIn(pairs: readonly ContradictionRow[], id: string, head: string | null): boolean {
+  if (head === null) return false;
+  const p = newestOverIn(pairs, id);
+  return p !== undefined && isFoldPair(p) && p.holds === head;
 }
 
 export function headOf(store: HeadStore, id: string): string | null {
@@ -339,7 +400,8 @@ export function headOf(store: HeadStore, id: string): string | null {
 /**
  * THE ONE MARK a settled-over memory carries wherever it is shown by its own
  * title or words: `earlier (now mem_…)`, read before the words. ~30 bytes.
+ * A dream fold's part (`foldedOver`) reads `folded into mem_…` instead.
  */
-export function earlierMark(head: string): string {
-  return `earlier (now ${head})`;
+export function earlierMark(head: string, folded = false): string {
+  return folded ? `folded into ${head}` : `earlier (now ${head})`;
 }

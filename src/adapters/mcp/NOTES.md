@@ -2310,3 +2310,11 @@ The ambient footnote's `(earlier: [a], [b])` (`recall/standing.ts#standingOf`) t
 the by-id path have no score and keep pair order, which was already deterministic.
 `counterparts ask` renders a question through `renderFacts`, so it follows without a change of its
 own; its by-id path prints `standingOf`'s note, unranked, as the recall tool's by-id path does.
+
+## 2026-11-14 — a fold's part under the fold reads `part:`, not `earlier: … changed`
+
+Facts mode listed a dream fold's parts as `earlier: "…", changed <date>`, as if the fold had
+replaced them. Now `part: "…" (learned …), folded in <date> · mem_…`; on its own, a part's
+standing reads `folded into <id>`, as does its tail mark (`recall/standing.ts#foldedOver`, same
+date). Render only. Hidden ones are counted apart: `+N more earlier`, `+N more parts`. The recall tool description was left
+alone (its length is pinned and the claude.ai trim guards it); the line explains itself.
