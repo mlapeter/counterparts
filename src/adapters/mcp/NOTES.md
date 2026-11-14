@@ -2297,3 +2297,14 @@ for an unplaced word says exactly that shape. `feelings`, `feelingsNow` and `tra
 `["string", "object"]`, so a validating client still takes the object forms. self_page's `short`
 says it can go alone, and `cites` says what it is for. Desktop's `session_end` and `chapter`
 take wake's `session` words. The manual's folder clause on `about` is marked `[local]`.
+
+## 2026-11-14 — the `earlier:` lines, best match first (owner-approved that day)
+
+Two matched earlier memories folded under one result came out in pair order (newest pair first),
+whatever each matched at: `foldedEarlier` kept the ids and dropped their scores. It is a map now,
+id → the score it matched at, and the `earlier:` lines read matched first, best score first, then
+by when they changed, newest first, then by id; in-place versions keep their order (stable sort).
+The ambient footnote's `(earlier: [a], [b])` (`recall/standing.ts#standingOf`) takes an optional
+`rank`, which the prompt-time render passes as each candidate's activation this turn; the wake and
+the by-id path have no score and keep pair order, which was already deterministic.
+`counterparts ask` renders through `renderFacts`, so it follows without a change of its own.

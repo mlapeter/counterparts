@@ -161,11 +161,15 @@ export function unsettledCompetition(
  * The standing of one memory, or null when it has none. `byId`: the caller
  * asked for this memory by its address, so a replaced row says so too.
  * `pairs`, when the caller already read them (a render reads its rows once).
+ * `rank`, when the caller has a score for what this turn reached: the
+ * `(earlier: …)` pointers name the best-reached first (2026-11-14, as the
+ * facts answer's `earlier:` lines do); unranked ones follow in pair order,
+ * newest pair first (`contradictionsOf` reads `created_at DESC, rowid DESC`).
  */
 export function standingOf(
   store: StandingStore,
   id: string,
-  opts: { byId?: boolean; pairs?: readonly ContradictionRow[] } = {},
+  opts: { byId?: boolean; pairs?: readonly ContradictionRow[]; rank?: (id: string) => number | undefined } = {},
 ): Standing | null {
   const pairs = (opts.pairs ?? store.contradictionsOf([id]).get(id) ?? []).filter((p) => p.via === null && p.state !== "withdrawn");
   let changedOver = false;
@@ -189,6 +193,17 @@ export function standingOf(
     } else if (unsettledIn(store, id, [p])) {
       unsettled.push(p.b);
     }
+  }
+  const rank = opts.rank;
+  if (rank !== undefined && earlier.length > 1) {
+    const at = new Map(earlier.map((x) => [x, rank(x)]));
+    // Stable: equal or unranked keep their pair order.
+    earlier.sort((x, y) => {
+      const a = at.get(x);
+      const b = at.get(y);
+      if (a === undefined || b === undefined) return a === undefined && b === undefined ? 0 : a === undefined ? 1 : -1;
+      return b - a;
+    });
   }
   // "Earlier (now …)" names the END of the chain, the one memory a write's
   // neighbours and the dream's bundles name too (`headOf`, review of #408):

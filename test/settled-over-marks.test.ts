@@ -370,6 +370,29 @@ describe("review of #408: footnotes and neighbours name the same memory", () => 
     expect(n?.standing).toBe(earlierMark(c));
   });
 
+  // 2026-11-14: a memory over two earlier ones named them in pair order
+  // (newest pair first), not by how well this turn reached each.
+  test("(earlier: …) names the best-reached first when a rank is given; pair order otherwise", () => {
+    const s = Store.open({ dir });
+    open.push(s);
+    aged(s);
+    for (const body of FILLER) put(s, body);
+    const best = put(s, "The quokkaberry jam is kept in the quokkaberry pantry, top shelf.", { title: "Quokkaberry jam, top shelf" });
+    const weak = put(s, "The jam is kept on the bottom shelf.", { title: "Jam on the bottom shelf" });
+    const now = put(s, "All the jams moved to the cellar.", { title: "Jams in the cellar" });
+    changed(s, now, best);
+    changed(s, now, weak);
+    expect(standingOf(s, now)?.suffix).toBe(` (earlier: [${weak}], [${best}])`);
+    const rank = (id: string): number | undefined => (id === best ? 0.9 : id === weak ? 0.2 : undefined);
+    expect(standingOf(s, now, { rank })?.suffix).toBe(` (earlier: [${best}], [${weak}])`);
+    expect(standingOf(s, now, { rank })?.note).toBe(`earlier: ${best}, ${weak}`);
+    // One ranked, one not: the ranked one first.
+    expect(standingOf(s, now, { rank: (id) => (id === best ? 0.1 : undefined) })?.suffix).toBe(` (earlier: [${best}], [${weak}])`);
+    // The prompt-time render ranks by this turn's reach.
+    const text = new Recall({ store: s }).build({ sessionId: "r1", text: "where is the quokkaberry jam kept, which pantry shelf" }).injection;
+    expect(text).toContain(`[${now}] (earlier: [${best}], [${weak}])`);
+  });
+
   test("a newer pair in which it holds keeps the Earlier label; its holder gone with nothing after: no Earlier label", () => {
     const s = Store.open({ dir });
     open.push(s);
