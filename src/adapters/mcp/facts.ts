@@ -1408,9 +1408,10 @@ function factItem(
   }
   // Matched earlier memories first, the best match first (2026-11-14: two
   // matched ones came out in whatever order the pairs were read); then by when
-  // they changed, newest first; then by id, so a tie reads the same every time.
-  // In-place versions (no id, never matched) keep their newest-first order —
-  // the sort is stable.
+  // they changed, newest first. The sort is stable: a tie keeps the order read —
+  // in-place versions newest first, then the pairs newest first
+  // (`contradictionsOf`: `created_at DESC, rowid DESC`), as the footnote's
+  // `(earlier: …)` does (`recall/standing.ts#standingOf`).
   const matchedAt = (e: EarlierVersion): number | undefined => (e.id === undefined ? undefined : c.foldedEarlier.get(e.id));
   earlier.sort((a, b) => {
     const sa = matchedAt(a);
@@ -1420,9 +1421,7 @@ function factItem(
       if (sb === undefined) return -1;
       if (sa !== sb) return sb - sa;
     }
-    const by = (b.changed ?? "").localeCompare(a.changed ?? "");
-    if (by !== 0) return by;
-    return a.id === undefined || b.id === undefined ? 0 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    return (b.changed ?? "").localeCompare(a.changed ?? "");
   });
   // Corrected: those the question's words reach first (a search that names
   // one should find it here), then the latest corrected.

@@ -2003,3 +2003,11 @@ a throw costs the row this key and not the stop counts beside it.
   footnote at 12.87. The run's own row (`store-day17`) did not list it as a near miss either. With
   the embedder off the same turn footnoted it (11.88 against 10.79), so it is not in `top` there:
   the turns before it carry different cues, so it sits at the margin of the bar either way.
+
+## 2026-11-14 — `standingOf` takes a `rank`
+
+The `(earlier: [a], [b])` pointers on a memory over two or more named them in pair order (newest
+pair first), whatever this turn reached. `standingOf` takes an optional `rank` now; the prompt-time
+render passes each candidate's activation, so the best-reached is named first; unranked ones keep
+pair order (stable). The wake and the by-id paths pass none. Facts mode's `earlier:` lines follow
+the same rule by score (`adapters/mcp/NOTES.md`, same date).

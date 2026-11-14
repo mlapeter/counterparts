@@ -2303,8 +2303,10 @@ take wake's `session` words. The manual's folder clause on `about` is marked `[l
 Two matched earlier memories folded under one result came out in pair order (newest pair first),
 whatever each matched at: `foldedEarlier` kept the ids and dropped their scores. It is a map now,
 id → the score it matched at, and the `earlier:` lines read matched first, best score first, then
-by when they changed, newest first, then by id; in-place versions keep their order (stable sort).
+by when they changed, newest first; a tie keeps the order read (stable sort: in-place versions,
+then pairs newest first, as `contradictions` reads them), the same tie order the footnote keeps.
 The ambient footnote's `(earlier: [a], [b])` (`recall/standing.ts#standingOf`) takes an optional
 `rank`, which the prompt-time render passes as each candidate's activation this turn; the wake and
 the by-id path have no score and keep pair order, which was already deterministic.
-`counterparts ask` renders through `renderFacts`, so it follows without a change of its own.
+`counterparts ask` renders a question through `renderFacts`, so it follows without a change of its
+own; its by-id path prints `standingOf`'s note, unranked, as the recall tool's by-id path does.
