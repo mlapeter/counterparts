@@ -140,6 +140,22 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     }
   });
 
+  // The opus week eval of #822: the trimmed words kept fewer memories and half the `us` ones, so three
+  // invitations came back on Claude Code and Desktop (claude.ai keeps its DIR1 words).
+  test("the write tools still invite many small memories, one thing each, and what they said about themselves or you", () => {
+    for (const host of [false, true]) {
+      const d = served(host);
+      expect(d.get("remember")).toContain("Err toward too many.");
+      expect(d.get("session_end")).toContain("Err toward too many.");
+      expect(d.get("session_end")).toContain("what they said about themselves or you");
+      const def = toolDefinitions(host).find((t) => t["name"] === "session_end")!;
+      const memories = (def["inputSchema"] as { properties: { memories: { description: string } } }).properties.memories.description;
+      expect(memories).toContain("a quote, a fact and a decision are three, never folded into one");
+    }
+    const ai = toolDefinitions(CLAUDE_AI_HOST).find((t) => t["name"] === "session_end")!;
+    expect((ai["inputSchema"] as { properties: { memories: { description: string } } }).properties.memories.description).toBe("One idea each; `[]` only when nothing happened since you last wrote.");
+  });
+
   // The chapter wording (2026-10-11; shortened in trim PR 2): a diary of what
   // happened, the details kept, lessons left to the nightly reflection.
   test("chapter asks for a diary of what happened and leaves lessons to the nightly reflection", () => {
@@ -180,10 +196,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     );
     expect(lengths).toEqual({
       // TRIM PR 2 (2026-11-13, the tool-trim design §7): every claim but recall's an engine row,
-      // the words shortened — remember 2,533 → 741, status 1,289 → 240, session_end 2,540 → 602,
+      // the words shortened — remember 2,533 → 762, status 1,289 → 240, session_end 2,540 → 647,
       // chapter 1,980 → 531, scope 1,795 → 414, self_page 4,909 → 720, dream 3,721 → 808,
       // reflect 3,704 → 764, meet 459 → 208, wake 1,963 → 384. Recall untouched (PR 3).
-      remember: { total: 741, beforeList: -1 },
+      remember: { total: 762, beforeList: -1 },
       // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
       // the claims tightened to fit the 4,096 cut, the journal claim an engine
       // row (each answer glosses a chapter itself). The head is untouched.
@@ -192,7 +208,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +11 on the review of #817: "today or a window ahead", "with topic words".
       recall: { total: 3954, beforeList: 1200 },
       status: { total: 240, beforeList: -1 },
-      session_end: { total: 602, beforeList: -1 },
+      session_end: { total: 647, beforeList: -1 },
       chapter: { total: 531, beforeList: -1 },
       scope: { total: 414, beforeList: -1 },
       self_page: { total: 720, beforeList: -1 },

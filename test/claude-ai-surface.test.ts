@@ -289,6 +289,7 @@ const REVIEWED: Record<string, unknown> = {
     "claims": [],
     "fields": {
       "session": "b2fd9d725b",
+      "memories": "d0ac7ac880",
       "memories[].about": "9bb6cfb6c8",
       "handoff": "9d000a4c5d"
     },

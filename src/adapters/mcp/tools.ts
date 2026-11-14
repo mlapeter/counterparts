@@ -550,7 +550,7 @@ const REMEMBER: ToolSpec = {
   summary:
     "Save one memory now, in your own words. Nothing reads the transcript later: what you don't save here or at the end-of-session ask is lost. Save what caught your attention: something they said about themselves or you, a decision, a line that struck you and why, news, a work event. One idea per call; keep exact words, numbers and lists when they matter.",
   admission:
-    'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Leave salience unset for routine things. Field guide: recall "manual fields".',
+    'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Err toward too many. Leave salience unset for routine things. Field guide: recall "manual fields".',
   negativeExamples: [
     "Do NOT fold several things into one call: a quote, a fact and a decision are three memories.",
     'Do NOT write a plan as done: that is status "planned".',
@@ -924,8 +924,8 @@ const SESSION_END: ToolSpec = {
   name: "session_end",
   annotations: annotate("End session", { readOnly: false }),
   summary:
-    "Hand back what caught your attention since you last wrote, one memory per entry, in your own words: what you read and why it struck you, what they said, what happened or was decided, routine work events in a line each. With remember, the only road from conversation to memory; chapter is the ask's other half.",
-  admission: "When the end-of-session ask arrives. Add an entry that `updates` anything dated or open now done.",
+    "Hand back what caught your attention since you last wrote, one memory per entry, in your own words: what you read and why it struck you, what they said about themselves or you, what happened or was decided, routine work events in a line each. With remember, the only road from conversation to memory; chapter is the ask's other half.",
+  admission: "When the end-of-session ask arrives. Err toward too many. Add an entry that `updates` anything dated or open now done.",
   negativeExamples: [
     "Do NOT fold several things into one entry, or retell the session turn by turn.",
     "Do NOT pass any session id but the one the ask named.",
@@ -1025,7 +1025,7 @@ const SESSION_END: ToolSpec = {
       session: ASK_SESSION_PROPERTY,
       memories: {
         type: "array",
-        description: "One idea each; `[]` only when nothing happened since you last wrote.",
+        description: "One entry per thing: a quote, a fact and a decision are three, never folded into one. `[]` only when nothing happened since you last wrote.",
         items: {
           type: "object",
           properties: {
@@ -2028,6 +2028,9 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
   session_end: {
     fields: {
       session: CLAUDE_AI_SESSION_TEXT,
+      // claude.ai's words kept as they were; the every-host line grew back its quote/fact/decision rule
+      // after the opus week eval of #822 (Claude Code and Desktop only).
+      memories: "One idea each; `[]` only when nothing happened since you last wrote.",
       "memories[].about": CLAUDE_AI_ABOUT_TEXT,
       handoff: 'Optional, not a memory: where open work stands and what the next conversation should pick up ("next: X (waiting on Y)"). "" retires it.',
     },
