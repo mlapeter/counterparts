@@ -248,9 +248,13 @@ export interface SelfTunables {
    * lightly held), under the page the wake prints whole — top and end lines
    * included — at the 9,000-byte ceiling under the widest delivery reserves
    * (`pageRoomBytes(9_000)`). A page past it is kept; a short version is kept
-   * with it only then, and only within this same number. Overridden only by
-   * tests; a value above `pageRoomBytes(9_000)` gives up the guarantee that a
-   * page within it prints whole on every day.
+   * with it only then, and only within this same number. A host may set it
+   * (`selfTunables`, `counterpart-types.ts`): since 2026-11-13 the nightly
+   * writers are told this number, not the default, so the room they are told
+   * is the room they are sent back at (`writer.ts#pageWritingRule`, the
+   * reflection's `ReflectContext.pageRoom`). A value above
+   * `pageRoomBytes(9_000)` gives up the guarantee that a page within it prints
+   * whole on every day.
    */
   PAGE_ROOM_BYTES: number;
   /**
@@ -371,6 +375,16 @@ export interface SelfTunables {
    * and small enough that a page nobody wants is not asked for all day. CAL.
    */
   PAGE_WRITER_ASKS_PER_DAY: number;
+  /**
+   * HOW FAR BACK A NIGHT LOOKS PAST AN EMPTY YESTERDAY, in calendar days
+   * before yesterday (2026-11-13, Mike's go, lightly held, an experiment;
+   * check on the live store around 2026-11-18). `writer.ts#pageWriterNight`
+   * walks back over empty days to the last day lived that no night has closed,
+   * at most this many; 7 reaches a day eight days before today. 0: yesterday
+   * only, as before. Read at use, from this module's defaults, so `Self`, the
+   * dream and doctor agree on the night.
+   */
+  NIGHT_LOOKBACK_DAYS: number;
   /**
    * "LAST NIGHT:" IN THE WAKE (2026-10-25, the wake-polish builder from
    * random-5b's 10-25 wake; Mike's go, lightly held). On: a session start's
@@ -572,6 +586,7 @@ export const SELF_TUNABLES: SelfTunables = {
   DAY_SUMMARY: true,
   DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
+  NIGHT_LOOKBACK_DAYS: 7,
   WAKE_SHAPE: false,
   NIGHT_LINE: true,
   TODAY_SO_FAR: true,

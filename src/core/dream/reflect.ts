@@ -626,6 +626,12 @@ export interface ReflectContext {
    */
   readonly pageWrites?: boolean;
   /**
+   * The page's room in bytes, as the host set it (`selfTunables.PAGE_ROOM_BYTES`,
+   * 2026-11-13): the room the reflection is told is the room `writePage` sends
+   * it back at. Absent: `self/briefing.ts#PAGE_ROOM_BYTES`.
+   */
+  readonly pageRoom?: number;
+  /**
    * THE HOST'S MORNING-SHARE SETTING (2026-11-13, an experiment, lightly
    * held; `CounterpartOptions.shares`): `off`, or a cap of `perWeek` shares
    * offered over `SHARE_WEEK_DAYS` calendar days (0 is off). Held, the reflection still writes
@@ -1249,7 +1255,7 @@ export class Reflections {
     // store's writers keep its sections and form, not "How I work" by name.
     const form = pageFormOf(this.store);
     const own = form === "own";
-    const rule = pageWritingRule(form);
+    const rule = pageWritingRule(form, this.ctx.pageRoom);
     // THE PAGE'S STORIES (PS1, `self/stories.ts`): an own-form store's
     // reflection, when it writes the whole page (split off; split on, it
     // writes Core alone, which tells no stories), is told the mix, its test,

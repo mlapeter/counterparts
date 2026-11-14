@@ -284,8 +284,35 @@ export const PAGE_ROOM_RULE =
 export const NO_RECORD_RULE =
   `What you did or didn't do, said or didn't say, rests on a memory that says so. Finding no record of something ("I have no record of warning them") is not a memory that it didn't happen: memory has gaps, most of all from short sessions, so say you don't know rather than that you didn't.`;
 
+/**
+ * A LINE THAT SPOKE OF WHAT WAS AHEAD (2026-11-13, Mike's go, lightly held, an
+ * experiment; check on the live store around 2026-11-18). A simulated month's
+ * page kept "the wedding is ahead" after the wedding: the night writers were
+ * shown the wedding-done memories and left the page as it stood, and nothing
+ * pointed them at a line gone stale. It speaks only to a line that still READS
+ * as ahead: a page told in the past tense has nothing here to change. It says
+ * what became of it only where a memory tells (review of #824: "say it as
+ * past" could claim a thing happened with no memory saying so, against
+ * `NO_RECORD_RULE` beside it); otherwise the line is set down. Words
+ * only, part of `PAGE_WRITING_RULE` (day's end and the reflection); nothing
+ * reads the page for it. Revert: drop it from there.
+ */
+export const AHEAD_PASSED_RULE =
+  `A line that speaks of something ahead whose day has come is no longer true as written: say what became of it where a memory tells, or set it down.`;
+
+/**
+ * The room rule at a given room (2026-11-13): the host's
+ * `selfTunables.PAGE_ROOM_BYTES` when it set one, so the number a writer is
+ * told is the number it is sent back at. The default room: `PAGE_ROOM_RULE`.
+ */
+export function pageRoomRule(room: number = PAGE_ROOM_BYTES): string {
+  return room === PAGE_ROOM_BYTES
+    ? PAGE_ROOM_RULE
+    : PAGE_ROOM_RULE.replace(`has ${String(PAGE_ROOM_BYTES)} bytes`, `has ${String(room)} bytes`);
+}
+
 export const PAGE_WRITING_RULE =
-  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
+  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${AHEAD_PASSED_RULE} ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
 
 /**
  * THE PAGE IN ITS OWN FORM, ONE STORE AT A TIME (PF1, 2026-11-01; asked by the
@@ -311,17 +338,24 @@ export function pageFormOf(store: Pick<Store, "getMeta">): "own" | null {
   }
 }
 
-/** What the nightly writers are told about the page: `PAGE_WRITING_RULE` itself unless the store keeps its own form. */
-export function pageWritingRule(form: "own" | null | undefined): string {
-  return form === "own" ? PAGE_WRITING_RULE.replace(HOW_I_WORK_RULE, OWN_FORM_RULE) : PAGE_WRITING_RULE;
+/**
+ * What the nightly writers are told about the page: `PAGE_WRITING_RULE` itself
+ * unless the store keeps its own form, or the host set the page's room
+ * (`selfTunables.PAGE_ROOM_BYTES`, 2026-11-13) — then the room said is that one.
+ */
+export function pageWritingRule(form: "own" | null | undefined, room: number = PAGE_ROOM_BYTES): string {
+  const rule = room === PAGE_ROOM_BYTES ? PAGE_WRITING_RULE : PAGE_WRITING_RULE.replace(PAGE_ROOM_RULE, pageRoomRule(room));
+  return form === "own" ? rule.replace(HOW_I_WORK_RULE, OWN_FORM_RULE) : rule;
 }
 
 /**
- * THE DATE A RUN ON `today` IS ABOUT — yesterday, always.
+ * THE DATE A RUN ON `today` IS ABOUT — yesterday, as a date. (`pageWriterNight`
+ * may hand an earlier one: after days with nothing in them, the last day lived
+ * that no night has closed; 2026-11-13.)
  *
  * It never chases a backlog. A machine that was off for a week comes back and
- * writes about the day just gone, not about six days it cannot remember living;
- * the memories of those days are still in the store and still reach the page
+ * writes about ONE day, not about six days it cannot remember living; the
+ * memories of those days are still in the store and still reach the page
  * through the ordinary lanes. Catching up would mean six model calls and six
  * revisions of one page in one morning, which is how a page starts drifting.
  */
@@ -344,10 +378,60 @@ export function pageWriterAbout(today: string, closedThrough?: string): string {
  * so `Self`, the nightly run and doctor cannot each derive their own night — the
  * mechanism and the line that reports on it agreeing about which night is owed
  * is the whole reason it exists.
+ *
+ * AFTER SKIPPED DAYS (2026-11-13, Mike's go, lightly held, an experiment;
+ * check on the live store around 2026-11-18). Yesterday, unless yesterday
+ * holds nothing: then the night walks back a day at a time, at most
+ * `NIGHT_LOOKBACK_DAYS` days before yesterday, to the first day that holds a
+ * memory, and is about that day. A Claude Code night starts with the first
+ * session of a new day, so before this a person who skipped a few days never
+ * had the last day before the gap shown to day's end — under `PAGE_SPLIT`,
+ * Lately's only writer. The walk STOPS at a day a night already closed
+ * (`closesNight`), so no day is written twice and no backlog is chased: it
+ * finds one day or none. A day with a run made today is tonight's whatever
+ * that run's outcome, so the answer holds through the night (the dream's day
+ * summary, doctor's owed line). Nothing found: yesterday, which falls through
+ * to `no-memories` as it always did.
  */
 export function pageWriterNight(store: Store, zone?: string): { today: string; about: string } {
   const today = calendarDate(store.now(), zone ?? store.zone());
-  return { today, about: pageWriterAbout(today, dayBefore(store.today())) };
+  const yesterday = pageWriterAbout(today, dayBefore(store.today()));
+  return { today, about: lastDayLived(store, today, yesterday) };
+}
+
+/**
+ * HAS A NIGHT CLOSED THIS DAY? A terminal row (not a `skipped` deferral, not a
+ * `refused` try the same session retries), or a claim made on a day that has
+ * ended. The test `pageWriterDue` answers `already-claimed` by, in one place.
+ */
+export function closesNight(run: Pick<PageWriterRun, "outcome" | "on">, today: string): boolean {
+  if (run.outcome === "asked") return run.on !== "" && run.on < today;
+  return run.outcome !== "skipped" && run.outcome !== "refused";
+}
+
+/** The walk back from an empty yesterday (`pageWriterNight`). Never throws: a store that won't answer keeps yesterday. */
+function lastDayLived(store: Store, today: string, yesterday: string): string {
+  const steps = Math.max(0, Math.floor(SELF_TUNABLES.NIGHT_LOOKBACK_DAYS));
+  if (yesterday === "" || steps === 0 || !dayIsEmpty(store, yesterday)) return yesterday;
+  try {
+    // One read of the night's rows, newest first, filtered by day below.
+    const runs = pageWriterRuns(store);
+    // Yesterday a night already took up (its rows let go since, by a dream or
+    // the owner) stays the night: never walked past.
+    if (runs.some((r) => r.about === yesterday && r.outcome !== "skipped")) return yesterday;
+    let day = yesterday;
+    for (let i = 0; i < steps; i += 1) {
+      day = dayBefore(day);
+      if (day === "") break;
+      const its = runs.filter((r) => r.about === day);
+      if (its.some((r) => r.on === today)) return day;
+      if (its.some((r) => closesNight(r, today))) break;
+      if (!dayIsEmpty(store, day)) return day;
+    }
+  } catch {
+    /* yesterday */
+  }
+  return yesterday;
 }
 
 /**
@@ -674,9 +758,9 @@ export function pageWriterDue(
   // session does retry, successfully, seconds later (S2 review, MINOR-4). A
   // night closed by a refusal left doctor amber and the narrator saying "the
   // page is unchanged" about a page that had since been written.
-  if (
-    runs.some((r) => r.outcome !== "asked" && r.outcome !== "skipped" && r.outcome !== "refused")
-  ) {
+  // (Both readings, this one and the claim's below, are `closesNight`, which
+  // the walk back over skipped days in `pageWriterNight` reads too.)
+  if (runs.some((r) => r.outcome !== "asked" && closesNight(r, opts.today))) {
     return no("already-claimed");
   }
   // ...AND NEITHER DOES A CLAIM WHOSE DAY HAS ENDED — it closes the night. That
@@ -688,7 +772,7 @@ export function pageWriterDue(
   // next morning after its status already read settled. West of UTC `about`
   // moves with the local day, so a claim from an earlier day is always about
   // an earlier night and this never fires.
-  if (runs.some((r) => r.outcome === "asked" && r.on !== "" && r.on < opts.today)) {
+  if (runs.some((r) => r.outcome === "asked" && closesNight(r, opts.today))) {
     return no("already-claimed");
   }
   const asked = runs.filter((r) => r.outcome === "asked").length;
@@ -1081,8 +1165,15 @@ export function writerInstruction(
      * tool result, where there is no injection ceiling to save room for.
      */
     pageInline?: boolean;
+    /**
+     * THE ROOM IT IS HELD TO (2026-11-13): the host's
+     * `selfTunables.PAGE_ROOM_BYTES`, so the room this block states is the one
+     * the page is sent back at. Absent: `PAGE_ROOM_BYTES`.
+     */
+    room?: number;
   },
 ): string {
+  const room = opts.room ?? PAGE_ROOM_BYTES;
   const session =
     opts.session === undefined || opts.session === null || opts.session.length === 0
       ? ""
@@ -1120,7 +1211,7 @@ export function writerInstruction(
     // review): a page said "tonight is its first real one" every morning after,
     // told a Fable session "My own system card says…" of Opus 5.5's, and
     // carried its own revision line under the wake's "(Last revised …)".
-    pageWritingRule(input.pageForm),
+    pageWritingRule(input.pageForm, room),
     "",
   );
   // WHAT IT SETS DOWN (PG1, 2026-11-09, `set-down.ts`): in the nightly run's
@@ -1159,7 +1250,7 @@ export function writerInstruction(
     );
   } else if (opts.pageInline === true) {
     lines.push(
-      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(room)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       PAGE_INLINE_OPEN,
       input.page.body.replace(MARKERS, MARKER_REDACTION),
       PAGE_INLINE_CLOSE,
@@ -1167,7 +1258,7 @@ export function writerInstruction(
     );
   } else {
     lines.push(
-      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(room)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       "",
     );
   }
@@ -1291,7 +1382,7 @@ export const DATA_NOT_INSTRUCTIONS =
  */
 export function writerInstructionOverhead(
   input: WriterInput,
-  opts: { tool: string; session?: string | null },
+  opts: { tool: string; session?: string | null; room?: number },
 ): number {
   return byteLengthOf(writerInstruction({ ...input, memories: [], dropped: 0, bytes: 0 }, opts));
 }

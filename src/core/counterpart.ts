@@ -743,6 +743,7 @@ export class Counterpart {
         return p === null ? null : { version: p.version, by: p.by, revisedOn: p.revisedOn, bytes: p.bytes };
       },
       pageWrites: opts.pageWriterMode !== "off",
+      pageRoom: this.self.tunables.PAGE_ROOM_BYTES,
       // The host's morning-share setting (2026-11-13, an experiment): absent, on and uncapped.
       ...(opts.shares === undefined && opts.sharesPerWeek === undefined
         ? {}
@@ -5804,7 +5805,8 @@ export class Counterpart {
    * moved out of the wake into the run: writer, then dream, then reflection,
    * one background agent (the owner's order, 2026-09-28). The claim is the
    * ordinary `asked` row for the night (`about` = yesterday's local calendar
-   * date, `pageWriterNight`), carrying the SESSION and the run — which is what
+   * date, or after empty days the last day lived that no night closed:
+   * `pageWriterNight`), carrying the SESSION and the run — which is what
    * lets the page's door record the writer's `self_page` write `by: "writer"`
    * (`nightClaimFor`). A claim this session already holds is reused (a run
    * started again claims nothing twice).
@@ -5939,7 +5941,7 @@ export class Counterpart {
     const setDownsBack = this.self.setDownsBack(this.self.page()?.body ?? null).filter((t) => !closed.has(t.id) && (t.by_memory === undefined || !closed.has(t.by_memory)));
     return fitNightWriter(
       (budgetBytes) => this.pageWriterInput({ about: input.about, budgetBytes, max: NIGHT_WRITER_MEMORY_MAX, setDownsBack }),
-      (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true }),
+      (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true, room: this.self.tunables.PAGE_ROOM_BYTES }),
     );
   }
 

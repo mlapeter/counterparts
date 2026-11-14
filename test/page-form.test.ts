@@ -26,12 +26,16 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { Seat, SeatAct, SeatAsk } from "../src/core/counterpart.js";
 import {
+  AHEAD_PASSED_RULE,
   HOW_I_WORK_RULE,
   OWN_FORM_RULE,
   PAGE_FORM_KEY,
+  PAGE_ROOM_BYTES,
+  PAGE_ROOM_RULE,
   PAGE_WRITING_RULE,
   SELF_TUNABLES,
   pageFormOf,
+  pageRoomRule,
   pageWritingRule,
   writerInstruction,
 } from "../src/core/self/index.js";
@@ -177,6 +181,21 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
     expect(pageWritingRule("own")).not.toContain("How I work");
   });
 
+  test("a line still ahead after it passed (2026-11-13): one sentence, about lines that still read as ahead, in both forms; and the host's room in place of the default", () => {
+    expect(AHEAD_PASSED_RULE).toBe(
+      "A line that speaks of something ahead whose day has come is no longer true as written: say what became of it where a memory tells, or set it down.",
+    );
+    expect(PAGE_WRITING_RULE).toContain(`the wake dates the page. ${AHEAD_PASSED_RULE} `);
+    expect(pageWritingRule("own")).toContain(AHEAD_PASSED_RULE);
+    // The room: the default is the constant, word for word; a host's room replaces only the number.
+    expect(pageWritingRule(null, PAGE_ROOM_BYTES)).toBe(PAGE_WRITING_RULE);
+    expect(pageRoomRule()).toBe(PAGE_ROOM_RULE);
+    const at600 = pageWritingRule("own", 600);
+    expect(at600).toContain("The whole page has 600 bytes of room");
+    expect(at600).not.toContain(String(PAGE_ROOM_BYTES));
+    expect(at600).toBe(pageWritingRule("own").replace(PAGE_ROOM_RULE, pageRoomRule(600)));
+  });
+
   test("the store's word: only `own` is own, and a store that won't answer reads as absent", () => {
     const c = open();
     try {
@@ -226,6 +245,9 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
       expect(writer).toContain(PAGE_WRITING_RULE);
       expect(writer).not.toContain(OWN_FORM_RULE);
       expect(has(reflect, PAGE_WRITING_RULE)).toBe(true);
+      // A line still ahead after it passed (2026-11-13): told to both doors.
+      expect(writer).toContain(AHEAD_PASSED_RULE);
+      expect(has(reflect, AHEAD_PASSED_RULE)).toBe(true);
       expect(has(reflect, OWN_FORM_RULE)).toBe(false);
       if (split) {
         expect(writer).toContain("and `## How I work` (how you work now) from the day.");

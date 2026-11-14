@@ -226,8 +226,11 @@ describe("the once-a-night claim", () => {
     // One memory seven days ago and nothing since — the shape of a machine that
     // is used twice a week. `hasDayBefore` is true forever after the first
     // memory, so every morning produced a claim, an ask, and a block whose whole
-    // content was "nothing was written down" (S2 review, MAJOR-4).
-    c.store.put({ type: "memory", kind: "fact", body: "Older.", learnedOn: dayBefore(today, 7) });
+    // content was "nothing was written down" (S2 review, MAJOR-4). Since
+    // 2026-11-13 the night walks back over empty days to the last day lived
+    // that no night closed (`NIGHT_LOOKBACK_DAYS`, once: then that day is
+    // closed), so the day here is one past the walk's reach.
+    c.store.put({ type: "memory", kind: "fact", body: "Older.", learnedOn: dayBefore(today, SELF_TUNABLES.NIGHT_LOOKBACK_DAYS + 2) });
     const due = c.pageWriterDue({ mode: "session" });
     expect(due.due).toBe(false);
     expect(due.due === false ? due.reason : "").toBe("no-memories");
@@ -589,8 +592,9 @@ describe("the instruction the writer reads", () => {
     // since 2026-10-10: the writing rule asks for a short version past the
     // page's room, in the same breath as the room itself; 2,000 since
     // 2026-10-16: "## How I work" as a few short lessons, `HOW_I_WORK_RULE`;
-    // 2,300 since 2026-10-26: no record is unknown, `NO_RECORD_RULE`.)
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2300);
+    // 2,300 since 2026-10-26: no record is unknown, `NO_RECORD_RULE`; 2,450
+    // since 2026-11-13: a line still ahead after it passed, `AHEAD_PASSED_RULE`.)
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2450);
   });
 
   test("it names the session id, so the write can be recorded as the night's", () => {

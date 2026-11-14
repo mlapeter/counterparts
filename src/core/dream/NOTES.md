@@ -1491,6 +1491,19 @@ What it moves, on purpose:
   rested on so a line brought back can cite them. Set-down memories are night rows (`source: reflection`), so they
   never reach `core`, `candidates` or `felt`.
 
+## 2026-11-13 — the reflection is told the host's room; the night may be a day before yesterday
+
+An experiment, Mike's go, lightly held; check on the live store around 2026-11-18 (self NOTES, same date).
+
+- **The room.** The reflection's page line states the room through `pageWritingRule(form, this.ctx.pageRoom)`;
+  `ReflectContext.pageRoom` is the host's `selfTunables.PAGE_ROOM_BYTES`, wired by `counterpart.ts` beside
+  `pageWrites`, the same number `writePage` sends a page back at. Absent: the default, word for word as before.
+  The reflect tool's static `finish` description (`mcp/tools.ts`) still names the default.
+- **The night's day.** `self/writer.ts#pageWriterNight` may now be a day before yesterday, after empty days
+  (`NIGHT_LOOKBACK_DAYS`). The dream's day summary (`told`, `daySummaryFor`) reads it as before; the summary
+  is matched by session first, and the night holds that day through the run. The bundle's heading carries
+  the date, so it reads plainly either way.
+
 ## 2026-11-13 — a host can hold the morning share (lightly held, an experiment)
 
 - The living journal (a product on hosted's `createApp`) saw a Haiku-run night share 7 times in a month, several
