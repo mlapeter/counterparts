@@ -2321,10 +2321,12 @@ alone (its length is pinned and the claude.ai trim guards it); the line explains
 
 ## 2026-11-14 — closing words: a closing or a deferral is not open; `asked` is said
 
-`unresolved` gains one clause: not for what they closed or put off — kept in their words, as far as it
-reached; "ask me after I've slept" is an eventDate (a journal month stored that deferral as an open item, on
-the lane that raises). `status` gains a description: asked is a question or request of yours still waiting
-on them, not one they asked you — as `owner-waits.ts` reads an open `asked` (raised to the owner) and the
+`text` / `content` gain: lists, numbers, quotes, what they asked of you, closed or put off: word for word, as
+far as it reached (the season-two paraphrases that widened "the subject is changed" were written in content,
+with no `unresolved` set, so the words go where they were written; coordinator's call on review).
+`unresolved` gains: nor what they put off: "ask me after I've slept" is an eventDate (a journal month stored
+that deferral as an open item, on the lane that raises). `status` gains a description: asked is a question or
+request of yours, waiting on them, not one they asked you — as `owner-waits.ts` reads an open `asked` (raised to the owner) and the
 close sweep leaves it; a model had used it for "she asked me, don't answer yet". +227 bytes on each of
 `remember` and `session_end`, every host (claude.ai's list 26,469 → 26,923 B, ceiling 28,500); the claude.ai
 trim overrides neither field, so the drift guard did not move. The manual's Fields section says the same,
