@@ -1005,7 +1005,8 @@ describe("a host that sets the page's room: the night's writers are told that ro
     const read = String(w.structuredContent["read"]);
     expect(read).toContain(`(its room is ${String(HOST_ROOM)})`);
     expect(read).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
-    expect(read).not.toContain(String(PAGE_ROOM_BYTES));
+    expect(read).not.toContain(`its room is ${String(PAGE_ROOM_BYTES)}`);
+    expect(read).not.toContain(`has ${String(PAGE_ROOM_BYTES)} bytes of room`);
     expect(String(w.structuredContent["how"])).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
     // The send-back: the room it was told.
     const body = `${STANDING} ${"More of the week, at length. ".repeat(30).trimEnd()}`;
@@ -1014,17 +1015,19 @@ describe("a host that sets the page's room: the night's writers are told that ro
     expect(held.structuredContent["over"]).toBe(Buffer.byteLength(body) - HOST_ROOM);
   });
 
-  test("the reflection: told 600 in its begin, and its finish sent back at 600", () => {
+  test("the reflection, through the reflect tool's begin: told 600, and its finish sent back at 600", async () => {
     const c = hosted();
     lived(c);
     const cite = mem(c, "Mike and I finished the release together and he said thank you.", { kind: "person", about: "us" });
-    const begun = c.reflections.begin({ session: SESSION });
-    if (!begun.ok) throw new Error(begun.reason);
+    const s = server(c, SESSION);
+    const begun = await s.call("reflect", { phase: "begin", session: SESSION });
+    expect(begun.isError ?? false).toBe(false);
     const text = JSON.stringify(begun);
     expect(text).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
     expect(text).not.toContain(`The whole page has ${String(PAGE_ROOM_BYTES)} bytes of room`);
     const page = `## Core\n\n${"I keep the work's account and say what I do not know. ".repeat(16)}`;
-    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "The release stands out.", cites: [cite], page: { text: page, cites: [cite] } });
+    const reflection = String(begun.structuredContent["reflection"]);
+    const done = c.reflections.finish({ reflection, session: SESSION, entry: "The release stands out.", cites: [cite], page: { text: page, cites: [cite] } });
     if (!done.ok) throw new Error(String(done.reason));
     expect(done.outcome.page).toMatchObject({ written: false, reason: "past-room" });
     expect(done.outcome.page.detail ?? "").toContain(`over its ${String(HOST_ROOM)}-byte room`);
@@ -1104,6 +1107,18 @@ describe("after skipped days, the night is the last day lived that no night has 
     // Nor past it: an older unwritten day behind a closed one stays behind it.
     on(c, day(7), "Something from a week back, never written.");
     expect(pageWriterNight(c.store).about).toBe(day(1));
+  });
+
+  test("yesterday a night took up stays the night when its memories are let go since: never walked past to an older day", () => {
+    const { c, day } = started();
+    on(c, day(4), "An older day no night wrote about.");
+    walkTo(c, 0);
+    const id = c.store.put({ type: "memory", kind: "fact", body: "Yesterday's one thing.", learnedOn: day(1) });
+    expect(c.claimNightWriter({ session: SESSION, run: "r-1" })).toMatchObject({ claimed: true, about: day(1) });
+    // Its only memory let go (a dream's forgetting, the owner's remove): yesterday reads empty.
+    c.store.archive(id, "let go");
+    expect(pageWriterNight(c.store).about).toBe(day(1));
+    expect(c.pageWriterDue({ mode: "session" })).toMatchObject({ due: false, about: day(1) });
   });
 
   test("the cap: seven days before yesterday is reached, eight is not, and 0 is yesterday only", () => {

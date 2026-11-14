@@ -413,6 +413,9 @@ function lastDayLived(store: Store, today: string, yesterday: string): string {
   try {
     // One read of the night's rows, newest first, filtered by day below.
     const runs = pageWriterRuns(store);
+    // Yesterday a night already took up (its rows let go since, by a dream or
+    // the owner) stays the night: never walked past.
+    if (runs.some((r) => r.about === yesterday && r.outcome !== "skipped")) return yesterday;
     let day = yesterday;
     for (let i = 0; i < steps; i += 1) {
       day = dayBefore(day);

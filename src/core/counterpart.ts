@@ -5801,7 +5801,8 @@ export class Counterpart {
    * moved out of the wake into the run: writer, then dream, then reflection,
    * one background agent (the owner's order, 2026-09-28). The claim is the
    * ordinary `asked` row for the night (`about` = yesterday's local calendar
-   * date, `pageWriterNight`), carrying the SESSION and the run — which is what
+   * date, or after empty days the last day lived that no night closed:
+   * `pageWriterNight`), carrying the SESSION and the run — which is what
    * lets the page's door record the writer's `self_page` write `by: "writer"`
    * (`nightClaimFor`). A claim this session already holds is reused (a run
    * started again claims nothing twice).
