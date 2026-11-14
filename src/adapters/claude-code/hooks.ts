@@ -49,7 +49,7 @@ import {
   WAKE_INJECTED_EVENT,
 } from "../../core/counterpart.js";
 import type { PlainReminder } from "../../core/counterpart.js";
-import { newNightRunId } from "../../core/dream/index.js";
+import { NIGHT_GAP_LINE, newNightRunId } from "../../core/dream/index.js";
 import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
 import { PRONOUN_RULE, coverFinish, meetingHold } from "../../core/onboarding.js";
 import type { DreamOffer } from "../../core/dream/index.js";
@@ -1287,8 +1287,11 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // and a run that cannot even be started falls back to the ask at once.
       let offer = dreams.offer({ at: input.at, session: input.sessionId });
       // NOT DUE, BUT WRITE-UPS OWED (2026-10-11): the night may start for its
-      // catch-up alone. Nothing is said to anyone, here or in the terminal.
-      if (offer === null) this.catchUpWhenOwed(input);
+      // catch-up alone. Nothing in the terminal; the session is told only the
+      // gap (2026-11-14), since this is the night most sure to owe sessions.
+      if (offer === null && this.catchUpWhenOwed(input)) {
+        lines.push(`Counterparts: earlier sessions are being written into memory in the background, on their own; nothing to launch or mention. ${NIGHT_GAP_LINE}`);
+      }
       if (offer !== null && offer.headless) {
         const started = dreams.claimOffer(offer) ? this.startNightRun(input, offer) : null;
         if (started === null) offer = null;
@@ -1415,6 +1418,15 @@ export class ClaudeCodeAdapter extends Lifecycle {
     }
   }
 
+  /** Whether the night `run` wrote at least one owed session up. Never throws. */
+  private caughtUpAny(run: string): boolean {
+    try {
+      return (catchUpOf(this.counterpart.store, run)?.written ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** CLAIM A HELD LINE the delivery is certainly about to show. Never throws. */
   claimHeld(input: HookInput, run: string): boolean {
     try {
@@ -1523,9 +1535,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
     const night = dreams.nightRun();
     if (night === null || night.state === "started" || night.state === "could-not-start") return [];
     // A run the host cut is told even when it journaled nothing: the cut may be why.
-    if (night.dream === null && night.reflection === null && (night.spills ?? 0) === 0) return [];
     // A READ on the per-prompt path once it is handed: nothing is written again.
     if (night.handedAt !== undefined) return [];
+    // A catch-up-only night that wrote sessions up hands back its re-check (2026-11-14).
+    if (night.dream === null && night.reflection === null && (night.spills ?? 0) === 0 && !this.caughtUpAny(night.run)) return [];
     const claimed = dreams.claimNightHandBack(night.run, input.sessionId);
     // Marked whether this prompt won the latch or found it held, so no later
     // prompt tries again (the same run and state: the event latch adds no row).
@@ -1546,7 +1559,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
     try {
       const cu = catchUpOf(this.counterpart.store, night.run);
       if (cu !== null && cu.granted > 0) {
-        out.push(`Counterparts: before it dreamed, the nightly run caught up on sessions that had ended before they were written up — ${catchUpWords(cu)}. Nothing to do; mention it only if asked.`);
+        out.push(`Counterparts: ${night.dream === null ? "" : "before it dreamed, "}the nightly run caught up on sessions that had ended before they were written up — ${catchUpWords(cu)}. Don't announce it${cu.written > 0 ? "; but if something you said earlier in this conversation turned on those sessions, recall that topic now and correct it plainly if it was off" : ""}.`);
       }
     } catch {
       /* the line is a courtesy */

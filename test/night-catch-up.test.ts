@@ -1393,6 +1393,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     // Nothing said to anyone: no line for the model, none for the terminal.
     expect(turn.dream).toBeUndefined();
     expect(turn.injection ?? "").not.toContain("nightly run");
+    // The night most sure to owe sessions says the gap (2026-11-14), and nothing of a dream.
+    expect(turn.injection ?? "").toContain("say you may not have it yet rather than guess");
     // A second session's prompt starts nothing more.
     prompt(a, "day2-2");
     expect(nightPlans()).toHaveLength(1);
@@ -1422,8 +1424,12 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(found?.detail).toContain("(the catch-up alone; too little new to dream on) finished");
     expect(found?.detail).toContain("catch-up: caught up 2 of 2 sessions");
     expect(nightRunLine(row)).toContain("done (the catch-up alone) — the catch-up ran; the dream and the reflection were skipped (too little new to dream on)");
-    // No hand-back for it: the mechanism did the work, it does not remind.
-    expect(prompt(a, "day2-3", { prompt: "back again" }).injection ?? "").not.toContain("the nightly run");
+    // Its only hand-back is the re-check (2026-11-14): no dream line, no announcing.
+    const back = prompt(a, "day2-3", { prompt: "back again" }).injection ?? "";
+    expect(back).toContain("Counterparts: the nightly run caught up on sessions");
+    expect(back).toContain("correct it plainly if it was off");
+    expect(back).not.toContain("before it dreamed");
+    expect(back).not.toContain("finished in the background");
   });
 
   test("no session end ever processed (lived day 0, `first-day`): the night still starts and writes day 1 up", async () => {

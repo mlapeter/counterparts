@@ -446,6 +446,16 @@ export function nightOrder(): NightPart[] {
   return parts;
 }
 
+/**
+ * WHILE THE NIGHT RUNS (2026-11-14, fable-continuity's $12 miss): the run
+ * writes up earlier sessions not yet written up first, so until it finishes,
+ * what was said in them may be missing from the wake and from recall (what was
+ * saved in the moment, chapters and journal rows are there). The session is
+ * told at the start not to fill that gap from a guess.
+ */
+export const NIGHT_GAP_LINE =
+  "Until the run finishes, earlier sessions not yet written into memory may be missing from your wake and recall: if a question turns on one, say you may not have it yet rather than guess.";
+
 /** Tonight's run in a few words, in its order: "updates your self page, then dreams, then reflects". */
 export function nightSummary(): string {
   const words: Record<NightPart, string> = { writer: "closes the day", dream: "dreams", reflection: "reflects" };
@@ -1198,7 +1208,7 @@ export class Dreams {
       const notice = `Counterparts: dreaming in the background (a few minutes). Say "no dreams" to turn it off.`;
       const context =
         `Counterparts: the nightly run started in the background earlier today, from a session nobody was watching (no terminal), and is still going. ${sayOnce(who)} ` +
-        `${who} may also see it in the terminal ("${notice}"). What it did comes to a later prompt. If ${who} says "no dreams", call the dream tool with phase "setting", session: ${session}, value: "off" — it takes effect from the next run.`;
+        `${who} may also see it in the terminal ("${notice}"). What it did comes to a later prompt. ${NIGHT_GAP_LINE} If ${who} says "no dreams", call the dream tool with phase "setting", session: ${session}, value: "off" — it takes effect from the next run.`;
       return { run: held.run, date: at, notice, context };
     } catch {
       return null;
@@ -1516,7 +1526,7 @@ export class Dreams {
           // the envelope has room for it. THE SESSION SAYS IT (2026-10-01, lane
           // 8, build 4): once, in its first reply, one plain sentence — the
           // terminal line is the extra.
-          `${sayOnce(who)} ${who} may also see it in the terminal ("${notice}"); if they ask, that is what is happening. What it did comes to a later prompt. ${off}`,
+          `${sayOnce(who)} ${who} may also see it in the terminal ("${notice}"); if they ask, that is what is happening. What it did comes to a later prompt. ${s.reflectOnly !== null ? "" : `${NIGHT_GAP_LINE} `}${off}`,
       };
     }
     if (fell !== null) {
