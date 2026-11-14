@@ -1490,3 +1490,20 @@ What it moves, on purpose:
   with the split on, every section with it off) that life used or a newer memory restated, each with the ids it
   rested on so a line brought back can cite them. Set-down memories are night rows (`source: reflection`), so they
   never reach `core`, `candidates` or `felt`.
+
+## 2026-11-13 — a host can hold the morning share (lightly held, an experiment)
+
+- The living journal (a product on hosted's `createApp`) saw a Haiku-run night share 7 times in a month, several
+  intrusive. Mike's ruling (11-13): build a host setting, lightly held. `shares: "off"`, or `sharesPerWeek: n`;
+  absent, today's behavior — the owner's own store shares every night and still does.
+- Decided once per finish, before anything that rides in a share (`Reflections#shareHeld`), and not for a
+  reflection that already offered one. The window is lived days, like every other window here (the reflection's
+  own day and the six before). It counts shares that reached a session — `told` (the carry writes it on delivery
+  since TC1) and the older `carried` — so a share offered and never told costs nothing against the cap.
+- Every way a share gets offered goes through the same gate, not only the reflection's own words: a became-core or
+  re-label line, the closed line, the core line, a join proposal. A self-close is listed as "may be done" instead
+  of closing unsaid; a join is not proposed (it would rest as asked); a became-core line waits for a night that
+  may share (its "mentioned" mark needs an offered share). Not a retry: nothing the reflection could send again
+  changes the host's setting.
+- Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`), and whether the
+  held self-closes piling up as "may be done" is a cost. Revisit or drop freely.
