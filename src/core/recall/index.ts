@@ -981,7 +981,8 @@ export class Recall {
         clock.lap("render");
         let s: { prefix: string; suffix: string } | null = null;
         try {
-          s = standingOf(this.store, id);
+          // Its `(earlier: …)` pointers, the best-reached this turn first.
+          s = standingOf(this.store, id, { rank: (e) => byId.get(e)?.activation });
         } catch {
           s = null;
         }

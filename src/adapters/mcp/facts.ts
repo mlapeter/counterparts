@@ -507,8 +507,11 @@ interface Candidate {
   score: number;
   readonly ways: Set<FactWay>;
   timeBy?: TimeBy;
-  /** Earlier memories (changed pairs) folded into this one because they matched. */
-  readonly foldedEarlier: Set<string>;
+  /**
+   * Earlier memories (changed pairs) folded into this one because they matched,
+   * each with the score it matched at — what orders its `earlier:` lines.
+   */
+  readonly foldedEarlier: Map<string, number>;
 }
 
 /** The row's learned moment and dates in the store's zone. */
@@ -930,7 +933,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const add = (id: string, way: FactWay, score: number): void => {
     let c = pool.get(id);
     if (c === undefined) {
-      c = { id, score: 0, ways: new Set(), foldedEarlier: new Set() };
+      c = { id, score: 0, ways: new Set(), foldedEarlier: new Map() };
       pool.set(id, c);
     }
     c.score += score;
@@ -1003,7 +1006,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       if (r.type !== "memory" || r.source !== "episode" || r.origin_ref === null || !r.origin_ref.startsWith("epi_")) continue;
       const chapter = r.origin_ref;
       if (visible(chapter) === undefined) continue;
-      const to = into.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      const to = into.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Map<string, number>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
       to.score = Math.max(to.score, c.score);
       for (const way of c.ways) to.ways.add(way);
       into.set(chapter, to);
@@ -1022,10 +1025,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
         head = next;
       }
       if (head === id) continue;
-      const to = into.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      const to = into.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Map<string, number>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
       to.score = Math.max(to.score, c.score);
       for (const way of c.ways) to.ways.add(way);
-      to.foldedEarlier.add(id);
+      to.foldedEarlier.set(id, Math.max(to.foldedEarlier.get(id) ?? 0, c.score));
       into.set(head, to);
       into.delete(id);
     }
@@ -1234,7 +1237,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     const listed = new Set<string>();
     for (const c of main) {
       listed.add(c.id);
-      for (const e of c.foldedEarlier) listed.add(e);
+      for (const e of c.foldedEarlier.keys()) listed.add(e);
     }
     const ids = new Set<string>(safe(() => store.datedMemories(ahead.from, ahead.to).map((d) => d.id), [] as string[]));
     for (const id of repeats().keys()) ids.add(id);
@@ -1403,11 +1406,22 @@ function factItem(
     const head = headOf(store, c.id);
     if (head !== null) now = canName(head) ? head : "a later version";
   }
-  // Matched earlier memories first, then by when they changed, newest first.
+  // Matched earlier memories first, the best match first (2026-11-14: two
+  // matched ones came out in whatever order the pairs were read); then by when
+  // they changed, newest first. The sort is stable: a tie keeps the order read —
+  // in-place versions newest first, then the pairs newest first
+  // (`contradictionsOf`: `created_at DESC, rowid DESC`), as the footnote's
+  // `(earlier: …)` does (`recall/standing.ts#standingOf`).
+  const matchedAt = (e: EarlierVersion): number | undefined => (e.id === undefined ? undefined : c.foldedEarlier.get(e.id));
   earlier.sort((a, b) => {
-    const fa = a.id !== undefined && c.foldedEarlier.has(a.id) ? 0 : 1;
-    const fb = b.id !== undefined && c.foldedEarlier.has(b.id) ? 0 : 1;
-    return fa - fb || (b.changed ?? "").localeCompare(a.changed ?? "");
+    const sa = matchedAt(a);
+    const sb = matchedAt(b);
+    if (sa !== undefined || sb !== undefined) {
+      if (sa === undefined) return 1;
+      if (sb === undefined) return -1;
+      if (sa !== sb) return sb - sa;
+    }
+    return (b.changed ?? "").localeCompare(a.changed ?? "");
   });
   // Corrected: those the question's words reach first (a search that names
   // one should find it here), then the latest corrected.
