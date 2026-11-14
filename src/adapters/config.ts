@@ -413,7 +413,7 @@ export interface AdapterConfig {
    * THE MORNING SHARE, as the host wants it (2026-11-13, an experiment,
    * lightly held; `CounterpartOptions.shares` / `sharesPerWeek`): `"shares":
    * "off"` and the night's reflection offers no share; `"sharesPerWeek": n`
-   * caps the shares told over the last 7 lived days. A product on hosted sets
+   * caps the shares offered over the last 7 calendar days (0 is off). A product on hosted sets
    * them through `createApp`, which writes them here for the worker's night.
    * Read leniently and quietly: only `"off"`/`"on"` and a number of zero or
    * more are read; anything else is ignored. Absent: on, no cap.

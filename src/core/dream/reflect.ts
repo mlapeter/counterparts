@@ -288,8 +288,9 @@ export const REFLECT_TUNABLES = {
   /**
    * THE HOST'S WEEKLY CAP ON THE MORNING SHARE (2026-11-13, an experiment,
    * lightly held): `ReflectContext.shares.perWeek` counts the shares offered
-   * by the reflections of this many lived days, the reflection's own day
-   * included (`Reflections#shareHeld`). Lived days, as every other window here.
+   * by the reflections dated in this many calendar days, ending on the
+   * reflection's own date (`Reflections#shareHeld`). Calendar days, not lived:
+   * to a host a week is a week, and lived days stand still while the person is away.
    */
   SHARE_WEEK_DAYS: 7,
 } as const;
@@ -627,10 +628,12 @@ export interface ReflectContext {
   /**
    * THE HOST'S MORNING-SHARE SETTING (2026-11-13, an experiment, lightly
    * held; `CounterpartOptions.shares`): `off`, or a cap of `perWeek` shares
-   * offered over `SHARE_WEEK_DAYS` lived days. Held, the reflection still writes
+   * offered over `SHARE_WEEK_DAYS` calendar days (0 is off). Held, the reflection still writes
    * its entry; nothing is offered, and nothing that rides in a share happens
    * (a self-close is listed as "may be done" instead, no folders are
-   * proposed to join). Absent: on, no cap — today's behavior.
+   * proposed to join), nor anything that would change the self unsaid (a
+   * re-label into me, us or the owner, a core retire: deferred). Off, a share
+   * offered before is not delivered either. Absent: on, no cap — today's behavior.
    */
   readonly shares?: { readonly mode: "on" | "off"; readonly perWeek?: number };
   readonly today: () => string;
@@ -1469,6 +1472,19 @@ export class Reflections {
         }),
       );
     }
+    // The share as it stands on the row (used from (c) on), and THE HOST'S
+    // SETTING (2026-11-13, an experiment): `off`, or this week's cap reached.
+    // Decided once, before anything that rides in a share or would change the
+    // self unsaid; a share this reflection already offered is not withdrawn.
+    const shareLocked = again && (row.share_state === "told" || row.share_state === "carried");
+    const earlierShare = again && !shareLocked && row.share_state === "offered" && row.share !== null ? { text: row.share, cites: parseIds(row.share_cites) } : null;
+    const held = shareLocked || earlierShare !== null ? null : this.shareHeld(row);
+    // What a held night left undone, so the self never changes unsaid
+    // (CONSTITUTION §4, §16): a re-label into me, us or the owner, and a core
+    // retire. Each stays as it was, to be asked again (`detail.deferred`).
+    const deferred: { id: string; part: "about" | "core"; to: string }[] = [];
+    const deferredDetail = (what: string): string =>
+      `The morning share is held tonight (${held?.reason ?? ""}), so ${what} would change who I am without anyone being told: it is left as it was, for a night that may share or the waking session.`;
     const about: PartResult[] = [];
     // THE DOOR (owner ruling D1 on #256): closed, a reflection may only move a
     // mark toward work or world. Open, it may re-label either way (D2: "it's me
@@ -1520,6 +1536,13 @@ export class Reflections {
       // EVERY RE-LABEL CARRIES ITS REASON (owner ruling D2 on #256) — asked
       // for, and recorded as missing when it is not given (2026-09-28: was
       // refused `about-needs-why`).
+      // HELD, A MOVE INTO ME, US OR THE OWNER WAITS (2026-11-13): it is said
+      // in the share, and there is none tonight.
+      if (held !== null && core && r.kind !== "skill" && !(CORE_ABOUT_MARKS as readonly string[]).includes(r.about ?? "")) {
+        deferred.push({ id: r.id, part: "about", to: mark });
+        about.push({ id, ok: false, reason: "deferred-share-held", detail: deferredDetail(`marking ${r.id} ${mark}`) });
+        continue;
+      }
       const why = this.words(a.why ?? "", session, T.MAX_WHY_CHARS, true);
       const whyText = why.ok && why.text.length > 0 ? why.text : "no why given";
       if (!why.ok) notes.push(`The why was not kept — ${why.detail}`);
@@ -1565,6 +1588,13 @@ export class Reflections {
       const why = this.words(c.why ?? "", session, T.MAX_WHY_CHARS, true);
       if (!why.ok || why.text.length === 0) {
         coreDecisions.push({ id, ok: false, reason: "why-required", detail: why.ok ? "Say why: a decision on the core is kept with its reason." : `The why was not kept — ${why.detail}` });
+        continue;
+      }
+      // HELD, A RETIRE WAITS (2026-11-13): the core line says it, and there is
+      // none tonight. It stays waiting; a keep changes nothing and stands.
+      if (held !== null && c.decision === "retire") {
+        deferred.push({ id: r.id, part: "core", to: "retire" });
+        coreDecisions.push({ id, ok: false, reason: "deferred-share-held", detail: deferredDetail(`retiring ${r.id}`) });
         continue;
       }
       const reason = `${why.text} (reflection ${row.id})`;
@@ -1856,8 +1886,6 @@ export class Reflections {
     // ── (c) the share ──────────────────────────────────────────────────────
     // A share already told, or handed to another session to tell, is not
     // replaced; one only offered may be (a second finish, 2026-09-28).
-    const shareLocked = again && (row.share_state === "told" || row.share_state === "carried");
-    const earlierShare = again && !shareLocked && row.share_state === "offered" && row.share !== null ? { text: row.share, cites: parseIds(row.share_cites) } : null;
     let shareText = earlierShare?.text ?? "";
     let finalShareCites = [...(earlierShare?.cites ?? [])];
     let share: ReflectOutcome["share"] =
@@ -1866,10 +1894,6 @@ export class Reflections {
         : shareLocked
           ? { offered: false, reason: `${row.share_state}-earlier` }
           : { offered: false, reason: nothingMuch ? "nothing-much" : "no-share" };
-    // THE HOST'S SETTING (2026-11-13, an experiment): `off`, or this week's
-    // cap reached. Decided once, before anything that rides in a share; a
-    // share this reflection already offered is not withdrawn.
-    const held = shareLocked || earlierShare !== null ? null : this.shareHeld(row);
     const rawShare = (input.share?.text ?? "").trim();
     // What the share's own words hit, kept apart: a became-core line may still
     // make a share below, and the retry must say THESE words were not written.
@@ -2138,7 +2162,7 @@ export class Reflections {
       if (share.offered || rawShare.length > 0) {
         share = { offered: false, reason: held.reason, detail: held.detail };
         heldSaid = held.reason;
-      } else if (heldClose > 0) heldSaid = held.reason;
+      } else if (heldClose > 0 || deferred.length > 0) heldSaid = held.reason;
     }
 
     // REPLACING AN OFFERED SHARE IS A CLAIM (review of #268): a later session
@@ -2233,6 +2257,8 @@ export class Reflections {
     // Why a share was not offered, when the host held it (2026-11-13): a later
     // look at the experiment reads it here.
     if (heldSaid !== null) detail["shareHeld"] = heldSaid;
+    if (deferred.length > 0) detail["deferred"] = [...(Array.isArray(prior["deferred"]) ? (prior["deferred"] as unknown[]) : []), ...deferred];
+    else if (Array.isArray(prior["deferred"])) detail["deferred"] = prior["deferred"];
     if (ownLine.line !== null) detail["line"] = ownLine.line;
     if (ownLine.refused > 0) detail["lineRefused"] = ownLine.refused;
     // Lane F: how many "## Core" sentences of the page written rest on no spine belief.
@@ -2386,7 +2412,7 @@ export class Reflections {
     for (const c of closeRefused) missed.push(`close (${c.id}) — ${c.reason}`);
     for (const [part, list] of [["feelings", feelings], ["about", about], ["core", coreDecisions], ["traits", traits], ["beliefs.births", beliefParts.births], ["beliefs.filings", beliefParts.filings], ["beliefs.retire", beliefParts.retire], ["beliefs.adopt", beliefParts.adopt]] as const) {
       list.forEach((x, i) => {
-        if (!x.ok) missed.push(`${part}[${String(i)}]${x.id === null ? "" : ` (${x.id})`} — ${x.reason}${x.detail !== undefined ? `: ${x.detail}` : ""}`);
+        if (!x.ok && x.reason !== "deferred-share-held") missed.push(`${part}[${String(i)}]${x.id === null ? "" : ` (${x.id})`} — ${x.reason}${x.detail !== undefined ? `: ${x.detail}` : ""}`);
       });
     }
     const retry =
@@ -3114,10 +3140,11 @@ export class Reflections {
   /**
    * THE HOST'S MORNING-SHARE SETTING, applied (2026-11-13, an experiment,
    * lightly held): null when this night may offer one. `off` holds every
-   * share; `perWeek` holds one once that many shares were offered by the
-   * reflections of the last `SHARE_WEEK_DAYS` lived days (by the night that
-   * wrote it, not the day it was told), this reflection's own day included
-   * and itself not counted. An offered share not told yet IS counted: it stays
+   * share, and so does a `perWeek` of 0; `perWeek` holds one once that many
+   * shares were offered by the reflections dated in the `SHARE_WEEK_DAYS`
+   * calendar days ending on this reflection's date, in the store's zone (by
+   * the night that wrote it, not the day it was told; calendar days, since
+   * lived days stand still while the person is away), itself not counted. An offered share not told yet IS counted: it stays
    * deliverable (`pendingShare` finds the newest offered one however old, and
    * the next after it), so "never told" cannot be told apart from "not told
    * yet". A cap that is not a number of zero or more is no cap.
@@ -3125,13 +3152,14 @@ export class Reflections {
   private shareHeld(row: ReflectionRow): { reason: "host-off" | "weekly-cap"; detail: string } | null {
     const s = this.ctx.shares;
     if (s === undefined) return null;
-    if (s.mode === "off") return { reason: "host-off", detail: "The host has the morning share off, so none is offered; the entry and everything else stand." };
+    if (this.sharesOff()) return { reason: "host-off", detail: "The host has the morning share off, so none is offered; the entry and everything else stand." };
     const cap = s.perWeek;
     if (typeof cap !== "number" || !Number.isFinite(cap) || cap < 0) return null;
-    const since = row.day - (REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1);
+    const until = row.date !== null && isDay(row.date) ? row.date : this.store.today();
+    const since = addDays(until, -(REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1));
     let told = 0;
     for (const r of this.store.reflections({ limit: 200 })) {
-      if (r.id === row.id || r.day < since || r.day > row.day) continue;
+      if (r.id === row.id || r.date === null || r.date < since || r.date > until) continue;
       if (r.share !== null && (r.share_state === "offered" || r.share_state === "told" || r.share_state === "carried")) told += 1;
     }
     if (told < Math.floor(cap)) return null;
@@ -3141,9 +3169,19 @@ export class Reflections {
     };
   }
 
-  /** The newest share offered and never told nor carried, from another session. A read. */
+  /** The host has the morning share off (`off`, or a cap of 0): nothing is offered, and nothing offered before is delivered. */
+  private sharesOff(): boolean {
+    const s = this.ctx.shares;
+    if (s === undefined) return false;
+    return s.mode === "off" || (typeof s.perWeek === "number" && s.perWeek >= 0 && s.perWeek < 1);
+  }
+
+  /**
+   * The newest share offered and never told nor carried, from another session. A read.
+   * None while the host has shares off (2026-11-13): one offered before it turned them off is not delivered after.
+   */
   pendingShare(input: { session: string }): ReflectionRow | null {
-    if (this.ctx.observer) return null;
+    if (this.ctx.observer || this.sharesOff()) return null;
     // By state (2026-09-28, build B): an offered share older than the newest
     // five reflections is still found.
     const row = this.store.reflectionsWithShare("offered", 1)[0];
@@ -3167,7 +3205,7 @@ export class Reflections {
    * is none to carry.
    */
   carryLine(input: { session: string; reflection: string }): string | null {
-    if (this.ctx.observer) return null;
+    if (this.ctx.observer || this.sharesOff()) return null;
     const row = this.store.reflection(input.reflection);
     if (row === undefined || row.share_state !== "offered" || row.share === null) return null;
     // A CLAIM, not a read then a write (review of #256, S5): two prompts

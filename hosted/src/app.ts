@@ -115,7 +115,7 @@ export interface AppOptions {
   readonly nights?: TenantsOptions["nights"];
   /** `TenantsOptions.shares` (2026-11-13, an experiment): `off` and no store's night offers a morning share. Absent: on. */
   readonly shares?: TenantsOptions["shares"];
-  /** `TenantsOptions.sharesPerWeek` (2026-11-13): at most this many shares told over the last 7 lived days. Absent: no cap. */
+  /** `TenantsOptions.sharesPerWeek` (2026-11-13): at most this many shares offered over the last 7 calendar days (every offered share counts, told or not yet; 0 is off). Absent: no cap. */
   readonly sharesPerWeek?: TenantsOptions["sharesPerWeek"];
   /** `TenantsOptions.storeClock`: each store's clock and its server's (tests that move a store across days). Absent: the system clock. Not the accounts' clock (`now`). */
   readonly storeClock?: TenantsOptions["storeClock"];

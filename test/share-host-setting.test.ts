@@ -1,10 +1,13 @@
 /**
  * THE HOST'S MORNING-SHARE SETTING (2026-11-13, an experiment, lightly held;
  * `CounterpartOptions.shares` / `sharesPerWeek`, `core/dream/reflect.ts#shareHeld`).
- * A host may turn the nightly morning share off, or cap it at so many told a
- * week (the last 7 lived days). Held, the reflection still writes its entry;
- * the share is simply not offered, with the reason on the outcome and the row.
- * Default: on, no cap — today's behavior.
+ * A host may turn the nightly morning share off, or cap it at so many offered a
+ * week (the reflections dated in the last 7 calendar days; every offered share
+ * counts, told or not yet; 0 is off). Held, the reflection still writes its
+ * entry; the share is simply not offered, with the reason on the outcome and
+ * the row, and nothing that would change the self unsaid is applied (a
+ * re-label into me, a core retire: deferred). Off, a share offered before is
+ * not delivered. Default: on, no cap — today's behavior.
  *
  * The night cases go through the reflect tool on a night child's server, as
  * the dream's reflection calls it. Hermetic: a temp dir made and removed here;
@@ -148,10 +151,10 @@ describe("the host's morning-share setting, through the night's reflect tool", (
     expect(r["share"]).toBeNull();
   });
 
-  test("a weekly cap: every share offered by the last 7 lived days' nights counts, told or not yet; the window's last day holds, the next offers", async () => {
+  test("a weekly cap: every share offered by the nights dated in the last 7 calendar days counts, told or not yet; the window's last day holds, the next offers", async () => {
     const c = brain({ sharesPerWeek: 1 });
     const s = nightDoor(c);
-    const dayOf = (id: string): number => c.store.reflection(id)?.day ?? -1;
+    const dateOf = (id: string): string => c.store.reflection(id)?.date ?? "";
     // Night 1: offered and not told yet. It stays deliverable, so it counts.
     nextDay(c);
     const one = await night(c, s);
@@ -160,53 +163,119 @@ describe("the host's morning-share setting, through the night's reflect tool", (
     // Night 2: the cap is one — held.
     nextDay(c);
     const two = await night(c, s);
-    expect(dayOf(two.id)).toBe(dayOf(one.id) + 1);
+    expect(dateOf(two.id)).toBe(addDays(dateOf(one.id), 1));
     expect(share(two.out)).toMatchObject({ offered: false, reason: "weekly-cap" });
     expect(String(share(two.out)["detail"])).toContain("1 morning share a week and 1 was offered");
     expect(two.out["retry"] ?? null).toBeNull();
     expect(c.store.reflection(two.id)?.share_state).toBe("none");
     expect(c.store.reflection(two.id)?.entry_id).not.toBeNull();
     expect(detail(c, two.id)["shareHeld"]).toBe("weekly-cap");
-    // Told, it still counts once (by the night that wrote it), and a held night counts nothing.
+    // Told, it still counts once (by the night that wrote it); a held night counts nothing.
     expect(c.reflections.carryLine({ session: NEXT, reflection: one.id })).not.toBeNull();
     expect(c.store.reflection(one.id)?.share_state).toBe("told");
-    // The window's last lived day (night 1's day + 6) still holds...
+    // The window's last calendar day (night 1's date + 6) still holds...
     let last = two;
-    while (dayOf(last.id) < dayOf(one.id) + REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1) {
+    while (dateOf(last.id) < addDays(dateOf(one.id), REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1)) {
       nextDay(c);
       last = await night(c, s);
       expect(share(last.out)).toMatchObject({ offered: false, reason: "weekly-cap" });
     }
-    expect(dayOf(last.id)).toBe(dayOf(one.id) + REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1);
+    expect(dateOf(last.id)).toBe(addDays(dateOf(one.id), REFLECT_TUNABLES.SHARE_WEEK_DAYS - 1));
     // ...and the next day is past it: offered again.
     nextDay(c);
     const after = await night(c, s);
-    expect(dayOf(after.id)).toBe(dayOf(one.id) + REFLECT_TUNABLES.SHARE_WEEK_DAYS);
+    expect(dateOf(after.id)).toBe(addDays(dateOf(one.id), REFLECT_TUNABLES.SHARE_WEEK_DAYS));
     expect(share(after.out)).toMatchObject({ offered: true });
   });
 
-  test("off, with no share words at all: a line that would have made one (a re-label into me) is not offered either", async () => {
-    const relabelNight = async (c: Counterpart): Promise<{ id: string; out: Record<string, unknown> }> => {
-      const s = nightDoor(c);
-      c.store.advanceClock(addDays(START, 1));
-      const m = mem(c, "I like keeping the seed packets in date order.");
-      clock = at(addDays(START, 2), 3);
-      const begun = (await s.call("reflect", { phase: "begin", session: SESSION })).structuredContent;
+  test("the week is calendar days: away 30 days (one lived day later), the cap no longer holds", async () => {
+    const c = brain({ sharesPerWeek: 1 });
+    const s = nightDoor(c);
+    nextDay(c);
+    const one = await night(c, s);
+    expect(share(one.out)).toMatchObject({ offered: true });
+    const dayBefore = c.store.livedDay();
+    dayN += 29;
+    nextDay(c);
+    expect(c.store.livedDay()).toBe(dayBefore + 1);
+    const back = await night(c, s);
+    expect(c.store.reflection(back.id)?.day).toBe((c.store.reflection(one.id)?.day ?? 0) + 1);
+    expect(share(back.out)).toMatchObject({ offered: true });
+  });
+
+  test("sharesPerWeek 0 is off: host-off, not weekly-cap", async () => {
+    const c = brain({ sharesPerWeek: 0 });
+    const s = nightDoor(c);
+    nextDay(c);
+    const { out } = await night(c, s);
+    expect(share(out)).toMatchObject({ offered: false, reason: "host-off" });
+  });
+
+  test("a share offered before the host turned shares off is not delivered after", async () => {
+    const before = brain();
+    const s = nightDoor(before);
+    nextDay(before);
+    const { id, out } = await night(before, s);
+    expect(share(out)).toMatchObject({ offered: true });
+    before.close();
+    open.splice(open.indexOf(before), 1);
+    const c = brain({ shares: "off" });
+    expect(c.reflections.pendingShare({ session: NEXT })).toBeNull();
+    expect(c.reflections.carryLine({ session: NEXT, reflection: id })).toBeNull();
+    expect(c.store.reflection(id)?.share_state).toBe("offered");
+    // A cap (not off) still lets an older offered share be delivered.
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const capped = brain({ sharesPerWeek: 1 });
+    expect(capped.reflections.pendingShare({ session: NEXT })?.id).toBe(id);
+  });
+
+  test("held, the self does not change unsaid: a core retire and a re-label into me are deferred, and a night that may share still can", async () => {
+    const c = brain({ shares: "off" });
+    const s = nightDoor(c);
+    nextDay(c);
+    const coreId = mem(c, "I keep the seed tin by the back door.", { about: "me" });
+    c.store.updatePhysics(coreId, { promotedIdentity: true });
+    c.store.setBand(coreId, "identity", c.store.livedDay());
+    c.store.appendCoreEvent({ memoryId: coreId, action: "promoted", day: c.store.livedDay(), lane: "fast", actor: "sleep" });
+    const plain = mem(c, "I like keeping the seed packets in date order.");
+    const heldNight = async (srv: McpServer): Promise<{ id: string; out: Record<string, unknown> }> => {
+      clock += 20 * HOUR;
+      const begun = (await srv.call("reflect", { phase: "begin", session: SESSION })).structuredContent;
       const id = String(begun["reflection"]);
-      const out = (await s.call("reflect", { phase: "finish", session: SESSION, reflection: id, entry: "A look back.", cites: [m], about: [{ id: m, about: "me", why: "it is how I keep things" }] })).structuredContent;
+      const out = (
+        await srv.call("reflect", {
+          phase: "finish",
+          session: SESSION,
+          reflection: id,
+          entry: "A look back.",
+          cites: [plain],
+          about: [{ id: plain, about: "me", why: "it is how I keep things" }],
+          core: [{ id: coreId, decision: "retire", why: "A habit, not who I am." }],
+        })
+      ).structuredContent;
       return { id, out };
     };
-    // Without the setting, that line is the share (so the case below is not vacuous).
-    const plain = await relabelNight(brain({}, join(root, "plain")));
-    expect(share(plain.out)).toMatchObject({ offered: true, reason: "relabeled" });
-    clock = at(START, 7);
-    const c = brain({ shares: "off" });
-    const { id, out } = await relabelNight(c);
-    expect(out["about"]).toEqual({ written: 1 });
-    expect(share(out)).toMatchObject({ offered: false, reason: "host-off" });
-    expect(c.store.reflection(id)?.share).toBeNull();
-    expect(c.store.reflection(id)?.share_state).toBe("none");
+    const { id, out } = await heldNight(s);
+    expect(out["retry"] ?? null).toBeNull();
+    expect(c.store.physicsOf(coreId).promotedIdentity).toBe(true);
+    expect(c.store.row(plain)?.about ?? null).not.toBe("me");
+    expect(detail(c, id)["deferred"]).toEqual([
+      { id: plain, part: "about", to: "me" },
+      { id: coreId, part: "core", to: "retire" },
+    ]);
     expect(detail(c, id)["shareHeld"]).toBe("host-off");
+    expect(share(out)["offered"]).toBe(false);
+    expect(c.store.reflection(id)?.share_state).toBe("none");
+    // The next night, with shares on, acts on both, and says them.
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const d = brain();
+    nextDay(d);
+    const later = await heldNight(nightDoor(d));
+    expect(d.store.physicsOf(coreId).promotedIdentity).toBe(false);
+    expect(d.store.row(plain)?.about).toBe("me");
+    expect(share(later.out)).toMatchObject({ offered: true });
   });
 
   test("held, nothing that rides in a share happens: a self-close is listed as may be done, not closed", async () => {
