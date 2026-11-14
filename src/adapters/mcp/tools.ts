@@ -314,10 +314,17 @@ const REMOVE_PROPERTY = {
  * counterpart needs from the person, a promise, a dated check — never
  * curiosity about how something went, which the Still open lane carried as if
  * it were owed. The Stop ask says the same (`claude-code/hooks.ts#OPEN_MEANS`).
+ *
+ * NOT A CLOSING OR A DEFERRAL (2026-11-14, the closing-words review; Mike's
+ * go, words only): a simulated month stored "ask me after I've slept" as an
+ * open item with a settlesWhen, on the lane that raises. What they closed or
+ * put off is kept in their words, as far as it reached; a time they named is
+ * the date it comes back on.
  */
 export const UNRESOLVED_PROPERTY = {
   type: "boolean",
-  description: "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went.",
+  description:
+    "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went, nor what they closed or put off: keep that in their words, as far as it reached; \"ask me after I've slept\" is an eventDate.",
 };
 
 /**
@@ -416,7 +423,18 @@ const OCCURRED_ON_PROPERTY = {
 
 const SAID_BY_PROPERTY = { type: "string", enum: ["owner", "self", "inferred"] } as const;
 
-const STATUS_PROPERTY = { type: "string", enum: ["done", "planned", "proposed", "asked"] } as const;
+/**
+ * `asked`, said (2026-11-14, the closing-words review; Mike's go, words only):
+ * the engine reads an open `asked` memory as waiting on the owner and raises
+ * it (`owner-waits.ts`, `counterpart-wake-shape.ts#owedOne`), and the night's
+ * close sweep leaves it open. Unsaid, a model marked "she asked me, don't
+ * answer yet" with it: the inversion.
+ */
+const STATUS_PROPERTY = {
+  type: "string",
+  enum: ["done", "planned", "proposed", "asked"],
+  description: "asked: a question or request of yours still waiting on them, not one they asked you.",
+} as const;
 
 const KIND_PROPERTY = { type: "string", enum: ["self", "person", "entity", "skill", "place", "fact"] } as const;
 

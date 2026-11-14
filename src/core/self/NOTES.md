@@ -3359,3 +3359,16 @@ don't churn), and whether a night after a skipped day writes about the last day 
   - *Tests moved.* Two tests pinned the old rule with a day inside the walk's reach (an every-other-day store, a
     twice-a-week machine). Their point was that an empty day is not asked about; they now put the lived day past
     the reach, and the new tests in `nightly-run.test.ts` cover the walk.
+
+## 2026-11-14 — a person's own words about how to treat them (`OWN_WORDS_RULE`)
+
+- A simulated week (season two): Wren's "if i tell you something heavy and then change the subject, the subject
+  is changed" became, on night 1's page, "I don't bring personal things up unprompted", and the keep line ("every
+  sentence that still holds, word for word") held it all week; the counterpart didn't ask after her dad's new fall.
+  2 of 4 draws of that night widened her words. `HOW_I_WORK_RULE`'s "general lessons" pushed the widening.
+- Words only, one sentence in `PAGE_WRITING_RULE` (day's end and the reflection, both forms): a stated preference
+  keeps their words and scope, a line wider than them does not "still hold" (so the keep lines, in all three
+  branches, don't keep a paraphrase), and something new on the subject is a reason to ask once. Its own constant
+  because a page in its own form drops `HOW_I_WORK_RULE`. The writer instruction's pin went 2,450 → 2,800 bytes.
+- Not traced: whether the night-1 writer was shown her verbatim memory. Showing her words may matter more than any
+  rule sentence; a re-run of season two week 1 is the check.
