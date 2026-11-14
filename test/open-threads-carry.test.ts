@@ -142,7 +142,7 @@ describe("1. open means someone owes an answer", () => {
       expect(d).toContain("true only when something is blocked on it: a decision you need from them, a promise, a dated check");
       expect(d).toContain("Never curiosity about how something went");
       // The closing words (2026-11-14): a deferral is not open, a named time is a date; their words ride on text/content.
-      expect(d).toContain("nor what they put off: \"ask me after I've slept\" is an eventDate");
+      expect(d).toContain("nor what they put off: \"ask me after I've slept\" is an eventDate (the next day)");
     }
     // `asked` is said: waiting on THEM, as the engine reads it (`owner-waits.ts`), not one they asked you.
     const statusOf = (tool: string, entry: boolean): string | undefined => {

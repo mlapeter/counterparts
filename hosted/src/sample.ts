@@ -87,7 +87,7 @@ export async function seedSample(server: McpServer): Promise<void> {
   });
   await id({ text: "Biscuit's flea and tick tablet is due once a month.", title: "Biscuit's monthly tablet", kind: "fact", about: "owner", saidBy: "owner", eventDate: day(1), recurring: "monthly", remind: "plain", tags: ["biscuit"] });
   await id({ text: "Sam is training for the Riverside half marathon, three runs a week, the long one on Saturday.", title: "Half marathon training", kind: "person", about: "owner", saidBy: "owner", status: "planned", eventDate: day(38), tags: ["running"] });
-  await id({ text: "The science fair is judged in the gym; Sam is collecting volunteer judges from the parents.", title: "Science fair judges", kind: "fact", about: "work", saidBy: "owner", status: "asked", eventDate: day(16), tags: ["school", "science-fair"] });
+  await id({ text: "The science fair is judged in the gym; Sam is collecting volunteer judges from the parents.", title: "Science fair judges", kind: "fact", about: "work", saidBy: "owner", status: "planned", eventDate: day(16), tags: ["school", "science-fair"] });
   await id({ text: 'Sam on teaching: "If they can explain it to a friend, they understand it."', title: "What understanding looks like, for Sam", kind: "person", about: "owner", saidBy: "owner", salience: 0.55, tags: ["teaching"] });
   await id({ text: "When Sam asks for a plan, I give the first step first and leave the rest as a short list: Sam picks it up from there.", title: "How I help Sam plan", kind: "skill", about: "us", saidBy: "self" });
 

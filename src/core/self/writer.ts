@@ -271,7 +271,7 @@ export const HOW_I_WORK_RULE =
  * (day's end and the reflection). Revert: drop it from there.
  */
 export const OWN_WORDS_RULE =
-  `A preference someone stated about how to treat them is not a lesson to generalise: keep it in their words and at their scope ("the subject is changed" is not "never bring personal things up"), and a line wider than their words does not still hold. It covers the moment they meant: something new happening on that subject is a reason to ask once.`;
+  `A preference someone stated about how to treat them is not a lesson to generalise: keep it in their words and at their scope ("the subject is changed" is not "never bring personal things up"), and a line wider than their words does not still hold. Unless they said "never", a preference covers the moment they meant, not the subject: something new happening on that subject is a reason to ask about it once.`;
 
 /**
  * THE ROOM, SAID PLAINLY (2026-10-20, with the nightly writers held to it;

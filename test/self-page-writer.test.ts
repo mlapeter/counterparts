@@ -598,8 +598,8 @@ describe("the instruction the writer reads", () => {
     // 2026-10-16: "## How I work" as a few short lessons, `HOW_I_WORK_RULE`;
     // 2,300 since 2026-10-26: no record is unknown, `NO_RECORD_RULE`; 2,450
     // since 2026-11-13: a line still ahead after it passed, `AHEAD_PASSED_RULE`;
-    // 2,800 since 2026-11-14: a person's own words at their scope, `OWN_WORDS_RULE`.)
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2800);
+    // 2,900 since 2026-11-14: a person's own words at their scope, `OWN_WORDS_RULE`, its "never" kept on review.)
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2900);
   });
 
   test("it names the session id, so the write can be recorded as the night's", () => {

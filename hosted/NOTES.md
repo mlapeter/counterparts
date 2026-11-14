@@ -579,3 +579,8 @@ client reads the wake.
   worker's night reads it: the night's reflection finishes on `mcp/bin/serve.ts`, which reads that file) and the
   tenant's own server (`openServer`). Absent: on, no cap, as claude.ai's stores have it. The rule itself lives in
   `core/dream/reflect.ts#shareHeld`; its NOTES entry says what is held and what is counted. Lightly held.
+
+## 2026-11-14 — the sample's "Science fair judges" is `planned`, not `asked` (#829)
+
+`asked` means a question or request of the counterpart's still waiting on the owner, and the wake raises it
+("Waiting on …"); the science-fair line waits on nobody. The lake-cabin question stays `asked`.

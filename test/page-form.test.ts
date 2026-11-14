@@ -183,7 +183,8 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
     // A person's own words (2026-11-14): heard in both forms, not only beside "## How I work".
     expect(pageWritingRule("own")).toContain(OWN_WORDS_RULE);
     expect(OWN_WORDS_RULE).toContain("does not still hold");
-    expect(OWN_WORDS_RULE).toContain("a reason to ask once");
+    expect(OWN_WORDS_RULE).toContain(`Unless they said "never", a preference covers the moment they meant, not the subject`);
+    expect(OWN_WORDS_RULE).toContain("a reason to ask about it once");
   });
 
   test("a line still ahead after it passed (2026-11-13): one sentence, about lines that still read as ahead, in both forms; and the host's room in place of the default", () => {

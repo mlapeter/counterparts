@@ -3372,3 +3372,6 @@ don't churn), and whether a night after a skipped day writes about the last day 
   because a page in its own form drops `HOW_I_WORK_RULE`. The writer instruction's pin went 2,450 → 2,800 bytes.
 - Not traced: whether the night-1 writer was shown her verbatim memory. Showing her words may matter more than any
   rule sentence; a re-run of season two week 1 is the check.
+- On review (#829): the second sentence now keeps an explicit "never" standing and asks once per new event —
+  `Unless they said "never", a preference covers the moment they meant, not the subject: …a reason to ask about it
+  once.` The writer instruction's pin went to 2,900 bytes (2,815 measured).

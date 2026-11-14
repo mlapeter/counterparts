@@ -2331,3 +2331,10 @@ close sweep leaves it; a model had used it for "she asked me, don't answer yet".
 `remember` and `session_end`, every host (claude.ai's list 26,469 → 26,923 B, ceiling 28,500); the claude.ai
 trim overrides neither field, so the drift guard did not move. The manual's Fields section says the same,
 longer. The Stop ask's `OPEN_MEANS` was left as it is (per-session bytes).
+
+On review (#829): `text` / `content` now say "What they ask of you, and a subject they close or put off: their
+words, no wider than they said." as its own sentence (the "word for word" pin restored); `unresolved`'s example
+resolves to a date ("is an eventDate (the next day)"); `status` is "a question or request of yours, waiting on
+them, not one they asked you." Net vs master: +285 B on `remember`, +285 B on `session_end` (claude.ai's list
+26,469 → 27,039 B). The hosted sample's "Science fair judges" was `asked` with nothing waiting on the owner: now
+`planned`.
