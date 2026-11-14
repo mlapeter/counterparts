@@ -685,7 +685,8 @@ describe("the tool-description audit", () => {
     // claude.ai's own `scope` (2026-11-03) is held the same way.
     // claude.ai's own `delete_memory` (DIR1, 2026-11-10) the same way.
     for (const spec of [...TOOLS, WAKE, CLAUDE_AI_WAKE, CLAUDE_AI_SCOPE, CLAUDE_AI_DELETE]) {
-      expect(spec.privileges.length).toBeGreaterThan(0);
+      // Since trim PR 2 most tools serve no claim: every row is the engine's, audited the same.
+      expect(spec.privileges.length + (spec.engine ?? []).length).toBeGreaterThan(0);
       // The engine's rows too (2026-10-11): kept out of the description, never
       // out of this audit — a pointer nobody reads rots fastest.
       for (const privilege of [...spec.privileges, ...(spec.engine ?? [])]) {
@@ -890,6 +891,45 @@ describe("the tool-description audit", () => {
     expect(body["readAs"]).toContainEqual({ field: "relevance", sent: "7", readAs: "0.7" });
   });
 
+  // Review of #822: a close sent with no words (`{updates, unresolved: false}` alone) is refused, and says
+  // what to send; the field words say "Required" and "a line saying it is done" on both tools.
+  test("a wordless close is refused on both tools, and the refusal says to add a line saying it is done", async () => {
+    const s = server();
+    const open = payload(await s.call("remember", { text: "Ask the landlord whether the boiler service is booked.", unresolved: true }));
+    const id = open["id"] as string;
+    const r = payload(await s.call("remember", { updates: id, unresolved: false }));
+    expect(r["reason"]).toBe("text-required");
+    expect(String(r["detail"])).toContain("a line in `text` saying it is done");
+    const end = payload(await s.call("session_end", { session: SESSION, memories: [{ updates: id, unresolved: false }] }));
+    const out = (end["outcomes"] as Record<string, unknown>[])[0];
+    expect(out?.["stored"]).toBe(false);
+    expect(out?.["malformed"]).toBe("CONTENT_MISSING");
+    expect(String(out?.["detail"])).toContain("Every entry needs `content` (or `text`)");
+    expect(String(out?.["detail"])).toContain("a line saying it is done");
+    const props = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties;
+    expect(props["text"]?.description).toStartWith("Required");
+    expect(props["updates"]?.description).toContain("and a line saying it is done");
+    const entry = (toolSpec("session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, { description: string }> } } } }).properties.memories.items.properties;
+    expect(entry["content"]?.description).toStartWith("Required (text works too)");
+  });
+
+  // Review of #822: an off-wheel word keeps its own core when the string names one in parentheses,
+  // and the note for a word nothing places says exactly that shape.
+  test("a feeling string can name its core in parentheses; an unplaced word's note says how", async () => {
+    const s = server();
+    const kept = payload(await s.call("remember", { text: "Rain on the tin roof all afternoon, and nothing to do.", feelings: ["self: flibbertigibbet (calm) — the rain"] }));
+    expect(kept["stored"]).toBe(true);
+    const rows = s.counterpart.store.feelingsFor(kept["id"] as string);
+    expect(rows.map((f) => [f.core, f.carried_by])).toEqual([["calm", "the rain"]]);
+    expect(JSON.stringify(rows)).toContain("flibbertigibbet");
+    const lost = payload(await s.call("remember", { text: "A second rainy afternoon, the gutters overflowing.", feelings: ["self: flibbertigibbet — the rain"] }));
+    expect(lost["stored"]).toBe(true);
+    expect(JSON.stringify(lost["dropped"])).toContain("name its core in parentheses after it");
+    // Every list a validating client reads takes the still-read object form too.
+    const props = (toolSpec("remember")?.inputSchema as { properties: Record<string, { items: { type: unknown } }> }).properties;
+    for (const f of ["feelings", "feelingsNow", "traits"]) expect(props[f]?.items.type).toEqual(["string", "object"]);
+  });
+
   // Changed 2026-11-13: the bad sibling is read on its scale and said, and lands too.
   test("session_end entries carry their own dimensions, and a bad one is read on itself alone", async () => {
     const s = server();
@@ -1008,6 +1048,8 @@ describe("note — the ambient exception", () => {
     const s = server();
     expect(payload(await s.call("remember", {}))["reason"]).toBe("text-required");
     expect(payload(await s.call("remember", { text: "  " }))["reason"]).toBe("text-required");
+    // Trim PR 2: the field no longer says which side operations stand in for text; the refusal does.
+    expect(String(payload(await s.call("remember", {}))["detail"])).toContain("`settle`, `feelingsNow`, `remark`, `core` or `remove` alone");
     // Changed 2026-11-13: a salience that is not a number is dropped and said
     // beside the memory (it was refused `salience-not-a-number`).
     const loose = payload(await s.call("remember", { text: "The retry loop backs off for ninety seconds.", salience: "high" }));

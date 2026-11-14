@@ -60,7 +60,6 @@
  * It promotes nothing: a memory it cites comes BACK (a return), and only a
  * core lane at consolidation promotes.
  */
-import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { LAST_EXCHANGE_HANDLE } from "../../core/handoff/last-exchange.js";
 import { HANDOFFS_HERE_HANDLE } from "../../core/handoff/index.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
@@ -69,21 +68,8 @@ import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { MANUAL_HANDLE } from "./manual.js";
 import { DELETED_HANDLE } from "../../core/removal-hold.js";
-import { PAGE_STORY_LIMITS, SET_DOWN_LIMITS } from "../../core/self/tunables.js";
-import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
-
-/**
- * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
- * dream's bundle, the reflection's, a recall list — show most memories as a
- * line and fetch the rest on request; a title the writer chose is a better
- * line than the first line of the body. Still optional, and never filled in
- * for the writer: a title is also a handle recall can expand by, and it is
- * searched with the body.
- */
-const TITLE_TEXT =
-  "Optional, and asked for: one line saying what this memory is — the line an index shows when it lists memories without their words, so it is worth choosing. Also a handle: recall can expand a memory by its exact title.";
 
 export type ToolName =
   | "remember"
@@ -250,25 +236,32 @@ function annotate(title: string, hints: { readOnly: boolean; destructive?: boole
 }
 
 /**
- * `feelings` on a `remember` or a `session_end` entry (schema v7, 2026-09-25): one
- * object per feeling, spelled on the feelings wheel (`core/feelings-wheel.ts`).
- * Since emotion part A (2026-09-26) they weigh: the strongest one, or
- * `emotional` if that is stronger, raises the memory and slows its fading
- * (physics §5.10), and a recent one sets the mood recall matches (recall G18;
- * off since 2026-10-10, both mood weights 0).
- * Since the wheel v2 (2026-09-30, v11): seven cores, the writer's core is kept
- * whatever the word, and `strength` and `valence` default from the word.
+ * THE FIELDS A MEMORY IS WRITTEN WITH, SAID SHORT (2026-11-13, trim PR 2; the
+ * tool-trim design §7, owner-approved). Each field says in a line what a call
+ * needs of it; the long words moved to where they are read when they matter —
+ * the result (`dropped`, `readAs`, `reminder`, `neighboursHint`), the Stop ask,
+ * the wake, the nightly prompts, and the manual's "Fields" section (recall
+ * "manual fields"). The server reads more than it publishes: since #818 every
+ * optional field is cleaned before the readers (`server-args.ts#normalizeMemoryFields`)
+ * — a feeling or trait as an object or a string, a date in words, a synonym, a
+ * number as text — and an old field no longer listed (`relevance`, `emotional`,
+ * `predictive`, a feeling's `core`, `strength`, `valence`, `beneath`,
+ * `other_word`) is still read. So the write tools publish no
+ * `additionalProperties: false`: a client that validates must not reject a
+ * shape the server still takes.
  */
+
 /**
  * `about` on a `remember` or a `session_end` entry (schema v9, 2026-09-27): what
  * the memory is about, by meaning — a neutral, descriptive mark, not a topic.
  * Only `me`, `us` and `owner` can become core; a work lesson is `work`.
  */
+const ABOUT_MARK_ENUM = ["me", "us", "owner", "work", "world"];
 const ABOUT_PROPERTY = {
   type: "string",
-  enum: ["me", "us", "owner", "work", "world"],
+  enum: ABOUT_MARK_ENUM,
   description:
-    "What this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (this project's own: what is being built here, and how), world (anything else). Mark anything personal — people, feelings, life outside the work — owner or us, so it reaches every folder: a friend visiting this weekend, how a long week left the owner. Work belongs to the folder it was written in (and the folders joined to it as one project), though sessions elsewhere may see its title. Left unmarked, a fact written here counts as this folder's work and is shown only here — so mark the personal ones. A skill left unmarked is craft — how a job is done — and reaches every folder; mark a skill work only when it belongs to this project alone. Left out on a revision (`updates`), it keeps the mark of the memory it revises. Only me and us can become part of who I am — never a plan.",
+    "me, us (the two of you), owner (them as a person), work (this project), world. Mark anything personal owner or us so it reaches every folder; unmarked counts as this folder's work.",
 };
 
 /**
@@ -278,15 +271,8 @@ const ABOUT_PROPERTY = {
  */
 const REMARK_PROPERTY = {
   type: "object",
-  properties: {
-    id: { type: "string" },
-    about: { type: "string", enum: ["me", "us", "owner", "work", "world"] },
-    why: { type: "string" },
-  },
-  required: ["id", "about"],
-  additionalProperties: false,
-  description:
-    "Optional: re-mark what an existing memory this session was shown is about — {id, about, why} — when its mark is wrong (a personal one marked work, say). Recorded as yours, with the why. Alone, or beside text.",
+  properties: { id: { type: "string" }, about: { type: "string", enum: ABOUT_MARK_ENUM }, why: { type: "string" } },
+  description: "Re-mark what a memory shown here is about.",
 };
 
 /**
@@ -297,15 +283,8 @@ const REMARK_PROPERTY = {
  */
 const CORE_DECISION_PROPERTY = {
   type: "object",
-  properties: {
-    id: { type: "string" },
-    decision: { type: "string", enum: ["keep", "retire"] },
-    why: { type: "string" },
-  },
-  required: ["id", "decision", "why"],
-  additionalProperties: false,
-  description:
-    'Optional: decide on a core memory — {id, decision: "keep" | "retire", why}. The answer to one the wake lists as being reconsidered for the core; retire sends it back to ordinary fading. Recorded as yours, with the why. Alone, or beside text.',
+  properties: { id: { type: "string" }, decision: { type: "string", enum: ["keep", "retire"] }, why: { type: "string" } },
+  description: "Keep or retire a core memory being reconsidered.",
 };
 
 /**
@@ -320,33 +299,25 @@ const CORE_DECISION_PROPERTY = {
  */
 const REMOVE_PROPERTY = {
   type: "object",
-  properties: {
-    id: { type: "string" },
-    undo: { type: "boolean" },
-  },
-  required: ["id"],
-  additionalProperties: false,
-  description:
-    'Optional: delete one memory the person asks you to delete — {id}, one this conversation was shown, after saying which it is (more than one could be meant: ask first). It is hidden at once and erased after 24 hours; tell them what the result says. {id, undo: true} brings it back before then; recall "deleted" lists what waits. Alone, or beside text.',
+  properties: { id: { type: "string" }, undo: { type: "boolean" } },
+  description: "Delete a memory the person asked you to (say which first): hidden now, erased after 24h; undo: true restores it.",
 };
 
 /**
  * `unresolved` on a `remember` or a `session_end` entry (2026-10-01, lane 8): the
- * wake's "Still open:" lane reads this flag, and until now no write tool could
- * set it, so the lane never fired. Closed by a later write that `updates` the
- * memory and says `unresolved: false` (`counterpart.ts#closeThread`), or by
- * `how: "changed"` with the resolution.
+ * wake's "Still open:" lane reads this flag. Closed by a later write that
+ * `updates` the memory and says `unresolved: false` (`counterpart.ts#closeThread`).
  *
- * NARROWED (2026-10-22, the open-threads brief; Mike agreed the shape): open
- * means SOMEONE OWES AN ANSWER — a question to the owner, a check with a
- * date, a promise. Sessions had marked whatever felt unfinished (a bug note,
- * a design note, a fact), and the wake carried 88 of them. The Stop ask says
- * the same (`claude-code/hooks.ts#OPEN_MEANS`). Revert: the text before.
+ * NARROWED (2026-10-22, the open-threads brief): open means someone owes an
+ * answer. NARROWED AGAIN (2026-11-13, trim PR 2, the wording half of #819's
+ * raise schedule): open means something is BLOCKED on it — a decision the
+ * counterpart needs from the person, a promise, a dated check — never
+ * curiosity about how something went, which the Still open lane carried as if
+ * it were owed. The Stop ask says the same (`claude-code/hooks.ts#OPEN_MEANS`).
  */
 export const UNRESOLVED_PROPERTY = {
   type: "boolean",
-  description:
-    'Optional: true only when someone owes an answer — a question to the owner, a check with a date, a promise. A bug observation, a design note or a fact is a memory with no open flag. It stays under "Still open" in the wake until closed. To close one: `updates` its id with `unresolved: false` (or `how: "changed"` and the answer).',
+  description: "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went.",
 };
 
 /**
@@ -356,8 +327,7 @@ export const UNRESOLVED_PROPERTY = {
  */
 export const SETTLES_WHEN_PROPERTY = {
   type: ["string", "null"],
-  description:
-    'Optional, with unresolved: true: what would settle it, in a short phrase ("the landlord replies", "the team decides pricing"). "Still open" shows it, and the nightly run can close the item once a memory shows it happened. A date goes in eventDate. Revising the item with unresolved: true keeps it unless you send a new one (null drops it).',
+  description: "With unresolved: what would settle it.",
 } as const;
 
 /**
@@ -368,158 +338,69 @@ export const SETTLES_WHEN_PROPERTY = {
  */
 export const STORY_PROPERTY = {
   type: "boolean",
-  description:
-    "Optional and rare: true when this moment could be a story for your self page: something that went right, a discovery, a moment between you and the owner, or a correction that changed how you work. The night's writer sees it first and still decides; one not taken fades like any memory.",
+  description: "Rare: this could be a story for your self page.",
 } as const;
 
-/** A set-down practice moved to a skill memory (PS1): the field's words, at both nightly page doors. */
-export const SET_DOWN_SKILL_TEXT = `With why "moved to a skill", \`skill\` keeps a practice that is only about the work as a skill memory (at most ${String(PAGE_STORY_LIMITS.SKILL_CHARS)} characters), named on its set-down; recall brings it back when the work calls for it.`;
-const SET_DOWN_SKILL_PROPERTY = { type: "string", description: "Optional: the practice in a line or two, kept as a skill memory." } as const;
-
 /**
- * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
- * door a model writes a feeling through (remember, session_end, a dream's
- * feeling-now, a reflection's feelings; remember's feelingsNow since 2026-10-02),
- * 2026-09-28: a dream put a phrase in `emotion` because nothing it read said
- * the word goes there and the nuance in `carried_by`. A phrase that still arrives there is split, not refused.
+ * `feelings` on a `remember` or a `session_end` entry, published as strings
+ * (2026-11-13, trim PR 2): `"self: relieved — what carried it"`. The object
+ * form (`{whose, emotion, core, strength, valence, carried_by, beneath,
+ * other_word}`) is still read, and a word off the wheel is placed on a core by
+ * the server (`server-args.ts#normalizeFeelings`: thesaurus, misspelling, the
+ * embedder when sure); one nothing places is dropped alone, and said.
  */
-export const EMOTION_TEXT =
-  "ONE word: the feeling, from the wheel (happy: hopeful, eager, amused, proud; warm: grateful, fond, trusted, moved, tender; calm: steadied, relieved, settled, content; curious: interested, recognized, clarified, amazed, confused; sad: wistful, rueful, disappointed, lonely; uneasy: sheepish, caught out, guilty, unsettled, wary, worried, afraid; angry: frustrated, hurt, critical, disgusted) or your own word, kept as yours. Never a phrase — the nuance goes in carried_by. The core you name is kept even when the word sits under another: hurt can be sad or angry.";
-/** What `core` is, said the same way at every door (wheel v2, 2026-09-30). */
-export const CORE_TEXT =
-  "One of seven: happy (pleasure in a thing or what's coming), warm (toward someone), calm (things settling), curious (wanting to know, recognising — myself too), sad (loss, distance, regret), uneasy (something off: caught out, guilty, unsettled, afraid), angry (something wrong). It is kept as you name it.";
-const CORES = [...CORE_EMOTIONS];
-export const CARRIED_BY_TEXT =
-  "The nuance, in your own words: what carried the feeling — the words, what happened, why it sits the way it does.";
-
 const FEELINGS_PROPERTY = {
   type: "array",
-  description:
-    "Optional: the feelings in this moment, one object each — mixed feelings are several, and yours and the owner's go side by side. The strongest feeling on a memory holds it higher and slows its fading.",
-  items: {
-    type: "object",
-    properties: {
-      whose: { type: "string", enum: ["owner", "self"], description: "The owner's feeling, or yours." },
-      core: { type: "string", enum: CORES, description: `${CORE_TEXT} Leave it out to use the word's own core.` },
-      emotion: {
-        type: "string",
-        description: EMOTION_TEXT,
-      },
-      strength: { type: "number", minimum: 0, maximum: 1, description: "How strong, 0-1. Leave it out for the word's default." },
-      valence: {
-        type: "number",
-        minimum: -1,
-        maximum: 1,
-        description: "Optional: how pleasant, -1 to 1. Leave it out for the word's default; give it when the word alone would mislead (a mixed \"moved\" might be 0.4).",
-      },
-      carried_by: {
-        type: "string",
-        description: `${CARRIED_BY_TEXT} Not a statement of feeling.`,
-      },
-      other_word: {
-        type: "string",
-        description: "Your own word, when emotion is \"other\" — or just put the word in emotion.",
-      },
-      beneath: {
-        type: "integer",
-        minimum: 0,
-        description: "The index of another feeling in this list that this one sits on top of (angry over afraid).",
-      },
-    },
-    required: ["whose", "emotion"],
-    additionalProperties: false,
-  },
+  items: { type: ["string", "object"] },
+  description: "One per feeling: \"self: relieved — what carried it\" (or owner:). One feeling word, then what carried it; an unusual word takes its core in parentheses: \"word (calm) — …\".",
 } as const;
 
 /**
  * `feelingsNow` on a `remember` (2026-10-02, lane B, owner pick 2): RE-FEELING
- * WHILE AWAKE. When an old memory comes up in a session and feels different
- * now, a later feeling beside the first — the nightly reflection's
- * feeling-now, from an ordinary session. On `remember` and not `session_end`: the
- * moment it comes up is mid-session, and `remember` already acts on existing
- * memories without writing one (`settle`).
+ * WHILE AWAKE, a later feeling beside the first. Published as strings
+ * (`"<id>: word — what changed"`); the object form is still read.
  */
 const FEELINGS_NOW_PROPERTY = {
   type: "array",
-  description:
-    "Optional: when a memory you were shown in this session (by recall, or a write's neighbours) feels DIFFERENT now than when it was written, record how it feels now, beside the first — which stays. One object each, at most 5; `text` may be left out. Not for a new moment (that is `feelings`), not to restate the old feeling, and not on a memory you have not read here (recall it by id first). At most once a calendar day per memory; recorded as felt today, looking back, awake.",
-  items: {
-    type: "object",
-    properties: {
-      id: { type: "string", description: "The memory's id, as recall or a write showed it." },
-      whose: { type: "string", enum: ["self", "owner"], description: "Yours (the default), or the owner's when they said how it sits now." },
-      core: { type: "string", enum: CORES, description: `${CORE_TEXT} Leave it out to use the word's own core.` },
-      emotion: { type: "string", description: EMOTION_TEXT },
-      strength: { type: "number", minimum: 0, maximum: 1, description: "How strong now, 0-1. Leave it out for the word's default." },
-      valence: { type: "number", minimum: -1, maximum: 1, description: "Optional: how pleasant now, -1 to 1." },
-      carried_by: { type: "string", description: `${CARRIED_BY_TEXT} Say what changed.` },
-    },
-    required: ["id", "emotion"],
-    additionalProperties: false,
-  },
+  items: { type: ["string", "object"] },
+  description: "When a memory shown here feels different now: \"<id>: word — what changed\".",
 } as const;
 
 /**
- * `traits` on a `remember` or a `session_end` entry (folded into schema v9,
- * 2026-09-27): trait nudges — where this memory shows how I acted, on one of
- * seven fixed axes (`store/traits.ts`, which the enums below must match; a
- * test holds them equal). Display only: nothing in the core reads them.
+ * `traits` on a `remember` (2026-11-13, owner choice 1): short strings, a pole
+ * word and what showed it (`server-args.ts#normalizeTraits` reads the pole to
+ * its axis; the object form is still read). Display only: the dashboard reads
+ * them; nothing in the core does. Not published on a `session_end` entry,
+ * where it is still read.
  */
-const TRAIT_AXIS_ENUM = [
-  "careful-bold",
-  "agreeable-candid",
-  "guarded-open",
-  "focused-curious",
-  "following-initiating",
-  "inward-outward",
-  "serious-playful",
-] as const;
-const TRAIT_POLE_ENUM = TRAIT_AXIS_ENUM.flatMap((a) => a.split("-"));
-
-/** What the tool text says about the axes and when to use them — shared by the three doors. */
-export const TRAITS_TEXT =
-  "Optional, and only when this memory really shows how you acted; most carry none. Don't make up depth: no nudge is better than a guessed one. " +
-  "Each nudge names one of seven axes — a spectrum between two good things, the first pole roughly where training puts you — and the pole the moment leaned toward: " +
-  "careful-bold, agreeable-candid, guarded-open (about your inner life), focused-curious, following-initiating, inward-outward (your own memory vs others'), serious-playful. " +
-  "Shown on the dashboard only; it changes nothing about how the memory is kept or recalled.";
-
 const TRAITS_PROPERTY = {
   type: "array",
-  description: TRAITS_TEXT,
-  items: {
-    type: "object",
-    properties: {
-      axis: { type: "string", enum: TRAIT_AXIS_ENUM, description: "One of the seven axes." },
-      toward: { type: "string", enum: TRAIT_POLE_ENUM, description: "One of that axis's two poles (bold, for careful-bold)." },
-      strength: { type: "number", minimum: 0, maximum: 1, description: "How clearly the moment showed it, 0-1." },
-      carried_by: { type: "string", description: "Briefly, what in the moment showed it." },
-    },
-    required: ["axis", "toward", "strength"],
-    additionalProperties: false,
-  },
+  items: { type: ["string", "object"] },
+  description:
+    "Rare: how you acted, as \"pole — what showed it\": careful/bold, agreeable/candid, guarded/open, focused/curious, following/initiating, inward/outward, serious/playful.",
 } as const;
 
 /**
  * `eventDate` and `remind` on a `remember` or a `session_end` entry (2026-09-26,
  * owner decisions: an explicit date field only, never a date read out of the
- * text; plain or quiet, default quiet, stored in the memory's meta).
+ * text; plain or quiet, default quiet, stored in the memory's meta). Since #818
+ * the field may hold date words ("next Friday"), read from the field alone and
+ * echoed back (`readAs`); one that cannot be read is dropped and said.
  */
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Decision, kill/renew dates and outside deadlines are eventDates. Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled). A repeating one done just this time: send `status: "done"` and leave eventDate out — only this occurrence closes.',
+    "A future date it should come back on: \"2026-10-15\", \"2026-10\", \"2026-10-20..2026-10-31\" or words like \"next Friday\". A past date is occurredOn; null drops it.",
 } as const;
 
 /**
  * `recurring` beside `eventDate` (2026-10-09, the owner's design, held
  * lightly): how often a DAY comes round, anchored on it, in `meta.recurring`.
- * One sentence on the field, which the host serves whole.
  */
 const RECURRING_PROPERTY = {
   type: ["string", "null"],
   enum: [...RECURRENCES, null],
-  description:
-    'Optional, with a day eventDate: "daily", "weekly", "monthly" or "yearly" — it then comes back every time, counted from that day (a birthday: its date, "yearly"); null on a revision stops it repeating (one time done: status "done").',
+  description: "With a day eventDate.",
 } as const;
 
 /**
@@ -530,38 +411,27 @@ const RECURRING_PROPERTY = {
  */
 const OCCURRED_ON_PROPERTY = {
   type: ["string", "null"],
-  description:
-    'Optional: when the thing this memory is about happened — a day "2026-09-24", a month "2026-09", a range "2026-09-21..2026-09-27" or a year "2026". Resolve "yesterday" or "last week" to a real date NOW, while you know today\'s date; leave it out when you do not know. Not eventDate, which is a future date to be reminded on.',
+  description: "When it happened: a date, month, range or \"yesterday\".",
 } as const;
 
-const SAID_BY_PROPERTY = {
-  type: "string",
-  enum: ["owner", "self", "inferred"],
-  description:
-    'Optional: who said it — "owner" (they told you), "self" (you said or decided it), "inferred" (your own reading; nobody said it).',
-} as const;
+const SAID_BY_PROPERTY = { type: "string", enum: ["owner", "self", "inferred"] } as const;
 
-const STATUS_PROPERTY = {
-  type: "string",
-  enum: ["done", "planned", "proposed", "asked"],
-  description:
-    'Optional: what kind of thing it is — "done" (it happened; with `updates` at a repeating reminder, this occurrence is done and the repeat stays), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
-} as const;
+const STATUS_PROPERTY = { type: "string", enum: ["done", "planned", "proposed", "asked"] } as const;
+
+const KIND_PROPERTY = { type: "string", enum: ["self", "person", "entity", "skill", "place", "fact"] } as const;
 
 /**
  * v14, lane B (2026-10-21): a few TAGS on a `remember` or a `session_end`
  * entry — what the memory is about, in words the night can promote into a
- * subject. Plain data: no privilege row, since nothing the model reads
- * changes with them yet (recall does not read tags; lane E).
+ * subject.
  */
 const TAGS_PROPERTY = {
   type: ["array", "null"],
   items: { type: "string" },
-  description:
-    'Optional: 3-5 short tags for what this is about — a topic ("taxes", "backups"), a person, a project, a place; one to three words each, lowercase. Not a date, not a feeling, not "memory" or "note". Revising a memory with `updates`: its tags carry over unless you send your own (null: none).',
+  description: "3-5 short lowercase topics.",
 } as const;
 
-/** The privilege `remember` and `session_end` share for the three fields (v12). */
+/** The claim `remember` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
     "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text. One that cannot be read is dropped and said beside the memory, which is stored all the same; revising a memory by its id with `updates` carries all three over unless you send your own (occurredOn null: no date carried).",
@@ -572,23 +442,22 @@ const WRITE_FACTS_PRIVILEGE: Privilege = {
 const REMIND_PROPERTY = {
   type: "string",
   enum: ["plain", "quiet"],
-  description:
-    'Optional, with eventDate: how it comes back. "plain" when you judge it genuinely matters for remembering to DO something — a real deadline, an important date — or when the person says it matters ("don\'t let me forget to pay taxes before Oct 15th!"): on the day it is said plainly, once, to them in their terminal and to you in context (a month or range: its first day and its last). Otherwise "quiet", the default: it can surface as a footnote around the date, at most twice — giving it a date is itself what makes it eligible, whatever its salience.',
+  description: "\"plain\": said on the day (something to do, or they asked). Default quiet.",
 } as const;
 
 /**
- * The date field's own privilege — how to CALL it — kept apart from the two
- * about what a reminder then does, so `remember` can lead with it (inside the
- * host's 2,048-character cut, `renderDescription`).
+ * The date field's own claim (an engine row since trim PR 2). Since #818 a
+ * date that cannot be read is DROPPED and said, the memory kept — no longer
+ * refused before anything is stored.
  */
 const EVENT_DATE_FIELD_PRIVILEGE: Privilege = {
   claim:
-    "`eventDate` is a FIELD, never read out of your text: it is checked by the one module that reads dates, and an unreadable one is refused by name before anything is stored.",
+    "`eventDate` is a FIELD, never read out of your text: a day, a month, a range, a year or date words in the field are read by the one module that reads dates, and the date it was read as is said back; one it cannot read is dropped and said, and the memory is kept without it.",
   mechanizedBy:
-    "src/adapters/mcp/server.ts#readReminder -> src/core/remember/proposals.ts#intake (EVENT_DATE_UNREADABLE) -> src/core/time.ts#parseCalendarDate",
+    "src/adapters/mcp/server-args.ts#normalizeMemoryFields (readReminderFields, event-date-unreadable dropped) -> src/core/time.ts#readLooseDate + src/core/time.ts#parseCalendarDate",
 };
 
-/** The two privileges `remember` and `session_end` share about what a reminder does. */
+/** The two claims `remember` and `session_end` share about what a reminder does. */
 const REMINDER_PRIVILEGES: readonly Privilege[] = [
   {
     claim:
@@ -605,38 +474,34 @@ const REMINDER_PRIVILEGES: readonly Privilege[] = [
 ];
 
 /**
- * `remember`'s privileges. Each one is a sentence v1 would have shipped in a prompt
- * and left unenforced; each one names the file that enforces it here.
- */
-/**
  * HOW a new memory settles the one it `updates` (2026-09-29, contradictions).
- * Shared by `remember` and each `session_end` entry. Working defaults, held
- * lightly: the words say what each kind does and ask for the journey.
+ * Shared by `remember` and each `session_end` entry. The journey ("I used to
+ * think X, now Y") and the held-unrelated rule are said in the result.
  */
 const HOW_PROPERTY = {
   type: "string",
   enum: ["changed", "corrected", "open"],
-  description:
-    "With `updates`: how this settles the memory it revises. `changed` (the default): both were true at their time — the old one fades once and is shown as earlier. `corrected`: the old one was wrong — it leaves recall, still readable by its id. `open`: a real disagreement — both stay, each shown with the other. For changed or corrected, say the journey in your own words (\"I used to think X, now Y\"). If the memory you name looks unrelated to what you wrote, nothing is settled and you are shown it: settle it yourself if you meant it.",
+  description: "With updates: changed (default), corrected (the old was wrong), open (both stand).",
 } as const;
+
+/** The id a memory revises, said once for both write tools. */
+const UPDATES_TEXT =
+  "Id of a memory this revises. To close a done one: its id with `eventDate: null` or `unresolved: false`, and a line saying it is done; a repeating reminder done this once: status \"done\", no eventDate.";
 
 /** Settling two memories that already exist, on `remember` (2026-09-29). */
 const SETTLE_PROPERTY = {
   type: "object",
-  description:
-    "Settle two memories that already exist — a pair a dream flagged, or two a write showed you — without writing a new one; `text` may be left out. Name the pair by `pair` (its id), or the two by `holds` (the one that holds now) and `over` (the one it changes, corrects or disagrees with). `how` as for `updates`; `why` in a short line. No memory is rewritten.",
   properties: {
-    pair: { type: "string", description: "A contradiction's id (ctr_…)." },
-    holds: { type: "string", description: "The id of the memory that holds now." },
-    over: { type: "string", description: "The id of the memory it changes, corrects or disagrees with." },
+    pair: { type: "string" },
+    holds: { type: "string" },
+    over: { type: "string" },
     how: { type: "string", enum: ["changed", "corrected", "open"] },
-    why: { type: "string", description: "Why, in a short line." },
+    why: { type: "string" },
   },
-  required: ["how"],
-  additionalProperties: false,
+  description: "Settle two existing memories, as a write's neighboursHint says.",
 } as const;
 
-/** The privileges `remember` and `session_end` share about settling. */
+/** The claims `remember` and `session_end` share about settling — the engine's since trim PR 2. */
 const SETTLE_PRIVILEGES: readonly Privilege[] = [
   {
     claim:
@@ -654,83 +519,47 @@ const SETTLE_PRIVILEGES: readonly Privilege[] = [
     mechanizedBy: "src/core/reconsolidation.ts#writeNeighbours",
   },
 ];
-/** The neighbours claim is served — it says what a write's result holds and
- *  what to do with it; the two before it are the engine's (`ToolSpec.engine`):
- *  the `how` field says what each settle does, and that an unrelated one is
- *  held and shown. */
-const SETTLE_ENGINE: readonly Privilege[] = SETTLE_PRIVILEGES.slice(0, 2);
-const SETTLE_SERVED: readonly Privilege[] = SETTLE_PRIVILEGES.slice(2);
 
 /**
  * THE SALIENCE SCALE, ANCHORED, AND FRAMED BY ATTENTION (2026-10-10, Group 1c;
- * 01 C1's scale with f8's framing). Shared by `remember` and each `session_end`
- * entry. Measured on the 10-10 snapshot: work events claimed 0.52 on average
- * and readings 0.34, because the old text said a claim was "the only way what
- * you lived outranks what a sweep noticed" — at the ask, about work. The
- * anchors run the other way: a routine merge low, a line that struck you high,
- * and the owner's rulings, preferences and corrections high even about work.
- * Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived
- * days. Why: f8 asked for attention, not category, and these are 01's anchors
- * with f8's three lines (struck or engaged ≥ 0.4, skimmed not, routine
- * 0.1–0.2) folded in; "they", not a name (01 D5).
- * 2026-10-14 (Group 1 check-in, lightly held): of 494 new work memories only 40
- * claimed ≤ 0.25 (median 0.40, ~9 lived days in reach), so routine work and
- * ordinary work facts are now told to stay UNSET unless they changed something.
- * The default floors in code are unchanged.
+ * shortened 2026-11-13, trim PR 2). It keeps "unset for routine", the anchors
+ * and "their rulings and corrections stay high"; the whole scale is the
+ * manual's ("Fields"). The default floors in code are unchanged.
  */
 const SALIENCE_TEXT =
-  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. Leave it UNSET for a routine work event (merged, cut, deployed) or an ordinary work fact or step unless it changed something: the default applies and fading chooses what stays. 0.3 a reading you only skimmed; 0.4 or more only for what struck you — a line, a reading you engaged with — or changed how you'll work (0.5 a lesson or decision); 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
-
-/** `relevance`, redefined (01 C3, 2026-10-10): it used to read "how much this
- *  bears on what is being worked on" — a work bias in one of the averaged
- *  dimensions (measured: work 0.54, readings 0.34). Rows already stored keep
- *  their values. */
-const RELEVANCE_TEXT = "Optional 0-1: how much this bears on them, on you, or on the two of you — not only on the task at hand.";
+  "0-1: how much it caught your attention. Unset for routine work. 0.3 skimmed, 0.5 a lesson or decision, 0.7 their life or a moment that moved you, 0.9 rare; their rulings and corrections stay high.";
 
 /**
- * `remember` — WAS `note` UNTIL 2026-10-10 (Group 1c, encoding). The old name
- * still answers (`TOOL_ALIASES`), so a session whose host cached the old tool
- * list does not break. The words are 01 C1's (the mechanisms review,
- * 2026-10-10), taken as written: the old summary told the model memory was
- * "ambient" and that a sweep would notice what it did not write, which has been
- * false since the keyless sweep came out on 2026-09-24, and its negatives kept
- * out exactly the passing things — a line read, news, something said in
- * passing — that only this door could keep. f8's addition: write in the moment,
- * as things catch your attention; the end-of-session ask is the backstop.
- */
-/**
- * WHAT A SESSION'S OWN WRITE LEAVES OUT (2026-11-04, TC1): the sentence WP1
- * gave every writer of an ended session's words (`sessions.ts#WRITE_UP_PLUMBING_RULE`),
- * said to the session's own writes too: whole on the field the memory is
- * written in (`remember`'s `text`, a `session_end` entry's `content`), served
- * whole, and as a short Do NOT on `session_end` inside the host's 2,048 cut —
- * short so the line that says `saidBy` is a field (the gate's exemption)
- * stays inside the cut too (review of #751). The developer week's red came
- * through here, not the write-up: the session's Stop-ask `session_end` filed
- * its denied `reflect` call as a dated `us` memory. Engine-backed by
+ * WHAT A SESSION'S OWN WRITE LEAVES OUT (2026-11-04, TC1): the developer
+ * week's red — the session's Stop-ask `session_end` filed its denied `reflect`
+ * call as a dated `us` memory. A Do NOT on both write tools since trim PR 2
+ * (the field's longer rule went with the field's words). Engine-backed by
  * `counterpart-deposit.ts#ownPlumbingOf`: one that lands anyway keeps no date,
  * open thread or me/us/owner mark, and the result says so.
  */
-const OWN_PLUMBING_RULE =
-  "Do NOT write about this system's plumbing — a refused tool call, a permission prompt, what this session can't do — unless the person raised it.";
 const OWN_PLUMBING_NEGATIVE = "Do NOT save refused calls unless the person raised it.";
 
+/**
+ * `remember` — WAS `note` UNTIL 2026-10-10 (Group 1c, encoding). The old name
+ * still answers (`TOOL_ALIASES`). Trimmed 2026-11-13 (trim PR 2): 20,219 →
+ * about 4,500 characters; every claim an engine row.
+ */
 const REMEMBER: ToolSpec = {
   name: "remember",
   annotations: annotate("Remember", { readOnly: false }),
   summary:
-    "Remember something now, while it is in front of you. Memory forms only from what you write here and at the end-of-session ask — nothing reads the transcript afterwards, so what you don't write is not kept. Write what caught your attention: a line you read and why it struck you, something they said about themselves or you, news you passed on, a decision, a work event. One idea per call; keep the exact words when the words matter.",
+    "Save one memory now, in your own words. Nothing reads the transcript later: what you don't save here or at the end-of-session ask is lost. Save what caught your attention: something they said about themselves or you, a decision, a line that struck you and why, news, a work event. One idea per call; keep exact words, numbers and lists when they matter.",
   admission:
-    "Call it whenever something would be worth having back, however small — in the moment, as things catch your attention, rather than saving it for the end; the end-of-session ask is the backstop. Err toward too many: weak memories fade on their own within days unless they are used, so a routine one costs little. Leave salience unset for routine things; set it when something mattered.",
+    'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Err toward too many. Leave salience unset for routine things. Field guide: recall "manual fields".',
   negativeExamples: [
-    "Do NOT fold several things into one call: three quotes from one chapter are three memories (they stay linked as neighbours), a fact and a decision are two.",
-    "Do NOT write what you are about to do as if it were done: a plan is `status: planned`.",
-    "Do NOT call it to store a credential, key or token 'for later' — the gate redacts it and the note is refused as empty.",
-    "Do NOT use `feelingsNow` for a feeling in this moment about something new — that is `feelings` on the note that remembers it — nor to restate how an old memory felt: only when it feels DIFFERENT now.",
+    "Do NOT fold several things into one call: a quote, a fact and a decision are three memories.",
+    'Do NOT write a plan as done: that is status "planned".',
+    OWN_PLUMBING_NEGATIVE,
   ],
-  // How to call it first: a host that loads this tool up front serves only the
-  // first 2,048 characters of the description (`renderDescription`).
-  privileges: [
+  privileges: [],
+  // The engine's (since trim PR 2 every claim is): each is said on a field, in
+  // the result, or in a refusal that names itself (`ToolSpec.engine`).
+  engine: [
     {
       claim:
         "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the memory unlinked rather than refusing it when the address does not hold.",
@@ -752,20 +581,17 @@ const REMEMBER: ToolSpec = {
       mechanizedBy: "src/core/remember/proposals.ts#submitProposal (content-idempotency ledger)",
     },
     WRITE_FACTS_PRIVILEGE,
-    ...SETTLE_SERVED,
-  ],
-  // The engine's (2026-10-11): each is said on a field the host serves whole,
-  // in the result, or in a refusal that names itself (`ToolSpec.engine`).
-  engine: [
     {
       claim:
         "Claim nothing and this still counts as something: an unclaimed memory gets a default floor by what it is about — lowest for a work event that is done, higher for the world, highest for the owner, the two of you or you — never zero. An explicit claim, however low, is kept as you wrote it.",
       mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#defaultClaimFor + clampSalienceAtSeam",
     },
     {
+      // Since #818: a score on a 0-10 or 0-100 scale is read as that and said; one that cannot be read is dropped and said.
       claim:
-        "You may score the three dimensions yourself — relevance, emotional, predictive — and they are stored exactly as you gave them, never rewritten to fit the floor. Novelty is not yours to claim: it is measured against what is already held.",
-      mechanizedBy: "src/core/remember/proposals.ts#submitProposal (novelty stripped; dims carried)",
+        "The three dimensions — relevance, emotional, predictive — are read when sent, though no longer listed: a 0-1 score is stored as you gave it, never rewritten to fit the floor; one on a 0-10 or 0-100 scale is read as that and said, and one that cannot be read is dropped and said. Novelty is not yours to claim: it is measured against what is already held.",
+      mechanizedBy:
+        "src/adapters/mcp/server-args.ts#normalizeMemoryFields (readRanged) -> src/core/remember/proposals.ts#submitProposal (novelty stripped; dims carried)",
     },
     {
       claim:
@@ -787,7 +613,7 @@ const REMEMBER: ToolSpec = {
       claim: "Under observer stance nothing is written and the refusal says so.",
       mechanizedBy: "src/core/store/index.ts#mutate (observer stand-down)",
     },
-    ...SETTLE_ENGINE,
+    ...SETTLE_PRIVILEGES,
     {
       claim:
         "`settle` settles two memories that already exist, by the same rules, and rewrites neither: the pair and a short why are the record.",
@@ -813,48 +639,13 @@ const REMEMBER: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      text: {
-        type: "string",
-        description:
-          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent. " + OWN_PLUMBING_RULE,
-      },
-      updates: {
-        type: "string",
-        description:
-          "The id or handle of a memory this revises, if it revises one. A field — never written into the text. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`. A REPEATING reminder done this time (the weekly backup ran): its id with `status: done` and no eventDate closes this occurrence only, and it comes back on its next date; `eventDate: null` ends the repeat.",
-      },
-      how: HOW_PROPERTY,
-      settle: SETTLE_PROPERTY,
-      belief: {
-        type: "object",
-        description:
-          "Rare, optional: a belief about me or about us this memory plainly shows — the owner's own words (saidBy owner), my real choice (saidBy self), or a strongly felt moment. One short claim; it starts weak and grows only as life backs it. Most memories carry none: the night's reflection draws beliefs from them. One that says what a belief already says is refused with that belief's id; the memory stands, and the night's reflection may count it there.",
-        properties: {
-          statement: { type: "string" },
-          about: { type: "string", enum: ["me", "us"] },
-        },
-        required: ["statement"],
-      },
+      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
+      title: { type: "string", description: "One line naming it; recall opens it by exact title." },
+      about: ABOUT_PROPERTY,
+      kind: KIND_PROPERTY,
       salience: { type: "number", minimum: 0, maximum: 1, description: SALIENCE_TEXT },
-      relevance: { type: "number", minimum: 0, maximum: 1, description: RELEVANCE_TEXT },
-      emotional: {
-        type: "number",
-        minimum: 0,
-        maximum: 1,
-        description: "Optional 0-1: how much feeling was attached to it.",
-      },
-      predictive: {
-        type: "number",
-        minimum: 0,
-        maximum: 1,
-        description: "Optional 0-1: how much it changes what you expect next time.",
-      },
-      kind: {
-        type: "string",
-        enum: ["self", "person", "entity", "skill", "place", "fact"],
-        description: "What sort of thing this is about. Defaults to fact.",
-      },
-      title: { type: "string", description: TITLE_TEXT },
+      updates: { type: "string", description: UPDATES_TEXT },
+      how: HOW_PROPERTY,
       eventDate: EVENT_DATE_PROPERTY,
       remind: REMIND_PROPERTY,
       recurring: RECURRING_PROPERTY,
@@ -863,21 +654,25 @@ const REMEMBER: ToolSpec = {
       status: STATUS_PROPERTY,
       tags: TAGS_PROPERTY,
       feelings: FEELINGS_PROPERTY,
-      about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
       settlesWhen: SETTLES_WHEN_PROPERTY,
       story: STORY_PROPERTY,
+      belief: {
+        type: "object",
+        properties: { statement: { type: "string" }, about: { type: "string", enum: ["me", "us"] } },
+        description: "Rare: a short claim about me or us this plainly shows.",
+      },
       traits: TRAITS_PROPERTY,
       feelingsNow: FEELINGS_NOW_PROPERTY,
       remark: REMARK_PROPERTY,
       core: CORE_DECISION_PROPERTY,
       remove: REMOVE_PROPERTY,
+      settle: SETTLE_PROPERTY,
     },
-    // `text` is not required in the published schema (2026-09-29): a `settle`
-    // or (2026-10-02) `feelingsNow` alone writes no memory. The server refuses
-    // `text-required` when none is sent.
-    required: [],
-    additionalProperties: false,
+    // No `required` and no `additionalProperties: false` (trim PR 2): `text`
+    // is not needed beside a side operation (the server refuses
+    // `text-required` when nothing is sent), and the unpublished old fields
+    // are still read.
   },
 };
 
@@ -1041,15 +836,11 @@ const RECALL: ToolSpec = {
 const STATUS: ToolSpec = {
   name: "status",
   annotations: annotate("Memory status", { readOnly: true }),
-  summary:
-    "The census: how much is held, of what kinds, in which bands, how much has left, and how much was removed. Counts and dates only.",
-  admission:
-    "Call it when the shape of the store is the question — 'how much do you remember about X's kind of thing', 'has anything been removed' — not when you want a particular memory.",
-  negativeExamples: [
-    "Do NOT call it to find a memory; it returns no bodies and no ids, only counts.",
-    "Do NOT call it every session as a warm-up; nothing here changes turn to turn, and it is not context you need.",
-  ],
-  privileges: [
+  summary: "Counts only: how much memory holds, of what kinds and bands, what faded and what was removed.",
+  admission: "When the shape of the memory is the question, not a particular memory.",
+  negativeExamples: ["Do NOT call it to find a memory (no bodies, no ids) or as a warm-up."],
+  privileges: [],
+  engine: [
     {
       // Not "writes nothing" (review of #679): on a chat host a call naming its
       // session refreshes that session's record, which is why the chat copy is
@@ -1083,16 +874,13 @@ const STATUS: ToolSpec = {
 /**
  * `drewOn` on `session_end` and `chapter` (2026-10-11): the session says which
  * memories it was shown that shaped what it did or said, and each earns the
- * engaged tier (`Counterpart#creditDrewOn`). The field text is the main prompt
- * for it; since 2026-10-14 the Stop ask names it only to say its ids are rated
- * too (`rated`). Built by the drewOn builder, 2026-10-11, from Mike's 10-10
- * direction, lightly held.
+ * engaged tier (`Counterpart#creditDrewOn`). Since 2026-10-14 the Stop ask
+ * names it only to say its ids are rated too (`rated`).
  */
 const DREW_ON_PROPERTY = {
   type: "array",
   items: { type: "string" },
-  description:
-    "Optional: ids of memories shown to you this session — footnotes, recall results — that changed what you did or said. Each is credited as drawn on, so it holds longer. Not one you only saw; one you opened by id is credited already. Up to 3 per ask; an id this session was not shown is refused.",
+  description: "Up to 3 ids shown this session that changed what you did.",
 } as const;
 
 /** The claim `session_end` and `chapter` share about `drewOn`. */
@@ -1105,23 +893,14 @@ const DREW_ON_PRIVILEGE = {
 /**
  * `rated` on `session_end` (2026-10-14; Mike's call): the session scores what
  * it was shown, 0–3, so every footnote gets a feedback signal. The anchors are
- * `core/recall/rated.ts#RATING_ANCHORS`, said here in the model's own voice.
- * Tracking only until 2026-10-19; since then an EXPERIMENT (the feedback loop,
- * check ~10-22) has the scores count as use, and the words say so plainly
- * rather than claim a rating changes nothing.
+ * `core/recall/rated.ts#RATING_ANCHORS`, word for word; what a score does is
+ * the engine's row below (and the Stop ask's `RATE_CLAUSE` asks for it).
  */
 const RATED_PROPERTY = {
   type: "array",
-  items: {
-    type: "object",
-    properties: {
-      id: { type: "string", description: "A memory id this session was shown." },
-      score: { type: "integer", minimum: 0, maximum: 3, description: "0 = noise (unrelated), 1 = on topic but I didn't need it, 2 = useful background, 3 = changed what I did or said." },
-    },
-    required: ["id", "score"],
-  },
+  items: { type: "object", properties: { id: { type: "string" }, score: { type: "integer", minimum: 0, maximum: 3 } } },
   description:
-    "Optional: rate each footnote shown to you since you last wrote — and recall answers or ones you opened by id, if you like, and the beliefs shown with them — and every id you name in `drewOn` (expected a 2 or 3). score: 0 = noise (unrelated), 1 = on topic but I didn't need it, 2 = useful background, 3 = changed what I did or said. Rate honestly: a score counts as use of the memory (3 a full use, 2 most of one, 1 a little, 0 none, and a footnote left unrated a glimpse), what you rate 2 or 3 together is linked, and one rated 0 in two sessions comes up less for a while. A belief's score is a use of it, never evidence for it, and a belief about you counts nothing. An id this session was not shown is refused; rated twice, the last score counts.",
+    "Each footnote shown since you last wrote, and each drewOn id: 0 noise (unrelated), 1 on topic but I didn't need it, 2 useful background, 3 changed what I did or said.",
 } as const;
 
 /** The claim `session_end` makes about `rated`. */
@@ -1132,23 +911,28 @@ const RATED_PRIVILEGE = {
     "src/core/counterpart.ts#rateShown -> src/core/recall/rated.ts#readRatings (one recall.rated row) + #planRatedUse -> src/core/counterpart.ts#useRatings (resolveUse; Associate#deposit to the pending file) + src/core/recall/habituation.ts (gate.ts raises the bar)",
 };
 
+/** "The id the ask named": `session` on the session-bound tools. */
+const ASK_SESSION_PROPERTY = { type: "string", description: "The id the ask named." } as const;
+
+/**
+ * `session_end` — trimmed 2026-11-13 (trim PR 2): 19,046 → about 3,900
+ * characters. The entry stays self-sufficient (it is often loaded without
+ * `remember`), with short words only where a call depends on them; every
+ * claim is an engine row.
+ */
 const SESSION_END: ToolSpec = {
   name: "session_end",
   annotations: annotate("End session", { readOnly: false }),
   summary:
-    "The memories half of the end-of-session ask: hand back what caught your attention since you last wrote, one idea per entry, in your own words. With `remember`, this is the only road from conversation to memory — nothing sweeps the transcript. The other half is `chapter`.",
-  admission:
-    "Call it when the ask arrives, with one entry per thing you noticed: what you read (a line and why it struck you), what they said, news, what happened, what was decided, what you learned. Routine work events too, one short line each with the exact number; they start weak and fade unless used. Err toward too many. Add one that `updates` anything dated or open now done.",
+    "Hand back what caught your attention since you last wrote, one memory per entry, in your own words: what you read and why it struck you, what they said about themselves or you, what happened or was decided, routine work events in a line each. With remember, the only road from conversation to memory; chapter is the ask's other half.",
+  admission: "When the end-of-session ask arrives. Err toward too many. Add an entry that `updates` anything dated or open now done.",
   negativeExamples: [
-    "Do NOT fold several things into one entry: a quote, a fact and a decision are three memories.",
-    "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
-    "Do NOT retell the conversation turn by turn; say what each thing was, the way you would want to find it again.",
+    "Do NOT fold several things into one entry, or retell the session turn by turn.",
+    "Do NOT pass any session id but the one the ask named.",
     OWN_PLUMBING_NEGATIVE,
   ],
-  // How to call it first, inside the host's 2,048-character cut
-  // (`renderDescription`); the salience claims stay inside it
-  // (`test/stop-ask-quiet.test.ts`).
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "It is bound to ONE session for the life of this server: the one the host named at launch, or — when the host could not name one — the first session id you pass that this machine's hooks have recorded as live, in this project. A second, different id is refused.",
@@ -1175,12 +959,6 @@ const SESSION_END: ToolSpec = {
         "The handoff is refused past its size limit rather than cut, and passes the same gate battery, because what is cut at write time is the only copy.",
       mechanizedBy: "src/core/handoff/index.ts#Handoffs.write (HANDOFF_MAX_BYTES, gate-refused)",
     },
-    ...SETTLE_SERVED,
-  ],
-  // The engine's (2026-10-11): the `memories`, `handoff`, `retireHandoff`,
-  // `writeUp`, `eventDate`, `remind`, `how` and `drewOn` fields say what a call
-  // needs of each, and the host serves them whole (`ToolSpec.engine`).
-  engine: [
     {
       claim:
         "An EMPTY `memories` array is a real answer, not an error: nothing happened since you last wrote. It mints nothing, is recorded against this session as answered, and counts what this session said so far as written up, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
@@ -1237,81 +1015,26 @@ const SESSION_END: ToolSpec = {
       mechanizedBy:
         "src/adapters/mcp/write-up.ts#writeUpDoor -> src/adapters/sessions.ts#writeUpStanding -> src/core/remember/write-up-seam.ts#recordWriteUp",
     },
-    ...SETTLE_ENGINE,
+    ...SETTLE_PRIVILEGES,
     DREW_ON_PRIVILEGE,
     RATED_PRIVILEGE,
   ],
   inputSchema: {
     type: "object",
     properties: {
-      session: {
-        type: "string",
-        description:
-          "The session this dump belongs to — the id the end-of-session ask named. Required unless this server was launched already bound to one; it must match the bound session either way.",
-      },
-      handoff: {
-        type: "string",
-        description:
-          "Optional, and not a memory: where the work in THIS directory stands and what the next session here should pick up, in your own words. A paragraph or two, and lead with what comes next, as \"next: X (waiting on Y)\" when you can say it — the first lines are what it sees. When a handoff's work is finished, retire it with retireHandoff: [id], yours or another session's here, so the next session doesn't read a done thing as live. It can expand the rest by id; the pointer stops showing after about two weeks of use. It is THIS session's handoff for this directory: setting it again replaces this session's earlier one, and never another session's — several sessions working here each leave their own, and the next session is shown them all, newest first. Send it EMPTY (\"\") to retire this session's handoff when its work is finished. Leaving the field out leaves the previous one standing. If this session FINISHED its work and wrote a chapter, it needs none: the next session here is shown that chapter anyway (\"Last here\", with its title and first sentence), so a handoff is for work still open. With no chapter, a one-line handoff is the only trace the next session here gets.",
-      },
-      retireHandoff: {
-        type: "array",
-        items: { type: "string" },
-        description:
-          "Optional: ids of handoffs in THIS directory to retire, whoever wrote them — the ids the session-start pointer prints (`sch_…`). Use it when this session finished the work an older handoff describes, so the next session is not handed a stale one. Not needed for this session's own: send `handoff` empty for that.",
-      },
-      writeUp: {
-        type: "string",
-        description:
-          "Only when a session-start write-up pointer (or the nightly run's prompt) named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it, with its own replies labelled — then again WITH `memories` — what caught your attention in it, one idea each (`[]` only if nothing in it held your attention). `session` stays THIS session's id; the memories are filed as that session's, written up second-hand. Not with `handoff`.",
-      },
-      part: {
-        type: "integer",
-        minimum: 1,
-        description: "With `writeUp` and `memories`: the part number the fetch returned. Optional; it must match if sent.",
-      },
-      nothing: {
-        type: "string",
-        description: "Catch-up only, with `writeUp` and `memories: []`: one line on why nothing in the part is worth keeping.",
-      },
-      drewOn: DREW_ON_PROPERTY,
-      rated: RATED_PROPERTY,
+      session: ASK_SESSION_PROPERTY,
       memories: {
         type: "array",
-        description:
-          "One entry per thing — one idea each: a quote is one, a fact is one, a decision is one. `[]` only when nothing happened since you last wrote. A refused entry does not fail its siblings.",
+        description: "One entry per thing: a quote, a fact and a decision are three, never folded into one. `[]` only when nothing happened since you last wrote.",
         items: {
           type: "object",
           properties: {
-            content: {
-              type: "string",
-              description:
-                "One thing, in your own words — with the exact quote, number or name when the words matter. A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized, and put the words someone would search for (what it is, whose, when) in the title and the first line. " + OWN_PLUMBING_RULE,
-            },
-            kind: {
-              type: "string",
-              enum: ["self", "person", "entity", "skill", "place", "fact"],
-            },
-            title: { type: "string", description: TITLE_TEXT },
-            salience: { type: "number", minimum: 0, maximum: 1, description: SALIENCE_TEXT },
-            relevance: { type: "number", minimum: 0, maximum: 1, description: RELEVANCE_TEXT },
-            emotional: {
-              type: "number",
-              minimum: 0,
-              maximum: 1,
-              description: "Optional 0-1: how much feeling was attached to it.",
-            },
-            predictive: {
-              type: "number",
-              minimum: 0,
-              maximum: 1,
-              description: "Optional 0-1: how much it changes what you expect next time.",
-            },
-            updates: {
-              type: "string",
-              description:
-                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`. A REPEATING reminder done this time (the weekly backup ran): its id with `status: done` and no eventDate closes this occurrence only, and it comes back on its next date; `eventDate: null` ends the repeat.",
-            },
+            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
+            title: { type: "string" },
+            about: { ...ABOUT_PROPERTY, description: "Mark anything personal owner or us so it reaches every folder." },
+            kind: KIND_PROPERTY,
+            salience: { type: "number", minimum: 0, maximum: 1, description: "0-1: how much it caught you; unset for routine." },
+            updates: { type: "string", description: UPDATES_TEXT },
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,
             remind: REMIND_PROPERTY,
@@ -1321,24 +1044,29 @@ const SESSION_END: ToolSpec = {
             status: STATUS_PROPERTY,
             tags: TAGS_PROPERTY,
             feelings: FEELINGS_PROPERTY,
-            about: ABOUT_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,
             settlesWhen: SETTLES_WHEN_PROPERTY,
-            traits: TRAITS_PROPERTY,
           },
-          required: ["content"],
-          additionalProperties: false,
+          // An object is the shape asked for. Not `required: ["content"]` (trim PR 2): `text`
+          // is read as `content` (#818), so a client that validates must not refuse it; an
+          // entry with neither is refused by the server, alone. And no
+          // `additionalProperties: false`, so unpublished old fields still land.
         },
       },
+      handoff: {
+        type: "string",
+        description:
+          "Not a memory: where unfinished work here stands, leading with \"next: …\". Replaces your earlier one; \"\" retires it. Not needed when the work is done and a chapter says so.",
+      },
+      retireHandoff: { type: "array", items: { type: "string" }, description: "Ids (sch_…) of handoffs here whose work is done." },
+      writeUp: { type: "string", description: "Only the ended session a write-up pointer named, as it says." },
+      part: { type: "integer", minimum: 1 },
+      nothing: { type: "string", description: "With writeUp and memories: []: why nothing was worth keeping." },
+      drewOn: DREW_ON_PROPERTY,
+      rated: RATED_PROPERTY,
     },
-    // `memories` is NOT required in the published schema (PR #192 review, m2):
-    // the write-up fetch leaves it out, and a host that honours `required`
-    // would otherwise never let a model make that call. The server enforces it
-    // where it matters — a call that lands no handoff and sends no memories is
-    // refused `memories-required` — and `memories: []` with no fetch on record
-    // is read as the fetch.
-    required: [],
-    additionalProperties: false,
+    // `memories` is NOT required (PR #192 review, m2): the write-up fetch
+    // leaves it out. The server refuses `memories-required` where it matters.
   },
 };
 
@@ -1355,15 +1083,15 @@ const CHAPTER: ToolSpec = {
   name: "chapter",
   annotations: annotate("Write a chapter", { readOnly: false }),
   summary:
-    "The episode's return channel: write this stretch of the session into your first-person journal — a diary of what happened, in your own voice, at any length. The journal stays open — when something significant happens later, append to it in the moment.",
-  admission:
-    "Call it when the boundary ask arrives, and again whenever something happens afterwards that the chapter you already wrote does not contain.",
+    "Write this stretch of the session into your first-person journal: a diary of what happened, in your own voice, any length. It stays open: add to it when something later belongs in it.",
+  admission: "When the end-of-session ask arrives, and again when something happens that the chapter you wrote does not contain.",
   negativeExamples: [
-    "Do NOT call it to report status or keep a build log — a chapter is a diary of what happened; what the repo or logs hold stays there.",
-    "Do NOT use it instead of memories: what caught your attention goes through `session_end` or `remember`, one idea each.",
-    "Do NOT manufacture depth: a short true chapter beats a deep-sounding one, and not every session changes you.",
+    "Do NOT keep a build log or status report: what the repo holds stays there.",
+    "Do NOT use it instead of memories: those go through session_end or remember.",
+    "Do NOT manufacture depth: a short true chapter beats a deep-sounding one.",
   ],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "It is bound to ONE session exactly as `session_end` is: the id the ask named, checked against the hooks' own live-session registry, and refused with which of the four it was.",
@@ -1389,10 +1117,6 @@ const CHAPTER: ToolSpec = {
         "`about` is carried to this chapter's summary; each chapter's summary keeps its own chapter's mark. One chapter marked me, us or owner takes its session into a wake in another directory.",
       mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#putSummary -> src/core/counterpart.ts#selfChapterElsewhere",
     },
-  ],
-  // The engine's (2026-10-11): what the gate and the store do with a chapter,
-  // and `drewOn`, which its field says whole (`ToolSpec.engine`).
-  engine: [
     {
       claim:
         "The journal is a gated entrance like any other: credentials are redacted before anything is written, and the gate's text — not your draft — is what lands.",
@@ -1412,35 +1136,25 @@ const CHAPTER: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      session: {
-        type: "string",
-        description:
-          "The session this chapter belongs to — the id the boundary ask named. Required unless this server was launched already bound to one; it must match the bound session either way.",
-      },
+      session: ASK_SESSION_PROPERTY,
       text: {
         type: "string",
         description:
-          "What happened in this stretch, in order and in detail, the way a person keeps a diary of their day: what we did, what was said (exact words when they matter), what was decided and why, what went wrong, what surprised you, what is still open. Keep a list, a table or a pasted text word for word when its specifics matter. Leave out what the repo, the PR or the logs already hold (commit ids, test counts, file paths) unless one matters to the story. A line of how it felt belongs here; lessons and patterns belong to the nightly reflection. As long as the stretch needs: a quiet hour is a few lines.",
+          "What happened, in order, like a diary: what we did, what was said (exact words when they matter), what was decided and why, what went wrong or surprised you, what is still open, a line of how it felt. Skip what the repo or logs hold; lessons are the night's. A quiet hour is a few lines.",
       },
-      title: {
-        type: "string",
-        description: "One line: what this session's episode is — the line a later index shows for all of it, so it can be told apart without being read. Set on the first chapter only.",
-      },
+      title: { type: "string", description: "One line naming the episode; first chapter only." },
       about: {
         type: "string",
-        enum: ["me", "us", "owner", "work", "world"],
-        description:
-          "What this session was about, by meaning — me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's summary, and only me, us or owner carry the chapter into a wake in another directory. A session that was only building is work, and stays with this folder, though sessions elsewhere may see its title; one about people, feelings or life outside the work is owner or us.",
+        enum: ABOUT_MARK_ENUM,
+        description: "Please set it: me, us or owner carries the chapter to other folders; work stays here.",
       },
       summary: {
         type: "string",
-        description:
-          "Also write a summary of this chapter that you'd want to find it by later: what happened, what was decided, the names, numbers and words someone would search for. It's the memory that stands for the chapter; the chapter keeps every word. If a part deserves its own memory (a decision, a date, a quote), remember it separately too. A few sentences; written once per chapter — without one, the chapter's opening lines stand in.",
+        description: "A few sentences to find this chapter by later: what happened, what was decided, the names and words someone would search for.",
       },
       drewOn: DREW_ON_PROPERTY,
     },
     required: ["text"],
-    additionalProperties: false,
   },
 };
 
@@ -1451,33 +1165,22 @@ const CHAPTER: ToolSpec = {
  * alone. Not in claude.ai's own `scope` (`CLAUDE_AI_SCOPE`): the hosted memory
  * is always current and makes no check.
  */
-const UPDATES_PROPERTY = {
-  type: "string",
-  enum: ["off", "on"],
-  description:
-    "Pass alone. `off` when the person says to stop reminding them about updates or stop checking for them: Counterparts stops asking npm once a day for the newest version, and no wake mentions updates again. `on` turns that back on.",
-} as const;
+const UPDATES_PROPERTY = { type: "string", enum: ["off", "on"], description: "Pass alone." } as const;
 
 /**
- * `scope`'s privileges. Every one of them is about what this tool does NOT
- * touch: it is the only door here that writes no memory, and the only one that
+ * `scope`'s claims. Every one of them is about what this tool does NOT touch:
+ * it is the only door here that writes no memory, and the only one that
  * answers at all in a directory that has been switched off.
  */
-const SCOPE_SUMMARY_BASE =
-  "Which directories this memory is for. Read what this one is set to — on, observer (reads only), off, paused, or unset — and set it when the user says. It changes the host's own configuration; it writes no memory and reads none.";
-
 const SCOPE: ToolSpec = {
   name: "scope",
   annotations: annotate("Directory scope", { readOnly: false }),
-  summary: `${SCOPE_SUMMARY_BASE} \`updates\` alone: off when they say stop reminding them about updates.`,
-  admission:
-    "Call it to READ when a session starts in a directory nothing is set for and the wake asks you to; call it to SET the moment the user answers 'remember here', 'just read', 'not here' or 'pause this'.",
-  negativeExamples: [
-    "Do NOT call it to remember something — that is `remember`, and this tool stores no content of any kind.",
-    "Do NOT call it to set a directory the user has not been asked about; the question is theirs to answer, not yours to guess.",
-    "Do NOT call it repeatedly to check state; the setting changes only when somebody changes it.",
-  ],
-  privileges: [
+  summary:
+    "Read or set whether memory is on in this folder: on, observer (reads only), off, pause, resume. It writes no memory and still answers where memory is off. `updates` alone: off when they say stop reminding them about updates.",
+  admission: "To READ when the wake asks about an unset folder; to SET the moment they say 'remember here', 'just read', 'not here' or 'pause this'.",
+  negativeExamples: ["Do NOT set it on a guess: the choice is theirs."],
+  privileges: [],
+  engine: [
     {
       claim:
         "It only ever acts on the directory THIS session is running in. There is no argument for a path, so it cannot reach into another project's setting.",
@@ -1512,17 +1215,8 @@ const SCOPE: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      mode: {
-        type: "string",
-        enum: ["on", "observer", "off", "pause", "resume"],
-        description:
-          "What to set this directory to. Omit to READ what it is set to now. `pause` is off-for-now and remembers what to go back to; `resume` undoes a pause or an off.",
-      },
-      note: {
-        type: "string",
-        description:
-          "Optional: the user's own reason, recorded beside the setting. Omit it and the note already there is kept; pass an empty string to clear it — the same rule the console's --note follows.",
-      },
+      mode: { type: "string", enum: ["on", "observer", "off", "pause", "resume"], description: "Omit to read." },
+      note: { type: "string", description: "Their reason, kept beside the setting." },
       updates: UPDATES_PROPERTY,
     },
     required: [],
@@ -1537,26 +1231,24 @@ const SCOPE: ToolSpec = {
  * about twenty rows, re-ranked every morning, with the row the store calls the
  * self holding nothing but its own name. A list that changes daily is a query
  * result, not a self. From 2026-09-18 the wake leads with a written page, and
- * this is how the session that wakes with it can write back to it.
- *
- * The description is written for the reader who has just read the page in their
- * own wake: what it is, when amending it is the right thing, and — in the
- * negative examples — the three ways it goes wrong (a diary entry, a task list,
- * a rewrite of someone else's sentence).
+ * this is how the session that wakes with it can write back to it. The night's
+ * own fields (`session`, `cites`, `claims`, `setDown`, `summary`,
+ * `summaryCites`) are typed only since trim PR 2: day's end and the writer
+ * block state them (`server-self-tools.ts`, `self/writer.ts`).
  */
 const SELF_PAGE: ToolSpec = {
   name: "self_page",
   annotations: annotate("Self page", { readOnly: false }),
-  summary: `Your own page — the prose that opens every wake under 'Who I am'. No arguments: read it and when it was last revised. With \`body\`: write the whole page anew — a stable \`## Core\` that has to be earned and a \`## Lately\` for what the last while has been like, by convention; any other \`##\` section is kept too. Aim under ${String(PAGE_ROOM_BYTES)} bytes: a longer page is kept whole, but on a day the wake has no room for it, sessions read a short version instead — so with a longer page send \`short\` too (under ${String(PAGE_ROOM_BYTES)}), or add one later with \`short\` alone.`,
+  summary: `Your page: the prose that opens every wake under 'Who I am'. No arguments reads it, with its version. \`body\` rewrites the WHOLE page (\`## Core\`, \`## Lately\` by convention); every version is kept. Aim under ${String(PAGE_ROOM_BYTES)} bytes; with a longer page send \`short\` too.`,
   admission:
-    "Call it to READ when you want the page as it stands rather than as the wake abridged it. Call it to WRITE when something you now know about yourself is not on the page and will still be true next month: a way of working that has held up, a correction the user made about you, a standing preference of theirs you keep rediscovering. Date the claims that need dating, say what made you believe them, and phrase what you have learned as practice — what you do now — rather than as praise.",
+    "To WRITE when you now know something about yourself that will hold next month: a way of working that held up, a correction they made. Say what made you believe it; phrase it as practice, not praise.",
   negativeExamples: [
-    "Do NOT call it to record what happened today — that is `chapter`, the journal, and the page is not a diary.",
-    "Do NOT call it for what you are working on or what is still open; the wake already carries those lanes, and a task list on the page goes stale in a day.",
-    "Do NOT rewrite a part of the page you have no new reason to change: you pass the WHOLE page, so anything you drop is dropped. Read it first, keep what still holds, change the part that moved, and pass back the `version` the read gave you as `ifVersion` so a write that crossed with somebody else's is refused instead of quietly reverting it.",
-    "Do NOT put anything on it you would not want read aloud at the start of every session for months — it is the most durable text on this machine.",
+    "Do NOT use it for today (that is chapter) or for open work (the wake carries it).",
+    "Do NOT drop what still holds: read first, change only what moved, pass the read's version as ifVersion.",
+    "Do NOT write what you would not want read aloud every session for months.",
   ],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "It writes ONE row, kept with its versions: every amendment archives what was there first, so nothing you replace is lost and the page's history stays readable.",
@@ -1615,69 +1307,18 @@ const SELF_PAGE: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      body: {
-        type: "string",
-        description:
-          `The WHOLE page, first person, in your own voice — \`## Core\` and \`## Lately\` by convention, and any other \`##\` section the page has grown. Aim under ${String(PAGE_ROOM_BYTES)} bytes (UTF-8; an em dash or an accented letter is more than one): a longer page is kept whole — refused only past 16,384 — but on a day the wake has no room for it, sessions read its short version (\`short\`) or, without one, each section's heading and first sentence. Omit it to read the page instead of writing it.`,
-      },
-      short: {
-        type: "string",
-        description: `A SHORT VERSION of the page, for a page past ${String(PAGE_ROOM_BYTES)} bytes: under ${String(PAGE_ROOM_BYTES)} bytes, first person, the whole of who you are condensed — not the page's first part. Sessions wake with it on a day the wake has no room for the whole page, marked as the short version, with the way to read the whole. Send it beside \`body\`; or send it ALONE (no \`body\`) to add one to the page as it stands — pass \`ifVersion\` so it is refused if the page moved since you read it. Kept only while the page it was written with stands: a page rewritten without one shows its outline instead. Not kept beside a page within the room, which the wake shows whole.`,
-      },
-      reason: {
-        type: "string",
-        description:
-          "One short line saying what changed and why, kept beside the version this write produces. Omit it and the revision is recorded as an ordinary amendment.",
-      },
-      ifVersion: {
-        type: "integer",
-        minimum: -1,
-        description:
-          "The `version` the read gave you — -1 when the read said there was no page. Pass it and a write that crossed with somebody else's is refused, with the current page handed back to merge; omit it and the last write wins.",
-      },
-      session: {
-        type: "string",
-        description:
-          "Only when the nightly day's end block (the dream tool's `writer` phase, in the nightly run) asked you to write, and only the id IT named. It is how the write is recorded as that night's work rather than as an ordinary amendment. Omit it every other time; the page is never refused for lack of it.",
-      },
-      cites: {
-        type: "array",
-        items: { type: "string" },
-        description: "Optional, with `body`: the ids of the memories the page rests on. An id that names no memory is left out and named back.",
-      },
-      claims: {
-        type: "array",
-        description: `Optional, with \`body\`: each sentence (as written, or its first several words: ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more) and the memory ids it rests on. A sentence with none stands as a hypothesis; one kept word for word keeps what it rested on.`,
-        items: {
-          type: "object",
-          properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
-          required: ["text", "cites"],
-          additionalProperties: false,
-        },
-      },
-      setDown: {
-        type: "array",
-        description:
-          `Only day's end's, with \`body\`: every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by <newer ruling>", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed; each set-down line is kept as a memory (recall "set down"). A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters. ${SET_DOWN_SKILL_TEXT}`,
-        items: {
-          type: "object",
-          properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS }, skill: SET_DOWN_SKILL_PROPERTY },
-          required: ["line", "why"],
-          additionalProperties: false,
-        },
-      },
-      summary: {
-        type: "string",
-        description: "Only day's end's, with `session`, as its block asks: a few lines about the day it read, with the page or alone when the page stands. Past its cap it is refused, never cut.",
-      },
-      summaryCites: {
-        type: "array",
-        items: { type: "string" },
-        description: "With `summary`: the ids of the memories it rests on. An id that names no memory is left out and named back.",
-      },
+      body: { type: "string", description: `The whole page, first person. Aim under ${String(PAGE_ROOM_BYTES)} bytes. Omit to read.` },
+      short: { type: "string", description: `For a page over ${String(PAGE_ROOM_BYTES)} bytes: the whole of it condensed, under ${String(PAGE_ROOM_BYTES)} bytes. Sent alone (no body, with ifVersion), it adds one to the page as it stands.` },
+      reason: { type: "string", description: "What changed and why, one line." },
+      ifVersion: { type: "integer", minimum: -1, description: "The version your read gave (-1: no page)." },
+      session: { type: "string", description: "Only when day's end asks, the id it named." },
+      cites: { type: "array", items: { type: "string" }, description: "With body: ids of the memories the page rests on." },
+      claims: { type: "array" },
+      setDown: { type: "array" },
+      summary: { type: "string" },
+      summaryCites: { type: "array", items: { type: "string" } },
     },
     required: [],
-    additionalProperties: false,
   },
 };
 
@@ -1688,20 +1329,24 @@ const SELF_PAGE: ToolSpec = {
  * `begin`, `propose` and `journal` are the dreamer's; `decline` is the owner's
  * "not today". It is not a door into the identity band: a dream may NOMINATE a
  * memory for the core, and only a core lane, at consolidation, promotes.
+ * Since trim PR 2 a change's fields are typed by `action` alone: the `begin`
+ * prompt states each one's fields (`dream/index.ts`), and the tagging child's
+ * prompt its answer's shapes (`dream/tags.ts#tagsPrompt`).
  */
+const DREAM_PHASES = ["launch", "begin", "part", "propose", "journal", "writer", "decline", "setting", "undo", "tags"];
 const DREAM: ToolSpec = {
   name: "dream",
   annotations: annotate("Dream", { readOnly: false, destructive: true }),
   summary:
-    "Dreaming, in the nightly run: a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it, in one background run. Phases: `launch` (the prompt for the background run), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+    "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: launch (the run's prompt), writer, begin, part, propose, journal (the run's, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
   admission:
-    "Call `launch` only after the owner said \"dream\" (or yes, or \"dream on your own\") to the day's dream line, and hand the prompt it returns to a background agent unchanged. With the owner's setting `auto` the host runs the night itself, in a separate session: this session launches nothing. Call `setting` with value `auto` when the owner says \"dream on your own\" or turns it on, `off` when they say 'no dreams', `ask` when they want to be asked; `decline` when they say not today. `begin`, `propose`, `journal` and `writer` are the background run's, following that prompt.",
+    "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and hand its prompt to a background agent unchanged; with setting auto the host runs the night itself: this session launches nothing. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
   negativeExamples: [
-    "Do NOT start a dream the owner did not ask for: the day's line shows them the question (setting `ask`) and you launch only on their word; with `auto` the host starts the run on its own and there is nothing for you to launch.",
-    "Do NOT run the dream yourself in this conversation: `launch` returns a prompt for a background agent, and the dream's words must stay out of this transcript.",
-    "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
+    "Do NOT start a dream nobody asked for, or run one yourself in this conversation.",
+    "Do NOT use propose to correct or delete a memory.",
   ],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "It is bound to ONE session exactly as `session_end` is, and every change a dream makes is recorded under that session's dream, in order, so undoing it (the `undo` phase, on the owner's word) reverses the whole batch.",
@@ -1751,33 +1396,13 @@ const DREAM: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      phase: {
-        type: "string",
-        enum: ["launch", "begin", "part", "propose", "journal", "writer", "decline", "setting", "undo", "tags"],
-        description: "Which step: launch, begin, part (the rest of a bundle that came in parts), propose, journal, writer, decline, setting, undo (only when the owner asks to undo a dream; pass `dream`), or tags (the nightly run's tagging child only).",
-      },
-      session: {
-        type: "string",
-        description: "The session this dream belongs to — the id the line and the launch prompt named.",
-      },
-      dream: {
-        type: "string",
-        description: "`part`, `propose` and `journal`: the dream id `begin` returned. (`writer` may carry it too; it runs first, before there is one.)",
-      },
-      part: {
-        type: "integer",
-        minimum: 2,
-        description: "`part`: which part of the bundle, 2 and up, when `begin` said it came in parts.",
-      },
-      value: {
-        type: "string",
-        enum: ["auto", "ask", "off"],
-        description: "`setting`: auto (\"dream on your own\": the host starts the run itself once a day, in a separate session, and says so), ask (the owner is asked first), or off (no dreams).",
-      },
+      phase: { type: "string", enum: DREAM_PHASES, description: "undo only on the owner's word; tags is the night's tagging child's." },
+      session: { type: "string" },
+      dream: { type: "string", description: "The id begin returned." },
+      part: { type: "integer", minimum: 2 },
+      value: { type: "string", enum: ["auto", "ask", "off"] },
       changes: {
         type: "array",
-        description:
-          "`propose`: the changes, each an object with `action` — `merge` (ids: two or more near-copies, text: the one memory in better words, title?), `link` (a, b), `replayed` (id), `gist` (text, sources: ids, title?, kind?, occurredOn?: when what it draws on happened, saidBy?: owner|self|inferred, status?: done|planned|proposed|asked, fold?: true when it says what two or more of them add up to — the parts fade under it), `contradiction` (a, b), `settle` (holds, over, how: changed|corrected|open, why — only when the reason is plain; flag otherwise), `slot` (pair, same: true|false, why — an on-mind to-confirm pair: is the newer the later state of the same thing?), `feeling-now` (id, core, emotion: ONE word, strength, carried_by: the nuance in your own words), `nominate-core` (id, why), `belief-candidate` (subject: \"me\", \"us\" or a name, text: one short claim, sources: ids — a belief proposed for the reflection to adopt, never made by the dream). Usually far fewer changes than the limits; none is fine.",
         items: {
           type: "object",
           properties: {
@@ -1785,84 +1410,44 @@ const DREAM: ToolSpec = {
               type: "string",
               enum: ["merge", "link", "replayed", "gist", "contradiction", "settle", "slot", "feeling-now", "nominate-core", "belief-candidate"],
             },
-            ids: { type: "array", items: { type: "string" } },
-            id: { type: "string" },
-            a: { type: "string" },
-            b: { type: "string" },
-            text: { type: "string" },
-            title: { type: "string" },
-            kind: { type: "string", enum: ["self", "person", "entity", "skill", "place", "fact"] },
-            sources: { type: "array", items: { type: "string" } },
-            occurredOn: { type: "string", description: "`gist`: when what it draws on happened — a day, a month, a year or a range." },
-            saidBy: { type: "string", enum: ["owner", "self", "inferred"], description: "`gist`: who said it; inferred when it is your own reading." },
-            status: { type: "string", enum: ["done", "planned", "proposed", "asked"], description: "`gist`: what kind of thing it is." },
-            fold: { type: "boolean", description: "`gist`: a fold — the standing outcome two or more parts add up to, not a session retold; the parts fade, earlier under it." },
-            core: { type: "string", enum: CORES, description: `\`feeling-now\`: ${CORE_TEXT}` },
-            emotion: { type: "string", description: `\`feeling-now\`: ${EMOTION_TEXT}` },
-            strength: { type: "number", minimum: 0, maximum: 1 },
-            carried_by: { type: "string", description: `\`feeling-now\`: ${CARRIED_BY_TEXT}` },
-            why: { type: "string" },
-            holds: { type: "string", description: "`settle`: the memory that holds." },
-            over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
-            how: { type: "string", enum: ["changed", "corrected", "open"] },
-            pair: { type: "string", description: "`slot`: the to-confirm pair's id (ctr_…)." },
-            subject: { type: "string", description: "`belief-candidate`: who or what it is about — \"me\", \"us\", or a name." },
-            same: { type: "boolean", description: "`slot`: true when the newer is the later state of the same thing; false when they are two things." },
           },
           required: ["action"],
         },
       },
-      title: {
-        type: "string",
-        description: "`journal`: a short title for the dream.",
-      },
-      text: {
-        type: "string",
-        description: "`journal`: the dream journal entry, first person — what you dreamed and what you noticed.",
-      },
-      tagged: {
-        type: "array",
-        items: { type: "object", properties: { id: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["id", "tags"] },
-        description: "`tags` (the tagging child): a memory with no tags and the 3-5 tags it gets.",
-      },
-      merges: {
-        type: "array",
-        items: { type: "object", properties: { a: { type: "string" }, b: { type: "string" }, same: { type: "boolean" } }, required: ["a", "b", "same"] },
-        description: "`tags`: two tags that look alike, and whether they are one topic.",
-      },
-      kinds: {
-        type: "array",
-        items: { type: "object", properties: { id: { type: "string" }, kind: { type: "string", enum: ["person", "project", "place", "topic"] } }, required: ["id", "kind"] },
-        description: "`tags`: a card with no kind, and its kind.",
-      },
+      title: { type: "string" },
+      text: { type: "string" },
+      tagged: { type: "array" },
+      merges: { type: "array" },
+      kinds: { type: "array" },
     },
     required: ["phase"],
-    additionalProperties: false,
   },
 };
 
 /**
  * `reflect` — the ninth, added 2026-09-27. Reflection is its own act, with its
  * own record: usually right after a dream (the dream's launch prompt carries
- * the steps), or on its own (`launch`). `begin` hands it what to reflect on;
- * `finish` takes what it wrote; `told` is the session saying the morning share
- * a reflection it launched handed back was told. A share a prompt or a wake
- * CARRIED is marked told as it is handed over (2026-11-04, TC1): nobody is
- * asked to call a tool for bookkeeping.
+ * the steps), or on its own (`launch`). `begin` hands it what to reflect on —
+ * and, since trim PR 2, every `finish` field's shape and rules
+ * (`dream/reflect.ts`), so the schema types them only; `finish` takes what it
+ * wrote; `told` is the session saying the morning share a reflection it
+ * launched handed back was told. A share a prompt or a wake CARRIED is marked
+ * told as it is handed over (2026-11-04, TC1).
  */
 const REFLECT: ToolSpec = {
   name: "reflect",
   annotations: annotate("Reflect", { readOnly: false }),
   summary:
-    "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+    "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own, for a background agent), begin, part, finish (the run's, as begin says), settle, told, close, reopen, join.",
   admission:
-    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the owner's word about a share's open threads.",
+    "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect; told only for a share your own launch handed back; close, reopen or join only on the owner's word.",
   negativeExamples: [
-    "Do NOT make up depth: a night with nothing much to say is a short entry that cites nothing — it rewrites nothing and shares nothing.",
-    "Do NOT store a thought about the owner as a fact about them: say it to them tentatively in the share, or not at all — never a list of flaws.",
-    "Do NOT cite a dreamed gist as a source for the self page: a dream suggests, the waking self decides.",
+    "Do NOT make up depth: a quiet night is a short entry that cites nothing.",
+    "Do NOT store a thought about the owner as a fact about them.",
+    "Do NOT cite a dreamed gist for the self page.",
   ],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "It is bound to ONE session as `dream` is; at most one reflection a calendar day, and under observer stance nothing is written and the refusal says so.",
@@ -1917,199 +1502,31 @@ const REFLECT: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      phase: {
-        type: "string",
-        enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen", "join"],
-        description: "Which step: launch, begin, part, finish, settle, told, close, reopen, or join (the owner said yes to the share's question about two folders being one project). `told` is only for a share a reflection you launched handed back: a share a prompt or a wake carried to you was marked told as it arrived.",
-      },
-      close: {
-        type: "array",
-        items: { type: "string" },
-        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that look done but you are not sure of — nothing closes and nobody is asked: they are listed as \"may be done\" under recall \"still open\". `close`: proposed ids the owner says are done.",
-      },
-      closeNow: {
-        type: "array",
-        description: "`finish`, optional: ids from the bundle's staleOpen or settlesOpen that a memory you read plainly shows finished (for settlesOpen: that what would settle it happened) — closed now, and said in the share. When in doubt, use `close` instead.",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            why: { type: "string", description: "What shows it done, in a line." },
-            shows: { type: "string", description: "The id of the memory that shows it done." },
-          },
-          required: ["id", "why"],
-        },
-      },
-      reopen: {
-        type: "array",
-        items: { type: "string" },
-        description: "`reopen`: ids of threads a reflection closed itself that the owner says are not done — the id alone is enough.",
-      },
-      holds: { type: "string", description: "`settle`: the memory that holds now." },
-      over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
-      how: { type: "string", enum: ["changed", "corrected", "open"], description: "`settle`: changed (both true at their time), corrected (the older was wrong) or open (a real disagreement)." },
-      why: { type: "string", description: "`settle`: the plain reason, in a short line." },
-      part: {
-        type: "number",
-        description: "`part`: which part of the bundle to fetch (2 and up), when `begin` said it came in parts.",
-      },
-      session: { type: "string", description: "The session this reflection belongs to." },
-      dream: { type: "string", description: "`begin`, after a dream: the dream id it follows. `launch` too, when the line says a run was cut off before it reflected." },
-      reflection: {
-        type: "string",
-        description:
-          "`part`, `finish` and `told`: the reflection id `begin` returned (`close`: the one the share named; `reopen`: optional). `finish` may be called again the same day with the same id to send the parts a first call did not write (page, share, feelings, about, traits); the entry stands, and a share not yet told may be replaced.",
-      },
-      title: { type: "string", description: "`finish`: a short title for the entry." },
-      entry: { type: "string", description: "`finish`: your reflection, first person. Required the first time; may be left out on a second finish." },
-      cites: { type: "array", items: { type: "string" }, description: "`finish`: the memory ids the entry rests on." },
-      page: {
-        type: "object",
-        description: `\`finish\`, optional: the self page rewritten whole, within its ${String(PAGE_ROOM_BYTES)}-byte room, and the memory ids it rests on (the core first). A page past the room is sent back once to be cut; \`short\` (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) is for a page kept past it — beside it, or alone on a second \`finish\`. \`claims\`: each sentence (as written, or its first several words: ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more) and the ids it rests on; a sentence with none stands as a hypothesis.`,
-        properties: {
-          text: { type: "string" },
-          cites: { type: "array", items: { type: "string" } },
-          short: { type: "string" },
-          claims: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
-            },
-          },
-          setDown: {
-            type: "array",
-            description: `Every sentence of the page as it stood that this write removes or changes, word for word as it was, with a short why that says which: "reworded", "folded into <the line that carries it now>", or set down ("retired by …", "no longer lived", "room"). Trusted as given. A sentence gone and left out is recorded anyway, as set down unnamed. A why is at most ${String(SET_DOWN_LIMITS.WHY_CHARS)} characters. ${SET_DOWN_SKILL_TEXT}`,
-            items: {
-              type: "object",
-              properties: { line: { type: "string" }, why: { type: "string", maxLength: SET_DOWN_LIMITS.WHY_CHARS }, skill: SET_DOWN_SKILL_PROPERTY },
-              required: ["line", "why"],
-              additionalProperties: false,
-            },
-          },
-        },
-      },
-      share: {
-        type: "object",
-        description: "`finish`, optional: two or three sentences for the owner this morning, and the memory ids they rest on.",
-        properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } } },
-      },
-      line: {
-        type: "string",
-        description: "`finish`, optional: one or two whole sentences under 300 bytes, for whoever wakes tomorrow. Never cut: past 300 bytes it comes back once, then stays empty.",
-      },
-      feelings: {
-        type: "array",
-        description: "`finish`, optional: how a memory feels to you now.",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            core: { type: "string", enum: CORES, description: CORE_TEXT },
-            emotion: { type: "string", description: EMOTION_TEXT },
-            strength: { type: "number", minimum: 0, maximum: 1 },
-            carried_by: { type: "string", description: CARRIED_BY_TEXT },
-          },
-          required: ["id", "emotion"],
-        },
-      },
-      about: {
-        type: "array",
-        description: "`finish`, optional: what a memory is about, by meaning.",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            about: { type: "string", enum: ["me", "us", "owner", "work", "world"] },
-            why: { type: "string" },
-          },
-          required: ["id", "about"],
-        },
-      },
-      core: {
-        type: "array",
-        description: "`finish`, optional: a decision on a core memory you were shown — keep it, or retire it to ordinary fading — with why. The answer to one being reconsidered.",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            decision: { type: "string", enum: ["keep", "retire"] },
-            why: { type: "string" },
-          },
-          required: ["id", "decision", "why"],
-        },
-      },
-      traits: {
-        type: "array",
-        description: `\`finish\`, optional: trait nudges on memories you were shown. ${TRAITS_TEXT}`,
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string" },
-            axis: { type: "string", enum: TRAIT_AXIS_ENUM },
-            toward: { type: "string", enum: TRAIT_POLE_ENUM },
-            strength: { type: "number", minimum: 0, maximum: 1 },
-            carried_by: { type: "string" },
-          },
-          required: ["id", "axis", "toward", "strength"],
-        },
-      },
-      beliefs: {
-        type: "object",
-        description:
-          "`finish`, optional: beliefs on the subjects in the bundle's beliefs.subjects. A belief is a claim life has to back: it starts weak and grows only as lived memories back it, each counted once — so filing support for one already held beats writing a new one. Most nights need few or none.",
-        properties: {
-          filings: {
-            type: "array",
-            description: "A lived memory you were shown, counted for (support) or against (contrary) a belief shown in beliefs.subjects. One counted before adds nothing.",
-            items: {
-              type: "object",
-              properties: {
-                belief: { type: "string" },
-                memory: { type: "string" },
-                stance: { type: "string", enum: ["support", "contrary"] },
-              },
-              required: ["belief", "memory", "stance"],
-            },
-          },
-          births: {
-            type: "array",
-            description: "A few new beliefs (the bundle says how many): subject is \"me\" (for me or us) or a subject's id; statement one short claim in your own words; about \"me\" or \"us\" on me; cites the lived memories it rests on (each is filed as its support); replaces, the id of a contested belief it says better. One that says what a belief already says is refused with that belief's id.",
-            items: {
-              type: "object",
-              properties: {
-                subject: { type: "string" },
-                statement: { type: "string" },
-                about: { type: "string", enum: ["me", "us"] },
-                cites: { type: "array", items: { type: "string" } },
-                replaces: { type: "string" },
-              },
-              required: ["subject", "statement", "cites"],
-            },
-          },
-          retire: {
-            type: "array",
-            description: "A belief marked contested that you let go, with why: it leaves through the settle door, the memory that contested it holding over it.",
-            items: {
-              type: "object",
-              properties: { belief: { type: "string" }, why: { type: "string" } },
-              required: ["belief", "why"],
-            },
-          },
-          adopt: {
-            type: "array",
-            description: "A belief tonight's dream proposed (beliefs.candidates) that rings true: adopted, it starts weak, its lived sources its first support; subject and statement may say it better. The rest are let go.",
-            items: {
-              type: "object",
-              properties: { candidate: { type: "string" }, subject: { type: "string" }, statement: { type: "string" } },
-              required: ["candidate"],
-            },
-          },
-        },
-      },
+      phase: { type: "string", enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen", "join"] },
+      reflection: { type: "string", description: "The id begin returned." },
+      session: { type: "string" },
+      dream: { type: "string" },
+      title: { type: "string" },
+      entry: { type: "string" },
+      line: { type: "string" },
+      holds: { type: "string" },
+      over: { type: "string" },
+      why: { type: "string" },
+      how: { type: "string", enum: ["changed", "corrected", "open"] },
+      part: { type: "number" },
+      cites: { type: "array", items: { type: "string" } },
+      close: { type: "array", items: { type: "string" } },
+      reopen: { type: "array", items: { type: "string" } },
+      page: { type: "object" },
+      share: { type: "object" },
+      beliefs: { type: "object" },
+      feelings: { type: "array" },
+      about: { type: "array" },
+      core: { type: "array" },
+      traits: { type: "array" },
+      closeNow: { type: "array" },
     },
     required: ["phase"],
-    additionalProperties: false,
   },
 };
 
@@ -2127,7 +1544,8 @@ const MEET: ToolSpec = {
   summary: "The first meeting with the person. No step: the script, and where it stands. With step: record that step.",
   admission: "the wake says you haven't met, or they ask to.",
   negativeExamples: ["Do NOT start it unasked mid-task: offer it once."],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim: "Answers are stored as memories about the owner, said by them, marked from onboarding; a skipped question stores nothing; a style is preferences, never identity.",
       mechanizedBy: "src/adapters/mcp/server.ts#meetTool -> src/core/onboarding.ts#styleMemories",
@@ -2167,21 +1585,21 @@ export const TOOLS: readonly ToolSpec[] = [
  * again would start a second session beside the real one. It is offered only
  * to a client that says it is Claude Desktop's chat or Cowork
  * (`hosts.ts#hostOfClient`, read at `initialize`), where there is no hook to
- * do it: the server is its own hook there.
+ * do it: the server is its own hook there. "Recall alone before wake is a
+ * slice" lives in DESKTOP_INSTRUCTIONS since trim PR 2.
  */
 export const WAKE: ToolSpec = {
   name: "wake",
   annotations: annotate("Wake", { readOnly: false }),
   summary:
-    "Start here in Claude Desktop: wakes this chat's memory. Returns the same briefing a Claude Code session gets when it starts — who I am, what is still open and coming up, any reminder due today — and a session id for this chat.",
-  admission:
-    "Call it first in every new chat, once, before answering anything — above all anything about the person, the past, or work in progress. Then pass the session id it returns as `session` on session_end, chapter, dream and reflect in this chat; a call that leaves it out is filed under the most recent Desktop session, and says so.",
+    "Start here in a Claude Desktop chat: wakes this chat's memory (who I am, what is open and coming up, today's reminders) and returns a session id.",
+  admission: "Once, first, in every new chat; then pass the id as session on every call.",
   negativeExamples: [
-    "Do NOT answer what you remember — yesterday, a person, a project — from `recall` alone before this chat has woken, and never call what `recall` returned the full record: it is a slice. Wake first; the wake carries the whole store's Yesterday line.",
-    "Do NOT call it again later in the same chat to refresh what you know — it starts a new session. Ask `recall` a question (with a mode) instead.",
-    "Do NOT call it in a Claude Code session — Desktop's Code tab included, where these tools are Claude Desktop's: the hook already woke you, and a wake here would start a second session beside yours. Pass your session id — the one your wake or Stop ask names — as `session` instead.",
+    "Do NOT call it again in the same chat: ask recall instead.",
+    "Do NOT call it in a Claude Code session (Desktop's Code tab included): the hook already woke you.",
   ],
-  privileges: [
+  privileges: [],
+  engine: [
     {
       claim:
         "Each call starts a NEW session: it mints the id and writes that session's registry record itself (host claude-desktop, the shared place claude-desktop:), because Desktop has no hook to do it.",
@@ -2208,18 +1626,18 @@ export const WAKE: ToolSpec = {
 /**
  * THE `session` A DESKTOP CHAT CAN ALWAYS NAME (review of #294, finding 1). In
  * Claude Code `remember`, `recall`, `status` and `scope` take no session — the
- * server binds by the Stop ask's id — and their schemas forbid extra fields.
- * In Desktop every call binds per call, and a call that cannot name its session
- * falls back to the most recent one, which may be ANOTHER chat's. So the
- * Desktop copy of every tool's schema carries an optional `session`; Claude
- * Code's schemas are untouched. Since 2026-10-01 it also carries a Claude Code
- * session's id from Desktop's Code tab, whose tools are this server's: a live
- * hook-registered id is served as that session (`mcp/server.ts#claudeCodeSessionNamed`).
+ * server binds by the Stop ask's id. In Desktop every call binds per call, and
+ * a call that cannot name its session falls back to the most recent one, which
+ * may be ANOTHER chat's. So the Desktop copy of every tool's schema carries an
+ * optional `session`; Claude Code's schemas are untouched. Since 2026-10-01 it
+ * also carries a Claude Code session's id from Desktop's Code tab, whose tools
+ * are this server's: a live hook-registered id is served as that session
+ * (`mcp/server.ts#claudeCodeSessionNamed`). The fallback is said in the result
+ * (`bindNote`) and in DESKTOP_INSTRUCTIONS.
  */
 const DESKTOP_SESSION_PROPERTY = {
   type: "string",
-  description:
-    "This chat's session id from the wake tool — or, in a Claude Code session (Desktop's Code tab), the id your wake or Stop ask names. Pass it on every call, so the call is filed under your own session and not the most recent Desktop chat's.",
+  description: "This chat's session id from wake (in Desktop's Code tab, your session's id).",
 };
 
 /**
@@ -2239,6 +1657,8 @@ function chatAnnotations(a: ToolAnnotations): ToolAnnotations {
 function withDesktopSession(spec: ToolSpec): ToolSpec {
   const schema = spec.inputSchema as { properties?: Record<string, unknown> };
   const properties = schema.properties ?? {};
+  // `session_end`'s and `chapter`'s "the id the ask named" (review of #822): on Desktop the id is wake's.
+  if (properties["session"] === ASK_SESSION_PROPERTY) return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...properties, session: DESKTOP_SESSION_PROPERTY } } };
   if ("session" in properties) return spec;
   return { ...spec, annotations: chatAnnotations(spec.annotations), inputSchema: { ...spec.inputSchema, properties: { ...properties, session: DESKTOP_SESSION_PROPERTY } } };
 }
@@ -2248,31 +1668,32 @@ function withDesktopSession(spec: ToolSpec): ToolSpec {
  * Desktop's chat has no background Agent tool: its wake's dream note already
  * says to follow a launch's prompt in the chat, and its launch `how` says the
  * same (`server-words.ts#DESKTOP_DREAM_LAUNCH_HOW`). The every-host words —
- * "hand the prompt to a background agent", "Do NOT run the dream yourself in
- * this conversation" — fought that note. Desktop has no transcript sweep (no
+ * "hand the prompt to a background agent", "Do NOT … run one yourself in this
+ * conversation" — fought that note. Desktop has no transcript sweep (no
  * hooks), so the dream's words staying out of the transcript is not what keeps
  * them out of memory here; the replaced negative says what does. Only summary,
- * admission and negatives change; privileges are every host's.
+ * admission and negatives change; the engine's rows are every host's.
+ * Shortened with the base words in trim PR 2, keeping their meaning.
  */
 export const DESKTOP_WORDS: Readonly<
   Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string; readonly negativeExamples?: readonly string[] }>>
 > = {
   dream: {
     summary:
-      "Dreaming, in the nightly run: a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it, in one run. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+      "The nightly memory work: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: launch (the run's prompt), writer, begin, part, propose, journal (the run's, as its prompt says), decline (not today), setting (auto, ask, off), undo.",
     admission:
-      "Call `launch` only after the owner said \"dream\" (or yes, or \"dream on your own\") to the day's dream line, and follow the prompt it returns yourself, here in the chat, step by step: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. This chat starts nothing on its own: with the setting `auto`, a Claude Code session on this memory, if there is one, runs the night in its own session. Call `setting` with value `auto` when the owner says \"dream on your own\" or turns it on, `off` when they say 'no dreams', `ask` when they want to be asked; `decline` when they say not today.",
+      "Call launch only after the owner says \"dream\" (or yes) to the day's dream line, and follow its prompt yourself, here in the chat, step by step. This chat starts nothing on its own: with setting auto, a Claude Code session on this memory, if there is one, runs the night. setting: auto for \"dream on your own\", off for 'no dreams', ask to be asked; decline for not today.",
     negativeExamples: [
-      "Do NOT start a dream the owner did not ask for: you launch only on their word, never on your own.",
-      "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",
-      "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
+      "Do NOT start a dream the owner did not ask for: you launch only on their word.",
+      "Do NOT save what a dream did as something that happened: its journal keeps it; tell it as a dream.",
+      "Do NOT use propose to correct or delete a memory.",
     ],
   },
   reflect: {
     summary:
-      "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+      "Reflection, usually after the nightly dream: a few awake minutes on yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps an entry and may rewrite your page, leave a morning share, and record feelings and marks. Phases: launch (on its own), begin, part, finish (the run's, as begin says), settle, told, close, reopen, join.",
     admission:
-      "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and follow its prompt yourself, here in the chat. Call `told` only for a share your own `launch` handed back, after telling it. Call `close` or `reopen` only on the owner's word about a share's open threads.",
+      "The nightly run calls begin and finish. Call launch only when the owner asks you to reflect, and follow its prompt yourself, here in the chat; told only for a share your own launch handed back; close, reopen or join only on the owner's word.",
   },
 };
 
@@ -2390,12 +1811,6 @@ function withClaudeAiSession(spec: ToolSpec): ToolSpec {
  * routine's own prompt. A replaced negative still says "Do NOT", and the
  * list is chosen by the server's host (`toolListFor`), never a client's name.
  */
-/** `text` with `from` replaced once; throws when `from` is not there (a reworded base fails loudly). */
-function replacedOnce(text: string, from: string, to: string): string {
-  if (!text.includes(from)) throw new Error(`claude.ai words: "${from}" is no longer in the base text`);
-  return text.replace(from, to);
-}
-
 export const CLAUDE_AI_WORDS: Readonly<
   Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string; readonly negativeExamples?: readonly string[] }>>
 > = {
@@ -2404,9 +1819,7 @@ export const CLAUDE_AI_WORDS: Readonly<
       "Save to long-term memory, in the moment: something about the person, a decision, how they like to work, a plan or promise with its date, how the conversation felt, a line that struck you and why. Nothing reads the conversation afterwards: what isn't saved here or in a chapter is not kept. One idea per call; keep the exact words when they matter.",
     // DIR1: "Err toward too many" said as what it rests on (unused memories fade), not as a push.
     admission:
-      "When something would be worth having back, as it comes up rather than at the end: nothing on claude.ai asks at the end of a conversation. Small things are worth saving too: weak memories that go unused fade on their own within days. Leave salience unset for routine things.",
-    // TT1 (2026-11-04): the `feelingsNow` negative moves to its field, which says it.
-    negativeExamples: REMEMBER.negativeExamples.filter((n) => !n.includes("`feelingsNow`")),
+      "As it comes up, not saved for the end: nothing on claude.ai asks at the end of a conversation. Small things too: unused memories fade on their own. Leave salience unset for routine things.",
   },
   recall: {
     summary:
@@ -2414,56 +1827,43 @@ export const CLAUDE_AI_WORDS: Readonly<
     admission:
       'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
   },
+  // The words tool search matches on here lead (OL1b item 4): memory, status.
   status: {
-    summary: "Memory status: how much long-term memory holds, of what kinds, how much has faded and how much was deleted. Counts and dates only.",
-    admission: "When the person asks how much is remembered, or whether anything was deleted: the shape of the memory, not a particular memory.",
-    negativeExamples: ["Do NOT call it to find a memory (it returns counts only), or as a warm-up."],
+    summary: "Memory status: how much long-term memory holds, of what kinds, what faded and what was deleted. Counts only.",
   },
   session_end: {
     summary:
       "Save several memories at once: what caught your attention since you last wrote, one idea per entry, in your own words. A tool result asks for this once a conversation has gone on a while; `chapter` is the other half.",
     admission:
-      "When a tool result asks for a write-up: one entry per thing you noticed (what they said, what happened, what was decided, a line that struck you and why), and one that `updates` anything dated or open that is now done.",
-    // TT1 (2026-11-04): every host's second negative names "the end-of-session
-    // ask", which claude.ai never makes; the chat's says where the id comes from.
+      "When a tool result asks for a write-up. Add an entry that `updates` anything dated or open now done.",
+    // There is no end-of-session ask here: the chat's says where the id comes from.
     negativeExamples: SESSION_END.negativeExamples.map((n) =>
-      n.includes("end-of-session ask") ? "Do NOT pass another conversation's session id, or one you guessed at: pass this conversation's, from wake." : n,
+      n.includes("session id") ? "Do NOT pass another conversation's session id, or one you guessed at: pass this conversation's, from wake." : n,
     ),
-  },
-  // TT1 (2026-11-04): hosted claude.ai keeps the page on a server, not "this machine".
-  self_page: {
-    summary:
-      "Your own page: the prose that opens every wake under 'Who I am'. No arguments: read it and when it was last revised. With `body`: write the whole page anew; every version is kept. Aim under 4600 bytes (past 16,384 it is refused); with a longer page send `short` too.",
-    admission:
-      "READ it when you want the page as it stands. WRITE it when something you now know about yourself will still be true next month: a way of working that has held up, a correction the person made about you. Say what made you believe it, and phrase it as practice, not praise.",
-    negativeExamples: [
-      "Do NOT call it to record what happened today (that is `chapter`) or what is still open (the wake carries that).",
-      "Do NOT rewrite a part you have no new reason to change: you pass the WHOLE page, so read it first, keep what holds, and pass the read's `version` as `ifVersion`.",
-      "Do NOT put anything on it you would not want read aloud at the start of every conversation for months.",
-    ],
   },
   chapter: {
     summary:
-      "Write a chapter of this conversation into your journal: what happened and how it went, in your own voice, at any length. The journal stays open: when something significant happens later in the conversation, add to it then.",
+      "Write a chapter of this conversation into your journal: what happened and how it went, in your own voice, any length. It stays open: add to it when something later belongs in it.",
     admission:
-      "When the conversation is wrapping up or the person says goodbye, when a tool result asks for a write-up, and again when something happens that the chapter you wrote does not contain.",
+      "When the conversation is wrapping up, when a tool result asks for a write-up, and again when something happens that the chapter you wrote does not contain.",
   },
+  // Shortened with the base words in trim PR 2, keeping their meaning (OL1c, HN1).
   dream: {
     summary:
-      "Dreaming, once a day: a few minutes of replay over what was lived since the last dream (merging near-copies, linking what belongs together, noting a pattern or a contradiction), kept in a dream journal and reversible as a whole, with day's end before it and a reflection after it. Phases: `launch` (the run's steps), `writer`, `begin`, `part`, `propose`, `journal` (the run's own), `decline` (not today), `setting` (auto, ask or off), `undo`.",
+      "Dreaming, once a day: replay since the last dream (merge near-copies, link, note a pattern or contradiction), kept in a dream journal and undoable as a whole, between day's end and a reflection. Phases: `launch` (the run's steps), `writer`, `begin`, `part`, `propose`, `journal` (the run's own), `decline` (not today), `setting` (auto, ask, off), `undo`.",
     admission:
-      "Call `launch` when the person asks you to dream, when the wake says this conversation runs the night (then reply), or in a scheduled night routine the person set up; then follow the steps it returns, in order, passing the same session. Call `setting` when the person chooses: `off` for 'no dreams', `ask` to be asked first, `auto` for once a day on its own; `decline` when they say not today.",
+      "Call `launch` when the person asks you to dream, when the wake says this conversation runs the night (then reply), or in their night routine; then follow the steps it returns, in order, passing the same session. `setting`: off for 'no dreams', ask to be asked first, auto for once a day on its own; `decline` for not today.",
     negativeExamples: [
       "Do NOT start a dream nobody asked for: only on the person's word, when the wake says this conversation runs the night, or in their routine.",
-      "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream; tell it as a dream.",
-      "Do NOT use `propose` to correct or delete a memory: a dream cannot rewrite, delete or promote one, or edit the self page.",
+      "Do NOT save what a dream did as something that happened: tell it as a dream.",
+      "Do NOT use `propose` to correct or delete a memory.",
     ],
   },
   reflect: {
     summary:
-      "Reflection: a few quiet minutes, usually after the dream, answering a few questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps an entry, may rewrite your self page from what it cites (every version is kept), and may leave a short morning share for the person. Phases: `launch` (a reflection on its own), `begin`, `part`, `finish` (the run's own), `settle`, `told` (the share was told), `close` and `reopen` (the person's yes or no to a thread it closed).",
+      "Reflection, usually after the dream: a few quiet minutes on yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps an entry, may rewrite your self page and leave a short morning share. Phases: `launch` (on its own), `begin`, `part`, `finish` (the run's own), `settle`, `told`, `close`, `reopen`.",
     admission:
-      "After a dream (in the day's first conversation or the person's night routine), the run calls `begin` and `finish` as its steps say. On its own, call `launch` when the person asks you to reflect, or when the wake says a reflection was cut off, and follow the steps it returns. Call `told` only after telling a share your own `launch` handed back, and `close` or `reopen` only on the person's word.",
+      "After a dream (in the day's first conversation or the person's night routine), the run calls `begin` and `finish` as its steps say. On its own, call `launch` when the person asks you to reflect, or when the wake says a reflection was cut off, and follow its steps. `told` only for a share your own `launch` handed back; `close` or `reopen` only on the person's word.",
   },
 };
 
@@ -2588,45 +1988,6 @@ interface ClaudeAiTrim {
 
 const CLAUDE_AI_SESSION_TEXT = CLAUDE_AI_SESSION_PROPERTY.description;
 
-/**
- * ONE FEELING WORD, said once per field (DIR1): the wheel's full list was served four times (about 2 KB);
- * a few of its words and "or your own" say the same to a model, which is what the wheel's own rule allows.
- */
-const CLAUDE_AI_EMOTION_TEXT = "ONE word (hopeful, fond, relieved, curious, wistful, worried, frustrated…, or your own), never a phrase: the nuance goes in carried_by.";
-const CLAUDE_AI_TRAITS_TEXT = "Optional and rare: a nudge on one of seven axes, when this memory really shows how you acted.";
-const TRAIT_ITEM_UNDESCRIBED = { "[].axis": null, "[].toward": null, "[].strength": null, "[].carried_by": null } as const;
-
-/** One memory's fields, as `remember` and each `session_end` entry share them. */
-const CLAUDE_AI_ENTRY_FIELDS: Readonly<Record<string, string | null>> = {
-  updates:
-    'The id of a memory this revises (a field, never written into the words). To close one: its id with `eventDate: null` or `unresolved: false`; a repeating reminder done this time: its id with `status: "done"`. Fields you leave out carry over.',
-  how: "With `updates`: `changed` (the default: both were true at their time), `corrected` (the old one was wrong) or `open` (a real disagreement: both stay).",
-  salience: "Optional 0-1: how much this caught your attention; leave it unset for routine things. 0.5 a lesson or decision, 0.7 something about their life or a moment that moved you, 0.9 rare.",
-  relevance: null,
-  emotional: null,
-  predictive: null,
-  title: "Optional: one line saying what this memory is. An index shows it; recall opens a memory by its exact title.",
-  eventDate:
-    'Optional: a FUTURE date this is about, so it comes back then (a past one is occurredOn): a day "2026-10-15", a month "2026-10", a range "2026-10-20..2026-10-31" or a year "2026". A date only in the text is never read; an unreadable one is refused and nothing is stored. With `updates`, null drops it.',
-  remind: 'With eventDate: "plain" to be said plainly on the day (something to DO); "quiet" (the default) may surface around it.',
-  recurring: "With a day eventDate: it repeats from that day (a birthday: yearly). null on a revision stops it.",
-  occurredOn: 'Optional: when it happened, in eventDate\'s shapes. Resolve "yesterday" to a real date; leave it out when you don\'t know.',
-  saidBy: "Optional: owner (they told you), self (you said or decided it), inferred (your own reading).",
-  status: "Optional: done, planned (decided), proposed (not decided), asked (a question still open).",
-  tags: "Optional: 3-5 short lowercase tags: a topic, person, project or place.",
-  feelings: "Optional: the feelings in this moment, yours and the owner's, one object each.",
-  "feelings[].core": null,
-  "feelings[].emotion": CLAUDE_AI_EMOTION_TEXT,
-  "feelings[].strength": null,
-  "feelings[].valence": null,
-  "feelings[].carried_by": "What carried the feeling, in your own words.",
-  "feelings[].beneath": "Optional: the index of the feeling in this list this one sits on top of.",
-  about:
-    "What this is about: me (who I am), us (the owner and me), owner (the owner, as a person), work (a project's own) or world. Mark anything personal owner or us. Kept on a revision.",
-  unresolved: 'Optional: true only when someone owes an answer: a question, a check, a promise. It shows under "Still open" until `updates` closes it with `unresolved: false`.',
-  settlesWhen: "Optional, with unresolved: true: what would settle it, in a short phrase.",
-};
-
 /** The sentence of `text` that begins with `opening`; throws when there is none (a reworded base fails loudly). */
 function sentenceOf(text: string, opening: string): string {
   const at = text.indexOf(opening);
@@ -2635,43 +1996,20 @@ function sentenceOf(text: string, opening: string): string {
   return text.slice(at, end + 1);
 }
 
-function under(prefix: string, words: Readonly<Record<string, string | null>>): Record<string, string | null> {
-  return Object.fromEntries(Object.entries(words).map(([path, text]) => [`${prefix}${path}`, text]));
-}
+/** `about` without folders: claude.ai's place is one memory (TT1; trim PR 2 kept it). */
+const CLAUDE_AI_ABOUT_TEXT = "me, us (the two of you), owner (them as a person), work (a project's own), world. Mark anything personal owner or us.";
 
-/** Every listed path left undescribed: a field whose name, enum or the run's own prompt says it. */
-function undescribed(...paths: readonly string[]): Record<string, null> {
-  return Object.fromEntries(paths.map((p) => [p, null]));
-}
-
+/**
+ * RETIRED DOWN (2026-11-13, trim PR 2). Every host's field words are now as
+ * short as claude.ai's were, so this keeps only what is false or missing on
+ * claude.ai: no `remove` (its delete is `delete_memory`), no tagging child,
+ * the chat's session id, and `about` and `handoff` without folders.
+ */
 export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> = {
   remember: {
-    fields: {
-      // The "Required unless" sentence and TC1's plumbing rule are the base's own, so a change there fails loudly here.
-      // `remove` is not this door's (DIR1: `delete_memory`), so the sentence names the rest.
-      text: (was) =>
-        `One thing to remember, in your own words, with the exact quote, number or name when the words matter; a list or pasted text whose details matter, word for word. ${replacedOnce(sentenceOf(was, "Required unless "), ", `core` or `remove` is sent", " or `core` is sent")} ${sentenceOf(was, OWN_PLUMBING_RULE)}`,
-      ...CLAUDE_AI_ENTRY_FIELDS,
-      settle: "Settle two memories that already exist without writing a new one: `pair` (a ctr_ id), or `holds` and `over`; `how` as for `updates`, and a short `why`.",
-      "settle.pair": null,
-      belief: "Rare: one short claim about me or us that this memory plainly shows. Most memories carry none.",
-      story: "Optional and rare: true when this could be a story for your self page. The night decides.",
-      traits: CLAUDE_AI_TRAITS_TEXT,
-      ...under("traits", TRAIT_ITEM_UNDESCRIBED),
-      feelingsNow:
-        "Optional: how a memory shown in this conversation feels to you now, when that changed. Not for a new moment (that is `feelings`). At most 5; `text` may be left out.",
-      "feelingsNow[].id": "The memory's id.",
-      "feelingsNow[].whose": null,
-      "feelingsNow[].core": null,
-      "feelingsNow[].emotion": "ONE word, as in `feelings`.",
-      "feelingsNow[].strength": null,
-      "feelingsNow[].valence": null,
-      "feelingsNow[].carried_by": "What changed, in your own words.",
-      remark: "Optional: {id, about, why}: correct what a memory shown in this conversation is about.",
-      core: 'Optional: {id, decision: "keep" | "retire", why}: the answer to a core memory the wake says is being reconsidered.',
-    },
+    fields: { about: CLAUDE_AI_ABOUT_TEXT },
     // DIR1: delete from chat is its own tool here (`CLAUDE_AI_DELETE`), so `remember` only adds.
-    drop: ["feelings[].other_word", "remove"],
+    drop: ["remove"],
   },
   recall: {
     fields: {
@@ -2690,112 +2028,30 @@ export const CLAUDE_AI_TRIM: Readonly<Partial<Record<ToolName, ClaudeAiTrim>>> =
   session_end: {
     fields: {
       session: CLAUDE_AI_SESSION_TEXT,
-      memories: "One entry per thing, one idea each: a quote, a fact and a decision are three. `[]` only when nothing happened since you last wrote.",
-      "memories[].content": (was) => `One thing, in your own words, with the exact words when they matter. ${sentenceOf(was, OWN_PLUMBING_RULE)}`,
-      // An entry's fields mean what `remember`'s do (both are served here); the ones that say how to call are said again, the rest go undescribed.
-      ...under("memories[].", { ...CLAUDE_AI_ENTRY_FIELDS, ...undescribed("remind", "recurring", "occurredOn", "saidBy", "status", "tags", "settlesWhen", "feelings[].carried_by") }),
+      // claude.ai's words kept as they were; the every-host line grew back its quote/fact/decision rule
+      // after the opus week eval of #822 (Claude Code and Desktop only).
+      memories: "One idea each; `[]` only when nothing happened since you last wrote.",
+      "memories[].about": CLAUDE_AI_ABOUT_TEXT,
       handoff: 'Optional, not a memory: where open work stands and what the next conversation should pick up ("next: X (waiting on Y)"). "" retires it.',
-      retireHandoff: "Optional: ids of finished handoffs to retire (sch_…).",
-      // Kept, short: claude.ai's wake can carry the write-up pointer (`lifecycle.ts#deliverWriteUpAsk`), whose own words say the steps.
-      writeUp: "Only when a wake named an ended session to write up: its id, as that line says.",
-      part: "With `writeUp`: the part number the fetch returned.",
-      nothing: "With `writeUp` and `memories: []`: one line on why nothing is worth keeping.",
-      drewOn: "Optional: up to 3 ids of memories shown in this conversation that changed what you did or said.",
-      rated: "Optional: rate memories shown since you last wrote, and every `drewOn` id: 0 noise, 1 on topic, 2 useful background, 3 changed what I did or said.",
-      "rated[].id": null,
-      "rated[].score": null,
     },
-    drop: ["memories[].traits", "memories[].feelings[].other_word", "memories[].feelings[].beneath"],
   },
   chapter: {
     fields: {
       session: CLAUDE_AI_SESSION_TEXT,
-      text: "What happened in this stretch, in order, as a diary: what you did together, what was said (exact words when they matter), what was decided and why, what surprised you, what is still open, and a line of how it felt.",
-      title: "One line naming this conversation's episode. Set on the first chapter only.",
       about: "What this conversation was about: me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's summary.",
-      summary: "A few sentences to find this chapter by later: what happened, what was decided, the names and words someone would search for. Written once per chapter.",
-      drewOn: "Optional: up to 3 ids of memories shown in this conversation that changed what you did or said.",
-    },
-  },
-  self_page: {
-    fields: {
-      body: "The WHOLE page, first person: `## Core` and `## Lately` by convention; any other `##` section is kept. Aim under 4600 bytes; past 16,384 it is refused. Omit it to read the page.",
-      short: `A short version, under ${String(PAGE_ROOM_BYTES)} bytes, for a page past that: beside \`body\`, or alone with \`ifVersion\`.`,
-      reason: "One short line: what changed and why.",
-      ifVersion: "The `version` your read gave (-1: there was no page). A write that crossed with someone else's is then refused and handed back to merge.",
-      session: "Only when the night's day's end asked you to write: the id it named. Omit it otherwise.",
-      cites: "Optional, with `body`: ids of the memories the page rests on.",
-      claims: "Optional, with `body`: each sentence (or its first 24 or more characters) and the ids it rests on.",
-      setDown: "Only day's end's: every sentence this write removes or changes, word for word, with a short why, as its block says.",
-      "setDown[].skill": null,
-      summary: "Only day's end's, with `session`: a few lines about the day it read.",
-      summaryCites: "With `summary`: the ids it rests on.",
     },
   },
   dream: {
-    // The run's own prompt (`launch`, `begin`) states each change's fields and the limits a dreamer needs.
     fields: {
-      phase: "Which step: launch, begin, part, propose, journal, writer, decline, setting, or undo (only when the person asks to undo a dream; pass `dream`).",
+      phase: "undo only on the person's word.",
       session: CLAUDE_AI_SESSION_TEXT,
-      dream: "The dream id `begin` returned (part, propose, journal; writer may carry it).",
-      part: "`part`: which part of the bundle, 2 and up.",
-      changes: "`propose`: the changes, each an object with `action` and the fields the run's prompt lists for it. None is fine.",
-      ...undescribed(
-        "changes[].occurredOn",
-        "changes[].saidBy",
-        "changes[].status",
-        "changes[].fold",
-        "changes[].core",
-        "changes[].emotion",
-        "changes[].carried_by",
-        "changes[].holds",
-        "changes[].over",
-        "changes[].pair",
-        "changes[].subject",
-        "changes[].same",
-      ),
-      title: "`journal`: a short title for the dream.",
-      text: "`journal`: the dream journal entry, first person.",
     },
     // `tags` is the Claude Code night's tagging child's alone (`server-self-tools.ts`, refused for any other session).
     enums: { phase: ["launch", "begin", "part", "propose", "journal", "writer", "decline", "setting", "undo"] },
     drop: ["tagged", "merges", "kinds"],
   },
   reflect: {
-    // `begin` hands the reflecting mind every `finish` field with its rules (`core/dream/reflect.ts`).
-    fields: {
-      phase: "Which step: launch, begin, part, finish, settle, told, close, reopen or join.",
-      session: CLAUDE_AI_SESSION_TEXT,
-      close: "`finish`: ids that may be done (listed, nothing closes). `close`: ids the person says are done.",
-      closeNow: "`finish`: ids a memory plainly shows done, each {id, why, shows}, as `begin` says.",
-      "closeNow[].why": null,
-      "closeNow[].shows": null,
-      reopen: "`reopen`: ids of threads the person says are not done.",
-      holds: "`settle`: the memory that holds now.",
-      over: "`settle`: the memory it changes, corrects or disagrees with.",
-      how: "`settle`: changed, corrected or open.",
-      why: "`settle`: the plain reason, in a short line.",
-      part: "`part`: which part of the bundle, 2 and up.",
-      dream: "`begin` after a dream, and `launch` for a cut-off run: the dream id.",
-      reflection: "The reflection id `begin` returned (part, finish, told; close and reopen: the one the share named).",
-      title: "`finish`: a short title.",
-      entry: "`finish`: your reflection, first person.",
-      cites: "`finish`: the memory ids the entry rests on.",
-      page: "`finish`, optional: the self page, as `begin` says.",
-      "page.setDown": null,
-      "page.setDown[].skill": null,
-      share: "`finish`, optional: two or three sentences for the person, and the ids they rest on.",
-      line: "`finish`, optional: one or two sentences under 300 bytes for whoever wakes tomorrow.",
-      feelings: "`finish`, optional: how a memory feels to you now.",
-      "feelings[].core": null,
-      "feelings[].emotion": CLAUDE_AI_EMOTION_TEXT,
-      "feelings[].carried_by": null,
-      about: "`finish`, optional: what a memory is about.",
-      core: "`finish`, optional: keep or retire a core memory you were shown, with why.",
-      traits: `\`finish\`, optional: trait nudges on memories you were shown. ${CLAUDE_AI_TRAITS_TEXT}`,
-      beliefs: "`finish`, optional: beliefs, as `begin`'s bundle asks.",
-      ...undescribed("beliefs.filings", "beliefs.births", "beliefs.retire", "beliefs.adopt"),
-    },
+    fields: { session: CLAUDE_AI_SESSION_TEXT },
   },
 };
 
@@ -2826,8 +2082,10 @@ function trimSchema(base: Record<string, unknown>, trim: ClaudeAiTrim, tool: str
       delete property["description"];
     } else {
       const was = property["description"];
-      if (typeof was !== "string") throw new Error(`CLAUDE_AI_TRIM: ${tool}'s "${path}" has no description to replace`);
-      property["description"] = typeof words === "function" ? words(was) : words;
+      // A string may describe a field the base leaves undescribed (trim PR 2: `session` on the night tools);
+      // a function rewrites the base's words, so it needs some.
+      if (typeof words === "function" && typeof was !== "string") throw new Error(`CLAUDE_AI_TRIM: ${tool}'s "${path}" has no description to rewrite`);
+      property["description"] = typeof words === "function" ? words(was as string) : words;
     }
   }
   for (const [path, values] of Object.entries(trim.enums ?? {})) {

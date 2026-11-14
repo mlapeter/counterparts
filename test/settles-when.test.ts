@@ -113,8 +113,8 @@ describe("1. the field", () => {
     const entry = (toolSpec("session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, { description: string }> } } } }).properties.memories.items
       .properties["settlesWhen"];
     for (const d of [remembered?.description, entry?.description]) {
-      expect(d).toContain("with unresolved: true");
-      expect(d).toContain("A date goes in eventDate");
+      // Shortened in trim PR 2: a date's place is said on eventDate.
+      expect(d).toContain("With unresolved: what would settle it.");
     }
   });
 

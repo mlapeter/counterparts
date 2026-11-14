@@ -306,13 +306,22 @@ describe("dream: refusals that protected nothing on the keep list became notes",
     expect(prompt).toContain("feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}");
     expect(prompt).toContain("`emotion` is ONE word");
     expect(prompt).not.toContain("at most");
+    // The night eval of #822: with the change items typed by `action` alone, a dream sent slot's pair as
+    // its two memory ids. The prompt now says which id each field takes (the schema used to, for pair).
+    expect(prompt).toContain("slot {pair: the to-confirm item's own pair id (ctr_…), never its two memory ids, same: true|false, why}");
+    expect(prompt).toContain("settle {holds: the memory that holds, over: the one it changes,");
+    expect(prompt).toContain("Every id below is a memory's id as the bundle shows it, except slot's pair.");
+    expect(prompt).toContain("slot {pair: its pair id (ctr_…), same: true, why}");
   });
 
-  test("every schema a model writes a feeling through says emotion is one word and carried_by the nuance", () => {
-    const text = JSON.stringify(TOOLS.filter((t) => ["remember", "session_end", "dream", "reflect"].includes(t.name)).map((t) => t.inputSchema));
-    const oneWord = text.match(/ONE word/g) ?? [];
-    expect(oneWord.length).toBeGreaterThanOrEqual(5);
-    expect(text).toContain("The nuance, in your own words");
+  // Trim PR 2: a session's feelings are strings — the word, then what carried it — and the night's
+  // feeling fields are said by its prompts (`begin`), which keep "ONE word" (held above).
+  test("every schema a session writes a feeling through says one feeling word, then what carried it", () => {
+    for (const name of ["remember", "session_end"]) {
+      const spec = TOOLS.find((t) => t.name === name)!.inputSchema as { properties: Record<string, { description?: string; items?: { properties: Record<string, { description?: string }> } }> };
+      const feelings = name === "remember" ? spec.properties["feelings"] : spec.properties["memories"]?.items?.properties["feelings"];
+      expect(feelings?.description).toContain("One feeling word, then what carried it");
+    }
   });
 
   test("text caps were raised, and a text over one is kept to it with a note — never cut without a word", () => {
