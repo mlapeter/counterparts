@@ -426,7 +426,9 @@ async function handOver(
   // WHEN THIS PART WAS SAID (2026-11-14, fable-continuity's propane miss): its
   // latest piece on the clock, weekday and zone included, so "thursday" in it
   // resolves against the day it was said, not the night that reads it.
-  const saidBy = (parts[part - 1]?.lastAt ?? 0) > 0 ? localClock(parts[part - 1]?.lastAt as number, counterpart.store.zone()) : "";
+  // Named saidOn, not saidBy: a memory's saidBy is WHO said it (review of #825).
+  const endedOn = calendarDate(st.held.clockFrom, counterpart.store.zone());
+  const saidOn = (parts[part - 1]?.lastAt ?? 0) > 0 ? localClock(parts[part - 1]?.lastAt as number, counterpart.store.zone()) : endedOn;
   return {
     reason: "part",
     isError: false,
@@ -435,8 +437,8 @@ async function handOver(
       reason: "part",
       session: input.session,
       ended,
-      endedOn: calendarDate(st.held.clockFrom, counterpart.store.zone()),
-      ...(saidBy === "" ? {} : { saidBy }),
+      endedOn,
+      saidOn,
       part,
       of: parts.length,
       // Parts passed over on the way here, every word in them already written
@@ -450,7 +452,7 @@ async function handOver(
           : `memories: [] only if nothing in it held your attention. `) +
         `Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up. ` +
         `Lines marked ${WRITE_UP_REPLY_MARK} are what that session said back — context for what was said to it; you are writing it up second-hand. ` +
-        `A day still ahead that it names ("thursday", "the 15th", "next week") goes in that memory's eventDate as a date, counted from ${saidBy === "" ? "the day it was said" : `when it was said (saidBy: ${saidBy})`}, not from today; in the words alone it never comes back. ` +
+        `A day still ahead that it names ("thursday", "the 15th", "next week") goes in that memory's eventDate as a calendar day (YYYY-MM-DD), counted from when it was said (saidOn: ${saidOn}), not from today, and even if that day has passed by now; a word like "thursday" in the field is read from today, and in the text alone it never comes back. ` +
         WRITE_UP_PLUMBING_RULE +
         (part < parts.length
           ? st.granted

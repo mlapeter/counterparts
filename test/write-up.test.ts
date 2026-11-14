@@ -679,12 +679,14 @@ describe("the door: `session_end` with `writeUp`", () => {
   test("a part says WHEN it was said, and a day still ahead goes in eventDate counted from then (2026-11-14, propane miss)", async () => {
     seeded();
     const { fetched } = await pointAndFetch("new-1");
-    const saidBy = String(fetched["saidBy"]);
+    const saidOn = String(fetched["saidOn"]);
     // A clock a person reads: weekday, day, month, year, time, zone.
-    expect(saidBy).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m /);
+    expect(saidOn).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m /);
     const next = String(fetched["next"]);
     expect(next).toContain("eventDate");
-    expect(next).toContain(`saidBy: ${saidBy}`);
+    expect(next).toContain(`saidOn: ${saidOn}`);
+    expect(next).toContain("YYYY-MM-DD");
+    expect(fetched["saidBy"]).toBeUndefined();
     expect(next).toContain("not from today");
   });
 
