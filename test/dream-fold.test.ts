@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Dashboard } from "../src/adapters/dashboard/index.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
 import { dreamsView } from "../src/adapters/dashboard/web/views/dreams.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
@@ -137,7 +138,7 @@ describe("a fold goes through the one door", () => {
       expect(fadeOf(c, id)).toBeCloseTo(0.5, 6);
       expect(c.store.row(id)?.archived).toBe(0);
       expect(headOf(c.store, id)).toBe(fold);
-      expect(standingOf(c.store, id)?.prefix).toBe(`Earlier (now [${fold}]): `);
+      expect(standingOf(c.store, id)?.prefix).toBe(`Folded into [${fold}]: `);
     }
     // The parts are in the fold's slot, so their settled uses count for it.
     expect(slotOf(c.store, fold).sort()).toEqual([fold, m.a, m.b, m.d].sort());
@@ -217,6 +218,46 @@ describe("a fold goes through the one door", () => {
     const results = propose(c, dream, [{ action: "contradiction", a: other, b: m.a }, { action: "gist", fold: true, text: "The sidebar shipped.", sources: [m.a, m.b] }]);
     expect(results.map((r) => r.ok)).toEqual([true, true]);
     expect(c.store.contradictionBetween(other, m.a)?.state).toBe("unsettled");
+  });
+
+  // 2026-11-14: a fold's part read "earlier … changed <date>" in recall, which
+  // says it was replaced. A standing rule folded into a dated snapshot was not.
+  test("through the recall tool, a fold's part reads folded, not changed; a real change still reads changed", async () => {
+    const c = brain();
+    nextDay(c);
+    nextDay(c);
+    const rule = mem(c, "Zqshellfish never goes on the zqmarquee menu, ever.", { title: "No zqshellfish on the zqmarquee menu" });
+    const prep = mem(c, "The zqmarquee kitchen prepped the zqtasting menu for the first night.");
+    const old = mem(c, "The zqmarquee doors open at six.", { title: "Zqmarquee doors at six" });
+    const dream = begin(c);
+    const [r] = propose(c, dream, [
+      { action: "gist", fold: true, kind: "fact", title: "Zqmarquee on the eve of its first night", text: "The zqmarquee was ready for its first night: the zqtasting menu prepped.", sources: [rule, prep] },
+    ]);
+    expect(r).toMatchObject({ ok: true, reason: "folded" });
+    const fold = r?.id as string;
+    // A real change, for the control.
+    expect(settle(c.store, { holds: fold, over: old, how: "changed", actor: "session", why: "doors moved" }).ok).toBe(true);
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/proj" });
+    const res = await s.call("recall", { question: "zqshellfish zqmarquee menu doors", mode: "facts" });
+    const answer = String(res.structuredContent["answer"]);
+    const ruleLine = answer.split("\n").find((l) => l.includes(rule)) ?? "";
+    expect(ruleLine.trimStart()).toStartWith('part: "No zqshellfish on the zqmarquee menu"');
+    expect(ruleLine).toContain(", folded in ");
+    expect(ruleLine).not.toContain("changed");
+    expect(ruleLine).not.toContain("earlier");
+    const oldLine = answer.split("\n").find((l) => l.includes(old)) ?? "";
+    expect(oldLine.trimStart()).toStartWith('earlier: "Zqmarquee doors at six"');
+    expect(oldLine).toContain(", changed ");
+    // By id, the part says it was folded in, not that it is earlier.
+    const byId = await s.call("recall", { ids: [rule] });
+    const said = JSON.stringify(byId.structuredContent);
+    expect(said).toContain(`folded into ${fold}`);
+    expect(said).not.toContain("earlier — now");
+    // The fold's own footnote names its parts as folded in, the real change as earlier.
+    const st = standingOf(c.store, fold);
+    expect(st?.suffix).toContain(`folds in [`);
+    expect(st?.suffix).toContain(`earlier: [${old}]`);
+    expect(standingOf(c.store, old)?.prefix).toBe(`Earlier (now [${fold}]): `);
   });
 });
 

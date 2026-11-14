@@ -2011,3 +2011,15 @@ pair first), whatever this turn reached. `standingOf` takes an optional `rank` n
 render passes each candidate's activation, so the best-reached is named first; unranked ones keep
 pair order (stable). The wake and the by-id paths pass none. Facts mode's `earlier:` lines follow
 the same rule by score (`adapters/mcp/NOTES.md`, same date).
+
+## 2026-11-14 — a fold's part reads folded, not earlier (owner-approved that day, lightly held)
+
+A dream fold settles each part `changed` (source `fold`), and every label read it as replaced:
+`Earlier (now [fold])`, `(earlier: …)`, `earlier (now …)`. For a standing rule folded into a dated
+snapshot that is false. Render only: `foldedOver` (the newest standing settle over a memory is a
+fold's) turns the part's mark into `Folded into [id]` / `folded into id`; the fold's suffix names
+its parts `folds in [ids]`, apart from real earlier versions. `earlierMark(head, folded)` carries it
+to the write neighbours, the dream and reflection bundles and meaning mode. A part changed again
+for real later reads earlier as before. Nothing else moves: parts still fade and still count as
+not current. `FOLD_SOURCE` lives in `core/types.ts` now (recall → reconsolidation would cycle).
+Check later whether sessions treat folded parts as still holding.

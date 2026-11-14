@@ -1540,3 +1540,11 @@ An experiment, Mike's go, lightly held; check on the live store around 2026-11-1
 - Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`, written too when the
   only thing held was a self-close), and whether self-closes piling up as "may be done" is a cost. Revisit or drop
   freely.
+
+## 2026-11-14 — rulings stay out of folds (owner-approved, lightly held)
+
+"Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold" read
+as leave to fold a ruling (a standing "never" folded into a dated snapshot, fable-continuity sims).
+The prompt now says: never list a ruling (something the person said is always or never so) or a
+lesson as a fold's source; mention or link it instead. "earlier under the fold" became "folded in",
+matching recall's new label. Check later on a sim or the journal whether folds still take rulings.
