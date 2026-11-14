@@ -3338,7 +3338,13 @@ don't churn), and whether a night after a skipped day writes about the last day 
   doctor read one night; the tunable is read at use from the module defaults for that reason, not per instance.
   - *Holding through the night.* Once day's end claims and writes the earlier day, that day is closed, and a
     walk that stopped there would hand the dream after it, and doctor, yesterday again. So a day with a run made
-    TODAY is tonight's whatever its outcome, and the night stays that day until the calendar turns.
+    TODAY is tonight's whatever its outcome, and the night stays that day until the calendar turns. And a
+    yesterday with any run but a `skipped` one is never walked past, even when its memories were let go since
+    (a dream's forgetting, the owner's remove) and it reads empty: otherwise the night after yesterday was
+    written could hand an older day on as owed.
+  - *The dashboard.* `views/mind.ts#writerWords` reads "last night" as `about === yesterday`, so a run about a
+    day before a gap reads as an older night there; it only changes which remedy sentence a skip or failure
+    gets. Left as it is.
   - *How it reads.* Day's end's block says "the day is <date>"; doctor's line says "<date> is owed"; the dream's
     "today, as day's end told it (<date>)" heading carries the date. All name the date, not "yesterday", so an
     earlier day reads plainly. The block's opening still says "from the day just lived", which is loose for a day
