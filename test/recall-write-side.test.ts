@@ -315,7 +315,8 @@ describe("the three fields on note and session_end", () => {
       expect(text).toContain('"occurredOn"');
       expect(text).toContain('"saidBy"');
       expect(text).toContain('"status"');
-      expect(text).toContain("when it already happened, that is occurredOn");
+      // Shortened in trim PR 2.
+      expect(text).toContain("A past date is occurredOn");
     }
   });
 });

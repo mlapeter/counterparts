@@ -749,7 +749,7 @@ describe("the field on the session_end ask", () => {
     expect(props["handoff"]?.["type"]).toBe("string");
     // Not required, and not inside an entry: it is about the DIRECTORY, not
     // about any one thing that was learned.
-    expect(schema["required"]).not.toContain("handoff");
+    expect(schema["required"] ?? []).not.toContain("handoff");
     const item = (props["memories"]?.["items"] as Record<string, unknown>)["properties"] as Record<
       string,
       unknown

@@ -49,10 +49,9 @@ describe("the writing tools ask for lists, tables and pasted texts word for word
     };
     for (const tool of ["remember", "session_end"]) {
       const text = String(field(tool)["description"]);
-      expect(text).toContain("A list, a table or a pasted text whose specifics matter: keep it here word for word, not summarized");
-      expect(text).toContain("the words someone would search for (what it is, whose, when) in the title and the first line");
+      // Shortened in trim PR 2.
+      expect(text).toContain("lists, numbers and quotes word for word");
     }
-    expect(String(field("remember")["description"])).toContain("Required unless `settle`, `feelingsNow`, `remark`, `core` or `remove` is sent.");
   });
 });
 

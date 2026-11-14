@@ -63,10 +63,12 @@ describe("A. salience: routine work and ordinary work facts are left unset", () 
   for (const [tool, path] of cases) {
     test(`${tool}: the salience field says to leave routine work unset, 0.4+ only for what struck you`, () => {
       const d = fieldDescription(tool, ...path);
-      expect(d).toContain("Leave it UNSET for a routine work event");
-      expect(d).toContain("ordinary work fact or step unless it changed something");
-      expect(d).toContain("0.4 or more only for what struck you");
-      expect(d).toContain("Their rulings, preferences and corrections stay high even about work");
+      // Shortened in trim PR 2; the whole scale is the manual's ("Fields").
+      expect(d).toMatch(/[Uu]nset for routine/);
+      if (tool === "remember") {
+        expect(d).toContain("0.5 a lesson or decision");
+        expect(d).toContain("their rulings and corrections stay high");
+      }
       // No numeric anchor invites a claim for routine work any more.
       expect(d).not.toContain("About 0.2 a routine work event");
     });

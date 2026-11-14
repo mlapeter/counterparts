@@ -1166,6 +1166,9 @@ export function parseFeelingString(s: string): Record<string, unknown> | null {
   return parseFeelingStrings(s)[0] ?? null;
 }
 
+/** `word (core)`, then optionally a break and what carried it: the core is one of the seven. */
+const CORE_IN_PARENS = new RegExp(`^([^()]+?)\\s*\\(\\s*(${CORE_EMOTIONS.join("|")})\\s*\\)\\s*(?:(?:[—–:;]|\\s-)\\s*)?(.*)$`, "isu");
+
 /** A label before a colon that names no one ("Note: happy", "Feeling: proud"): dropped, the feeling read. */
 const FEELING_LABELS: ReadonlySet<string> = new Set(["note", "feeling", "feelings", "emotion", "emotions", "mood", "felt"]);
 
@@ -1196,6 +1199,14 @@ export function parseFeelingStrings(s: string): Record<string, unknown>[] {
     }
   }
   const by = whose ?? "self";
+  // A CORE IN PARENTHESES after the word (review of #822): "flibbertigibbet (calm) — rain" keeps
+  // the writer's own word on the core they name — the string form of the object's `core`.
+  const cored = CORE_IN_PARENS.exec(rest);
+  if (cored !== null) {
+    const word = (cored[1] as string).trim().replace(/[,.;!]+$/u, "").trim();
+    const carried = (cored[3] ?? "").trim();
+    if (word.length > 0) return [{ whose: by, emotion: word, core: (cored[2] as string).toLowerCase(), ...(carried.length === 0 ? {} : { carried_by: carried }) }];
+  }
   // A list of feeling words ("happy, sad"): one feeling each, never the second in carried_by.
   const parts = rest.split(",").map((p) => p.trim());
   if (parts.length > 1 && parts.every((p) => /^[A-Za-z'-]+(?: [A-Za-z'-]+)?$/u.test(p))) {
@@ -1414,7 +1425,7 @@ async function fixFeeling(f: Record<string, unknown>, at: string, ctx: Normalize
     at,
     "feeling-unplaced",
     word,
-    `"${shown(word)}" is not a feeling word this could place, so that one feeling was not kept (the memory was). Give it a core (${CORE_EMOTIONS.join(", ")}) to keep your word.`,
+    `"${shown(word)}" is not a feeling word this could place, so that one feeling was not kept (the memory was). To keep your word, name its core in parentheses after it: "self: ${shown(word)} (calm) — what carried it", the core one of ${CORE_EMOTIONS.join(", ")}.`,
   );
   return null;
 }
