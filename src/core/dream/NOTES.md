@@ -1497,8 +1497,11 @@ What it moves, on purpose:
   intrusive. Mike's ruling (11-13): build a host setting, lightly held. `shares: "off"`, or `sharesPerWeek: n`;
   absent, today's behavior — the owner's own store shares every night and still does.
 - Decided once per finish, before anything that rides in a share (`Reflections#shareHeld`), and not for a
-  reflection that already offered one. The window is lived days, like every other window here (the reflection's
-  own day and the six before), counted by the night that wrote the share, not the day it was told. It counts every
+  reflection that already offered one. The window is CALENDAR days (the coordinator's ruling in review): the
+  reflections dated in the 7 days ending on this night's date, in the store's zone. First built on lived days, like
+  other windows here, but to a host "per week" is a week, and lived days stand still while the person is away (the
+  reviewer's probe: away 30 days, still held). Counted by the night that wrote the share, not the day it was told.
+  A cap of 0 is the same as off (`host-off`). It counts every
   share offered in it, told or not yet: first built to count only `told`/`carried`, but an offered share stays
   deliverable (`pendingShare` finds the newest offered one however old, then the next), so "never told" can't be
   told apart from "not told yet", and a week nobody woke would have offered every night and delivered the backlog
@@ -1508,9 +1511,19 @@ What it moves, on purpose:
   of closing unsaid; a join is not proposed (it would rest as asked); a became-core line waits for a night that
   may share (its "mentioned" mark needs an offered share). Not a retry: nothing the reflection could send again
   changes the host's setting.
-- Not held, for Mike to rule on: core keep/retire decisions and re-labels into me, us or the owner still happen
-  with their line dropped (shown to the owner, not gated on him, was the ruling for those); and `begin` still asks
-  for a share and says `closeNow` closes tonight, so a held night spends a little effort on words nobody hears.
+- A held night must not change the self silently (CONSTITUTION §4, §16; the coordinator's ruling in review, for
+  Mike): a re-label into me, us or the owner and a core retire are deferred, not applied — the part comes back
+  `deferred-share-held` (not a retry) and `detail.deferred` lists them. The memory keeps its mark, the core memory
+  stays waiting, so a night that may share, or the waking session, can still act on it. A keep changes nothing and
+  stands. First built applying them with their line dropped.
+- Off, a share offered BEFORE the host turned shares off is not delivered after: `pendingShare` and `carryLine`
+  return nothing, and every delivery (the hooks, a chat host's wake, the dream's hand-back) goes through them. A
+  cap only stops new offers: an older offered share can still be delivered under it.
+- Still able to put a held night's words in front of the person, named, not fixed: the wake's night own-line
+  (`counterpart-wake-shape.ts#ownToldOnce`, the reflection's `line`), which no share setting reads; and on hosted
+  with `nights: "first-chat"`, the night runs in the person's own chat, so the model wrote its share there in
+  front of them before the finish held it. And `begin` still asks for a share and says `closeNow` closes tonight,
+  so a held night spends a little effort on words nobody hears.
 - Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`, written too when the
   only thing held was a self-close), and whether self-closes piling up as "may be done" is a cost. Revisit or drop
   freely.

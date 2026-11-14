@@ -120,7 +120,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     new one. The email path is unchanged.
 15b. **The morning share, as a product wants it** (2026-11-13, an experiment, lightly held): `AppOptions.shares`
     (`"off"`) and `sharesPerWeek` are written into each store's `config.json` (the worker's night reads them there)
-    and handed to the store's own server. Absent: on, no cap, as before. The rule is `core/dream`'s.
+    and handed to the store's own server. Absent: on, no cap, as before. The rule is `core/dream`'s. With
+    `nights: "first-chat"` the night runs in the person's chat, so its share words are written there before the
+    finish holds them.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 

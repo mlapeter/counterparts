@@ -14,15 +14,17 @@
  * every word invented.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { loadConfig, shareOptions } from "../src/adapters/config.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { CounterpartOptions } from "../src/core/counterpart-types.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/reflect.js";
+import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { addDays } from "../src/core/time.js";
 
@@ -319,4 +321,85 @@ describe("where a host sets it", () => {
     expect(odd.ok).toBe(true);
     expect(shareOptions(odd.config)).toEqual({});
   });
+});
+
+/** One JSON-RPC exchange after another with `mcp/bin/serve.ts` as a child over stdio (as `hold-local.test.ts` does). */
+async function overStdio(env: Record<string, string>, calls: (call: (name: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>) => Promise<void>): Promise<void> {
+  const child = spawn(process.execPath, ["run", resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts")], { cwd: root, env, stdio: ["pipe", "pipe", "pipe"] });
+  const exited = new Promise<void>((r) => child.on("exit", () => r()));
+  const waiting = new Map<number, (m: Record<string, unknown>) => void>();
+  let buf = "";
+  let err = "";
+  let next = 1;
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (d: string) => (err += d));
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (d: string) => {
+    buf += d;
+    for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      if (line.trim().length === 0) continue;
+      const m = JSON.parse(line) as Record<string, unknown>;
+      if (typeof m["id"] === "number") waiting.get(m["id"])?.(m);
+    }
+  });
+  const rpc = (method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    new Promise((res, rej) => {
+      const id = next++;
+      const timer = setTimeout(() => rej(new Error(`no answer to ${method}: ${err.slice(-400)}`)), 30_000);
+      waiting.set(id, (m) => {
+        clearTimeout(timer);
+        res(m);
+      });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) })}\n`);
+    });
+  try {
+    await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "claude-code", version: "2.0.0" } });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    await calls(async (name, args) => {
+      const m = await rpc("tools/call", { name, arguments: args });
+      const result = m["result"] as Record<string, unknown> | undefined;
+      if (result === undefined) throw new Error(`${name}: ${JSON.stringify(m)}`);
+      return (result["structuredContent"] ?? {}) as Record<string, unknown>;
+    });
+  } finally {
+    child.stdin.end();
+    const killer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    await exited;
+    clearTimeout(killer);
+  }
+}
+
+describe("the configuration file, through the night's own server", () => {
+  test("\"shares\": \"off\" in the file the night's serve.ts reads: its reflection offers no share", async () => {
+    const home = join(root, "home");
+    mkdirSync(home, { recursive: true });
+    const configPath = join(root, "claude-code.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: storeDir, snapshots: { daily: false }, shares: "off" }), "utf8");
+    const s = Store.open({ dir: storeDir });
+    const m = s.put({ type: "memory", kind: "fact", body: "The cold frame lid sticks in the morning damp.", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: s.livedDay(), lastUsedDay: s.livedDay() } });
+    s.close();
+    await overStdio(
+      {
+        PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+        HOME: home,
+        COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+        COUNTERPARTS_UPDATE_CHECK: "off",
+        COUNTERPARTS_DATA_DIR: storeDir,
+        COUNTERPARTS_CONFIG: configPath,
+        COUNTERPARTS_SESSION: SESSION,
+        COUNTERPARTS_SCOPE: root,
+        COUNTERPARTS_NIGHT_CHILD: "reflection",
+        COUNTERPARTS_NIGHT_RUN: "nrn_share_host",
+        CLAUDE_PROJECT_DIR: root,
+      },
+      async (call) => {
+        const begun = await call("reflect", { phase: "begin", session: SESSION });
+        const reflection = String(begun["reflection"]);
+        const out = await call("reflect", { phase: "finish", session: SESSION, reflection, entry: "A short look back.", cites: [m], share: { text: "The lid keeps sticking.", cites: [m] } });
+        expect(share(out)).toMatchObject({ offered: false, reason: "host-off" });
+      },
+    );
+  }, 60_000);
 });
