@@ -306,6 +306,12 @@ describe("dream: refusals that protected nothing on the keep list became notes",
     expect(prompt).toContain("feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}");
     expect(prompt).toContain("`emotion` is ONE word");
     expect(prompt).not.toContain("at most");
+    // The night eval of #822: with the change items typed by `action` alone, a dream sent slot's pair as
+    // its two memory ids. The prompt now says which id each field takes (the schema used to, for pair).
+    expect(prompt).toContain("slot {pair: the to-confirm item's own pair id (ctr_…), never its two memory ids, same: true|false, why}");
+    expect(prompt).toContain("settle {holds: the memory that holds, over: the one it changes,");
+    expect(prompt).toContain("Every id below is a memory's id as the bundle shows it, except slot's pair.");
+    expect(prompt).toContain("slot {pair: its pair id (ctr_…), same: true, why}");
   });
 
   // Trim PR 2: a session's feelings are strings — the word, then what carried it — and the night's
