@@ -743,6 +743,7 @@ export class Counterpart {
         return p === null ? null : { version: p.version, by: p.by, revisedOn: p.revisedOn, bytes: p.bytes };
       },
       pageWrites: opts.pageWriterMode !== "off",
+      pageRoom: this.self.tunables.PAGE_ROOM_BYTES,
       today: () => this.store.today(),
       closed: () => this.nightClosed,
       ownerName: () => this.ownerDisplayName(),
@@ -5935,7 +5936,7 @@ export class Counterpart {
     const setDownsBack = this.self.setDownsBack(this.self.page()?.body ?? null).filter((t) => !closed.has(t.id) && (t.by_memory === undefined || !closed.has(t.by_memory)));
     return fitNightWriter(
       (budgetBytes) => this.pageWriterInput({ about: input.about, budgetBytes, max: NIGHT_WRITER_MEMORY_MAX, setDownsBack }),
-      (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true }),
+      (built) => writerInstruction(built, { tool: input.tool, session: input.session, pageInline: true, room: this.self.tunables.PAGE_ROOM_BYTES }),
     );
   }
 

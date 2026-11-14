@@ -284,8 +284,32 @@ export const PAGE_ROOM_RULE =
 export const NO_RECORD_RULE =
   `What you did or didn't do, said or didn't say, rests on a memory that says so. Finding no record of something ("I have no record of warning them") is not a memory that it didn't happen: memory has gaps, most of all from short sessions, so say you don't know rather than that you didn't.`;
 
+/**
+ * A LINE THAT SPOKE OF WHAT WAS AHEAD (2026-11-13, Mike's go, lightly held, an
+ * experiment; check on the live store around 2026-11-18). A simulated month's
+ * page kept "the wedding is ahead" after the wedding: the night writers were
+ * shown the wedding-done memories and left the page as it stood, and nothing
+ * pointed them at a line gone stale. It speaks only to a line that still READS
+ * as ahead: a page told in the past tense has nothing here to change. Words
+ * only, part of `PAGE_WRITING_RULE` (day's end and the reflection); nothing
+ * reads the page for it. Revert: drop it from there.
+ */
+export const AHEAD_PASSED_RULE =
+  `A line that speaks of something ahead which has since happened or passed is no longer true as written: say it as past, or set it down.`;
+
+/**
+ * The room rule at a given room (2026-11-13): the host's
+ * `selfTunables.PAGE_ROOM_BYTES` when it set one, so the number a writer is
+ * told is the number it is sent back at. The default room: `PAGE_ROOM_RULE`.
+ */
+export function pageRoomRule(room: number = PAGE_ROOM_BYTES): string {
+  return room === PAGE_ROOM_BYTES
+    ? PAGE_ROOM_RULE
+    : PAGE_ROOM_RULE.replace(`has ${String(PAGE_ROOM_BYTES)} bytes`, `has ${String(room)} bytes`);
+}
+
 export const PAGE_WRITING_RULE =
-  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
+  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${AHEAD_PASSED_RULE} ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
 
 /**
  * THE PAGE IN ITS OWN FORM, ONE STORE AT A TIME (PF1, 2026-11-01; asked by the
@@ -311,9 +335,14 @@ export function pageFormOf(store: Pick<Store, "getMeta">): "own" | null {
   }
 }
 
-/** What the nightly writers are told about the page: `PAGE_WRITING_RULE` itself unless the store keeps its own form. */
-export function pageWritingRule(form: "own" | null | undefined): string {
-  return form === "own" ? PAGE_WRITING_RULE.replace(HOW_I_WORK_RULE, OWN_FORM_RULE) : PAGE_WRITING_RULE;
+/**
+ * What the nightly writers are told about the page: `PAGE_WRITING_RULE` itself
+ * unless the store keeps its own form, or the host set the page's room
+ * (`selfTunables.PAGE_ROOM_BYTES`, 2026-11-13) — then the room said is that one.
+ */
+export function pageWritingRule(form: "own" | null | undefined, room: number = PAGE_ROOM_BYTES): string {
+  const rule = room === PAGE_ROOM_BYTES ? PAGE_WRITING_RULE : PAGE_WRITING_RULE.replace(PAGE_ROOM_RULE, pageRoomRule(room));
+  return form === "own" ? rule.replace(HOW_I_WORK_RULE, OWN_FORM_RULE) : rule;
 }
 
 /**
@@ -1081,8 +1110,15 @@ export function writerInstruction(
      * tool result, where there is no injection ceiling to save room for.
      */
     pageInline?: boolean;
+    /**
+     * THE ROOM IT IS HELD TO (2026-11-13): the host's
+     * `selfTunables.PAGE_ROOM_BYTES`, so the room this block states is the one
+     * the page is sent back at. Absent: `PAGE_ROOM_BYTES`.
+     */
+    room?: number;
   },
 ): string {
+  const room = opts.room ?? PAGE_ROOM_BYTES;
   const session =
     opts.session === undefined || opts.session === null || opts.session.length === 0
       ? ""
@@ -1120,7 +1156,7 @@ export function writerInstruction(
     // review): a page said "tonight is its first real one" every morning after,
     // told a Fable session "My own system card says…" of Opus 5.5's, and
     // carried its own revision line under the wake's "(Last revised …)".
-    pageWritingRule(input.pageForm),
+    pageWritingRule(input.pageForm, room),
     "",
   );
   // WHAT IT SETS DOWN (PG1, 2026-11-09, `set-down.ts`): in the nightly run's
@@ -1159,7 +1195,7 @@ export function writerInstruction(
     );
   } else if (opts.pageInline === true) {
     lines.push(
-      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(room)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       PAGE_INLINE_OPEN,
       input.page.body.replace(MARKERS, MARKER_REDACTION),
       PAGE_INLINE_CLOSE,
@@ -1167,7 +1203,7 @@ export function writerInstruction(
     );
   } else {
     lines.push(
-      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (its room is ${String(room)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       "",
     );
   }
@@ -1291,7 +1327,7 @@ export const DATA_NOT_INSTRUCTIONS =
  */
 export function writerInstructionOverhead(
   input: WriterInput,
-  opts: { tool: string; session?: string | null },
+  opts: { tool: string; session?: string | null; room?: number },
 ): number {
   return byteLengthOf(writerInstruction({ ...input, memories: [], dropped: 0, bytes: 0 }, opts));
 }

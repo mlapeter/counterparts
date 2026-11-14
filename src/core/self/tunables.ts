@@ -248,9 +248,13 @@ export interface SelfTunables {
    * lightly held), under the page the wake prints whole — top and end lines
    * included — at the 9,000-byte ceiling under the widest delivery reserves
    * (`pageRoomBytes(9_000)`). A page past it is kept; a short version is kept
-   * with it only then, and only within this same number. Overridden only by
-   * tests; a value above `pageRoomBytes(9_000)` gives up the guarantee that a
-   * page within it prints whole on every day.
+   * with it only then, and only within this same number. A host may set it
+   * (`selfTunables`, `counterpart-types.ts`): since 2026-11-13 the nightly
+   * writers are told this number, not the default, so the room they are told
+   * is the room they are sent back at (`writer.ts#pageWritingRule`, the
+   * reflection's `ReflectContext.pageRoom`). A value above
+   * `pageRoomBytes(9_000)` gives up the guarantee that a page within it prints
+   * whole on every day.
    */
   PAGE_ROOM_BYTES: number;
   /**
