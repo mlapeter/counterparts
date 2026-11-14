@@ -616,8 +616,13 @@ describe("review of #271: a run left behind, and the writer's claim", () => {
   test("a writer phase with nothing to read leaves a non-closing `skipped` row, so doctor reads an every-other-day store as working", () => {
     const c = brain();
     lived(c);
-    // Two days ago was lived; yesterday had nothing in it — a store used every other day.
-    c.store.put({ type: "memory", kind: "fact", body: "Something from two days back.", learnedOn: dayBefore(pageWriterNight(c.store).about) });
+    // A day lived long ago; nothing since within the night's reach. (Until
+    // 2026-11-13 this was two days back, a store used every other day: the
+    // night now walks back to that day, `NIGHT_LOOKBACK_DAYS`, so the day here
+    // is one past the walk's reach.)
+    const yesterday = pageWriterNight(c.store).about;
+    c.store.put({ type: "memory", kind: "fact", body: "Something from long ago.", learnedOn: dayBefore(yesterday, SELF_TUNABLES.NIGHT_LOOKBACK_DAYS + 1) });
+    expect(pageWriterNight(c.store).about).toBe(yesterday);
     const out = c.claimNightWriter({ session: SESSION, run: "drm_x" });
     expect(out).toMatchObject({ claimed: false, reason: "no-memories" });
     const runs = c.pageWriterRuns();
@@ -964,5 +969,158 @@ describe("undo that dream: the dream tool's undo phase", () => {
     // The nightly run's child cannot undo a dream.
     const night = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, now: () => Date.now() + offsetMs, env: { [NIGHT_CHILD_ENV]: "dream" } });
     expect((await night.call("dream", { phase: "undo", session: SESSION, dream: dreamId })).structuredContent["reason"]).toBe("night-run");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the host's room, told (2026-11-13)
+// ---------------------------------------------------------------------------
+
+describe("a host that sets the page's room: the night's writers are told that room, and held to it (2026-11-13)", () => {
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
+  beforeEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+  });
+  afterEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
+  });
+  const HOST_ROOM = 600;
+  const STANDING = "## Core\n\nI say what I do not know before I guess.\n\n## Lately\n\nA steady week.";
+
+  function hosted(): Counterpart {
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => Date.now() + offsetMs, selfTunables: { PAGE_ROOM_BYTES: HOST_ROOM } });
+    open.push(c);
+    return c;
+  }
+
+  test("day's end, through the dream tool's writer phase: told 600, not the default, and sent back at 600", async () => {
+    const c = hosted();
+    seedYesterday(c, ["A placeholder thing noticed yesterday, about the migration order."]);
+    lived(c);
+    expect(c.revisePage(STANDING, { by: "owner", reason: "before" }).written).toBe(true);
+    const version = c.selfPage()?.version ?? -1;
+    const s = server(c, SESSION);
+    const w = await s.call("dream", { phase: "writer", session: SESSION });
+    expect(w.structuredContent["writer"]).toBe(true);
+    const read = String(w.structuredContent["read"]);
+    expect(read).toContain(`(its room is ${String(HOST_ROOM)})`);
+    expect(read).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
+    expect(read).not.toContain(String(PAGE_ROOM_BYTES));
+    expect(String(w.structuredContent["how"])).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
+    // The send-back: the room it was told.
+    const body = `${STANDING} ${"More of the week, at length. ".repeat(30).trimEnd()}`;
+    const held = await s.call("self_page", { body, reason: "the night", session: SESSION, ifVersion: version });
+    expect(held.structuredContent).toMatchObject({ stored: false, reason: "past-room", room: HOST_ROOM });
+    expect(held.structuredContent["over"]).toBe(Buffer.byteLength(body) - HOST_ROOM);
+  });
+
+  test("the reflection: told 600 in its begin, and its finish sent back at 600", () => {
+    const c = hosted();
+    lived(c);
+    const cite = mem(c, "Mike and I finished the release together and he said thank you.", { kind: "person", about: "us" });
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const text = JSON.stringify(begun);
+    expect(text).toContain(`The whole page has ${String(HOST_ROOM)} bytes of room`);
+    expect(text).not.toContain(`The whole page has ${String(PAGE_ROOM_BYTES)} bytes of room`);
+    const page = `## Core\n\n${"I keep the work's account and say what I do not know. ".repeat(16)}`;
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "The release stands out.", cites: [cite], page: { text: page, cites: [cite] } });
+    if (!done.ok) throw new Error(String(done.reason));
+    expect(done.outcome.page).toMatchObject({ written: false, reason: "past-room" });
+    expect(done.outcome.page.detail ?? "").toContain(`over its ${String(HOST_ROOM)}-byte room`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// after skipped days (2026-11-13)
+// ---------------------------------------------------------------------------
+
+describe("after skipped days, the night is the last day lived that no night has closed (2026-11-13)", () => {
+  /** Noon `k` days before today, the store's clock walked there day by day from 12 back. */
+  let at = 13;
+  let noon = 0;
+  function walkTo(c: Counterpart, k: number): string {
+    for (let d = at - 1; d >= k; d -= 1) {
+      offsetMs = noon - d * DAY_MS;
+      c.store.advanceClock(pageWriterNight(c.store).today);
+    }
+    at = k;
+    return pageWriterNight(c.store).today;
+  }
+  function on(c: Counterpart, date: string, body: string): void {
+    c.store.put({ type: "memory", kind: "fact", body, learnedOn: date });
+  }
+  function started(): { c: Counterpart; day: (k: number) => string } {
+    atNoon();
+    noon = offsetMs;
+    at = 13;
+    const c = brain();
+    const first = walkTo(c, 12);
+    // day(k): k days before the walk's end (today, on the calendar).
+    return { c, day: (k: number) => dayBefore(first, k - 12) };
+  }
+
+  test("the plain daily case is unchanged: yesterday, when yesterday holds something", () => {
+    const { c, day } = started();
+    on(c, day(3), "Something from three days back.");
+    on(c, day(1), "Something from yesterday.");
+    walkTo(c, 0);
+    expect(pageWriterNight(c.store)).toEqual({ today: day(0), about: day(1) });
+    expect(c.pageWriterDue({ mode: "session" })).toMatchObject({ due: true, about: day(1) });
+  });
+
+  test("two empty days: the last active day before them, through the dream tool's writer phase — and it stays the night after it is written", async () => {
+    const { c, day } = started();
+    on(c, day(3), "The glaze tests came back even on the last day before the trip.");
+    walkTo(c, 0);
+    expect(pageWriterNight(c.store).about).toBe(day(3));
+    expect(c.pageWriterDue({ mode: "session" })).toMatchObject({ due: true, about: day(3) });
+    expect(c.revisePage("## Core\n\nI keep the account.\n\n## Lately\n\nA quiet stretch.", { by: "owner", reason: "before" }).written).toBe(true);
+    const version = c.selfPage()?.version ?? -1;
+    const s = server(c, SESSION);
+    const w = await s.call("dream", { phase: "writer", session: SESSION });
+    expect(w.structuredContent["writer"]).toBe(true);
+    const read = String(w.structuredContent["read"]);
+    expect(read).toContain(`the day is ${day(3)}`);
+    expect(read).toContain("The glaze tests came back even");
+    expect(c.pageWriterRuns({ about: day(3) })[0]?.outcome).toBe("asked");
+    // Written: the night is still that day for the rest of today, so the
+    // dream after it and doctor read the same night, closed.
+    const res = await s.call("self_page", { body: "## Core\n\nI keep the account.\n\n## Lately\n\nThe glaze tests came back even before the trip.", reason: "the night", session: SESSION, ifVersion: version });
+    expect(res.structuredContent["stored"]).toBe(true);
+    expect(pageWriterNight(c.store).about).toBe(day(3));
+    expect(c.pageWriterDue({ mode: "session" })).toMatchObject({ due: false, about: day(3), reason: "already-claimed" });
+  });
+
+  test("a day a night already closed is not written again: the walk stops there, and yesterday falls through to no-memories", () => {
+    const { c, day } = started();
+    on(c, day(5), "Something from five days back.");
+    // The night of four days back claimed it (the real door) and the day ended.
+    walkTo(c, 4);
+    expect(c.claimNightWriter({ session: "s-earlier", run: "r-earlier" })).toMatchObject({ claimed: true, about: day(5) });
+    walkTo(c, 0);
+    expect(pageWriterNight(c.store).about).toBe(day(1));
+    expect(c.claimNightWriter({ session: SESSION, run: "r-now" })).toMatchObject({ claimed: false, about: day(1), reason: "no-memories" });
+    // Nor past it: an older unwritten day behind a closed one stays behind it.
+    on(c, day(7), "Something from a week back, never written.");
+    expect(pageWriterNight(c.store).about).toBe(day(1));
+  });
+
+  test("the cap: seven days before yesterday is reached, eight is not, and 0 is yesterday only", () => {
+    const tunables = SELF_TUNABLES as { NIGHT_LOOKBACK_DAYS: number };
+    expect(tunables.NIGHT_LOOKBACK_DAYS).toBe(7);
+    const { c, day } = started();
+    on(c, day(9), "Nine days back.");
+    walkTo(c, 0);
+    expect(pageWriterNight(c.store).about).toBe(day(1));
+    on(c, day(8), "Eight days back.");
+    expect(pageWriterNight(c.store).about).toBe(day(8));
+    const was = tunables.NIGHT_LOOKBACK_DAYS;
+    tunables.NIGHT_LOOKBACK_DAYS = 0;
+    try {
+      expect(pageWriterNight(c.store).about).toBe(day(1));
+    } finally {
+      tunables.NIGHT_LOOKBACK_DAYS = was;
+    }
   });
 });

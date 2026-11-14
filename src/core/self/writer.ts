@@ -346,11 +346,13 @@ export function pageWritingRule(form: "own" | null | undefined, room: number = P
 }
 
 /**
- * THE DATE A RUN ON `today` IS ABOUT — yesterday, always.
+ * THE DATE A RUN ON `today` IS ABOUT — yesterday, as a date. (`pageWriterNight`
+ * may hand an earlier one: after days with nothing in them, the last day lived
+ * that no night has closed; 2026-11-13.)
  *
  * It never chases a backlog. A machine that was off for a week comes back and
- * writes about the day just gone, not about six days it cannot remember living;
- * the memories of those days are still in the store and still reach the page
+ * writes about ONE day, not about six days it cannot remember living; the
+ * memories of those days are still in the store and still reach the page
  * through the ordinary lanes. Catching up would mean six model calls and six
  * revisions of one page in one morning, which is how a page starts drifting.
  */
@@ -373,10 +375,57 @@ export function pageWriterAbout(today: string, closedThrough?: string): string {
  * so `Self`, the nightly run and doctor cannot each derive their own night — the
  * mechanism and the line that reports on it agreeing about which night is owed
  * is the whole reason it exists.
+ *
+ * AFTER SKIPPED DAYS (2026-11-13, Mike's go, lightly held, an experiment;
+ * check on the live store around 2026-11-18). Yesterday, unless yesterday
+ * holds nothing: then the night walks back a day at a time, at most
+ * `NIGHT_LOOKBACK_DAYS` days before yesterday, to the first day that holds a
+ * memory, and is about that day. A Claude Code night starts with the first
+ * session of a new day, so before this a person who skipped a few days never
+ * had the last day before the gap shown to day's end — under `PAGE_SPLIT`,
+ * Lately's only writer. The walk STOPS at a day a night already closed
+ * (`closesNight`), so no day is written twice and no backlog is chased: it
+ * finds one day or none. A day with a run made today is tonight's whatever
+ * that run's outcome, so the answer holds through the night (the dream's day
+ * summary, doctor's owed line). Nothing found: yesterday, which falls through
+ * to `no-memories` as it always did.
  */
 export function pageWriterNight(store: Store, zone?: string): { today: string; about: string } {
   const today = calendarDate(store.now(), zone ?? store.zone());
-  return { today, about: pageWriterAbout(today, dayBefore(store.today())) };
+  const yesterday = pageWriterAbout(today, dayBefore(store.today()));
+  return { today, about: lastDayLived(store, today, yesterday) };
+}
+
+/**
+ * HAS A NIGHT CLOSED THIS DAY? A terminal row (not a `skipped` deferral, not a
+ * `refused` try the same session retries), or a claim made on a day that has
+ * ended. The test `pageWriterDue` answers `already-claimed` by, in one place.
+ */
+export function closesNight(run: Pick<PageWriterRun, "outcome" | "on">, today: string): boolean {
+  if (run.outcome === "asked") return run.on !== "" && run.on < today;
+  return run.outcome !== "skipped" && run.outcome !== "refused";
+}
+
+/** The walk back from an empty yesterday (`pageWriterNight`). Never throws: a store that won't answer keeps yesterday. */
+function lastDayLived(store: Store, today: string, yesterday: string): string {
+  const steps = Math.max(0, Math.floor(SELF_TUNABLES.NIGHT_LOOKBACK_DAYS));
+  if (yesterday === "" || steps === 0 || !dayIsEmpty(store, yesterday)) return yesterday;
+  try {
+    // One read of the night's rows, newest first, filtered by day below.
+    const runs = pageWriterRuns(store);
+    let day = yesterday;
+    for (let i = 0; i < steps; i += 1) {
+      day = dayBefore(day);
+      if (day === "") break;
+      const its = runs.filter((r) => r.about === day);
+      if (its.some((r) => r.on === today)) return day;
+      if (its.some((r) => closesNight(r, today))) break;
+      if (!dayIsEmpty(store, day)) return day;
+    }
+  } catch {
+    /* yesterday */
+  }
+  return yesterday;
 }
 
 /**
@@ -703,9 +752,9 @@ export function pageWriterDue(
   // session does retry, successfully, seconds later (S2 review, MINOR-4). A
   // night closed by a refusal left doctor amber and the narrator saying "the
   // page is unchanged" about a page that had since been written.
-  if (
-    runs.some((r) => r.outcome !== "asked" && r.outcome !== "skipped" && r.outcome !== "refused")
-  ) {
+  // (Both readings, this one and the claim's below, are `closesNight`, which
+  // the walk back over skipped days in `pageWriterNight` reads too.)
+  if (runs.some((r) => r.outcome !== "asked" && closesNight(r, opts.today))) {
     return no("already-claimed");
   }
   // ...AND NEITHER DOES A CLAIM WHOSE DAY HAS ENDED — it closes the night. That
@@ -717,7 +766,7 @@ export function pageWriterDue(
   // next morning after its status already read settled. West of UTC `about`
   // moves with the local day, so a claim from an earlier day is always about
   // an earlier night and this never fires.
-  if (runs.some((r) => r.outcome === "asked" && r.on !== "" && r.on < opts.today)) {
+  if (runs.some((r) => r.outcome === "asked" && closesNight(r, opts.today))) {
     return no("already-claimed");
   }
   const asked = runs.filter((r) => r.outcome === "asked").length;

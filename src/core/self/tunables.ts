@@ -376,6 +376,16 @@ export interface SelfTunables {
    */
   PAGE_WRITER_ASKS_PER_DAY: number;
   /**
+   * HOW FAR BACK A NIGHT LOOKS PAST AN EMPTY YESTERDAY, in calendar days
+   * before yesterday (2026-11-13, Mike's go, lightly held, an experiment;
+   * check on the live store around 2026-11-18). `writer.ts#pageWriterNight`
+   * walks back over empty days to the last day lived that no night has closed,
+   * at most this many; 7 reaches a day eight days before today. 0: yesterday
+   * only, as before. Read at use, from this module's defaults, so `Self`, the
+   * dream and doctor agree on the night.
+   */
+  NIGHT_LOOKBACK_DAYS: number;
+  /**
    * "LAST NIGHT:" IN THE WAKE (2026-10-25, the wake-polish builder from
    * random-5b's 10-25 wake; Mike's go, lightly held). On: a session start's
    * wake carries one line saying what last night's dream and reflection did,
@@ -576,6 +586,7 @@ export const SELF_TUNABLES: SelfTunables = {
   DAY_SUMMARY: true,
   DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
+  NIGHT_LOOKBACK_DAYS: 7,
   WAKE_SHAPE: false,
   NIGHT_LINE: true,
   TODAY_SO_FAR: true,

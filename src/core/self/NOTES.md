@@ -3304,3 +3304,45 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   "Waiting on" line is in most wakes. Telling a casual question from a blocker needs a mark the store doesn't
   keep (see the PR).
 
+
+## 2026-11-13 — the night's page writers: a line still ahead, the host's room, the day before a gap
+
+Three experiments, Mike's go 2026-11-13, lightly held. **Check on the live store around 2026-11-18**: whether
+a page's "ahead" lines move to past or get set down after the thing happens (and that past-tense story pages
+don't churn), and whether a night after a skipped day writes about the last day lived.
+
+- **A line still ahead after it passed (`writer.ts#AHEAD_PASSED_RULE`, in `PAGE_WRITING_RULE`).** A simulated
+  month's page kept "the wedding is ahead" after the wedding. Both night writers were shown the wedding-done
+  memories and chose to leave the page as it stood; nothing pointed them at a line gone stale. One sentence, in
+  the rule's voice, after the "write a date" sentence: "A line that speaks of something ahead which has since
+  happened or passed is no longer true as written: say it as past, or set it down." It speaks only to lines that
+  still read as ahead, so a story page told in the past tense has nothing to change. Words only. Deferred, not
+  built: a reader listing page lines whose cited dates have passed. Revert: drop the sentence.
+- **The room told is the room held to.** `selfTunables.PAGE_ROOM_BYTES` could be overridden, and the send-back
+  (`counterpart.ts` `writePage`, `Self#revisePage`) used the override, but every prompt string stated the module
+  constant: a host at 600 told its writers "4,600 bytes of room" and then sent them back at 600. Now
+  `pageWritingRule(form, room)` and `pageRoomRule(room)` take the room; `writerInstruction` takes `opts.room`
+  (the rule and the "its room is N" line), passed `this.self.tunables.PAGE_ROOM_BYTES` by `nightWriterFitted`;
+  the reflection reads `ReflectContext.pageRoom`, wired beside `pageWrites`. With the default room every string is
+  byte for byte what it was. Not threaded: the MCP tool specs' static descriptions (`mcp/tools.ts`, the reflect
+  tool's `finish` and `self_page`'s), which still name the default; a host that sets the room should know its
+  tool descriptions say 4,600 until those are built per server. The CLI's `self-page` lines read the default too.
+- **The day before a gap (`pageWriterNight`, `NIGHT_LOOKBACK_DAYS` = 7).** Day's end always read calendar
+  yesterday and skipped with `no-memories` when it was empty, so after a gap the last day lived before it was
+  never shown to day's end, which under `PAGE_SPLIT` is Lately's only writer. A Claude Code night starts with the
+  first session of a new day, so anyone who skips days hit it. Now, when yesterday is empty, the night walks back
+  a day at a time, at most 7 days before yesterday, and is about the first day that holds a memory. It stops at a
+  day a night has closed (`closesNight`: the same test `pageWriterDue` answers `already-claimed` by, now one
+  function), so no day is written twice and no backlog is chased: one day or none. Nothing found: yesterday, which
+  falls through to `no-memories` as before. In `pageWriterNight` itself, so `Self`, the dream's day summary and
+  doctor read one night; the tunable is read at use from the module defaults for that reason, not per instance.
+  - *Holding through the night.* Once day's end claims and writes the earlier day, that day is closed, and a
+    walk that stopped there would hand the dream after it, and doctor, yesterday again. So a day with a run made
+    TODAY is tonight's whatever its outcome, and the night stays that day until the calendar turns.
+  - *How it reads.* Day's end's block says "the day is <date>"; doctor's line says "<date> is owed"; the dream's
+    "today, as day's end told it (<date>)" heading carries the date. All name the date, not "yesterday", so an
+    earlier day reads plainly. The block's opening still says "from the day just lived", which is loose for a day
+    a few days back; left as it is.
+  - *Tests moved.* Two tests pinned the old rule with a day inside the walk's reach (an every-other-day store, a
+    twice-a-week machine). Their point was that an empty day is not asked about; they now put the lived day past
+    the reach, and the new tests in `nightly-run.test.ts` cover the walk.
