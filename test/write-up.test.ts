@@ -676,6 +676,20 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(again).toMatchObject({ reason: "part", part: 1 });
   });
 
+  test("a part says WHEN it was said, and a day still ahead goes in eventDate counted from then (2026-11-14, propane miss)", async () => {
+    seeded();
+    const { fetched } = await pointAndFetch("new-1");
+    const saidOn = String(fetched["saidOn"]);
+    // A clock a person reads: weekday, day, month, year, time, zone.
+    expect(saidOn).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m /);
+    const next = String(fetched["next"]);
+    expect(next).toContain("eventDate");
+    expect(next).toContain(`saidOn: ${saidOn}`);
+    expect(next).toContain("YYYY-MM-DD");
+    expect(fetched["saidBy"]).toBeUndefined();
+    expect(next).toContain("not from today");
+  });
+
   test("an empty or null `writeUp` is no write-up: the ordinary answer lands (m1)", async () => {
     seeded();
     recordSession(storeDir, { sessionId: "plain-1", scope: PROJ, phase: "start" });
