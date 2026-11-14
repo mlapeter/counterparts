@@ -952,7 +952,7 @@ function showEntry(
   shown = shown.map((m) => {
     const head = safe(() => headOf(store, m.id), null);
     if (head === null) return m;
-    const folded = safe(() => foldedOver(store, m.id), false);
+    const folded = safe(() => foldedOver(store, m.id, head), false);
     return { ...m, standing: earlierMark(opts.usable(head) === null ? "a later version" : head, folded) };
   });
   const ids = [...new Set([...span.map((r) => r.id), ...e.moments.map((h) => h.row.id)])];

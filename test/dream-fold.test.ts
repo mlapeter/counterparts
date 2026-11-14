@@ -262,6 +262,28 @@ describe("a fold goes through the one door", () => {
     expect(st?.suffix).toContain(`earlier: [${old}]`);
     expect(standingOf(c.store, old)?.prefix).toBe(`Earlier (now [${fold}]): `);
   });
+
+  // Review of #828: the label prints the chain's end. A fold later changed
+  // itself (G over F) did not gather the part, so the part reads earlier under G.
+  test("a fold changed later: its part reads earlier (now G), never folded into G", async () => {
+    const c = brain();
+    nextDay(c);
+    nextDay(c);
+    const rule = mem(c, "Zqoyster never goes on the zqbistro menu, ever.", { title: "No zqoyster on the zqbistro menu" });
+    const prep = mem(c, "The zqbistro kitchen prepped the zqtasting menu.");
+    const dream = begin(c);
+    const [r] = propose(c, dream, [{ action: "gist", fold: true, kind: "fact", title: "Zqbistro on its first night", text: "The zqbistro opened with the zqtasting menu.", sources: [rule, prep] }]);
+    const fold = r?.id as string;
+    expect(standingOf(c.store, rule)?.prefix).toBe(`Folded into [${fold}]: `);
+    const g = mem(c, "The zqbistro reopened after the refit with a new zqtasting menu.", { title: "Zqbistro after the refit" });
+    expect(settle(c.store, { holds: g, over: fold, how: "changed", actor: "session", why: "refit" }).ok).toBe(true);
+    expect(headOf(c.store, rule)).toBe(g);
+    expect(standingOf(c.store, rule)?.prefix).toBe(`Earlier (now [${g}]): `);
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/proj" });
+    const byId = JSON.stringify((await s.call("recall", { ids: [rule] })).structuredContent);
+    expect(byId).toContain(`earlier — now ${g}`);
+    expect(byId).not.toContain("folded into");
+  });
 });
 
 describe("what a fold keeps at its own weight", () => {

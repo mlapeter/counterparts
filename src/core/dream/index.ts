@@ -1763,7 +1763,7 @@ export class Dreams {
         "The dream — how it goes (the brain's, borrowed):",
         "- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).",
         '- The day\'s replay: the bundle\'s "today" lists what the day used or found useful, strongest first. A "reward" one (drawn on, or rated "changed what I did or said") is the plainest "replay me". "todayPairs" were used together: replay both, and link them if they belong together.',
-        "- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Never list a ruling (something the person said is always or never so) or a lesson as a fold's source: mention or link it instead, so it stays its own memory and keeps holding. The parts stay, folded in, and fade (readings, and strongly felt memories about you or someone, keep their own weight).",
+        "- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Never list a ruling (something the person said is always or never so) or a lesson (what was learned to do or avoid) as a fold's source: mention it in the fold's text instead, so it stays its own memory and keeps holding. The parts stay, folded in, and fade (readings, and strongly felt memories about you or someone, keep their own weight).",
         "- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).",
         // NO RECORD IS UNKNOWN (2026-10-26, roadmap S3, guidance only): a gist
         // or a fold says what you did or didn't from a memory that says so.
@@ -3531,7 +3531,7 @@ export class Dreams {
     const head = headOf(this.store, row.id);
     return {
       id: row.id,
-      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id)) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id, head)) }),
       kind: row.kind,
       why,
       fidelity: placed.fidelity === "id" ? "line" : placed.fidelity,

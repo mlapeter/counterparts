@@ -158,7 +158,7 @@ import {
   earlierMark,
   everydayFactor,
   headOf,
-  foldedOver,
+  foldedOverIn,
   isFoldPair,
   informativeness,
   localKey,
@@ -1236,7 +1236,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       ...(dueOn === null ? {} : { due: true as const }),
       journal,
       faded: fadedIds.has(c.id),
-      ...(head === null ? {} : { now: canName(head) ? head : "a later version", ...(foldedOver(store, c.id) ? { folded: true as const } : {}) }),
+      ...(head === null ? {} : { now: canName(head) ? head : "a later version", ...(foldedOverIn(pairs, c.id, head) ? { folded: true as const } : {}) }),
     };
   });
 
@@ -1425,7 +1425,7 @@ function factItem(
     const head = headOf(store, c.id);
     if (head !== null) {
       now = canName(head) ? head : "a later version";
-      folded = foldedOver(store, c.id);
+      folded = foldedOverIn(pairs, c.id, head);
     }
   }
   // Matched earlier memories first, the best match first (2026-11-14: two

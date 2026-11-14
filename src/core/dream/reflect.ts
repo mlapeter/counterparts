@@ -3757,7 +3757,7 @@ export class Reflections {
     const flat = `${head}${doc.body}`.replace(/\s+/g, " ").trim();
     // Settled over since (2026-10-11): the mark in front, outside the clip.
     const now = headOf(this.store, id);
-    return { id, text: `${now === null ? "" : `${earlierMark(now, foldedOver(this.store, id))}: `}${clipWire(flat, REFLECT_TUNABLES.SAW_CHARS)}` };
+    return { id, text: `${now === null ? "" : `${earlierMark(now, foldedOver(this.store, id, now))}: `}${clipWire(flat, REFLECT_TUNABLES.SAW_CHARS)}` };
   }
 
   /**
@@ -4039,7 +4039,7 @@ export class Reflections {
     const head = headOf(this.store, row.id);
     return {
       id: row.id,
-      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id)) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id, head)) }),
       kind: row.kind,
       fidelity: placed.fidelity,
       text: placed.text,

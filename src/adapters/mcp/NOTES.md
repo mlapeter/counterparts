@@ -2316,5 +2316,5 @@ own; its by-id path prints `standingOf`'s note, unranked, as the recall tool's b
 Facts mode listed a dream fold's parts as `earlier: "…", changed <date>`, as if the fold had
 replaced them. Now `part: "…" (learned …), folded in <date> · mem_…`; on its own, a part's
 standing reads `folded into <id>`, as does its tail mark (`recall/standing.ts#foldedOver`, same
-date). Render only; `+N more earlier` still counts parts too. The recall tool description was left
+date). Render only. Hidden ones are counted apart: `+N more earlier`, `+N more parts`. The recall tool description was left
 alone (its length is pinned and the claude.ai trim guards it); the line explains itself.

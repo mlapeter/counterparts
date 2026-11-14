@@ -1735,7 +1735,7 @@ export function writeNeighbours(
     }
     out.push({
       id: s.id,
-      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(store, s.id)) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(store, s.id, head)) }),
       title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: s.row.body }) || null : s.row.title,
       excerpt: excerptOf(s.row.body, T.EXCERPT_CHARS),
     });

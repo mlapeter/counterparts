@@ -231,7 +231,7 @@ export function standingOf(
   }
   if (now.length > 0) {
     // A dream fold's part is part of the fold, not replaced by it (`foldedOver`).
-    if (foldedOver(store, id)) {
+    if (foldedOverIn(pairs, id, head)) {
       front.push(`Folded into ${ids(now)}`);
       said.push(`folded into ${now.slice(0, STANDING_MAX_POINTERS).join(", ")}`);
     } else {
@@ -313,13 +313,20 @@ export function pairOrder(a: Pick<ContradictionRow, "flagged_day" | "created_at"
   return a.flagged_day - b.flagged_day || a.created_at - b.created_at;
 }
 
-/** The newest standing direct changed/corrected settle in which `id` is the `over`; else undefined. */
-function newestOver(store: HeadStore, id: string): ContradictionRow | undefined {
-  const pairs = [...(store.contradictionsOf([id]).get(id) ?? [])]
+/**
+ * The newest standing direct changed/corrected settle in which `id` is the
+ * `over`, of `pairs` as the store reads them (newest first); else undefined.
+ */
+function newestOverIn(pairs: readonly ContradictionRow[], id: string): ContradictionRow | undefined {
+  const mine = [...pairs]
     .reverse()
     .filter((p) => p.state === "settled" && p.via === null && p.over === id && p.holds !== null && (p.how === "changed" || p.how === "corrected"))
     .sort(pairOrder);
-  return pairs[pairs.length - 1];
+  return mine[mine.length - 1];
+}
+
+function newestOver(store: HeadStore, id: string): ContradictionRow | undefined {
+  return newestOverIn(store.contradictionsOf([id]).get(id) ?? [], id);
 }
 
 /** The `holds` of the newest standing direct changed/corrected settle in which `id` is the `over`; else null. */
@@ -335,7 +342,10 @@ export function isFoldPair(p: Pick<ContradictionRow, "how" | "source">): boolean
 /**
  * FOLDED, NOT REPLACED (2026-11-14, lightly held; we check its effect later):
  * true when the pair that makes `id` earlier — the newest standing direct
- * settle over it, the one `headOf` starts from — is a dream fold's. A fold's
+ * settle over it, the one `headOf` starts from — is a dream fold's, AND its
+ * fold is `head`, the id the label prints (`headOf(id)`). A fold later
+ * changed itself (F over the part, then G over F) leaves the part earlier
+ * under G: G never gathered it, so it does not read "folded into G". A fold's
  * part is not out of date: a standing rule folded into a dated snapshot
  * ("no shellfish on the menu, ever" under "the eve of its first night") still
  * holds, and "earlier"/"changed" told the reader it was replaced. Words only:
@@ -343,13 +353,21 @@ export function isFoldPair(p: Pick<ContradictionRow, "how" | "source">): boolean
  * part settled over again later by a real change reads earlier as before.
  * Never throws.
  */
-export function foldedOver(store: HeadStore, id: string): boolean {
+export function foldedOver(store: HeadStore, id: string, head: string | null): boolean {
+  if (head === null) return false;
   try {
     const p = newestOver(store, id);
-    return p !== undefined && isFoldPair(p);
+    return p !== undefined && isFoldPair(p) && p.holds === head;
   } catch {
     return false;
   }
+}
+
+/** `foldedOver` over pairs the caller already read (every pair naming `id`, or more): no store read. */
+export function foldedOverIn(pairs: readonly ContradictionRow[], id: string, head: string | null): boolean {
+  if (head === null) return false;
+  const p = newestOverIn(pairs, id);
+  return p !== undefined && isFoldPair(p) && p.holds === head;
 }
 
 export function headOf(store: HeadStore, id: string): string | null {
