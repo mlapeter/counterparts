@@ -108,6 +108,7 @@ import type { Counterpart } from "../../core/counterpart.js";
 import { WRITE_UP_BY, recordWriteUp } from "../../core/remember/write-up-seam.js";
 import type { WriteUpReason } from "../../core/remember/write-up-seam.js";
 import { calendarDate } from "../../core/self/index.js";
+import { localClock } from "../../core/time.js";
 import {
   NIGHT_RUNNER_PREFIX,
   WRITE_UP_CLAIM_MS,
@@ -422,6 +423,10 @@ async function handOver(
   if (!markWriteUpFetched(input.registryDir, input.session, { session: ended, part })) {
     return refused("io-failed", { writeUp: ended, detail: "The part could not be recorded as handed to this session." });
   }
+  // WHEN THIS PART WAS SAID (2026-11-14, fable-continuity's propane miss): its
+  // latest piece on the clock, weekday and zone included, so "thursday" in it
+  // resolves against the day it was said, not the night that reads it.
+  const saidBy = (parts[part - 1]?.lastAt ?? 0) > 0 ? localClock(parts[part - 1]?.lastAt as number, counterpart.store.zone()) : "";
   return {
     reason: "part",
     isError: false,
@@ -431,6 +436,7 @@ async function handOver(
       session: input.session,
       ended,
       endedOn: calendarDate(st.held.clockFrom, counterpart.store.zone()),
+      ...(saidBy === "" ? {} : { saidBy }),
       part,
       of: parts.length,
       // Parts passed over on the way here, every word in them already written
@@ -444,6 +450,7 @@ async function handOver(
           : `memories: [] only if nothing in it held your attention. `) +
         `Anything marked ${WRITE_UP_KEPT_MARK} was written up before — by that session or an earlier write-up. ` +
         `Lines marked ${WRITE_UP_REPLY_MARK} are what that session said back — context for what was said to it; you are writing it up second-hand. ` +
+        `A day still ahead that it names ("thursday", "the 15th", "next week") goes in that memory's eventDate as a date, counted from ${saidBy === "" ? "the day it was said" : `when it was said (saidBy: ${saidBy})`}, not from today; in the words alone it never comes back. ` +
         WRITE_UP_PLUMBING_RULE +
         (part < parts.length
           ? st.granted
