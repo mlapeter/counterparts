@@ -613,7 +613,7 @@ describe("review of #271: a run left behind, and the writer's claim", () => {
     expect(c.selfPage()?.by).toBe("session");
   });
 
-  test("a writer phase with nothing to read leaves a non-closing `skipped` row, so doctor reads an every-other-day store as working", () => {
+  test("a writer phase with nothing in reach to read leaves a non-closing `skipped` row, so doctor reads a store whose last day lived is past the night's reach as working", () => {
     const c = brain();
     lived(c);
     // A day lived long ago; nothing since within the night's reach. (Until

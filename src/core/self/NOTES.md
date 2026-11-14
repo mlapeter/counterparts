@@ -3314,9 +3314,11 @@ don't churn), and whether a night after a skipped day writes about the last day 
 - **A line still ahead after it passed (`writer.ts#AHEAD_PASSED_RULE`, in `PAGE_WRITING_RULE`).** A simulated
   month's page kept "the wedding is ahead" after the wedding. Both night writers were shown the wedding-done
   memories and chose to leave the page as it stood; nothing pointed them at a line gone stale. One sentence, in
-  the rule's voice, after the "write a date" sentence: "A line that speaks of something ahead which has since
-  happened or passed is no longer true as written: say it as past, or set it down." It speaks only to lines that
-  still read as ahead, so a story page told in the past tense has nothing to change. Words only. Deferred, not
+  the rule's voice, after the "write a date" sentence: "A line that speaks of something ahead whose day has come
+  is no longer true as written: say what became of it where a memory tells, or set it down." It speaks only to
+  lines that still read as ahead, so a story page told in the past tense has nothing to change. The first wording
+  ("which has since happened or passed … say it as past") was changed in review: it could push a writer to say a
+  thing happened with no memory saying so, against `NO_RECORD_RULE` right after it. Words only. Deferred, not
   built: a reader listing page lines whose cited dates have passed. Revert: drop the sentence.
 - **The room told is the room held to.** `selfTunables.PAGE_ROOM_BYTES` could be overridden, and the send-back
   (`counterpart.ts` `writePage`, `Self#revisePage`) used the override, but every prompt string stated the module
@@ -3342,6 +3344,11 @@ don't churn), and whether a night after a skipped day writes about the last day 
     yesterday with any run but a `skipped` one is never walked past, even when its memories were let go since
     (a dream's forgetting, the owner's remove) and it reads empty: otherwise the night after yesterday was
     written could hand an older day on as owed.
+  - *Two claims in one day, about different days (review of #824, low).* Yesterday empty, the night claims the
+    earlier day; if a second-hand write-up then lands a memory on yesterday later that same day, yesterday is no
+    longer empty and a second day's end can be due about it. Two claims in one day, about different days, and
+    nothing written twice. Narrow, because the night's catch-up runs before the writer, so most write-ups of
+    yesterday have landed before the walk is read. Left as it is.
   - *The dashboard.* `views/mind.ts#writerWords` reads "last night" as `about === yesterday`, so a run about a
     day before a gap reads as an older night there; it only changes which remedy sentence a skip or failure
     gets. Left as it is.

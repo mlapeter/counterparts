@@ -290,12 +290,15 @@ export const NO_RECORD_RULE =
  * page kept "the wedding is ahead" after the wedding: the night writers were
  * shown the wedding-done memories and left the page as it stood, and nothing
  * pointed them at a line gone stale. It speaks only to a line that still READS
- * as ahead: a page told in the past tense has nothing here to change. Words
+ * as ahead: a page told in the past tense has nothing here to change. It says
+ * what became of it only where a memory tells (review of #824: "say it as
+ * past" could claim a thing happened with no memory saying so, against
+ * `NO_RECORD_RULE` beside it); otherwise the line is set down. Words
  * only, part of `PAGE_WRITING_RULE` (day's end and the reflection); nothing
  * reads the page for it. Revert: drop it from there.
  */
 export const AHEAD_PASSED_RULE =
-  `A line that speaks of something ahead which has since happened or passed is no longer true as written: say it as past, or set it down.`;
+  `A line that speaks of something ahead whose day has come is no longer true as written: say what became of it where a memory tells, or set it down.`;
 
 /**
  * The room rule at a given room (2026-11-13): the host's

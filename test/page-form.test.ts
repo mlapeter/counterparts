@@ -183,7 +183,7 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
 
   test("a line still ahead after it passed (2026-11-13): one sentence, about lines that still read as ahead, in both forms; and the host's room in place of the default", () => {
     expect(AHEAD_PASSED_RULE).toBe(
-      "A line that speaks of something ahead which has since happened or passed is no longer true as written: say it as past, or set it down.",
+      "A line that speaks of something ahead whose day has come is no longer true as written: say what became of it where a memory tells, or set it down.",
     );
     expect(PAGE_WRITING_RULE).toContain(`the wake dates the page. ${AHEAD_PASSED_RULE} `);
     expect(pageWritingRule("own")).toContain(AHEAD_PASSED_RULE);
