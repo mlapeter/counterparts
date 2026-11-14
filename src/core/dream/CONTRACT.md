@@ -573,12 +573,13 @@ dream having run.
     ended once it reflected: `sessions.ts#reflectorDone`). A memory promoted on reflection alone is named in the next share.
     A host may hold it (2026-11-13, an experiment; `CounterpartOptions.shares` /
     `sharesPerWeek`, the configuration's `shares` / `sharesPerWeek`, hosted's `createApp`):
-    `off`, or a cap on shares told (`told`, or the older `carried`) over the last
-    `SHARE_WEEK_DAYS` (7) lived days. Held, the entry and everything else are written and
-    nothing is offered (`share: {offered: false, reason: "host-off" | "weekly-cap"}`,
-    `detail.shareHeld`, no retry), and nothing that rides in a share happens: a `closeNow`
-    is listed as "may be done" instead, no join is proposed. A share this reflection
-    already offered is not withdrawn. Absent: on, no cap.
+    `off`, or a cap on shares offered by the nights of the last `SHARE_WEEK_DAYS` (7)
+    lived days (told or not yet: an offered share stays deliverable). Held, the entry and
+    everything else are written and nothing is offered (`share: {offered: false, reason:
+    "host-off" | "weekly-cap"}`, `detail.shareHeld`, no retry); a `closeNow` is listed as
+    "may be done" instead of closing unsaid, and no join is proposed. Core keep/retire
+    decisions and re-labels still happen, unsaid. A share this reflection already offered
+    is not withdrawn. Absent: on, no cap.
   - **Feelings** are the self's, recorded later (`source: reflection`, `recorded_later`
     = today), and may be stronger than anything felt at the time (at most 5) — on a
     lived memory only: not on a dream's gist or a reflection's own entry (review of #256).

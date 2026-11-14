@@ -287,10 +287,9 @@ export const REFLECT_TUNABLES = {
   OWN_LINE_BYTES: 300,
   /**
    * THE HOST'S WEEKLY CAP ON THE MORNING SHARE (2026-11-13, an experiment,
-   * lightly held): `ReflectContext.shares.perWeek` counts the shares that
-   * reached a session (`told`, or the older `carried`) on this many lived
-   * days, the reflection's own day included. Lived days, as every other
-   * window here.
+   * lightly held): `ReflectContext.shares.perWeek` counts the shares offered
+   * by the reflections of this many lived days, the reflection's own day
+   * included (`Reflections#shareHeld`). Lived days, as every other window here.
    */
   SHARE_WEEK_DAYS: 7,
 } as const;
@@ -628,7 +627,7 @@ export interface ReflectContext {
   /**
    * THE HOST'S MORNING-SHARE SETTING (2026-11-13, an experiment, lightly
    * held; `CounterpartOptions.shares`): `off`, or a cap of `perWeek` shares
-   * told over `SHARE_WEEK_DAYS` lived days. Held, the reflection still writes
+   * offered over `SHARE_WEEK_DAYS` lived days. Held, the reflection still writes
    * its entry; nothing is offered, and nothing that rides in a share happens
    * (a self-close is listed as "may be done" instead, no folders are
    * proposed to join). Absent: on, no cap — today's behavior.
@@ -1980,6 +1979,7 @@ export class Reflections {
     // One sent in both lists is doubt, and doubt is asked (review of #535):
     // the close loop below proposes it.
     const askedToo = new Set((input.close ?? []).filter((x): x is string => typeof x === "string"));
+    let heldClose = 0;
     for (const c of (input.closeNow ?? []).slice(0, 50)) {
       const cid = isRecord(c) && typeof c["id"] === "string" ? c["id"] : null;
       if (cid === null || isClosed(cid)) continue;
@@ -2019,6 +2019,7 @@ export class Reflections {
       if (held !== null) {
         proposed.push(cid);
         askedInstead += 1;
+        heldClose += 1;
         closeNotes.push(`${cid}: listed as may be done instead of closed (the morning share is held: ${held.reason}).`);
         continue;
       }
@@ -2132,10 +2133,12 @@ export class Reflections {
     let heldSaid: string | null = null;
     if (held !== null) {
       shareMiss = null;
-      if (share.offered) {
+      // What would have been offered, and words sent that would have come
+      // back to fix (no cites, the scan): neither is offered nor asked again.
+      if (share.offered || rawShare.length > 0) {
         share = { offered: false, reason: held.reason, detail: held.detail };
         heldSaid = held.reason;
-      }
+      } else if (heldClose > 0) heldSaid = held.reason;
     }
 
     // REPLACING AN OFFERED SHARE IS A CLAIM (review of #268): a later session
@@ -3111,11 +3114,13 @@ export class Reflections {
   /**
    * THE HOST'S MORNING-SHARE SETTING, applied (2026-11-13, an experiment,
    * lightly held): null when this night may offer one. `off` holds every
-   * share; `perWeek` holds one once that many shares have reached a session
-   * (`told`, or the older `carried`) on the last `SHARE_WEEK_DAYS` lived days,
-   * this reflection's own day included and this reflection itself not
-   * counted. A share offered and never told is not counted. A cap that is not
-   * a number of zero or more is no cap.
+   * share; `perWeek` holds one once that many shares were offered by the
+   * reflections of the last `SHARE_WEEK_DAYS` lived days (by the night that
+   * wrote it, not the day it was told), this reflection's own day included
+   * and itself not counted. An offered share not told yet IS counted: it stays
+   * deliverable (`pendingShare` finds the newest offered one however old, and
+   * the next after it), so "never told" cannot be told apart from "not told
+   * yet". A cap that is not a number of zero or more is no cap.
    */
   private shareHeld(row: ReflectionRow): { reason: "host-off" | "weekly-cap"; detail: string } | null {
     const s = this.ctx.shares;
@@ -3127,12 +3132,12 @@ export class Reflections {
     let told = 0;
     for (const r of this.store.reflections({ limit: 200 })) {
       if (r.id === row.id || r.day < since || r.day > row.day) continue;
-      if (r.share_state === "told" || r.share_state === "carried") told += 1;
+      if (r.share !== null && (r.share_state === "offered" || r.share_state === "told" || r.share_state === "carried")) told += 1;
     }
     if (told < Math.floor(cap)) return null;
     return {
       reason: "weekly-cap",
-      detail: `The host allows ${String(Math.floor(cap))} morning share${Math.floor(cap) === 1 ? "" : "s"} a week and ${String(told)} ${told === 1 ? "was" : "were"} told in the last ${String(REFLECT_TUNABLES.SHARE_WEEK_DAYS)} days, so none is offered tonight; the entry and everything else stand.`,
+      detail: `The host allows ${String(Math.floor(cap))} morning share${Math.floor(cap) === 1 ? "" : "s"} a week and ${String(told)} ${told === 1 ? "was" : "were"} offered in the last ${String(REFLECT_TUNABLES.SHARE_WEEK_DAYS)} days, so none is offered tonight; the entry and everything else stand.`,
     };
   }
 

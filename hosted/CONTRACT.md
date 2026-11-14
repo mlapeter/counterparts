@@ -118,6 +118,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     by a non-email identity the caller has verified (not `email`, which stays the link's). It skips the spots, though its people still count in `spots().people`, so on a control database shared with email sign-ups they use those up (the
     caller gates sign-up), returns a pending-delete person rather than making a second, and after an erase makes a
     new one. The email path is unchanged.
+15b. **The morning share, as a product wants it** (2026-11-13, an experiment, lightly held): `AppOptions.shares`
+    (`"off"`) and `sharesPerWeek` are written into each store's `config.json` (the worker's night reads them there)
+    and handed to the store's own server. Absent: on, no cap, as before. The rule is `core/dream`'s.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 

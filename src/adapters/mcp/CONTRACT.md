@@ -887,6 +887,15 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   feeling is answered from the feelings recorded on memories" (meaning mode's now);
   "considered is reported beside `consideredCap`" (the count header replaces it).
 
+## 6g. The host's morning-share setting (2026-11-13, an experiment, lightly held)
+
+`openServer`'s `shares` / `sharesPerWeek` go to `Counterpart.open`; the stdio entry point
+(`bin/serve.ts`, where the night's reflection finishes) and `remote/bin/serve-http.ts` read
+them from the configuration's `shares` / `sharesPerWeek` (`config.ts#shareOptions`, lenient
+and quiet: anything but `"on"`/`"off"` and a number of zero or more is ignored). The reflect
+tool answers a held night with `share: {offered: false, reason: "host-off" | "weekly-cap"}`.
+The rule is `core/dream`'s (its CONTRACT, the share). Absent: on, no cap.
+
 ## 7. Open questions
 
 1. **Does `note` still need to exist** once the experiencer writes at every session end?

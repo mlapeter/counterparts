@@ -1498,12 +1498,19 @@ What it moves, on purpose:
   absent, today's behavior — the owner's own store shares every night and still does.
 - Decided once per finish, before anything that rides in a share (`Reflections#shareHeld`), and not for a
   reflection that already offered one. The window is lived days, like every other window here (the reflection's
-  own day and the six before). It counts shares that reached a session — `told` (the carry writes it on delivery
-  since TC1) and the older `carried` — so a share offered and never told costs nothing against the cap.
+  own day and the six before), counted by the night that wrote the share, not the day it was told. It counts every
+  share offered in it, told or not yet: first built to count only `told`/`carried`, but an offered share stays
+  deliverable (`pendingShare` finds the newest offered one however old, then the next), so "never told" can't be
+  told apart from "not told yet", and a week nobody woke would have offered every night and delivered the backlog
+  one per wake. A true delivery cap would gate the carry too; out of scope here. Held nights count nothing.
 - Every way a share gets offered goes through the same gate, not only the reflection's own words: a became-core or
   re-label line, the closed line, the core line, a join proposal. A self-close is listed as "may be done" instead
   of closing unsaid; a join is not proposed (it would rest as asked); a became-core line waits for a night that
   may share (its "mentioned" mark needs an offered share). Not a retry: nothing the reflection could send again
   changes the host's setting.
-- Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`), and whether the
-  held self-closes piling up as "may be done" is a cost. Revisit or drop freely.
+- Not held, for Mike to rule on: core keep/retire decisions and re-labels into me, us or the owner still happen
+  with their line dropped (shown to the owner, not gated on him, was the ruling for those); and `begin` still asks
+  for a share and says `closeNow` closes tonight, so a held night spends a little effort on words nobody hears.
+- Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`, written too when the
+  only thing held was a self-close), and whether self-closes piling up as "may be done" is a cost. Revisit or drop
+  freely.
