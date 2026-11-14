@@ -370,7 +370,8 @@ dreamer is the model (a background agent the session launches), outside this pro
   `fold: true` — not an action of its own — saying the standing outcome two or more parts
   add up to; it holds over each part through the one door, `reconsolidation.ts#supersede`,
   how `changed`, source `fold`, `closeFlags: false`: the part fades ×0.5, stays live, is
-  labelled earlier under the fold and joins its slot. Kept at their own weight, still cited
+  labelled folded into the fold (`folded into mem_…`, `part: …, folded in`; until 2026-11-14
+  "earlier", which read as replaced — `recall/standing.ts#foldedOver`) and joins its slot. Kept at their own weight, still cited
   and tied: the core, a protected memory, a reading or a world memory, a strongly felt
   `self` or `person` memory (feeling ≥ `FOLD_FELT_FLOOR` 0.5; review 11 C3), a dated one, a dream's own words and an earlier version
   (`foldExemption`). It starts at the strongest strength of the parts it holds over, read before any fade, in

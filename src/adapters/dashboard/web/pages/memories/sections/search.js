@@ -296,7 +296,9 @@ export function factLines(m) {
   const parts = said.map(esc);
   if (m.faded) parts.push(esc("faded: weak, below reach"));
   if (!m.current) {
-    parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "an earlier version — now " + withIdMarks(m.now) : "an earlier version — a later one holds now");
+    // A dream fold's part was gathered, not replaced (`facts.ts`, 2026-11-14).
+    if (m.folded) parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "folded into " + withIdMarks(m.now) : "folded into a later memory");
+    else parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "an earlier version — now " + withIdMarks(m.now) : "an earlier version — a later one holds now");
   }
   for (const s of m.standing || []) parts.push(withIdMarks(s));
   // Corrected versions were wrong: each named and linked like an earlier one,
@@ -305,10 +307,11 @@ export function factLines(m) {
   const unnamed = (m.corrected || 0) - wrong.length;
   if (unnamed > 0 && wrong.length === 0) parts.push(esc(plural(unnamed, "corrected version") + " hidden"));
   const earlier = (m.earlier || []).map((e) =>
-    '<div class="mearlier">earlier: “' + esc(e.text) + "”" +
-      esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.changed ? ", changed " + dateOr(e.changed) : "")) +
+    '<div class="mearlier">' + (e.folded ? "part" : "earlier") + ': “' + esc(e.text) + "”" +
+      esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.changed ? (e.folded ? ", folded in " : ", changed ") + dateOr(e.changed) : "")) +
       (e.id ? " " + withIdMarks(e.id) : "") + "</div>").join("") +
     (m.earlierMore > 0 ? '<div class="mearlier">+' + m.earlierMore + " more earlier</div>" : "") +
+    (m.partsMore > 0 ? '<div class="mearlier">+' + m.partsMore + (m.partsMore === 1 ? " more part" : " more parts") + "</div>" : "") +
     wrong.map((e) =>
       '<div class="mearlier">corrected (was wrong): “' + esc(e.text) + "”" +
         esc((e.learned ? " (learned " + dateOr(e.learned) + ")" : "") + (e.corrected ? ", corrected " + dateOr(e.corrected) : "")) +

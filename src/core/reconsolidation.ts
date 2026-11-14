@@ -223,8 +223,6 @@ export const FULFILLED_SOURCE = "fulfilled";
 /** The `source` of the pairs a dream merge writes, one per original (`dream/index.ts#DREAM_MERGE_REASON`, spelled here: this file sits below `dream/`). */
 export const DREAM_MERGE_SOURCE = "dream-merge";
 
-/** The `source` of the pairs a dream FOLD writes: `types.ts#FOLD_SOURCE`, re-exported above. */
-
 /**
  * The `source` of the flag a CORRECTION to a fold's source raises between the
  * fold and the memory that corrects it (2026-10-11, Group 3 part B): the fold

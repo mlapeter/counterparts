@@ -240,6 +240,9 @@ describe("a fold goes through the one door", () => {
     const s = new McpServer({ counterpart: c, session: SESSION, scope: "/proj" });
     const res = await s.call("recall", { question: "zqshellfish zqmarquee menu doors", mode: "facts" });
     const answer = String(res.structuredContent["answer"]);
+    // The hidden third is a part, said so, not "more earlier".
+    expect(answer).toContain("+1 more part\n");
+    expect(answer).not.toContain("more earlier");
     const ruleLine = answer.split("\n").find((l) => l.includes(rule)) ?? "";
     expect(ruleLine.trimStart()).toStartWith('part: "No zqshellfish on the zqmarquee menu"');
     expect(ruleLine).toContain(", folded in ");

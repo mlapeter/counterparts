@@ -2483,8 +2483,8 @@ export class Dreams {
         const linkedSources = ties.landed.map((p) => (p.a === id ? p.b : p.a));
         // THE FOLD HOLDS OVER EACH PART, THROUGH THE ONE DOOR (2026-10-11,
         // Group 3 part B; item 15, D6): a plain `changed`, source `fold` — the
-        // part fades x0.5 (`CHANGED_FADE`), stays live and is labelled earlier
-        // under the fold, which stands for it in ambient recall and folds it
+        // part fades x0.5 (`CHANGED_FADE`), stays live and is labelled folded
+        // into the fold (2026-11-14: "earlier" read as replaced; `foldedOver`), which stands for it in ambient recall and folds it
         // in deliberate recall; and it joins the fold's slot, so its settled
         // uses count toward the fold's recurrence. Its open questions stay
         // open (`closeFlags: false`): a fold answers none of them. EXEMPT, kept

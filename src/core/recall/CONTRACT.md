@@ -709,7 +709,9 @@ is recallable, ranked or gated moves. The deliberate path carries the same as a
 
 **[M] "Earlier (now [id])" names the end of the chain** (review of #408, 2026-10-11): the
 id is `headOf`'s, the same memory a write's neighbours and the dream's bundles name with
-`earlier (now mem_…)` — on A→B→C, A reads `now [C]`. And `headOf` decides whether it is
+`earlier (now mem_…)` — on A→B→C, A reads `now [C]`. (A dream fold's part, when the fold's
+pair is the newest over it, reads `Folded into [id]` / `folded into mem_…` instead, and the
+fold names its parts `folds in [ids]`: words only, 2026-11-14, `foldedOver`.) And `headOf` decides whether it is
 earlier at all (the wake's `settledOver` rule): a memory whose holder is gone with nothing
 live after it carries no `Earlier`. Since 2026-10-11 (Group 3 part B; random-06, lightly
 held) a settle speaks only about the pair it names: a newer pair in which a memory holds no

@@ -403,6 +403,8 @@ export interface FactItem {
   readonly folded?: true;
   readonly earlier: readonly EarlierVersion[];
   readonly earlierMore: number;
+  /** Of the hidden ones, how many are a fold's parts (`folded`): said `+N more parts`, apart (2026-11-14). */
+  readonly partsMore?: number;
   /** Corrected (wrong) versions of it: every one, named or not. */
   readonly corrected: number;
   /**
@@ -1474,7 +1476,8 @@ function factItem(
     current: now === undefined,
     ...(now === undefined ? {} : { now, ...(folded ? { folded: true as const } : {}) }),
     earlier: earlier.slice(0, FACTS_EARLIER_SHOWN),
-    earlierMore: Math.max(0, earlier.length - FACTS_EARLIER_SHOWN),
+    earlierMore: earlier.slice(FACTS_EARLIER_SHOWN).filter((e) => e.folded !== true).length,
+    ...(earlier.slice(FACTS_EARLIER_SHOWN).some((e) => e.folded === true) ? { partsMore: earlier.slice(FACTS_EARLIER_SHOWN).filter((e) => e.folded === true).length } : {}),
     corrected,
     ...(correctedShown.length === 0 ? {} : { correctedShown }),
     standing: standing.slice(0, 2),
@@ -1644,6 +1647,7 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
     out.push(`   ${e.folded === true ? "part" : "earlier"}: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
   }
   if (m.earlierMore > 0) out.push(`   +${String(m.earlierMore)} more earlier`);
+  if ((m.partsMore ?? 0) > 0) out.push(`   +${String(m.partsMore)} more ${m.partsMore === 1 ? "part" : "parts"}`);
   // Corrected versions were WRONG: said so in front, never read as a fact,
   // each with its id so it can be opened (a correction can itself be wrong).
   const named = m.correctedShown ?? [];
