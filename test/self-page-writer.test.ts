@@ -34,6 +34,7 @@ import {
   MARKER_REDACTION,
   PAGE_WRITER_MODES,
   PAGE_WRITER_OPEN,
+  OWN_WORDS_RULE,
   PAGE_WRITING_RULE,
   SELF_PAGE_WRITER_EVENT,
   SELF_TUNABLES,
@@ -447,6 +448,9 @@ describe("what the writer reads", () => {
     const about = pageWriterNight(c.store).about;
     const text = writerInstruction(c.pageWriterInput({ about }), { tool: "self_page" });
     expect(text).toContain(PAGE_WRITING_RULE);
+    // A person's own words at their scope (2026-11-14), on day's end too — the path the widened line took.
+    expect(text).toContain(OWN_WORDS_RULE);
+    expect(writerInstruction({ ...c.pageWriterInput({ about }), daysEnd: true }, { tool: "self_page" })).toContain(OWN_WORDS_RULE);
     expect(PAGE_WRITING_RULE).toContain("the Opus 5.5 system card says");
     expect(PAGE_WRITING_RULE).toContain('never "tonight" or "today"');
     expect(PAGE_WRITING_RULE).toContain("the wake dates the page");
@@ -593,8 +597,9 @@ describe("the instruction the writer reads", () => {
     // page's room, in the same breath as the room itself; 2,000 since
     // 2026-10-16: "## How I work" as a few short lessons, `HOW_I_WORK_RULE`;
     // 2,300 since 2026-10-26: no record is unknown, `NO_RECORD_RULE`; 2,450
-    // since 2026-11-13: a line still ahead after it passed, `AHEAD_PASSED_RULE`.)
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2450);
+    // since 2026-11-13: a line still ahead after it passed, `AHEAD_PASSED_RULE`;
+    // 2,900 since 2026-11-14: a person's own words at their scope, `OWN_WORDS_RULE`, its "never" kept on review.)
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2900);
   });
 
   test("it names the session id, so the write can be recorded as the night's", () => {

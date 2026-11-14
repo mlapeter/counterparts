@@ -258,6 +258,22 @@ export const HOW_I_WORK_RULE =
   `Under "## How I work", keep a few short, general lessons, a line or two each, without dated examples or anecdotes; the stories stay in the memories.`;
 
 /**
+ * A PERSON'S OWN WORDS ABOUT HOW TO TREAT THEM (2026-11-14, the closing-words
+ * review; Mike's go, words only, an experiment). A simulated week: Wren said
+ * "if i tell you something heavy and then change the subject, the subject is
+ * changed"; night 1's page writer made it "I don't bring personal things up
+ * unprompted", and with `HOW_I_WORK_RULE` asking for general lessons and the
+ * keep line ("every sentence that still holds, word for word") it stood all
+ * week, and the counterpart didn't ask after her dad's new fall. A preference
+ * is kept at its scope, a line wider than it does not "still hold", and a new
+ * event on the subject is news. Its own constant so a page in its own form
+ * (which drops `HOW_I_WORK_RULE`) still hears it; part of `PAGE_WRITING_RULE`
+ * (day's end and the reflection). Revert: drop it from there.
+ */
+export const OWN_WORDS_RULE =
+  `A preference someone stated about how to treat them is not a lesson to generalise: keep it in their words and at their scope ("the subject is changed" is not "never bring personal things up"), and a line wider than their words does not still hold. Unless they said "never", a preference covers the moment they meant, not the subject: something new happening on that subject is a reason to ask about it once.`;
+
+/**
  * THE ROOM, SAID PLAINLY (2026-10-20, with the nightly writers held to it;
  * Mike's go, lightly held, an experiment). The page's room in bytes, that it
  * is the whole page's and not a short version's, and that a page should stay
@@ -312,7 +328,7 @@ export function pageRoomRule(room: number = PAGE_ROOM_BYTES): string {
 }
 
 export const PAGE_WRITING_RULE =
-  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${AHEAD_PASSED_RULE} ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
+  `${HOW_I_WORK_RULE} ${OWN_WORDS_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. ${AHEAD_PASSED_RULE} ${NO_RECORD_RULE} ${PAGE_ROOM_RULE}`;
 
 /**
  * THE PAGE IN ITS OWN FORM, ONE STORE AT A TIME (PF1, 2026-11-01; asked by the

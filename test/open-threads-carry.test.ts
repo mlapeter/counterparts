@@ -141,6 +141,16 @@ describe("1. open means someone owes an answer", () => {
       // Narrowed again in trim PR 2 (the wording half of #819's raise schedule): blocked, never curiosity.
       expect(d).toContain("true only when something is blocked on it: a decision you need from them, a promise, a dated check");
       expect(d).toContain("Never curiosity about how something went");
+      // The closing words (2026-11-14): a deferral is not open, a named time is a date; their words ride on text/content.
+      expect(d).toContain("nor what they put off: \"ask me after I've slept\" is an eventDate (the next day)");
+    }
+    // `asked` is said: waiting on THEM, as the engine reads it (`owner-waits.ts`), not one they asked you.
+    const statusOf = (tool: string, entry: boolean): string | undefined => {
+      const props = (toolSpec(tool)?.inputSchema as { properties: Record<string, { description?: string; items?: { properties: Record<string, { description?: string }> } }> }).properties;
+      return (entry ? props["memories"]?.items?.properties["status"] : props["status"])?.description;
+    };
+    for (const d of [statusOf("remember", false), statusOf("session_end", true)]) {
+      expect(d).toBe("asked: a question or request of yours, waiting on them, not one they asked you.");
     }
     // How to close one is said on `updates`.
     const updates = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties["updates"];

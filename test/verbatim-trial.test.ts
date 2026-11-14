@@ -51,6 +51,8 @@ describe("the writing tools ask for lists, tables and pasted texts word for word
       const text = String(field(tool)["description"]);
       // Shortened in trim PR 2.
       expect(text).toContain("lists, numbers and quotes word for word");
+      // 2026-11-14 (#829): what they ask of you, or close or put off, in their words and no wider.
+      expect(text).toContain("What they ask of you, and a subject they close or put off: their words, no wider than they said.");
     }
   });
 });

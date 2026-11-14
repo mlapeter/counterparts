@@ -313,11 +313,20 @@ const REMOVE_PROPERTY = {
  * raise schedule): open means something is BLOCKED on it — a decision the
  * counterpart needs from the person, a promise, a dated check — never
  * curiosity about how something went, which the Still open lane carried as if
- * it were owed. The Stop ask says the same (`claude-code/hooks.ts#OPEN_MEANS`).
+ * it were owed. The Stop ask says the blocked half (`claude-code/hooks.ts#OPEN_MEANS`);
+ * the deferral below is said here only.
+ *
+ * NOT A DEFERRAL (2026-11-14, the closing-words review; Mike's go, words
+ * only): a simulated month stored "ask me after I've slept" as an open item
+ * with a settlesWhen, on the lane that raises; a time they named is the date
+ * it comes back on. Keeping what they ask of you, and a subject they close or
+ * put off, in their words and no wider, is said on `text` / `content`, where
+ * the widened paraphrases were written (none set `unresolved`).
  */
 export const UNRESOLVED_PROPERTY = {
   type: "boolean",
-  description: "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went.",
+  description:
+    "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went, nor what they put off: \"ask me after I've slept\" is an eventDate (the next day).",
 };
 
 /**
@@ -416,7 +425,18 @@ const OCCURRED_ON_PROPERTY = {
 
 const SAID_BY_PROPERTY = { type: "string", enum: ["owner", "self", "inferred"] } as const;
 
-const STATUS_PROPERTY = { type: "string", enum: ["done", "planned", "proposed", "asked"] } as const;
+/**
+ * `asked`, said (2026-11-14, the closing-words review; Mike's go, words only):
+ * the engine reads an open `asked` memory as waiting on the owner and raises
+ * it (`owner-waits.ts`, `counterpart-wake-shape.ts#owedOne`), and the night's
+ * close sweep leaves it open. Unsaid, a model marked "she asked me, don't
+ * answer yet" with it: the inversion.
+ */
+const STATUS_PROPERTY = {
+  type: "string",
+  enum: ["done", "planned", "proposed", "asked"],
+  description: "asked: a question or request of yours, waiting on them, not one they asked you.",
+} as const;
 
 const KIND_PROPERTY = { type: "string", enum: ["self", "person", "entity", "skill", "place", "fact"] } as const;
 
@@ -639,7 +659,7 @@ const REMEMBER: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
+      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. What they ask of you, and a subject they close or put off: their words, no wider than they said. To close an open item, a line saying it is done." },
       title: { type: "string", description: "One line naming it; recall opens it by exact title." },
       about: ABOUT_PROPERTY,
       kind: KIND_PROPERTY,
@@ -1029,7 +1049,7 @@ const SESSION_END: ToolSpec = {
         items: {
           type: "object",
           properties: {
-            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
+            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. What they ask of you, and a subject they close or put off: their words, no wider than they said. To close an open item, a line saying it is done." },
             title: { type: "string" },
             about: { ...ABOUT_PROPERTY, description: "Mark anything personal owner or us so it reaches every folder." },
             kind: KIND_PROPERTY,

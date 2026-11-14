@@ -2318,3 +2318,23 @@ replaced them. Now `part: "…" (learned …), folded in <date> · mem_…`; on 
 standing reads `folded into <id>`, as does its tail mark (`recall/standing.ts#foldedOver`, same
 date). Render only. Hidden ones are counted apart: `+N more earlier`, `+N more parts`. The recall tool description was left
 alone (its length is pinned and the claude.ai trim guards it); the line explains itself.
+
+## 2026-11-14 — closing words: a closing or a deferral is not open; `asked` is said
+
+`text` / `content` gain: lists, numbers, quotes, what they asked of you, closed or put off: word for word, as
+far as it reached (the season-two paraphrases that widened "the subject is changed" were written in content,
+with no `unresolved` set, so the words go where they were written; coordinator's call on review).
+`unresolved` gains: nor what they put off: "ask me after I've slept" is an eventDate (a journal month stored
+that deferral as an open item, on the lane that raises). `status` gains a description: asked is a question or
+request of yours, waiting on them, not one they asked you — as `owner-waits.ts` reads an open `asked` (raised to the owner) and the
+close sweep leaves it; a model had used it for "she asked me, don't answer yet". +227 bytes on each of
+`remember` and `session_end`, every host (claude.ai's list 26,469 → 26,923 B, ceiling 28,500); the claude.ai
+trim overrides neither field, so the drift guard did not move. The manual's Fields section says the same,
+longer. The Stop ask's `OPEN_MEANS` was left as it is (per-session bytes).
+
+On review (#829): `text` / `content` now say "What they ask of you, and a subject they close or put off: their
+words, no wider than they said." as its own sentence (the "word for word" pin restored); `unresolved`'s example
+resolves to a date ("is an eventDate (the next day)"); `status` is "a question or request of yours, waiting on
+them, not one they asked you." Net vs master: +285 B on `remember`, +285 B on `session_end` (claude.ai's list
+26,469 → 27,039 B). The hosted sample's "Science fair judges" was `asked` with nothing waiting on the owner: now
+`planned`.
