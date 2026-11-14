@@ -65,7 +65,7 @@
 import { randomBytes } from "node:crypto";
 
 import { emotionalIntensity } from "../physics/index.js";
-import { earlierMark, headOf, isHandoff, isSelfPage } from "../recall/index.js";
+import { earlierMark, foldedOver, headOf, isHandoff, isSelfPage } from "../recall/index.js";
 import { aboutMe, acceptsReflectedFeeling, keepCore, laterFeelingWasReflections, promotionRecordKey, reconsiderWords, retireCore, selfRelevantFeeling } from "../sleep/index.js";
 import {
   ABOUT_MARKS,
@@ -3757,7 +3757,7 @@ export class Reflections {
     const flat = `${head}${doc.body}`.replace(/\s+/g, " ").trim();
     // Settled over since (2026-10-11): the mark in front, outside the clip.
     const now = headOf(this.store, id);
-    return { id, text: `${now === null ? "" : `${earlierMark(now)}: `}${clipWire(flat, REFLECT_TUNABLES.SAW_CHARS)}` };
+    return { id, text: `${now === null ? "" : `${earlierMark(now, foldedOver(this.store, id))}: `}${clipWire(flat, REFLECT_TUNABLES.SAW_CHARS)}` };
   }
 
   /**
@@ -4039,7 +4039,7 @@ export class Reflections {
     const head = headOf(this.store, row.id);
     return {
       id: row.id,
-      ...(head === null ? {} : { standing: earlierMark(head) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(this.store, row.id)) }),
       kind: row.kind,
       fidelity: placed.fidelity,
       text: placed.text,

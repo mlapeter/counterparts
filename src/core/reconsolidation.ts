@@ -85,14 +85,14 @@ import { Associate } from "./associate/index.js";
 import { lineOf } from "./fit/index.js";
 import { band, changedFade, cosine, fadeOf, strength, unfade } from "./physics/index.js";
 import { CUE_MODE_META, DATE_FROM_META, DATE_MOVED_TO_META, cueModeOf, recurrenceOf } from "./prospective/index.js";
-import { earlierMark, headOf, isBeliefRow, isHandoff } from "./recall/index.js";
+import { earlierMark, foldedOver, headOf, isBeliefRow, isHandoff } from "./recall/index.js";
 import { similarity } from "./remember/index.js";
 import { RECURRING_META, isStoreError, rowTombstoned, statusOf } from "./store/index.js";
 import type { ContradictionRow, MemoryRow, Store } from "./store/index.js";
-import { SETTLE_HOWS } from "./types.js";
+import { FOLD_SOURCE, SETTLE_HOWS } from "./types.js";
 import type { Band, MemoryPhysics, SettleHow } from "./types.js";
 
-export { SETTLE_HOWS } from "./types.js";
+export { FOLD_SOURCE, SETTLE_HOWS } from "./types.js";
 export type { SettleHow } from "./types.js";
 
 /** Who settled: the trail's `actor`. */
@@ -223,12 +223,7 @@ export const FULFILLED_SOURCE = "fulfilled";
 /** The `source` of the pairs a dream merge writes, one per original (`dream/index.ts#DREAM_MERGE_REASON`, spelled here: this file sits below `dream/`). */
 export const DREAM_MERGE_SOURCE = "dream-merge";
 
-/**
- * The `source` of the pairs a dream FOLD writes, one per source it fades
- * (2026-10-11, Group 3 part B; item 15): the fold holds over each part,
- * `changed`, through the one door — never a new path or a fourth relation.
- */
-export const FOLD_SOURCE = "fold";
+/** The `source` of the pairs a dream FOLD writes: `types.ts#FOLD_SOURCE`, re-exported above. */
 
 /**
  * The `source` of the flag a CORRECTION to a fold's source raises between the
@@ -1742,7 +1737,7 @@ export function writeNeighbours(
     }
     out.push({
       id: s.id,
-      ...(head === null ? {} : { standing: earlierMark(head) }),
+      ...(head === null ? {} : { standing: earlierMark(head, foldedOver(store, s.id)) }),
       title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: s.row.body }) || null : s.row.title,
       excerpt: excerptOf(s.row.body, T.EXCERPT_CHARS),
     });

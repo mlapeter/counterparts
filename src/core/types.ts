@@ -64,6 +64,15 @@ export const SETTLE_HOWS = ["changed", "corrected", "open"] as const;
 export type SettleHow = (typeof SETTLE_HOWS)[number];
 
 /**
+ * The `source` of the pairs a dream FOLD writes, one per source it fades
+ * (2026-10-11, Group 3 part B; item 15): the fold holds over each part,
+ * `changed`, through the one door — never a new path or a fourth relation.
+ * Here, not in `reconsolidation.ts`, so recall's labels can read it without
+ * an import cycle (2026-11-14: a fold's part is labelled folded, not changed).
+ */
+export const FOLD_SOURCE = "fold";
+
+/**
  * THE SESSION ID OF A MEMORY SERVER THAT DOES NOT KNOW ITS SESSION YET. In
  * Claude Code the server learns its session at the first `chapter` or
  * `session_end` (the MCP server's lazy bind); a `note` before

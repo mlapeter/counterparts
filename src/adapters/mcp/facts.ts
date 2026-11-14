@@ -113,6 +113,9 @@
  *      learned 09-28 in ~/counterparts · session a1b2c3d4 · CURRENT
  *        (with another result on the same day: `learned 09-28 14:05 …`)
  *      earlier: "gym at 7" (learned 09-12), changed 09-28 · mem_…
+ *        (a part a dream fold gathered is not replaced: `part: "no shellfish,
+ *        ever" (learned 11-02), folded in 11-10 · mem_…`; shown on its own
+ *        it reads `folded into mem_…`, not `earlier — now`; 2026-11-14)
  *      corrected (was wrong): "gym on Tuesdays" (learned 09-10), corrected 09-11 · mem_…
  *      <the body whole when short, else a 300-character excerpt>
  *
@@ -155,6 +158,8 @@ import {
   earlierMark,
   everydayFactor,
   headOf,
+  foldedOver,
+  isFoldPair,
   informativeness,
   localKey,
   readTimeAsk,
@@ -326,6 +331,12 @@ export interface EarlierVersion {
   readonly changed: string | null;
   /** A separate memory (a `changed` pair) has an id to open; an in-place version has none. */
   readonly id?: string;
+  /**
+   * A part a dream fold gathered (its pair's source is `fold`): shown as
+   * `part: …, folded in <date>`, never `earlier … changed` — the fold did not
+   * replace it (2026-11-14, `recall/standing.ts#foldedOver`).
+   */
+  readonly folded?: true;
 }
 
 /**
@@ -388,6 +399,8 @@ export interface FactItem {
   readonly current: boolean;
   /** For an earlier version shown on its own: the current one's id ("a later version" when this asker may not be told it). */
   readonly now?: string;
+  /** With `now`: a dream fold's part — `folded into <now>`, not `earlier — now` (`recall/standing.ts#foldedOver`). */
+  readonly folded?: true;
   readonly earlier: readonly EarlierVersion[];
   readonly earlierMore: number;
   /** Corrected (wrong) versions of it: every one, named or not. */
@@ -457,6 +470,8 @@ export interface FactTailItem {
    * review of #544).
    */
   readonly now?: string;
+  /** With `now`: a dream fold's part, marked `folded into …` (`earlierMark`). */
+  readonly folded?: true;
 }
 
 export interface FactsResult {
@@ -1219,7 +1234,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       ...(dueOn === null ? {} : { due: true as const }),
       journal,
       faded: fadedIds.has(c.id),
-      ...(head === null ? {} : { now: canName(head) ? head : "a later version" }),
+      ...(head === null ? {} : { now: canName(head) ? head : "a later version", ...(foldedOver(store, c.id) ? { folded: true as const } : {}) }),
     };
   });
 
@@ -1373,6 +1388,7 @@ function factItem(
         learned: o.learned_on.length > 0 ? o.learned_on : null,
         changed: localDate(p.updated_at, zone),
         id: p.over,
+        ...(isFoldPair(p) ? { folded: true as const } : {}),
       });
     } else if (p.state === "settled" && p.how === "changed" && p.over === c.id && p.holds !== null) {
       changedOver = true;
@@ -1402,9 +1418,13 @@ function factItem(
   // neighbours and the dream's bundles name (`recall/standing.ts#headOf`): on
   // A→B→C, A reads now C, not B. `headOf` also decides whether it is earlier
   // at all, as it does there — re-affirmed, or nothing live after it, it stands.
+  let folded = false;
   if (changedOver) {
     const head = headOf(store, c.id);
-    if (head !== null) now = canName(head) ? head : "a later version";
+    if (head !== null) {
+      now = canName(head) ? head : "a later version";
+      folded = foldedOver(store, c.id);
+    }
   }
   // Matched earlier memories first, the best match first (2026-11-14: two
   // matched ones came out in whatever order the pairs were read); then by when
@@ -1452,7 +1472,7 @@ function factItem(
     where: parts?.where ?? null,
     who: parts?.who ?? null,
     current: now === undefined,
-    ...(now === undefined ? {} : { now }),
+    ...(now === undefined ? {} : { now, ...(folded ? { folded: true as const } : {}) }),
     earlier: earlier.slice(0, FACTS_EARLIER_SHOWN),
     earlierMore: Math.max(0, earlier.length - FACTS_EARLIER_SHOWN),
     corrected,
@@ -1611,7 +1631,7 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
     out.push(`   ${said} · ${status} · ${occurred}`);
     const where = m.where === null ? "" : ` in ${m.where}`;
     const who = m.who === null ? "" : ` · ${m.who}`;
-    const standing = m.current ? "CURRENT" : `earlier — now ${m.now ?? "?"}`;
+    const standing = m.current ? "CURRENT" : m.folded === true ? `folded into ${m.now ?? "?"}` : `earlier — now ${m.now ?? "?"}`;
     const extra = m.standing.length === 0 ? "" : ` · ${m.standing.join(" · ")}`;
     const by = m.timeBy === "learned" && m.occurredOn === null ? " (in the window by this date)" : "";
     const at = time === undefined ? "" : ` ${time}`;
@@ -1619,8 +1639,9 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
   }
   for (const e of m.earlier) {
     const learned = e.learned === null ? "" : ` (learned ${shortDate(e.learned, today)})`;
-    const changed = e.changed === null ? "" : `, changed ${shortDate(e.changed, today)}`;
-    out.push(`   earlier: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
+    // A fold's part was gathered, not replaced: `part: …, folded in <date>`.
+    const changed = e.changed === null ? "" : `, ${e.folded === true ? "folded in" : "changed"} ${shortDate(e.changed, today)}`;
+    out.push(`   ${e.folded === true ? "part" : "earlier"}: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
   }
   if (m.earlierMore > 0) out.push(`   +${String(m.earlierMore)} more earlier`);
   // Corrected versions were WRONG: said so in front, never read as a fact,
@@ -1750,7 +1771,7 @@ function tailLines(r: FactsResult, today: string): string[] {
   const out = [`next ${String(r.tail.length)}, titles only (open any by id):`];
   r.tail.forEach((t, i) => {
     const date = t.date === null ? "" : ` · ${t.due === true ? "due " : ""}${shortDate(t.date, today)}`;
-    const earlier = t.now === undefined ? "" : `${earlierMark(t.now)}: `;
+    const earlier = t.now === undefined ? "" : `${earlierMark(t.now, t.folded === true)}: `;
     out.push(`${String(first + i + 1)}. ${t.journal ? "[journal] " : ""}${earlier}${t.line} · ${t.id}${date}${t.faded ? " · faded" : ""}`);
   });
   return out;
