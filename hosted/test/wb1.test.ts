@@ -489,7 +489,7 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.ok(restored.up, restored.stderr());
     assert.match(await restored.stop(), /restored the control databases: 2 restored, 0 already here; server databases: 1 restored/);
     const back = openDb(join(o.dataRoot, AUTH));
-    assert.deepEqual(back.all<{ token: string }>("SELECT token FROM owed"), [{ token: "a revocation owed to Apple" }]);
+    assert.deepEqual(back.all<{ token: string }>("SELECT token FROM owed").map((row) => row.token), ["a revocation owed to Apple"]);
     back.close();
   });
 
