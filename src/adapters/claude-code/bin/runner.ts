@@ -109,7 +109,7 @@ import { loadConfig, retentionClocks, withBudgetDefault, withEmbedderDefault } f
 import type { AdapterConfig } from "../../config.js";
 import { openEmbedder } from "../index.js";
 import type { LiveEmbedder } from "../embed-client.js";
-import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../../spawn.js";
+import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, STORE_CLOCK_OFFSET_ENV, WATCHDOG_ENV } from "../../spawn.js";
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
 import { removeSidebarStatus, sidebarInstalled, writeSidebarStatus } from "../../sidebar-status.js";
@@ -407,6 +407,9 @@ export async function runOnce(input: {
   /** The wall clock the hold sweep reads (HD1). Absent: the store's. Injected
    *  so a test can step past the 24-hour window without waiting a day. */
   now?: () => number;
+  /** The store's clock (`storeClockOf`, hosted's `storeClock` across the spawn).
+   *  Absent: the system clock, as before. */
+  storeNow?: () => number;
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }): Promise<RunReport> {
   const { config } = input;
@@ -437,6 +440,7 @@ export async function runOnce(input: {
       ? {}
       : { budgetBytes: config.injectionBudgetBytes }),
     ...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }),
+    ...(input.storeNow === undefined ? {} : { now: input.storeNow }),
     // The build stamps the wake it publishes, and a wake another build
     // published is re-rendered at step 3a (`version`, 2026-10-02).
     build: input.build === undefined ? installedVersion() : input.build,
@@ -793,6 +797,19 @@ export function pinnedSession(env: Record<string, string | undefined> = process.
   return raw !== undefined && raw.trim().length > 0 ? raw : null;
 }
 
+/**
+ * The store's clock, when the spawner that owns one set it
+ * (`spawn.ts#STORE_CLOCK_OFFSET_ENV`, hosted's `storeClock`): the system clock
+ * plus that offset. Null otherwise, or when the number is not a whole one.
+ */
+export function storeClockOf(env: Record<string, string | undefined> = process.env): (() => number) | null {
+  const raw = env[STORE_CLOCK_OFFSET_ENV];
+  if (raw === undefined || raw.trim().length === 0) return null;
+  const offset = Number(raw);
+  if (!Number.isSafeInteger(offset)) return null;
+  return () => Date.now() + offset;
+}
+
 export function pinnedScope(env: Record<string, string | undefined> = process.env): string | null {
   const raw = env[SCOPE_ENV];
   return raw !== undefined && raw.trim().length > 0 ? raw : null;
@@ -889,6 +906,7 @@ async function main(): Promise<void> {
   log.start();
   const sidebarWanted = sidebarInstalled(process.env, homedir(), choice.path);
   if (!sidebarWanted && removeSidebarStatus(choice.path)) log.event({ name: "runner.sidebar", data: { removed: true } });
+  const storeClock = storeClockOf();
   try {
     const report = await runOnce({
       config,
@@ -896,6 +914,8 @@ async function main(): Promise<void> {
       signal: controller.signal,
       ...(pinnedSession() === null ? {} : { session: pinnedSession() as string }),
       ...(pinnedScope() === null ? {} : { scope: pinnedScope() as string }),
+      // The store's clock, from the spawner that owns one (hosted's `storeClock`).
+      ...(storeClock === null ? {} : { storeNow: storeClock }),
       // Only where the sidebar is installed (the plugin); otherwise an old file goes.
       ...(sidebarWanted ? { sidebarConfigPath: choice.path } : {}),
       // The update check: never in the directory flavor, which reads nothing

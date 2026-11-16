@@ -3039,3 +3039,10 @@ for its target (an `.exe`, or a `.js` given to `node`) rather than running it th
 prompt as arguments. Proven in CI by `.github/workflows/windows.yml` (`tools/door/npm-door.mjs`), which installs Claude
 Code from npm so `claude` is the `.cmd`; a full night needs a Claude login a runner doesn't have, so the door checks the
 night starts and reaches `claude -p`.
+
+## 2026-11-16 — the worker on a host's store clock
+
+`runner.ts#storeClockOf` reads `COUNTERPARTS_STORE_CLOCK_OFFSET_MS` (`spawn.ts#STORE_CLOCK_OFFSET_ENV`) and opens the
+run's counterpart on the system clock plus that offset. Only hosted sets it, under `storeClock` (a simulated month):
+without it, a page revised the day before read "more than 14 days" old in every bundle the worker published.
+`planSpawn` drops an inherited one, so the hooks' workers never see a value a shell exported.

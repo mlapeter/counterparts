@@ -580,7 +580,31 @@ client reads the wake.
   tenant's own server (`openServer`). Absent: on, no cap, as claude.ai's stores have it. The rule itself lives in
   `core/dream/reflect.ts#shareHeld`; its NOTES entry says what is held and what is counted. Lightly held.
 
+### A host's evening, its wakes, and the worker's clock (2026-11-16)
+
+- `sessionTtlMs` is read by the store's `McpServer` and nowhere else. Two places still use the 4-hour default:
+  `lifecycle.ts`'s "Today, elsewhere" live flag (cosmetic) and Claude Code's share carry (`hooks.ts`, not a hosted
+  path). With a long TTL, a call that names no session binds to the most recent live one, which may be yesterday's;
+  the journal always names one.
+- With a reported budget the wake goes through the wake's shape (WK2) when that is on, `assembleWake` when not; the
+  test counts either event. Without one, `wake` serves the published bundle, so before this a hosted store's wakes
+  were one boundary behind (journal findings 13). Setting the budget also sizes the worker's bundle (an explicit key
+  bypasses `withBudgetDefault`'s 9,000). A bad number is refused at `createApp`, since the config reader would call
+  the file unreadable.
+- The worker child is its own process, so `storeClock` crosses the spawn as an offset from the system clock, set by
+  `Tenants#workerSpawner` and allow-listed in `workerEnv`. The runner opens its counterpart on it, so what reads
+  the counterpart's or the store's clock moves: today's date, the lived day, the page's dateline, the hold sweep,
+  the retention pass's date. That changes a simulated month's nights; production sets no store clock. The process
+  log's timestamps, step timings and the session registry's own stamps stay on the system clock. `planSpawn` drops
+  an inherited offset, so a shell variable never shifts a local worker.
+
 ## 2026-11-14 — the sample's "Science fair judges" is `planned`, not `asked` (#829)
 
 `asked` means a question or request of the counterpart's still waiting on the owner, and the wake raises it
 ("Waiting on …"); the science-fair line waits on nobody. The lake-cabin question stays `asked`.
+
+`wakeBudgetBytes`, on a store with the wake shape off (pre-WK2 hosted stores, or `wake-shape off`):
+the fallback `self.assemble` returns null while the published bundle's ceiling differs from the
+reported budget (self/index.ts ~1427). A budget other than 9,000 therefore serves the published
+bundle until the worker republishes at the new size. New stores have the shape on, so they compose
+fresh from the first wake. Since review: the budget must be a whole number, 1,000 or more.

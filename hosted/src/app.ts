@@ -119,6 +119,10 @@ export interface AppOptions {
   readonly sharesPerWeek?: TenantsOptions["sharesPerWeek"];
   /** `TenantsOptions.storeClock`: each store's clock and its server's (tests that move a store across days). Absent: the system clock. Not the accounts' clock (`now`). */
   readonly storeClock?: TenantsOptions["storeClock"];
+  /** `TenantsOptions.sessionTtlMs` (2026-11-16): how long a chat's session stays live after its last boundary. Absent: 4 hours. */
+  readonly sessionTtlMs?: TenantsOptions["sessionTtlMs"];
+  /** `TenantsOptions.wakeBudgetBytes` (2026-11-16, opt-in): every wake assembled at session start, to this budget (the worker's bundle too). Absent: wakes delivered as published, as before. */
+  readonly wakeBudgetBytes?: TenantsOptions["wakeBudgetBytes"];
 }
 
 export interface StartOptions {
@@ -313,6 +317,8 @@ export function createApp(opts: AppOptions): App {
     ...(opts.shares === undefined ? {} : { shares: opts.shares }),
     ...(opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: opts.sharesPerWeek }),
     ...(opts.storeClock === undefined ? {} : { storeClock: opts.storeClock }),
+    ...(opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: opts.sessionTtlMs }),
+    ...(opts.wakeBudgetBytes === undefined ? {} : { wakeBudgetBytes: opts.wakeBudgetBytes }),
     // A store that lived and lost its files waits for a restore rather than
     // starting over (and being replicated over its own backup).
     openedBefore: (storeId) => accounts.wasOpened(storeId),

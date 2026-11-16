@@ -46,7 +46,7 @@ import { serialQueue } from "../../src/adapters/remote/http.js";
 import type { McpTarget, Serial } from "../../src/adapters/remote/http.js";
 import { scopesPath } from "../../src/adapters/scopes.js";
 import { UPDATE_CHECK_ENV } from "../../src/adapters/update-check.js";
-import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
+import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, STORE_CLOCK_OFFSET_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
@@ -140,6 +140,24 @@ export interface TenantsOptions {
    */
   readonly shares?: "on" | "off";
   readonly sharesPerWeek?: number;
+  /**
+   * How long a chat's session stays live after its last boundary
+   * (`McpServerOptions.sessionTtlMs`, 2026-11-16): a host that runs its own
+   * nights hours after the evening (the living journal, ~03:00) names the
+   * evening's session past the 4-hour default (`sessions.ts#SESSION_TTL_MS`).
+   * Only the store's server reads it. Absent: 4 hours (claude.ai's).
+   */
+  readonly sessionTtlMs?: number;
+  /**
+   * The wake's budget, in bytes (2026-11-16, opt-in): written into each
+   * store's `config.json` as `injectionBudgetBytes`, so the store's `wake`
+   * reports it and every wake is assembled at session start instead of
+   * delivered as the bundle the last boundary published. The worker child
+   * reads the same key, so it also sizes the bundle the worker publishes (its
+   * default is `config.ts#CLAUDE_CODE_BUDGET_BYTES`, 9,000). Absent: no key,
+   * and claude.ai's wakes are delivered as published, as before.
+   */
+  readonly wakeBudgetBytes?: number;
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -237,6 +255,14 @@ export class Tenants {
 
   constructor(opts: TenantsOptions) {
     this.root = resolve(opts.root);
+    // A bad number here would reach every store: a config.json the worker
+    // reads as unreadable, or a session that is never (or always) live.
+    for (const [name, v] of [["sessionTtlMs", opts.sessionTtlMs], ["wakeBudgetBytes", opts.wakeBudgetBytes]] as const) {
+      if (v !== undefined && (!Number.isFinite(v) || v <= 0)) throw new Error(`${name} must be a positive number`);
+    }
+    // A wake budget below a page's worth would fail every wake its budget.
+    const wb = opts.wakeBudgetBytes;
+    if (wb !== undefined && (!Number.isInteger(wb) || wb < 1_000)) throw new Error("wakeBudgetBytes must be a whole number of bytes, 1,000 or more");
     this.opts = opts;
     this.spawner = opts.spawner ?? workerPool({ max: DEFAULT_MAX_WORKERS });
     this.now = opts.now ?? ((): number => Date.now());
@@ -393,6 +419,7 @@ export class Tenants {
       snapshots: { daily: false },
       ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
       ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
+      ...(this.opts.wakeBudgetBytes === undefined ? {} : { injectionBudgetBytes: this.opts.wakeBudgetBytes }),
     };
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(configPath, 0o600);
@@ -418,6 +445,7 @@ export class Tenants {
       },
       ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
       ...(this.opts.nights === undefined ? {} : { nights: this.opts.nights }),
+      ...(this.opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: this.opts.sessionTtlMs }),
       ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
       ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
       lifecycle: {
@@ -425,7 +453,7 @@ export class Tenants {
         configPath,
         command: worker.command,
         args: worker.args,
-        spawner: this.spawner,
+        spawner: this.workerSpawner(),
       },
     });
     // Restored from the bucket: the word index and vectors (box 3) were never in
@@ -459,6 +487,20 @@ export class Tenants {
       );
     }
     return handle;
+  }
+
+  /**
+   * The spawner a store's worker starts through. Under a `storeClock`, the
+   * plan carries that clock's offset from the system's
+   * (`spawn.ts#STORE_CLOCK_OFFSET_ENV`), so the child dates the store as its
+   * server does (2026-11-16: a page revised the day before had read "more
+   * than 14 days" old in every bundle the worker published). The offset is
+   * read when the plan is handed over; the pool may start it later.
+   */
+  private workerSpawner(): Spawner {
+    const clock = this.opts.storeClock;
+    if (clock === undefined) return this.spawner;
+    return (plan) => this.spawner({ ...plan, env: { ...plan.env, [STORE_CLOCK_OFFSET_ENV]: String(Math.round(clock() - Date.now())) } });
   }
 
   /** Over the cap: close the least recently used idle handles. A soft cap — in-use handles are never closed. */
@@ -538,7 +580,7 @@ export const WORKER_ENV_ALLOW = ["PATH", "LANG", "LC_ALL", "TZ", "TMPDIR"] as co
  * `COUNTERPARTS_OBSERVER` or `COUNTERPARTS_NIGHT_CHILD` would change what the
  * worker does, and a future secret named that way would leak.
  */
-export const WORKER_COUNTERPARTS_ALLOW = [DATA_DIR_ENV, WATCHDOG_ENV, SESSION_ENV, SCOPE_ENV, CONFIG_ENV, STATIC_WEIGHTS_ENV] as const;
+export const WORKER_COUNTERPARTS_ALLOW = [DATA_DIR_ENV, WATCHDOG_ENV, SESSION_ENV, SCOPE_ENV, CONFIG_ENV, STATIC_WEIGHTS_ENV, STORE_CLOCK_OFFSET_ENV] as const;
 
 /** The plan's environment, cut down to what a worker needs and nothing of the server's. */
 export function workerEnv(plan: SpawnPlan): Record<string, string> {
