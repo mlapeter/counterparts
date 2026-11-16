@@ -747,15 +747,14 @@ describe("the tool-description audit", () => {
     }
   });
 
-  test("tools/list over the wire: recall says to search before answering what you know about them, on every host, inside the 2,048 cut (2026-11-16)", async () => {
-    const line = "When the person asks what you know about them or a subject, search, then answer from both the search and the wake, its news too.";
+  test("tools/list over the wire: recall no longer tells a model to search before 'what do you know about me' (added and rolled back 2026-11-16)", async () => {
+    const line = "When the person asks what you know about them";
     for (const host of [undefined, "claude-desktop", "claude-ai"]) {
       const s = server(host === undefined ? {} : { host, env: {}, manifestVersion: () => null });
       const [response] = await pump(s, [rpc(1, "tools/list")]);
       const tools = (response as unknown as { result: { tools: Record<string, unknown>[] } }).result.tools;
       const d = String(tools.find((t) => t["name"] === "recall")?.["description"]);
-      expect(d).toContain(line);
-      expect(d.indexOf(line) + line.length).toBeLessThanOrEqual(2_048);
+      expect(d).not.toContain(line);
     }
   });
 

@@ -206,12 +206,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +97 on 2026-11-13 (after #815): the time claim names ranges, the forward
       // words, reminder dates and the "also due" list; the line claim says "due".
       // +11 on the review of #817: "today or a window ahead", "with topic words".
-      // +117 on 2026-11-16: "when the person asks what you know about them or a
-      // subject, search before answering" in the When: line (25 under 4,096).
-      // +12 on 2026-11-16 (the season-one rerun's day 7: a search-first answer
-      // dropped the wake's news): "then answer from both the search and the
-      // wake, its news too" (13 under 4,096).
-      recall: { total: 4083, beforeList: 1329 },
+      // 2026-11-16: #830's "search before answering" line, and #835's rewording
+      // of it, were added and then rolled back the same day, before the
+      // season-one demo rerun. Back to 3,954.
+      recall: { total: 3954, beforeList: 1200 },
       status: { total: 240, beforeList: -1 },
       session_end: { total: 647, beforeList: -1 },
       chapter: { total: 531, beforeList: -1 },
