@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, serverDatabasePaths, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -145,6 +145,14 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
   } catch (err) {
     return { refusal: `refused: HOSTED_TENANT_DATABASES: ${err instanceof Error ? err.message : String(err)}` };
   }
+  // A host's own server-level databases (`AppBackupOptions.serverDatabases`), relative to the data root, comma-separated:
+  // `restore control` (and a serve) run from here cover them too. Unset: none.
+  const server = (env["HOSTED_SERVER_DATABASES"] ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  try {
+    serverDatabasePaths(server);
+  } catch (err) {
+    return { refusal: `refused: HOSTED_SERVER_DATABASES: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const configPath = `${dataRoot}/litestream.yml`;
   const sidecar = new LitestreamSidecar({
     binary: litestreamBinary(env),
@@ -152,7 +160,7 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
     env: litestreamEnv(env, accessKeyId, secretAccessKey),
     onEvent: (name) => process.stderr.write(`[hosted] ${name}\n`),
   });
-  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar, ...(listed.length === 0 ? {} : { tenantDatabases: listed }) };
+  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar, ...(listed.length === 0 ? {} : { tenantDatabases: listed }), ...(server.length === 0 ? {} : { serverDatabases: server }) };
 }
 
 const litestreamBinary = (env: Record<string, string | undefined>): string => env["LITESTREAM_BIN"] ?? "litestream";
@@ -225,8 +233,14 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   const lines: string[] = [];
   if (target === CONTROL_KEY_ID || target === "--all") {
     // One control database at a time: the one in place is kept unless --force.
-    const r = await restoreControl(dataRoot, backup, run, force ? { force } : { missingOnly: true });
+    // The server databases with it (`AppBackupOptions.serverDatabases`): the missing ones only, unless --force.
+    const said = (rel: string, what: "set-aside" | "outside"): void => {
+      lines.push(`server database ${rel}: ${what === "set-aside" ? "the one in place was moved aside (*.pre-restore-*, swept after a day) and replaced by the bucket's" : "its folder resolves outside the data root, or into hosted's own part of it: not restored"}`);
+      process.stderr.write(eventLine(`backup.server.${what}`, ""));
+    };
+    const r = await restoreControl(dataRoot, backup, run, { ...(force ? { force } : { missingOnly: true }), onServerDatabase: said });
     lines.push(`control: ${String(r.restored)} restored, ${String(r.kept)} already here, ${String(r.empty)} with no backup`);
+    if ((backup.serverDatabases ?? []).length > 0) lines.push(`server databases: ${String(r.server.restored)} restored, ${String(r.server.kept)} already here, ${String(r.server.empty)} with no backup`);
     if (target === CONTROL_KEY_ID) return { text: lines.join("\n"), failed: 0 };
   }
   const accountsPath = join(dataRoot, "control", "accounts.sqlite");
@@ -237,7 +251,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
   const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id),
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], serverDatabases: backup.serverDatabases ?? [], liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id),
       // `--force` moved a product's database aside, or one's folder resolves outside its tenant's dir: said, by tag, and audited.
       onHostDatabase: (id, what) => {
         accounts.audit(accounts.personOfStore(id), id, `backup.host.${what}`, null);
@@ -340,6 +354,9 @@ export function eventLine(name: string, store: string): string {
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
   if (name === "backup.host.set-aside") return `[hosted] ${name} storeTag=${store}: a forced restore moved a product database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The audit has it\n`;
   if (name === "backup.host.outside") return `[hosted] ${name} storeTag=${store}: a product database's folder resolves outside its tenant's dir (a symlink): it is NOT backed up or restored. Said once per start\n`;
+  if (name === "backup.server.set-aside") return `[hosted] ${name}: a forced control restore moved a server database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The audit has its path\n`;
+  if (name === "backup.server.outside") return `[hosted] ${name}: a server database's folder resolves outside the data root, or into hosted's own part of it (a symlink): it is NOT backed up or restored. The audit has its path. Said once per start\n`;
+  if (name === "store.waiting-empty") return `[hosted] ${name} storeTag=${store}: this store lived, its files are missing here, and the bucket has nothing of it to restore: it waits forever. Its person's account delete works; start-over gives it a new store (docs/hosted/RUNBOOK.md)\n`;
   if (name === "backup.refresh.failed") return `[hosted] ${name}: regenerating litestream.yml for the products' databases failed this tick; the next tick tries again\n`;
   if (name.startsWith("backup.keyless.")) {
     const reason = name.slice("backup.keyless.".length) as KeylessReason;
@@ -549,7 +566,11 @@ export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, 
   const newBucket = opts.newBucket === undefined || opts.newBucket === "" ? undefined : opts.newBucket;
   if (!v.bucketKey) return emptyBucket(dataRoot, backup, v, newBucket);
   const unused = newBucket === undefined ? {} : { note: "NEW_BUCKET is set, but the bucket already has the control key: it changed nothing. Unset NEW_BUCKET." };
-  if (v.localKey && v.present.length === CONTROL_DATABASES.length) return unused;
+  if (v.localKey && v.present.length === CONTROL_DATABASES.length) {
+    // Control is whole; a server database may still be missing (`AppBackupOptions.serverDatabases`).
+    const server = await serverDatabasesAtStart(dataRoot, backup, run);
+    return { ...server, ...unused, ...(server.note === undefined || unused.note === undefined ? {} : { note: `${unused.note} ${server.note}` }) };
+  }
   const foreign = foreignControlRefusal(dataRoot, v);
   if (foreign !== null) return { refusal: foreign };
   if (run === null) {
@@ -559,9 +580,45 @@ export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, 
         : "refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.",
     };
   }
-  const r = await restoreControl(dataRoot, backup, run, { missingOnly: true });
+  const outside: string[] = [];
+  const r = await restoreControl(dataRoot, backup, run, { missingOnly: true, onServerDatabase: (rel) => void outside.push(rel) });
   if (r.restored + r.kept < CONTROL_DATABASES.length) return { refusal: `refused: the bucket's key object is there, but ${String(r.empty)} control databases have no replica to restore from. Nothing was started.` };
-  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here`, ...unused };
+  const note = [unused.note, outsideNote(outside)].filter((n) => n !== undefined).join(" ");
+  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here${serverWords(backup, r.server)}`, ...(note === "" ? {} : { note }) };
+}
+
+/** "; server databases: …" when the host named any, else nothing (the line is as before). */
+function serverWords(backup: AppBackupOptions, s: { restored: number; empty: number; kept: number }): string {
+  return (backup.serverDatabases ?? []).length === 0 ? "" : `; server databases: ${String(s.restored)} restored, ${String(s.kept)} already here, ${String(s.empty)} with no backup`;
+}
+
+const outsideNote = (outside: readonly string[]): string | undefined =>
+  outside.length === 0 ? undefined : `server databases NOT backed up or restored, their folder resolving outside the data root or into hosted's own part of it (a symlink): ${outside.join(", ")}.`;
+
+/**
+ * A START WITH CONTROL WHOLE, AND A SERVER DATABASE MISSING (`AppBackupOptions.serverDatabases`): one the bucket
+ * has a replica of is restored with a runner (RESTORE_ON_BOOT), and refused without one, as a missing control
+ * database is: the product would make an empty one at its start, and the sidecar would stream it over the backup.
+ * One the bucket has nothing of is the product's to make. One here is never touched.
+ */
+async function serverDatabasesAtStart(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null): Promise<Prepared> {
+  if ((backup.serverDatabases ?? []).length === 0) return {};
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
+  let missing: string[];
+  try {
+    const b = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, serverDatabases: backup.serverDatabases ?? [], liveStores: () => [] });
+    missing = await b.serverMissingWithReplica();
+  } finally {
+    keys.close();
+  }
+  if (missing.length === 0) return {};
+  if (run === null) {
+    return { refusal: `refused: the server database${missing.length === 1 ? "" : "s"} ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} missing from this volume, and the bucket has ${missing.length === 1 ? "its backup" : "their backups"}. Set RESTORE_ON_BOOT=1 and deploy again to restore (docs/hosted/RUNBOOK.md, Restore): started without it, the product would make an empty one and back it up over the bucket's.` };
+  }
+  const outside: string[] = [];
+  const r = await restoreControl(dataRoot, backup, run, { missingOnly: true, onServerDatabase: (rel) => void outside.push(rel) });
+  const note = outsideNote(outside);
+  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here${serverWords(backup, r.server)}`, ...(note === undefined ? {} : { note }) };
 }
 
 /** R7's check alone, for `restore` (whose own control rules are `restoreControl`'s): {} when the bucket has the control key. */
@@ -1080,6 +1137,7 @@ async function main(): Promise<void> {
   if (report.leftovers > 0) process.stderr.write(`[hosted] removed what ${String(report.leftovers)} deleted stores had left in the bucket\n`);
   if (report.asideSwept > 0) process.stderr.write(`[hosted] deleted ${String(report.asideSwept)} copies set aside more than a day ago (control.aside-*, *.pre-restore-*)\n`);
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
+  if (report.waitingEmpty > 0) process.stderr.write(`[hosted] ${String(report.waitingEmpty)} of those have nothing in the bucket to restore from: they wait forever (store.waiting-empty above, per store). Their account delete works; start-over gives one a new store (docs/hosted/RUNBOOK.md)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   if (backup !== null) process.stderr.write(`[hosted] backups: keys on this volume (keys/volume.kek); key objects sealed to recovery key ${backup.sealer.fingerprint}\n`);
   if (report.legacyKeys > 0) process.stderr.write(`[hosted] ${String(report.legacyKeys)} keys are still under ${KEK_ENV}: stop the server and run migrate-keys (docs/hosted/RUNBOOK.md, Write-only backups)\n`);
