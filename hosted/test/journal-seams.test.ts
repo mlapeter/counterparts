@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { CLAUDE_AI_NIGHT_SAID } from "../../src/adapters/mcp/server-words.js";
 import { Counterpart } from "../../src/core/counterpart.js";
+import { WAKE_SHAPE_KEY } from "../../src/core/counterpart-wake-shape.js";
 import { PUBLISHED_WORDS } from "../../src/core/self/briefing-delivery.js";
 import type { McpServer } from "../../src/adapters/mcp/index.js";
 import { addDays } from "../../src/core/time.js";
@@ -345,5 +346,90 @@ describe("a host's evening session and its wakes (2026-11-16)", () => {
         createApp({ dataRoot: join(tmp.root, "bad"), publicOrigin: "http://127.0.0.1:1", mailer: memoryMailer(), embedder: null, spawner: () => ({ pid: 1 }), ...bad }),
       );
     }
+  });
+});
+
+describe("a host that runs its own nights has no handoffs in its wakes (2026-11-16, finding 18)", () => {
+  const HANDOFF = "The seed swap moved to Saturday; ask Wren about the trellis.";
+  const HANDOFF_WORDS = ["No handoff here", "session_end's handoff field", "Handoff, ", "Last handoff", "Older handoffs", "Open here now"];
+
+  /** A worker child's bundle, as the describe above publishes one. */
+  async function published(r: Rig, storeId: string): Promise<void> {
+    await r.app.tenants.withTenant(storeId, { timeZone: "UTC" }, async () => undefined);
+    await r.app.tenants.closeAll();
+    const worker = Counterpart.open({ dir: join(tmp.root, "data", "tenants", storeId, "store"), timeZone: "UTC", now: () => r.storeClock.at });
+    try {
+      assert.equal(worker.refreshWake({ budgetBytes: 9_000, trigger: "run-end" }).reason, "rendered");
+    } finally {
+      worker.close();
+    }
+  }
+
+  /**
+   * A close that leaves a handoff, a second chat left open, then a third chat's
+   * wake: on the shaped road (`WAKE_SHAPE_KEY` on, said here though a
+   * new store starts with it) or the assembled one (a published bundle, the shape
+   * off), with a budget so it is composed now.
+   * `ran`: how many times that road's ring event fired for the third wake.
+   */
+  async function third(extra: Partial<AppOptions>, value: string, road: "shaped" | "assembled"): Promise<{ text: string; ran: number }> {
+    const r = await rig({ wakeBudgetBytes: 9_000, ...extra });
+    const storeId = r.app.accounts.signUpWithIdentity({ kind: "apple", value }).storeId!;
+    if (road === "assembled") await published(r, storeId);
+    await r.app.tenants.withTenant(storeId, {}, async (_t, s) => s.counterpart.store.setMeta(WAKE_SHAPE_KEY, road === "shaped" ? "on" : "off"));
+    const first = await call(r.app, storeId, "wake", {});
+    const ended = await call(r.app, storeId, "session_end", { session: String(first.out["session"]), memories: [], handoff: HANDOFF });
+    assert.equal(ended.isError, false, ended.text);
+    assert.equal((await call(r.app, storeId, "wake", {})).isError, false);
+    const name = road === "shaped" ? "counterpart.wake.shaped" : "counterpart.wake.assembled";
+    const count = async (): Promise<number> => r.app.tenants.withTenant(storeId, {}, async (_t, s) => s.counterpart.events().filter((e) => e.name === name).length);
+    const was = await count();
+    const text = (await call(r.app, storeId, "wake", {})).text;
+    return { text, ran: (await count()) - was };
+  }
+
+  test("shaped, default host: the handoff and Open here now are there", async () => {
+    const { text, ran } = await third({}, "invented-shaped-default", "shaped");
+    assert.equal(ran, 1);
+    assert.match(text, /Handoff, [^\n]*recall sch_[0-9a-f]+/, text);
+    assert.ok(text.includes("seed swap moved to Saturday"), text);
+    assert.ok(text.includes("Open here now: session "), text);
+  });
+
+  test("shaped, nights: host: no handoff line and no Open here now; the wake is still there", async () => {
+    const { text, ran } = await third({ nights: "host" }, "invented-shaped-host", "shaped");
+    assert.equal(ran, 1);
+    for (const w of HANDOFF_WORDS) assert.ok(!text.includes(w), `${w}\n${text}`);
+    assert.doesNotMatch(text, /sch_[0-9a-f]+/, text);
+    assert.ok(!text.includes("seed swap moved to Saturday"), text);
+    assert.ok(text.includes("counterparts:wake"), text);
+  });
+
+  test("shaped, a fresh store: the default host says 'No handoff here'; nights: host doesn't, and leaves no empty section", async () => {
+    const fresh = async (extra: Partial<AppOptions>, value: string): Promise<string> => {
+      const r = await rig({ wakeBudgetBytes: 9_000, ...extra });
+      const storeId = r.app.accounts.signUpWithIdentity({ kind: "apple", value }).storeId!;
+      await r.app.tenants.withTenant(storeId, {}, async (_t, s) => s.counterpart.store.setMeta(WAKE_SHAPE_KEY, "on"));
+      return (await call(r.app, storeId, "wake", {})).text;
+    };
+    assert.ok((await fresh({}, "invented-fresh-default")).includes("No handoff here. Leave one with session_end's handoff field when you stop."));
+    const text = await fresh({ nights: "host" }, "invented-fresh-host");
+    for (const w of HANDOFF_WORDS) assert.ok(!text.includes(w), `${w}\n${text}`);
+    assert.ok(!`${text}\n\n`.includes("Where this folder stands:\n\n"), text);
+  });
+
+  test("assembled, default host: the handoff is there", async () => {
+    const { text, ran } = await third({}, "invented-assembled-default", "assembled");
+    assert.equal(ran, 1);
+    assert.match(text, /sch_[0-9a-f]+/, text);
+    assert.ok(text.includes("seed swap moved to Saturday"), text);
+  });
+
+  test("assembled, nights: host: no handoff", async () => {
+    const { text, ran } = await third({ nights: "host" }, "invented-assembled-host", "assembled");
+    assert.equal(ran, 1);
+    assert.doesNotMatch(text, /sch_[0-9a-f]+/, text);
+    assert.ok(!text.includes("seed swap moved to Saturday"), text);
+    for (const w of HANDOFF_WORDS) assert.ok(!text.includes(w), `${w}\n${text}`);
   });
 });

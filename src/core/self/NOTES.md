@@ -3386,3 +3386,25 @@ also drew the writers' attention to restraint, in a demo where the counterpart w
 holding back next to the built-in (on day 7 it would not answer "what do you know about me").
 The tool-text half of #829 (their words when saved) stays. The writer block's pin is back to
 2,450.
+
+## 2026-11-16 — the shaped wake's first sentence passes "Dr." (journal finding 17)
+
+`counterpart-wake-shape.ts#firstSentence`, which `titleOfRow` uses for an untitled row (Coming up,
+Still open, Since, Carried forward, Elsewhere), ended at the first "." before a space, so the
+journal's "Tomás has a stress test with Dr. Okafor at 9:30." read "… with Dr." and lost the time.
+It now walks the same candidate ends and skips a "." after Dr, Mr, Mrs, Ms, St, Jr, Sr, Prof, Mt,
+vs, etc, e.g, i.e, a.m, p.m, after "No" only before a number, and after a lone capital other than
+"I" ("J. Smith", not "FBI." or "so did I."). Case-sensitive, so "said no. Then" still ends. A
+decimal or a time ("9.30") never split: the rule wants a space after the stop. Every other
+sentence splits as before (`test/wake-first-sentence.test.ts` checks a corpus against the old
+rule). Not changed, same flaw: `handoff/#firstRealSentence` (the "Older handoffs" line) and
+`self/page.ts#firstSentence`.
+
+## 2026-11-16 — a host that runs its own nights has no handoffs in its wake (journal finding 18)
+
+`WakeHere.withoutHandoffs`: the shaped road reads no handoff (no "No handoff here", "Handoff, …",
+"Last handoff", older handoffs, or a sunk handoff as Still open's ask) and names no other open
+session ("Open here now"); "Since, here" and "Last here" stay, and a "Where this folder stands"
+with nothing under its head isn't printed. The assembled road's pointer (`pointerPlan`) reads no
+handoff either. Set by the MCP `wake` tool when `nights: "host"`; every other host's wake is as
+before.
