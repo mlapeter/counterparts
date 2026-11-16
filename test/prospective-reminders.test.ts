@@ -6,7 +6,7 @@
  *   - a RANGE is a window precision; a year still has none;
  *   - the four July tune questions (bansai `eval/replay/GATES.md` finding 3),
  *     each with an acceptance test: (a) month warmth staggers, (b) a month's
- *     last fire waits for "after", (c) only day-dated items take wake lines,
+ *     last fire waits for "after", (c) only day- and range-dated items take wake lines,
  *     (d) imminence breaks a salience tie;
  *   - the write path: `note` / `session_end` take `eventDate` + `remind`, an
  *     unreadable date is refused by name, and nothing is ever read out of text;
@@ -214,8 +214,8 @@ describe("tune (b): a month's LAST fire waits for after the month", () => {
   });
 });
 
-describe("tune (c): only DAY-dated items take wake lines", () => {
-  test("month and range items arrive as cues but never reach the horizon", () => {
+describe("tune (c): only DAY- and RANGE-dated items take wake lines", () => {
+  test("a month arrives as a cue but never reaches the horizon; a range does (2026-11-16)", () => {
     const s = store();
     const day = dated(s, "2026-10-05");
     const month = dated(s, "2026-10");
@@ -223,7 +223,7 @@ describe("tune (c): only DAY-dated items take wake lines", () => {
     const p = new Prospective({ store: s });
     const h = p.horizon({ at: "2026-10-05", day: 3 });
     expect(h.considered.arrivals.map((a) => a.memoryId).sort()).toEqual([day, month, range].sort());
-    expect(h.items.map((i) => i.memoryId)).toEqual([day]);
+    expect(h.items.map((i) => i.memoryId).sort()).toEqual([day, range].sort());
   });
 
   test("a store of only month items has nothing on the horizon", () => {

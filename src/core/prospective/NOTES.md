@@ -221,7 +221,8 @@ acceptance test in `test/prospective-reminders.test.ts`:
   ended; it can then land in grace. Applied to ranges too, since a range front-loads its
   budget the same way. A day window is untouched: it already had grace.
 - (c) *Only day-dated items take wake lines.* `horizon()` filters to day precision. Month
-  and range items still arrive as cues every day of their windows.
+  and range items still arrive as cues every day of their windows. **Since 2026-11-16 a
+  range takes one too** (see the last section); a month still doesn't.
 - (d) *Imminence breaks salience ties.* `arrivals()` sorts by ramp × strength; scores
   within 1e-9 are a tie, broken by days until the span starts, then span width (narrower
   first), then key. The v1 caveat — month items must not be starved by a stream of
@@ -709,3 +710,31 @@ repeat. Any weekly reminder hits this.
 - **Left as it was:** a dated item that isn't plain has no per-day record of being shown (`fit.index.wake` is one row,
   overwritten at each start, and is lookup evidence), so it shows whole as before; a "wake showed it" record joins the next
   batched store-format change (WORKLIST). The shape-off road is unchanged.
+
+## 2026-11-16 — a range takes a line in "Coming up"
+
+- **What broke:** a memory dated `2026-10-16..2026-10-18` never showed in the wake's "Coming up", before, during or after
+  its span, on either road. The day version of it was counted two days ahead, due on its day and overdue after. Cause:
+  (c) above. `horizon()` passed only day precision, so a range never reached `core/briefing.ts#horizonFor`, and every
+  reader downstream assumed a day (`isDay`).
+- **Now (Mike's go):** a range counts like a day item whose day runs from its first day to its last. It is counted on the
+  same look-ahead (`LEAD_DAYS` before its first day), due today on each day inside it, and overdue once its last day is
+  behind. `horizonFor` sets `today`/`past` from `time.ts#daySpan`, which is the same day twice for a day item, so a day
+  item's flags are unchanged. `byArrivingOrder` measures a range by its nearer end, and inside the span it is 0 days away.
+  A quiet range leaves the lane's brakes once its last day is behind (`pastQuiet`), the way a day item does. A plain range
+  stays through its last day (`toldForGood`).
+- **What the lines say:** composition: `(due Oct 16–18)`, then `(was due yesterday, Oct 16–18)` and `(was due Oct 16–18,
+  3 days ago)` (`time.ts#shortRange`, `arrivingTense` reading the span by its last day). Shaped: `- 10-16–10-18 · …` ahead,
+  `- Due today (10-16–10-18) · …` inside, and `- N days overdue · …` counted from the last day. The shaped
+  overdue line would have thrown on a range once ranges arrived (`daysBetween` on the raw text), dropping the whole wake
+  to the composition; it reads the span's last day now, a one-day range included. A range is "near" at session start
+  (`briefing-room.ts#nearDue`) from its lead through its last day, as a day item is through its day. Pinned in
+  `test/range-coming-up.test.ts`, with a day item as the control on both roads.
+- **Review of #833:** overdue items sort by the day each became overdue, a range by its last day (the shaped wake, the
+  `coming up` door, the composition's oldest-overdue list, the `still open` door's sort key). `happenedAlready`
+  (`counterpart-wake-news.ts`) used to cut a range to its first day, so a done row on day one settled the rest of it; now a
+  range can have happened only once its last day is the wake's or before, and a done row from its first day (less the
+  early days) still counts then.
+- **Left as it was:** a month (`2026-10`) still takes no wake line on either road, nor in the `coming up` door (its own
+  call; a month "due today" for thirty days is a different question from this gap). `plainDueOn` is still day-only, so a
+  plain range is listed as an ordinary due-today line and doesn't lead the lane as a plain day reminder does.

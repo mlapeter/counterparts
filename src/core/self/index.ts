@@ -204,7 +204,7 @@ import { SELF_TUNABLES, withTunables } from "./tunables.js";
 import { craftBornDay, craftSince, projectFolder, threadPlace } from "./work.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
-import { isDay, yearOf } from "../time.js";
+import { daySpan, isDay, yearOf } from "../time.js";
 import { markWakeBehind } from "./behind.js";
 import { recordSetDowns, setDownsTouched } from "./set-down.js";
 import { PAGE_CORE_HEADING } from "./page.js";
@@ -374,7 +374,7 @@ export interface ComingUpItem {
   readonly id: string;
   /** Its title, else its first line, at most `STILL_OPEN_TITLE_CHARS`. */
   readonly title: string;
-  /** The date it is due, `YYYY-MM-DD` as `prospective/` stated it. */
+  /** The date it is due as `prospective/` stated it: `YYYY-MM-DD`, or a range `YYYY-MM-DD..YYYY-MM-DD` (2026-11-16). */
   readonly due?: string;
   /** How often it comes round, in words, when it repeats. */
   readonly every?: string;
@@ -1348,7 +1348,8 @@ export class Self {
           ...(due === "" ? {} : { due }),
           ...(h.every === undefined ? {} : { every: h.every }),
           ...(overdue ? { overdue: true as const } : {}),
-          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : due}${h.id}`,
+          // Overdue by the day it became overdue: a range by its last day (2026-11-16).
+          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : overdue ? (daySpan(due)?.last ?? due) : due}${h.id}`,
         });
       } catch {
         /* an item that will not read is left out */
@@ -1697,7 +1698,8 @@ export class Self {
       if (h.due === undefined || h.due.trim() === "") continue;
       const every = h.every?.trim() ?? "";
       // Past its date, it says how long (WK1, 2026-10-30): the line's age.
-      const pastDays = req.at === undefined ? null : daysBetween(h.due.trim(), req.at);
+      // A range's age runs from its last day (2026-11-16).
+      const pastDays = req.at === undefined ? null : daysBetween(daySpan(h.due.trim())?.last ?? h.due.trim(), req.at);
       const past = h.past === true || (h.today !== true && h.plainDue !== true && pastDays !== null && pastDays >= 1);
       dues.set(h.id, {
         due: h.due.trim(),
@@ -4166,6 +4168,7 @@ export class Self {
     // a caller that names only the date is read by it.
     const today = at ?? this.store.today();
     const due = (h: HorizonItem): string => h.due?.trim() ?? "";
+    const lastDue = (h: HorizonItem): string => daySpan(due(h))?.last ?? due(h);
     // Listed: due today, a plain reminder due the day it is read
     // (`plainDue`), or no date to count it by. Past its date (`past`, or a
     // day before today) is counted as overdue, not listed (2026-10-16,
@@ -4181,7 +4184,8 @@ export class Self {
     // Until then every overdue item was a count with five bare ids.
     const lateAll = all.filter(late);
     const oldest = [...lateAll]
-      .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      // By the day each became overdue: a range by its last day (2026-11-16).
+      .sort((a, b) => (lastDue(a) < lastDue(b) ? -1 : lastDue(a) > lastDue(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, Math.max(0, this.tunables.COMING_UP_OVERDUE_LISTED));
     const oldestIds = new Set(oldest.map((h) => h.id));
     const listed = [...all.filter(now), ...oldest];

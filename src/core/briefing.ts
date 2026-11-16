@@ -21,7 +21,7 @@
  */
 import { plainDueOn } from "./prospective/index.js";
 import type { RenderFn } from "./sleep/index.js";
-import { isDay, readableRecurrence } from "./time.js";
+import { daySpan, isDay, readableRecurrence } from "./time.js";
 import type { Recurrence } from "./time.js";
 
 /** Structurally `Self`, so this file imports no class. */
@@ -167,21 +167,24 @@ export function horizonFor(
   // The date it is due rides along, so the line can say it (2026-10-01),
   // how often it comes round when it repeats (2026-10-09), and whether
   // that date is already behind the day asked about — a one-off in its
-  // grace days says it WAS due (2026-10-09). Both are `YYYY-MM-DD`
-  // here, so the strings compare as the dates do.
+  // grace days says it WAS due (2026-10-09). The date is a day or, since
+  // 2026-11-16, a range; both are compared by their `YYYY-MM-DD` ends.
     if (i.eventDate === undefined) return { id: i.memoryId };
+    // A RANGE counts like a day whose day runs from its first to its last
+    // (2026-11-16): due on each day inside it, past once its last day is.
+    const span = isDay(at) ? daySpan(i.eventDate) : null;
     const every = i.anchor === undefined || i.recurring === undefined ? "" : readableRecurrence(i.anchor, i.recurring);
     return {
       id: i.memoryId,
       due: i.eventDate,
       ...(every === "" ? {} : { every }),
-      ...(isDay(i.eventDate) && isDay(at) && i.eventDate < at ? { past: true } : {}),
+      ...(span !== null && span.last < at ? { past: true } : {}),
       // A plain reminder due the day this wake is read (2026-10-10):
       // it leads the lane and outranks the page's borrowing.
       ...(plainDueOn(i, at) && (opts.readToday !== true || i.eventDate === at) ? { plainDue: true } : {}),
       // Due on the very day asked about (2026-10-16): "Coming up" lists
       // what is due today or past, and counts the rest (`Self`).
-      ...(isDay(i.eventDate) && isDay(at) && i.eventDate === at ? { today: true } : {}),
+      ...(span !== null && span.first <= at && at <= span.last ? { today: true } : {}),
     };
   };
   const items = asked.items.map(line);

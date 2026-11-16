@@ -155,7 +155,7 @@ import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, LaterHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_HANDLE, LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, quoteOf } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
-import { addDays, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
+import { addDays, daySpan, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
@@ -1740,9 +1740,11 @@ export class Counterpart {
     try {
       const all = readCues(this, this.store.today(), here);
       const by = (c: Cue): string => c.due ?? UNDATED_LAST;
+      const lastBy = (c: Cue): string => (c.due === null ? UNDATED_LAST : (daySpan(c.due)?.last ?? c.due));
       return {
         today: all.filter((c) => c.today && c.mine),
-        overdue: all.filter((c) => c.past && c.mine).sort((a, b) => by(b).localeCompare(by(a))),
+        // Overdue by the day it became overdue: a range by its last day (2026-11-16).
+        overdue: all.filter((c) => c.past && c.mine).sort((a, b) => lastBy(b).localeCompare(lastBy(a))),
         later: all.filter((c) => !c.today && !c.past && c.mine).sort((a, b) => by(a).localeCompare(by(b))),
         otherFolders: all.filter((c) => !c.mine),
       };
