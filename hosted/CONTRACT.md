@@ -256,6 +256,20 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       volume. A new recovery key re-seals every object at the next start.
     - The sidecar's configuration holds paths only. Its environment holds R2 credentials only (and `SSL_CERT_FILE`
       when set: the local drill's certificate).
+26b. **A host's own per-tenant databases** (2026-11-16; opt-in, default unchanged byte for byte):
+    `AppBackupOptions.tenantDatabases` (`main.ts`: `HOSTED_TENANT_DATABASES`, comma-separated) names SQLite files
+    relative to each tenant's dir (the living journal: `["app/app.sqlite"]`). Paths that leave the dir (`..`, absolute,
+    hidden) or are hosted's own (`store/`, `config.json`, `restored.marker`, `litestream*`) are refused at `createApp`.
+    - Each is streamed by the same sidecar, under the store's own SSE-C key file, to `tenants/<storeId>/host/<path>/`,
+      inside the store's replica prefix: a delete's prefix delete takes it, `objectsLeft` counts it, and
+      `recover-keys`' proof reads it under the same key. Its Litestream state is at `<tenant>/litestream-meta-host/<path>`.
+    - Listed only once its file exists, and never for a store waiting for a restore. A file made after sign-up is
+      picked up by `Backups.refresh()` (written and reloaded only when the configuration changed): the product calls
+      it after making the file, and the app's finish timer calls it every tick (10 minutes by default).
+    - Restored with its store by the restore CLI and `RESTORE_ON_BOOT`, the store's file LAST, so a restore cut short
+      leaves the store waiting; only the store's file refuses "already in place", and a host database found while the
+      store's file is missing is moved aside (`.pre-restore-*`, swept after a day) and replaced. A host database lost
+      while its store's file stayed is not detected (nothing records that it existed).
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now

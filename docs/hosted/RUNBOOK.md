@@ -333,6 +333,13 @@ above is the tested path.
 What the bucket holds:
 
 - every store's database, under that store's own SSE-C key;
+- when a product built on `createApp` names its own per-tenant databases (`backup.tenantDatabases`, or
+  `HOSTED_TENANT_DATABASES=app/app.sqlite` for `main.ts`; the living journal's `app/app.sqlite`), each of those
+  too, under the same store's key, at `tenants/<storeId>/host/<path>/`. They are restored with their store, the
+  store's file last, and a delete removes them with it. Run `main.ts restore` with the same
+  `HOSTED_TENANT_DATABASES` the server has, or it restores the store's file only. One case it doesn't catch: a
+  product file lost while its store's file stayed (`hosted/NOTES.md`, 2026-11-16) — stop the server and run
+  `restore <storeId> --force` the same day;
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
 - each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the
   server can write these and never read them back. (Before WB1: `keys/<storeId>.wrapped`, under `HOSTED_KEKS`.)
