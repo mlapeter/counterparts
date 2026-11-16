@@ -47,7 +47,7 @@ const FILLER = ["Ran the morning loop around the reservoir.", "Prefers dense esp
 const RANGE = "2026-10-16..2026-10-18";
 const DAY = "2026-10-16";
 
-function brain(date: string, shaped: boolean): { c: Counterpart; id: string } {
+function brain(date: string, shaped: boolean, more: { status?: "planned" } = {}): { c: Counterpart; id: string } {
   const c = Counterpart.open({ dir: mkdtempSync(join(dir, "store-")), timeZone: "UTC" });
   open.push(c);
   c.store.setMeta(WAKE_SHAPE_KEY, shaped ? "on" : "off");
@@ -55,6 +55,7 @@ function brain(date: string, shaped: boolean): { c: Counterpart; id: string } {
   const id = c.store.put({
     type: "memory",
     kind: "person",
+    ...(more.status === undefined ? {} : { status: more.status }),
     title: "Coast trip",
     body: "The coast trip runs over the long weekend and the cabin is booked.",
     learnedOn: "2026-08-25",
@@ -130,11 +131,31 @@ describe("the shaped wake (shape on)", () => {
     expect(comingUp(wakeOn(c, "2026-10-21"))).toEqual(["Coming up:", `- 3 days overdue · Coast trip [${id}]`]);
   });
 
+  test("a one-day range reads as its day, and its overdue line doesn't throw the shape off", () => {
+    const { c, id } = brain("2026-10-16..2026-10-16", true);
+    expect(comingUp(wakeOn(c, "2026-10-14"))).toEqual(["Coming up:", `- 10-16 · Coast trip [${id}]`]);
+    expect(comingUp(wakeOn(c, "2026-10-16"))).toEqual(["Coming up:", `- Due today · Coast trip [${id}]`]);
+    expect(comingUp(wakeOn(c, "2026-10-17"))).toEqual(["Coming up:", `- 1 day overdue · Coast trip [${id}]`]);
+  });
+
   test("control: a day item reads byte for byte as before", () => {
     const { c, id } = brain(DAY, true);
     expect(comingUp(wakeOn(c, "2026-10-14"))).toEqual(["Coming up:", `- 10-16 · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-16"))).toEqual(["Coming up:", `- Due today · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-17"))).toEqual(["Coming up:", `- 1 day overdue · Coast trip [${id}]`]);
+  });
+});
+
+describe("an open item dated as a range is said once", () => {
+  test("planned work over a range: in Coming up, not also in Still open, on both roads", () => {
+    for (const shaped of [false, true]) {
+      const { c, id } = brain(RANGE, shaped, { status: "planned" });
+      for (const at of ["2026-10-17", "2026-10-19"]) {
+        const w = wakeOn(c, at);
+        expect(comingUp(w).join("\n")).toContain(id);
+        expect(times(w, id)).toBe(1);
+      }
+    }
   });
 });
 
@@ -179,6 +200,7 @@ describe("the date words", () => {
     expect(shortRange(RANGE, "2026")).toBe("Oct 16–18");
     expect(shortRange("2026-10-30..2026-11-02", "2026")).toBe("Oct 30–Nov 2");
     expect(shortRange("2026-12-30..2027-01-02", "2026")).toBe("Dec 30–2027-01-02");
+    expect(shortRange("2026-10-16..2026-10-16", "2026")).toBe("Oct 16");
     expect(shortRange(DAY, "2026")).toBeNull();
     expect(shortRange("2026-10", "2026")).toBeNull();
   });

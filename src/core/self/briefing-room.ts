@@ -7,7 +7,7 @@
  */
 import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
-import { addDays, isDay } from "../time.js";
+import { addDays, daySpan, isDay } from "../time.js";
 import { TODAY_ELSEWHERE_MAX_BYTES } from "../handoff/last-here.js";
 import { LANE_ORDER, ROOM_ORDER, collapsedLine, compose, flatten, foldedLine, isNightLine, moreLine, parkedLine } from "./briefing.js";
 import type { BriefingRequest, Composed, HorizonCounted, IdentityBlock, Resolve, RoomLane, TrimEvent } from "./briefing.js";
@@ -198,7 +198,9 @@ export const ARRIVING_NEAR_DAYS = 3;
  *  `ARRIVING_NEAR_DAYS` after it. A grace day's "was due" line, behind `at`,
  *  is not (RANDOM's ruling at the review of #445, 2026-10-12, lightly held). */
 export function nearDue(due: string | undefined, at: string): boolean {
-  return due !== undefined && isDay(due) && isDay(at) && due >= at && due <= addDays(at, ARRIVING_NEAR_DAYS);
+  // A range (2026-11-16) is near from its lead through its last day, as a day item is through its day.
+  const span = due === undefined || !isDay(at) ? null : daySpan(due);
+  return span !== null && span.last >= at && span.first <= addDays(at, ARRIVING_NEAR_DAYS);
 }
 
 /**

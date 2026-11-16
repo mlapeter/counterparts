@@ -374,7 +374,7 @@ export interface ComingUpItem {
   readonly id: string;
   /** Its title, else its first line, at most `STILL_OPEN_TITLE_CHARS`. */
   readonly title: string;
-  /** The date it is due, `YYYY-MM-DD` as `prospective/` stated it. */
+  /** The date it is due as `prospective/` stated it: `YYYY-MM-DD`, or a range `YYYY-MM-DD..YYYY-MM-DD` (2026-11-16). */
   readonly due?: string;
   /** How often it comes round, in words, when it repeats. */
   readonly every?: string;

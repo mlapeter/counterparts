@@ -718,14 +718,12 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const settlesWords = (c: Cue): string => (c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`);
     // A RANGE (2026-11-16) says its span: due today on each of its days,
     // overdue counted from its last, and later by both ends.
-    const spanOf = (c: Cue): { first: string; last: string } | null => {
-      const s = c.due === null ? null : daySpan(c.due);
-      return s === null || s.first === s.last ? null : s;
-    };
-    const spanWords = (s: { first: string; last: string }): string => `${monthDay(s.first)}–${monthDay(s.last)}`;
+    // A day is its own one-day span, and only a span of two days or more says both ends.
+    const spanOf = (c: Cue): { first: string; last: string } | null => (c.due === null ? null : daySpan(c.due));
+    const spanWords = (s: { first: string; last: string }): string => (s.first === s.last ? monthDay(s.first) : `${monthDay(s.first)}–${monthDay(s.last)}`);
     const dueSpan = (c: Cue): string => {
       const s = spanOf(c);
-      return s === null ? "" : ` (${spanWords(s)})`;
+      return s === null || s.first === s.last ? "" : ` (${spanWords(s)})`;
     };
     const dueLine = (c: Cue): string => `- Due today${dueSpan(c)} · ${c.plain ? c.body : c.title}${settlesWords(c)} [${c.id}]`;
     // Told in another session today: its title, not its whole body again (WK3).

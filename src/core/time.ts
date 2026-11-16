@@ -460,12 +460,15 @@ export function daySpan(text: unknown): { first: string; last: string } | null {
 /**
  * A RANGE as a short line says it (2026-11-16): `Oct 16–18` inside one month,
  * `Oct 30–Nov 2` across two, each end as `shortDay` says it; null for anything
- * that is not a range. An end outside `year` prints whole, as `shortDay` does.
+ * that is not a range; a one-day range as its day. An end outside `year` prints
+ * whole, as `shortDay` does.
  */
 export function shortRange(text: string, year: string | undefined): string | null {
   const c = parseCalendarDate(text);
   if (c === null || c.precision !== "range") return null;
   const a = shortDay(c.first, year);
+  // A one-day range (`2026-10-16..2026-10-16`) is that day.
+  if (c.first === c.last) return a;
   const b = shortDay(c.last, year);
   const sameMonth = a !== c.first && b !== c.last && c.first.slice(0, "YYYY-MM".length) === c.last.slice(0, "YYYY-MM".length);
   return `${a}–${sameMonth ? String(Number(c.last.slice("YYYY-MM-".length))) : b}`;

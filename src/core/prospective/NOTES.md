@@ -725,8 +725,10 @@ repeat. Any weekly reminder hits this.
   stays through its last day (`toldForGood`).
 - **What the lines say:** composition: `(due Oct 16–18)`, then `(was due yesterday, Oct 16–18)` and `(was due Oct 16–18,
   3 days ago)` (`time.ts#shortRange`, `arrivingTense` reading the span by its last day). Shaped: `- 10-16–10-18 · …` ahead,
-  `- Due today (10-16–10-18) · …` inside, and `- N days overdue · …` counted from the last day. Before the fix, the shaped
-  overdue line also threw on a range (`daysBetween`), and the wake fell back to the composition. Pinned in
+  `- Due today (10-16–10-18) · …` inside, and `- N days overdue · …` counted from the last day. The shaped
+  overdue line would have thrown on a range once ranges arrived (`daysBetween` on the raw text), dropping the whole wake
+  to the composition; it reads the span's last day now, a one-day range included. A range is "near" at session start
+  (`briefing-room.ts#nearDue`) from its lead through its last day, as a day item is through its day. Pinned in
   `test/range-coming-up.test.ts`, with a day item as the control on both roads.
 - **Left as it was:** a month (`2026-10`) still takes no wake line on either road, nor in the `coming up` door (its own
   call; a month "due today" for thirty days is a different question from this gap). `plainDueOn` is still day-only, so a
