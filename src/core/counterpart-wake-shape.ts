@@ -128,10 +128,30 @@ export interface ShapedWake {
 /** Sentence ends, as handoff/ reads them. */
 const END = /[.!?](?=\s|$)/g;
 
-function firstSentence(s: string): string {
+/**
+ * A full stop that ends a common abbreviation or a lone initial, not a sentence
+ * (2026-11-16, journal finding 17: "a stress test with Dr. Okafor at 9:30." read
+ * "a stress test with Dr."). Case-sensitive, so "said no. Then" still ends;
+ * "No." only before a number ("No. 5"); a lone capital only after a space or
+ * the start ("J. Smith", not "FBI."), and never "I" ("so did I. Then").
+ */
+const ABBREV_BEFORE = /(?:^|[\s("'“‘])(?:Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Mt|vs|etc|[Ee]\.g|[Ii]\.e|[ap]\.m|[AP]\.M|[A-HJ-Z])$/u;
+const NUMBER_ABBREV = /(?:^|[\s("'“‘])No$/u;
+
+/** Not a sentence's end: the "." after an abbreviation or an initial. */
+function abbreviationAt(s: string, dot: number): boolean {
+  if (s[dot] !== ".") return false;
+  const before = s.slice(0, dot);
+  if (ABBREV_BEFORE.test(before)) return true;
+  return NUMBER_ABBREV.test(before) && /^\s+\d/u.test(s.slice(dot + 1));
+}
+
+export function firstSentence(s: string): string {
   END.lastIndex = 0;
-  const m = END.exec(s);
-  return m === null ? s : s.slice(0, m.index + 1);
+  for (let m = END.exec(s); m !== null; m = END.exec(s)) {
+    if (!abbreviationAt(s, m.index)) return s.slice(0, m.index + 1);
+  }
+  return s;
 }
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -444,7 +464,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // The handoffs in the order the wake tells them (WK3): a stale wait on the
   // owner sinks, and a week-old one nothing refers to isn't listed.
   const sunkIds = new Set<string>();
-  const hs: readonly Handoff[] = scope.length === 0 ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now, reader, sunkIds), []);
+  // A host with no use for handoffs (`WakeHere.withoutHandoffs`) reads none.
+  const noHandoffs = here?.withoutHandoffs === true;
+  const hs: readonly Handoff[] = scope.length === 0 || noHandoffs ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now, reader, sunkIds), []);
   const newest = hs[0];
   const newestAt = newest === undefined ? null : safe(() => cp.handoffs.writtenAt(newest), null);
   const chaptersHere: readonly ChapterHere[] = scope.length === 0 ? [] : safe(() => cp.chaptersHereFor(scope, null, cp["chaptersInWindow"](day)).map((f) => f.chapter), []);
@@ -595,14 +617,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const leadLines = spareOn.has("folder") ? SHAPE.LEAD_LINES_SPARE : SHAPE.LEAD_LINES;
     const leadBytes = spareOn.has("folder") ? SHAPE.LEAD_BYTES_SPARE : SHAPE.LEAD_BYTES;
     const sinceLines = sinceAged.filter((s) => !claim.has(s.id));
-    const tail = here?.sessions === undefined ? null : openHereLine(liveHere, at, zone);
+    const tail = here?.sessions === undefined || noHandoffs ? null : openHereLine(liveHere, at, zone);
     // A sunk handoff said as Still open's ask isn't also its pointer line here (SO1 step 4: shown once).
     const olderPick = pickOlder(owed?.kind === "handoff" ? hs.filter((h) => h.id !== owed.id) : hs);
     const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number } => {
       const out = ["Where this folder stands:"];
       let leadSize = 0;
       let stepped: string | null = null;
-      if (newest === undefined) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
+      if (newest === undefined) {
+        if (!noHandoffs) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
+      }
       else if (stepDown) {
         const seat = seatOf(newest.body) ?? `session ${shortSession(newest.session)}`;
         stepped = `Last handoff, ${seat}, ${monthDay(newest.writtenOn)} (${ageOf(newestAt ?? startOfLocalDay(newest.writtenOn, zone))} old; ${plural(sinceSessions, "session")} here since${amongWords}): recall ${newest.id}`;
@@ -662,6 +686,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     while (size() > b && n.lead > 1) n.lead -= 1;
     if (size() > b && n.since > 0) n.since = 0;
     const lines = build(n);
+    // Nothing under the head (a host with no handoffs, nothing since): no section.
+    if (lines.lines.length <= 1) return { text: "", ids: [], items: 0 };
     const text = blockOf(lines.lines);
     if (byteLength(text) > b) return { text: "", ids: [], items: 0 };
     const shownOlder = olderPick.slice(0, n.older);

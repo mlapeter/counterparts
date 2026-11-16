@@ -162,9 +162,12 @@ export interface McpServerOptions {
    * (absent: today's behaviour, HN1) — the day's first chat is told to run the
    * night and the day's offer is claimed (`claudeAiNight`). `host` — the host
    * runs nights itself (its own schedule calls `dream`): an ordinary chat wake
-   * carries no night line and claims nothing; everything else in the wake
-   * stays. The `dream` tool works either way. Only claude.ai's wake reads it;
-   * Desktop's and Claude Code's dream lines are unchanged.
+   * carries no night line and claims nothing. The `dream` tool works either
+   * way. Only claude.ai's wake reads it for the night line; Desktop's and
+   * Claude Code's dream lines are unchanged. `host` also means no handoffs
+   * (2026-11-16, journal finding 18): the `wake` tool's wake, on any host,
+   * says nothing of one and names no other open session ("Open here now";
+   * `WakeHere.withoutHandoffs`). `session_end`'s handoff field is unchanged.
    */
   nights?: "first-chat" | "host";
   /** The package version on disk now (`sessions.ts#manifestVersionOnDisk`),

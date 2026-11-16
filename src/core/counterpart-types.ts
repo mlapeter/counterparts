@@ -488,6 +488,16 @@ export interface WakeHere {
    * it was shown (RF1). Absent: a start.
    */
   readonly source?: string;
+  /**
+   * A HOST WITH NO USE FOR HANDOFFS (2026-11-16, journal finding 18): one that
+   * runs its own nights (`McpServerOptions.nights: "host"`), whose continuity
+   * is its own record. True: the wake reads no handoff and says nothing of one
+   * (no "No handoff here", no "Handoff, …" or "Last handoff" line, no older
+   * handoffs) and names no other open session ("Open here now"), on the shaped
+   * road and the assembled one. "Last here" and "Since, here" stay. Absent:
+   * as before. `session_end`'s handoff field is unchanged.
+   */
+  readonly withoutHandoffs?: boolean;
 }
 
 /** One session in the host's registry, as `WakeHere.sessions` hands it. */

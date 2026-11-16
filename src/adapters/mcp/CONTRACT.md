@@ -472,8 +472,11 @@ actually wrote (chapter), the written self page or the version a write to it pro
     first on `ask`; no other wake is told while that claim holds (a later one only if the
     night was never run, after `ABANDONED_AFTER_MS`, at most `RELAUNCHES_PER_DAY` times).
     `nights: "host"` (JS1, 2026-11-13; absent: `first-chat`, unchanged) is for a host that
-    runs nights itself: the chat wake carries no night line and claims nothing; the rest of
-    the wake, and the `dream` tool, are as before.
+    runs nights itself: the chat wake carries no night line and claims nothing. Since
+    2026-11-16 (journal finding 18) its wake also reads no handoff and names no other open
+    session: no "No handoff here", "Handoff, …" or "Last handoff" line, no "Open here now"
+    (`WakeHere.withoutHandoffs`). The rest of the wake, the `dream` tool and
+    `session_end`'s handoff field are as before.
 21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
     Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
     server (same name, shadowing the session's own). So a Desktop call whose `session`

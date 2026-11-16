@@ -2360,6 +2360,16 @@ date (`reminder.carriedOver`) and a cleared one (`reminder.cleared`). Known gap,
 moving one occurrence of a repeating reminder with `updates` and a new date re-anchors the whole
 series (`recurring` carries over); UPDATES_TEXT covers "done this once", not "moved this once".
 
+## 2026-11-16 — `nights: "host"` also means no handoffs in the wake (journal finding 18)
+
+The living journal's wakes said "No handoff here. Leave one with session_end's handoff field" or
+"Last handoff … recall sch_…", and once "Open here now: session …" naming its own night session;
+its continuity is its record and its page. With `nights: "host"` the `wake` tool composes with
+`withoutHandoffs` (`Lifecycle#composeWake` → `WakeHere.withoutHandoffs`), on any host. The
+default (`first-chat`) and the Claude Code and Desktop wakes are unchanged, and so is
+`session_end`'s handoff field: a close that writes one still writes it. Tests:
+`hosted/test/journal-seams.test.ts`, both roads, each with a default-host control.
+
 ## 2026-11-16 — recall: the search and the wake together
 
 The 11-16 recall line became: "When the person asks what you know about them or a subject,

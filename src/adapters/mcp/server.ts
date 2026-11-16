@@ -3888,7 +3888,9 @@ export class McpServer {
     lc.noteSession("start", input);
     // The first meeting's marker rides in the wake's head tag (2026-10-20,
     // ONE TAG), as a Claude Code session start carries it.
-    const woke = lc.composeWake(input, this.lifecycleOpts.config?.injectionBudgetBytes, () => [lc.onboardingMarker(input)]);
+    // A host that runs its own nights (`nights: "host"`) has no use for handoffs:
+    // its wake says nothing of one, nor of another open session (journal finding 18).
+    const woke = lc.composeWake(this.nights === "host" ? { ...input, withoutHandoffs: true } : input, this.lifecycleOpts.config?.injectionBudgetBytes, () => [lc.onboardingMarker(input)]);
     // A wake tool call can be a routine's or a hosted run's with nobody there: an
     // unsaid folder's reminder crosses (SO1 step 3) only when the host says a person
     // is (`CLAUDE_CODE_SESSION_ATTENDED`, what the session start's `interactive` reads).
