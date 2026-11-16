@@ -2346,3 +2346,4 @@ them or a subject, search before answering, since the wake holds only part of it
 Starlite runs' day-7 "what do you know about me? not the project. me." the counterpart answered
 from the wake alone and left out stored things (the old live recordings, Dolly, the flaky salt),
 while the built-in read its whole notes file.
+Recall's Claude Code description is now 4,071 of the 4,096 up-front cut: the next line added to recall has to make room first.

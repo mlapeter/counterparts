@@ -748,7 +748,7 @@ describe("the tool-description audit", () => {
   });
 
   test("tools/list over the wire: recall says to search before answering what you know about them, on every host, inside the 2,048 cut (2026-11-16)", async () => {
-    const line = "When they ask what you know about them or a subject, search before answering: the wake holds only part of it.";
+    const line = "When the person asks what you know about them or a subject, search before answering: the wake holds only part of it.";
     for (const host of [undefined, "claude-desktop", "claude-ai"]) {
       const s = server(host === undefined ? {} : { host, env: {}, manifestVersion: () => null });
       const [response] = await pump(s, [rpc(1, "tools/list")]);
