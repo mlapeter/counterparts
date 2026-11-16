@@ -340,7 +340,7 @@ describe("a host's evening session and its wakes (2026-11-16)", () => {
   });
 
   test("a bad number is refused at createApp", () => {
-    for (const bad of [{ sessionTtlMs: 0 }, { wakeBudgetBytes: -1 }, { wakeBudgetBytes: Number.NaN }]) {
+    for (const bad of [{ sessionTtlMs: 0 }, { wakeBudgetBytes: -1 }, { wakeBudgetBytes: Number.NaN }, { wakeBudgetBytes: 1 }, { wakeBudgetBytes: 9000.5 }]) {
       assert.throws(() =>
         createApp({ dataRoot: join(tmp.root, "bad"), publicOrigin: "http://127.0.0.1:1", mailer: memoryMailer(), embedder: null, spawner: () => ({ pid: 1 }), ...bad }),
       );

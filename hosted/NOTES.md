@@ -602,3 +602,9 @@ client reads the wake.
 
 `asked` means a question or request of the counterpart's still waiting on the owner, and the wake raises it
 ("Waiting on …"); the science-fair line waits on nobody. The lake-cabin question stays `asked`.
+
+`wakeBudgetBytes`, on a store with the wake shape off (pre-WK2 hosted stores, or `wake-shape off`):
+the fallback `self.assemble` returns null while the published bundle's ceiling differs from the
+reported budget (self/index.ts ~1427). A budget other than 9,000 therefore serves the published
+bundle until the worker republishes at the new size. New stores have the shape on, so they compose
+fresh from the first wake. Since review: the budget must be a whole number, 1,000 or more.

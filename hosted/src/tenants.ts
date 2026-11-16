@@ -260,6 +260,9 @@ export class Tenants {
     for (const [name, v] of [["sessionTtlMs", opts.sessionTtlMs], ["wakeBudgetBytes", opts.wakeBudgetBytes]] as const) {
       if (v !== undefined && (!Number.isFinite(v) || v <= 0)) throw new Error(`${name} must be a positive number`);
     }
+    // A wake budget below a page's worth would fail every wake its budget.
+    const wb = opts.wakeBudgetBytes;
+    if (wb !== undefined && (!Number.isInteger(wb) || wb < 1_000)) throw new Error("wakeBudgetBytes must be a whole number of bytes, 1,000 or more");
     this.opts = opts;
     this.spawner = opts.spawner ?? workerPool({ max: DEFAULT_MAX_WORKERS });
     this.now = opts.now ?? ((): number => Date.now());
