@@ -38,8 +38,8 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, sep } from "node:path";
 
 import { createHash } from "node:crypto";
 
@@ -122,11 +122,14 @@ export function tenantDatabasePaths(list: readonly string[] | undefined): string
     const segs = typeof rel === "string" ? rel.split("/") : [];
     const plain = segs.length > 0 && segs.every((s) => /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(s));
     if (!plain) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} isn't a plain path inside the tenant's dir (relative, no "..", no leading "/" or ".")`);
-    const first = segs[0]!;
+    // Case-insensitive throughout: macOS's file system is (a `Store/` is `store/` there).
+    const lower = rel.toLowerCase();
+    const first = segs[0]!.toLowerCase();
     if (first === "store" || first === "config.json" || first === RESTORED_MARKER || first.startsWith("litestream")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} is hosted's own (store/, config.json, ${RESTORED_MARKER}, litestream*)`);
-    if (rel.endsWith("-wal") || rel.endsWith("-shm") || rel.endsWith(".restoring") || rel.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
+    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith(".restoring") || lower.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
     for (const other of out) {
-      if (other === rel || other.startsWith(`${rel}/`) || rel.startsWith(`${other}/`)) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
+      const o = other.toLowerCase();
+      if (o === lower || o.startsWith(`${lower}/`) || lower.startsWith(`${o}/`)) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
     }
     out.push(rel);
   }
@@ -222,6 +225,12 @@ export interface BackupsOptions {
   readonly onKeyless?: (storeId: string, outcome: "minted" | KeylessReason) => void;
   /** A host's own per-tenant databases, relative to each tenant's dir (`tenantDatabasePaths`). Absent: none, and the configuration is as before. */
   readonly tenantDatabases?: readonly string[];
+  /**
+   * A host database `restore --force` moved aside (`set-aside`), or one whose
+   * folder resolves outside its tenant's dir and so is neither streamed nor
+   * restored (`outside`). The app audits and logs it by tag.
+   */
+  readonly onHostDatabase?: (storeId: string, what: "set-aside" | "outside") => void;
 }
 
 /**
@@ -807,20 +816,22 @@ export class Backups {
    * THE HOST'S OWN DATABASES (`tenantDatabases`) come back FIRST and the
    * store's file LAST: the store's file is what says "this store is here"
    * (`missingStores`, a tenant's open), so a restore cut short anywhere leaves
-   * the store waiting, never a store that opens beside a missing journal the
-   * product would then make empty and replicate over its backup. Only the
-   * store's file refuses "already in place": a host database here while the
-   * store's file is missing (one a cut-short restore put back, or one the
-   * product made empty while the store waited) is moved aside like `--force`
-   * moves a file (kept a day), and replaced by the bucket's when the bucket has
-   * one. Counts are of files, not stores.
+   * the store waiting, never a store that opens beside a missing journal.
+   * Without `force`, A HOST DATABASE THAT IS HERE IS NEVER TOUCHED (the #834
+   * review, B1): it may be live (a journal made at sign-up, before the store's
+   * file existed; or one the product kept writing while the store's file was
+   * lost), and only the missing ones come back; it is counted `kept`, not
+   * refused. With `force`, one in place is moved aside (`.pre-restore-*`, swept
+   * after a day) and `onHostDatabase` says so. A host database whose folder
+   * resolves outside the tenant's dir (a symlink) is skipped, and said. Counts
+   * are of files, not stores.
    */
   async restore(id: string, run: LitestreamRun, opts: { force?: boolean; missingOnly?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
     const all = this.dbPaths(id);
     const storeFile = id === CONTROL_KEY_ID ? null : all[0]!;
     // `missingOnly`: the control databases one by one (a control restore cut
     // short after its first file must not leave the second to be made empty).
-    const chosen = opts.missingOnly === true ? all.filter((p) => !existsSync(p)) : all;
+    const chosen = opts.missingOnly === true ? all.filter((p) => !existsSync(p)) : all.filter((p) => storeFile === null || p === storeFile || opts.force === true || !existsSync(p));
     // The store's file last (above).
     const paths = storeFile === null ? chosen : [...chosen.filter((p) => p !== storeFile), ...chosen.filter((p) => p === storeFile)];
     if (!opts.force) {
@@ -836,8 +847,14 @@ export class Backups {
     let restored = 0;
     let empty = 0;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let skipped = 0;
     for (const path of paths) {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      if (path !== storeFile && storeFile !== null && !this.insideTenant(id, path)) {
+        this.hostEvent(id, "outside");
+        skipped += 1;
+        continue;
+      }
       const out = `${path}.restoring`;
       for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
       const r = await run(["restore", "-config", this.configPath, "-o", out, "-if-replica-exists", path]);
@@ -863,6 +880,7 @@ export class Backups {
         rmSync(join(dirname(path), "cache"), { recursive: true, force: true });
         writeFileSync(join(tenantDir(this.tenantsRoot(), id), RESTORED_MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });
       }
+      if (path !== storeFile && storeFile !== null && existsSync(path)) this.hostEvent(id, "set-aside");
       for (const f of [path, `${path}-wal`]) if (existsSync(f)) renameSync(f, `${f}.pre-restore-${stamp}`);
       rmSync(`${path}-shm`, { force: true });
       rmSync(join(dirname(path), `.${basename(path)}-litestream`), { recursive: true, force: true });
@@ -879,7 +897,32 @@ export class Backups {
       rmSync(`${out}-shm`, { force: true });
       restored += 1;
     }
-    return { restored, empty, kept: all.length - paths.length };
+    return { restored, empty, kept: all.length - paths.length + skipped };
+  }
+
+  /** Does this file's folder resolve (symlinks followed) inside the store's tenant dir? False when either is missing. */
+  private insideTenant(storeId: string, file: string): boolean {
+    try {
+      const root = realpathSync(tenantDir(this.tenantsRoot(), storeId));
+      const d = realpathSync(dirname(file));
+      return d === root || d.startsWith(`${root}${sep}`);
+    } catch {
+      return false;
+    }
+  }
+
+  /** `outside` said once per store and process (`config` runs at every refresh); `set-aside` every time. A throw is swallowed. */
+  private readonly saidOutside = new Set<string>();
+  private hostEvent(storeId: string, what: "set-aside" | "outside"): void {
+    if (what === "outside") {
+      if (this.saidOutside.has(storeId)) return;
+      this.saidOutside.add(storeId);
+    }
+    try {
+      this.opts.onHostDatabase?.(storeId, what);
+    } catch {
+      /* a log, not a gate */
+    }
   }
 
   /** The live stores whose database file is missing on this volume (start-up's restore check). */
@@ -963,6 +1006,11 @@ export class Backups {
       for (const rel of this.tenantDatabases) {
         const file = join(dir, rel);
         if (id !== restoring && !existsSync(file)) continue;
+        // A folder that resolves outside the tenant's dir (a symlink) is never streamed, and said.
+        if (existsSync(dirname(file)) && !this.insideTenant(id, file)) {
+          this.hostEvent(id, "outside");
+          continue;
+        }
         lines.push(`  - path: ${yamlString(file)}`, `    meta-path: ${yamlString(this.tenantDatabaseMeta(id, rel))}`, ...replica(tenantDatabasePrefix(id, rel).slice(0, -1), this.keyFile(id)));
       }
     }
@@ -984,6 +1032,8 @@ export class Backups {
    * backed up within one tick. Returns whether it reloaded.
    */
   async refresh(): Promise<boolean> {
+    // Nothing before start-up has released the hold (`release`): the sidecar isn't the configuration's to restart yet.
+    if (!this.released || this.held) return false;
     let onDisk: string | null = null;
     try {
       onDisk = readFileSync(this.configPath, "utf8");
@@ -1005,6 +1055,8 @@ export class Backups {
 
   /** True between `hold()` and `release()`: the configuration is written, the sidecar isn't started. */
   private held = false;
+  /** Start-up has released the hold once (`refresh` waits for it). */
+  private released = false;
 
   /**
    * START-UP'S PHASE (the #653 review, L2): no sidecar is started until the
@@ -1018,6 +1070,7 @@ export class Backups {
   /** The end of start-up's phase: the configuration written, the sidecar started on it. */
   async release(): Promise<void> {
     this.held = false;
+    this.released = true;
     // Before the sidecar starts on a `meta-path` outside `store/`: a position
     // an older build left inside it moves there, so Litestream carries on from it.
     for (const id of this.opts.keys.storeIds()) {

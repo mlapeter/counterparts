@@ -103,7 +103,7 @@ export interface AppOptions {
    * `leftover`, `forget`), and `retention.waiting` with how many tombstones
    * wait (when that count changes).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting" | "backup.host.set-aside" | "backup.host.outside" | "backup.refresh.failed", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -183,6 +183,13 @@ export interface App {
   readonly tenants: Tenants;
   readonly keys: KeyStore | null;
   readonly backups: Backups | null;
+  /**
+   * Is this store waiting for a restore (it lived, and its database is missing
+   * here)? A product checks it before making its own per-tenant database
+   * (`AppBackupOptions.tenantDatabases`): one made now would be kept as it is
+   * by the restore, not replaced by the bucket's copy.
+   */
+  storeWaiting(storeId: string): boolean;
   /** Start-up work that may touch the network: finish any delete a crash cut short, then backups' `ensureAll`, then (RESTORE_ON_BOOT) restores, then the sidecar. */
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
@@ -258,6 +265,15 @@ export function createApp(opts: AppOptions): App {
             accounts.audit(accounts.personOfStore(storeId), storeId, outcome === "minted" ? "backup.key.minted" : "backup.keyless", outcome === "minted" ? null : outcome);
             try {
               opts.onEvent?.(outcome === "minted" ? "backup.key.minted" : `backup.keyless.${outcome}`, storeTag(storeId));
+            } catch {
+              /* a log, not a gate */
+            }
+          },
+          // A host database a forced restore moved aside, or one whose folder resolves outside its tenant's dir: audited, logged by tag.
+          onHostDatabase: (storeId, what) => {
+            accounts.audit(accounts.personOfStore(storeId), storeId, `backup.host.${what}`, null);
+            try {
+              opts.onEvent?.(`backup.host.${what}`, storeTag(storeId));
             } catch {
               /* a log, not a gate */
             }
@@ -808,9 +824,10 @@ export function createApp(opts: AppOptions): App {
           for (const id of backups.missingStores()) {
             try {
               const r = await backups.restore(id, startOpts.restore);
-              accounts.audit(null, id, "store.restored", String(r.restored));
               // The STORE'S file landed, not only a host database (an empty store replica beside a host one): only then is it opened.
               const landed = r.restored > 0 && existsSync(backups.dbPaths(id)[0]!);
+              // Per store, as the report counts: 1 (the store came back), `host` (only a host database did), 0 (nothing).
+              accounts.audit(null, id, "store.restored", landed ? "1" : r.restored > 0 ? "host" : "0");
               if (landed) {
                 accounts.markOpened(id);
                 // The cache rebuild (a re-embed of every row) runs now, before
@@ -847,7 +864,13 @@ export function createApp(opts: AppOptions): App {
           void finishPendingDeletes();
           void finishDueHolds();
           // A host database made since the last tick (`Backups.refresh`): reloads only when the configuration changed.
-          if (backups !== null && backups.tenantDatabases.length > 0) void backups.refresh().catch(() => undefined);
+          if (backups !== null && backups.tenantDatabases.length > 0) void backups.refresh().catch(() => {
+              try {
+                opts.onEvent?.("backup.refresh.failed", "");
+              } catch {
+                /* a log, not a gate */
+              }
+            });
           retentionTick();
           endExpiredReviewers();
           try {
@@ -863,6 +886,7 @@ export function createApp(opts: AppOptions): App {
       return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept, legacyKeys };
     },
     readiness,
+    storeWaiting: (storeId) => accounts.wasOpened(storeId) && !existsSync(join(tenantDir(tenants.root, storeId), "store", DATABASE_FILE)),
     lookAtUploads: async () => {
       await uploads?.look();
     },
