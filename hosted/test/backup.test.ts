@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { ChildProcess } from "node:child_process";
 import { join } from "node:path";
@@ -17,14 +17,15 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { createApp } from "../src/app.js";
-import type { App } from "../src/app.js";
-import { Backups, CONTROL_KEY_ID, LitestreamSidecar, TENANT_DATABASES_META, UploadWatch, WATCHED_REPLICA, keyObject, maxTxid, replicaPrefix, tenantDatabasePrefix } from "../src/backup.js";
+import type { App, AppBackupOptions } from "../src/app.js";
+import { Backups, CONTROL_KEY_ID, LitestreamSidecar, TENANT_DATABASES_META, UploadWatch, WATCHED_REPLICA, keyObject, maxTxid, replicaPrefix, tenantDatabasePaths, tenantDatabasePrefix } from "../src/backup.js";
 import type { LitestreamRun, Sidecar, UploadsEvent } from "../src/backup.js";
 import { memoryMailer, memoryObjectStore, r2ObjectStore } from "../src/egress.js";
 import type { ObjectStore } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
 import { EnvKeyWrapper, KeyStore, kekRingFromEnv, kekVersionOf, litestreamKey } from "../src/keys.js";
 import { tenantDir } from "../src/tenants.js";
+import { startOverCommand } from "../src/main.js";
 import { RECOVERY, listen, storeId, tempRoot, testRecovery } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
@@ -921,7 +922,8 @@ describe("a host's own per-tenant databases (backup.tenantDatabases)", () => {
     const { storeId: id } = await signUp(r, "restore-journal@example.com");
     const tenant = tenantDir(r.app.tenants.root, id);
     await r.app.tenants.closeAll();
-    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys: r.app.keys!, objects: r.objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL], liveStores: () => [id], openedBefore: () => true });
+    const events: string[] = [];
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys: r.app.keys!, objects: r.objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL], liveStores: () => [id], openedBefore: () => true, onHostDatabase: (s, what) => void events.push(`${s} ${what}`) });
     const order: string[] = [];
     // A runner standing in for `litestream restore`: the database must be in the configuration it is given.
     const runner =
@@ -946,15 +948,24 @@ describe("a host's own per-tenant databases (backup.tenantDatabases)", () => {
     assert.ok(existsSync(journal));
     assert.equal(existsSync(storeFile), false);
     assert.deepEqual(backups.missingStores(), [id]);
-    // The retry: the journal a cut-short restore put back is moved aside, not refused, and the store's file lands last.
+    // The retry: the journal in place is KEPT, untouched (it may be live; the #834 review, B1), not refused; only the store's file comes back.
+    writeFileSync(journal, "the product wrote since");
     order.length = 0;
-    assert.deepEqual(await backups.restore(id, runner(null)), { restored: 2, empty: 0, kept: 0 });
+    assert.deepEqual(await backups.restore(id, runner(null)), { restored: 1, empty: 0, kept: 1 });
+    assert.deepEqual(order, [storeFile]);
+    assert.equal(readFileSync(journal, "utf8"), "the product wrote since");
+    assert.equal(readdirSync(join(tenant, "app")).some((n) => n.includes(".pre-restore-")), false);
+    assert.deepEqual(backups.missingStores(), []);
+    assert.deepEqual(events, []);
+    // The store's file in place: refused as before.
+    await assert.rejects(backups.restore(id, runner(null)), /already in place/);
+    // --force: the journal in place is moved aside, said, and replaced.
+    order.length = 0;
+    assert.deepEqual(await backups.restore(id, runner(null), { force: true }), { restored: 2, empty: 0, kept: 0 });
     assert.deepEqual(order, [journal, storeFile]);
     assert.equal(readFileSync(journal, "utf8"), `restored ${journal}`);
     assert.ok(readdirSync(join(tenant, "app")).some((n) => n.startsWith("app.sqlite.pre-restore-")));
-    assert.deepEqual(backups.missingStores(), []);
-    // The store's file in place: refused as before.
-    await assert.rejects(backups.restore(id, runner(null)), /already in place/);
+    assert.deepEqual(events, [`${id} set-aside`]);
 
     // Cut short on the product's database: nothing of the store is put in place.
     rmSync(tenant, { recursive: true, force: true });
@@ -995,5 +1006,134 @@ describe("a host's own per-tenant databases, at RESTORE_ON_BOOT", () => {
     // Its next open makes it as new, beside the journal: no 503, no dead end.
     await b.tenants.withTenant(id, {}, async () => undefined);
     assert.ok(existsSync(join(tenant, "store", "counterparts.sqlite")));
+  });
+});
+
+describe("a host's own per-tenant databases: a live one is never replaced (the #834 review)", () => {
+  const reopen = (wrapper: EnvKeyWrapper, objects: ObjectStore, sidecar: Sidecar | null = null): App => {
+    const b = createApp({
+      dataRoot: join(tmp.root, "data"),
+      publicOrigin: "http://127.0.0.1",
+      mailer: memoryMailer(),
+      embedder: null,
+      spawner: () => ({ pid: 1 }),
+      backup: { wrapper, sealer: RECOVERY.sealer, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar, tenantDatabases: [JOURNAL] },
+    });
+    closers.push(() => b.close());
+    return b;
+  };
+
+  test("B1's probe: a journal made at sign-up, its store never opened; RESTORE_ON_BOOT leaves the journal's bytes as they were", async () => {
+    const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
+    const r = await appRig({ tenantDatabases: [JOURNAL], wrapper });
+    const { storeId: id } = await signUp(r, "probe@example.com");
+    const tenant = tenantDir(r.app.tenants.root, id);
+    const journal = join(tenant, JOURNAL);
+    makeJournal(tenant, "Live words written at sign-up.");
+    const before = readFileSync(journal);
+    await r.app.close();
+    // The bucket has an older journal; the store's own replica is empty.
+    const runner: LitestreamRun = async (args) => {
+      if (args.at(-1) === journal) writeFileSync(args[args.indexOf("-o") + 1]!, "an older bucket copy");
+      return { code: 0, stderr: "" };
+    };
+    const b = reopen(wrapper, r.objects);
+    assert.ok(b.backups!.missingStores().includes(id), "the never-opened store is one restore-on-boot tries");
+    const report = await b.start({ restore: runner });
+    assert.equal(report.restoreFailed, 0);
+    assert.equal(report.restored, 0);
+    assert.deepEqual(readFileSync(journal), before, "the live journal untouched");
+    assert.equal(readdirSync(join(tenant, "app")).some((n) => n.includes(".pre-restore-")), false, "nothing set aside to be swept");
+    assert.equal(b.storeWaiting(id), false);
+  });
+
+  test("an opened store that lost only its own file while the product kept writing: the store comes back, the journal's bytes stay", async () => {
+    const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
+    const r = await appRig({ tenantDatabases: [JOURNAL], wrapper });
+    const { storeId: id } = await signUp(r, "kept-writing@example.com");
+    const tenant = tenantDir(r.app.tenants.root, id);
+    await r.app.tenants.withTenant(id, {}, async () => undefined);
+    await r.app.tenants.closeAll();
+    assert.ok(r.app.accounts.wasOpened(id));
+    makeJournal(tenant, "Words written after the store's file was lost.");
+    const journal = join(tenant, JOURNAL);
+    const before = readFileSync(journal);
+    // The store's file is lost (kept aside here, as the bucket's copy).
+    const saved = join(tmp.root, "bucket-store");
+    renameSync(join(tenant, "store"), saved);
+    assert.equal(r.app.storeWaiting(id), true, "the product can see the store waits");
+    await r.app.close();
+    const runner: LitestreamRun = async (args) => {
+      const path = args.at(-1)!;
+      const out = args[args.indexOf("-o") + 1]!;
+      if (path === journal) writeFileSync(out, "an older bucket copy");
+      else {
+        copyFileSync(join(saved, "counterparts.sqlite"), out);
+        if (existsSync(join(saved, "counterparts.sqlite-wal"))) copyFileSync(join(saved, "counterparts.sqlite-wal"), `${out}-wal`);
+      }
+      return { code: 0, stderr: "" };
+    };
+    const b = reopen(wrapper, r.objects);
+    const report = await b.start({ restore: runner });
+    assert.equal(report.restoreFailed, 0);
+    assert.equal(report.restored, 1);
+    assert.ok(existsSync(join(tenant, "store", "counterparts.sqlite")));
+    assert.deepEqual(readFileSync(journal), before, "the journal the product kept writing is untouched");
+    assert.equal(b.storeWaiting(id), false);
+  });
+
+  test("refresh is a no-op until start-up has released the hold", async () => {
+    let reloads = 0;
+    const b = reopen(new EnvKeyWrapper(ring("v1"), "v1"), memoryObjectStore(), { reload: () => void reloads++, stop: async () => undefined });
+    assert.equal(await b.backups!.refresh(), false);
+    assert.equal(reloads, 0);
+    await b.start();
+    const after = reloads;
+    assert.equal(await b.backups!.refresh(), false, "nothing changed since the start's own reload");
+    assert.equal(reloads, after);
+  });
+
+  test("a host database whose folder is a symlink out of the tenant's dir is neither listed nor restored, and said once", async () => {
+    const r = await appRig({ tenantDatabases: [JOURNAL] });
+    const { storeId: id } = await signUp(r, "symlink@example.com");
+    const tenant = tenantDir(r.app.tenants.root, id);
+    const outside = join(tmp.root, "elsewhere");
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(tenant, "app"));
+    makeJournal(tenant, "written through a symlink");
+    const events: string[] = [];
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys: r.app.keys!, objects: r.objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL], liveStores: () => [id], onHostDatabase: (s, what) => void events.push(`${s} ${what}`) });
+    assert.equal(entryOf(backups.config(), join(tenant, JOURNAL)), null);
+    backups.config();
+    assert.deepEqual(events, [`${id} outside`]);
+    // Restore (the store's file missing): the journal through the symlink is not restored.
+    rmSync(join(outside, "app.sqlite"));
+    rmSync(join(tenant, "store"), { recursive: true, force: true });
+    const asked: string[] = [];
+    const r2 = await backups.restore(id, async (args) => {
+      asked.push(args.at(-1)!);
+      return { code: 0, stderr: "" };
+    });
+    assert.deepEqual(asked, [join(tenant, "store", "counterparts.sqlite")]);
+    assert.equal(r2.kept, 1);
+  });
+
+  test("names compare case-insensitively: Store/, LITESTREAM.key, a -WAL side file are refused", () => {
+    for (const rel of ["Store/counterparts.sqlite", "LITESTREAM.key", "Config.json", "app/app.sqlite-WAL"]) assert.throws(() => tenantDatabasePaths([rel]), /backup\.tenantDatabases/, rel);
+    assert.throws(() => tenantDatabasePaths(["app/app.sqlite", "App/app.sqlite"]), /repeats or nests/);
+  });
+
+  test("start-over reads the store's own replica only: a product-only replica doesn't wedge it", async () => {
+    const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
+    const r = await appRig({ tenantDatabases: [JOURNAL], wrapper });
+    const { storeId: id } = await signUp(r, "start-over@example.com");
+    await r.app.tenants.withTenant(id, {}, async () => undefined);
+    await r.app.close();
+    rmSync(join(tenantDir(r.app.tenants.root, id), "store"), { recursive: true, force: true });
+    const opts: AppBackupOptions = { wrapper, sealer: RECOVERY.sealer, objects: r.objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL] };
+    await r.objects.put(`${tenantDatabasePrefix(id, JOURNAL)}0000/1.ltx`, "ciphertext");
+    assert.match(await startOverCommand(join(tmp.root, "data"), opts, id), /starts over/);
+    await r.objects.put(`${replicaPrefix(id)}0000/1.ltx`, "ciphertext");
+    await assert.rejects(startOverCommand(join(tmp.root, "data"), opts, id), /restore it instead/);
   });
 });
