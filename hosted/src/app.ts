@@ -809,7 +809,9 @@ export function createApp(opts: AppOptions): App {
             try {
               const r = await backups.restore(id, startOpts.restore);
               accounts.audit(null, id, "store.restored", String(r.restored));
-              if (r.restored > 0) {
+              // The STORE'S file landed, not only a host database (an empty store replica beside a host one): only then is it opened.
+              const landed = r.restored > 0 && existsSync(backups.dbPaths(id)[0]!);
+              if (landed) {
                 accounts.markOpened(id);
                 // The cache rebuild (a re-embed of every row) runs now, before
                 // the server listens, not on some person's first call. Not for a
@@ -818,7 +820,7 @@ export function createApp(opts: AppOptions): App {
                 if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
               }
               // Stores, not files (a host's own databases come back with their store).
-              if (r.restored > 0) restored += 1;
+              if (landed) restored += 1;
             } catch {
               accounts.audit(null, id, "store.restore.failed", null);
               restoreFailed += 1;

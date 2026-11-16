@@ -963,3 +963,37 @@ describe("a host's own per-tenant databases (backup.tenantDatabases)", () => {
     assert.deepEqual(backups.missingStores(), [id]);
   });
 });
+
+describe("a host's own per-tenant databases, at RESTORE_ON_BOOT", () => {
+  test("a store whose own replica is empty but whose journal's isn't: the journal comes back, the store is NOT marked opened, and it opens as new", async () => {
+    const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
+    const r = await appRig({ tenantDatabases: [JOURNAL], wrapper });
+    const { storeId: id } = await signUp(r, "journal-only@example.com");
+    const tenant = tenantDir(r.app.tenants.root, id);
+    await r.app.close();
+    const journal = join(tenant, JOURNAL);
+    // `litestream restore`: the journal's replica exists, the store's doesn't (exit 0, no file).
+    const runner: LitestreamRun = async (args) => {
+      const path = args.at(-1)!;
+      if (path === journal) writeFileSync(args[args.indexOf("-o") + 1]!, "journal bytes");
+      return { code: 0, stderr: "" };
+    };
+    const b = createApp({
+      dataRoot: join(tmp.root, "data"),
+      publicOrigin: "http://127.0.0.1",
+      mailer: memoryMailer(),
+      embedder: null,
+      spawner: () => ({ pid: 1 }),
+      backup: { wrapper, sealer: RECOVERY.sealer, objects: r.objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL] },
+    });
+    closers.push(() => b.close());
+    const report = await b.start({ restore: runner });
+    assert.equal(report.restored, 0, "no store came back");
+    assert.equal(report.restoreFailed, 0);
+    assert.equal(readFileSync(journal, "utf8"), "journal bytes");
+    assert.equal(b.accounts.wasOpened(id), false, "never marked opened without its file");
+    // Its next open makes it as new, beside the journal: no 503, no dead end.
+    await b.tenants.withTenant(id, {}, async () => undefined);
+    assert.ok(existsSync(join(tenant, "store", "counterparts.sqlite")));
+  });
+});

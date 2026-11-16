@@ -243,12 +243,14 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
       }
       try {
         const r = await backups.restore(id, run, { force });
-        if (r.restored > 0) {
+        // The STORE'S file landed, not only a host database (an empty store replica beside a host one): only then is it opened.
+        const landed = r.restored > 0 && existsSync(backups.dbPaths(id)[0]!);
+        if (landed) {
           accounts.markOpened(id);
           if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
         }
         // Stores, not files (a host's own databases come back with their store).
-        if (r.restored > 0) restored += 1;
+        if (landed) restored += 1;
         else if (r.empty > 0) empty += 1;
       } catch (err) {
         failed += 1;

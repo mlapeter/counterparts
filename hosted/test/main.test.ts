@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import { openDb } from "../../src/core/store/db.js";
-import { overrideGuard, readEnv } from "../src/main.js";
+import { backupFromEnv, overrideGuard, readEnv } from "../src/main.js";
 import { RECOVERY, tempRoot } from "./helpers.js";
 
 const MAIN = fileURLToPath(new URL("../src/main.ts", import.meta.url));
@@ -201,5 +201,32 @@ describe("the entry point, R3: CONTROL_ASIDE", () => {
     assert.match(bad.stderr, /CONTROL_ASIDE must be a label/);
     assert.ok(existsSync(join(dataRoot, "control")));
     assert.equal(existsSync(join(dataRoot, "overrides")), false);
+  });
+});
+
+describe("HOSTED_TENANT_DATABASES (a host's own per-tenant databases)", () => {
+  const env = (extra: Record<string, string>): Record<string, string> =>
+    baseEnv({
+      HOSTED_RECOVERY_PUBKEY: RECOVERY.publicText,
+      R2_ENDPOINT: "https://127.0.0.1:1",
+      R2_BUCKET: "bkt",
+      R2_ACCESS_KEY_ID: "test-generated-id",
+      R2_SECRET_ACCESS_KEY: "test-generated-secret",
+      ...extra,
+    });
+
+  test("a comma-separated list reaches the backup options; unset is none; a path out of the tenant's dir is refused", () => {
+    const dataRoot = join(tmp.root, "data");
+    const listed = backupFromEnv(env({ HOSTED_TENANT_DATABASES: " app/app.sqlite , notes/notes.sqlite" }), dataRoot);
+    assert.ok(listed !== null && !("refusal" in listed));
+    assert.deepEqual(listed.tenantDatabases, ["app/app.sqlite", "notes/notes.sqlite"]);
+    const unset = backupFromEnv(env({}), dataRoot);
+    assert.ok(unset !== null && !("refusal" in unset));
+    assert.equal("tenantDatabases" in unset, false);
+    for (const bad of ["../x.sqlite", "/abs/x.sqlite", "store/counterparts.sqlite"]) {
+      const refused = backupFromEnv(env({ HOSTED_TENANT_DATABASES: bad }), dataRoot);
+      assert.ok(refused !== null && "refusal" in refused, bad);
+      assert.match(refused.refusal, /HOSTED_TENANT_DATABASES/);
+    }
   });
 });
