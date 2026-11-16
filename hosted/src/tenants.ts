@@ -46,7 +46,7 @@ import { serialQueue } from "../../src/adapters/remote/http.js";
 import type { McpTarget, Serial } from "../../src/adapters/remote/http.js";
 import { scopesPath } from "../../src/adapters/scopes.js";
 import { UPDATE_CHECK_ENV } from "../../src/adapters/update-check.js";
-import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
+import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, STORE_CLOCK_OFFSET_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
@@ -450,7 +450,7 @@ export class Tenants {
         configPath,
         command: worker.command,
         args: worker.args,
-        spawner: this.spawner,
+        spawner: this.workerSpawner(),
       },
     });
     // Restored from the bucket: the word index and vectors (box 3) were never in
@@ -484,6 +484,20 @@ export class Tenants {
       );
     }
     return handle;
+  }
+
+  /**
+   * The spawner a store's worker starts through. Under a `storeClock`, the
+   * plan carries that clock's offset from the system's
+   * (`spawn.ts#STORE_CLOCK_OFFSET_ENV`), so the child dates the store as its
+   * server does (2026-11-16: a page revised the day before had read "more
+   * than 14 days" old in every bundle the worker published). The offset is
+   * read when the plan is handed over; the pool may start it later.
+   */
+  private workerSpawner(): Spawner {
+    const clock = this.opts.storeClock;
+    if (clock === undefined) return this.spawner;
+    return (plan) => this.spawner({ ...plan, env: { ...plan.env, [STORE_CLOCK_OFFSET_ENV]: String(Math.round(clock() - Date.now())) } });
   }
 
   /** Over the cap: close the least recently used idle handles. A soft cap — in-use handles are never closed. */
@@ -563,7 +577,7 @@ export const WORKER_ENV_ALLOW = ["PATH", "LANG", "LC_ALL", "TZ", "TMPDIR"] as co
  * `COUNTERPARTS_OBSERVER` or `COUNTERPARTS_NIGHT_CHILD` would change what the
  * worker does, and a future secret named that way would leak.
  */
-export const WORKER_COUNTERPARTS_ALLOW = [DATA_DIR_ENV, WATCHDOG_ENV, SESSION_ENV, SCOPE_ENV, CONFIG_ENV, STATIC_WEIGHTS_ENV] as const;
+export const WORKER_COUNTERPARTS_ALLOW = [DATA_DIR_ENV, WATCHDOG_ENV, SESSION_ENV, SCOPE_ENV, CONFIG_ENV, STATIC_WEIGHTS_ENV, STORE_CLOCK_OFFSET_ENV] as const;
 
 /** The plan's environment, cut down to what a worker needs and nothing of the server's. */
 export function workerEnv(plan: SpawnPlan): Record<string, string> {
