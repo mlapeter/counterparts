@@ -206,7 +206,9 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +97 on 2026-11-13 (after #815): the time claim names ranges, the forward
       // words, reminder dates and the "also due" list; the line claim says "due".
       // +11 on the review of #817: "today or a window ahead", "with topic words".
-      recall: { total: 3954, beforeList: 1200 },
+      // +117 on 2026-11-16: "when the person asks what you know about them or a
+      // subject, search before answering" in the When: line (25 under 4,096).
+      recall: { total: 4071, beforeList: 1317 },
       status: { total: 240, beforeList: -1 },
       session_end: { total: 647, beforeList: -1 },
       chapter: { total: 531, beforeList: -1 },

@@ -747,6 +747,18 @@ describe("the tool-description audit", () => {
     }
   });
 
+  test("tools/list over the wire: recall says to search before answering what you know about them, on every host, inside the 2,048 cut (2026-11-16)", async () => {
+    const line = "When the person asks what you know about them or a subject, search before answering: the wake holds only part of it.";
+    for (const host of [undefined, "claude-desktop", "claude-ai"]) {
+      const s = server(host === undefined ? {} : { host, env: {}, manifestVersion: () => null });
+      const [response] = await pump(s, [rpc(1, "tools/list")]);
+      const tools = (response as unknown as { result: { tools: Record<string, unknown>[] } }).result.tools;
+      const d = String(tools.find((t) => t["name"] === "recall")?.["description"]);
+      expect(d).toContain(line);
+      expect(d.indexOf(line) + line.length).toBeLessThanOrEqual(2_048);
+    }
+  });
+
   test("the annotation table: what is read-only, what is destructive", () => {
     const tableOf = (desktop: boolean): Record<string, boolean[]> => Object.fromEntries(
       toolDefinitions(desktop).map((t) => {

@@ -3375,3 +3375,14 @@ don't churn), and whether a night after a skipped day writes about the last day 
 - On review (#829): the second sentence now keeps an explicit "never" standing and asks once per new event —
   `Unless they said "never", a preference covers the moment they meant, not the subject: …a reason to ask about it
   once.` The writer instruction's pin went to 2,900 bytes (2,815 measured).
+
+## 2026-11-16 — the own-words rule taken out
+
+`OWN_WORDS_RULE` (2026-11-14) is out of `PAGE_WRITING_RULE` (Mike's go, lightly held). The
+season-two rerun on 0cba4198 still widened Wren's "don't fuss" on the page ("without raising
+them again"), so the rule did not do its job. Season one, with no such rule, wrote the best
+line of the three runs ("acknowledge it briefly and follow them to the next thing"). The rule
+also drew the writers' attention to restraint, in a demo where the counterpart was already
+holding back next to the built-in (on day 7 it would not answer "what do you know about me").
+The tool-text half of #829 (their words when saved) stays. The writer block's pin is back to
+2,450.
