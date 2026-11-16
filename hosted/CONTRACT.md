@@ -264,7 +264,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     restored (`backup.host.outside`).
     - Each is streamed by the same sidecar, under the store's own SSE-C key file, to `tenants/<storeId>/host/<path>/`,
       inside the store's replica prefix: a delete's prefix delete takes it, `objectsLeft` counts it, and
-      `recover-keys`' proof reads it under the same key; start-over looks at the store's own objects only. Its
+      `recover-keys`' proof reads it under the same key; start-over looks at the store's own objects only, and refuses while a listed host file is missing here
+      with a replica in the bucket (`restore <id>` first brings it back). A host file is checked before any folder is
+      made for it, and a file that is itself a symlink is refused too. Its
       Litestream state is at `<tenant>/litestream-meta-host/<path>`.
     - Listed only once its file exists, and never for a store waiting for a restore (`App.storeWaiting`, for the
       product to check before making its file). A file made after sign-up is picked up by `Backups.refresh()` (written
