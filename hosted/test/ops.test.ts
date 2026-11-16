@@ -383,7 +383,7 @@ describe("the restore drill, through the door", () => {
     assert.equal(report.restored, 1, "one store (its two files)");
     assert.equal(report.needsRestore, 0);
     const back = openDb(join(tenant, journal), { wal: true });
-    assert.deepEqual(back.all("SELECT text FROM entries"), [{ text: "Journal entry: the plum tree flowered today." }]);
+    assert.deepEqual(back.all<{ text: string }>("SELECT text FROM entries").map((row) => row.text), ["Journal entry: the plum tree flowered today."]);
     back.close();
     // And listed again in the configuration the sidecar runs on.
     assert.match(readFileSync(join(dataRoot, "litestream.yml"), "utf8"), new RegExp(`tenants/${who.storeId}/host/app/app\\.sqlite`));
