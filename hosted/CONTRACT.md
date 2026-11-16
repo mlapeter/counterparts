@@ -277,6 +277,27 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       only missing ones come back. `--force` moves one aside (`.pre-restore-*`, swept after a day), audited and logged
       (`backup.host.set-aside`). A host database lost while its store's file stayed is not detected, and only a
       point-in-time restore by hand brings it back (RUNBOOK).
+26c. **A host's own server-level databases** (2026-11-16; opt-in, default unchanged byte for byte):
+    `AppBackupOptions.serverDatabases` (`main.ts`: `HOSTED_SERVER_DATABASES`, comma-separated) names SQLite files
+    that belong to no one person, relative to the data root (the living journal: `journal/auth.sqlite`,
+    `journal/subscriptions.sqlite`). Each must be in WAL mode. Paths that leave the data root, or are in hosted's own
+    part of it (`control*`, `tenants/`, `keys/`, `scratch/`, `overrides/`, `litestream*`, `serving.*`, any case), are
+    refused at `createApp` and by `backupFromEnv`; one whose folder resolves outside the data root or into hosted's
+    own part (a symlink), or that is itself a symlink, is neither streamed nor restored (`backup.server.outside`).
+    - Streamed by the same sidecar under the CONTROL key to `<control base>host/<path>/` (`control/host/<path>/`;
+      `control/<key id>/host/<path>/` after a re-key), never meeting control's own replicas; Litestream state at
+      `<data root>/litestream-meta-server/<path>`. Listed once its file exists; `Backups.refresh()` and the finish
+      timer pick up one made later. An account delete never touches them.
+    - **The control re-key carries them** (`migrate-keys`): replicated and proven at the new base with control's
+      own, the old base's `host/` deleted with control's old replicas, and the abort deletes the new base's. A re-key
+      is refused while one is missing here with a replica in the bucket.
+    - **Restored with control** (`restoreControl`: `restore control`, `restore --all`, and `prepareVolume` at
+      `RESTORE_ON_BOOT`), BEFORE control's own files, so a cut-short restore leaves control missing and the start
+      refuses. **One in place is never touched without `--force`**; `--force` moves it aside (`.pre-restore-*`,
+      swept after a day) and says so (`backup.server.set-aside`, a line in the CLI's output and its log).
+    - A start with control whole and a server database missing **whose replica is in the bucket** refuses without
+      `RESTORE_ON_BOOT` (the product would make it empty and stream it over the backup) and restores it with it.
+      Missing with nothing in the bucket: the product's to make. Lost while serving: not detected (as 26b's last line).
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
@@ -522,6 +543,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
     it or its tombstone, or while its account is set to be deleted (R6). It's safe against the running server: the store's first open after it gets its key and a
     place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
+    - **Account delete works whatever the restore state** (2026-11-16, tested): `deleteAccount`, the account page's
+      delete and a pending delete's erase never open the store, so a waiting store is deleted like any other, its
+      replica (if any) with it. A start says which waiting stores have nothing in the bucket to restore
+      (`StartReport.waitingEmpty`; audited `store.waiting.empty`, logged `store.waiting-empty` by tag).
+      `App.nothingToRestore(storeId, rel?)` answers the same for a product's own door (replica objects only, one
+      LIST; with `rel`, one of its `tenantDatabases`).
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading AND uploads are landing. Otherwise it answers `503`.
     The body is the check names and their words (`ok`, `off`, `down`, `starting`, `stale`): no id, no key, no
