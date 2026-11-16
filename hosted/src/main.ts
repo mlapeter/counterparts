@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, TENANT_DATABASES_BASE, tenantDatabasePaths, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -200,6 +200,14 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
     // The store's OWN replica only: a host database's (`tenants/<id>/host/…`, `tenantDatabasePrefix`) is the product's, and stays.
     const own = (await backup.objects.list(replicaPrefix(storeId))).filter((k) => !k.startsWith(`${replicaPrefix(storeId)}${TENANT_DATABASES_BASE}/`));
     if (own.length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
+    // A product's database missing here with a replica in the bucket would start over without it: brought back first.
+    const dbs = backups.dbPaths(storeId);
+    for (const [i, rel] of backups.tenantDatabases.entries()) {
+      if (existsSync(dbs[i + 1]!)) continue;
+      if ((await backup.objects.list(tenantDatabasePrefix(storeId, rel))).length > 0) {
+        throw new Error(`the bucket has a replica of its ${rel}, which is missing here: run restore <id> first so it comes back (the store's own file stays missing; then start-over)`);
+      }
+    }
     // A deleted store is never started over (the #653 re-review, N3): the next start finishes its delete.
     if ((await backup.objects.get(tombstoneObject(storeId))) !== null) throw new Error("the bucket has its tombstone: it was deleted, and the next start finishes the delete");
     accounts.clearOpened(storeId);

@@ -1132,8 +1132,52 @@ describe("a host's own per-tenant databases: a live one is never replaced (the #
     rmSync(join(tenantDir(r.app.tenants.root, id), "store"), { recursive: true, force: true });
     const opts: AppBackupOptions = { wrapper, sealer: RECOVERY.sealer, objects: r.objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [JOURNAL] };
     await r.objects.put(`${tenantDatabasePrefix(id, JOURNAL)}0000/1.ltx`, "ciphertext");
+    // The journal is missing here and its replica is in the bucket: it comes back first (restore), never left behind.
+    await assert.rejects(startOverCommand(join(tmp.root, "data"), opts, id), /replica of its app\/app\.sqlite, which is missing here: run restore <id> first/);
+    makeJournal(tenantDir(r.app.tenants.root, id), "back from the bucket");
     assert.match(await startOverCommand(join(tmp.root, "data"), opts, id), /starts over/);
     await r.objects.put(`${replicaPrefix(id)}0000/1.ltx`, "ciphertext");
     await assert.rejects(startOverCommand(join(tmp.root, "data"), opts, id), /restore it instead/);
+  });
+});
+
+describe("a host's own per-tenant databases: symlinks, checked before any folder is made", () => {
+  test("a symlinked parent makes no folder outside, a dangling one doesn't fail the store's restore, and a symlinked file is refused", async () => {
+    const deep = "app/deep/app.sqlite";
+    const r = await appRig({ tenantDatabases: [deep] });
+    const { storeId: id } = await signUp(r, "links@example.com");
+    const tenant = tenantDir(r.app.tenants.root, id);
+    const events: string[] = [];
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys: r.app.keys!, objects: r.objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [deep], liveStores: () => [id], onHostDatabase: (s, what) => void events.push(`${s} ${what}`) });
+    const storeFile = join(tenant, "store", "counterparts.sqlite");
+    const runner: LitestreamRun = async (args) => {
+      writeFileSync(args[args.indexOf("-o") + 1]!, "restored");
+      return { code: 0, stderr: "" };
+    };
+    // 1. `app` links out of the tenant's dir; `app/deep` doesn't exist anywhere yet.
+    const outside = join(tmp.root, "outside");
+    mkdirSync(outside);
+    symlinkSync(outside, join(tenant, "app"));
+    rmSync(join(tenant, "store"), { recursive: true, force: true });
+    const one = await backups.restore(id, runner);
+    assert.deepEqual(one, { restored: 1, empty: 0, kept: 1 });
+    assert.equal(existsSync(join(outside, "deep")), false, "no folder made outside the tenant");
+    assert.ok(existsSync(storeFile));
+    // 2. `app` a dangling link: the store's restore still goes through.
+    rmSync(join(tenant, "app"));
+    symlinkSync(join(tmp.root, "nowhere"), join(tenant, "app"));
+    rmSync(join(tenant, "store"), { recursive: true, force: true });
+    assert.deepEqual(await backups.restore(id, runner), { restored: 1, empty: 0, kept: 1 });
+    assert.ok(existsSync(storeFile));
+    assert.equal(existsSync(join(tmp.root, "nowhere")), false);
+    assert.deepEqual(events, [`${id} outside`], "said once");
+    // 3. The folder is real, the file itself a link out: not listed.
+    rmSync(join(tenant, "app"));
+    mkdirSync(join(tenant, "app", "deep"), { recursive: true });
+    writeFileSync(join(outside, "real.sqlite"), "");
+    symlinkSync(join(outside, "real.sqlite"), join(tenant, deep));
+    const fresh = new Backups({ dataRoot: join(tmp.root, "data"), keys: r.app.keys!, objects: r.objects, sealer: RECOVERY.sealer, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, tenantDatabases: [deep], liveStores: () => [id], onHostDatabase: (s, what) => void events.push(`${s} ${what}`) });
+    assert.equal(entryOf(fresh.config(), join(tenant, deep)), null);
+    assert.deepEqual(events, [`${id} outside`, `${id} outside`]);
   });
 });

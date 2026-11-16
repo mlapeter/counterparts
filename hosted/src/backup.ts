@@ -38,7 +38,8 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 
 import { createHash } from "node:crypto";
@@ -286,6 +287,15 @@ function touchDatabase(path: string): void {
     db.exec("CREATE TABLE IF NOT EXISTS wb1_rekey_touch (x INTEGER); DROP TABLE wb1_rekey_touch;");
   } finally {
     db.close();
+  }
+}
+
+/** `lstat`, or null when nothing (not even a dangling link) is there. */
+function lstatQuiet(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
   }
 }
 
@@ -849,12 +859,16 @@ export class Backups {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     let skipped = 0;
     for (const path of paths) {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      if (path !== storeFile && storeFile !== null && !this.insideTenant(id, path)) {
-        this.hostEvent(id, "outside");
-        skipped += 1;
-        continue;
+      // A host file's place is checked BEFORE any folder is made: a symlinked parent would have it made outside the tenant.
+      if (path !== storeFile && storeFile !== null) {
+        mkdirSync(tenantDir(this.tenantsRoot(), id), { recursive: true, mode: 0o700 });
+        if (!this.insideTenant(id, path)) {
+          this.hostEvent(id, "outside");
+          skipped += 1;
+          continue;
+        }
       }
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       const out = `${path}.restoring`;
       for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
       const r = await run(["restore", "-config", this.configPath, "-o", out, "-if-replica-exists", path]);
@@ -900,12 +914,24 @@ export class Backups {
     return { restored, empty, kept: all.length - paths.length + skipped };
   }
 
-  /** Does this file's folder resolve (symlinks followed) inside the store's tenant dir? False when either is missing. */
+  /**
+   * Does this host file stay inside the store's tenant dir? The file itself
+   * must not be a symlink, and its nearest folder that exists (the file's own,
+   * or an ancestor not made yet) must resolve, symlinks followed, inside the
+   * tenant dir. A dangling link, or a missing tenant dir, is false.
+   */
   private insideTenant(storeId: string, file: string): boolean {
     try {
-      const root = realpathSync(tenantDir(this.tenantsRoot(), storeId));
-      const d = realpathSync(dirname(file));
-      return d === root || d.startsWith(`${root}${sep}`);
+      const top = tenantDir(this.tenantsRoot(), storeId);
+      const root = realpathSync(top);
+      if (lstatQuiet(file)?.isSymbolicLink() === true) return false;
+      let d = dirname(file);
+      while (lstatQuiet(d) === null) {
+        if (d === top || dirname(d) === d) return false;
+        d = dirname(d);
+      }
+      const real = realpathSync(d);
+      return real === root || real.startsWith(`${root}${sep}`);
     } catch {
       return false;
     }
@@ -1007,7 +1033,7 @@ export class Backups {
         const file = join(dir, rel);
         if (id !== restoring && !existsSync(file)) continue;
         // A folder that resolves outside the tenant's dir (a symlink) is never streamed, and said.
-        if (existsSync(dirname(file)) && !this.insideTenant(id, file)) {
+        if (!this.insideTenant(id, file)) {
           this.hostEvent(id, "outside");
           continue;
         }
