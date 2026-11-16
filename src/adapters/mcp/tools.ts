@@ -709,7 +709,7 @@ const RECALL: ToolSpec = {
   summary:
     "Deliberate retrieval: a look you take on purpose, beyond the ambient reminding you already get. Three kinds of ask, one per call — a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
   admission:
-    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the whole of a memory you were shown only a line or an excerpt of. When the person asks what you know about them or a subject, search before answering: the wake holds only part of it. A question takes mode \"facts\" when you need what happened, who said it, when, and whether it still holds; mode \"meaning\" when you want how something went, how it felt, or what it adds up to — a person, a project, us.",
+    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the whole of a memory you were shown only a line or an excerpt of. When the person asks what you know about them or a subject, search, then answer from the search and the wake together, news included. A question takes mode \"facts\" when you need what happened, who said it, when, and whether it still holds; mode \"meaning\" when you want how something went, how it felt, or what it adds up to — a person, a project, us.",
   negativeExamples: [
     "Do NOT call it to check whether a memory exists before writing one — a duplicate is refused at the write, so the check costs a round trip and buys nothing.",
     "Do NOT call it with a handle you are guessing at: an unresolvable handle is answered as not-found, never as a fuzzy search over the store.",
@@ -1849,7 +1849,7 @@ export const CLAUDE_AI_WORDS: Readonly<
     summary:
       "Search your long-term memory on purpose: what you remember about the person, past conversations, a project, a plan, beyond what the wake brought. One kind of ask per call: a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
     admission:
-      'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. When the person asks what you know about them or a subject, search before answering: the wake holds only part of it. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
+      'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. When the person asks what you know about them or a subject, search, then answer from the search and the wake together, news included. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
   },
   // The words tool search matches on here lead (OL1b item 4): memory, status.
   status: {
