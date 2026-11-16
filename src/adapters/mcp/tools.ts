@@ -395,11 +395,15 @@ const TRAITS_PROPERTY = {
  * text; plain or quiet, default quiet, stored in the memory's meta). Since #818
  * the field may hold date words ("next Friday"), read from the field alone and
  * echoed back (`readAs`); one that cannot be read is dropped and said.
+ * The moved-or-cancelled line (2026-11-16, Mike's go; journal findings item
+ * 12): a chat saved a moved visit as a new memory beside the old one, so the
+ * old date stayed in "Coming up" and still fired. The carried date is said
+ * back in the reply's `reminder.carriedOver` (`server-args.ts#reminderEcho`).
  */
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    "A future date it should come back on: \"2026-10-15\", \"2026-10\", \"2026-10-20..2026-10-31\" or words like \"next Friday\". A past date is occurredOn; null drops it.",
+    "A future date it should come back on: \"2026-10-15\", \"2026-10\", \"2026-10-20..2026-10-31\" or words like \"next Friday\". A past date is occurredOn; null drops it. Moved or cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.",
 } as const;
 
 /**

@@ -908,3 +908,52 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     }
   });
 });
+
+// A DATED THING THAT MOVES OR IS CANCELLED (2026-11-16, journal findings item 12): the chat saved a
+// moved visit as a new memory beside the old one, so the old date stayed in "Coming up" and fired.
+// The eventDate field says to revise it instead, on every host's list, through each door; and a
+// revision that carries the old date says so in the entry's `reminder.carriedOver`.
+describe("a moved or cancelled date is a revision", () => {
+  const MOVED = "Moved or cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.";
+
+  test("the eventDate line is served on remember and session_end, over tools/list, on Claude Code, Desktop and claude.ai", async () => {
+    type Prop = { description?: string; items?: { properties: Record<string, Prop> } };
+    type Listed = { name: string; inputSchema: { properties: Record<string, Prop> } };
+    const doors: { host: string; client: string }[] = [
+      { host: "claude-code", client: "claude-code" },
+      { host: DESKTOP_HOST, client: "claude-ai" },
+      { host: CLAUDE_AI_HOST, client: "claude-ai" },
+    ];
+    for (const d of doors) {
+      const s = server(d.host);
+      const http = await serveHttp({ server: s });
+      closers.push(() => http.close());
+      await rpc(http.url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: d.client, version: "1.0" } });
+      expect(s.host).toBe(d.host);
+      const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: Listed[] }).tools;
+      const names = list.map((t) => t.name);
+      // Three different lists: claude.ai's alone has delete_memory; Claude Code's alone has no wake.
+      expect(names.includes("delete_memory")).toBe(d.host === CLAUDE_AI_HOST);
+      expect(names.includes("wake")).toBe(d.host !== "claude-code");
+      const remember = list.find((t) => t.name === "remember")?.inputSchema.properties;
+      const entry = list.find((t) => t.name === "session_end")?.inputSchema.properties["memories"]?.items?.properties;
+      expect(remember?.["eventDate"]?.description).toContain(MOVED);
+      expect(entry?.["eventDate"]?.description).toContain(MOVED);
+    }
+  });
+
+  test("through claude.ai's door: a session_end entry that moves the date, and one that leaves it out, say what was carried", async () => {
+    const { http } = await door(CLAUDE_AI_HOST, noon);
+    const session = String((await tool(http.url, "wake", {})).structured["session"]);
+    const visit = String((await tool(http.url, "remember", { session, kind: "fact", text: "Wren's sister visits on the sixteenth of October.", eventDate: "2026-10-16", remind: "plain" })).structured["id"]);
+    const moved = (await tool(http.url, "session_end", { session, memories: [{ text: "Wren's sister's visit moved to the twenty-second of October.", updates: visit, eventDate: "2026-10-22" }] })).structured;
+    const first = (moved["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>;
+    expect(first["stored"]).toBe(true);
+    expect(first["reminder"]).toMatchObject({ eventDate: "2026-10-22", remind: "plain", from: visit, carriedOver: ["remind"] });
+    // Left out, the old date carries, and the reply names it.
+    const kept = (await tool(http.url, "session_end", { session, memories: [{ text: "Wren's sister will bring the good bread when she visits.", updates: String(first["id"]) }] })).structured;
+    const second = (kept["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>;
+    expect(second["stored"]).toBe(true);
+    expect(second["reminder"]).toMatchObject({ eventDate: "2026-10-22", from: String(first["id"]), carriedOver: ["eventDate", "remind"] });
+  });
+});
