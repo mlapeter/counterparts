@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { happenedAlready } from "../src/core/counterpart-wake-news.js";
 import { arrivingTense } from "../src/core/self/briefing-delivery.js";
 import { FRAMING } from "../src/core/self/index.js";
 import { daySpan, shortRange } from "../src/core/time.js";
@@ -218,5 +219,62 @@ describe("the date words", () => {
     expect(arrivingTense(lane("- Aug 25 (due Oct 16–18) · x [mem_a]"), "2026-10-19", 100)).toBe(lane("- Aug 25 (was due yesterday, Oct 16–18) · x [mem_a]"));
     expect(arrivingTense(lane("- Aug 25 (due Oct 30–Nov 2) · x [mem_a]"), "2026-11-03", 100)).toBe(lane("- Aug 25 (was due yesterday, Oct 30–Nov 2) · x [mem_a]"));
     expect(arrivingTense(lane("- Aug 25 (due Oct 30–Nov 2) · x [mem_a]"), "2026-11-01", 100)).toBe(lane("- Aug 25 (due Oct 30–Nov 2) · x [mem_a]"));
+  });
+});
+
+const SAL = { novelty: null, relevance: 0.8, emotional: 0.8, predictive: 0.8 };
+
+/** A brain on a clock the test moves, in UTC. */
+function clocked(start: string): { c: Counterpart; on(stamp: string): void } {
+  let clock = Date.parse(start);
+  const c = Counterpart.open({ dir: mkdtempSync(join(dir, "store-")), timeZone: "UTC", now: () => clock });
+  open.push(c);
+  return { c, on: (stamp) => void (clock = Date.parse(stamp)) };
+}
+
+describe("overdue order: a range by its last day (review of #833)", () => {
+  test("a range 10-01..10-20 and a day 10-15, both overdue on 10-21: ordered by the day each became overdue, on both roads and the doors", () => {
+    const { c } = clocked("2026-10-21T12:00:00Z");
+    const put = (title: string, eventDate: string): string => c.store.put({ type: "memory", kind: "person", title, body: `${title}, as planned.`, learnedOn: "2026-08-25", eventDate, salience: SAL });
+    const range = put("Harbour survey", "2026-10-01..2026-10-20");
+    const day = put("Kiln repair", "2026-10-15");
+    // Newest overdue first: the range (overdue from 10-20), then the day (from 10-15).
+    c.store.setMeta(WAKE_SHAPE_KEY, "on");
+    expect(comingUp(wakeOn(c, "2026-10-21"))).toEqual(["Coming up:", `- 1 day overdue · Harbour survey [${range}]`, `- 6 days overdue · Kiln repair [${day}]`]);
+    expect(c.comingUp().overdue.map((x) => x.id)).toEqual([range, day]);
+    // The `still open` door and the composition: the oldest first, the day, then the range.
+    expect(c.stillOpen().comingUp.map((x) => x.id)).toEqual([day, range]);
+    c.store.setMeta(WAKE_SHAPE_KEY, "off");
+    const lines = comingUp(wakeOn(c, "2026-10-21"));
+    const at = (id: string): number => lines.findIndex((l) => l.includes(id));
+    expect(at(day)).toBeGreaterThan(0);
+    expect(at(day)).toBeLessThan(at(range));
+  });
+});
+
+describe("already happened: a range settles only once its last day has come (review of #833)", () => {
+  const item = (c: Counterpart, eventDate: string): string =>
+    c.store.put({ type: "memory", kind: "fact", title: "Seal Rock cabin trip", body: "Seal Rock cabin trip with the cousins.", status: "planned", eventDate, salience: SAL });
+  const done = (c: Counterpart): string =>
+    c.store.put({ type: "memory", kind: "fact", title: "Seal Rock cabin trip went well", body: "Seal Rock cabin trip went well, first day.", status: "done", salience: SAL });
+
+  test("a done memory written on its first day settles nothing until its last day", () => {
+    const { c, on } = clocked("2026-10-10T12:00:00Z");
+    const id = item(c, RANGE);
+    on("2026-10-16T18:00:00Z");
+    const d = done(c);
+    expect(happenedAlready(c.store, id, "2026-10-16")).toBeNull();
+    expect(happenedAlready(c.store, id, "2026-10-17")).toBeNull();
+    expect(happenedAlready(c.store, id, "2026-10-18")).toBe(d);
+    expect(happenedAlready(c.store, id, "2026-10-19")).toBe(d);
+  });
+
+  test("control: the same item dated as a day settles on its day, as before", () => {
+    const { c, on } = clocked("2026-10-10T12:00:00Z");
+    const id = item(c, DAY);
+    on("2026-10-16T18:00:00Z");
+    const d = done(c);
+    expect(happenedAlready(c.store, id, "2026-10-15")).toBeNull();
+    expect(happenedAlready(c.store, id, "2026-10-16")).toBe(d);
   });
 });

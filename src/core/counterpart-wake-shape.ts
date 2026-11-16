@@ -711,7 +711,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const again = ranked.filter((c) => retold.has(c.id));
     const folded = live.filter((c) => shownEarlier.has(c.id)).length;
     const rest = ranked.filter((c) => !c.plain);
-    const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
+    // Overdue by the day it became overdue: a range by its last day (2026-11-16).
+    const lastDue = (c: Cue): string => (c.due === null ? "null" : (daySpan(c.due)?.last ?? c.due));
+    const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => lastDue(y).localeCompare(lastDue(x)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
     const other = live.filter((c) => !saysHere(c));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;

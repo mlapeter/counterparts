@@ -1348,7 +1348,8 @@ export class Self {
           ...(due === "" ? {} : { due }),
           ...(h.every === undefined ? {} : { every: h.every }),
           ...(overdue ? { overdue: true as const } : {}),
-          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : due}${h.id}`,
+          // Overdue by the day it became overdue: a range by its last day (2026-11-16).
+          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : overdue ? (daySpan(due)?.last ?? due) : due}${h.id}`,
         });
       } catch {
         /* an item that will not read is left out */
@@ -4167,6 +4168,7 @@ export class Self {
     // a caller that names only the date is read by it.
     const today = at ?? this.store.today();
     const due = (h: HorizonItem): string => h.due?.trim() ?? "";
+    const lastDue = (h: HorizonItem): string => daySpan(due(h))?.last ?? due(h);
     // Listed: due today, a plain reminder due the day it is read
     // (`plainDue`), or no date to count it by. Past its date (`past`, or a
     // day before today) is counted as overdue, not listed (2026-10-16,
@@ -4182,7 +4184,8 @@ export class Self {
     // Until then every overdue item was a count with five bare ids.
     const lateAll = all.filter(late);
     const oldest = [...lateAll]
-      .sort((a, b) => (due(a) < due(b) ? -1 : due(a) > due(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      // By the day each became overdue: a range by its last day (2026-11-16).
+      .sort((a, b) => (lastDue(a) < lastDue(b) ? -1 : lastDue(a) > lastDue(b) ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, Math.max(0, this.tunables.COMING_UP_OVERDUE_LISTED));
     const oldestIds = new Set(oldest.map((h) => h.id));
     const listed = [...all.filter(now), ...oldest];

@@ -28,7 +28,7 @@ import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import { stemTerm } from "./store/stem.js";
 import type { MemoryRow, Store } from "./store/index.js";
 import { recurrenceOfRow } from "./store/shapes.js";
-import { addDays, isDay, localDate, stampDay, startOfLocalDay } from "./time.js";
+import { addDays, daySpan, isDay, localDate, stampDay, startOfLocalDay } from "./time.js";
 import { isTold } from "./told.js";
 
 /** One line of "Since the last night". */
@@ -196,15 +196,21 @@ function headOf(title: string): string | null {
  * worse than a stale one, so the date fences it too: only an item whose day is
  * the wake's (`at`) or before can have happened, and only by a done row written,
  * and saying it happened, no earlier than `HAPPENED_EARLY_DAYS` before that day
- * (the shop launched one day early). An item with no single day never settles.
+ * (the shop launched one day early). A range by its last day (2026-11-16); an
+ * item with no day or range never settles.
  */
 export function happenedAlready(store: Store, id: string, at: string, opts: { readonly open?: (row: MemoryRow) => boolean } = {}): string | null {
   try {
     const item = store.row(id);
     if (item === undefined || item.created_at === null || item.created_at === undefined || recurrenceOfRow(item) !== null) return null;
-    const due = typeof item.event_date === "string" ? stampDay(item.event_date.trim()) : "";
-    if (!isDay(due) || !isDay(at) || due > at) return null;
-    const earliest = addDays(due, -SHAPE.HAPPENED_EARLY_DAYS);
+    // A RANGE (2026-11-16) can have happened only once its LAST day is the
+    // wake's or before (it used to be cut to its first day, so a done row on
+    // day one settled the rest of it); a done row from its first day on, less
+    // the early days, still counts then. A day, or a stamp's day, as before.
+    const raw = typeof item.event_date === "string" ? item.event_date.trim() : "";
+    const span = daySpan(raw) ?? (isDay(stampDay(raw)) ? { first: stampDay(raw), last: stampDay(raw) } : null);
+    if (span === null || !isDay(at) || span.last > at) return null;
+    const earliest = addDays(span.first, -SHAPE.HAPPENED_EARLY_DAYS);
     const zone = store.zone();
     const name = nameOf(item);
     const want = stems(name);

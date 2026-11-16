@@ -730,6 +730,11 @@ repeat. Any weekly reminder hits this.
   to the composition; it reads the span's last day now, a one-day range included. A range is "near" at session start
   (`briefing-room.ts#nearDue`) from its lead through its last day, as a day item is through its day. Pinned in
   `test/range-coming-up.test.ts`, with a day item as the control on both roads.
+- **Review of #833:** overdue items sort by the day each became overdue, a range by its last day (the shaped wake, the
+  `coming up` door, the composition's oldest-overdue list, the `still open` door's sort key). `happenedAlready`
+  (`counterpart-wake-news.ts`) used to cut a range to its first day, so a done row on day one settled the rest of it; now a
+  range can have happened only once its last day is the wake's or before, and a done row from its first day (less the
+  early days) still counts then.
 - **Left as it was:** a month (`2026-10`) still takes no wake line on either road, nor in the `coming up` door (its own
   call; a month "due today" for thirty days is a different question from this gap). `plainDueOn` is still day-only, so a
   plain range is listed as an ordinary due-today line and doesn't lead the lane as a plain day reminder does.
