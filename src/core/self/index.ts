@@ -204,7 +204,7 @@ import { SELF_TUNABLES, withTunables } from "./tunables.js";
 import { craftBornDay, craftSince, projectFolder, threadPlace } from "./work.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
-import { isDay, yearOf } from "../time.js";
+import { daySpan, isDay, yearOf } from "../time.js";
 import { markWakeBehind } from "./behind.js";
 import { recordSetDowns, setDownsTouched } from "./set-down.js";
 import { PAGE_CORE_HEADING } from "./page.js";
@@ -1697,7 +1697,8 @@ export class Self {
       if (h.due === undefined || h.due.trim() === "") continue;
       const every = h.every?.trim() ?? "";
       // Past its date, it says how long (WK1, 2026-10-30): the line's age.
-      const pastDays = req.at === undefined ? null : daysBetween(h.due.trim(), req.at);
+      // A range's age runs from its last day (2026-11-16).
+      const pastDays = req.at === undefined ? null : daysBetween(daySpan(h.due.trim())?.last ?? h.due.trim(), req.at);
       const past = h.past === true || (h.today !== true && h.plainDue !== true && pastDays !== null && pastDays >= 1);
       dues.set(h.id, {
         due: h.due.trim(),

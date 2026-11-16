@@ -50,7 +50,7 @@
  */
 import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
-import { shortDay } from "../time.js";
+import { shortDay, shortRange } from "../time.js";
 import { cutPhrase } from "../types.js";
 import type { SelfTunables } from "./tunables.js";
 import type { Kept, RescueCtx, Rescued } from "./briefing-room.js";
@@ -1267,9 +1267,9 @@ export const DUE_PAST_WORD = "was due";
  */
 export const SHORT_DATES = true;
 
-/** A date as the wake's lines say it (`time.ts#shortDay`), under `SHORT_DATES`. */
+/** A date as the wake's lines say it (`time.ts#shortDay`), under `SHORT_DATES`; a range as its span, `Oct 16–18` (`time.ts#shortRange`, 2026-11-16). */
 function shortOrWhole(ymd: string, year: string | undefined): string {
-  return SHORT_DATES ? shortDay(ymd, year) : ymd;
+  return SHORT_DATES ? (shortRange(ymd, year) ?? shortDay(ymd, year)) : ymd;
 }
 
 export function datePrefix(r: Resolved): string {

@@ -58,7 +58,7 @@ import { readSentinel, settledOver } from "./self/index.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
 import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } from "./self/work.js";
-import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
+import { addDays, ageWords, daySpan, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
 import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS } from "./prospective/index.js";
@@ -716,11 +716,26 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const other = live.filter((c) => !saysHere(c));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
     const settlesWords = (c: Cue): string => (c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`);
-    const dueLine = (c: Cue): string => `- Due today · ${c.plain ? c.body : c.title}${settlesWords(c)} [${c.id}]`;
+    // A RANGE (2026-11-16) says its span: due today on each of its days,
+    // overdue counted from its last, and later by both ends.
+    const spanOf = (c: Cue): { first: string; last: string } | null => {
+      const s = c.due === null ? null : daySpan(c.due);
+      return s === null || s.first === s.last ? null : s;
+    };
+    const spanWords = (s: { first: string; last: string }): string => `${monthDay(s.first)}–${monthDay(s.last)}`;
+    const dueSpan = (c: Cue): string => {
+      const s = spanOf(c);
+      return s === null ? "" : ` (${spanWords(s)})`;
+    };
+    const dueLine = (c: Cue): string => `- Due today${dueSpan(c)} · ${c.plain ? c.body : c.title}${settlesWords(c)} [${c.id}]`;
     // Told in another session today: its title, not its whole body again (WK3).
-    const againLine = (c: Cue): string => `- Due today · ${c.title}${settlesWords(c)} [${c.id}]`;
-    const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
-    const laterLine = (c: Cue): string => `- ${c.due === null ? "Soon" : monthDay(c.due)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
+    const againLine = (c: Cue): string => `- Due today${dueSpan(c)} · ${c.title}${settlesWords(c)} [${c.id}]`;
+    const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(spanOf(c)?.last ?? c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
+    const laterWhen = (c: Cue): string => {
+      const s = spanOf(c);
+      return c.due === null ? "Soon" : s === null ? monthDay(c.due) : spanWords(s);
+    };
+    const laterLine = (c: Cue): string => `- ${laterWhen(c)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
     const order: { c: Cue; line: string }[] = [
       ...plain.map((c) => ({ c, line: dueLine(c) })),
       ...again.slice(0, SHAPE.RETOLD_SHOWN).map((c) => ({ c, line: againLine(c) })),
@@ -736,7 +751,12 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const namedParts = otherPlain.length === 0 ? [] : [...otherPlain.slice(0, PLAIN_OTHER_NAMED).map((c) => `${c.folder === null ? "elsewhere" : placeWords(c.folder, among)}: ${short(flatten(c.title))}`), ...(otherPlain.length > PLAIN_OTHER_NAMED ? [`and ${String(otherPlain.length - PLAIN_OTHER_NAMED)} more`] : [])];
     const namedOther = namedParts.join("; ");
     // Overdue is said in other folders' count too (WK3): a count, never their lines (SO1 step 3).
-    const oldestOf = (cs: readonly Cue[]): string | null => cs.reduce<string | null>((o, c) => (c.due !== null && isDay(c.due) && (o === null || c.due < o) ? c.due : o), null);
+    // A range is overdue from its last day (2026-11-16): the date it is oldest by.
+    const oldestOf = (cs: readonly Cue[]): string | null =>
+      cs.reduce<string | null>((o, c) => {
+        const d = spanOf(c)?.last ?? c.due;
+        return d !== null && isDay(d) && (o === null || d < o) ? d : o;
+      }, null);
     const otherLate = other.filter((c) => c.past);
     const otherOldest = oldestOf(otherLate);
     const otherLateWords = otherLate.length === 0 ? "" : `${String(otherLate.length)} overdue${otherOldest === null ? "" : `, oldest ${monthDay(otherOldest)}`}`;
