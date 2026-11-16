@@ -914,7 +914,7 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
 // The eventDate field says to revise it instead, on every host's list, through each door; and a
 // revision that carries the old date says so in the entry's `reminder.carriedOver`.
 describe("a moved or cancelled date is a revision", () => {
-  const MOVED = "Moved or cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.";
+  const MOVED = "If the dated thing moves or is cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.";
 
   test("the eventDate line is served on remember and session_end, over tools/list, on Claude Code, Desktop and claude.ai", async () => {
     type Prop = { description?: string; items?: { properties: Record<string, Prop> } };
@@ -955,5 +955,10 @@ describe("a moved or cancelled date is a revision", () => {
     const second = (kept["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>;
     expect(second["stored"]).toBe(true);
     expect(second["reminder"]).toMatchObject({ eventDate: "2026-10-22", from: String(first["id"]), carriedOver: ["eventDate", "remind"] });
+    // Cancelled: eventDate null on the revision clears it, and the reply says so.
+    const cancelled = (await tool(http.url, "session_end", { session, memories: [{ text: "Wren's sister cancelled the visit; she isn't coming in October.", updates: String(second["id"]), eventDate: null }] })).structured;
+    const third = (cancelled["outcomes"] as Record<string, unknown>[])[0] as Record<string, unknown>;
+    expect(third["stored"]).toBe(true);
+    expect(third["reminder"]).toMatchObject({ cleared: true });
   });
 });

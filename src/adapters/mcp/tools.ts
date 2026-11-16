@@ -403,7 +403,7 @@ const TRAITS_PROPERTY = {
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    "A future date it should come back on: \"2026-10-15\", \"2026-10\", \"2026-10-20..2026-10-31\" or words like \"next Friday\". A past date is occurredOn; null drops it. Moved or cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.",
+    "A future date it should come back on: \"2026-10-15\", \"2026-10\", \"2026-10-20..2026-10-31\" or words like \"next Friday\". A past date is occurredOn; null drops it. If the dated thing moves or is cancelled: `updates` with the old memory's id and the new date here (null to cancel), not a new memory beside it.",
 } as const;
 
 /**

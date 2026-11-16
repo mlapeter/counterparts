@@ -2347,3 +2347,15 @@ Starlite runs' day-7 "what do you know about me? not the project. me." the count
 from the wake alone and left out stored things (the old live recordings, Dolly, the flaky salt),
 while the built-in read its whole notes file.
 Recall's Claude Code description is now 4,071 of the 4,096 up-front cut: the next line added to recall has to make room first.
+
+## 2026-11-16 — a moved or cancelled date is a revision (eventDate field)
+
+One sentence at the end of `EVENT_DATE_PROPERTY`, which remember and every session_end entry
+share on all three hosts: "If the dated thing moves or is cancelled: `updates` with the old
+memory's id and the new date here (null to cancel), not a new memory beside it." From the living
+journal's months 10 and 11 (journal findings 3, item 12): a moved visit was saved as a new memory,
+so the old date stayed in "Coming up" and its reminder fired. tools/list grows by about 148 bytes
+per list (two copies); claude.ai is about 27.45K of 28.5K. The reply already names a carried
+date (`reminder.carriedOver`) and a cleared one (`reminder.cleared`). Known gap, not built:
+moving one occurrence of a repeating reminder with `updates` and a new date re-anchors the whole
+series (`recurring` carries over); UPDATES_TEXT covers "done this once", not "moved this once".
