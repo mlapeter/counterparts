@@ -3397,7 +3397,9 @@ vs, etc, e.g, i.e, a.m, p.m, after "No" only before a number, and after a lone c
 "I" ("J. Smith", not "FBI." or "so did I."). Case-sensitive, so "said no. Then" still ends. A
 decimal or a time ("9.30") never split: the rule wants a space after the stop. Every other
 sentence splits as before (`test/wake-first-sentence.test.ts` checks a corpus against the old
-rule). Not changed, same flaw: `handoff/#firstRealSentence` (the "Older handoffs" line) and
+rule). The cost, on every host: a sentence that really ends in one of these ("Supper at 6 p.m.
+Bring wine.", "Plan B. Then …") now runs on into the next, up to `UNTITLED_BYTES`. "J.K." with no
+space still splits. Not changed, same flaw: `handoff/#firstRealSentence` (the "Older handoffs" line) and
 `self/page.ts#firstSentence`.
 
 ## 2026-11-16 — a host that runs its own nights has no handoffs in its wake (journal finding 18)
@@ -3405,6 +3407,8 @@ rule). Not changed, same flaw: `handoff/#firstRealSentence` (the "Older handoffs
 `WakeHere.withoutHandoffs`: the shaped road reads no handoff (no "No handoff here", "Handoff, …",
 "Last handoff", older handoffs, or a sunk handoff as Still open's ask) and names no other open
 session ("Open here now"); "Since, here" and "Last here" stay, and a "Where this folder stands"
-with nothing under its head isn't printed. The assembled road's pointer (`pointerPlan`) reads no
-handoff either. Set by the MCP `wake` tool when `nights: "host"`; every other host's wake is as
-before.
+with nothing under its head isn't printed (a guard; no store measured reaches it, since a quiet
+folder still says "Nothing here since yesterday."). The assembled road's pointer (`pointerPlan`)
+reads no handoff either. Set by the MCP `wake` tool when `nights: "host"`; every other host's
+wake is as before. Not gated: the Since door's `recall "handoffs"` words, and the turn lane's
+own handoff read (`owedForTurn`).

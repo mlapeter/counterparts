@@ -405,7 +405,7 @@ describe("a host that runs its own nights has no handoffs in its wakes (2026-11-
     assert.ok(text.includes("counterparts:wake"), text);
   });
 
-  test("shaped, a fresh store: the default host says 'No handoff here'; nights: host doesn't, and leaves no empty section", async () => {
+  test("shaped, a fresh store: the default host says 'No handoff here'; nights: host doesn't, and keeps the section's other line", async () => {
     const fresh = async (extra: Partial<AppOptions>, value: string): Promise<string> => {
       const r = await rig({ wakeBudgetBytes: 9_000, ...extra });
       const storeId = r.app.accounts.signUpWithIdentity({ kind: "apple", value }).storeId!;
@@ -415,7 +415,8 @@ describe("a host that runs its own nights has no handoffs in its wakes (2026-11-
     assert.ok((await fresh({}, "invented-fresh-default")).includes("No handoff here. Leave one with session_end's handoff field when you stop."));
     const text = await fresh({ nights: "host" }, "invented-fresh-host");
     for (const w of HANDOFF_WORDS) assert.ok(!text.includes(w), `${w}\n${text}`);
-    assert.ok(!`${text}\n\n`.includes("Where this folder stands:\n\n"), text);
+    // What's left of the section is what isn't a handoff's.
+    assert.ok(text.includes("Where this folder stands:\nNothing here since yesterday.\n\n"), text);
   });
 
   test("assembled, default host: the handoff is there", async () => {
