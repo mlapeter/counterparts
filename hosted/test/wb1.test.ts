@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { scriptArgs } from "../../src/adapters/runtime.js";
+import { openDb } from "../../src/core/store/db.js";
 import { Accounts } from "../src/accounts.js";
 import { createApp } from "../src/app.js";
 import type { AppBackupOptions } from "../src/app.js";
@@ -443,6 +444,47 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     assert.match(await restored.stop(), /restored the control databases: 2 restored/);
     const back = new Accounts({ path: join(o.dataRoot, "control", "accounts.sqlite") });
     assert.deepEqual(back.liveStoreIds().sort(), live);
+    back.close();
+  });
+
+  test("a server database (HOSTED_SERVER_DATABASES) follows control through a re-key: replicated and proven at the new base under the new key, nothing left at control/host/ under the old one, and a lost volume's RESTORE_ON_BOOT brings it back", async () => {
+    const o = await oldShape();
+    const AUTH = "journal/auth.sqlite";
+    mkdirSync(join(o.dataRoot, "journal"), { recursive: true });
+    const db = openDb(join(o.dataRoot, AUTH), { wal: true });
+    db.exec("CREATE TABLE owed (token TEXT NOT NULL)");
+    db.run("INSERT INTO owed (token) VALUES (?)", "a revocation owed to Apple");
+    db.close();
+    const server = { HOSTED_SERVER_DATABASES: AUTH };
+    // Served once under the old control key (no sidecar uploads here: what it would have put is put by hand, as `replicas` does).
+    const withRing = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText, ...server }));
+    assert.ok(withRing.up, withRing.stderr());
+    await withRing.stop();
+    assert.match(readFileSync(join(o.dataRoot, "litestream.yml"), "utf8"), /path: "control\/host\/journal\/auth\.sqlite"/);
+    const oldSse = readFileSync(join(o.dataRoot, "control", "litestream.key"), "utf8").trim();
+    const put = await fetch(`${o.s3.base}/bkt/control/host/journal/auth.sqlite/0000/0000000000000001-0000000000000001.ltx`, { method: "PUT", body: "ltx", headers: { "x-amz-server-side-encryption-customer-algorithm": "AES256", "x-amz-server-side-encryption-customer-key": oldSse } });
+    assert.ok(put.ok);
+
+    const run = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText, ...server }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.equal(run.status, 0, run.stderr + run.stdout);
+    const keys = keysOf(o.dataRoot);
+    const control = await keys.dek(CONTROL_KEY_ID);
+    const base = `control/${keyIdOf(control)}/`;
+    keys.close();
+    assert.ok([...o.s3.objects.keys()].some((k) => k.startsWith(`${base}host/journal/auth.sqlite/`)), "replicated (and proven) at the new base");
+    assert.deepEqual([...o.s3.objects.keys()].filter((k) => k.startsWith("control/host/")), [], "nothing left under the old key's base");
+    const oldMd5 = createHash("md5").update(Buffer.from(litestreamKey(o.deks.get(CONTROL_KEY_ID)!), "base64")).digest("base64");
+    assert.ok([...o.s3.objects.values()].every((v) => v.keyMd5 !== oldMd5), "nothing in the bucket is under the old control SSE-C key");
+
+    // The volume lost: recover-keys, then RESTORE_ON_BOOT brings it back from the new base.
+    rmSync(o.dataRoot, { recursive: true, force: true });
+    const rec = await cli(envOf(o.s3, o.dataRoot, o.port, server), ["recover-keys"], `${RECOVERY.privateText}\n`);
+    assert.equal(rec.status, 0, rec.stderr + rec.stdout);
+    const restored = await spawnServe(envOf(o.s3, o.dataRoot, o.port, { RESTORE_ON_BOOT: "1", ...server }));
+    assert.ok(restored.up, restored.stderr());
+    assert.match(await restored.stop(), /restored the control databases: 2 restored, 0 already here; server databases: 1 restored/);
+    const back = openDb(join(o.dataRoot, AUTH));
+    assert.deepEqual(back.all<{ token: string }>("SELECT token FROM owed"), [{ token: "a revocation owed to Apple" }]);
     back.close();
   });
 
