@@ -608,3 +608,40 @@ the fallback `self.assemble` returns null while the published bundle's ceiling d
 reported budget (self/index.ts ~1427). A budget other than 9,000 therefore serves the published
 bundle until the worker republishes at the new size. New stores have the shape on, so they compose
 fresh from the first wake. Since review: the budget must be a whole number, 1,000 or more.
+
+## 2026-11-16 — a host's own per-tenant databases are backed up (`backup.tenantDatabases`)
+
+Journal findings item 15: the journal keeps each person's words in `<tenant>/app/app.sqlite`, which no backup covered.
+
+- **Inside the store's prefix, under `host/`.** Delete, `objectsLeft` and `recover-keys`' replica proof read
+  `tenants/<id>/` whole, so the product's replica rides each of them with no new code; start-over reads only the
+  store's own objects (not `host/`), so a product-only replica doesn't wedge it. `host` is a fixed segment that is
+  not 4-hex: Litestream 0.5 puts the store's own LTX files at `tenants/<id>/<4 hex level>/`, and a product path such
+  as `0001/x.sqlite` would otherwise sit among them. Unproven against the real binary: that Litestream 0.5.17's
+  retention and `-if-replica-exists` on the store's path ignore a sibling `host/` tree. The stand-in can't show it;
+  the real-binary drill should, before any deploy.
+- **Pick-up is `Backups.refresh()`**, not `ensureStore`: the product makes its file after sign-up, so a write at
+  sign-up alone would wait for someone else's sign-up or a restart. `refresh` compares the generated text with the
+  file on disk and reloads only on a change (a reload restarts the Litestream child for every store), and does
+  nothing until start-up has released its hold. The finish timer calls it (a failure is `backup.refresh.failed`), so
+  the worst case without the product's call is one tick.
+- **Restore never touches a host file that is there** (the #834 review, B1, reproduced): the journal makes
+  `app.sqlite` at sign-up, before the store's file exists, so a never-opened store is in `missingStores()` and
+  RESTORE_ON_BOOT used to set the live journal aside and put the bucket's older copy in its place (the sweep then
+  deleted the live one a day later). The same for an opened store that lost only its own file while the product kept
+  writing. Now only missing host files come back; one in place is `kept`. Only `--force` moves one aside, and says
+  so (`backup.host.set-aside`, audited and logged by tag). The store's file still lands last, so a cut-short restore
+  leaves the store waiting. A store waiting for a restore is left out of the configuration with its host files, so
+  an empty journal made meanwhile is never streamed; but the restore keeps it too, so the product should check
+  `app.storeWaiting(storeId)` before making its file.
+- **A folder that resolves outside the tenant's dir** (a symlink) is neither listed nor restored, and said once per
+  store and process (`backup.host.outside`). Names compare case-insensitively (`Store/` is `store/` on macOS).
+- **Not covered: a host file lost while its store's file stayed.** Nothing records that it existed, so the product
+  makes it empty and it is listed and streamed to the same replica path. Litestream 0.5.17 snapshots a database
+  that is behind its replica (db.go ~1589 / ~1767), so the replica's LATEST state becomes the empty file: a plain
+  `restore` (even `--force`) brings back the empty one. Only a point-in-time restore from before the loss, within
+  the 12 h retention, recovers it: `docs/hosted/RUNBOOK.md`, "A product's database lost while its store stayed".
+  There is no command for it yet; by hand.
+- The restore counts in `app.start()`, its `store.restored` audit (`1`, `host`, `0`) and the CLI are per store; a
+  store where only a host file came back is not opened and is counted apart ("with only a product database back").
+  With the option unset they are the same as before.

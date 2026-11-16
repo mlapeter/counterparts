@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -137,6 +137,14 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
   if (endpoint === undefined || !/^https:\/\/[^/]+$/.test(endpoint) || bucket === undefined || bucket.length === 0 || accessKeyId === undefined || secretAccessKey === undefined) {
     return { refusal: "refused: set R2_ENDPOINT (https, no path), R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY (or BACKUPS=off for a local run)." };
   }
+  // A host's own per-tenant databases (`AppBackupOptions.tenantDatabases`), comma-separated, so
+  // `restore` (and a serve) run from here cover them too. Unset: none.
+  const listed = (env["HOSTED_TENANT_DATABASES"] ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  try {
+    tenantDatabasePaths(listed);
+  } catch (err) {
+    return { refusal: `refused: HOSTED_TENANT_DATABASES: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const configPath = `${dataRoot}/litestream.yml`;
   const sidecar = new LitestreamSidecar({
     binary: litestreamBinary(env),
@@ -144,7 +152,7 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
     env: litestreamEnv(env, accessKeyId, secretAccessKey),
     onEvent: (name) => process.stderr.write(`[hosted] ${name}\n`),
   });
-  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar };
+  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar, ...(listed.length === 0 ? {} : { tenantDatabases: listed }) };
 }
 
 const litestreamBinary = (env: Record<string, string | undefined>): string => env["LITESTREAM_BIN"] ?? "litestream";
@@ -187,9 +195,19 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
     if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
     // A store set to be deleted (R6) is left as it is (the #659 re-check): kept, it can be started over then.
     if (accounts.storeLocked(storeId)) throw new Error("that store is set to be deleted: start it over only if its person keeps it");
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
-    if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
+    // The store's OWN replica only: a host database's (`tenants/<id>/host/…`, `tenantDatabasePrefix`) is the product's, and stays.
+    const own = (await backup.objects.list(replicaPrefix(storeId))).filter((k) => !k.startsWith(`${replicaPrefix(storeId)}${TENANT_DATABASES_BASE}/`));
+    if (own.length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
+    // A product's database missing here with a replica in the bucket would start over without it: brought back first.
+    const dbs = backups.dbPaths(storeId);
+    for (const [i, rel] of backups.tenantDatabases.entries()) {
+      if (existsSync(dbs[i + 1]!)) continue;
+      if ((await backup.objects.list(tenantDatabasePrefix(storeId, rel))).length > 0) {
+        throw new Error(`the bucket has a replica of its ${rel}, which is missing here: run restore <id> first so it comes back (the store's own file stays missing; then start-over)`);
+      }
+    }
     // A deleted store is never started over (the #653 re-review, N3): the next start finishes its delete.
     if ((await backup.objects.get(tombstoneObject(storeId))) !== null) throw new Error("the bucket has its tombstone: it was deleted, and the next start finishes the delete");
     accounts.clearOpened(storeId);
@@ -219,12 +237,19 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
   const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id),
+      // `--force` moved a product's database aside, or one's folder resolves outside its tenant's dir: said, by tag, and audited.
+      onHostDatabase: (id, what) => {
+        accounts.audit(accounts.personOfStore(id), id, `backup.host.${what}`, null);
+        lines.push(`store ${storeTag(id)}: ${what === "set-aside" ? "a product database in place was moved aside (*.pre-restore-*, swept after a day) and replaced by the bucket's" : "a product database's folder resolves outside its tenant's dir: not restored"}`);
+      },
+    });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
     let restored = 0;
     let empty = 0;
+    let hostOnly = 0;
     let failed = 0;
     const deleted = new Set(await backups.tombstoned());
     for (const id of ids) {
@@ -235,12 +260,16 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
       }
       try {
         const r = await backups.restore(id, run, { force });
-        if (r.restored > 0) {
+        // The STORE'S file landed, not only a host database (an empty store replica beside a host one): only then is it opened.
+        const landed = r.restored > 0 && existsSync(backups.dbPaths(id)[0]!);
+        if (landed) {
           accounts.markOpened(id);
           if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
         }
-        restored += r.restored;
-        empty += r.empty;
+        // Stores, not files (a host's own databases come back with their store).
+        if (landed) restored += 1;
+        else if (r.restored > 0) hostOnly += 1;
+        else if (r.empty > 0) empty += 1;
       } catch (err) {
         failed += 1;
         // A tag, not the id (the #653 review, L5): matchable against the audit by whoever has the id, nothing more.
@@ -249,7 +278,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
         lines.push(`store ${storeTag(id)}: ${message.split(id).join(storeTag(id))}`);
       }
     }
-    lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(failed)} failed, ${String(live.length - ids.length)} already here`);
+    lines.push(`stores: ${String(restored)} restored, ${hostOnly > 0 ? `${String(hostOnly)} with only a product database back, ` : ""}${String(empty)} with no backup yet, ${String(failed)} failed, ${String(live.length - ids.length)} already here`);
     return { text: lines.join("\n"), failed };
   } finally {
     await tenants.closeAll();
@@ -309,6 +338,9 @@ export function eventLine(name: string, store: string): string {
   if (name === "removal.overdue") return `[hosted] ${name} storeTag=${store}: a memory deleted in chat is overdue: more than 48 h past its erase, or claimed by an erase that didn't finish (it keeps failing, or the timer never reached it). It stays hidden; the audit has removal.failed. Said once per hold\n`;
   if (name === "delete.mail.failed") return `[hosted] ${name} storeTag=${store}: a delete's email (R9) didn't send. The delete stands; the person saw its page. The audit has it\n`;
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
+  if (name === "backup.host.set-aside") return `[hosted] ${name} storeTag=${store}: a forced restore moved a product database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The audit has it\n`;
+  if (name === "backup.host.outside") return `[hosted] ${name} storeTag=${store}: a product database's folder resolves outside its tenant's dir (a symlink): it is NOT backed up or restored. Said once per start\n`;
+  if (name === "backup.refresh.failed") return `[hosted] ${name}: regenerating litestream.yml for the products' databases failed this tick; the next tick tries again\n`;
   if (name.startsWith("backup.keyless.")) {
     const reason = name.slice("backup.keyless.".length) as KeylessReason;
     return `[hosted] backup.keyless storeTag=${store} reason=${reason}: this store is NOT backed up, and no key was made: ${KEYLESS_WORDS[reason]}\n`;

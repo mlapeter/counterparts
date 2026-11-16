@@ -151,7 +151,7 @@ export async function migrateKeys(
   try {
     const live = accounts.liveStoreIds();
     const deleted = new Set(accounts.deletedStoreIds());
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => live });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => live });
     const unreadable = await keys.unreadable();
     if (unreadable.length > 0) {
       throw new Error(`${String(unreadable.length)} keys in keys/keys.sqlite don't open with ${KEK_ENV} and keys/volume.kek: set ${KEK_ENV} as it was before WB1 (every version) and run migrate-keys again. Nothing was written`);

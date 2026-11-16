@@ -34,7 +34,7 @@ import { createApp, restoreControl } from "../src/app.js";
 import { openDb } from "../../src/core/store/db.js";
 import type { App, AppBackupOptions } from "../src/app.js";
 import { Accounts } from "../src/accounts.js";
-import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, WATCHED_REPLICA, keyObject, litestreamRunner, maxTxid, replicaPrefix, tombstoneObject } from "../src/backup.js";
+import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, WATCHED_REPLICA, keyObject, litestreamRunner, maxTxid, replicaPrefix, tenantDatabasePrefix, tombstoneObject } from "../src/backup.js";
 import type { UploadsEvent } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore, VolumeKeyWrapper, litestreamKey } from "../src/keys.js";
@@ -345,6 +345,51 @@ describe("the restore drill, through the door", () => {
     const session = String((await tool(`${b.origin}/mcp`, "wake", {}, bearer(who.access)))["session"]);
     const back = await rpc(`${b.origin}/mcp`, "tools/call", { name: "recall", arguments: { session, question: "spare key blue pot", mode: "facts" } }, bearer(who.access));
     assert.match(JSON.stringify(back.body), /spare key is under the blue pot/);
+  });
+
+  test("a host's own database (backup.tenantDatabases): streamed under the store's key inside its prefix, lost with the volume, back with RESTORE_ON_BOOT beside the store", async () => {
+    const s3 = await s3StandIn();
+    const bin = standinBinary();
+    const run = litestreamRunner(bin, litestreamEnv());
+    const ring = new Map([["v1", randomBytes(32)]]);
+    const dataRoot = join(tmp.root, "volume");
+    const journal = "app/app.sqlite";
+    const withJournal = (sidecar: LitestreamSidecar | null): AppBackupOptions => ({ ...backupOptions(s3, ring, sidecar), tenantDatabases: [journal] });
+    const a = (await rig({ dataRoot, backup: withJournal(sidecarFor(dataRoot, bin)) })) as Rig & { port: number; close: () => Promise<void> };
+    const who = await connect(a, "journal-drill@example.com");
+    const woke = await tool(`${a.origin}/mcp`, "wake", {}, bearer(who.access));
+    await tool(`${a.origin}/mcp`, "remember", { session: String(woke["session"]), text: "The store's words: the ladder is in the shed." }, bearer(who.access));
+    // The product makes its own database after sign-up, and tells hosted (`Backups.refresh`).
+    const tenant = tenantDir(join(dataRoot, "tenants"), who.storeId);
+    mkdirSync(join(tenant, "app"), { recursive: true });
+    const db = openDb(join(tenant, journal), { wal: true });
+    db.exec("CREATE TABLE entries (text TEXT NOT NULL)");
+    db.run("INSERT INTO entries (text) VALUES (?)", "Journal entry: the plum tree flowered today.");
+    db.close();
+    assert.equal(await a.app.backups!.refresh(), true);
+    await replicatedText(s3.objects, tenantDatabasePrefix(who.storeId, journal), "the plum tree flowered today");
+    await replicatedText(s3.objects, replicaPrefix(who.storeId), "the ladder is in the shed");
+    // Under the store's own SSE-C key: every object of the journal's replica, the same key as the store's.
+    const md5 = createHash("md5").update(Buffer.from(litestreamKey(await a.app.keys!.dek(who.storeId)), "base64")).digest("base64");
+    const journalObjects = [...s3.objects.entries()].filter(([k]) => k.startsWith(tenantDatabasePrefix(who.storeId, journal)));
+    assert.ok(journalObjects.length > 0);
+    for (const [, v] of journalObjects) assert.equal(v.keyMd5, md5);
+    await a.close();
+
+    // The tenant's whole folder lost; the volume's keys kept. RESTORE_ON_BOOT brings back both.
+    rmSync(tenant, { recursive: true, force: true });
+    const b = (await rig({ dataRoot, port: a.port, backup: withJournal(null), start: false })) as Rig & { port: number; close: () => Promise<void> };
+    const report = await b.app.start({ restore: run });
+    assert.equal(report.restored, 1, "one store (its two files)");
+    assert.equal(report.needsRestore, 0);
+    const back = openDb(join(tenant, journal), { wal: true });
+    assert.deepEqual(back.all<{ text: string }>("SELECT text FROM entries").map((row) => row.text), ["Journal entry: the plum tree flowered today."]);
+    back.close();
+    // And listed again in the configuration the sidecar runs on.
+    assert.match(readFileSync(join(dataRoot, "litestream.yml"), "utf8"), new RegExp(`tenants/${who.storeId}/host/app/app\\.sqlite`));
+    const session = String((await tool(`${b.origin}/mcp`, "wake", {}, bearer(who.access)))["session"]);
+    const recalled = await rpc(`${b.origin}/mcp`, "tools/call", { name: "recall", arguments: { session, question: "ladder shed", mode: "facts" } }, bearer(who.access));
+    assert.match(JSON.stringify(recalled.body), /ladder is in the shed/);
   });
 
   test("restoreControl alone: the accounts and OAuth databases, under the control key recover-keys brought back from the bucket", async () => {

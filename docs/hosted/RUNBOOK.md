@@ -333,6 +333,14 @@ above is the tested path.
 What the bucket holds:
 
 - every store's database, under that store's own SSE-C key;
+- when a product built on `createApp` names its own per-tenant databases (`backup.tenantDatabases`, or
+  `HOSTED_TENANT_DATABASES=app/app.sqlite` for `main.ts`; the living journal's `app/app.sqlite`), each of those
+  too, under the same store's key, at `tenants/<storeId>/host/<path>/`. Those that are missing are restored with
+  their store (the store's file last); one that is on the volume is **never replaced** unless `--force` (it may be
+  live), and `--force` sets it aside and says so (`backup.host.set-aside`). A delete removes them with the store.
+  Run `main.ts restore` with the same `HOSTED_TENANT_DATABASES` the server has, or it restores the store's file
+  only. A product file lost while its store's file stayed needs the point-in-time steps below;
+
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
 - each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the
   server can write these and never read them back. (Before WB1: `keys/<storeId>.wrapped`, under `HOSTED_KEKS`.)
@@ -416,6 +424,34 @@ It refuses a store whose account is set to be deleted: if its person keeps it, s
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>
 ```
+
+### A product's database lost while its store stayed (point in time, by hand)
+
+For a product that names `tenantDatabases` (the journal's `app/app.sqlite`). If that file is lost while the store's
+own file stays, the product makes it again, empty. The sidecar streams the empty file, and Litestream 0.5.17
+snapshots a database that is behind its replica, so the bucket's latest state becomes the empty file. A plain
+`restore`, even `--force`, brings back the empty one. **Only a restore to a time before the loss works, and only
+within the 12 h snapshot retention.** Do it the same day. There is no command for it yet. By hand, on the server
+(`railway ssh`), with `<id>` the store id:
+
+```sh
+T="$HOSTED_DATA_ROOT/tenants/<id>"
+# 1. When was it lost? The new file's birth time (or the product's log). Pick a UTC time a little before it.
+stat "$T/app/app.sqlite"
+# 2. A copy from that time, beside the live file (safe while the server runs; it writes only the -o file):
+LITESTREAM_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" LITESTREAM_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+  litestream restore -config "$HOSTED_DATA_ROOT/litestream.yml" -timestamp 2026-11-16T09:55:00Z \
+  -o "$T/app/app.sqlite.pit" "$T/app/app.sqlite"
+# 3. Check the copy holds the person's entries (sqlite3 if the image has it, or copy it out and look).
+# 4. Stop the server. Move the empty file aside, put the copy in its place, drop Litestream's position for it:
+mv "$T/app/app.sqlite" "$T/app/app.sqlite.empty"; rm -f "$T/app/app.sqlite-wal" "$T/app/app.sqlite-shm"
+mv "$T/app/app.sqlite.pit" "$T/app/app.sqlite"
+rm -rf "$T/litestream-meta-host/app/app.sqlite"
+# 5. Start the server. Remove app.sqlite.empty once the person's words are back.
+```
+
+The products' own check comes before all of this: a product should ask `app.storeWaiting(storeId)` before it makes
+its file, and never make one for a store that is waiting.
 
 ### By hand (a local copy, or the drill), with the server stopped
 
