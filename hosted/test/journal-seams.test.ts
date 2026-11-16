@@ -21,6 +21,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
 import { CLAUDE_AI_NIGHT_SAID } from "../../src/adapters/mcp/server-words.js";
+import { Counterpart } from "../../src/core/counterpart.js";
+import { PUBLISHED_WORDS } from "../../src/core/self/briefing-delivery.js";
 import type { McpServer } from "../../src/adapters/mcp/index.js";
 import { addDays } from "../../src/core/time.js";
 import { TOLD_SURFACE_KEY } from "../../src/core/told.js";
@@ -253,5 +255,95 @@ describe("the morning share, as the product wants it (2026-11-13)", () => {
     const config = JSON.parse(readFileSync(join(tmp.root, "data", "tenants", signed.storeId!, "config.json"), "utf8")) as Record<string, unknown>;
     assert.equal(config["shares"], undefined);
     assert.equal(config["sharesPerWeek"], undefined);
+  });
+});
+
+describe("a host's evening session and its wakes (2026-11-16)", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  /** The evening: a wake, a memory, then the store's clock past the 4-hour default (7 hours, ~03:00). */
+  async function evening(r: Rig, value: string): Promise<{ storeId: string; session: string }> {
+    const signed = r.app.accounts.signUpWithIdentity({ kind: "apple", value });
+    const storeId = signed.storeId!;
+    const wake = await call(r.app, storeId, "wake", {});
+    assert.equal(wake.isError, false, wake.text);
+    const session = String(wake.out["session"]);
+    const kept = await call(r.app, storeId, "remember", { session, text: "Wren moved the seed swap to Saturday." });
+    assert.equal(kept.isError, false, kept.text);
+    r.storeClock.at += 7 * HOUR;
+    return { storeId, session };
+  }
+
+  const close = (r: Rig, storeId: string, session: string): Promise<Answer> =>
+    call(r.app, storeId, "session_end", { session, memories: [], handoff: "The seed swap moved to Saturday." });
+
+  test("absent: a close naming the evening's session 7 hours on is refused session-not-live, as today", async () => {
+    const r = await rig({ nights: "host" });
+    const { storeId, session } = await evening(r, "invented-ttl-default");
+    const ended = await close(r, storeId, session);
+    assert.equal(ended.out["reason"], "session-not-live", ended.text);
+  });
+
+  test("sessionTtlMs: the same close 7 hours on is not refused", async () => {
+    const r = await rig({ nights: "host", sessionTtlMs: 36 * HOUR });
+    const { storeId, session } = await evening(r, "invented-ttl-long");
+    const ended = await close(r, storeId, session);
+    assert.equal(ended.isError, false, ended.text);
+    assert.notEqual(ended.out["reason"], "session-not-live", ended.text);
+    assert.equal(ended.out["sessionRefused"], undefined, ended.text);
+  });
+
+  /**
+   * A bundle published as the worker child publishes one (its own counterpart,
+   * a budget of its own), with the store's handle closed around it, so the
+   * server that wakes next holds no budget it was not given.
+   */
+  async function published(r: Rig, storeId: string): Promise<void> {
+    await r.app.tenants.withTenant(storeId, { timeZone: "UTC" }, async () => undefined);
+    await r.app.tenants.closeAll();
+    const worker = Counterpart.open({ dir: join(tmp.root, "data", "tenants", storeId, "store"), timeZone: "UTC", now: () => r.storeClock.at });
+    try {
+      const out = worker.refreshWake({ budgetBytes: 9_000, trigger: "run-end" });
+      assert.equal(out.reason, "rendered");
+    } finally {
+      worker.close();
+    }
+  }
+
+  const wakes = async (r: Rig, storeId: string): Promise<{ texts: string[]; assembled: number }> => {
+    const texts = [(await call(r.app, storeId, "wake", {})).text, (await call(r.app, storeId, "wake", {})).text];
+    // Composed for this moment: by the wake's shape (WK2) when it is on, by `assembleWake` when it is not.
+    const assembled = await r.app.tenants.withTenant(storeId, {}, async (_t, s) => s.counterpart.events().filter((e) => e.name === "counterpart.wake.shaped" || e.name === "counterpart.wake.assembled").length);
+    return { texts, assembled };
+  };
+
+  test("absent: no key in config.json, and both wakes are the bundle as published", async () => {
+    const r = await rig({ nights: "host" });
+    const storeId = r.app.accounts.signUpWithIdentity({ kind: "apple", value: "invented-budget-default" }).storeId!;
+    await published(r, storeId);
+    const config = JSON.parse(readFileSync(join(tmp.root, "data", "tenants", storeId, "config.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(config["injectionBudgetBytes"], undefined);
+    const { texts, assembled } = await wakes(r, storeId);
+    for (const text of texts) assert.ok(text.includes(PUBLISHED_WORDS), text.slice(0, 400));
+    assert.equal(assembled, 0);
+  });
+
+  test("wakeBudgetBytes: written to config.json, and every wake, the first one in the process too, is assembled at session start", async () => {
+    const r = await rig({ nights: "host", wakeBudgetBytes: 9_000 });
+    const storeId = r.app.accounts.signUpWithIdentity({ kind: "apple", value: "invented-budget" }).storeId!;
+    await published(r, storeId);
+    const config = JSON.parse(readFileSync(join(tmp.root, "data", "tenants", storeId, "config.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(config["injectionBudgetBytes"], 9_000);
+    const { texts, assembled } = await wakes(r, storeId);
+    for (const text of texts) assert.ok(!text.includes(PUBLISHED_WORDS), text.slice(0, 400));
+    assert.equal(assembled, 2);
+  });
+
+  test("a bad number is refused at createApp", () => {
+    for (const bad of [{ sessionTtlMs: 0 }, { wakeBudgetBytes: -1 }, { wakeBudgetBytes: Number.NaN }]) {
+      assert.throws(() =>
+        createApp({ dataRoot: join(tmp.root, "bad"), publicOrigin: "http://127.0.0.1:1", mailer: memoryMailer(), embedder: null, spawner: () => ({ pid: 1 }), ...bad }),
+      );
+    }
   });
 });

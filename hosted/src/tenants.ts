@@ -140,6 +140,24 @@ export interface TenantsOptions {
    */
   readonly shares?: "on" | "off";
   readonly sharesPerWeek?: number;
+  /**
+   * How long a chat's session stays live after its last boundary
+   * (`McpServerOptions.sessionTtlMs`, 2026-11-16): a host that runs its own
+   * nights hours after the evening (the living journal, ~03:00) names the
+   * evening's session past the 4-hour default (`sessions.ts#SESSION_TTL_MS`).
+   * Only the store's server reads it. Absent: 4 hours (claude.ai's).
+   */
+  readonly sessionTtlMs?: number;
+  /**
+   * The wake's budget, in bytes (2026-11-16, opt-in): written into each
+   * store's `config.json` as `injectionBudgetBytes`, so the store's `wake`
+   * reports it and every wake is assembled at session start instead of
+   * delivered as the bundle the last boundary published. The worker child
+   * reads the same key, so it also sizes the bundle the worker publishes (its
+   * default is `config.ts#CLAUDE_CODE_BUDGET_BYTES`, 9,000). Absent: no key,
+   * and claude.ai's wakes are delivered as published, as before.
+   */
+  readonly wakeBudgetBytes?: number;
 }
 
 /** A store whose account is set to be deleted: kept as it was, and never opened (`TenantsOptions.locked`). */
@@ -237,6 +255,11 @@ export class Tenants {
 
   constructor(opts: TenantsOptions) {
     this.root = resolve(opts.root);
+    // A bad number here would reach every store: a config.json the worker
+    // reads as unreadable, or a session that is never (or always) live.
+    for (const [name, v] of [["sessionTtlMs", opts.sessionTtlMs], ["wakeBudgetBytes", opts.wakeBudgetBytes]] as const) {
+      if (v !== undefined && (!Number.isFinite(v) || v <= 0)) throw new Error(`${name} must be a positive number`);
+    }
     this.opts = opts;
     this.spawner = opts.spawner ?? workerPool({ max: DEFAULT_MAX_WORKERS });
     this.now = opts.now ?? ((): number => Date.now());
@@ -393,6 +416,7 @@ export class Tenants {
       snapshots: { daily: false },
       ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
       ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
+      ...(this.opts.wakeBudgetBytes === undefined ? {} : { injectionBudgetBytes: this.opts.wakeBudgetBytes }),
     };
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
     chmodSync(configPath, 0o600);
@@ -418,6 +442,7 @@ export class Tenants {
       },
       ...(this.opts.storeClock === undefined ? {} : { now: this.opts.storeClock, storeNow: this.opts.storeClock }),
       ...(this.opts.nights === undefined ? {} : { nights: this.opts.nights }),
+      ...(this.opts.sessionTtlMs === undefined ? {} : { sessionTtlMs: this.opts.sessionTtlMs }),
       ...(this.opts.shares === undefined ? {} : { shares: this.opts.shares }),
       ...(this.opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: this.opts.sharesPerWeek }),
       lifecycle: {
