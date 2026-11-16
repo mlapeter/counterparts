@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tenantDatabasePaths, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -137,6 +137,14 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
   if (endpoint === undefined || !/^https:\/\/[^/]+$/.test(endpoint) || bucket === undefined || bucket.length === 0 || accessKeyId === undefined || secretAccessKey === undefined) {
     return { refusal: "refused: set R2_ENDPOINT (https, no path), R2_BUCKET, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY (or BACKUPS=off for a local run)." };
   }
+  // A host's own per-tenant databases (`AppBackupOptions.tenantDatabases`), comma-separated, so
+  // `restore` (and a serve) run from here cover them too. Unset: none.
+  const listed = (env["HOSTED_TENANT_DATABASES"] ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  try {
+    tenantDatabasePaths(listed);
+  } catch (err) {
+    return { refusal: `refused: HOSTED_TENANT_DATABASES: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const configPath = `${dataRoot}/litestream.yml`;
   const sidecar = new LitestreamSidecar({
     binary: litestreamBinary(env),
@@ -144,7 +152,7 @@ export function backupFromEnv(env: Record<string, string | undefined>, dataRoot:
     env: litestreamEnv(env, accessKeyId, secretAccessKey),
     onEvent: (name) => process.stderr.write(`[hosted] ${name}\n`),
   });
-  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar };
+  return { wrapper, sealer, objects: r2ObjectStore({ endpoint, bucket, accessKeyId, secretAccessKey }), bucket, endpoint, sidecar, ...(listed.length === 0 ? {} : { tenantDatabases: listed }) };
 }
 
 const litestreamBinary = (env: Record<string, string | undefined>): string => env["LITESTREAM_BIN"] ?? "litestream";
@@ -187,7 +195,7 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
     if (!accounts.liveStoreIds().includes(storeId)) throw new Error("that store isn't a live store in the accounts database");
     // A store set to be deleted (R6) is left as it is (the #659 re-check): kept, it can be started over then.
     if (accounts.storeLocked(storeId)) throw new Error("that store is set to be deleted: start it over only if its person keeps it");
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [storeId] });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => [storeId] });
     if (existsSync(backups.dbPaths(storeId)[0]!)) throw new Error("its database is here: nothing to start over");
     if ((await backup.objects.list(replicaPrefix(storeId))).length > 0) throw new Error("the bucket has a replica of it: restore it instead (RESTORE_ON_BOOT=1)");
     // A deleted store is never started over (the #653 re-review, N3): the next start finishes its delete.
@@ -219,7 +227,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
   const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, tenantDatabases: backup.tenantDatabases ?? [], liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
@@ -239,8 +247,9 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
           accounts.markOpened(id);
           if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
         }
-        restored += r.restored;
-        empty += r.empty;
+        // Stores, not files (a host's own databases come back with their store).
+        if (r.restored > 0) restored += 1;
+        else if (r.empty > 0) empty += 1;
       } catch (err) {
         failed += 1;
         // A tag, not the id (the #653 review, L5): matchable against the audit by whoever has the id, nothing more.
