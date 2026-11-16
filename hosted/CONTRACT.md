@@ -259,17 +259,22 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 26b. **A host's own per-tenant databases** (2026-11-16; opt-in, default unchanged byte for byte):
     `AppBackupOptions.tenantDatabases` (`main.ts`: `HOSTED_TENANT_DATABASES`, comma-separated) names SQLite files
     relative to each tenant's dir (the living journal: `["app/app.sqlite"]`). Paths that leave the dir (`..`, absolute,
-    hidden) or are hosted's own (`store/`, `config.json`, `restored.marker`, `litestream*`) are refused at `createApp`.
+    hidden) or are hosted's own (`store/`, `config.json`, `restored.marker`, `litestream*`, compared case-insensitively)
+    are refused at `createApp`. One whose folder resolves outside the tenant's dir (a symlink) is neither streamed nor
+    restored (`backup.host.outside`).
     - Each is streamed by the same sidecar, under the store's own SSE-C key file, to `tenants/<storeId>/host/<path>/`,
       inside the store's replica prefix: a delete's prefix delete takes it, `objectsLeft` counts it, and
-      `recover-keys`' proof reads it under the same key. Its Litestream state is at `<tenant>/litestream-meta-host/<path>`.
-    - Listed only once its file exists, and never for a store waiting for a restore. A file made after sign-up is
-      picked up by `Backups.refresh()` (written and reloaded only when the configuration changed): the product calls
+      `recover-keys`' proof reads it under the same key; start-over looks at the store's own objects only. Its
+      Litestream state is at `<tenant>/litestream-meta-host/<path>`.
+    - Listed only once its file exists, and never for a store waiting for a restore (`App.storeWaiting`, for the
+      product to check before making its file). A file made after sign-up is picked up by `Backups.refresh()` (written
+      and reloaded only when the configuration changed, and not before start-up releases its hold): the product calls
       it after making the file, and the app's finish timer calls it every tick (10 minutes by default).
     - Restored with its store by the restore CLI and `RESTORE_ON_BOOT`, the store's file LAST, so a restore cut short
-      leaves the store waiting; only the store's file refuses "already in place", and a host database found while the
-      store's file is missing is moved aside (`.pre-restore-*`, swept after a day) and replaced. A host database lost
-      while its store's file stayed is not detected (nothing records that it existed).
+      leaves the store waiting. **A host database in place is never touched without `--force`** (it may be live):
+      only missing ones come back. `--force` moves one aside (`.pre-restore-*`, swept after a day), audited and logged
+      (`backup.host.set-aside`). A host database lost while its store's file stayed is not detected, and only a
+      point-in-time restore by hand brings it back (RUNBOOK).
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
