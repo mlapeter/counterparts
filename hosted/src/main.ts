@@ -54,9 +54,9 @@
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { withEmbedderDefault } from "../../src/adapters/config.js";
 import { openDb } from "../../src/core/store/db.js";
@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, serverDatabasePaths, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, SERVER_DATABASES_META, serverDatabasePaths, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -354,7 +354,7 @@ export function eventLine(name: string, store: string): string {
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
   if (name === "backup.host.set-aside") return `[hosted] ${name} storeTag=${store}: a forced restore moved a product database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The audit has it\n`;
   if (name === "backup.host.outside") return `[hosted] ${name} storeTag=${store}: a product database's folder resolves outside its tenant's dir (a symlink): it is NOT backed up or restored. Said once per start\n`;
-  if (name === "backup.server.set-aside") return `[hosted] ${name}: a forced control restore moved a server database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The audit has its path\n`;
+  if (name === "backup.server.set-aside") return `[hosted] ${name}: a forced control restore moved a server database aside (*.pre-restore-*, swept after a day) and put the bucket's in its place. The restore's output names its path\n`;
   if (name === "backup.server.outside") return `[hosted] ${name}: a server database's folder resolves outside the data root, or into hosted's own part of it (a symlink): it is NOT backed up or restored. The audit has its path. Said once per start\n`;
   if (name === "store.waiting-empty") return `[hosted] ${name} storeTag=${store}: this store lived, its files are missing here, and the bucket has nothing of it to restore: it waits forever. Its person's account delete works; start-over gives it a new store (docs/hosted/RUNBOOK.md)\n`;
   if (name === "backup.refresh.failed") return `[hosted] ${name}: regenerating litestream.yml for the products' databases failed this tick; the next tick tries again\n`;
@@ -424,7 +424,7 @@ export async function controlAsideAtStart(dataRoot: string, label: string, backu
   if (foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup)) === null) {
     return { line: `CONTROL_ASIDE=${label}: this volume isn't refusing for the control key (or the bucket has no control backups to restore in its place): nothing moved. Unset CONTROL_ASIDE.` };
   }
-  return controlAside(dataRoot, label, now);
+  return controlAside(dataRoot, label, now, backup.serverDatabases ?? []);
 }
 
 /** What a guard already there says, or null for a label never used. */
@@ -438,7 +438,7 @@ function guardState(dataRoot: string, label: string): string | null {
 }
 
 /** The move itself, once the volume's state is checked (`controlAsideAtStart`). */
-export function controlAside(dataRoot: string, label: string, now: number = Date.now()): { line: string } | { refusal: string } {
+export function controlAside(dataRoot: string, label: string, now: number = Date.now(), serverDatabases: readonly string[] = []): { line: string } | { refusal: string } {
   if (!CONTROL_ASIDE_LABEL.test(label)) return { refusal: "refused: CONTROL_ASIDE must be a label of letters, digits, - and _ (at most 32), e.g. CONTROL_ASIDE=1." };
   const used = guardState(dataRoot, label);
   if (used !== null) return { line: used };
@@ -456,8 +456,29 @@ export function controlAside(dataRoot: string, label: string, now: number = Date
     return { line: guardState(dataRoot, label)! };
   }
   renameSync(control, aside);
+  // The server databases (`AppBackupOptions.serverDatabases`) go with it: written beside control databases that
+  // aren't the bucket's, they aren't the bucket's either, and kept here they would be streamed over its copies.
+  // Into the aside dir (swept with it), never followed through a link; their Litestream position goes.
+  let moved = 0;
+  for (const rel of serverDatabases) {
+    const file = join(dataRoot, rel);
+    let there = false;
+    try {
+      lstatSync(file);
+      there = true;
+    } catch {
+      /* not here */
+    }
+    if (!there) continue;
+    const to = join(aside, "server-databases", rel);
+    mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
+    for (const [from, dest] of [[file, to], [`${file}-wal`, `${to}-wal`]] as const) if (existsSync(from)) renameSync(from, dest);
+    rmSync(`${file}-shm`, { force: true });
+    rmSync(join(dataRoot, SERVER_DATABASES_META, rel), { recursive: true, force: true });
+    moved += 1;
+  }
   writeFileSync(guard, `moved ${new Date(now).toISOString()}\n`);
-  return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
+  return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label}${moved > 0 ? ` with ${String(moved)} server databases` : ""} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
 }
 
 /** What `prepareVolume` found: a refusal, or the start goes on (with what it restored, and a line to log). */
@@ -1016,7 +1037,7 @@ async function main(): Promise<void> {
         process.exitCode = 1;
         return;
       }
-      const moved = controlAside(read.dataRoot, label);
+      const moved = controlAside(read.dataRoot, label, Date.now(), backup.serverDatabases ?? []);
       if ("refusal" in moved) {
         process.stderr.write(`[hosted] ${moved.refusal.replace("CONTROL_ASIDE", "--control-aside")}\n`);
         process.exitCode = 1;

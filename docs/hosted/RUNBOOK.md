@@ -346,7 +346,8 @@ What the bucket holds:
   `restore control` / `--all` / `RESTORE_ON_BOOT`, before control's own; one on the volume is **never replaced**
   unless `--force`, which sets it aside and says so (`backup.server.set-aside`). A start with one missing whose
   backup is in the bucket refuses until you deploy with `RESTORE_ON_BOOT=1`. Run `main.ts restore` with the same
-  `HOSTED_SERVER_DATABASES` the server has;
+  `HOSTED_SERVER_DATABASES` the server has (and `migrate-keys` too: its control re-key carries them, and refuses a
+  replica it isn't told about). `CONTROL_ASIDE` moves them aside with `control/`;
 
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
 - each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the

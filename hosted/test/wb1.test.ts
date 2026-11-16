@@ -465,6 +465,11 @@ describe("WB1: migrate-keys, from HOSTED_KEKS to the volume KEK, sealed key obje
     const put = await fetch(`${o.s3.base}/bkt/control/host/journal/auth.sqlite/0000/0000000000000001-0000000000000001.ltx`, { method: "PUT", body: "ltx", headers: { "x-amz-server-side-encryption-customer-algorithm": "AES256", "x-amz-server-side-encryption-customer-key": oldSse } });
     assert.ok(put.ok);
 
+    // Run without the list, the re-key would drop that replica with the old base uncarried: refused, nothing of it lost.
+    const unnamed = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
+    assert.notEqual(unnamed.status, 0);
+    assert.match(unnamed.stderr + unnamed.stdout, /a server database's replica under control that this run doesn't name/);
+    assert.ok([...o.s3.objects.keys()].some((k) => k.startsWith("control/host/journal/auth.sqlite/")));
     const run = await cli(envOf(o.s3, o.dataRoot, o.port, { HOSTED_KEKS: o.ringText, ...server }), ["migrate-keys", "--recovery-fingerprint", RECOVERY.fingerprint]);
     assert.equal(run.status, 0, run.stderr + run.stdout);
     const keys = keysOf(o.dataRoot);

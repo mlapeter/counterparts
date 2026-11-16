@@ -923,7 +923,8 @@ export function createApp(opts: AppOptions): App {
           continue;
         }
         waitingEmpty += 1;
-        accounts.audit(accounts.personOfStore(id), id, "store.waiting.empty", null);
+        // Audited once per store (the log line says it at every start).
+        if (!accounts.storeAudited(id, ["store.waiting.empty"])) accounts.audit(accounts.personOfStore(id), id, "store.waiting.empty", null);
         try {
           opts.onEvent?.("store.waiting-empty", storeTag(id));
         } catch {

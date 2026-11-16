@@ -755,6 +755,12 @@ export class Backups {
     for (const p of paths) if (!existsSync(p)) throw new Error("a control re-key needs both control databases on this volume: restore them first");
     // A server database missing here whose replica is at the old base would lose that replica with the old base (step 5).
     if ((await this.serverMissingWithReplica()).length > 0) throw new Error("a control re-key needs the server databases the bucket has on this volume too: restore control first (restore control brings back the missing ones)");
+    // A server database's replica this run doesn't name (HOSTED_SERVER_DATABASES unset here, or another list) would be
+    // deleted with the old base without being carried: refused, so nothing is lost.
+    const named = this.serverDatabases.map((rel) => serverDatabasePrefix(this.controlBase(), rel));
+    if ((await this.opts.objects.list(`${this.controlBase()}${SERVER_DATABASES_BASE}/`)).some((k) => !named.some((p) => k.startsWith(p)))) {
+      throw new Error("the bucket has a server database's replica under control that this run doesn't name: run migrate-keys again with the same HOSTED_SERVER_DATABASES the server has (the control re-key did not start)");
+    }
     if (this.opts.keys.wrapped(CONTROL_NEXT_ID) === null) await this.opts.keys.create(CONTROL_NEXT_ID);
     const base = controlBaseFor((await this.opts.keys.keyId(CONTROL_NEXT_ID))!);
     const yml = join(this.opts.dataRoot, "litestream.rekey.yml");

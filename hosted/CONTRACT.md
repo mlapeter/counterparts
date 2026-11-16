@@ -290,7 +290,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       timer pick up one made later. An account delete never touches them.
     - **The control re-key carries them** (`migrate-keys`): replicated and proven at the new base with control's
       own, the old base's `host/` deleted with control's old replicas, and the abort deletes the new base's. A re-key
-      is refused while one is missing here with a replica in the bucket.
+      is refused while one is missing here with a replica in the bucket, or while the old base holds a replica the run
+      doesn't name (`HOSTED_SERVER_DATABASES` unset for `migrate-keys`).
     - **Restored with control** (`restoreControl`: `restore control`, `restore --all`, and `prepareVolume` at
       `RESTORE_ON_BOOT`), BEFORE control's own files, so a cut-short restore leaves control missing and the start
       refuses. **One in place is never touched without `--force`**; `--force` moves it aside (`.pre-restore-*`,
@@ -298,6 +299,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - A start with control whole and a server database missing **whose replica is in the bucket** refuses without
       `RESTORE_ON_BOOT` (the product would make it empty and stream it over the backup) and restores it with it.
       Missing with nothing in the bucket: the product's to make. Lost while serving: not detected (as 26b's last line).
+    - `CONTROL_ASIDE` (and `recover-keys --control-aside`) moves them with `control/`, into
+      `control.aside-<label>/server-databases/`: beside control databases that aren't the bucket's, they aren't either.
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now

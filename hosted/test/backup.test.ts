@@ -25,7 +25,7 @@ import type { ObjectStore } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
 import { EnvKeyWrapper, KeyStore, kekRingFromEnv, kekVersionOf, litestreamKey } from "../src/keys.js";
 import { storeTag, tenantDir } from "../src/tenants.js";
-import { prepareVolume, restoreCommand, startOverCommand } from "../src/main.js";
+import { controlAside, prepareVolume, restoreCommand, startOverCommand } from "../src/main.js";
 import { sweepAside } from "../src/app.js";
 import { RECOVERY, listen, storeId, tempRoot, testRecovery } from "./helpers.js";
 
@@ -1321,6 +1321,20 @@ describe("a host's own server-level databases (backup.serverDatabases)", () => {
     assert.match(String(p.restored), /^1 restored, 1 already here; server databases: 1 restored, 1 already here/);
     assert.deepEqual(order, [join(data(), SUBS), accounts]);
     assert.deepEqual(readFileSync(join(data(), AUTH)), live);
+  });
+
+  test("CONTROL_ASIDE takes the server databases with control/ (a foreign volume's aren't the bucket's either)", () => {
+    mkdirSync(join(data(), "control"), { recursive: true });
+    writeFileSync(join(data(), "control", "accounts.sqlite"), "not the bucket's");
+    makeServerDb(data(), AUTH, "not the bucket's either");
+    mkdirSync(join(data(), SERVER_DATABASES_META, AUTH), { recursive: true });
+    const moved = controlAside(data(), "t1", Date.now(), SERVER);
+    assert.ok("line" in moved);
+    assert.match(moved.line, /moved control\/ to control\.aside-t1 with 1 server databases/);
+    assert.equal(existsSync(join(data(), AUTH)), false);
+    assert.equal(existsSync(join(data(), `${AUTH}-wal`)), false);
+    assert.ok(existsSync(join(data(), "control.aside-t1", "server-databases", AUTH)));
+    assert.equal(existsSync(join(data(), SERVER_DATABASES_META, AUTH)), false, "its Litestream position goes");
   });
 
   test("paths that escape the data root, or are hosted's own (any case), are refused by createApp before anything is opened", () => {
