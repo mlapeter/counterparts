@@ -2363,8 +2363,8 @@ series (`recurring` carries over); UPDATES_TEXT covers "done this once", not "mo
 ## 2026-11-16 — recall: the search and the wake together
 
 The 11-16 recall line became: "When the person asks what you know about them or a subject,
-search, then answer from the search and the wake together, news included." (Mike's go, lightly
+search, then answer from both the search and the wake, its news too." (Mike's go, lightly
 held.) In the season-one rerun on 36a202f9, day 7's "what do you know about me" searched
 trait-shaped questions, answered from the hits, and left out Gus's fall and the doctor's line that
 were in that morning's wake. The run before #830 hadn't searched, and it led with the fall. The
-search should add to the wake, not replace it. Recall on Claude Code is now 4,088 of 4,096.
+search should add to the wake, not replace it. Recall on Claude Code is now 4,083 of 4,096.
