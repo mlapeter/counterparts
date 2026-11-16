@@ -2378,3 +2378,19 @@ held.) In the season-one rerun on 36a202f9, day 7's "what do you know about me" 
 trait-shaped questions, answered from the hits, and left out Gus's fall and the doctor's line that
 were in that morning's wake. The run before #830 hadn't searched, and it led with the fall. The
 search should add to the wake, not replace it. Recall on Claude Code is now 4,083 of 4,096.
+
+## 2026-11-16 — rolled back before the season-one demo rerun
+
+These lines were rolled back on Mike's go after a review of every demo-motivated change since
+season one (ecdf00cc). Each leaned the counterpart toward saying less, or toward trusting its
+wake less, with no run showing it helped:
+- #826's night gap line, at launch and on a catch-up start ("say you may not have it yet"), and
+  the re-check line after a catch-up. The model narrated it in its first reply ("if I'm fuzzy on
+  the last day or two"). Reverted whole.
+- #829's text/content clause ("a subject they close or put off: their words, no wider") and its
+  unresolved deferral clause. take3b still widened "don't fuss" with them. `asked`'s description
+  stays: it fixed a real inversion.
+- #830/#835's recall line ("when the person asks what you know about them … search"). In both
+  runs since, the search-first answer was narrower than season one's wake-only answer: it dropped
+  Gus's fall, and missed day-one personal facts after reading only page 1.
+Recall's description is back to 3,954.

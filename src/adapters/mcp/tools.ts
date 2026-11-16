@@ -314,19 +314,13 @@ const REMOVE_PROPERTY = {
  * counterpart needs from the person, a promise, a dated check — never
  * curiosity about how something went, which the Still open lane carried as if
  * it were owed. The Stop ask says the blocked half (`claude-code/hooks.ts#OPEN_MEANS`);
- * the deferral below is said here only.
- *
- * NOT A DEFERRAL (2026-11-14, the closing-words review; Mike's go, words
- * only): a simulated month stored "ask me after I've slept" as an open item
- * with a settlesWhen, on the lane that raises; a time they named is the date
- * it comes back on. Keeping what they ask of you, and a subject they close or
- * put off, in their words and no wider, is said on `text` / `content`, where
- * the widened paraphrases were written (none set `unresolved`).
+ * (2026-11-16: #829's deferral and closing-words lines were rolled back before
+ * the season-one demo rerun; they leaned the counterpart toward holding back.)
  */
 export const UNRESOLVED_PROPERTY = {
   type: "boolean",
   description:
-    "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went, nor what they put off: \"ask me after I've slept\" is an eventDate (the next day).",
+    "true only when something is blocked on it: a decision you need from them, a promise, a dated check. Never curiosity about how something went.",
 };
 
 /**
@@ -663,7 +657,7 @@ const REMEMBER: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. What they ask of you, and a subject they close or put off: their words, no wider than they said. To close an open item, a line saying it is done." },
+      text: { type: "string", description: "Required: what to remember, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
       title: { type: "string", description: "One line naming it; recall opens it by exact title." },
       about: ABOUT_PROPERTY,
       kind: KIND_PROPERTY,
@@ -709,7 +703,7 @@ const RECALL: ToolSpec = {
   summary:
     "Deliberate retrieval: a look you take on purpose, beyond the ambient reminding you already get. Three kinds of ask, one per call — a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
   admission:
-    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the whole of a memory you were shown only a line or an excerpt of. When the person asks what you know about them or a subject, search, then answer from both the search and the wake, its news too. A question takes mode \"facts\" when you need what happened, who said it, when, and whether it still holds; mode \"meaning\" when you want how something went, how it felt, or what it adds up to — a person, a project, us.",
+    "Call it when the ambient context did not bring something you have reason to believe is there, or when you need the whole of a memory you were shown only a line or an excerpt of. A question takes mode \"facts\" when you need what happened, who said it, when, and whether it still holds; mode \"meaning\" when you want how something went, how it felt, or what it adds up to — a person, a project, us.",
   negativeExamples: [
     "Do NOT call it to check whether a memory exists before writing one — a duplicate is refused at the write, so the check costs a round trip and buys nothing.",
     "Do NOT call it with a handle you are guessing at: an unresolvable handle is answered as not-found, never as a fuzzy search over the store.",
@@ -1053,7 +1047,7 @@ const SESSION_END: ToolSpec = {
         items: {
           type: "object",
           properties: {
-            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. What they ask of you, and a subject they close or put off: their words, no wider than they said. To close an open item, a line saying it is done." },
+            content: { type: "string", description: "Required (text works too): the memory, in your own words; lists, numbers and quotes word for word. To close one, a line saying it is done." },
             title: { type: "string" },
             about: { ...ABOUT_PROPERTY, description: "Mark anything personal owner or us so it reaches every folder." },
             kind: KIND_PROPERTY,
@@ -1849,7 +1843,7 @@ export const CLAUDE_AI_WORDS: Readonly<
     summary:
       "Search your long-term memory on purpose: what you remember about the person, past conversations, a project, a plan, beyond what the wake brought. One kind of ask per call: a question with a mode (facts or meaning), ids to read memories whole, or a handle (an id or an exact title) to read one.",
     admission:
-      'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. When the person asks what you know about them or a subject, search, then answer from both the search and the wake, its news too. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
+      'When the conversation needs something you have reason to believe is in memory and the wake did not bring it, or the whole of a memory you saw only a line of. Mode "facts" for what happened, who said it, when, and whether it still holds; "meaning" for how something went or felt, or what it adds up to.',
   },
   // The words tool search matches on here lead (OL1b item 4): memory, status.
   status: {
