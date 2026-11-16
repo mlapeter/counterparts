@@ -1573,7 +1573,8 @@ export class Counterpart {
     let handoffs: StandsHandoff[] = [];
     let plans: PlansSince | null = null;
     try {
-      const hs = this.handoffs.readAll(scope);
+      // A host with no use for handoffs (`WakeHere.withoutHandoffs`) reads none.
+      const hs = here?.withoutHandoffs === true ? [] : this.handoffs.readAll(scope);
       handoffs = hs.map((h, i) => {
         let since: PointerSince | null = null;
         if (i === 0) {
