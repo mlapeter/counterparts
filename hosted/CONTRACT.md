@@ -128,8 +128,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     session; absent, 4 hours. `AppOptions.wakeBudgetBytes` is written into each store's `config.json` as
     `injectionBudgetBytes`, so every `wake` is composed for its moment rather than delivered as the last published
     bundle, and the worker publishes to that budget too; absent, no key, and wakes are delivered as published.
-    Under `storeClock` the worker child is handed the clock's offset (`STORE_CLOCK_OFFSET_ENV`) and dates the store
-    as its server does.
+    Under `storeClock` the worker child is handed the clock's offset (`STORE_CLOCK_OFFSET_ENV`) and opens its
+    counterpart on it, so it dates the store as its server does.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 

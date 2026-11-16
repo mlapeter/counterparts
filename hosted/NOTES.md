@@ -592,9 +592,11 @@ client reads the wake.
   bypasses `withBudgetDefault`'s 9,000). A bad number is refused at `createApp`, since the config reader would call
   the file unreadable.
 - The worker child is its own process, so `storeClock` crosses the spawn as an offset from the system clock, set by
-  `Tenants#workerSpawner` and allow-listed in `workerEnv`. The whole run moves to the store's clock (lived day,
-  sweeps, retention, the page's dateline), which changes a simulated month's nights; production sets no store
-  clock. `planSpawn` drops an inherited offset, so a shell variable never shifts a local worker.
+  `Tenants#workerSpawner` and allow-listed in `workerEnv`. The runner opens its counterpart on it, so what reads
+  the counterpart's or the store's clock moves: today's date, the lived day, the page's dateline, the hold sweep,
+  the retention pass's date. That changes a simulated month's nights; production sets no store clock. The process
+  log's timestamps, step timings and the session registry's own stamps stay on the system clock. `planSpawn` drops
+  an inherited offset, so a shell variable never shifts a local worker.
 
 ## 2026-11-14 — the sample's "Science fair judges" is `planned`, not `asked` (#829)
 
