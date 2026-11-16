@@ -29,7 +29,6 @@ import {
   AHEAD_PASSED_RULE,
   HOW_I_WORK_RULE,
   OWN_FORM_RULE,
-  OWN_WORDS_RULE,
   PAGE_FORM_KEY,
   PAGE_ROOM_BYTES,
   PAGE_ROOM_RULE,
@@ -176,15 +175,12 @@ describe("PF1: one store's nightly writers keep the page's own form", () => {
     expect(HOW_I_WORK_RULE).toBe(
       `Under "## How I work", keep a few short, general lessons, a line or two each, without dated examples or anecdotes; the stories stay in the memories.`,
     );
-    expect(PAGE_WRITING_RULE.startsWith(`${HOW_I_WORK_RULE} ${OWN_WORDS_RULE} The page is read on later days`)).toBe(true);
+    expect(PAGE_WRITING_RULE.startsWith(`${HOW_I_WORK_RULE} The page is read on later days`)).toBe(true);
     // On: the one sentence swapped, the rest word for word.
     expect(pageWritingRule("own")).toBe(PAGE_WRITING_RULE.replace(HOW_I_WORK_RULE, OWN_FORM_RULE));
     expect(pageWritingRule("own")).not.toContain("How I work");
-    // A person's own words (2026-11-14): heard in both forms, not only beside "## How I work".
-    expect(pageWritingRule("own")).toContain(OWN_WORDS_RULE);
-    expect(OWN_WORDS_RULE).toContain("does not still hold");
-    expect(OWN_WORDS_RULE).toContain(`Unless they said "never", a preference covers the moment they meant, not the subject`);
-    expect(OWN_WORDS_RULE).toContain("a reason to ask about it once");
+    // The own-words rule (2026-11-14) was taken out on 2026-11-16, in both forms.
+    expect(pageWritingRule("own")).not.toContain("lesson to generalise");
   });
 
   test("a line still ahead after it passed (2026-11-13): one sentence, about lines that still read as ahead, in both forms; and the host's room in place of the default", () => {

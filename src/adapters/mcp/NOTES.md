@@ -2338,3 +2338,11 @@ resolves to a date ("is an eventDate (the next day)"); `status` is "a question o
 them, not one they asked you." Net vs master: +285 B on `remember`, +285 B on `session_end` (claude.ai's list
 26,469 → 27,039 B). The hosted sample's "Science fair judges" was `asked` with nothing waiting on the owner: now
 `planned`.
+
+## 2026-11-16 — recall: search before answering "what do you know about me"
+
+One sentence in `recall`'s admission (Mike's go, lightly held): when they ask what you know about
+them or a subject, search before answering, since the wake holds only part of it. In all three
+Starlite runs' day-7 "what do you know about me? not the project. me." the counterpart answered
+from the wake alone and left out stored things (the old live recordings, Dolly, the flaky salt),
+while the built-in read its whole notes file.
