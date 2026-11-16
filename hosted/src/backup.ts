@@ -9,6 +9,8 @@
  *     from that store's DEK (`keys.ts#litestreamKey`), written 0600 beside the
  *     store as `litestream.key`. Only box 2: `cache/` is rebuildable, and
  *     `journal/` and `spans/` are never backed up (`store/paths.ts#LAYOUT`).
+ *   - **A host's own per-tenant databases**, only those its product names
+ *     (`tenantDatabases`, below `replicaPrefix`), under that same store's key.
  *   - **The control databases** (`control/accounts.sqlite`, `control/oauth.sqlite`),
  *     to `r2://<bucket>/control/<name>/`, under the SSE-C key of a DEK kept for
  *     the pseudo-store `control`.
