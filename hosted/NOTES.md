@@ -580,6 +580,22 @@ client reads the wake.
   tenant's own server (`openServer`). Absent: on, no cap, as claude.ai's stores have it. The rule itself lives in
   `core/dream/reflect.ts#shareHeld`; its NOTES entry says what is held and what is counted. Lightly held.
 
+### A host's evening, its wakes, and the worker's clock (2026-11-16)
+
+- `sessionTtlMs` is read by the store's `McpServer` and nowhere else. Two places still use the 4-hour default:
+  `lifecycle.ts`'s "Today, elsewhere" live flag (cosmetic) and Claude Code's share carry (`hooks.ts`, not a hosted
+  path). With a long TTL, a call that names no session binds to the most recent live one, which may be yesterday's;
+  the journal always names one.
+- With a reported budget the wake goes through the wake's shape (WK2) when that is on, `assembleWake` when not; the
+  test counts either event. Without one, `wake` serves the published bundle, so before this a hosted store's wakes
+  were one boundary behind (journal findings 13). Setting the budget also sizes the worker's bundle (an explicit key
+  bypasses `withBudgetDefault`'s 9,000). A bad number is refused at `createApp`, since the config reader would call
+  the file unreadable.
+- The worker child is its own process, so `storeClock` crosses the spawn as an offset from the system clock, set by
+  `Tenants#workerSpawner` and allow-listed in `workerEnv`. The whole run moves to the store's clock (lived day,
+  sweeps, retention, the page's dateline), which changes a simulated month's nights; production sets no store
+  clock. `planSpawn` drops an inherited offset, so a shell variable never shifts a local worker.
+
 ## 2026-11-14 — the sample's "Science fair judges" is `planned`, not `asked` (#829)
 
 `asked` means a question or request of the counterpart's still waiting on the owner, and the wake raises it

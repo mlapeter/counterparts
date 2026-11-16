@@ -123,6 +123,13 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     and handed to the store's own server. Absent: on, no cap, as before. The rule is `core/dream`'s. With
     `nights: "first-chat"` the night runs in the person's chat, so its share words are written there before the
     finish holds them.
+15c. **A host's evening and its wakes** (2026-11-16; defaults unchanged): `AppOptions.sessionTtlMs` reaches each
+    store's server, so a host that closes the evening hours later (the journal's ~03:00 night) still names a live
+    session; absent, 4 hours. `AppOptions.wakeBudgetBytes` is written into each store's `config.json` as
+    `injectionBudgetBytes`, so every `wake` is composed for its moment rather than delivered as the last published
+    bundle, and the worker publishes to that budget too; absent, no key, and wakes are delivered as published.
+    Under `storeClock` the worker child is handed the clock's offset (`STORE_CLOCK_OFFSET_ENV`) and dates the store
+    as its server does.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 
