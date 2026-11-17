@@ -27,3 +27,11 @@
   Code's doctor. Copying those readers would have been two rules for "which file, which directory".
 - **Hermetic tests run the entry in-process** (`runCodexHook`, with an injected spawner so no real worker runs over a
   temp store) and once as a real process (SessionStart, which starts no worker).
+
+## 2026-11-17 — folded, then unfolded the same day
+
+- To fit the plugin bundle's file margins (core 490, the directory's hard 512), the modules here and `cli/codex.ts`
+  were folded into `bin/hook.ts` and `cli/wire.ts` (00bb1d66). #844 then bundled the directory flavor's JavaScript
+  (271 files), so the fold's reason went away and it was reverted: same modules, same behaviour, the hook at the
+  same path. Core went to 498 and its margin to 510 (`test/plugin-bundle.test.ts`): core ships through our
+  marketplace, which has no file limit.

@@ -60,6 +60,7 @@ import type { WireResult, Spawner, WireInput, ProcessLister } from "./wire.js";
 import { desktopUnavailable, connectDesktop, repairDesktop } from "./desktop.js";
 import type { DesktopRepair } from "./desktop.js";
 import { CODEX_HOST, DESKTOP_ALWAYS_ALLOW } from "../hosts.js";
+import { BINARY } from "../runtime.js";
 import { codexWired, wireCodex } from "./codex.js";
 // `humanBytes` comes from `uninstall.ts` rather than from the private one
 // below: the two spell a size differently ("7.6 MB" against "7.6 MiB"), and
@@ -1123,6 +1124,26 @@ const DEFAULT_BUDGET_BYTES = PAGE_HOST_BUDGET_BYTES;
 export const KNOWN_HOSTS: readonly string[] = ["claude-code"];
 
 /**
+ * WHY THE SINGLE BINARY WIRES NO CODEX (2026-11-17, CX2). From the binary,
+ * Codex's hook line would be `"<binary>" hook` — Claude Code's hook mode, since
+ * `runtime.ts#binaryModeOf` maps entries by file name and both hosts' entries are
+ * `hook.ts` — and `disconnect` could not find it again (`CODEX_HOOK_MARK` names
+ * the source path). So `connect --host codex` from the binary refuses; disconnect
+ * still runs and takes out what an npm install wrote (codex INTERFACE-GAPS §8).
+ */
+export const CODEX_BINARY_CONNECT_REFUSAL =
+  "This is Counterparts' single program, the one the Claude Code plugin downloads when a computer has no Bun or Node.js. " +
+  "It can't connect Codex: Codex's hook has to run from an npm install. Install Counterparts with npm " +
+  "(`npm i -g counterparts@latest`) and run `counterparts connect --host codex` from that install. Nothing has changed.";
+
+/** Does this command line ask for Codex (`--host codex`, or `codex` as the host's name)? */
+export function asksForCodex(parsed: Parsed): boolean {
+  const hostFlag = parsed.flags["host"];
+  const asked = typeof hostFlag === "string" && hostFlag.length > 0 ? hostFlag : parsed.positional[0];
+  return asked === CODEX_HOST;
+}
+
+/**
  * The console's half of the three host-editing verbs: refuse `--dir`, refuse a
  * host nobody has, resolve which configuration this invocation means, read the
  * store out of it, and hand the rest to `wire.ts` / `uninstall.ts`.
@@ -1213,6 +1234,12 @@ export async function hostWiringCommand(
 
   // CODEX (CX2): its hooks.json and config.toml, and nothing of Claude Code's.
   if (codex) {
+    // The binary would write a hook line no disconnect finds (CODEX_BINARY_CONNECT_REFUSAL);
+    // commands.ts refuses first, and this is the same rule where the wiring happens.
+    if (command === "connect" && (opts.binary === undefined ? BINARY : opts.binary) !== null) {
+      io.err(CODEX_BINARY_CONNECT_REFUSAL);
+      return EXIT.refused;
+    }
     const outcome = wireCodex(
       { io, env, home: home_, configPath, custom: custom !== undefined, store, now: now(), dryRun: parsed.flags["dry-run"] === true },
       command === "connect" ? "wire" : "unwire",

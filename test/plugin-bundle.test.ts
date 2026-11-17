@@ -72,9 +72,14 @@ const paths = bundlePaths(plan);
  *  Directory was back at 510 on 2026-11-17, when bundling its JavaScript
  *  (tools/plugin-bundle/bundle-js.ts) took it to 271: its margin is 320, room
  *  for the modules a few waves add (each adds a chunk at most, often none)
- *  while a change that brought back one file per module would fail here. */
+ *  while a change that brought back one file per module would fail here.
+ *  Core's margin went to 510 the same day (CX2's Codex modules took it to 498):
+ *  it only ever guarded "should core become what the directory gets", and the
+ *  directory now builds its own bundled flavor. Core ships through our
+ *  marketplace, which has no file limit, so 510 is a loose tripwire for a trace
+ *  that suddenly balloons, not a budget. */
 const FILE_MARGIN = 510;
-const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: 320, core: 490, sidebar: 100 };
+const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: 320, core: 510, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
   const margin = MARGINS[flavor] ?? FILE_MARGIN;
   if (count > margin) {

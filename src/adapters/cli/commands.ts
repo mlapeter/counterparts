@@ -128,6 +128,8 @@ import {
   installInteractive,
   hostWiringCommand,
   initCommand,
+  asksForCodex,
+  CODEX_BINARY_CONNECT_REFUSAL,
 } from "./commands-install.js";
 import { dashboardCommand } from "./commands-dashboard.js";
 import { startFreshCommand, rollbackCommand } from "./commands-start-fresh.js";
@@ -152,7 +154,7 @@ export { settledReading, settledLines } from "./mechanisms.js";
 export { coverageReading } from "./coverage.js";
 export type { CoverageRow } from "./coverage.js";
 export type { SettledReading } from "./mechanisms.js";
-export { carryForward, KNOWN_HOSTS } from "./commands-install.js";
+export { carryForward, CODEX_BINARY_CONNECT_REFUSAL, KNOWN_HOSTS } from "./commands-install.js";
 export { DASHBOARD_DEFAULT_PORT, dashboardLine } from "./commands-dashboard.js";
 export type { RunningView, DashboardSeam } from "./commands-dashboard.js";
 export {
@@ -1497,7 +1499,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // the default configuration names the live store and the live base, and
   // `uninstall --park` renames the directory that file sits in.
   if (command === "connect" && (opts.binary === undefined ? BINARY : opts.binary) !== null) {
-    io.err(BINARY_CONNECT_REFUSAL);
+    io.err(asksForCodex(parsed) ? CODEX_BINARY_CONNECT_REFUSAL : BINARY_CONNECT_REFUSAL);
     return EXIT.refused;
   }
   if (command === "connect" || command === "disconnect" || command === "uninstall") {

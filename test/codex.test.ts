@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { EXIT, run } from "../src/adapters/cli/index.js";
+import { BINARY_CONNECT_REFUSAL, CODEX_BINARY_CONNECT_REFUSAL, EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { runCodexHook } from "../src/adapters/codex/bin/hook.js";
 import { codexFindings } from "../src/adapters/codex/doctor.js";
@@ -476,6 +476,39 @@ describe("counterparts connect --host codex", () => {
     const code = await run([verb, "--host", "codex", "--config", cfg], { io: c.io, env: env(), home });
     return { code, said: `${c.out.join("\n")}\n${c.err.join("\n")}` };
   }
+
+  test("from the single binary, connect --host codex refuses and writes nothing; disconnect still takes out what npm wrote", async () => {
+    // The binary would write `"<binary>" hook` (Claude Code's mode, binaryModeOf maps by
+    // file name) and no disconnect would find it again: INTERFACE-GAPS §8.
+    const binary = { root: "/$bunfs/root", self: join(root, "counterparts") };
+    seed();
+    const hooksBefore = readFileSync(hooksPath(), "utf8");
+    const tomlBefore = readFileSync(tomlPath(), "utf8");
+    for (const argv of [["connect", "--host", "codex", "--config", cfg], ["connect", "codex", "--config", cfg]]) {
+      const c = consoleWith();
+      expect(await run(argv, { io: c.io, env: env(), home, binary })).toBe(EXIT.refused);
+      expect(c.err.join("\n")).toBe(CODEX_BINARY_CONNECT_REFUSAL);
+      expect(CODEX_BINARY_CONNECT_REFUSAL).toContain("npm i -g counterparts@latest");
+      expect(CODEX_BINARY_CONNECT_REFUSAL).toContain("counterparts connect --host codex");
+    }
+    expect(readFileSync(hooksPath(), "utf8")).toBe(hooksBefore);
+    expect(readFileSync(tomlPath(), "utf8")).toBe(tomlBefore);
+    expect(readdirSync(codexHome).sort()).toEqual(["config.toml", "hooks.json"]);
+    // Claude Code's connect from the binary keeps its own refusal.
+    const plain = consoleWith();
+    expect(await run(["connect", "--config", cfg], { io: plain.io, env: env(), home, binary })).toBe(EXIT.refused);
+    expect(plain.err.join("\n")).toBe(BINARY_CONNECT_REFUSAL);
+
+    // An npm install wired Codex; the binary's disconnect takes ours out and leaves Orca's.
+    expect((await cli("connect")).code).toBe(EXIT.ok);
+    expect(ourPositions(JSON.parse(readFileSync(hooksPath(), "utf8"))).length).toBe(4);
+    const d = consoleWith();
+    expect(await run(["disconnect", "--host", "codex", "--config", cfg], { io: d.io, env: env(), home, binary })).toBe(EXIT.ok);
+    const after = JSON.parse(readFileSync(hooksPath(), "utf8")) as { hooks: Record<string, Record<string, unknown>[]> };
+    expect(ourPositions(after)).toEqual([]);
+    expect(after.hooks["SessionStart"]).toEqual([orcaGroup("SessionStart")]);
+    expect(readFileSync(tomlPath(), "utf8")).not.toContain("[mcp_servers.counterparts]");
+  });
 
   test("connect writes four hooks after everyone else's and the MCP entry; again changes nothing; disconnect takes only ours", async () => {
     seed();

@@ -58,6 +58,12 @@
    the rollout (the reader takes `function_call` with `name`/`arguments`, unmeasured); a `compacted` line's shape.
 7. **Windows** (`commandWindows` on each hook): a follow-up, with W1's shim lessons.
 8. **The single binary** has no `codex-hook` mode: Codex's hook runs from the TypeScript sources (bun or node).
+   From the binary, `connect --host codex` would write `"<binary>" hook` (Claude Code's mode: `runtime.ts#binaryModeOf`
+   maps entries by file name, and both hosts' entries are `hook.ts`), which `CODEX_HOOK_MARK` does not match, so no
+   disconnect would find it. Since 2026-11-17 it refuses instead (`cli/commands-install.ts#CODEX_BINARY_CONNECT_REFUSAL`,
+   in `commands.ts`'s binary gate and again in `hostWiringCommand`'s Codex branch) and says to install from npm;
+   `disconnect --host codex` still runs from the binary and removes what an npm install wrote. A real mode would
+   need a `MODES` entry in `tools/single-binary/main.ts`, a path-aware `binaryModeOf` and a mark for the binary's line.
 9. **Positional trust.** Codex keys a hook's approval by its index in `hooks.json`. Ours are appended last, but a
    tool that later appends after us, then a `disconnect`, shifts that tool's index and Codex asks again; disconnect
    says so when it sees it.
