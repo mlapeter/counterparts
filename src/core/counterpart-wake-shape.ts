@@ -126,7 +126,7 @@ export interface ShapedWake {
 }
 
 /** The splitter lives in the leaf module (2026-11-17), so the dated-sentence pick and this read the same sentences. */
-import { firstSentence, namesDate, sentenceNamingDate } from "./dated-sentence.js";
+import { datedSentence, firstSentence, sentenceNamingDate } from "./dated-sentence.js";
 export { firstSentence };
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -142,22 +142,18 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
 
 /**
  * A DATED ROW'S LINE IN "COMING UP" (2026-11-17, the living journal's CR-V
- * memory): the sentence that names its date when that is not the row's first
- * (`dated-sentence.ts`), so a date is never pinned to a lead about something
- * else; otherwise `titleOfRow` as before. A title stays when it names the date
- * itself, or when the date sits in the first sentence: a title is presumed to
- * say what the memory leads with, and a date in a later sentence is the sign
- * that the memory holds more than one thing and its title may be the other one.
+ * memory): `dated-sentence.ts#datedSentence`'s pick, so a date is never pinned
+ * to a lead about something else, with `titleOfRow`'s cap on an untitled line.
  * Its `Names:` line (#697) is not read.
  */
 export function datedTitleOfRow(row: Pick<MemoryRow, "title" | "body">, due: string | null | undefined): string {
   const base = titleOfRow(row);
+  const t = (row.title ?? "").trim();
   const body = row.body.replace(/\n+Names: [^\n]*\s*$/, "");
   const hit = sentenceNamingDate(body, due);
-  if (hit === null || hit.index === 0) return base;
-  const t = (row.title ?? "").trim();
-  if (t.length > 0 && namesDate(t, due)) return base;
-  return untitledLine(flatten(hit.sentence));
+  const said = datedSentence(body, due, t);
+  // The lead kept (the title, or the first sentence): titleOfRow's line, unchanged.
+  return hit === null || said !== hit.sentence || hit.index === 0 ? base : untitledLine(flatten(said));
 }
 
 /** A sentence as an untitled row's line: whole when it fits, else cut at a word's end with "…". */

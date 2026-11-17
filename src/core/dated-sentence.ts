@@ -21,7 +21,7 @@
  * would keep the bug, since the CR-V sentence names the range's first day too.
  */
 
-/** Sentence ends, as handoff/ reads them, and an ellipsis ("…", as "..." already ends one). */
+/** Sentence ends, as handoff/ reads them, and an ellipsis ("…") before a new sentence (`ellipsisInside`). */
 const END = /[.!?…](?=\s|$)/g;
 
 /**
@@ -42,11 +42,18 @@ function abbreviationAt(s: string, dot: number): boolean {
   return NUMBER_ABBREV.test(before) && /^\s+\d/u.test(s.slice(dot + 1));
 }
 
+/** An ellipsis ("…") mid-thought: it ends a sentence only before a capital, a digit, a quote or the end. */
+function ellipsisInside(s: string, at: number): boolean {
+  if (s[at] !== "…") return false;
+  const next = s.slice(at + 1).trimStart();
+  return next.length > 0 && !/^[\p{Lu}\d"'“‘(]/u.test(next);
+}
+
 /** The first sentence of `s`, past an abbreviation's or an initial's full stop; `s` whole when none ends. */
 export function firstSentence(s: string): string {
   END.lastIndex = 0;
   for (let m = END.exec(s); m !== null; m = END.exec(s)) {
-    if (!abbreviationAt(s, m.index)) return s.slice(0, m.index + 1);
+    if (!abbreviationAt(s, m.index) && !ellipsisInside(s, m.index)) return s.slice(0, m.index + 1);
   }
   return s;
 }
@@ -148,50 +155,88 @@ function dayScore(sentence: string, day: Date): number {
   return weekday ? 0.5 : 0;
 }
 
-/** How strongly `sentence` names any of `days`: the sum of each day's score. */
-function sentenceScore(sentence: string, days: readonly Date[]): number {
-  return days.reduce((n, day) => n + dayScore(sentence, day), 0);
+/** How strongly `sentence` names `days`: `named`, the days it names by number (score 1 or more), then `score`, the sum. */
+function weigh(sentence: string, days: readonly Date[]): { named: number; score: number } {
+  let named = 0;
+  let score = 0;
+  for (const day of days) {
+    const n = dayScore(sentence, day);
+    if (n >= 1) named += 1;
+    score += n;
+  }
+  return { named, score };
+}
+
+/** The date's days, or null for anything but a day or a range. */
+function daysAsked(eventDate: string | null | undefined): Date[] | null {
+  return typeof eventDate === "string" ? daysOf(eventDate) : null;
+}
+
+/** The sentence's place among `text`'s and its weight. */
+export interface DatedHit {
+  readonly sentence: string;
+  /** 0 = the first sentence. */
+  readonly index: number;
+  /** The days of the date it names by number (ISO, m/d, number with month or weekday, ordinal). */
+  readonly named: number;
+  /** Its whole score: 2 a day by date or number and month, 1 by number and weekday or ordinal, 0.5 by weekday alone. */
+  readonly score: number;
 }
 
 /**
  * The sentence of `text` that best names `eventDate` (a day `YYYY-MM-DD` or a
- * range `YYYY-MM-DD..YYYY-MM-DD`), with its place among the sentences (0 = the
- * first) and its score; null when no sentence names it, or the date is not a day
- * or a range (a month, a year, or nothing readable).
+ * range `YYYY-MM-DD..YYYY-MM-DD`): the most of its days named by number, then
+ * the highest score, then the earliest. Null when no sentence names it at all,
+ * or the date is not a day or a range (a month, a year, nothing readable).
  */
-export function sentenceNamingDate(text: string, eventDate: string | null | undefined): { sentence: string; index: number; score: number } | null {
-  if (typeof eventDate !== "string") return null;
-  const days = daysOf(eventDate);
+export function sentenceNamingDate(text: string, eventDate: string | null | undefined): DatedHit | null {
+  const days = daysAsked(eventDate);
   if (days === null) return null;
-  let best: { sentence: string; index: number; score: number } | null = null;
+  let best: DatedHit | null = null;
   const all = sentencesOf(text);
   for (let index = 0; index < all.length; index++) {
     const sentence = all[index] ?? "";
-    const score = sentenceScore(sentence, days);
-    if (score > 0 && (best === null || score > best.score)) best = { sentence, index, score };
+    const w = weigh(sentence, days);
+    if (w.score <= 0) continue;
+    if (best === null || w.named > best.named || (w.named === best.named && w.score > best.score)) best = { sentence, index, ...w };
   }
   return best;
 }
 
-/** Does `text` (a title, say) name `eventDate` at all? */
+/** Does `text` (a title, say) name `eventDate` at all, a weekday alone included? */
 export function namesDate(text: string, eventDate: string | null | undefined): boolean {
-  if (typeof eventDate !== "string") return false;
-  const days = daysOf(eventDate);
-  return days !== null && sentenceScore(text, days) > 0;
+  const days = daysAsked(eventDate);
+  return days !== null && weigh(text, days).score > 0;
 }
 
 /**
- * THE SENTENCE TO SAY A DATED MEMORY BY: the one of `text` that names
- * `eventDate` (`sentenceNamingDate`); when none does, `fallback` (a title, say)
- * when it has words, else the first sentence of `text`.
+ * THE LINE TO SAY A DATED MEMORY BY (what the wake's "Coming up" and the
+ * `coming up` door say, `counterpart-wake-shape.ts#datedTitleOfRow`, less its
+ * byte cap): `title` when it has words, else the first sentence of `text`;
+ * replaced by the sentence that names `eventDate` only on clear evidence that
+ * the lead is about something else:
  *
- *   datedSentence("The CR-V listing runs through Friday the 16th. Marisol visits Friday 16 to Sunday 18 October.", "2026-10-16..2026-10-18")
+ * - the title, when there is one, does not name the date itself;
+ * - the dated sentence is not the first, and names the date by number
+ *   (a weekday in passing never displaces a good title);
+ * - it names more of the date's days than the first sentence does (a tie keeps
+ *   the lead: "Friday the 16th" and "16 October" both name a day's 16th).
+ *
+ * A title is presumed to say what the memory leads with, so a later sentence
+ * that names the date better is the sign the memory holds two things.
+ *
+ *   datedSentence("The CR-V listing runs through Friday the 16th… Marisol visits Friday 16 to Sunday 18 October.", "2026-10-16..2026-10-18")
  *   // "Marisol visits Friday 16 to Sunday 18 October."
  */
-export function datedSentence(text: string, eventDate: string | null | undefined, fallback?: string | null): string {
+export function datedSentence(text: string, eventDate: string | null | undefined, title?: string | null): string {
+  const t = (title ?? "").trim();
+  const all = sentencesOf(text);
+  const lead = t.length > 0 ? t : (all[0] ?? text.trim());
+  const days = daysAsked(eventDate);
+  if (days === null) return lead;
+  if (t.length > 0 && weigh(t, days).score > 0) return lead;
   const hit = sentenceNamingDate(text, eventDate);
-  if (hit !== null) return hit.sentence;
-  const f = (fallback ?? "").trim();
-  if (f.length > 0) return f;
-  return sentencesOf(text)[0] ?? text.trim();
+  if (hit === null || hit.index === 0 || hit.named === 0) return lead;
+  const first = weigh(all[0] ?? "", days);
+  return hit.named > first.named ? hit.sentence : lead;
 }

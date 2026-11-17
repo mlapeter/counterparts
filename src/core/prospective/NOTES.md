@@ -746,15 +746,17 @@ repeat. Any weekly reminder hits this.
   Friday 16 to Sunday 18 October", dated 16–18 Oct, read as the CR-V listing. The journal's other report, that a range
   never took a line and the door never listed one, was #833 (11-16); its vendored core already has it.
 - **Now:** `core/dated-sentence.ts` (a leaf, pure; exported from the package entry as `datedSentence`,
-  `sentenceNamingDate`, `namesDate`, `sentencesOf`) scores every sentence by the days of the date it names: an ISO or
+  `sentenceNamingDate`, `namesDate`, `sentencesOf`) weighs every sentence by the days of the date it names: an ISO or
   m/d date, or the day's number with its month's name, beats the number with its weekday or as an ordinal, which beats the
-  weekday alone; a bare number never counts. Best score wins, the earliest on a tie. First match would have kept the bug,
-  since the CR-V sentence names the range's first day too. The splitter (#836's abbreviations) moved there; an ellipsis
-  ("…") now ends a sentence too, as "..." already did.
-- **The title rule** (`counterpart-wake-shape.ts#datedTitleOfRow`, used by `readCues`): the line stays the row's title or
-  first sentence when the title names the date, or the date sits in the first sentence; otherwise it is the dated
-  sentence. A title is presumed to say what the memory leads with, so a date in a later sentence is the sign the memory
-  holds two things and its title may be the other one. Swapping whenever a title lacks the date would have replaced most
-  good short titles ("Coast trip") with a longer sentence for no gain.
+  weekday alone; a bare number never counts. The most days named by number wins, then the score, then the earliest.
+  First match would have kept the bug, since the CR-V sentence names the range's first day too. The splitter (#836's
+  abbreviations) moved there; an ellipsis ("…") now ends a sentence before a capital or the end, not mid-thought.
+- **The swap rule** (`datedSentence(text, date, title)`, which `counterpart-wake-shape.ts#datedTitleOfRow` wraps with the
+  byte cap, so a host's frame and the wake say the same): the title, or else the first sentence, stays unless all hold —
+  the title doesn't name the date; the dated sentence is a later one; it names the date by number (a weekday in passing
+  never displaces a title); and it names more of the date's days than the first sentence does (one day both name keeps
+  the lead). A title is presumed to say what the memory leads with, so a later sentence that names the date better is
+  the sign the memory holds two things. Swapping whenever a title lacks the date would have replaced most good short
+  titles ("Coast trip") with a longer sentence.
 - **Left as it was:** the shape-off composition prints the whole body on its due-today line, so nothing is mispinned
   there. The `still open` door's dated list (`Self.comingUpList`) still shows the title or the clipped first line.

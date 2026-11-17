@@ -32,7 +32,7 @@ const RANGE = "2026-10-16..2026-10-18";
 describe("datedSentence", () => {
   test("the CR-V/Marisol memory: the visit's sentence, not the listing's, though both name the 16th", () => {
     expect(datedSentence(BODY, RANGE)).toBe(VISIT);
-    expect(sentenceNamingDate(BODY, RANGE)).toEqual({ sentence: VISIT, index: 1, score: 4 });
+    expect(sentenceNamingDate(BODY, RANGE)).toEqual({ sentence: VISIT, index: 1, named: 2, score: 4 });
     // The package entry exports the same function, for the journal's own frame.
     expect(fromEntry(BODY, RANGE)).toBe(VISIT);
   });
@@ -48,7 +48,9 @@ describe("datedSentence", () => {
     const day = "2026-10-16";
     expect(datedSentence("Groceries on Friday. The dentist is on 16 October.", day)).toBe("The dentist is on 16 October.");
     expect(datedSentence("Water the ferns. Pay the rent by 2026-10-16.", day)).toBe("Pay the rent by 2026-10-16.");
-    expect(datedSentence("Water the ferns. The kiln opens Friday.", day)).toBe("The kiln opens Friday.");
+    // A weekday alone names the day, but never displaces the lead.
+    expect(sentenceNamingDate("Water the ferns. The kiln opens Friday.", day)?.sentence).toBe("The kiln opens Friday.");
+    expect(datedSentence("Water the ferns. The kiln opens Friday.", day)).toBe("Water the ferns.");
     expect(datedSentence("Water the ferns. The kiln opens on the 16th.", day)).toBe("The kiln opens on the 16th.");
     // A weekday that is not the date's day names nothing.
     expect(sentenceNamingDate("The kiln opens Thursday.", day)).toBeNull();
@@ -75,6 +77,23 @@ describe("datedSentence", () => {
     expect(datedSentence(BODY, "soon")).toBe(CRV);
   });
 
+  test("a single day both sentences name keeps the lead: the swap needs more of the date's days", () => {
+    expect(sentenceNamingDate(BODY, "2026-10-16")?.sentence).toBe(VISIT);
+    expect(datedSentence(BODY, "2026-10-16")).toBe(CRV);
+  });
+
+  test("with a title: kept when it names the date, the date is in the lead, or a later sentence names it only by weekday", () => {
+    expect(datedSentence(BODY, RANGE, "CR-V listing")).toBe(VISIT);
+    expect(datedSentence(BODY, RANGE, "Marisol 16–18 Oct")).toBe("Marisol 16–18 Oct");
+    expect(datedSentence("The coast trip runs 16–18 Oct. The cabin is booked.", RANGE, "Coast trip")).toBe("Coast trip");
+    expect(datedSentence("Cleaning at 9:30. Ana works Friday so I'll take the bus.", "2026-10-16", "Dentist")).toBe("Dentist");
+  });
+
+  test("an ellipsis ends a sentence before a new one, not mid-thought", () => {
+    expect(sentencesOf("Wait… The gate is open.")).toEqual(["Wait…", "The gate is open."]);
+    expect(sentencesOf("Mike asked twice… then stopped. Done.")).toEqual(["Mike asked twice… then stopped.", "Done."]);
+  });
+
   test("namesDate reads a title", () => {
     expect(namesDate("Marisol, 16–18 Oct", RANGE)).toBe(true);
     expect(namesDate("Marisol's visit", RANGE)).toBe(false);
@@ -93,6 +112,7 @@ describe("datedTitleOfRow: the line Coming up says a dated row by", () => {
     expect(datedTitleOfRow({ title: "Marisol 16–18 Oct", body: BODY }, RANGE)).toBe("Marisol 16–18 Oct");
     expect(datedTitleOfRow({ title: "Coast trip", body: "The coast trip runs 16–18 Oct. The cabin is booked." }, RANGE)).toBe("Coast trip");
     expect(datedTitleOfRow({ title: "Coast trip", body: "The coast trip runs over the long weekend." }, RANGE)).toBe("Coast trip");
+    expect(datedTitleOfRow({ title: "Dentist", body: "Cleaning at 9:30. Ana works Friday so I'll take the bus." }, "2026-10-16")).toBe("Dentist");
   });
 });
 
@@ -131,7 +151,7 @@ test("memoryFor says the journal's memory word for word on its own dates", () =>
 });
 
 describe("through the real doors: remember, the session-start wake, recall `coming up`", () => {
-  const run = async (from: number, to: number, title?: string): Promise<{ id: string; visit: string; range: string; coming: string; door: Record<string, unknown> }> => {
+  const run = async (from: number, to: number, title?: string, text?: (m: { body: string }) => string): Promise<{ id: string; visit: string; range: string; coming: string; door: Record<string, unknown> }> => {
     const dir = join(root, `store-${String(open.length)}`);
     const scope = join(root, "home");
     const c = Counterpart.open({ dir, timeZone: "UTC", budgetBytes: CLAUDE_CODE_BUDGET_BYTES });
@@ -140,7 +160,7 @@ describe("through the real doors: remember, the session-start wake, recall `comi
     const today = c.store.today();
     const m = memoryFor(addDays(today, from), addDays(today, to));
     const server = new McpServer({ counterpart: c, host: DESKTOP_HOST, scope, registryDir: dir, env: {}, lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: CLAUDE_CODE_BUDGET_BYTES } }, manifestVersion: () => null } as never);
-    const said = (await server.call("remember", { ...(title === undefined ? {} : { title }), text: m.body, eventDate: m.range })).structuredContent;
+    const said = (await server.call("remember", { ...(title === undefined ? {} : { title }), text: text === undefined ? m.body : text(m), eventDate: m.range })).structuredContent;
     expect(said["stored"]).toBe(true);
     const id = String(said["id"]);
     const wake = String((await server.call("wake", {})).structuredContent["wake"]);
@@ -170,5 +190,17 @@ describe("through the real doors: remember, the session-start wake, recall `comi
     const r = await run(2, 4, "CR-V listing");
     expect(r.coming).toContain(`${r.visit} [${r.id}]`);
     expect(inDoor(r.door, "later", r.id)?.title).toBe(r.visit);
+  });
+
+  test("titled, a later sentence names the date only by its weekday: the title stays", async () => {
+    let weekday = "";
+    const r = await run(2, 2, "Dentist", (m) => {
+      weekday = (/through (\w+) the/.exec(m.body) ?? [])[1] ?? "";
+      return `Cleaning at 9:30. Ana works ${weekday} so I'll take the bus.`;
+    });
+    expect(weekday.length).toBeGreaterThan(0);
+    expect(r.coming).toContain(`Dentist [${r.id}]`);
+    expect(r.coming).not.toContain("Ana works");
+    expect(inDoor(r.door, "later", r.id)?.title).toBe("Dentist");
   });
 });
