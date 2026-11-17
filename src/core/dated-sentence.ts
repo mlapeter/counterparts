@@ -21,7 +21,7 @@
  * would keep the bug, since the CR-V sentence names the range's first day too.
  */
 
-/** Sentence ends, as handoff/ reads them. */
+/** Sentence ends, as handoff/ reads them, and an ellipsis ("…", as "..." already ends one). */
 const END = /[.!?…](?=\s|$)/g;
 
 /**
