@@ -81,6 +81,12 @@ export interface HostedServerOptions {
    * swallowed: a failed note never fails the wake.
    */
   readonly onWake?: (personId: string) => void;
+  /**
+   * Told the person behind each `tools/call` that reached their store, any tool,
+   * answered or refused (CN1: the counts' "used" and "active"; the app keeps
+   * the day, `accounts.ts#noteSeen`). Nothing else about the call. A throw is swallowed.
+   */
+  readonly onToolCall?: (personId: string) => void;
   /** The salt the store tag is keyed with. Random per process when absent. */
   readonly logSalt?: string;
   /** Per-account limits on `/mcp` (`limits.ts`). Absent ⇒ none (tests of the earlier steps). */
@@ -322,6 +328,13 @@ export function createHostedServer(opts: HostedServerOptions): Server {
             // locked or a token revoked meanwhile, never a 200 "internal error".
             refusal: (err) => (err instanceof StoreLocked || err instanceof TokenRevoked ? unauthorized : err instanceof RecheckFailed ? { status: 503, headers: { "Retry-After": "30" } } : null),
             onCall: (r) => {
+              if (r.method === "tools/call") {
+                try {
+                  opts.onToolCall?.(caller.personId);
+                } catch {
+                  /* a note, not a gate */
+                }
+              }
               if (r.method === "tools/call" && r.tool === "wake") {
                 try {
                   opts.onWake?.(caller.personId);

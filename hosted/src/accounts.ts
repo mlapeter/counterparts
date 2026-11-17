@@ -197,6 +197,88 @@ export function validTimeZone(raw: unknown): string | null {
   }
 }
 
+// ── where a sign-up came from (SA1, Mike 2026-11-17) ───────────────────────
+
+/** The columns, on `people` and on `login_links` alike. */
+const ATTRIBUTION_COLUMNS = ["signup_source", "signup_referrer", "signup_landing"] as const;
+export const MAX_SOURCE = 40;
+export const MAX_REFERRER = 100;
+export const MAX_LANDING = 100;
+
+/** Where a sign-up came from, each field cleaned (`cleanAttribution`) or null. */
+export interface Attribution {
+  /** A short tag (`?r=` or `?utm_source=`): lowercase letters, digits, `.`, `_`, `-`; at most 40. */
+  readonly source: string | null;
+  /** The first referrer's ORIGIN only (`https://www.reddit.com`): no path, no query; an http(s) URL; at most 100. */
+  readonly referrer: string | null;
+  /** The site's landing PATH only (`/claude-ai/`): no query, no fragment; at most 100. */
+  readonly landing: string | null;
+}
+
+export const NO_ATTRIBUTION: Attribution = { source: null, referrer: null, landing: null };
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/** A source tag, or null: lowercased; anything but `[a-z0-9._-]`, or longer than 40, is refused whole (never cut), so it can't carry an address. */
+export function cleanSource(raw: unknown): string | null {
+  const v = str(raw).toLowerCase();
+  return v.length > 0 && v.length <= MAX_SOURCE && /^[a-z0-9][a-z0-9._-]*$/.test(v) ? v : null;
+}
+
+/** An origin, or null: what `new URL(raw).origin` gives for an http(s) URL, nothing longer than 100. Anything without `http://` or `https://` is not one (no scheme is invented). */
+export function cleanReferrer(raw: unknown): string | null {
+  const v = str(raw);
+  if (v.length === 0 || v.length > 2048 || !/^https?:\/\//i.test(v)) return null;
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (u.username !== "" || u.password !== "") return null;
+    const origin = u.origin.toLowerCase();
+    return origin.length <= MAX_REFERRER && origin !== "null" ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A path, or null: starts with one `/`, its query and fragment dropped, only URL path characters, at most 100. */
+export function cleanLanding(raw: unknown): string | null {
+  const v = str(raw).split(/[?#]/)[0] ?? "";
+  return v.length > 0 && v.length <= MAX_LANDING && v.startsWith("/") && !v.startsWith("//") && /^[A-Za-z0-9/._~%-]+$/.test(v) ? v : null;
+}
+
+/**
+ * The three fields from what the sign-in form (or the site's link to it) carried:
+ * `r` (or, without it, `utm_source`), `ref`, `land`. Each cleaned alone; a bad
+ * one is null and never refuses the sign-up. A `ref` that isn't a URL
+ * (`?ref=producthunt`) is a tag, not a site: it becomes the source when no `r` or
+ * `utm_source` gave one, and is never stored as a referrer.
+ */
+export function cleanAttribution(raw: { r?: unknown; utm_source?: unknown; ref?: unknown; land?: unknown }): Attribution {
+  const referrer = cleanReferrer(raw.ref);
+  const source = cleanSource(raw.r) ?? cleanSource(raw.utm_source) ?? (referrer === null ? cleanSource(raw.ref) : null);
+  return { source, referrer, landing: cleanLanding(raw.land) };
+}
+
+/** What the operator's counts endpoint answers (`counts.ts`): counts only. */
+export interface Counts {
+  /** People with an account, as the spots count them (not deleted, not a reviewer's). */
+  readonly accounts: number;
+  /**
+   * Of them, those with a tool call on record (`last_seen_on` set): any MCP tool call since this
+   * build, or a wake since about 2026-11-10 (the back-fill from `last_wake_on`). A floor for older accounts.
+   */
+  readonly used: number;
+  /** Of them, those whose last tool call was in the last 7 UTC days, today included. */
+  readonly active7d: number;
+  readonly spots: { readonly total: number; readonly left: number };
+  /** Accounts per source tag; `(none)` for those that came with none. Sums to `accounts`. */
+  readonly sources: Readonly<Record<string, number>>;
+  /** Accounts per first referrer's origin; `(none)` likewise. Sums to `accounts`. */
+  readonly referrers: Readonly<Record<string, number>>;
+}
+
 export interface Person {
   readonly id: string;
   /**
@@ -239,6 +321,24 @@ export interface Spots {
   readonly people: number;
   /** max(0, total − people). Invite sign-ups count as people, so they can take it below zero; it reads 0 then. */
   readonly left: number;
+}
+
+/**
+ * THE PUBLIC WINDOW (Mike, 2026-11-17): what `GET /spots` shows is not the hard
+ * total but a window of this many, the next whole hundred above the people
+ * there are, never past the hard total. Display only: sign-up is gated by the
+ * hard total alone, and the alerts track it too.
+ */
+export const PUBLIC_SPOTS_WINDOW = 100;
+
+/**
+ * The public face of the spots: `total` is min(hard total, (floor(people / 100) + 1) * 100),
+ * `left` is max(0, that − people), and `open` is the HARD left > 0, so the site never says
+ * closed while sign-up is open, or open while it's closed. From the spots alone, per read.
+ */
+export function publicSpots(s: Spots): { total: number; left: number; open: boolean } {
+  const total = Math.min(s.total, (Math.floor(s.people / PUBLIC_SPOTS_WINDOW) + 1) * PUBLIC_SPOTS_WINDOW);
+  return { total, left: Math.max(0, total - s.people), open: s.left > 0 };
 }
 
 /** The most `spots set` takes: a typo of a few extra digits is refused, not obeyed. */
@@ -320,6 +420,31 @@ export class Accounts {
     if (!this.db.all<{ name: string }>("PRAGMA table_info(people)").some((c) => c.name === "kind")) {
       this.db.exec("ALTER TABLE people ADD COLUMN kind TEXT");
     }
+    // SA1 (Mike, 2026-11-17): WHERE A SIGN-UP CAME FROM, set once at the account's
+    // creation from what the sign-in form carried (`cleanAttribution`): a source tag,
+    // the first referrer's origin, the site's landing path. NULL when none came, and
+    // for every account made before. Carried from the ask to the click on the login
+    // link's row, as the time zone is. And the DAY of the person's last MCP tool call
+    // (`last_seen_on`, UTC `YYYY-MM-DD`, like `last_wake_on`), for the counts'
+    // "used" and "active": back-filled from the last wake when it is added, so an
+    // account that already woke counts as used. All added by ALTER like the
+    // ones above: purely additive, safe twice and on the beta volume.
+    const peopleCols = new Set(this.db.all<{ name: string }>("PRAGMA table_info(people)").map((c) => c.name));
+    for (const col of ATTRIBUTION_COLUMNS) if (!peopleCols.has(col)) this.db.exec(`ALTER TABLE people ADD COLUMN ${col} TEXT`);
+    if (!peopleCols.has("last_seen_on")) {
+      this.db.transaction(() => {
+        this.db.exec("ALTER TABLE people ADD COLUMN last_seen_on TEXT");
+        this.db.exec("UPDATE people SET last_seen_on = last_wake_on WHERE last_wake_on IS NOT NULL");
+      });
+    }
+    const linkCols = new Set(this.db.all<{ name: string }>("PRAGMA table_info(login_links)").map((c) => c.name));
+    for (const col of ATTRIBUTION_COLUMNS) if (!linkCols.has(col)) this.db.exec(`ALTER TABLE login_links ADD COLUMN ${col} TEXT`);
+    // A tombstone never keeps them (the #843 review): an account erased by a build from before these columns
+    // (a deploy, a rollback, a delete, a roll-forward) kept what the newer build wrote. Cleared at every open;
+    // a no-op write when there is nothing to clear.
+    this.db.run(
+      "UPDATE people SET signup_source = NULL, signup_referrer = NULL, signup_landing = NULL, last_seen_on = NULL WHERE state = 'deleted' AND (signup_source IS NOT NULL OR signup_referrer IS NOT NULL OR signup_landing IS NOT NULL OR last_seen_on IS NOT NULL)",
+    );
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -357,6 +482,73 @@ export class Accounts {
   /** The day (UTC, `YYYY-MM-DD`) of this person's last wake, or null when none was seen. */
   lastWakeOn(personId: string): string | null {
     return this.db.get<{ last_wake_on: string | null }>("SELECT last_wake_on FROM people WHERE id = ?", personId)?.last_wake_on ?? null;
+  }
+
+  /**
+   * A tool call (`server.ts#HostedServerOptions.onToolCall`), any tool, answered
+   * or refused: today's UTC day in `last_seen_on`, written only when the day
+   * changed (as `noteWake`), so one write a day at most and never an audit row.
+   */
+  noteSeen(personId: string): boolean {
+    const today = utcDay(this.now());
+    const row = this.db.get<{ last_seen_on: string | null }>("SELECT last_seen_on FROM people WHERE id = ? AND state = 'active'", personId);
+    if (row === undefined || row.last_seen_on === today) return false;
+    this.db.run("UPDATE people SET last_seen_on = ? WHERE id = ? AND state = 'active'", today, personId);
+    return true;
+  }
+
+  /** The day (UTC) of this person's last tool call, or null. */
+  lastSeenOn(personId: string): string | null {
+    return this.db.get<{ last_seen_on: string | null }>("SELECT last_seen_on FROM people WHERE id = ?", personId)?.last_seen_on ?? null;
+  }
+
+  /** Where this person's sign-up came from (SA1), each field null when none came. */
+  attributionOf(personId: string): Attribution {
+    const r = this.db.get<{ signup_source: string | null; signup_referrer: string | null; signup_landing: string | null }>(
+      "SELECT signup_source, signup_referrer, signup_landing FROM people WHERE id = ?",
+      personId,
+    );
+    return r === undefined ? NO_ATTRIBUTION : { source: r.signup_source, referrer: r.signup_referrer, landing: r.signup_landing };
+  }
+
+  /**
+   * THE OPERATOR'S COUNTS (`counts.ts`): over the people the spots count, so
+   * every number here adds up with the spots. Aggregates only, never a row.
+   */
+  counts(): Counts {
+    const who = "FROM people WHERE state != 'deleted' AND kind IS NOT 'reviewer'";
+    const spots = this.spots();
+    const since = utcDay(this.now() - 6 * 24 * 60 * 60 * 1000);
+    const by = (col: "signup_source" | "signup_referrer"): Record<string, number> => {
+      const out: Record<string, number> = {};
+      for (const r of this.db.all<{ k: string | null; n: number }>(`SELECT ${col} AS k, count(*) AS n ${who} GROUP BY ${col} ORDER BY n DESC, k`)) out[r.k ?? "(none)"] = r.n;
+      return out;
+    };
+    return {
+      accounts: spots.people,
+      used: this.db.get<{ n: number }>(`SELECT count(*) AS n ${who} AND last_seen_on IS NOT NULL`)?.n ?? 0,
+      active7d: this.db.get<{ n: number }>(`SELECT count(*) AS n ${who} AND last_seen_on >= ?`, since)?.n ?? 0,
+      spots: { total: spots.total, left: spots.left },
+      sources: by("signup_source"),
+      referrers: by("signup_referrer"),
+    };
+  }
+
+  // ── the operator's alerts (AL1, Mike 2026-11-17) ──────────────────────────
+
+  /** An alert's state (`alerts.ts`), kept in `settings` under `alert.<name>` so a deploy never re-sends one; null when never set. */
+  alertState(name: string): string | null {
+    return this.db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", `alert.${name}`)?.value ?? null;
+  }
+
+  /** Compare and set: the state goes from `from` (null: absent) to `to` (null: removed) only if it is still `from`. True when it did, so two checks never both send. */
+  swapAlertState(name: string, from: string | null, to: string | null): boolean {
+    return this.db.transaction((): boolean => {
+      if (this.alertState(name) !== from) return false;
+      if (to === null) this.db.run("DELETE FROM settings WHERE key = ?", `alert.${name}`);
+      else this.db.run("INSERT INTO settings (key, value, set_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at", `alert.${name}`, to, this.now());
+      return true;
+    });
   }
 
   // ── stores (OL2b) ──────────────────────────────────────────────────────────
@@ -426,6 +618,13 @@ export class Accounts {
     return this.db.get<{ quota_bytes: number | null }>("SELECT quota_bytes FROM stores WHERE id = ?", storeId)?.quota_bytes ?? null;
   }
 
+  /** Set (or, with null, clear) one store's own quota in bytes. Never touches the store's files: a store over it keeps everything. */
+  setQuota(storeId: string, bytes: number | null): void {
+    if (bytes !== null && (!Number.isInteger(bytes) || bytes < 0)) throw new Error("quota: a whole number of bytes, or null");
+    this.db.run("UPDATE stores SET quota_bytes = ? WHERE id = ?", bytes, storeId);
+    this.audit(this.personOfStore(storeId), storeId, "store.quota", bytes === null ? "default" : String(bytes));
+  }
+
   // ── spots (SU1) ────────────────────────────────────────────────────────────
 
   /** The spots now. Read from the database every time: `spots set` writes from another process. */
@@ -441,6 +640,8 @@ export class Accounts {
   /** The operator sets N (`main.ts spots set N`): accounts in all. Lowering it below the people there are closes sign-up and removes nobody. */
   setSpots(total: number): Spots {
     if (!Number.isInteger(total) || total < 0 || total > MAX_SPOTS) throw new Error(`spots: a whole number from 0 to ${String(MAX_SPOTS)}`);
+    // A new total re-arms the spots alerts (AL1, `alerts.ts`): each threshold fires once per total.
+    if (total !== this.spots().total) this.db.run("DELETE FROM settings WHERE key = 'alert.spots'");
     this.db.run("INSERT INTO settings (key, value, set_at) VALUES ('spots', ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at", String(total), this.now());
     this.audit(null, null, "spots.set", String(total));
     return this.spots();
@@ -601,7 +802,7 @@ export class Accounts {
    * shows the same words either way. `browser` is the raw value of the
    * browser-binding cookie; only its hash is kept.
    */
-  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string; spotsLeft?: number }): LinkRequest {
+  requestLink(input: { email: unknown; inviteCode?: unknown; timeZone?: unknown; browser: string; spotsLeft?: number; attribution?: Attribution }): LinkRequest {
     const email = normalizeEmail(input.email);
     if (email === null) return { send: false, reason: "bad-email" };
     // The spots, read once for every ask (or handed in by the page, which read
@@ -623,6 +824,9 @@ export class Accounts {
     }
     const token = secret("cpl_");
     const at = this.now();
+    // Cleaned again here, whatever the caller did: nothing unclean is ever written.
+    const a = input.attribution ?? NO_ATTRIBUTION;
+    const attribution: Attribution = { source: cleanSource(a.source), referrer: cleanReferrer(a.referrer), landing: cleanLanding(a.landing) };
     // EVERY ask writes one row in one commit, refused or not. A refused ask's
     // row is dead on arrival (used, no address, no identity) and only pays the
     // same disk write, so the response time doesn't say who has an account: the
@@ -646,8 +850,9 @@ export class Accounts {
         if (!counted && refused === null && identity === undefined && inviteId === null) refused = "busy";
       }
       this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
+      const signUpLink = refused === null && identity === undefined;
       this.db.run(
-        "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at, signup_source, signup_referrer, signup_landing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         id128(),
         sha256(token),
         refused === null ? email : "",
@@ -658,6 +863,10 @@ export class Accounts {
         at,
         at + LINK_MS,
         refused === null ? null : at,
+        // SA1: only a sign-up's link carries where it came from; a member's, or a refused ask's, carries nothing.
+        signUpLink ? attribution.source : null,
+        signUpLink ? attribution.referrer : null,
+        signUpLink ? attribution.landing : null,
       );
     });
     if (refused !== null) return { send: false, reason: refused };
@@ -674,8 +883,8 @@ export class Accounts {
    */
   useLink(input: { token: string; browser: string | null }): LinkUse {
     const hash = sha256(input.token);
-    const row = this.db.get<{ id: string; email: string; identity_id: string | null; invite_id: string | null; time_zone: string | null; browser_hash: string; expires_at: number; used_at: number | null }>(
-      "SELECT id, email, identity_id, invite_id, time_zone, browser_hash, expires_at, used_at FROM login_links WHERE token_hash = ?",
+    const row = this.db.get<{ id: string; email: string; identity_id: string | null; invite_id: string | null; time_zone: string | null; browser_hash: string; expires_at: number; used_at: number | null; signup_source: string | null; signup_referrer: string | null; signup_landing: string | null }>(
+      "SELECT id, email, identity_id, invite_id, time_zone, browser_hash, expires_at, used_at, signup_source, signup_referrer, signup_landing FROM login_links WHERE token_hash = ?",
       hash,
     );
     if (row === undefined) return { ok: false, reason: "unknown" };
@@ -711,7 +920,16 @@ export class Accounts {
       if (inviteId === null && this.spots().left === 0) return { ok: false, reason: row.invite_id === null ? "full" : "invite-spent" };
       const personId = id128();
       const storeId = id128();
-      this.db.run("INSERT INTO people (id, created_at, state, time_zone, invite_id) VALUES (?, ?, 'active', ?, ?)", personId, at, row.time_zone, inviteId);
+      this.db.run(
+        "INSERT INTO people (id, created_at, state, time_zone, invite_id, signup_source, signup_referrer, signup_landing) VALUES (?, ?, 'active', ?, ?, ?, ?, ?)",
+        personId,
+        at,
+        row.time_zone,
+        inviteId,
+        row.signup_source,
+        row.signup_referrer,
+        row.signup_landing,
+      );
       this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, row.email, at, at);
       this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
       this.audit(personId, storeId, "signup", inviteId ?? "spot");
@@ -977,7 +1195,7 @@ export class Accounts {
       this.db.run("DELETE FROM reviewer_codes WHERE person_id = ?", personId);
       this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
       this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
-      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL, last_wake_on = NULL WHERE id = ?", at, personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, delete_after = NULL, display_name = NULL, time_zone = NULL, last_wake_on = NULL, last_seen_on = NULL, signup_source = NULL, signup_referrer = NULL, signup_landing = NULL WHERE id = ?", at, personId);
     });
     this.audit(personId, null, "account.deleted", null);
   }

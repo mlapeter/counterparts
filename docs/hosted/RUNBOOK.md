@@ -101,6 +101,12 @@ the volume, and what leaves for R2 is sealed to a recovery key whose private hal
    | `RAILWAY_RUN_UID` | `0` (step 2) |
    | `RAILWAY_DOCKERFILE_PATH` | `hosted/Dockerfile` (step 1) |
    | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `60`, so Litestream's last sync finishes before a redeploy kills the old container (unverified; check Railway's current name for it) |
+   | `HOSTED_COUNTS_TOKEN` | optional: the bearer token for `GET /ops/counts` ("The counts endpoint" below). `openssl rand -hex 32`; 24+ characters, no spaces. Unset: that path is a 404 |
+   | `HOSTED_ALERT_EMAIL` | optional: your address for the alerts ("Alerts to you" below). Unset: no alert is sent |
+   | `HOSTED_STORAGE_ALERT_BYTES` | optional: the first storage alert at this many used bytes instead of 70% of the volume. Leave unset |
+
+   A malformed value in one of these three never stops the server: the start logs `[hosted] warning: …` naming the
+   variable, and that feature stays off. After setting them, look for that line in the deploy log.
 
    Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`. Don't set
    `HOSTED_KEKS` (before WB1 the KEK lived here; a new server never needs it).
@@ -221,6 +227,11 @@ keep working either way and sign up past the cap.
    included) and `left`.
 2. Open some: `… hosted/src/main.ts spots set 10`. N counts everyone, so with 4 accounts, `spots set 10` opens 6. It
    takes effect at once (no restart); the site's count (`https://app.counterparts.ai/spots`) follows within 5 seconds.
+
+   **The site shows a window, not N** (Mike, 2026-11-17). `/spots`'s `left` counts down within the next whole hundred
+   above the people there are, never past N: with N = 500, 11 people show 89 left, 100 people show 100 left (of a
+   window of 200), 499 show 1, and 500 show 0 and closed. `open` is always the real one (people < N), and only N
+   gates sign-up; the alerts track N too. `spots` prints both on its `left:` line.
 3. Open more later the same way (`spots set 15`). To close sign-up, `spots set 0`. Lowering N removes nobody: everyone
    with an account still signs in.
 
@@ -238,6 +249,74 @@ you see `reached` and the sign-ups look real, raise it; if they look like a floo
 codes, which get through either way.
 
 To count people, any time, beside the running server (counts only, safe to paste anywhere, your own account included): `railway ssh`, then `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups`.
+
+### The counts endpoint (CN1, 2026-11-17)
+
+For a script (the marketing seat's daily check-in), with `HOSTED_COUNTS_TOKEN` set on Railway:
+
+```sh
+curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts.ai/ops/counts
+```
+
+```json
+{"at":"2026-11-17T15:00:00.000Z","accounts":11,"used":8,"active7d":5,"spots":{"total":500,"left":489},
+ "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9}}
+```
+
+- `accounts`: accounts that exist now, as the spots count them (a pending delete included; reviewers' accounts not).
+- `used`: of them, those with a tool call on record. That is any MCP tool call since this release, or, for an
+  account from before it, a wake since about 2026-11-10 (when the last-wake day began; it is back-filled from it).
+  So for older accounts it is a floor: one that used its tools only before 11-10 and not since reads as unused.
+  It isn't "connected": an AI can be connected and never call a tool.
+- `active7d`: those whose last tool call (or back-filled wake) was in the last 7 UTC days, today included. Both read
+  `people.last_seen_on`, a day stamp written at most once a day per person.
+- `sources` and `referrers`: accounts per source tag and per first referrer's origin (SA1, below); `(none)` for
+  those that came with none. Each sums to `accounts`.
+
+Counts only: no address, id or name. A missing or wrong token is a `401`; with the variable unset, a `404`. To
+change the token, set a new value and redeploy (the old one stops at once).
+
+### Where sign-ups came from (SA1, 2026-11-17): what the site passes
+
+The site links to the sign-in page with up to three query parameters, and they ride the sign-up through the emailed
+link (kept on the link's row, never in the email's URL) onto the new account:
+
+```
+https://app.counterparts.ai/login?r=<source tag>&ref=<first referrer>&land=<landing path>
+```
+
+| parameter | stored as | what's kept |
+|---|---|---|
+| `r` (or `utm_source` when there's no `r`) | `people.signup_source` | lowercase letters, digits, `.`, `_`, `-`; at most 40. Anything else is dropped whole |
+| `ref` | `people.signup_referrer` | the origin only (`https://www.reddit.com`): path, query and fragment dropped; at most 100. Only a full `http(s)://` URL; a word such as `ref=producthunt` is never made into an address: it becomes the source tag when there's no `r` or `utm_source` |
+| `land` | `people.signup_landing` | the path only (`/claude-ai/`): query and fragment dropped; at most 100 |
+
+- The site keeps the visitor's FIRST referrer and landing page (its own first-party storage) and adds them to its
+  links to `/login`. Link to `/login` itself: `/` and `/account` redirect there and drop the query.
+- With no `ref`, the page uses the browser's `Referer` origin when it isn't app.counterparts.ai or the site
+  (counterparts.ai and its subdomains). Whether a sign-up from claude.ai's Connect button arrives with
+  `https://claude.ai` that way is unverified.
+- Set once, at the click that makes the account. A member signing in through a tagged link changes nothing; a bad
+  value is dropped and never refuses a sign-up. An erase clears all three with the rest of the account.
+
+### Alerts to you (AL1, 2026-11-17)
+
+With `HOSTED_ALERT_EMAIL` set, the server emails that address, through the same mailer as sign-in links but never
+counted against the hourly sign-up cap:
+
+- **Spots**: when accounts reach 80%, then 95%, then 100% of `spots set N`. Once each per N; `spots set` with a new
+  N re-arms them. Checked at each sign-up and every ten minutes. Open more with `spots set`.
+- **Storage**: when the data volume (`/data`) passes 70% used (`HOSTED_STORAGE_ALERT_BYTES` overrides that line),
+  and again, marked URGENT, at 90%. Once per level; a level re-arms when used space drops below 90% of its line.
+  Checked every ten minutes. **When it fires, grow the
+  Railway volume** (in the service's volume settings; check Railway's current docs for how, and whether it
+  needs a redeploy: unverified here). The per-store quota is 100 MB, so
+  500 accounts could in theory hold 50 GB, far above the 4.6 GB volume of 2026-11-17: this alert is the real guard.
+
+Each send logs `[hosted] alert.sent which=<spots-80|spots-95|spots-100|storage-70|storage-90>`; a failed send logs
+`alert.failed` and is tried again at the next check. The state is in the control database (`settings`,
+`alert.spots` and `alert.storage`), so a deploy doesn't re-send one. It is at least once: a send cut off by a
+crash is sent again about 15 minutes later, so now and then one may arrive twice.
 
 ## 7. BEFORE you add the connector: Claude Code
 
@@ -925,6 +1004,9 @@ does it:
 - **Limits.** `[hosted] limit.rate-limited` / `limit.store-full` / `limit.in-flight` lines. Each line is a hashed
   store tag and nothing else. (Litestream's own lines, from the sidecar child, do name database paths, and so store
   ids, and the bucket and endpoint; never a key. Railway's log is the operator's, not a place anyone else reads.) The numbers are loose on purpose: 120 calls a minute, 1,500 an hour, 8 at once,
-  1 GiB a store.
+  100 MB a store (1 GiB before 2026-11-17). A person whose memory is full is told to email support@counterparts.ai.
+  To give one store more room, in the running container (no restart; it takes effect within a minute):
+  `railway ssh`, then `node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts quota person@example.com 500`
+  (MB; `default` puts it back to 100 MB). A store over its quota keeps everything: reads work, writes are refused.
 - **An R2 outage stops a restart.** Start-up reads the bucket (`keys/`), so a deploy during an R2 outage refuses to
   start. It says `the object store (R2_ENDPOINT) didn't answer`. A server that is already running keeps serving.
