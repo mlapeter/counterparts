@@ -631,7 +631,8 @@ export type DepositReason =
 /**
  * One plain reminder, claimed and due to be told (`Counterpart.plainReminders`).
  * The record `prospective/` hands out, plus `what`: the memory's title or its
- * first line, which is the one piece of the memory's own words a host needs to
+ * first line (or, when that lead names another day, the sentence that names
+ * this one's: `counterpart.ts#plainWhat`), which is the one piece of the memory's own words a host needs to
  * say it. The sentence around it is the host's.
  */
 export interface PlainReminder extends PlainDue {
