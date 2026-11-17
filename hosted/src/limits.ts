@@ -14,9 +14,12 @@
  *      its own answers.
  *   3. **Size**: 100 MB per store (Mike, 2026-11-17; 1 GiB before it), a
  *      store's own `stores.quota_bytes` winning when set, and `AppOptions.mcpLimits.quotaBytes`
- *      changing the default. Over it, every tool that can add to the memory refuses; `recall`,
- *      `status`, `wake`, `scope`, `delete_memory` (a delete frees room) and reading
- *      the self page keep working.
+ *      changing the default. What counts is the person's memory only (`storeBytes`): the
+ *      tenant's `store/` folder without `store/cache/` (derived, rebuilt from the rows), so
+ *      never `snapshots/` (the copies an upgrade keeps for 14 days) or `litestream-meta/`. Over
+ *      it, every tool that can add to the memory refuses; `recall`, `status`, `wake`, `scope`,
+ *      `delete_memory` and reading the self page keep working. A delete doesn't free room at
+ *      once: it hides the memory, and its bytes go when the held delete is erased, 24 hours on.
  *
  * A refused CALL is answered the way a tool refuses (`isError: true`, a
  * `reason`, and words the model can pass on), not with an HTTP error, because
@@ -42,7 +45,7 @@ export const QUOTA_CONTACT = "support@counterparts.ai";
 /** How long a measured size is trusted before the dir is walked again. */
 export const SIZE_TTL_MS = 60_000;
 
-/** Tools that add nothing to a memory (and a delete, which frees room): they keep working over the quota. `self_page` with no argument but `session`/`ifVersion` is a read and joins them. */
+/** Tools that add nothing to a memory (and a delete: it hides a memory now and frees its bytes when the 24-hour hold is erased): they keep working over the quota. `self_page` with no argument but `session`/`ifVersion` is a read and joins them. */
 export const QUOTA_FREE_TOOLS: ReadonlySet<string> = new Set(["recall", "status", "wake", "scope", "delete_memory"]);
 
 /** The only `self_page` arguments a read carries. */
@@ -55,11 +58,21 @@ export interface McpLimitsOptions {
   readonly perHour?: number;
   readonly inFlight?: number;
   readonly quotaBytes?: number;
-  /** The store's bytes on the volume (`dirBytes` of its tenant dir by default, cached for `SIZE_TTL_MS`). */
+  /** The store's bytes (`storeBytes` of its tenant dir, in the app; cached for `SIZE_TTL_MS`). */
   readonly sizeOf: (storeId: string) => number;
   /** A store's own quota, when one was set (accounts' `stores.quota_bytes`). */
   readonly quotaOf?: (storeId: string) => number | null;
   readonly now?: () => number;
+}
+
+/**
+ * What the quota counts for one tenant (the #843 review): its `store/` folder without
+ * `store/cache/`. Not `snapshots/` (pre-upgrade copies, kept 14 days: a format-changing
+ * release would otherwise lock a half-full store for that long), `litestream-meta/`, or a
+ * host's own databases beside the store.
+ */
+export function storeBytes(tenantDir: string): number {
+  return Math.max(0, dirBytes(join(tenantDir, "store")) - dirBytes(join(tenantDir, "store", "cache")));
 }
 
 /** Every file's size under `dir`, recursively. A file that vanishes mid-walk counts 0. */

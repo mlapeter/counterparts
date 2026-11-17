@@ -687,7 +687,8 @@ The journal's two asks after #834 (Mike approved 11-16).
   the first `/mcp` POST of any kind (an `initialize` opens the store), so it isn't "made a tool call". So a new day
   stamp, `people.last_seen_on`, written from the door's call log for every `tools/call` the same way as
   `last_wake_on` (a read, and a write once a day). Back-filled from `last_wake_on` in the ALTER's transaction, so
-  today's 11 accounts that already woke count as connected from the deploy on.
+  today's 11 accounts that already woke count as used from the deploy on. (Named `used`, not `connected`, after
+  the review: an AI can be connected and never call a tool, and the back-fill only knows wakes since ~11-10.)
 - **Sources ride the login link's row, like `tz`.** No cookie and nothing in the emailed URL: `GET /login`'s query
   becomes hidden fields, `POST /login` writes them on the `login_links` row (sign-up links only), and `useLink`'s
   INSERT copies them onto the person. A member signing in through a tagged link is unchanged. The bad-email
@@ -697,7 +698,7 @@ The journal's two asks after #834 (Mike approved 11-16).
   tests only send a Referer by hand.
 - **The storage alert reads the volume, not the stores** (the coordinator's production fact, 11-17: `/data` is
   4.6 GB, 13–14 MB used by 11 accounts). A 5 GiB sum-of-stores line would never fire before the disk is full, so
-  it's `statfs(dataRoot)` at 70% used, with `HOSTED_STORAGE_ALERT_BYTES` as an override. Both bun 1.3.10 and Node 24
+  it's `statfs(dataRoot)` at 70% used, and again at 90%, with `HOSTED_STORAGE_ALERT_BYTES` as an override. Both bun 1.3.10 and Node 24
   have `statfsSync`; if it ever throws, the sum of the data root's files stands in for "used", and only an override
   can fire.
 - **Alert state is durable and claimed before the send.** In memory it would re-send at every deploy, and `spots
@@ -707,3 +708,11 @@ The journal's two asks after #834 (Mike approved 11-16).
   existing store over 100 MB (none today) keeps everything and serves reads. A delete doesn't promise room at once
   (the files shrink only when a held delete is erased), so the message says to email support@counterparts.ai,
   and `main.ts quota <email> <MB|default>` is the operator's answer.
+- **The review of cdf56c75.** (1) The account page's beta note now names the sign-up source and the last tool-call
+  day; §41 lists what the site's /privacy/ must change. (2) Tombstones are cleaned at every open, for a rollback that
+  erased an account without knowing the new columns. (3) The quota counts `store/` minus `store/cache/` only: a
+  release that changes the store's format takes a `snapshots/` copy kept 14 days, and counting it could lock a
+  half-full store for that long (production, 11-17: all 11 tenants together are 12 MB on disk). (4) Alerts are at
+  least once: a claim not confirmed in 15 minutes is taken again; a second storage level at 90%. (6) A malformed
+  operator variable warns and turns its feature off instead of refusing the start: with one replica a refused boot
+  is an outage. (7) `ref=producthunt` is a tag, not `https://producthunt`.

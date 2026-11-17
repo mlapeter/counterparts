@@ -3,7 +3,7 @@
  * (the marketing seat's daily check-in), the way the site reads its own
  * `/api/waitlist-count`.
  *
- *   { "at": "<ISO>", "accounts": 11, "connected": 8, "active7d": 5,
+ *   { "at": "<ISO>", "accounts": 11, "used": 8, "active7d": 5,
  *     "spots": { "total": 500, "left": 489 },
  *     "sources": { "reddit": 3, "(none)": 8 },
  *     "referrers": { "https://www.reddit.com": 2, "(none)": 9 } }

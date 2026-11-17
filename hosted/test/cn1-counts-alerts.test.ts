@@ -5,7 +5,7 @@
  *     from (cleaned), a member's sign-in and a refused ask keep nothing, and an
  *     erase clears it; the sanitizers refuse anything that could carry more.
  *   - CN1: `/ops/counts` answers counts only, with the token; 401 without or with
- *     a wrong one; a 404 when no token is configured. "connected" and "active"
+ *     a wrong one; a 404 when no token is configured. "used" and "active"
  *     follow real MCP tool calls.
  *   - The migration: a database made by the build before this one (its DDL here),
  *     with people, a store and an unused login link, opens with every row intact,
@@ -23,7 +23,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,8 @@ import { openDb } from "../../src/core/store/db.js";
 import { Accounts, cleanAttribution, cleanLanding, cleanReferrer, cleanSource, sha256 } from "../src/accounts.js";
 import { Alerts } from "../src/alerts.js";
 import { memoryMailer } from "../src/egress.js";
-import { McpLimits, STORE_QUOTA_BYTES } from "../src/limits.js";
+import { McpLimits, STORE_QUOTA_BYTES, storeBytes } from "../src/limits.js";
+import { opsEnv } from "../src/main.js";
 import { SETUP_URL } from "../src/pages.js";
 import { freePort, rpc, tempRoot, tool } from "./helpers.js";
 import { Browser, bearer, connect, csrfOf, rig, signInByLink } from "./oauth-rig.js";
@@ -95,7 +96,12 @@ describe("SA1: where a sign-up came from", () => {
     assert.equal(cleanSource("a".repeat(41)), null);
     assert.equal(cleanSource("two words"), null);
     assert.equal(cleanReferrer("https://www.reddit.com/r/ClaudeAI/comments/abc?utm=1#x"), "https://www.reddit.com");
-    assert.equal(cleanReferrer("news.ycombinator.com/item?id=1"), "https://news.ycombinator.com");
+    // No scheme is never made into an address (the #843 review: not `https://producthunt`).
+    assert.equal(cleanReferrer("news.ycombinator.com/item?id=1"), null);
+    assert.equal(cleanReferrer("producthunt"), null);
+    assert.deepEqual(cleanAttribution({ ref: "ProductHunt" }), { source: "producthunt", referrer: null, landing: null });
+    assert.deepEqual(cleanAttribution({ r: "launch", ref: "producthunt" }), { source: "launch", referrer: null, landing: null });
+    assert.deepEqual(cleanAttribution({ ref: "https://www.producthunt.com/posts/x" }), { source: null, referrer: "https://www.producthunt.com", landing: null });
     assert.equal(cleanReferrer("javascript:alert(1)"), null);
     assert.equal(cleanReferrer("https://me:secret@example.com/"), null);
     assert.equal(cleanReferrer(`https://${"a".repeat(120)}.com`), null);
@@ -187,8 +193,8 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get("cache-control"), "no-store");
     const body = (await ok.json()) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(body).sort(), ["accounts", "active7d", "at", "connected", "referrers", "sources", "spots"]);
-    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, connected: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "https://www.reddit.com": 1 } });
+    assert.deepEqual(Object.keys(body).sort(), ["accounts", "active7d", "at", "referrers", "sources", "spots", "used"]);
+    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "https://www.reddit.com": 1 } });
     assert.doesNotMatch(JSON.stringify(body), /@|[0-9a-f]{32}/);
     assert.equal(alertsTo(r).length, 0);
 
@@ -202,8 +208,8 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     await r.app.checkAlerts();
     await r.app.checkAlerts();
     assert.equal(alertsTo(r).length, 1);
-    const later = (await (await counts(r.origin, TOKEN)).json()) as { accounts: number; connected: number; sources: Record<string, number> };
-    assert.deepEqual([later.accounts, later.connected, later.sources], [4, 1, { "(none)": 3, reddit: 1 }]);
+    const later = (await (await counts(r.origin, TOKEN)).json()) as { accounts: number; used: number; sources: Record<string, number> };
+    assert.deepEqual([later.accounts, later.used, later.sources], [4, 1, { "(none)": 3, reddit: 1 }]);
 
     // A real second crossing: an account erased (4 → 3 of 5) and a new one (back to 4): still the one email.
     await r.app.deleteAccount(await personOf(r, "four@example.com"));
@@ -246,31 +252,32 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     assert.equal(r.mail.sent.length, 1, "only the sign-in link");
   });
 
-  test("active: a tool call 8 days ago is connected, not active; today's is both", async () => {
+  test("active: a tool call 8 days ago is used, not active; today's is both", async () => {
     let clock = Date.parse("2026-11-01T12:00:00Z");
     const r = await started({ countsToken: TOKEN, now: () => clock });
     r.app.accounts.setSpots(5);
     const c = await connect(r, { email: "old@example.com", invite: r.app.accounts.createInvite().code });
     await tool(`${r.origin}/mcp`, "status", {}, bearer(c.access));
     clock += 8 * 24 * 60 * 60 * 1000;
-    const body = (await (await counts(r.origin, TOKEN)).json()) as { connected: number; active7d: number };
-    assert.deepEqual([body.connected, body.active7d], [1, 0]);
+    const body = (await (await counts(r.origin, TOKEN)).json()) as { used: number; active7d: number };
+    assert.deepEqual([body.used, body.active7d], [1, 0]);
     await tool(`${r.origin}/mcp`, "status", {}, bearer(c.access));
-    const again = (await (await counts(r.origin, TOKEN)).json()) as { connected: number; active7d: number };
-    assert.deepEqual([again.connected, again.active7d], [1, 1]);
+    const again = (await (await counts(r.origin, TOKEN)).json()) as { used: number; active7d: number };
+    assert.deepEqual([again.used, again.active7d], [1, 1]);
   });
 });
 
-describe("AL1: the storage alert", () => {
-  const make = (used: { v: number }, storageBytes?: number): { alerts: Alerts; mail: ReturnType<typeof memoryMailer>; accounts: Accounts } => {
+describe("AL1: the storage alert, and at least once", () => {
+  const make = (used: { v: number }, opts: { storageBytes?: number; now?: () => number } = {}): { alerts: Alerts; mail: ReturnType<typeof memoryMailer>; accounts: Accounts } => {
     const accounts = new Accounts({ path: join(tmp.root, "control", "accounts.sqlite") });
     closers.push(() => accounts.close());
     const mail = memoryMailer();
-    const alerts = new Alerts({ to: OPS, accounts, mailer: mail, dataRoot: tmp.root, publicOrigin: "https://app.example", volume: () => ({ total: 1000, used: used.v }), ...(storageBytes === undefined ? {} : { storageBytes }) });
+    const alerts = new Alerts({ to: OPS, accounts, mailer: mail, dataRoot: tmp.root, publicOrigin: "https://app.example", volume: () => ({ total: 1000, used: used.v }), ...opts });
     return { alerts, mail, accounts };
   };
+  const state = (a: Accounts): unknown => JSON.parse(a.alertState("storage") ?? "null");
 
-  test("once at 70% of the volume; not again until it drops below 90% of the line", async () => {
+  test("once at 70% and once at 90% of the volume; a level re-arms only below 90% of its line", async () => {
     const used = { v: 600 };
     const { alerts, mail } = make(used);
     await alerts.check();
@@ -279,35 +286,121 @@ describe("AL1: the storage alert", () => {
     await alerts.check();
     await alerts.check();
     assert.equal(mail.sent.length, 1);
-    assert.match(mail.sent[0]!.subject, /data volume/);
+    assert.match(mail.sent[0]!.subject, /data volume has/);
     assert.match(mail.sent[0]!.text, /Grow the Railway volume/);
+    assert.match(mail.sent[0]!.text, /\(70% of the volume\)/);
     used.v = 650; // still above 630: not re-armed
     await alerts.check();
     used.v = 710;
     await alerts.check();
     assert.equal(mail.sent.length, 1);
-    used.v = 600; // below 630: re-armed
+    used.v = 910; // the second level
+    await alerts.check();
+    await alerts.check();
+    assert.equal(mail.sent.length, 2);
+    assert.match(mail.sent[1]!.text, /URGENT/);
+    used.v = 650; // below 810: 90% re-arms, 70% doesn't
+    await alerts.check();
+    used.v = 905;
+    await alerts.check();
+    assert.equal(mail.sent.length, 3);
+    used.v = 600; // below 630: both re-armed
     await alerts.check();
     used.v = 720;
     await alerts.check();
-    assert.equal(mail.sent.length, 2);
+    assert.equal(mail.sent.length, 4);
+    assert.match(mail.sent[3]!.text, /\(70% of the volume\)/);
   });
 
-  test("HOSTED_STORAGE_ALERT_BYTES overrides the share; a send that fails is tried again", async () => {
+  test("HOSTED_STORAGE_ALERT_BYTES replaces the first line; a send that fails is tried at the next check", async () => {
     const used = { v: 550 };
-    const { alerts, mail, accounts } = make(used, 500);
+    const { alerts, mail, accounts } = make(used, { storageBytes: 500 });
     const failing = new Alerts({ to: OPS, accounts, mailer: { send: () => Promise.reject(new Error("down")) }, dataRoot: tmp.root, publicOrigin: "https://app.example", volume: () => ({ total: 1000, used: used.v }), storageBytes: 500 });
     await failing.check();
-    assert.equal(accounts.alertState("storage"), null, "a failed send leaves it armed");
+    assert.deepEqual(state(accounts), { sent: 0 }, "a failed send leaves it armed, no claim held");
     await alerts.check();
     assert.equal(mail.sent.length, 1);
     assert.match(mail.sent[0]!.text, /HOSTED_STORAGE_ALERT_BYTES/);
+  });
+
+  test("a claim never confirmed (the process died mid-send) is sent by a later check after 15 minutes; a fresh claim is left alone", async () => {
+    let clock = Date.parse("2026-11-17T12:00:00Z");
+    const used = { v: 750 };
+    const { alerts, mail, accounts } = make(used, { now: () => clock });
+    // What a process that died between the claim and the confirm leaves.
+    assert.ok(accounts.swapAlertState("storage", null, JSON.stringify({ sent: 0, pending: 70, at: clock })));
+    await alerts.check();
+    assert.equal(mail.sent.length, 0, "another check may be sending it right now");
+    clock += 14 * 60 * 1000;
+    await alerts.check();
+    assert.equal(mail.sent.length, 0);
+    clock += 2 * 60 * 1000;
+    await alerts.check();
+    assert.equal(mail.sent.length, 1, "taken again once stale");
+    assert.deepEqual(state(accounts), { sent: 70 });
+    await alerts.check();
+    assert.equal(mail.sent.length, 1);
+  });
+
+  test("a spots claim never confirmed is sent later too; one spot reads as one", async () => {
+    let clock = Date.parse("2026-11-17T12:00:00Z");
+    const { alerts, mail, accounts } = make({ v: 0 }, { now: () => clock });
+    accounts.setSpots(1);
+    accounts.signUpWithIdentity({ kind: "test", value: "the-only-one" });
+    assert.ok(accounts.swapAlertState("spots", null, JSON.stringify({ total: 1, sent: 0, pending: 100, at: clock })));
+    await alerts.check();
+    assert.equal(mail.sent.length, 0);
+    clock += 16 * 60 * 1000;
+    await alerts.check();
+    assert.equal(mail.sent.length, 1);
+    assert.equal(mail.sent[0]!.subject, "Counterparts hosted: the 1 spot is taken");
+    assert.match(mail.sent[0]!.text, /^1 account of 1 spot; 0 left\./);
   });
 
   test("the real volume reader answers on this machine", async () => {
     const { volumeUsage } = await import("../src/alerts.js");
     const v = volumeUsage(tmp.root);
     assert.ok(v !== null && v.total > 0 && v.used >= 0 && v.used <= v.total);
+  });
+});
+
+describe("the #843 review: tombstones, and what the quota counts", () => {
+  test("at open, a tombstone left with a source or a last-seen day (a rollback erased it) is cleared; a live account keeps its own", () => {
+    const path = join(tmp.root, "control", "accounts.sqlite");
+    const a = new Accounts({ path });
+    const live = a.signUpWithIdentity({ kind: "test", value: "live" }).personId;
+    const gone = a.signUpWithIdentity({ kind: "test", value: "gone" }).personId;
+    a.close();
+    // An older build erased `gone` without knowing these columns (a deploy, a rollback, a delete, a roll-forward).
+    const db = openDb(path, { wal: true });
+    db.run("UPDATE people SET signup_source = 'reddit', signup_referrer = 'https://www.reddit.com', signup_landing = '/claude-ai/', last_seen_on = '2026-11-17'");
+    db.run("UPDATE people SET state = 'deleted', deleted_at = 1 WHERE id = ?", gone);
+    db.close();
+    const b = new Accounts({ path });
+    try {
+      assert.deepEqual(b.attributionOf(gone), { source: null, referrer: null, landing: null });
+      assert.equal(b.lastSeenOn(gone), null);
+      assert.deepEqual(b.attributionOf(live), { source: "reddit", referrer: "https://www.reddit.com", landing: "/claude-ai/" });
+      assert.equal(b.lastSeenOn(live), "2026-11-17");
+    } finally {
+      b.close();
+    }
+  });
+
+  test("the quota counts store/ without store/cache/: never snapshots/, litestream-meta/ or a host's own databases", () => {
+    const dir = join(tmp.root, "tenant");
+    const put = (rel: string, bytes: number): void => {
+      mkdirSync(join(dir, rel, ".."), { recursive: true });
+      writeFileSync(join(dir, rel), Buffer.alloc(bytes));
+    };
+    put("store/counterparts.sqlite", 1000);
+    put("store/counterparts.sqlite-wal", 200);
+    put("store/cache/cache.sqlite", 50_000);
+    put("snapshots/2026-11-17/counterparts.sqlite", 70_000);
+    put("litestream-meta/x", 9000);
+    put("app/app.sqlite", 8000);
+    assert.equal(storeBytes(dir), 1200);
+    assert.equal(storeBytes(join(tmp.root, "none")), 0);
   });
 });
 
@@ -351,7 +444,7 @@ CREATE TABLE audit (at INTEGER NOT NULL, person_id TEXT, store_id TEXT, action T
         assert.equal(a.lastSeenOn("p2"), null);
         assert.deepEqual(a.attributionOf("p1"), { source: null, referrer: null, landing: null });
         assert.equal(a.spots().total, 500);
-        assert.equal(a.counts().connected, 1);
+        assert.equal(a.counts().used, 1);
         assert.deepEqual(a.counts().sources, { "(none)": 2 });
       } finally {
         a.close();
@@ -461,7 +554,7 @@ describe("the whole path as a process: main.ts serve, MAIL=log", () => {
     await tool(`${origin}/mcp`, "status", {}, bearer(c.access));
     assert.equal((await counts(origin)).status, 401);
     const body = (await (await counts(origin, TOKEN)).json()) as Record<string, unknown>;
-    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, connected: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "(none)": 1 } });
+    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "(none)": 1 } });
     for (const n of ["two", "three", "four"]) await signUpFrom(logRig, new Browser(origin), `${n}@example.com`, "");
     await waitFor(/alert\.sent which=spots-80/, "the 80% alert");
     const alerts = (): number => err.split(`an email for ${OPS}`).length - 1;
@@ -483,21 +576,40 @@ describe("the whole path as a process: main.ts serve, MAIL=log", () => {
   });
 });
 
-describe("serve refuses a bad value for the new variables (a typo must not start a server that silently does nothing)", () => {
-  for (const [name, value, words] of [
-    ["HOSTED_COUNTS_TOKEN", "short", /HOSTED_COUNTS_TOKEN is at least 24 characters/],
-    ["HOSTED_ALERT_EMAIL", "not an address", /HOSTED_ALERT_EMAIL is one email address/],
-    ["HOSTED_STORAGE_ALERT_BYTES", "5GiB", /HOSTED_STORAGE_ALERT_BYTES is a whole number of bytes/],
-  ] as const) {
-    test(`${name}=${value}`, () => {
-      const run = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], {
-        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "http://127.0.0.1:1", PORT: "1", MAIL: "log", BACKUPS: "off", [name]: value },
-        encoding: "utf8",
-        timeout: 30_000,
-      });
-      assert.equal(run.status, 1, run.stderr);
-      assert.match(run.stderr, words);
-      assert.doesNotMatch(run.stderr, /serving/);
+describe("the operator variables: a bad value warns and turns its feature off, never stops the start", () => {
+  test("opsEnv: trimmed; malformed ones off with a warning that never echoes the value", () => {
+    const good = opsEnv({ HOSTED_COUNTS_TOKEN: `  ${TOKEN}\n`, HOSTED_ALERT_EMAIL: " ops@example.com ", HOSTED_STORAGE_ALERT_BYTES: " 3500000000 " });
+    assert.deepEqual(good, { countsToken: TOKEN, alerts: { to: "ops@example.com", storageBytes: 3_500_000_000 }, warnings: [] });
+    assert.deepEqual(opsEnv({}), { warnings: [] });
+    const bad = opsEnv({ HOSTED_COUNTS_TOKEN: "short", HOSTED_ALERT_EMAIL: "not an address", HOSTED_STORAGE_ALERT_BYTES: "5GiB" });
+    assert.equal(bad.countsToken, undefined);
+    assert.equal(bad.alerts, undefined);
+    assert.equal(bad.warnings.length, 3);
+    assert.doesNotMatch(bad.warnings.join(" "), /short|not an address|5GiB/);
+    // A token with whitespace inside is malformed.
+    assert.equal(opsEnv({ HOSTED_COUNTS_TOKEN: "abcdefghijkl mnopqrstuvwxyz0123" }).countsToken, undefined);
+    // A bad byte count leaves the alerts on, at 70% of the volume.
+    assert.deepEqual(opsEnv({ HOSTED_ALERT_EMAIL: "ops@example.com", HOSTED_STORAGE_ALERT_BYTES: "-1" }).alerts, { to: "ops@example.com" });
+  });
+
+  test("serve starts with a malformed token, says so once, and /ops/counts is a 404", async () => {
+    const port = await freePort();
+    const origin = `http://127.0.0.1:${String(port)}`;
+    const child = spawn(process.execPath, [...scriptArgs(MAIN), "serve"], {
+      env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: origin, PORT: String(port), MAIL: "log", BACKUPS: "off", HOSTED_COUNTS_TOKEN: "has a space in it but is long enough", HOSTED_ALERT_EMAIL: "nope" },
+      stdio: ["ignore", "ignore", "pipe"],
     });
-  }
+    closers.push(() => child.kill("SIGTERM"));
+    let err = "";
+    child.stderr!.on("data", (d: Buffer) => {
+      err += d.toString();
+    });
+    for (let i = 0; i < 300 && !/serving/.test(err); i++) await new Promise((res) => setTimeout(res, 100));
+    assert.match(err, /serving/);
+    assert.match(err, /\[hosted\] warning: HOSTED_COUNTS_TOKEN is malformed/);
+    assert.match(err, /\[hosted\] warning: HOSTED_ALERT_EMAIL isn't one email address/);
+    assert.doesNotMatch(err, /has a space in it/);
+    assert.equal((await fetch(`${origin}/ops/counts`, { headers: { authorization: "Bearer has a space in it but is long enough" } })).status, 404);
+    child.kill("SIGTERM");
+  });
 });

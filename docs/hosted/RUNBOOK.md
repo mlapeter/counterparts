@@ -101,9 +101,12 @@ the volume, and what leaves for R2 is sealed to a recovery key whose private hal
    | `RAILWAY_RUN_UID` | `0` (step 2) |
    | `RAILWAY_DOCKERFILE_PATH` | `hosted/Dockerfile` (step 1) |
    | `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `60`, so Litestream's last sync finishes before a redeploy kills the old container (unverified; check Railway's current name for it) |
-   | `HOSTED_COUNTS_TOKEN` | optional: the bearer token for `GET /ops/counts` ("The counts endpoint" below). `openssl rand -hex 32`; 24+ characters. Unset: that path is a 404 |
+   | `HOSTED_COUNTS_TOKEN` | optional: the bearer token for `GET /ops/counts` ("The counts endpoint" below). `openssl rand -hex 32`; 24+ characters, no spaces. Unset: that path is a 404 |
    | `HOSTED_ALERT_EMAIL` | optional: your address for the alerts ("Alerts to you" below). Unset: no alert is sent |
-   | `HOSTED_STORAGE_ALERT_BYTES` | optional: the storage alert at this many used bytes on the volume instead of 70% of its size. Leave unset |
+   | `HOSTED_STORAGE_ALERT_BYTES` | optional: the first storage alert at this many used bytes instead of 70% of the volume. Leave unset |
+
+   A malformed value in one of these three never stops the server: the start logs `[hosted] warning: …` naming the
+   variable, and that feature stays off. After setting them, look for that line in the deploy log.
 
    Don't set `PORT`: Railway sets it. Don't set `MAIL`, `BACKUPS`, `RESTORE_ON_BOOT` or `NEW_BUCKET`. Don't set
    `HOSTED_KEKS` (before WB1 the KEK lived here; a new server never needs it).
@@ -256,14 +259,17 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
 ```
 
 ```json
-{"at":"2026-11-17T15:00:00.000Z","accounts":11,"connected":8,"active7d":5,"spots":{"total":500,"left":489},
+{"at":"2026-11-17T15:00:00.000Z","accounts":11,"used":8,"active7d":5,"spots":{"total":500,"left":489},
  "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9}}
 ```
 
 - `accounts`: accounts that exist now, as the spots count them (a pending delete included; reviewers' accounts not).
-- `connected`: of them, those that ever made an MCP tool call. `active7d`: those whose last tool call was in the
-  last 7 UTC days, today included. Both read `people.last_seen_on`, a day stamp written at most once a day per
-  person. Accounts that woke before this release count as connected from their last wake's day.
+- `used`: of them, those with a tool call on record. That is any MCP tool call since this release, or, for an
+  account from before it, a wake since about 2026-11-10 (when the last-wake day began; it is back-filled from it).
+  So for older accounts it is a floor: one that used its tools only before 11-10 and not since reads as unused.
+  It isn't "connected": an AI can be connected and never call a tool.
+- `active7d`: those whose last tool call (or back-filled wake) was in the last 7 UTC days, today included. Both read
+  `people.last_seen_on`, a day stamp written at most once a day per person.
 - `sources` and `referrers`: accounts per source tag and per first referrer's origin (SA1, below); `(none)` for
   those that came with none. Each sums to `accounts`.
 
@@ -282,7 +288,7 @@ https://app.counterparts.ai/login?r=<source tag>&ref=<first referrer>&land=<land
 | parameter | stored as | what's kept |
 |---|---|---|
 | `r` (or `utm_source` when there's no `r`) | `people.signup_source` | lowercase letters, digits, `.`, `_`, `-`; at most 40. Anything else is dropped whole |
-| `ref` | `people.signup_referrer` | the origin only (`https://www.reddit.com`): path, query and fragment dropped; http(s); at most 100. A bare host reads as https |
+| `ref` | `people.signup_referrer` | the origin only (`https://www.reddit.com`): path, query and fragment dropped; at most 100. Only a full `http(s)://` URL; a word such as `ref=producthunt` is never made into an address: it becomes the source tag when there's no `r` or `utm_source` |
 | `land` | `people.signup_landing` | the path only (`/claude-ai/`): query and fragment dropped; at most 100 |
 
 - The site keeps the visitor's FIRST referrer and landing page (its own first-party storage) and adds them to its
@@ -300,15 +306,17 @@ counted against the hourly sign-up cap:
 
 - **Spots**: when accounts reach 80%, then 95%, then 100% of `spots set N`. Once each per N; `spots set` with a new
   N re-arms them. Checked at each sign-up and every ten minutes. Open more with `spots set`.
-- **Storage**: when the data volume (`/data`) passes 70% used (`HOSTED_STORAGE_ALERT_BYTES` overrides the line).
-  Once; it re-arms when used space drops below 90% of the line. Checked every ten minutes. **When it fires, grow the
+- **Storage**: when the data volume (`/data`) passes 70% used (`HOSTED_STORAGE_ALERT_BYTES` overrides that line),
+  and again, marked URGENT, at 90%. Once per level; a level re-arms when used space drops below 90% of its line.
+  Checked every ten minutes. **When it fires, grow the
   Railway volume** (in the service's volume settings; check Railway's current docs for how, and whether it
   needs a redeploy: unverified here). The per-store quota is 100 MB, so
   500 accounts could in theory hold 50 GB, far above the 4.6 GB volume of 2026-11-17: this alert is the real guard.
 
-Each send logs `[hosted] alert.sent which=<spots-80|spots-95|spots-100|storage>`; a failed send logs
+Each send logs `[hosted] alert.sent which=<spots-80|spots-95|spots-100|storage-70|storage-90>`; a failed send logs
 `alert.failed` and is tried again at the next check. The state is in the control database (`settings`,
-`alert.spots` and `alert.storage`), so a deploy never re-sends one.
+`alert.spots` and `alert.storage`), so a deploy doesn't re-send one. It is at least once: a send cut off by a
+crash is sent again about 15 minutes later, so now and then one may arrive twice.
 
 ## 7. BEFORE you add the connector: Claude Code
 

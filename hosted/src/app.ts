@@ -38,7 +38,7 @@ import { STORE_ID, Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, replicaPrefix, serverDatabasePaths, serverPathInside, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
-import { McpLimits, dirBytes } from "./limits.js";
+import { McpLimits, dirBytes, storeBytes } from "./limits.js";
 import { Alerts } from "./alerts.js";
 import type { AlertEvent, AlertsConfig } from "./alerts.js";
 import { countsRoute } from "./counts.js";
@@ -301,6 +301,7 @@ export function createApp(opts: AppOptions): App {
           mailer: opts.mailer,
           dataRoot: opts.dataRoot,
           publicOrigin: opts.publicOrigin,
+          ...(opts.now === undefined ? {} : { now: opts.now }),
           onEvent: (name, which) => opts.onEvent?.(name, which),
         });
   const keys = opts.backup === undefined ? null : new KeyStore({ path: join(opts.dataRoot, "keys", "keys.sqlite"), wrapper: opts.backup.wrapper });
@@ -785,7 +786,8 @@ export function createApp(opts: AppOptions): App {
   };
   const limits = new McpLimits({
     ...opts.mcpLimits,
-    sizeOf: (storeId) => dirBytes(tenantDir(tenants.root, storeId)),
+    // The person's memory only (`limits.ts#storeBytes`): never the derived cache, pre-upgrade snapshots or Litestream's files.
+    sizeOf: (storeId) => storeBytes(tenantDir(tenants.root, storeId)),
     quotaOf: (storeId) => accounts.quotaOf(storeId),
     ...(opts.now === undefined ? {} : { now: opts.now }),
   });
@@ -827,7 +829,7 @@ export function createApp(opts: AppOptions): App {
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
     // The day of each person's last wake (LW1): a read, and a write once a day at most.
     onWake: (personId) => void accounts.noteWake(personId),
-    // The day of each person's last tool call (CN1): the counts' "connected" and "active". A write once a day at most.
+    // The day of each person's last tool call (CN1): the counts' "used" and "active". A write once a day at most.
     onToolCall: (personId) => void accounts.noteSeen(personId),
     ...(opts.onError === undefined ? {} : { onError: opts.onError }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),

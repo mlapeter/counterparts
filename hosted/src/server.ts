@@ -83,7 +83,7 @@ export interface HostedServerOptions {
   readonly onWake?: (personId: string) => void;
   /**
    * Told the person behind each `tools/call` that reached their store, any tool,
-   * answered or refused (CN1: the counts' "connected" and "active"; the app keeps
+   * answered or refused (CN1: the counts' "used" and "active"; the app keeps
    * the day, `accounts.ts#noteSeen`). Nothing else about the call. A throw is swallowed.
    */
   readonly onToolCall?: (personId: string) => void;

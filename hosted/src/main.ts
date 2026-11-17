@@ -49,11 +49,12 @@
  *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
  *                      stays), and only on a volume refused as "not the key that wrote the bucket's backups";
  *                      with RESTORE_ON_BOOT=1
- *   HOSTED_COUNTS_TOKEN   the bearer token for GET /ops/counts (counts.ts: accounts, connected, active, spots,
+ *   HOSTED_COUNTS_TOKEN   the bearer token for GET /ops/counts (counts.ts: accounts, used, active, spots,
  *                      sign-ups by source; counts only). Unset: that path is a 404
  *   HOSTED_ALERT_EMAIL the operator's address for alerts (alerts.ts): spots at 80%, 95%, 100% of the total, and the
- *                      data volume at 70% used. Unset: no alert is checked or sent
- *   HOSTED_STORAGE_ALERT_BYTES   optional: the storage alert at this many used bytes on the volume, not 70% of its size
+ *                      data volume at 70% and 90% used. Unset: no alert is checked or sent
+ *   HOSTED_STORAGE_ALERT_BYTES   optional: the first storage alert at this many used bytes, not 70% of the volume
+ *                      (these three: a malformed value turns its feature off with a warning; the start goes on)
  *   NEW_BUCKET         <R2_ENDPOINT's host>/<R2_BUCKET>: this volume has lived (a person or a store) and the
  *                      bucket has no control key ON PURPOSE (a move to a new bucket, or turning backups on after
  *                      BACKUPS=off). Without it such a start is refused (R7). One deploy, then unset
@@ -361,6 +362,35 @@ export function callLine(r: HostedCallRecord): string {
  * didn't send (R9). The event and the hashed
  * store tag, nothing else: never an id, an address or an error's text.
  */
+/**
+ * The optional operator variables (CN1, AL1), each trimmed. A malformed one is left OFF with a warning, never a
+ * refused start: `HOSTED_COUNTS_TOKEN` (24+ characters, no whitespace inside), `HOSTED_ALERT_EMAIL` (one address),
+ * `HOSTED_STORAGE_ALERT_BYTES` (a whole number of bytes; malformed, the alerts run on 70% of the volume). A warning
+ * never echoes a value.
+ */
+export function opsEnv(env: Record<string, string | undefined>): { countsToken?: string; alerts?: { to: string; storageBytes?: number }; warnings: string[] } {
+  const warnings: string[] = [];
+  const token = (env["HOSTED_COUNTS_TOKEN"] ?? "").trim();
+  let countsToken: string | undefined;
+  if (token !== "") {
+    if (token.length < 24 || /\s/.test(token)) warnings.push("HOSTED_COUNTS_TOKEN is malformed (24+ characters, no spaces: openssl rand -hex 32 makes one), so /ops/counts is OFF (a 404)");
+    else countsToken = token;
+  }
+  const to = (env["HOSTED_ALERT_EMAIL"] ?? "").trim();
+  let alerts: { to: string; storageBytes?: number } | undefined;
+  if (to !== "") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) warnings.push("HOSTED_ALERT_EMAIL isn't one email address, so the alerts are OFF");
+    else alerts = { to };
+  }
+  const bytesRaw = (env["HOSTED_STORAGE_ALERT_BYTES"] ?? "").trim();
+  if (bytesRaw !== "") {
+    const n = /^\d{1,16}$/.test(bytesRaw) ? Number(bytesRaw) : NaN;
+    if (!Number.isSafeInteger(n) || n <= 0) warnings.push("HOSTED_STORAGE_ALERT_BYTES isn't a whole number of bytes, so the storage alert uses 70% of the volume");
+    else if (alerts !== undefined) alerts = { ...alerts, storageBytes: n };
+  }
+  return { ...(countsToken === undefined ? {} : { countsToken }), ...(alerts === undefined ? {} : { alerts }), warnings };
+}
+
 export function eventLine(name: string, store: string): string {
   // AL1: which alert (`spots-80`, `storage`), never an address.
   if (name === "alert.sent") return `[hosted] ${name} which=${store}: an alert went to HOSTED_ALERT_EMAIL\n`;
@@ -1183,25 +1213,10 @@ async function main(): Promise<void> {
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
   if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
   const allowedOrigins = mcpAllowedOrigins(env["MCP_ALLOWED_ORIGINS"]);
-  const countsToken = (env["HOSTED_COUNTS_TOKEN"] ?? "").trim();
-  if (countsToken !== "" && countsToken.length < 24) {
-    process.stderr.write("[hosted] refused: HOSTED_COUNTS_TOKEN is at least 24 characters (openssl rand -hex 32 makes one), or unset.\n");
-    process.exitCode = 1;
-    return;
-  }
-  const alertTo = (env["HOSTED_ALERT_EMAIL"] ?? "").trim();
-  if (alertTo !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertTo)) {
-    process.stderr.write("[hosted] refused: HOSTED_ALERT_EMAIL is one email address, or unset.\n");
-    process.exitCode = 1;
-    return;
-  }
-  const storageRaw = (env["HOSTED_STORAGE_ALERT_BYTES"] ?? "").trim();
-  const storageBytes = storageRaw === "" ? null : Number(storageRaw);
-  if (storageBytes !== null && (!Number.isSafeInteger(storageBytes) || storageBytes <= 0)) {
-    process.stderr.write("[hosted] refused: HOSTED_STORAGE_ALERT_BYTES is a whole number of bytes (e.g. 3500000000), or unset.\n");
-    process.exitCode = 1;
-    return;
-  }
+  // CN1, AL1: a bad value turns that one feature off with a warning, never stops the start (Mike's guards
+  // loose-first: one replica and a refused boot is an outage).
+  const ops = opsEnv(env);
+  for (const w of ops.warnings) process.stderr.write(`[hosted] warning: ${w}\n`);
   if ("refusal" in allowedOrigins) {
     process.stderr.write(`[hosted] ${allowedOrigins.refusal}\n`);
     process.exitCode = 1;
@@ -1219,8 +1234,8 @@ async function main(): Promise<void> {
     ...(allowedOrigins.length === 0 ? {} : { allowedOrigins }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
     // CN1, AL1 (2026-11-17): the counts endpoint's token and the operator's alerts, each off when unset.
-    ...(countsToken === "" ? {} : { countsToken }),
-    ...(alertTo === "" ? {} : { alerts: { to: alertTo, ...(storageBytes === null ? {} : { storageBytes }) } }),
+    ...(ops.countsToken === undefined ? {} : { countsToken: ops.countsToken }),
+    ...(ops.alerts === undefined ? {} : { alerts: ops.alerts }),
     // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
     onUploads: (e) => process.stderr.write(uploadsLine(e)),
     // Every /mcp message, ids and codes only (CONTRACT §6), and every error that became a 500 or an

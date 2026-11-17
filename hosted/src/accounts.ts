@@ -209,7 +209,7 @@ export const MAX_LANDING = 100;
 export interface Attribution {
   /** A short tag (`?r=` or `?utm_source=`): lowercase letters, digits, `.`, `_`, `-`; at most 40. */
   readonly source: string | null;
-  /** The first referrer's ORIGIN only (`https://www.reddit.com`): no path, no query; http(s); at most 100. */
+  /** The first referrer's ORIGIN only (`https://www.reddit.com`): no path, no query; an http(s) URL; at most 100. */
   readonly referrer: string | null;
   /** The site's landing PATH only (`/claude-ai/`): no query, no fragment; at most 100. */
   readonly landing: string | null;
@@ -227,11 +227,10 @@ export function cleanSource(raw: unknown): string | null {
   return v.length > 0 && v.length <= MAX_SOURCE && /^[a-z0-9][a-z0-9._-]*$/.test(v) ? v : null;
 }
 
-/** An origin, or null: what `new URL(raw).origin` gives for http(s) (a bare host is read as https), and nothing longer than 100. */
+/** An origin, or null: what `new URL(raw).origin` gives for an http(s) URL, nothing longer than 100. Anything without `http://` or `https://` is not one (no scheme is invented). */
 export function cleanReferrer(raw: unknown): string | null {
-  let v = str(raw);
-  if (v.length === 0 || v.length > 2048) return null;
-  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = `https://${v}`;
+  const v = str(raw);
+  if (v.length === 0 || v.length > 2048 || !/^https?:\/\//i.test(v)) return null;
   try {
     const u = new URL(v);
     if (u.protocol !== "https:" && u.protocol !== "http:") return null;
@@ -252,18 +251,25 @@ export function cleanLanding(raw: unknown): string | null {
 /**
  * The three fields from what the sign-in form (or the site's link to it) carried:
  * `r` (or, without it, `utm_source`), `ref`, `land`. Each cleaned alone; a bad
- * one is null and never refuses the sign-up.
+ * one is null and never refuses the sign-up. A `ref` that isn't a URL
+ * (`?ref=producthunt`) is a tag, not a site: it becomes the source when no `r` or
+ * `utm_source` gave one, and is never stored as a referrer.
  */
 export function cleanAttribution(raw: { r?: unknown; utm_source?: unknown; ref?: unknown; land?: unknown }): Attribution {
-  return { source: cleanSource(raw.r) ?? cleanSource(raw.utm_source), referrer: cleanReferrer(raw.ref), landing: cleanLanding(raw.land) };
+  const referrer = cleanReferrer(raw.ref);
+  const source = cleanSource(raw.r) ?? cleanSource(raw.utm_source) ?? (referrer === null ? cleanSource(raw.ref) : null);
+  return { source, referrer, landing: cleanLanding(raw.land) };
 }
 
 /** What the operator's counts endpoint answers (`counts.ts`): counts only. */
 export interface Counts {
   /** People with an account, as the spots count them (not deleted, not a reviewer's). */
   readonly accounts: number;
-  /** Of them, those who ever made an MCP tool call (`last_seen_on` set). */
-  readonly connected: number;
+  /**
+   * Of them, those with a tool call on record (`last_seen_on` set): any MCP tool call since this
+   * build, or a wake since about 2026-11-10 (the back-fill from `last_wake_on`). A floor for older accounts.
+   */
+  readonly used: number;
   /** Of them, those whose last tool call was in the last 7 UTC days, today included. */
   readonly active7d: number;
   readonly spots: { readonly total: number; readonly left: number };
@@ -420,8 +426,8 @@ export class Accounts {
     // for every account made before. Carried from the ask to the click on the login
     // link's row, as the time zone is. And the DAY of the person's last MCP tool call
     // (`last_seen_on`, UTC `YYYY-MM-DD`, like `last_wake_on`), for the counts'
-    // "connected" and "active": back-filled from the last wake when it is added, so an
-    // account that already woke counts as connected. All added by ALTER like the
+    // "used" and "active": back-filled from the last wake when it is added, so an
+    // account that already woke counts as used. All added by ALTER like the
     // ones above: purely additive, safe twice and on the beta volume.
     const peopleCols = new Set(this.db.all<{ name: string }>("PRAGMA table_info(people)").map((c) => c.name));
     for (const col of ATTRIBUTION_COLUMNS) if (!peopleCols.has(col)) this.db.exec(`ALTER TABLE people ADD COLUMN ${col} TEXT`);
@@ -433,6 +439,12 @@ export class Accounts {
     }
     const linkCols = new Set(this.db.all<{ name: string }>("PRAGMA table_info(login_links)").map((c) => c.name));
     for (const col of ATTRIBUTION_COLUMNS) if (!linkCols.has(col)) this.db.exec(`ALTER TABLE login_links ADD COLUMN ${col} TEXT`);
+    // A tombstone never keeps them (the #843 review): an account erased by a build from before these columns
+    // (a deploy, a rollback, a delete, a roll-forward) kept what the newer build wrote. Cleared at every open;
+    // a no-op write when there is nothing to clear.
+    this.db.run(
+      "UPDATE people SET signup_source = NULL, signup_referrer = NULL, signup_landing = NULL, last_seen_on = NULL WHERE state = 'deleted' AND (signup_source IS NOT NULL OR signup_referrer IS NOT NULL OR signup_landing IS NOT NULL OR last_seen_on IS NOT NULL)",
+    );
     this.now = opts.now ?? ((): number => Date.now());
   }
 
@@ -514,7 +526,7 @@ export class Accounts {
     };
     return {
       accounts: spots.people,
-      connected: this.db.get<{ n: number }>(`SELECT count(*) AS n ${who} AND last_seen_on IS NOT NULL`)?.n ?? 0,
+      used: this.db.get<{ n: number }>(`SELECT count(*) AS n ${who} AND last_seen_on IS NOT NULL`)?.n ?? 0,
       active7d: this.db.get<{ n: number }>(`SELECT count(*) AS n ${who} AND last_seen_on >= ?`, since)?.n ?? 0,
       spots: { total: spots.total, left: spots.left },
       sources: by("signup_source"),
