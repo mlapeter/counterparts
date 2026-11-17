@@ -224,6 +224,11 @@ keep working either way and sign up past the cap.
    included) and `left`.
 2. Open some: `… hosted/src/main.ts spots set 10`. N counts everyone, so with 4 accounts, `spots set 10` opens 6. It
    takes effect at once (no restart); the site's count (`https://app.counterparts.ai/spots`) follows within 5 seconds.
+
+   **The site shows a window, not N** (Mike, 2026-11-17). `/spots`'s `left` counts down within the next whole hundred
+   above the people there are, never past N: with N = 500, 11 people show 89 left, 100 people show 100 left (of a
+   window of 200), 499 show 1, and 500 show 0 and closed. `open` is always the real one (people < N), and only N
+   gates sign-up; the alerts track N too. `spots` prints both on its `left:` line.
 3. Open more later the same way (`spots set 15`). To close sign-up, `spots set 0`. Lowering N removes nobody: everyone
    with an account still signs in.
 

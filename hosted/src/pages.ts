@@ -8,7 +8,8 @@
  *   POST /login            sends the link — the same words on the page whatever the outcome; a reviewer's
  *                          code beside its account's email signs in at once, with no email (DIR1)
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
- *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): public, cached a few
+ *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): `left` within the public
+ *                          window of 100 (`accounts.ts#publicSpots`), `open` by the hard total; public, cached a few
  *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
  *   GET  /account          who you are, your time zone, your connected AIs
  *   POST /account/timezone
@@ -26,7 +27,7 @@ import { randomBytes } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 
 import type { Accounts } from "./accounts.js";
-import { LINK_MS, NO_ATTRIBUTION, cleanAttribution, cleanReferrer } from "./accounts.js";
+import { LINK_MS, NO_ATTRIBUTION, cleanAttribution, cleanReferrer, publicSpots } from "./accounts.js";
 import type { Attribution } from "./accounts.js";
 import type { Mailer } from "./egress.js";
 import type { Route } from "./server.js";
@@ -212,8 +213,9 @@ export function accountPages(opts: PagesOptions): Pages {
   let spotsCache: { at: number; body: string } | null = null;
   const spotsBody = (): string => {
     if (spotsCache !== null && now() - spotsCache.at < SPOTS_CACHE_MS) return spotsCache.body;
-    const left = opts.accounts.spots().left;
-    spotsCache = { at: now(), body: `${JSON.stringify({ left, open: left > 0 })}\n` };
+    // The public window (`accounts.ts#publicSpots`), not the hard total: `open` is still the hard one.
+    const { left, open } = publicSpots(opts.accounts.spots());
+    spotsCache = { at: now(), body: `${JSON.stringify({ left, open })}\n` };
     return spotsCache.body;
   };
   const spotsOrigins = opts.spotsOrigins ?? SPOTS_ORIGINS;

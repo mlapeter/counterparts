@@ -331,6 +331,46 @@ describe("GET /spots", () => {
     r.setNow(r.now() + SPOTS_CACHE_MS);
     assert.deepEqual(await (await fetch(`${r.base}/spots`)).json(), { left: 0, open: false });
   });
+
+  test("the public window (Mike, 2026-11-17): `left` counts down within the next hundred, never past N; `open` and sign-up follow N", async () => {
+    const r = await rig();
+    r.accounts.setSpots(500);
+    // People made directly (500 sign-ups by link would take minutes); the spots count rows, however they came.
+    const db = openDb(r.path, { wal: true });
+    closers.push(() => db.close());
+    let made = 0;
+    const grow = (to: number): void => {
+      for (; made < to; made++) db.run("INSERT INTO people (id, created_at, state) VALUES (?, ?, 'active')", `window-${String(made)}`, r.now());
+    };
+    for (const [n, left, open] of [
+      [11, 89, true],
+      [99, 1, true],
+      [100, 100, true],
+      [101, 99, true],
+      [499, 1, true],
+      [500, 0, false],
+    ] as const) {
+      grow(n);
+      r.setNow(r.now() + SPOTS_CACHE_MS);
+      assert.deepEqual(await (await fetch(`${r.base}/spots`)).json(), { left, open }, `${String(n)} people`);
+      // The hard limit is untouched: N − people.
+      assert.equal(r.accounts.spots().left, 500 - n);
+    }
+    // At 99, the window showed 1 left while 401 were really open: sign-up follows N, not the window.
+    db.run("DELETE FROM people WHERE id IN ('window-499', 'window-498')");
+    made = 498;
+    r.setNow(r.now() + SPOTS_CACHE_MS);
+    assert.deepEqual(await (await fetch(`${r.base}/spots`)).json(), { left: 2, open: true });
+    assert.equal((await signUp(r, "past-the-window@example.com")).click?.status, 303);
+    assert.equal(people(r), 499);
+    // A small N is its own window: never more than N.
+    r.accounts.setSpots(510);
+    r.setNow(r.now() + SPOTS_CACHE_MS);
+    assert.deepEqual(await (await fetch(`${r.base}/spots`)).json(), { left: 1, open: true });
+    r.accounts.setSpots(550);
+    r.setNow(r.now() + SPOTS_CACHE_MS);
+    assert.deepEqual(await (await fetch(`${r.base}/spots`)).json(), { left: 1, open: true }, "499 people: the window is 500");
+  });
 });
 
 describe("EC1: the hourly email cap while spots are open", () => {
@@ -491,6 +531,9 @@ describe("main.ts spots", () => {
     const set = run("set", "10");
     assert.equal(set.status, 0, String(set.stderr));
     assert.match(String(set.stdout), /^spots: 10 .*\npeople: 0 .*\nleft: 10 \(open/);
+    // Both: the hard left, and what the public /spots shows (Mike, 2026-11-17).
+    assert.match(String(run("set", "500").stdout), /\nleft: 500 \(open[^\n]*\); \/spots shows 100 left of a public window of 100 \(windows of 100\)\n/);
+    assert.equal(run("set", "10").status, 0);
     for (const bad of [["set"], ["set", "-1"], ["set", "1.5"], ["set", "ten"], ["set", "100001"], ["10"], ["set", "3", "4"]]) {
       const out = run(...bad);
       assert.equal(out.status, 1, bad.join(" "));

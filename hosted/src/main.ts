@@ -69,7 +69,7 @@ import { openDb } from "../../src/core/store/db.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
-import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS, normalizeEmail } from "./accounts.js";
+import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, PUBLIC_SPOTS_WINDOW, REVIEWER_DEFAULT_DAYS, normalizeEmail, publicSpots } from "./accounts.js";
 import { OidcStore } from "./oauth-adapter.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
@@ -927,10 +927,11 @@ async function main(): Promise<void> {
     if (set !== null) accounts.setSpots(set);
     if (emails !== null) accounts.setEmailsPerHour(emails);
     const s = accounts.spots();
+    const shown = publicSpots(s);
     const cap = accounts.emailCap();
     accounts.close();
     process.stdout.write(
-      `spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"})\n` +
+      `spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"}); /spots shows ${String(shown.left)} left of a public window of ${String(shown.total)} (windows of ${String(PUBLIC_SPOTS_WINDOW)})\n` +
         `emails: ${String(cap.perHour)} an hour while open (${String(cap.thisHour)} this hour${cap.reached && s.left > 0 ? ": reached, new addresses wait for the next hour" : ""})\n`,
     );
     return;

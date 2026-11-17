@@ -317,6 +317,24 @@ export interface Spots {
   readonly left: number;
 }
 
+/**
+ * THE PUBLIC WINDOW (Mike, 2026-11-17): what `GET /spots` shows is not the hard
+ * total but a window of this many, the next whole hundred above the people
+ * there are, never past the hard total. Display only: sign-up is gated by the
+ * hard total alone, and the alerts track it too.
+ */
+export const PUBLIC_SPOTS_WINDOW = 100;
+
+/**
+ * The public face of the spots: `total` is min(hard total, (floor(people / 100) + 1) * 100),
+ * `left` is max(0, that − people), and `open` is the HARD left > 0, so the site never says
+ * closed while sign-up is open, or open while it's closed. From the spots alone, per read.
+ */
+export function publicSpots(s: Spots): { total: number; left: number; open: boolean } {
+  const total = Math.min(s.total, (Math.floor(s.people / PUBLIC_SPOTS_WINDOW) + 1) * PUBLIC_SPOTS_WINDOW);
+  return { total, left: Math.max(0, total - s.people), open: s.left > 0 };
+}
+
 /** The most `spots set` takes: a typo of a few extra digits is refused, not obeyed. */
 export const MAX_SPOTS = 100_000;
 

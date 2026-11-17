@@ -75,7 +75,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       default have no expiry and stay valid until used. A code that isn't good (mistyped, expired, used up) while a
       spot is left takes the spot instead.
     - **`GET /spots`** answers `{"left": n, "open": bool}` and nothing else, with no auth, kept 5 seconds, and
-      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`).
+      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`). `left` is within a public
+      window (Mike, 2026-11-17; `accounts.ts#publicSpots`): the window is min(N, (floor(people / 100) + 1) × 100) and
+      `left` is max(0, window − people), computed per read with no state; `open` is the hard N's (people < N). Display
+      only: sign-up is gated by N alone, and the alerts (§42) track N. The `spots` command prints both.
     - **The hourly email cap while open** (EC1, 2026-11-10). `spots emails M` (stored in control's `settings`; never
       set ⇒ 100) is how many sign-in asks a clock hour counts while spots are left. The count is a row per hour in
       control's `email_hours`, so a deploy or restart doesn't reset it. Every well-formed ask while open counts alike,
