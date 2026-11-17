@@ -38,11 +38,17 @@
  * there gets a chunk of its own. So: build, and for every output over
  * `TARGET` with more than one module, promote the module whose reach within it
  * comes closest to half; build again; until none is over. The import graph
- * has no cycles today (a cycle cannot be split this way; the largest single
- * module is ~180 KB), and the choice is the metafile's, tie broken by path, so
- * the same sources make the same files.
+ * has no cycles today (a cycle cannot be split this way, and one that blocks
+ * a split is named in the refusal; the largest single module is ~180 KB), and
+ * the choice is the metafile's, tie broken by path, so the same sources make
+ * the same files.
+ *
+ * CHUNK NAMES FROM MEMBERSHIP. Bun names a chunk by a hash of its content;
+ * each is renamed `chunk-<hash of its sorted module paths>.js`
+ * (`chunkName`), so an edit inside a module leaves every name alone and a
+ * release's diff on the directory's branch shows the files that changed.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 
@@ -209,25 +215,113 @@ async function buildOnce(repo: string, entries: readonly string[], problems: str
   return { outputs, meta: (r as unknown as { metafile: Meta }).metafile };
 }
 
+/**
+ * The largest set of modules in `inside` that import each other round in a
+ * cycle (a strongly connected component of more than one), sorted, or null.
+ * Splitting cannot cut a cycle: every module in one reaches all the others.
+ * Pure.
+ */
+export function cycleIn(inside: readonly string[], imports: Readonly<Record<string, readonly string[]>>): string[] | null {
+  const within = new Set(inside);
+  let best: string[] | null = null;
+  const reach = new Map(inside.map((m) => [m, closure(m, imports)] as const));
+  const seen = new Set<string>();
+  for (const m of [...inside].sort()) {
+    if (seen.has(m)) continue;
+    const scc = inside.filter((x) => reach.get(m)!.has(x) && reach.get(x)!.has(m) && within.has(x)).sort();
+    for (const x of scc) seen.add(x);
+    if (scc.length > 1 && (best === null || scc.length > best.length)) best = scc;
+  }
+  return best;
+}
+
+/** What to say of an output over `TARGET` that will not split. Pure. */
+function unsplittable(out: string, bytes: number, inside: readonly string[], imports: Readonly<Record<string, readonly string[]>>): string {
+  const cycle = cycleIn(inside, imports);
+  return cycle === null
+    ? `${out} is ${bytes} bytes and no module in it splits it`
+    : `${out} is ${bytes} bytes and its modules import each other in a cycle, which splitting cannot cut: ${cycle.join(", ")}`;
+}
+
+/**
+ * A chunk's name from the modules it holds, not their bytes: `chunk-` and the
+ * first 8 hex of the SHA-256 of its sorted module paths. Bun names a chunk by
+ * its content, so one changed constant renamed most of them (55 of 71,
+ * 2026-11-17) and every release's diff was near-total for a reviewer of the
+ * directory's branch; this way a name changes only when what is in it does.
+ * Pure.
+ */
+export function chunkName(modules: readonly string[]): string {
+  const h = new Bun.CryptoHasher("sha256").update([...modules].sort().join("\n")).digest("hex").slice(0, 8);
+  return `${CHUNK_DIR}/chunk-${h}.js`;
+}
+
+/**
+ * Every chunk renamed by `chunkName`, and every import of one rewritten to
+ * match. Bun's names are `chunk-` and 8 base-36 characters, unique strings
+ * in the output, so each is replaced wherever it stands. Pure.
+ */
+export function renameChunks(outputs: Readonly<Record<string, string>>, membership: Readonly<Record<string, readonly string[]>>, problems: string[]): Record<string, string> {
+  const rename = new Map<string, string>();
+  for (const path of Object.keys(outputs)) {
+    if (!path.startsWith(`${CHUNK_DIR}/`)) continue;
+    const modules = membership[path];
+    if (modules === undefined) {
+      problems.push(`${path}: the metafile names no modules for it`);
+      continue;
+    }
+    // A chunk of no module holds Bun's own helpers (`__export`, `__require`):
+    // named by those bytes, which change only with the Bun version, less any
+    // other chunk's name it imports (Bun's, which follow content).
+    const own = outputs[path]!.replace(/chunk-[0-9a-z]{8}\.js/g, "chunk.js");
+    rename.set(path, chunkName(modules.length > 0 ? modules : [`bun-runtime:${own}`]));
+  }
+  const names = [...rename.values()];
+  if (new Set(names).size !== names.length) problems.push("two chunks would take one name");
+  // Through placeholders, so a new name that happens to be another chunk's old
+  // one is never renamed twice.
+  const pairs = [...rename].map(([from, to], i) => [posix.basename(from), `\u0000chunk${i}\u0000`, posix.basename(to)] as const);
+  const out: Record<string, string> = {};
+  for (const [path, js] of Object.entries(outputs)) {
+    let text = js;
+    for (const [from, hold] of pairs) text = text.split(from).join(hold);
+    for (const [, hold, to] of pairs) text = text.split(hold).join(to);
+    out[rename.get(path) ?? path] = text;
+  }
+  return out;
+}
+
 export async function bundle(req: BundleRequest): Promise<BundleResult> {
   const problems: string[] = [];
+  // The real path: a repository reached through a symlink would name its
+  // sources one way to the bundler and another way in the metafile.
+  const repo = realpathSync(req.repo);
   const entries = new Set(req.entries);
   for (let round = 0; ; round++) {
-    const built = await buildOnce(req.repo, [...entries].sort(), problems);
+    const built = await buildOnce(repo, [...entries].sort(), problems);
     if (built === null) return { outputs: {}, inputs: [], entries: [...entries].sort(), problems };
-    const imports = staticImports(req.repo, built.meta);
+    const imports = staticImports(repo, built.meta);
     const promote: string[] = [];
-    for (const [out, o] of Object.entries(built.meta.outputs).sort(([a], [b]) => a.localeCompare(b))) {
-      if (o.bytes <= TARGET) continue;
+    const stuck: string[] = [];
+    const over: [string, Meta["outputs"][string]][] = Object.entries(built.meta.outputs)
+      .filter(([, o]) => o.bytes > TARGET)
+      .sort(([a], [b]) => a.localeCompare(b));
+    for (const [out, o] of over) {
       const sizes = Object.fromEntries(Object.entries(o.inputs).map(([m, v]) => [m, v.bytesInOutput]));
       const m = splitPoint(sizes, imports);
       if (m !== null && !entries.has(m)) promote.push(m);
-      else if (Object.keys(sizes).length > 1) problems.push(`${out} is ${o.bytes} bytes and no module in it splits it`);
+      else if (Object.keys(sizes).length > 1) stuck.push(unsplittable(out, o.bytes, Object.keys(sizes), imports));
     }
     if (promote.length === 0 || round >= MAX_ROUNDS) {
-      if (promote.length > 0) problems.push(`still chunks over ${TARGET} bytes after ${MAX_ROUNDS} rounds`);
+      problems.push(...stuck);
+      if (promote.length > 0) {
+        problems.push(`still chunks over ${TARGET} bytes after ${MAX_ROUNDS} rounds`);
+        for (const [out, o] of over) problems.push(unsplittable(out, o.bytes, Object.keys(o.inputs), imports));
+      }
+      const membership: Record<string, string[]> = {};
+      for (const [k, o] of Object.entries(built.meta.outputs)) membership[posix.normalize(k.replace(/^\.\//, ""))] = Object.keys(o.inputs);
       const outputs: Record<string, string> = {};
-      for (const [path, js] of Object.entries(built.outputs)) {
+      for (const [path, js] of Object.entries(renameChunks(built.outputs, membership, problems))) {
         const out = resolveMarks(path, js);
         if (out.includes(MARK)) problems.push(`${path} still holds a module-URL mark the build did not resolve`);
         outputs[path] = out;
@@ -236,7 +330,7 @@ export async function bundle(req: BundleRequest): Promise<BundleResult> {
       // A bundled module the marks do not cover (a `.js` the server shares with
       // the browser, `dashboard/web/shared/dates.js`) must not read its own URL.
       for (const i of Object.keys(built.meta.inputs)) {
-        if (!/\.ts$/.test(i) && /\bimport\.meta\b/.test(readFileSync(join(req.repo, i), "utf8"))) {
+        if (!/\.ts$/.test(i) && /\bimport\.meta\b/.test(readFileSync(join(repo, i), "utf8"))) {
           problems.push(`${i} reads import.meta, and only .ts sources keep their own URL in the bundle`);
         }
       }

@@ -32,6 +32,7 @@ import {
   bundleManifest,
   bundlePaths,
   bundleProblems,
+  bundleDirectoryJs,
   bundledPath,
   directoryModules,
   driftLines,
@@ -44,7 +45,7 @@ import {
   versionAtLeast,
   writeBundle,
 } from "../tools/plugin-bundle/build.js";
-import { CHUNK_DIR, MARK, TARGET, markModuleUrl, resolveMarks, splitPoint } from "../tools/plugin-bundle/bundle-js.js";
+import { CHUNK_DIR, MARK, TARGET, chunkName, cycleIn, markModuleUrl, renameChunks, resolveMarks, splitPoint } from "../tools/plugin-bundle/bundle-js.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
 import { resolveStatic } from "../src/adapters/dashboard/web/static.js";
 
@@ -358,7 +359,10 @@ describe("the directory flavor", () => {
       expect(dir.generated[entry]!.split("\n")[0]).toBe(DIRECTORY_SHEBANG);
       expect(dir.generated[entry]!.split("\n").filter((l) => l.startsWith("#!"))).toHaveLength(1);
     }
-    for (const f of js.filter((p) => !dir.executable.includes(p))) expect(dir.generated[f]!.startsWith("#!/usr/bin/env -S")).toBe(false);
+    // Nothing else carries a `#!` line: runner.js and nightly.js are started by `bun … run`, as in master's tree.
+    expect(js.filter((p) => dir.generated[p]!.startsWith("#!")).sort()).toEqual(Object.values(DIRECTORY_ENTRIES).sort());
+    expect(dir.generated["src/adapters/claude-code/bin/runner.js"]!.startsWith("#!")).toBe(false);
+    expect(dir.generated["src/adapters/claude-code/bin/nightly.js"]!.startsWith("#!")).toBe(false);
   });
 
   test("the bundle holds exactly the traced sources that carry code; the rest are types alone", () => {
@@ -438,6 +442,51 @@ describe("the directory flavor", () => {
     expect(splitPoint({ a: 10, b: 40, c: 40, d: 10 }, imports)).toBe("b");
     expect(splitPoint({ a: 100 }, imports)).toBeNull();
     expect(TARGET).toBeLessThan(MAX_INSPECTED_BYTES);
+  });
+
+  test("a cycle that blocks a split is named, its modules sorted", () => {
+    const imports = { a: ["b"], b: ["c"], c: ["a"], d: ["a"], e: [] };
+    expect(cycleIn(["a", "b", "c", "d", "e"], imports)).toEqual(["a", "b", "c"]);
+    expect(cycleIn(["d", "e"], imports)).toBeNull();
+    expect(cycleIn(["a", "b"], { a: ["b"], b: [] })).toBeNull();
+  });
+
+  test("a chunk is named by the modules it holds, never by their bytes", () => {
+    const name = chunkName(["src/b.ts", "src/a.ts"]);
+    expect(name).toMatch(new RegExp(`^${CHUNK_DIR}/chunk-[0-9a-f]{8}\\.js$`));
+    expect(chunkName(["src/a.ts", "src/b.ts"])).toBe(name);
+    expect(chunkName(["src/a.ts"])).not.toBe(name);
+    const problems: string[] = [];
+    const out = renameChunks(
+      {
+        "src/x.js": 'import { f } from "./chunks/chunk-aaaaaaaa.js";\nimport "./chunks/chunk-bbbbbbbb.js";\n',
+        "src/chunks/chunk-aaaaaaaa.js": 'import "./chunk-bbbbbbbb.js";\nexport const f = 1;\n',
+        "src/chunks/chunk-bbbbbbbb.js": "export {};\n",
+      },
+      { "src/x.js": ["src/x.ts"], "src/chunks/chunk-aaaaaaaa.js": ["src/a.ts", "src/b.ts"], "src/chunks/chunk-bbbbbbbb.js": ["src/c.ts"] },
+      problems,
+    );
+    const a = chunkName(["src/a.ts", "src/b.ts"]);
+    const c = chunkName(["src/c.ts"]);
+    expect(problems).toEqual([]);
+    expect(Object.keys(out).sort()).toEqual([a, c, "src/x.js"].sort());
+    expect(out["src/x.js"]).toBe(`import { f } from "./chunks/${posix.basename(a)}";\nimport "./chunks/${posix.basename(c)}";\n`);
+    expect(out[a]).toBe(`import "./${posix.basename(c)}";\nexport const f = 1;\n`);
+  });
+
+  test("the chunks the build wrote carry membership names, not Bun's", () => {
+    const chunks = js.filter((p) => p.startsWith(`${CHUNK_DIR}/`));
+    expect(chunks.length).toBeGreaterThan(20);
+    for (const c of chunks) expect(c).toMatch(/^src\/chunks\/chunk-[0-9a-f]{8}\.js$/);
+  });
+
+  test("DIRECTORY_PROBED is what host-wiring.ts looks for at a plugin's installPath", () => {
+    const source = readFileSync(join(REPO, "src/adapters/host-wiring.ts"), "utf8");
+    const probed = [...source.matchAll(/existsSync\(join\(installPath,\s*((?:"[^"]+",\s*)*"[^"]+\.js")\s*\)\)/g)]
+      .map((m) => [...m[1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]!).join("/").replace(/\.js$/, ".ts"))
+      .sort();
+    expect(probed.length).toBeGreaterThan(0);
+    expect([...DIRECTORY_PROBED].sort()).toEqual([...new Set(probed)]);
   });
 
   test("plugin.json, hooks.json and the commands run the entries by path", () => {
@@ -764,6 +813,109 @@ describe("the directory flavor", () => {
       expect(doctor.stdout).toMatch(/\d+ red, \d+ amber, \d+ green\./);
       // This build writes no marker of its own.
       expect(JSON.parse(readFileSync(join(home, ".counterparts", "npm-live.json"), "utf8"))).toEqual(marker);
+    }, 60_000);
+
+    test("every file the bundle writes loads on its own: the entries, every chunk, the ones loaded on demand", () => {
+      const out = join(work, "bundle");
+      writeBundle(dir, out);
+      const home = join(work, "home");
+      mkdirSync(home, { recursive: true });
+      const failed: string[] = [];
+      for (const f of js) {
+        // One process each, importing the file and nothing else; no entry's main-script guard fires (argv[1] is the -e script).
+        const r = spawnSync(process.execPath, ["--no-install", "-e", `await import(${JSON.stringify(join(out, f))})`], {
+          encoding: "utf8",
+          timeout: 30_000,
+          cwd: work,
+          env: { HOME: home, PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_UPDATE_CHECK: "off" },
+        });
+        if (r.status !== 0 || r.signal !== null) failed.push(`${f}: ${r.signal ?? r.status} ${r.stderr.trim().split("\n").slice(0, 3).join(" | ")}`);
+      }
+      expect(failed).toEqual([]);
+      expect(js.length).toBeGreaterThan(60);
+    }, 120_000);
+
+    // The FIFO test above goes through the doors; this one asks each reader of
+    // ~/.claude.json itself, as the bundled code runs it. Their modules are no
+    // files of their own in the shipped tree, so the same bundler builds the
+    // same entries with those five added as entries (marks, TRANSPILED and all),
+    // over a copy of the written tree.
+    test("bundled, each reader of ~/.claude.json answers without opening it, past a FIFO", () => {
+      const readers = ["src/adapters/cli/desktop.ts", "src/adapters/cli/install.ts", "src/adapters/cli/wire.ts", "src/adapters/host-wiring.ts", "src/adapters/plugin.ts"];
+      const probeBundle = bundleDirectoryJs(REPO, [...new Set([...bundled.entries, ...readers])]);
+      expect(probeBundle.problems).toEqual([]);
+      const out = join(work, "bundle");
+      writeBundle(dir, out);
+      for (const [f, text] of Object.entries(probeBundle.outputs)) {
+        mkdirSync(join(out, f, ".."), { recursive: true });
+        writeFileSync(join(out, f), text);
+      }
+      const home = join(work, "home");
+      const project = join(home, "project");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(project, { recursive: true });
+      const hook = `"${process.execPath}" run "${join(out, "src/adapters/claude-code/bin/hook.js")}"`;
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: hook }] }] } }));
+      expect(spawnSync("mkfifo", [join(home, ".claude.json")]).status).toBe(0);
+      const serve = join(out, "src/adapters/mcp/bin/serve.js");
+      mkdirSync(join(home, ".counterparts"), { recursive: true });
+      writeFileSync(join(home, ".counterparts", "claude-code.json"), "{}");
+      const marker = {
+        version: 1,
+        build: "0.3.25",
+        claudeConfigDir: null,
+        writtenAt: Date.now(),
+        hooks: { file: join(home, ".claude", "settings.json"), command: hook },
+        server: { file: join(home, ".claude.json"), scope: "user", exe: process.execPath, script: serve, command: `${process.execPath} run ${serve}` },
+      };
+      writeFileSync(join(home, ".counterparts", "npm-live.json"), JSON.stringify(marker));
+      const probe = join(work, "probe.mjs");
+      writeFileSync(
+        probe,
+        [
+          "const [root, home, project] = process.argv.slice(2);",
+          "const env = { PATH: process.env.PATH };",
+          'const rt = await import(`${root}/src/adapters/runtime.js`);',
+          'const hw = await import(`${root}/src/adapters/host-wiring.js`);',
+          'const inst = await import(`${root}/src/adapters/cli/install.js`);',
+          'const desk = await import(`${root}/src/adapters/cli/desktop.js`);',
+          'const wire = await import(`${root}/src/adapters/cli/wire.js`);',
+          'const nl = await import(`${root}/src/adapters/npm-live.js`);',
+          'const pl = await import(`${root}/src/adapters/plugin.js`);',
+          "console.log(JSON.stringify({",
+          "  reads: rt.readsHostUserConfig(),",
+          "  wiring: hw.npmWiring({ home, env, cwd: project }),",
+          "  host: inst.readHost(home, project, env).mcpRead,",
+          "  codeTab: desk.readDesktop(home, env).codeTab,",
+          '  notRead: wire.readMcp(home, env, "", undefined, process.execPath).notRead,',
+          '  gate: nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }),',
+          '  writes: nl.noteNpmLive({ configPath: `${home}/.counterparts/claude-code.json`, home, env, build: "x", force: true }),',
+          '  stands: [pl.hookGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown,',
+          '    pl.mcpGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown],',
+          "}));",
+        ].join("\n"),
+      );
+      const r = spawnSync(process.execPath, ["--no-install", probe, out, home, project], {
+        encoding: "utf8",
+        timeout: 30_000,
+        cwd: work,
+        env: { HOME: home, PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      });
+      expect(r.signal).toBeNull();
+      expect(r.stderr).toBe("");
+      expect(JSON.parse(r.stdout)).toEqual({
+        reads: false,
+        wiring: { hooks: [], mcp: [] },
+        host: false,
+        codeTab: false,
+        notRead: true,
+        gate: {
+          hooks: [{ file: marker.hooks.file, event: "*", command: hook, live: true }],
+          mcp: [{ file: marker.server.file, scope: "user", command: marker.server.command, live: true, exe: process.execPath, script: serve }],
+        },
+        stands: [true, true],
+        writes: "skipped",
+      });
     }, 60_000);
   });
 });

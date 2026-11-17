@@ -968,7 +968,8 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
       problems.push(...bundled.problems, ...bundleProblems(traced.files, byPath, bundled, copied));
       for (const [f, js] of Object.entries(bundled.outputs)) {
         try {
-          generated[f] = escapeInvisible(js);
+          // Bun keeps a source's `#!` line on its entry; only the three Claude Code runs by path carry one (the directory's, below).
+          generated[f] = escapeInvisible(js.replace(/^#!.*\n/, ""));
         } catch (err) {
           problems.push(`${f}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -979,8 +980,7 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
           problems.push(`${entry} (an entry Claude Code runs) is not in the bundle's output`);
           continue;
         }
-        // Bun keeps a source's own `#!` line on its entry; the directory's replaces it.
-        generated[entry] = `${DIRECTORY_SHEBANG}\n${js.replace(/^#!.*\n/, "")}`;
+        generated[entry] = `${DIRECTORY_SHEBANG}\n${js}`;
         executable.push(entry);
       }
     }
@@ -1319,7 +1319,7 @@ if (import.meta.main) {
     if (args.length !== 2) usage();
     const lines = driftLines(plan, args[1]!);
     if (lines.length > 0) {
-      console.error(`${resolve(args[1]!)} is not what this build makes (flavor ${flavor}, Bun ${Bun.version}; the transpiled files depend on the Bun version):`);
+      console.error(`${resolve(args[1]!)} is not what this build makes (flavor ${flavor}, Bun ${Bun.version}; the bundled files depend on the Bun version):`);
       console.error(lines.map((l) => `  ${l}`).join("\n"));
       process.exit(1);
     }
