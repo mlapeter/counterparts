@@ -89,7 +89,7 @@
    "down" would need the empty-volume check to fail closed some other way.
 10. **One store's restore runs at a start** (`RESTORE_ON_BOOT=1`), not live: a person whose store is missing gets
     `503` until the next such deploy. A live per-store restore (out of the sidecar, restore, back in) isn't built.
-11. **The limits' numbers are guesses** (`limits.ts`): 120 calls a minute, 1,500 an hour, 8 in flight, 1 GiB.
+11. **The limits' numbers are guesses** (`limits.ts`): 120 calls a minute, 1,500 an hour, 8 in flight, 100 MB a store (1 GiB until 2026-11-17).
     They're tuned from the `limit.*` log lines after the first weeks, and they live in memory (one replica). The
     size is a walk of the tenant dir, cached for 60 s. `stores.size_bytes` isn't written.
 12. **The restore CLI doesn't know whether the server runs.** "Server stopped" is a comment, as for `rewrap` (§28).

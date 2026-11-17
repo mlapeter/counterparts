@@ -2208,7 +2208,8 @@ export function substanceOf(turns: readonly HostTurn[]): { turns: number; bytes:
  * A LATE one (2026-10-11) is a day item whose day passed untold, said once
  * inside its grace (`PlainDue.late`), so it says which day it was for.
  *
- * `what` is the memory's title or first line (`Counterpart.plainReminders`).
+ * `what` is the memory's title or first line, or the sentence that names its
+ * day when that lead names another (`Counterpart.plainReminders`, `plainWhat`).
  */
 export function plainLine(r: Pick<PlainReminder, "beat" | "precision" | "lastDay" | "what" | "late" | "crossFrom">): string {
   const max = TUNABLES.PLAIN_WHAT_MAX_CHARS;

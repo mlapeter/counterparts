@@ -90,7 +90,8 @@ describe("the directory flavor names no SVG namespace URL in code", () => {
   test("it ships the sidebar and the dashboard's server", () => {
     const names = files.map(([f]) => f);
     expect(names).toContain("hooks/sidebar/hooks/register.tsx");
-    expect(names).toContain("src/adapters/dashboard/web/server.js");
+    // Bundled into one of the files above (tools/plugin-bundle/bundle-js.ts).
+    expect(plan.bundled?.inputs).toContain("src/adapters/dashboard/web/server.ts");
   });
 
   test("it ships none of the full flavor's files: no actions, no speak-first", () => {

@@ -267,12 +267,13 @@ describe("written", () => {
   }, 60_000);
 
   test("the tripwire fires from the command: build.ts --flavor full, in a tree at FIRST_SPLIT_RELEASE, refuses before planning", () => {
-    // A tree of its own: this build.ts, a package.json at the split's version,
+    // A tree of its own: this build.ts (and the bundler it imports), a package.json at the split's version,
     // and the repository's node_modules (for `typescript`). The command reads
     // the version and refuses before it reads anything else.
     const tree = join(work, "tree");
     mkdirSync(join(tree, "tools", "plugin-bundle"), { recursive: true });
     writeFileSync(join(tree, "tools", "plugin-bundle", "build.ts"), readFileSync(join(REPO, "tools", "plugin-bundle", "build.ts")));
+    writeFileSync(join(tree, "tools", "plugin-bundle", "bundle-js.ts"), readFileSync(join(REPO, "tools", "plugin-bundle", "bundle-js.ts")));
     writeFileSync(join(tree, "package.json"), JSON.stringify({ name: "counterparts", version: FIRST_SPLIT_RELEASE }));
     // Wherever this checkout finds `typescript` (a worktree finds its parent's).
     symlinkSync(dirname(dirname(Bun.resolveSync("typescript/package.json", REPO))), join(tree, "node_modules"));

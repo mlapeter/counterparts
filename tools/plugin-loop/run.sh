@@ -28,7 +28,7 @@
 # (the full flavor) is refused by build.ts from the split on; use this then.
 #
 # --bundle=directory: the same, for the bundle's DIRECTORY flavor (the sources
-# transpiled to .js, no launcher): every step runs the entries by their own
+# bundled to .js, no launcher): every step runs the entries by their own
 # path, the way its plugin.json, hooks.json and commands do, so the loop proves
 # Claude Code starts them by their shebang from a copy installed out of git
 # (exec bit included). The steps about choosing a runtime (COUNTERPARTS_RUNTIME,

@@ -97,7 +97,10 @@ export const BINARY: Binary | null = binaryOf(import.meta.url, process.execPath)
 // their own shebang (2026-10-14: the directory's validator times out on ~7 MB
 // of commented TypeScript). A tree is all one or all the other, so a script
 // another process runs is named in source by its `.ts` path and takes the
-// extension of the tree it is in from this module's own URL.
+// extension of the tree it is in from this module's own URL. Since 2026-11-17
+// that tree is BUNDLED (tools/plugin-bundle/bundle-js.ts) rather than
+// transpiled one for one, and the bundler gives every module the URL its own
+// `.js` would have had there, so everything here reads the same.
 
 /** `.js` in the transpiled tree; `.ts` from source and in the single binary
  *  (whose entries are found by name, `binaryModeOf`). Pure: a test hands it a

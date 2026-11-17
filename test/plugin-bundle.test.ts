@@ -10,10 +10,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 
 import {
   BUNDLE_LOCKFILE,
+  DIRECTORY_PROBED,
   INVISIBLE,
   DIRECTORY_DROPPED,
   DIRECTORY_ENTRIES,
@@ -30,20 +31,21 @@ import {
   REPO,
   bundleManifest,
   bundlePaths,
+  bundleProblems,
+  bundleDirectoryJs,
+  bundledPath,
   directoryModules,
   driftLines,
   escapeInvisible,
   joinSheets,
   largeFiles,
-  mirrorProblems,
   planBundle,
   sheetProblems,
   traceFiles,
-  transpileSource,
-  transpiledPath,
   versionAtLeast,
   writeBundle,
 } from "../tools/plugin-bundle/build.js";
+import { CHUNK_DIR, MARK, TARGET, chunkName, cycleIn, markModuleUrl, renameChunks, resolveMarks, splitPoint } from "../tools/plugin-bundle/bundle-js.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
 import { resolveStatic } from "../src/adapters/dashboard/web/static.js";
 
@@ -66,9 +68,13 @@ const paths = bundlePaths(plan);
  *  trace that suddenly pulls in far more than hooks/sidebar/. Directory was
  *  back at 510 on 2026-10-29; joining the dashboard's stylesheets (2026-10-30)
  *  took it to 487. Core reached 481 on 2026-11-07 (SO1 step 1b's `core/close-hint.ts`
- *  after the FD1 and SO1 modules); its margin moved to 490, still 22 under the limit. */
+ *  after the FD1 and SO1 modules); its margin moved to 490, still 22 under the limit.
+ *  Directory was back at 510 on 2026-11-17, when bundling its JavaScript
+ *  (tools/plugin-bundle/bundle-js.ts) took it to 271: its margin is 320, room
+ *  for the modules a few waves add (each adds a chunk at most, often none)
+ *  while a change that brought back one file per module would fail here. */
 const FILE_MARGIN = 510;
-const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: FILE_MARGIN, core: 490, sidebar: 100 };
+const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: 320, core: 490, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
   const margin = MARGINS[flavor] ?? FILE_MARGIN;
   if (count > margin) {
@@ -288,17 +294,21 @@ describe("writing it", () => {
 
 /**
  * THE DIRECTORY FLAVOR (`--flavor directory`): the same file set, its
- * TypeScript under `src/` transpiled one for one, the three entries Claude
- * Code runs started by their own shebang, no launcher and no binary. The
- * proof that Claude Code starts them from an installed copy is
+ * TypeScript under `src/` bundled (tools/plugin-bundle/bundle-js.ts: each
+ * entry at its source's path as `.js`, shared code in a few dozen chunks), the
+ * three entries Claude Code runs started by their own shebang, no launcher and
+ * no binary. The proof that Claude Code starts them from an installed copy is
  * `tools/plugin-loop/run.sh --bundle=directory`.
  */
 describe("the directory flavor", () => {
   const dir = planBundle(REPO, "directory");
   const dirPaths = bundlePaths(dir);
   const full = new Set(paths);
+  const bundled = dir.bundled!;
+  const js = Object.keys(dir.generated).filter((p) => p.startsWith("src/") && p.endsWith(".js"));
+  const scripts = traceFiles(REPO, "directory").scripts;
 
-  test("mirrors the full flavor's tree: each src/ .ts as its .js at the same path, everything else as it is", () => {
+  test("carries the full flavor's tree as it is, but for its src/ TypeScript, which is the bundle", () => {
     const expected = new Set(
       paths
         .filter((p) => !/^src\/adapters\/(plugin-run\.sh|launch\.mjs|node-hooks\.mjs)$|\/bin\/[a-z-]+\.mjs$|^\.claude-plugin\/binaries\.json$/.test(p))
@@ -308,16 +318,23 @@ describe("the directory flavor", () => {
         .filter((p) => !DIRECTORY_DROPPED.includes(p))
         // The dashboard's sheets ride as one (joinSheets, "one stylesheet" below).
         .filter((p) => !(p.startsWith(`${DASHBOARD_WEB}/`) && p.endsWith(".css")))
-        .map((p) => (p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts") ? transpiledPath(p) : p)),
+        // The server-side TypeScript is bundled.
+        .filter((p) => !(p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts"))),
     );
     expected.add(`${DASHBOARD_WEB}${JOINED_SHEET_URL}`);
+    for (const f of js) if (!dir.copied.includes(f)) expected.add(f);
     expect(dirPaths).toEqual([...expected].sort());
     expect(paths).toContain("hooks/sidebar/hooks/speak-first.tsx");
     expect(dirPaths).not.toContain("hooks/sidebar/hooks/speak-first.tsx");
     expect(dirPaths.filter((p) => p.startsWith("src/") && /\.tsx?$/.test(p))).toEqual([]);
-    // The dashboard's server-side modules are transpiled; its browser files ride as they are.
-    expect(dirPaths).toContain("src/adapters/dashboard/web/server.js");
-    expect(dirPaths).toContain("src/adapters/dashboard/web/views/memories.js");
+    // What the bundle wrote: its entries at their sources' paths, the rest in the chunk folder.
+    const entries = new Set(bundled.entries.map(bundledPath));
+    for (const f of js) expect(entries.has(f) || f.startsWith(`${CHUNK_DIR}/`)).toBe(true);
+    for (const e of entries) expect(dir.generated[e]).toBeDefined();
+    // The dashboard's server-side modules are bundled; its browser files ride as they are.
+    expect(dirPaths).not.toContain("src/adapters/dashboard/web/server.js");
+    expect(bundled.inputs).toContain("src/adapters/dashboard/web/server.ts");
+    expect(bundled.inputs).toContain("src/adapters/dashboard/web/views/memories.ts");
     expect(dir.copied).toContain("src/adapters/dashboard/web/app.js");
     // The sidebar stays TypeScript: Claude Code compiles a hooks module itself.
     expect(dir.copied).toContain("hooks/sidebar/hooks/register.tsx");
@@ -340,10 +357,136 @@ describe("the directory flavor", () => {
     expect(DIRECTORY_SHEBANG).toBe("#!/usr/bin/env -S bun --no-env-file --config=/dev/null --no-install");
     for (const entry of Object.values(DIRECTORY_ENTRIES)) {
       expect(dir.generated[entry]!.split("\n")[0]).toBe(DIRECTORY_SHEBANG);
-      // Transpiled: the main-script guard kept, no type left.
-      expect(dir.generated[entry]).toContain("isEntryPoint(process.argv[1], import.meta.url)");
-      expect(dir.generated[entry]).not.toMatch(/import type /);
+      expect(dir.generated[entry]!.split("\n").filter((l) => l.startsWith("#!"))).toHaveLength(1);
     }
+    // Nothing else carries a `#!` line: runner.js and nightly.js are started by `bun … run`, as in master's tree.
+    expect(js.filter((p) => dir.generated[p]!.startsWith("#!")).sort()).toEqual(Object.values(DIRECTORY_ENTRIES).sort());
+    expect(dir.generated["src/adapters/claude-code/bin/runner.js"]!.startsWith("#!")).toBe(false);
+    expect(dir.generated["src/adapters/claude-code/bin/nightly.js"]!.startsWith("#!")).toBe(false);
+  });
+
+  test("the bundle holds exactly the traced sources that carry code; the rest are types alone", () => {
+    const traced = traceFiles(REPO, "directory").files;
+    const sources = traced.filter((p) => p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts"));
+    // Nothing the trace did not reach (what ships is the trace's to say).
+    for (const i of bundled.inputs) expect(traced).toContain(i);
+    // A traced source left out is one whose imports of it are all type-only:
+    // as JavaScript it is empty.
+    const left = sources.filter((s) => !bundled.inputs.includes(s));
+    const t = new Bun.Transpiler({ loader: "ts", tsconfig: { compilerOptions: { verbatimModuleSyntax: true } } as unknown as string });
+    for (const s of left) expect([s, t.transformSync(readFileSync(join(REPO, s), "utf8")).replace(/export\s*\{\s*\};?/g, "").trim()]).toEqual([s, ""]);
+    expect(bundled.inputs.length).toBeGreaterThan(300);
+  });
+
+  test("every script a process starts by its path, and every file another install looks for, is an entry at its own path", () => {
+    // The five: hook, server, console (Claude Code), worker and nightly run (what the hook and server spawn).
+    expect(scripts).toEqual([
+      "src/adapters/claude-code/bin/hook.ts",
+      "src/adapters/claude-code/bin/nightly.ts",
+      "src/adapters/claude-code/bin/runner.ts",
+      "src/adapters/cli/bin/counterparts.ts",
+      "src/adapters/mcp/bin/serve.ts",
+    ]);
+    for (const s of [...scripts, ...DIRECTORY_PROBED]) {
+      expect(bundled.entries).toContain(s);
+      expect(dirPaths).toContain(bundledPath(s));
+    }
+    // host-wiring.ts tells the directory flavor by these files (DIRECTORY_PROBED).
+    expect(dirPaths).toContain("src/adapters/runtime.js");
+    expect(dirPaths).toContain("src/adapters/npm-live.js");
+  });
+
+  test("each module keeps its own URL: every main-script guard names its own entry, and no mark is left", () => {
+    // `isEntryPoint(process.argv[1], <the module's URL>)`, wherever the module landed,
+    // resolved from the file holding it: each names the entry it guards.
+    const guarded: string[] = [];
+    for (const f of js) {
+      const text = dir.generated[f]!;
+      expect(text).not.toContain(MARK);
+      // (`import.meta.require` is the bundler's own helper, for Bun's `require`.)
+      expect(text).not.toMatch(/import\.meta\.(dir|path|filename|dirname|main)\b/);
+      // (`\d*`: hook.ts and runner.ts each define one; in one file the bundler would number one.)
+      for (const m of text.matchAll(/isEntryPoint\d*\(process\.argv\[1\], new URL\("([^"]+)", import\.meta\.url\)\.href\)/g)) guarded.push(posix.join(posix.dirname(f), m[1]!));
+    }
+    expect(guarded.sort()).toEqual(scripts.map(bundledPath).sort());
+    // runtime.ts's own URL, as the code reads it: the package root two folders up, the empty bunfig beside it.
+    const urls = js.flatMap((f) => [...dir.generated[f]!.matchAll(/new URL\("([^"]+)", import\.meta\.url\)/g)].map((m) => posix.join(posix.dirname(f), m[1]!)));
+    expect(urls).toContain("src/adapters/runtime.js");
+    expect(urls).toContain("src/core/store/operational.js");
+  });
+
+  test("every file a bundled file imports, statically or on demand, is in the bundle", () => {
+    // The chunks the dashboard, its probe, the narrator and the console's
+    // actions load only when asked (`import("…")`) included.
+    const named: string[] = [];
+    for (const f of js) {
+      const text = dir.generated[f]!;
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)"(\.{1,2}\/[^"]+)"/g)) named.push(posix.join(posix.dirname(f), m[1]!));
+    }
+    expect(named.length).toBeGreaterThan(js.length);
+    expect([...new Set(named)].filter((n) => !dirPaths.includes(n))).toEqual([]);
+    expect(named.filter((n) => n.startsWith(`${CHUNK_DIR}/`)).length).toBeGreaterThan(0);
+  });
+
+  test("the marks: a module's import.meta.url as its own path, then as a URL from the file it lands in", () => {
+    expect(markModuleUrl("src/a/b.ts", "const u = import.meta.url; f(import.meta.url)").text).toBe(
+      `const u = ${MARK}("src/a/b.js"); f(${MARK}("src/a/b.js"))`,
+    );
+    expect(markModuleUrl("src/a/b.ts", "import.meta.dir").problems).toEqual(["src/a/b.ts reads import.meta.dir, which the bundle does not keep per module"]);
+    expect(resolveMarks("src/chunks/c.js", `x(${MARK}("src/a/b.js"))`)).toBe('x(new URL("../a/b.js", import.meta.url).href)');
+    expect(resolveMarks("src/a/b.js", `x(${MARK}("src/a/b.js"))`)).toBe('x(new URL("./b.js", import.meta.url).href)');
+  });
+
+  test("a chunk over the target splits at the module whose reach comes closest to half", () => {
+    const imports = { a: ["b", "c"], b: ["d"], c: [], d: [] };
+    expect(splitPoint({ a: 10, b: 40, c: 40, d: 10 }, imports)).toBe("b");
+    expect(splitPoint({ a: 100 }, imports)).toBeNull();
+    expect(TARGET).toBeLessThan(MAX_INSPECTED_BYTES);
+  });
+
+  test("a cycle that blocks a split is named, its modules sorted", () => {
+    const imports = { a: ["b"], b: ["c"], c: ["a"], d: ["a"], e: [] };
+    expect(cycleIn(["a", "b", "c", "d", "e"], imports)).toEqual(["a", "b", "c"]);
+    expect(cycleIn(["d", "e"], imports)).toBeNull();
+    expect(cycleIn(["a", "b"], { a: ["b"], b: [] })).toBeNull();
+  });
+
+  test("a chunk is named by the modules it holds, never by their bytes", () => {
+    const name = chunkName(["src/b.ts", "src/a.ts"]);
+    expect(name).toMatch(new RegExp(`^${CHUNK_DIR}/chunk-[0-9a-f]{8}\\.js$`));
+    expect(chunkName(["src/a.ts", "src/b.ts"])).toBe(name);
+    expect(chunkName(["src/a.ts"])).not.toBe(name);
+    const problems: string[] = [];
+    const out = renameChunks(
+      {
+        "src/x.js": 'import { f } from "./chunks/chunk-aaaaaaaa.js";\nimport "./chunks/chunk-bbbbbbbb.js";\n',
+        "src/chunks/chunk-aaaaaaaa.js": 'import "./chunk-bbbbbbbb.js";\nexport const f = 1;\n',
+        "src/chunks/chunk-bbbbbbbb.js": "export {};\n",
+      },
+      { "src/x.js": ["src/x.ts"], "src/chunks/chunk-aaaaaaaa.js": ["src/a.ts", "src/b.ts"], "src/chunks/chunk-bbbbbbbb.js": ["src/c.ts"] },
+      problems,
+    );
+    const a = chunkName(["src/a.ts", "src/b.ts"]);
+    const c = chunkName(["src/c.ts"]);
+    expect(problems).toEqual([]);
+    expect(Object.keys(out).sort()).toEqual([a, c, "src/x.js"].sort());
+    expect(out["src/x.js"]).toBe(`import { f } from "./chunks/${posix.basename(a)}";\nimport "./chunks/${posix.basename(c)}";\n`);
+    expect(out[a]).toBe(`import "./${posix.basename(c)}";\nexport const f = 1;\n`);
+  });
+
+  test("the chunks the build wrote carry membership names, not Bun's", () => {
+    const chunks = js.filter((p) => p.startsWith(`${CHUNK_DIR}/`));
+    expect(chunks.length).toBeGreaterThan(20);
+    for (const c of chunks) expect(c).toMatch(/^src\/chunks\/chunk-[0-9a-f]{8}\.js$/);
+  });
+
+  test("DIRECTORY_PROBED is what host-wiring.ts looks for at a plugin's installPath", () => {
+    const source = readFileSync(join(REPO, "src/adapters/host-wiring.ts"), "utf8");
+    const probed = [...source.matchAll(/existsSync\(join\(installPath,\s*((?:"[^"]+",\s*)*"[^"]+\.js")\s*\)\)/g)]
+      .map((m) => [...m[1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]!).join("/").replace(/\.js$/, ".ts"))
+      .sort();
+    expect(probed.length).toBeGreaterThan(0);
+    expect([...DIRECTORY_PROBED].sort()).toEqual([...new Set(probed)]);
   });
 
   test("plugin.json, hooks.json and the commands run the entries by path", () => {
@@ -452,12 +595,13 @@ describe("the directory flavor", () => {
   });
 
   test("no invisible or control character in any .js the directory flavor carries (the validator holds one)", () => {
-    const js = dirPaths.filter((p) => p.endsWith(".js"));
-    expect(js.length).toBeGreaterThan(300);
-    const found = js.filter((p) => (dir.generated[p] ?? readFileSync(join(REPO, p), "utf8")).search(INVISIBLE) >= 0);
+    const all = dirPaths.filter((p) => p.endsWith(".js"));
+    expect(all.length).toBeGreaterThan(100);
+    const found = all.filter((p) => (dir.generated[p] ?? readFileSync(join(REPO, p), "utf8")).search(INVISIBLE) >= 0);
     expect(found).toEqual([]);
-    // The one that set it off: cli/ui.ts's DEL, escaped in the source, cooked by the transpiler, escaped again.
-    expect(dir.generated["src/adapters/cli/ui.js"]).toContain('const DEL = "\\u007F"');
+    // The one that set it off: cli/ui.ts's DEL, escaped in the source, cooked by
+    // the old transpiler; the bundler writes it as an escape, `escapeInvisible` as one.
+    expect(js.filter((p) => /\bDEL = "\\(x7F|u007F)"/.test(dir.generated[p]!))).toHaveLength(1);
   });
 
   test("invisible characters come out as \\uXXXX, meaning the same in strings and templates; regexes and String.raw as written", () => {
@@ -468,7 +612,9 @@ describe("the directory flavor", () => {
       "const d = String.raw`\\x7f`;",
       "const e = '\\\\x7f';",
     ].join("\n");
-    const out = transpileSource(source);
+    // Bun's transpiler cooks a string's escapes (the bundler, 1.3.10, writes them
+    // as escapes, but a version that cooks them would be caught here).
+    const out = escapeInvisible(new Bun.Transpiler({ loader: "ts" }).transformSync(source));
     expect(out.search(INVISIBLE)).toBe(-1);
     const run = (code: string): unknown[] => new Function(`${code}\nreturn [a, b, c.source, c.test("\\x7f"), d, e];`)() as unknown[];
     expect(run(out)).toEqual(run(new Bun.Transpiler({ loader: "ts" }).transformSync(source)));
@@ -589,11 +735,16 @@ describe("the directory flavor", () => {
     });
   });
 
-  test("the mirror check names what breaks it", () => {
-    expect(mirrorProblems(["src/a.ts"], [], {})).toEqual(["src/a.ts has no src/a.js"]);
-    expect(mirrorProblems(["src/a.ts"], ["src/a.js"], { "src/a.js": "" })).toEqual(["src/a.js is both a transpiled source and a file carried as it is"]);
-    expect(mirrorProblems([], ["src/b.ts"], {})).toEqual(["src/b.ts is TypeScript left in the transpiled tree"]);
-    expect(mirrorProblems([], [], { "src/c.js": "" })).toEqual(["src/c.js is generated under src/ from no source"]);
+  test("the bundle check names what breaks it", () => {
+    const b = { inputs: ["src/a.ts"], entries: ["src/bin/x.ts"], outputs: { "src/bin/x.js": "" } };
+    expect(bundleProblems(["src/a.ts", "src/bin/x.ts"], ["src/bin/x.ts"], b, [])).toEqual([]);
+    expect(bundleProblems([], [], b, [])).toEqual(["the bundle holds src/a.ts, which the trace did not reach"]);
+    expect(bundleProblems(["src/a.ts"], ["src/bin/y.ts"], b, [])).toEqual(["src/bin/y.ts is started or looked for by its path but is not an entry of the bundle"]);
+    expect(bundleProblems(["src/a.ts"], ["src/bin/x.ts"], { ...b, outputs: {} }, [])).toEqual(["src/bin/x.ts is started or looked for by its path but the bundle wrote no src/bin/x.js"]);
+    expect(bundleProblems(["src/a.ts"], [], b, ["src/b.ts", "src/bin/x.js"])).toEqual([
+      "src/b.ts is TypeScript left in the bundled tree",
+      "src/bin/x.js is both bundled output and a file carried as it is",
+    ]);
   });
 
   describe("written", () => {
@@ -612,10 +763,11 @@ describe("the directory flavor", () => {
       expect(lstatSync(join(out, "src/adapters/claude-code/bin/runner.js")).mode & 0o111).toBe(0);
       expect(lstatSync(join(out, "README.md")).mode & 0o111).toBe(0);
       expect(driftLines(dir, out)).toEqual([]);
-      writeFileSync(join(out, "src/core/types.js"), "// changed\n");
+      const chunk = js.find((p) => p.startsWith(`${CHUNK_DIR}/`))!;
+      writeFileSync(join(out, chunk), "// changed\n");
       writeFileSync(join(out, "stale.txt"), "x");
       rmSync(join(out, "icon.png"));
-      expect(driftLines(dir, out).sort()).toEqual(["differs  src/core/types.js", "extra    stale.txt", "missing  icon.png"]);
+      expect(driftLines(dir, out).sort()).toEqual([`differs  ${chunk}`, "extra    stale.txt", "missing  icon.png"]);
     });
 
     // THE OWNER'S DECISION (2026-10-14): the directory's build never opens
@@ -632,6 +784,79 @@ describe("the directory flavor", () => {
       writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: hook }] }] } }));
       expect(spawnSync("mkfifo", [join(home, ".claude.json")]).status).toBe(0);
       // The npm install's marker (`npm-live.ts`): what this build stands down by instead.
+      const serve = join(out, "src/adapters/mcp/bin/serve.js");
+      mkdirSync(join(home, ".counterparts"), { recursive: true });
+      writeFileSync(join(home, ".counterparts", "claude-code.json"), "{}");
+      const marker = {
+        version: 1,
+        build: "0.3.25",
+        claudeConfigDir: null,
+        writtenAt: Date.now(),
+        hooks: { file: join(home, ".claude", "settings.json"), command: hook },
+        server: { file: join(home, ".claude.json"), scope: "user", exe: process.execPath, script: serve, command: `${process.execPath} run ${serve}` },
+      };
+      writeFileSync(join(home, ".counterparts", "npm-live.json"), JSON.stringify(marker));
+      // Through the doors Claude Code and a person use: the hook, the server and
+      // doctor, each run by its path the way the plugin's files name it.
+      const env = { HOME: home, PATH: process.env["PATH"] ?? "", CLAUDE_PLUGIN_ROOT: out, CLAUDECODE: "1", COUNTERPARTS_UPDATE_CHECK: "off", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+      const run = (args: string[], input: string) => spawnSync(args[0]!, args.slice(1), { encoding: "utf8", timeout: 30_000, cwd: project, env, input });
+      const start = run([join(out, DIRECTORY_ENTRIES.hook)], JSON.stringify({ hook_event_name: "SessionStart", session_id: "fifo", cwd: project, source: "startup" }));
+      expect(start.signal).toBeNull();
+      expect(start.status).toBe(0);
+      expect(start.stderr).toContain("plugin hook stood down: the npm install's hook");
+      const init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}\n';
+      const server = run([join(out, DIRECTORY_ENTRIES.mcp)], init);
+      expect(server.signal).toBeNull();
+      expect((JSON.parse(server.stdout.split("\n")[0]!) as { result: { instructions: string } }).result.instructions).toContain("server is standing down");
+      const doctor = run([join(out, DIRECTORY_ENTRIES.cli), "doctor", "--config", join(home, ".counterparts", "claude-code.json"), "--dir", join(home, ".counterparts", "store")], "");
+      expect(doctor.signal).toBeNull();
+      expect(doctor.stdout).toMatch(/\d+ red, \d+ amber, \d+ green\./);
+      // This build writes no marker of its own.
+      expect(JSON.parse(readFileSync(join(home, ".counterparts", "npm-live.json"), "utf8"))).toEqual(marker);
+    }, 60_000);
+
+    test("every file the bundle writes loads on its own: the entries, every chunk, the ones loaded on demand", () => {
+      const out = join(work, "bundle");
+      writeBundle(dir, out);
+      const home = join(work, "home");
+      mkdirSync(home, { recursive: true });
+      const failed: string[] = [];
+      for (const f of js) {
+        // One process each, importing the file and nothing else; no entry's main-script guard fires (argv[1] is the -e script).
+        const r = spawnSync(process.execPath, ["--no-install", "-e", `await import(${JSON.stringify(join(out, f))})`], {
+          encoding: "utf8",
+          timeout: 30_000,
+          cwd: work,
+          env: { HOME: home, PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_UPDATE_CHECK: "off" },
+        });
+        if (r.status !== 0 || r.signal !== null) failed.push(`${f}: ${r.signal ?? r.status} ${r.stderr.trim().split("\n").slice(0, 3).join(" | ")}`);
+      }
+      expect(failed).toEqual([]);
+      expect(js.length).toBeGreaterThan(60);
+    }, 120_000);
+
+    // The FIFO test above goes through the doors; this one asks each reader of
+    // ~/.claude.json itself, as the bundled code runs it. Their modules are no
+    // files of their own in the shipped tree, so the same bundler builds the
+    // same entries with those five added as entries (marks, TRANSPILED and all),
+    // over a copy of the written tree.
+    test("bundled, each reader of ~/.claude.json answers without opening it, past a FIFO", () => {
+      const readers = ["src/adapters/cli/desktop.ts", "src/adapters/cli/install.ts", "src/adapters/cli/wire.ts", "src/adapters/host-wiring.ts", "src/adapters/plugin.ts"];
+      const probeBundle = bundleDirectoryJs(REPO, [...new Set([...bundled.entries, ...readers])]);
+      expect(probeBundle.problems).toEqual([]);
+      const out = join(work, "bundle");
+      writeBundle(dir, out);
+      for (const [f, text] of Object.entries(probeBundle.outputs)) {
+        mkdirSync(join(out, f, ".."), { recursive: true });
+        writeFileSync(join(out, f), text);
+      }
+      const home = join(work, "home");
+      const project = join(home, "project");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(project, { recursive: true });
+      const hook = `"${process.execPath}" run "${join(out, "src/adapters/claude-code/bin/hook.js")}"`;
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: hook }] }] } }));
+      expect(spawnSync("mkfifo", [join(home, ".claude.json")]).status).toBe(0);
       const serve = join(out, "src/adapters/mcp/bin/serve.js");
       mkdirSync(join(home, ".counterparts"), { recursive: true });
       writeFileSync(join(home, ".counterparts", "claude-code.json"), "{}");
@@ -670,7 +895,12 @@ describe("the directory flavor", () => {
           "}));",
         ].join("\n"),
       );
-      const r = spawnSync(process.execPath, ["--no-install", probe, out, home, project], { encoding: "utf8", timeout: 30_000, cwd: work });
+      const r = spawnSync(process.execPath, ["--no-install", probe, out, home, project], {
+        encoding: "utf8",
+        timeout: 30_000,
+        cwd: work,
+        env: { HOME: home, PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+      });
       expect(r.signal).toBeNull();
       expect(r.stderr).toBe("");
       expect(JSON.parse(r.stdout)).toEqual({

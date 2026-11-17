@@ -431,10 +431,18 @@ those rules. The listing icon is `.claude-plugin/icon.png`, carried to the bundl
 **Two flavors (2026-10-14).** `full` (the default) is the above: the TypeScript as it is,
 started through `plugin-run.sh`; our own marketplace serves it. `--flavor directory` is
 for Anthropic's directory, whose validator timed out on ~7 MB of commented TypeScript and
-holds a manifest whose command is `bun` (a package manager, to it). It transpiles every
-`src/**/*.ts` one for one to `.js` at the same path (Bun's transpiler: types and comments
-stripped; the control and invisible characters it unescapes in strings are written back as
-`\uXXXX`, since the validator holds a file with one), drops the launcher, the `.mjs` shims, Node's loader and `binaries.json`, and
+holds a manifest whose command is `bun` (a package manager, to it). It bundles the
+server-side `src/**/*.ts` with `Bun.build` (2026-11-17, for file room: 510 files of the
+directory's 512 became 271; `tools/plugin-bundle/bundle-js.ts` says how): the five scripts
+something runs by path (`hook`, `serve`, `counterparts`, and the `runner` and `nightly` the
+hook and server spawn) are entries at their sources' paths as `.js`, as are `runtime.js`
+and `npm-live.js`, which npm's doctor looks for at the plugin's `installPath`; shared code
+lands in `src/chunks/`, each chunk split under the 256 KiB line. Each module's
+`import.meta.url` is rewritten to the URL its own `.js` path would have, so every lookup by
+the module's URL (scripts it spawns, the empty bunfig, the package root, its main-script
+guard) works as it did in the one-for-one tree. Types and comments are stripped, nothing is
+minified, and the control and invisible characters in strings are written as `\uXXXX`,
+since the validator holds a file with one. It drops the launcher, the `.mjs` shims, Node's loader and `binaries.json`, and
 generates `plugin.json`, `hooks/hooks.json` and `commands/*.md` that run the three entries
 (`hook.js`, `serve.js`, `counterparts.js`) by their own path: each is written executable
 and starts `#!/usr/bin/env -S bun --no-env-file --config=/dev/null --no-install`, the
@@ -443,7 +451,8 @@ Code starts with, and its README says so first. The code tells the trees apart b
 URL (`runtime.ts#entryScript`, `#TRANSPILED`): a script it spawns is its `.js` sibling
 there, and the console sets `CLAUDE_PLUGIN_ROOT` itself, as `plugin-run.sh cli` does. The
 build also refuses any directory-flavor file over 256 KiB, a launcher left in the roots,
-and a tree that does not mirror the sources; it warns from 490 files. It leaves out the
+a bundled module the trace did not reach, and a script started by its path that is not an
+entry there; it warns from 490 files. It leaves out the
 dashboard's 3D brain (`pages/home/brain.js`, the vendored three.js, ~670 KiB, and its
 licence): the server finds no three.js on disk, says so in the page
 (`<meta name="counterparts-brain" content="off">`, `server.ts#BRAIN_LIBRARY`), and the home
@@ -510,7 +519,7 @@ flavor's `/counterparts:doctor` redirect to the npm install's doctor when standi
 (the directory flavor runs its own doctor, whose Claude Code line names both installs).
 `build.ts --flavor directory --check <dir>`
 rebuilds and names every file that differs from `<dir>`, with the Bun version (the
-transpiled bytes depend on it). `tools/plugin-loop/run.sh --bundle=directory` installs it
+bundled bytes depend on it). `tools/plugin-loop/run.sh --bundle=directory` installs it
 through Claude Code from git and runs every step through the entries.
 
 **Why npm's lockfile.** Claude Code installs a plugin's packages with the package

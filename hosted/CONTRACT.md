@@ -75,7 +75,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       default have no expiry and stay valid until used. A code that isn't good (mistyped, expired, used up) while a
       spot is left takes the spot instead.
     - **`GET /spots`** answers `{"left": n, "open": bool}` and nothing else, with no auth, kept 5 seconds, and
-      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`).
+      `Access-Control-Allow-Origin` only for `https://counterparts.ai` (`Vary: Origin`). `left` is within a public
+      window (Mike, 2026-11-17; `accounts.ts#publicSpots`): the window is min(N, (floor(people / 100) + 1) × 100) and
+      `left` is max(0, window − people), computed per read with no state; `open` is the hard N's (people < N). Display
+      only: sign-up is gated by N alone, and the alerts (§42) track N. The `spots` command prints both.
     - **The hourly email cap while open** (EC1, 2026-11-10). `spots emails M` (stored in control's `settings`; never
       set ⇒ 100) is how many sign-in asks a clock hour counts while spots are left. The count is a row per hour in
       control's `email_hours`, so a deploy or restart doesn't reset it. Every well-formed ask while open counts alike,
@@ -197,6 +200,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     no key or bucket, and makes, migrates and checkpoints nothing, beside the running server or on a stopped volume.
     A sign-up is a `people` row, made at the click with a redeemed invite or a spot (§11). With no database it fails
     and makes none.
+
+    Optional, each off when unset (2026-11-17; `main.ts#opsEnv`), each trimmed, and a malformed one turns its feature
+    off with a warning at start, never a refused start: `HOSTED_COUNTS_TOKEN` (§40; 24+ characters, no whitespace),
+    `HOSTED_ALERT_EMAIL` (§42; one address), `HOSTED_STORAGE_ALERT_BYTES` (§42; a whole number of bytes).
 23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
     authorization starts an hour per IP (each can make the server fetch a CIMD document).
 
@@ -371,7 +378,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     queue, sent only to the signed-in person behind CSRF, and the scratch copy (on the data volume, under `scratch/`, swept at
     start-up) is removed after sending.
 
-### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
+### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `src/counts.ts`, `src/alerts.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
 
 29. **The bucket's key is the store's key.** `keys.sqlite` is never replicated, so a new volume has no keys while its
     backups in R2 are encrypted under the keys sealed in `keys/<id>.sealed`.
@@ -499,6 +506,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     day. Only a person who is `deleted`, past 365 days, with no store that isn't `deleted` is ever selected, and
     `Accounts#forgettable` checks that again before any bucket call for them (a wrong selection never reaches
     `removeStore`).
+    - What an erase leaves on the person's row is the tombstone (id, dates, state): `markDeleted` clears the time
+      zone, the last wake and last tool-call days, and where the sign-up came from (§41) with the rest.
     - Audit rows older than 365 days are deleted, a live account's or a deleted one's. The one exception: a deleted
       store's `delete.backups` / `delete.leftovers` rows (§31a's leftovers pass reads them) stay while its tombstone
       does, and go with it.
@@ -573,10 +582,16 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 34. **`/mcp` limits, per account, loose to start** (`limits.ts`):
     - `tools/call`: 120 a minute and 1,500 an hour;
     - 8 POSTs in flight at once;
-    - 1 GiB per store (`stores.quota_bytes` wins when set).
+    - 100 MB per store (Mike, 2026-11-17; 1 GiB before), `stores.quota_bytes` winning when set
+      (`main.ts quota <email> <MB|default>`, `Accounts#setQuota`) and `AppOptions.mcpLimits.quotaBytes` changing the default, a host's tenants included.
+      What counts is the person's memory only (`limits.ts#storeBytes`, the #843 review): the tenant's `store/`
+      folder without `store/cache/` (derived). Never `snapshots/` (pre-upgrade copies, kept 14 days, so a
+      format-changing release can't lock a half-full store), `litestream-meta/`, or a host's own databases.
+      A store already over its quota keeps every byte: reads, `delete_memory` and the rest of the free list work,
+      and each write is refused in plain words that say what to do (email support@counterparts.ai).
 
     A refused call is a tool refusal the model can relay: `isError`, a `reason` (`rate-limited`, `store-full`),
-    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`, `delete_memory` (DIR1: a delete frees room),
+    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`, `delete_memory` (DIR1; it hides the memory at once and frees its bytes only when the held delete is erased, 24 hours on),
     `scope` and reading the self page (no argument but `session` or `ifVersion`) keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
     is logged as its event and the hashed store tag, nothing else. The slot is given back at the answer or when the
     client's socket closes, so an aborted request (bun included) never holds it.
@@ -626,6 +641,58 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     composed at the worker's ceiling. The first memory and the page say it is sample data. Cleared once
     it ran (`sample.seeded`), so it never runs twice; a throw is audited (`sample.seed.failed`) and the
     store is served as far as it got. An ordinary sign-up's store is never seeded.
+
+40. **The operator's counts** (CN1, Mike 2026-11-17; `src/counts.ts`, `Accounts#counts`). `GET /ops/counts`, with
+    `Authorization: Bearer <HOSTED_COUNTS_TOKEN>` compared in constant time (both sides SHA-256'd first), answers
+    `{at, accounts, used, active7d, spots: {total, left}, sources, referrers}`: counts only, over the people the
+    spots count (§11), so `sources` and `referrers` (`(none)` for those with none) each sum to `accounts`. A missing
+    or wrong token is `401`; with no token configured the path is a `404`, as any unknown path. `no-store`.
+    "Used" and "active" read `people.last_seen_on`: the UTC day (`YYYY-MM-DD`) of the person's last MCP
+    `tools/call` that reached their store, any tool, answered or refused (`server.ts#onToolCall`,
+    `Accounts#noteSeen`), written like §37's day (once a day at most, never an audit row; no time, IP, client or
+    count). Added by `ALTER` and back-filled from `last_wake_on` in the same transaction, so for accounts from
+    before this build `used` is a floor: a tool call since the deploy, or a wake since `last_wake_on` began (about
+    2026-11-10).
+41. **Where a sign-up came from** (SA1, Mike 2026-11-17). Three nullable columns on `people`, set once in the
+    transaction that makes the account (`useLink`) and never changed after: `signup_source` (a tag from `?r=` or
+    `?utm_source=`: `[a-z0-9._-]`, at most 40, refused whole otherwise, so it can't carry an address),
+    `signup_referrer` (an origin only, from an `http(s)://` URL, at most 100; a `ref` with no scheme, such as
+    `?ref=producthunt`, is never made into one: it becomes the source tag when no `r` or `utm_source` gave one), `signup_landing` (a path only, at most 100). They travel
+    from `GET /login`'s query (or, with no `ref`, the Referer's origin when it is neither ours nor the site's,
+    counterparts.ai and its subdomains) as hidden form fields to
+    `POST /login`, onto the login link's row (the same three columns on `login_links`, NULL on a member's or a
+    refused ask's link), and from there onto the person: never in the emailed URL. `cleanAttribution` cleans them
+    at the page and `requestLink` again before any write. A sign-up by another identity (`signUpWithIdentity`) sets
+    none. All `ALTER TABLE … ADD COLUMN … TEXT`, made at open when missing: purely additive, safe twice.
+    At every open, a tombstone (`state = 'deleted'`) has all three and `last_seen_on` cleared, so a deploy, a
+    rollback, a delete and a roll-forward can't leave them on one.
+
+    **Privacy facts** (for the site's /privacy/; the account page's beta note says the same):
+    - For each account we keep the day (a date, no time) it last used Counterparts' tools, to count active accounts
+      (§40), beside the day of its last chat (§37).
+    - When the sign-up link carried them: a short campaign tag, the referring site's address (its origin only, such
+      as `https://www.reddit.com`: no page or search terms) and the path of the counterparts.ai page it landed on.
+    - No full URL, query string, IP or device is kept for this. They live with the account, are read only as counts
+      by the operator (§40), and are erased with the account (§31c); a login link's copy goes with the link (a day
+      past its expiry, or at the erase).
+    - **What the site's /privacy/ must change:** "app.counterparts.ai has no analytics" is no longer true as worded:
+      hosted now keeps the sign-up source above and counts used and active accounts (no third-party analytics, no
+      cookies for it, no tracking across sites). And of the last-chat date, "Nothing is done with it today" is no
+      longer true: the day of the last tool call, kept beside it, is read to count active accounts (counts only,
+      never per person).
+42. **The operator's alerts** (AL1, Mike 2026-11-17; `src/alerts.ts`). With `HOSTED_ALERT_EMAIL` set, an email to it,
+    through the app's mailer (never counted against EC1's sign-up cap): when accounts reach 80%, then 95%, then 100%
+    of the spots total, once each per total (a check that finds several crossed sends one, for the highest; `spots
+    set` with a new total re-arms); and when the data volume's used space (`statfs` of the data root) passes 70% of
+    its size (or `HOSTED_STORAGE_ALERT_BYTES`), then 90%, once per level, a level re-armed below 90% of its line.
+    Checked after each sign-up that makes an account (not awaited: never delays it) and on the ten-minute timer.
+    AT LEAST ONCE: the state is JSON in `settings` (`alert.spots`, `alert.storage`): the level confirmed sent, and a
+    claim (`pending`, with its time) made by compare-and-set BEFORE the send, so a deploy or two checks at once
+    don't both send. It is confirmed after the mailer answers; a failed send releases it; a claim never confirmed
+    within 15 minutes (the process died mid-send) is taken again by a later check. A duplicate is possible, silence
+    isn't. Counts and sizes only.
+43. **The account page's empty state** links the step-by-step setup (`pages.ts#SETUP_URL`,
+    `https://counterparts.ai/claude-ai/#setup`) beside the connector address.
 
 ## What it drops, for now
 

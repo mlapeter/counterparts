@@ -7,6 +7,7 @@
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts spots [set N | emails M]   (SU1: how many accounts hosted takes in all; shows N,
  *                                         people and spots left; `set` takes effect at once, no restart. Never set: 0, closed.
  *                                         EC1: `emails M`, the sign-in emails an hour while open; never set: 100)
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts quota <email> <MB|default>   (one store's size limit; default 100 MB)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
@@ -48,6 +49,12 @@
  *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
  *                      stays), and only on a volume refused as "not the key that wrote the bucket's backups";
  *                      with RESTORE_ON_BOOT=1
+ *   HOSTED_COUNTS_TOKEN   the bearer token for GET /ops/counts (counts.ts: accounts, used, active, spots,
+ *                      sign-ups by source; counts only). Unset: that path is a 404
+ *   HOSTED_ALERT_EMAIL the operator's address for alerts (alerts.ts): spots at 80%, 95%, 100% of the total, and the
+ *                      data volume at 70% and 90% used. Unset: no alert is checked or sent
+ *   HOSTED_STORAGE_ALERT_BYTES   optional: the first storage alert at this many used bytes, not 70% of the volume
+ *                      (these three: a malformed value turns its feature off with a warning; the start goes on)
  *   NEW_BUCKET         <R2_ENDPOINT's host>/<R2_BUCKET>: this volume has lived (a person or a store) and the
  *                      bucket has no control key ON PURPOSE (a move to a new bucket, or turning backups on after
  *                      BACKUPS=off). Without it such a start is refused (R7). One deploy, then unset
@@ -63,7 +70,7 @@ import { openDb } from "../../src/core/store/db.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
-import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS } from "./accounts.js";
+import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, PUBLIC_SPOTS_WINDOW, REVIEWER_DEFAULT_DAYS, normalizeEmail, publicSpots } from "./accounts.js";
 import { OidcStore } from "./oauth-adapter.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
@@ -355,7 +362,39 @@ export function callLine(r: HostedCallRecord): string {
  * didn't send (R9). The event and the hashed
  * store tag, nothing else: never an id, an address or an error's text.
  */
+/**
+ * The optional operator variables (CN1, AL1), each trimmed. A malformed one is left OFF with a warning, never a
+ * refused start: `HOSTED_COUNTS_TOKEN` (24+ characters, no whitespace inside), `HOSTED_ALERT_EMAIL` (one address),
+ * `HOSTED_STORAGE_ALERT_BYTES` (a whole number of bytes; malformed, the alerts run on 70% of the volume). A warning
+ * never echoes a value.
+ */
+export function opsEnv(env: Record<string, string | undefined>): { countsToken?: string; alerts?: { to: string; storageBytes?: number }; warnings: string[] } {
+  const warnings: string[] = [];
+  const token = (env["HOSTED_COUNTS_TOKEN"] ?? "").trim();
+  let countsToken: string | undefined;
+  if (token !== "") {
+    if (token.length < 24 || /\s/.test(token)) warnings.push("HOSTED_COUNTS_TOKEN is malformed (24+ characters, no spaces: openssl rand -hex 32 makes one), so /ops/counts is OFF (a 404)");
+    else countsToken = token;
+  }
+  const to = (env["HOSTED_ALERT_EMAIL"] ?? "").trim();
+  let alerts: { to: string; storageBytes?: number } | undefined;
+  if (to !== "") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) warnings.push("HOSTED_ALERT_EMAIL isn't one email address, so the alerts are OFF");
+    else alerts = { to };
+  }
+  const bytesRaw = (env["HOSTED_STORAGE_ALERT_BYTES"] ?? "").trim();
+  if (bytesRaw !== "") {
+    const n = /^\d{1,16}$/.test(bytesRaw) ? Number(bytesRaw) : NaN;
+    if (!Number.isSafeInteger(n) || n <= 0) warnings.push("HOSTED_STORAGE_ALERT_BYTES isn't a whole number of bytes, so the storage alert uses 70% of the volume");
+    else if (alerts !== undefined) alerts = { ...alerts, storageBytes: n };
+  }
+  return { ...(countsToken === undefined ? {} : { countsToken }), ...(alerts === undefined ? {} : { alerts }), warnings };
+}
+
 export function eventLine(name: string, store: string): string {
+  // AL1: which alert (`spots-80`, `storage`), never an address.
+  if (name === "alert.sent") return `[hosted] ${name} which=${store}: an alert went to HOSTED_ALERT_EMAIL\n`;
+  if (name === "alert.failed") return `[hosted] ${name} which=${store}: an alert to HOSTED_ALERT_EMAIL didn't send; the next check (ten minutes) tries again\n`;
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   // AR1: counts and codes only; the second argument is never an id here.
   if (name === "retention.failed") return `[hosted] ${name} code=${store}: a deleted account past its 365 days couldn't be forgotten this pass (r2: the bucket didn't answer; leftover: something of its store is still in the bucket; forget: its rows didn't go). It waits and is tried again\n`;
@@ -858,7 +897,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${out.text}\n`);
     return;
   }
-  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over" || command === "reviewer") {
+  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over" || command === "reviewer" || command === "quota") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
     // (the #653 review, L6), so it can never skip that check by accident.
@@ -918,12 +957,39 @@ async function main(): Promise<void> {
     if (set !== null) accounts.setSpots(set);
     if (emails !== null) accounts.setEmailsPerHour(emails);
     const s = accounts.spots();
+    const shown = publicSpots(s);
     const cap = accounts.emailCap();
     accounts.close();
     process.stdout.write(
-      `spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"})\n` +
+      `spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"}); /spots shows ${String(shown.left)} left of a public window of ${String(shown.total)} (windows of ${String(PUBLIC_SPOTS_WINDOW)})\n` +
         `emails: ${String(cap.perHour)} an hour while open (${String(cap.thisHour)} this hour${cap.reached && s.left > 0 ? ": reached, new addresses wait for the next hour" : ""})\n`,
     );
+    return;
+  }
+  if (command === "quota") {
+    // 2026-11-17: one store's own size limit (`stores.quota_bytes`), for a person whose memory is full and asked
+    // for more. `quota <email> <MB>` sets it; `quota <email> default` clears it (100 MB, limits.ts). At once, no
+    // restart (the server reads it at each write; a measured size is trusted a minute). Never touches the store.
+    const email = normalizeEmail(rest[0]);
+    const raw = rest[1] ?? "";
+    const mbs = /^\d{1,6}$/.test(raw) ? Number(raw) : null;
+    if (email === null || rest.length !== 2 || (raw !== "default" && (mbs === null || mbs < 1))) {
+      process.stderr.write("[hosted] refused: quota takes an account's email and a size in MB (1 to 999999), or `default`.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
+    const personId = accounts.personByIdentity("email", email);
+    const storeId = personId === null ? null : (accounts.person(personId)?.storeId ?? null);
+    if (storeId === null) {
+      accounts.close();
+      process.stderr.write("[hosted] refused: no live account has that email.\n");
+      process.exitCode = 1;
+      return;
+    }
+    accounts.setQuota(storeId, mbs === null ? null : mbs * 1024 * 1024);
+    accounts.close();
+    process.stdout.write(mbs === null ? "quota: the default (100 MB)\n" : `quota: ${String(mbs)} MB\n`);
     return;
   }
   if (command === "reviewer") {
@@ -995,7 +1061,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
-    process.stderr.write(`[hosted] commands: serve, invite, reviewer, spots, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
+    process.stderr.write(`[hosted] commands: serve, invite, reviewer, spots, quota, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }
@@ -1147,6 +1213,10 @@ async function main(): Promise<void> {
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
   if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
   const allowedOrigins = mcpAllowedOrigins(env["MCP_ALLOWED_ORIGINS"]);
+  // CN1, AL1: a bad value turns that one feature off with a warning, never stops the start (Mike's guards
+  // loose-first: one replica and a refused boot is an outage).
+  const ops = opsEnv(env);
+  for (const w of ops.warnings) process.stderr.write(`[hosted] warning: ${w}\n`);
   if ("refusal" in allowedOrigins) {
     process.stderr.write(`[hosted] ${allowedOrigins.refusal}\n`);
     process.exitCode = 1;
@@ -1163,6 +1233,9 @@ async function main(): Promise<void> {
     // DIR1: exact browser origins `/mcp` answers (MCP Inspector's web page while testing); unset: none.
     ...(allowedOrigins.length === 0 ? {} : { allowedOrigins }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
+    // CN1, AL1 (2026-11-17): the counts endpoint's token and the operator's alerts, each off when unset.
+    ...(ops.countsToken === undefined ? {} : { countsToken: ops.countsToken }),
+    ...(ops.alerts === undefined ? {} : { alerts: ops.alerts }),
     // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
     onUploads: (e) => process.stderr.write(uploadsLine(e)),
     // Every /mcp message, ids and codes only (CONTRACT §6), and every error that became a 500 or an

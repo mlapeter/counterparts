@@ -49,7 +49,7 @@ import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
 import { isObserver } from "./observer.js";
 import type { Stance } from "./observer.js";
-import { PLAIN_CROSS_AFTER_LIVED_DAYS, Prospective } from "./prospective/index.js";
+import { PLAIN_CROSS_AFTER_LIVED_DAYS, Prospective, recurrenceOf } from "./prospective/index.js";
 
 /** The meta key a day with nothing unsaid to cross is memoised under (`Counterpart#plainCrossing`, round 3 of #780). */
 export const PLAIN_CROSS_NONE_KEY = "prospective.cross.none";
@@ -156,7 +156,7 @@ import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, LaterHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_HANDLE, LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, quoteOf } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
-import { addDays, daySpan, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
+import { addDays, datedSentence, daySpan, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
@@ -427,6 +427,9 @@ export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measu
 // store its caller has just created, here so a host that makes its own stores
 // (hosted's signup, the harness's week) reaches it through the package entry.
 export { plantTold } from "./told.js";
+/** The sentence that names a dated memory's date (`time.ts`, 2026-11-17): what "Coming up" says it by, for a host's own frame. */
+export { datedSentence, sentenceNamingDate } from "./time.js";
+export type { DatedOptions } from "./time.js";
 /** What counts as a folder's WORK (`self/work.ts`), for a host or the harness measuring folder separation by the product's own rule. */
 export { craftBornDay, craftSince, isWorkMemory } from "./self/work.js";
 export type { ToldSurface } from "./told.js";
@@ -438,6 +441,22 @@ const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
  * once-per-lived-day gate, or physics' birth-day / own-write / stale-day / already-today —
  * still counts as co-activation for links (2026-09-28, associate NOTES §8).
  */
+/**
+ * A PLAIN REMINDER'S `what` (2026-11-17, after #840): the title, else the first
+ * line, folded — unless that lead names another day and a later sentence names
+ * the reminder's own (`time.ts#datedSentence`, the rule "Coming up" says it by).
+ * The living journal's Tomás memory opened "On 1 Oct … listed Elena's grey 2014
+ * CR-V" and was told on the 16th as the CR-V; the Marisol sentence is what the
+ * day is. A repeat keeps its lead.
+ */
+function plainWhat(doc: Parameters<typeof recurrenceOf>[0] & { readonly title?: string | null; readonly body: string }, eventDate: string): string {
+  const title = doc.title?.trim() ?? "";
+  const line = doc.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  const lead = (title.length > 0 ? title : line).replace(/\s+/g, " ").trim();
+  if (lead.length === 0) return lead;
+  return datedSentence(doc.body, eventDate, title, { recurring: recurrenceOf(doc) }) ?? lead;
+}
+
 /** An unordered pair's key (`rateShown`'s once-per-stretch co-use links). */
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -3478,7 +3497,9 @@ export class Counterpart {
    * one, for a host with no such question.
    *
    * `what` is the memory's title, else the first line of its body, with its
-   * whitespace folded — the handle a person recognizes. How long a line may be
+   * whitespace folded — the handle a person recognizes — unless that lead
+   * names another day and a later sentence names this one's (`plainWhat`,
+   * 2026-11-17). How long a line may be
    * and the sentence around it are the host adapter's to decide. Never throws:
    * any failure is an empty list.
    */
@@ -3502,10 +3523,7 @@ export class Counterpart {
         if (happenedAlready(this.store, due.memoryId, input.at, { open }) !== null) continue;
         let what = "";
         try {
-          const doc = this.store.readProse(due.memoryId);
-          const title = doc.title?.trim() ?? "";
-          const line = doc.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-          what = (title.length > 0 ? title : line).replace(/\s+/g, " ").trim();
+          what = plainWhat(this.store.readProse(due.memoryId), due.eventDate);
         } catch {
           continue;
         }
@@ -3624,8 +3642,7 @@ export class Counterpart {
         try {
           const doc = this.store.readProse(due.memoryId);
           title = doc.title?.trim() ?? "";
-          const line = doc.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
-          what = (title.length > 0 ? title : line).replace(/\s+/g, " ").trim();
+          what = plainWhat(doc, due.eventDate);
           settles = settlesWhenOf(doc.meta) ?? "";
         } catch {
           continue;
