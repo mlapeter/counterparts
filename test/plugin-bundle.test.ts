@@ -379,12 +379,14 @@ describe("the directory flavor", () => {
   });
 
   test("every script a process starts by its path, and every file another install looks for, is an entry at its own path", () => {
-    // The five: hook, server, console (Claude Code), worker and nightly run (what the hook and server spawn).
+    // The six: hook, server, console (Claude Code), worker and nightly run (what the hook and server spawn),
+    // and Codex's hook (what `connect --host codex` writes into Codex's hooks.json).
     expect(scripts).toEqual([
       "src/adapters/claude-code/bin/hook.ts",
       "src/adapters/claude-code/bin/nightly.ts",
       "src/adapters/claude-code/bin/runner.ts",
       "src/adapters/cli/bin/counterparts.ts",
+      "src/adapters/codex/bin/hook.ts",
       "src/adapters/mcp/bin/serve.ts",
     ]);
     for (const s of [...scripts, ...DIRECTORY_PROBED]) {
