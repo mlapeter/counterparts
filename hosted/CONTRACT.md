@@ -374,7 +374,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     queue, sent only to the signed-in person behind CSRF, and the scratch copy (on the data volume, under `scratch/`, swept at
     start-up) is removed after sending.
 
-### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
+### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `src/counts.ts`, `src/alerts.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
 
 29. **The bucket's key is the store's key.** `keys.sqlite` is never replicated, so a new volume has no keys while its
     backups in R2 are encrypted under the keys sealed in `keys/<id>.sealed`.
@@ -648,7 +648,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     transaction that makes the account (`useLink`) and never changed after: `signup_source` (a tag from `?r=` or
     `?utm_source=`: `[a-z0-9._-]`, at most 40, refused whole otherwise, so it can't carry an address),
     `signup_referrer` (an origin only, http(s), at most 100), `signup_landing` (a path only, at most 100). They travel
-    from `GET /login`'s query (or, with no `ref`, the Referer's origin when it isn't ours) as hidden form fields to
+    from `GET /login`'s query (or, with no `ref`, the Referer's origin when it is neither ours nor the site's,
+    counterparts.ai and its subdomains) as hidden form fields to
     `POST /login`, onto the login link's row (the same three columns on `login_links`, NULL on a member's or a
     refused ask's link), and from there onto the person: never in the emailed URL. `cleanAttribution` cleans them
     at the page and `requestLink` again before any write. A sign-up by another identity (`signUpWithIdentity`) sets

@@ -691,8 +691,10 @@ The journal's two asks after #834 (Mike approved 11-16).
 - **Sources ride the login link's row, like `tz`.** No cookie and nothing in the emailed URL: `GET /login`'s query
   becomes hidden fields, `POST /login` writes them on the `login_links` row (sign-up links only), and `useLink`'s
   INSERT copies them onto the person. A member signing in through a tagged link is unchanged. The bad-email
-  re-render keeps the fields. With no `ref`, the Referer's origin is used unless it's ours, so a connector sign-up
-  (claude.ai → `/authorize` → `/login`) reads `https://claude.ai`.
+  re-render keeps the fields. With no `ref`, the Referer's origin is used unless it's ours or the site's (the site's
+  own origin as "first referrer" would say nothing). A connector sign-up (claude.ai → `/authorize` → `/login`)
+  might then read `https://claude.ai`, if the browser keeps that Referer through the redirects: UNVERIFIED, the
+  tests only send a Referer by hand.
 - **The storage alert reads the volume, not the stores** (the coordinator's production fact, 11-17: `/data` is
   4.6 GB, 13–14 MB used by 11 accounts). A 5 GiB sum-of-stores line would never fire before the disk is full, so
   it's `statfs(dataRoot)` at 70% used, with `HOSTED_STORAGE_ALERT_BYTES` as an override. Both bun 1.3.10 and Node 24

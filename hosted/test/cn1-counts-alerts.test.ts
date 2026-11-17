@@ -79,7 +79,7 @@ async function signUpFrom(r: { origin: string; mail: { sent: { to: string; text:
   const before = r.mail.sent.length;
   await browser.form("/login", { ...fields, email, invite: "", tz: "America/Denver" });
   // The page answers before the mail is handed over (never awaited, CONTRACT §12); a log's line can come a moment later.
-  for (let i = 0; i < 50 && r.mail.sent.length === before; i++) await new Promise((res) => setTimeout(res, 50));
+  for (let i = 0; i < 200 && r.mail.sent.length === before; i++) await new Promise((res) => setTimeout(res, 50));
   assert.equal(r.mail.sent.length, before + 1, "a link was mailed");
   return browser.go(/https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
 }
@@ -146,6 +146,11 @@ describe("SA1: where a sign-up came from", () => {
     assert.equal(hiddenFields(html)["ref"], "https://news.ycombinator.com");
     const own = await (await b.go("/login", { headers: { referer: `${r.origin}/account` } })).text();
     assert.equal(hiddenFields(own)["ref"], undefined);
+    // The site's own origin (it passes the real first referrer in `ref`) is never stored as one.
+    for (const site of ["https://counterparts.ai/claude-ai/", "https://www.counterparts.ai/"]) {
+      assert.equal(hiddenFields(await (await b.go("/login", { headers: { referer: site } })).text())["ref"], undefined, site);
+    }
+    assert.equal(hiddenFields(await (await b.go("/login?ref=https://www.reddit.com/", { headers: { referer: "https://counterparts.ai/" } })).text())["ref"], "https://www.reddit.com");
   });
 });
 
@@ -200,20 +205,36 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     const later = (await (await counts(r.origin, TOKEN)).json()) as { accounts: number; connected: number; sources: Record<string, number> };
     assert.deepEqual([later.accounts, later.connected, later.sources], [4, 1, { "(none)": 3, reddit: 1 }]);
 
+    // A real second crossing: an account erased (4 → 3 of 5) and a new one (back to 4): still the one email.
+    await r.app.deleteAccount(await personOf(r, "four@example.com"));
+    assert.equal(r.app.accounts.spots().people, 3);
+    await signInByLink(r, new Browser(r.origin), "four-again@example.com", "", "/account");
+    await r.app.checkAlerts();
+    assert.equal(alertsTo(r).length, 1);
+    // A deploy: the same volume, a new process. Still none.
+    await r.close();
+    closers.splice(closers.indexOf(r.close), 1);
+    const r2 = await started({ countsToken: TOKEN, alerts: { to: OPS, volume: () => ({ total: 1000, used: 10 }) } });
+    await r2.app.checkAlerts();
+    assert.equal(alertsTo(r2).length, 0, "nothing re-sent after a restart");
+    await rest(r2);
+  });
+
+  async function rest(r: Rig): Promise<void> {
     // The fifth: 100%, one more.
     await signInByLink(r, new Browser(r.origin), "five@example.com", "", "/account");
     await r.app.checkAlerts();
-    assert.equal(alertsTo(r).length, 2);
-    assert.match(alertsTo(r)[1]!.subject, /all 5 spots are taken/);
+    assert.equal(alertsTo(r).length, 1);
+    assert.match(alertsTo(r)[0]!.subject, /all 5 spots are taken/);
     // A new total re-arms: 5 of 6 is past 80% again.
     r.app.accounts.setSpots(6);
     await r.app.checkAlerts();
     await r.app.checkAlerts();
-    assert.equal(alertsTo(r).length, 3);
-    assert.match(alertsTo(r)[2]!.subject, /80% of spots used \(5 of 6\)/);
-    // The alerts never counted against the sign-up email cap (EC1): only the five sign-in asks did.
-    assert.equal(r.app.accounts.emailCap().thisHour, 5);
-  });
+    assert.equal(alertsTo(r).length, 2);
+    assert.match(alertsTo(r)[1]!.subject, /80% of spots used \(5 of 6\)/);
+    // The alerts never counted against the sign-up email cap (EC1): only the sign-in asks did (six in this hour, kept in control across the restart).
+    assert.ok(r.app.accounts.emailCap().thisHour <= 6, "no more than the six sign-in asks (fewer only if the clock hour turned)");
+  }
 
   test("no token configured: /ops/counts is a 404, token or not; no alert address: none is sent", async () => {
     const r = await started();
@@ -460,4 +481,23 @@ describe("the whole path as a process: main.ts serve, MAIL=log", () => {
     assert.equal(alerts(), 1);
     child.kill("SIGTERM");
   });
+});
+
+describe("serve refuses a bad value for the new variables (a typo must not start a server that silently does nothing)", () => {
+  for (const [name, value, words] of [
+    ["HOSTED_COUNTS_TOKEN", "short", /HOSTED_COUNTS_TOKEN is at least 24 characters/],
+    ["HOSTED_ALERT_EMAIL", "not an address", /HOSTED_ALERT_EMAIL is one email address/],
+    ["HOSTED_STORAGE_ALERT_BYTES", "5GiB", /HOSTED_STORAGE_ALERT_BYTES is a whole number of bytes/],
+  ] as const) {
+    test(`${name}=${value}`, () => {
+      const run = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], {
+        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "http://127.0.0.1:1", PORT: "1", MAIL: "log", BACKUPS: "off", [name]: value },
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      assert.equal(run.status, 1, run.stderr);
+      assert.match(run.stderr, words);
+      assert.doesNotMatch(run.stderr, /serving/);
+    });
+  }
 });

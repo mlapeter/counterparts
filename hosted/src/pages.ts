@@ -335,11 +335,12 @@ ${
         return true;
       }
       // SA1: where this sign-up came from, as the site's link to this page says it (`r` or `utm_source`,
-      // `ref`, `land`), cleaned; with no `ref`, the Referer's origin unless it is ours (a connector's
-      // sign-in arrives through /authorize, so its Referer is where the person clicked Connect).
+      // `ref`, `land`), cleaned; with no `ref`, the Referer's origin unless it is ours or the site's (the
+      // site's own origin as the "first referrer" says nothing; the site passes the real one in `ref`).
       const q = url.searchParams;
       const referer = cleanReferrer(req.headers["referer"]);
-      const from = cleanAttribution({ r: q.get("r"), utm_source: q.get("utm_source"), ref: q.get("ref") ?? (referer === new URL(opts.publicOrigin).origin ? null : referer), land: q.get("land") });
+      const ownReferer = referer !== null && (referer === new URL(opts.publicOrigin).origin || /^https?:\/\/([a-z0-9-]+\.)*counterparts\.ai(:\d+)?$/.test(referer));
+      const from = cleanAttribution({ r: q.get("r"), utm_source: q.get("utm_source"), ref: q.get("ref") ?? (ownReferer ? null : referer), land: q.get("land") });
       loginForm(res, browser, safeNext(q.get("next")), 200, "", from);
       return true;
     }

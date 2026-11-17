@@ -646,16 +646,20 @@ store, under its own SSE-C key derived from the `control` DEK (sealed to the rec
 people        (id TEXT PK, created_at, deleted_at NULL, state TEXT -- active|suspended|pending-delete|deleted,
                display_name NULL, time_zone TEXT, invite_id NULL,
                delete_after NULL -- R6: when a pending delete is due,
-               last_wake_on TEXT NULL -- LW1: the UTC day (YYYY-MM-DD) of the last wake, the date only; written once a day)
+               last_wake_on TEXT NULL -- LW1: the UTC day (YYYY-MM-DD) of the last wake, the date only; written once a day,
+               last_seen_on TEXT NULL -- CN1: the UTC day of the last MCP tool call, any tool; written once a day,
+               signup_source, signup_referrer, signup_landing TEXT NULL -- SA1: a tag, an origin, a path; set at sign-up)
 identities    (id PK, person_id FK, kind TEXT -- email|phone|passkey|…, value TEXT -- normalized,
                verified_at NULL, created_at, UNIQUE(kind, value))
-login_links   (id PK, identity_id FK, token_hash UNIQUE, browser_hash, expires_at, used_at NULL, ip_hash)
+login_links   (id PK, identity_id FK, token_hash UNIQUE, browser_hash, expires_at, used_at NULL, ip_hash,
+               signup_source, signup_referrer, signup_landing -- SA1: carried from the ask to the click, sign-ups only)
 web_sessions  (id PK, person_id FK, token_hash UNIQUE, created_at, expires_at, last_seen_at, ua_hint)
 stores        (id TEXT PK -- 128-bit random, also the tenant dir name, person_id FK, created_at,
                state TEXT -- active|pending-delete|deleting|deleted, quota_bytes, size_bytes, size_checked_at)
 invites       (id PK, code_hash UNIQUE, created_by FK NULL, max_uses, uses, expires_at, note)
 audit         (at, person_id NULL, store_id NULL, action TEXT, detail TEXT -- codes only, never content; AR1: kept 365 days)
-settings      (key PK, value, set_at -- SU1: the operator's settings: 'spots', absent = 0; EC1 'emails_per_hour', absent = 100)
+settings      (key PK, value, set_at -- SU1: the operator's settings: 'spots', absent = 0; EC1 'emails_per_hour', absent = 100;
+               AL1 'alert.spots' = '<total>:<percent>' and 'alert.storage': the alerts already sent)
 email_hours   (hour PK -- floor(ms / 3 600 000), asks -- EC1: sign-in asks counted that hour while open; kept a day)
 rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 ```

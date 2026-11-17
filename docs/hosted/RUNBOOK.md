@@ -282,8 +282,9 @@ https://app.counterparts.ai/login?r=<source tag>&ref=<first referrer>&land=<land
 
 - The site keeps the visitor's FIRST referrer and landing page (its own first-party storage) and adds them to its
   links to `/login`. Link to `/login` itself: `/` and `/account` redirect there and drop the query.
-- With no `ref`, the page uses the browser's `Referer` origin when it isn't app.counterparts.ai (so a sign-up
-  from claude.ai's Connect button reads `https://claude.ai`).
+- With no `ref`, the page uses the browser's `Referer` origin when it isn't app.counterparts.ai or the site
+  (counterparts.ai and its subdomains). Whether a sign-up from claude.ai's Connect button arrives with
+  `https://claude.ai` that way is unverified.
 - Set once, at the click that makes the account. A member signing in through a tagged link changes nothing; a bad
   value is dropped and never refuses a sign-up. An erase clears all three with the rest of the account.
 
@@ -296,7 +297,8 @@ counted against the hourly sign-up cap:
   N re-arms them. Checked at each sign-up and every ten minutes. Open more with `spots set`.
 - **Storage**: when the data volume (`/data`) passes 70% used (`HOSTED_STORAGE_ALERT_BYTES` overrides the line).
   Once; it re-arms when used space drops below 90% of the line. Checked every ten minutes. **When it fires, grow the
-  Railway volume** (the service → Volume → size; Railway grows a volume in place). The per-store quota is 100 MB, so
+  Railway volume** (in the service's volume settings; check Railway's current docs for how, and whether it
+  needs a redeploy: unverified here). The per-store quota is 100 MB, so
   500 accounts could in theory hold 50 GB, far above the 4.6 GB volume of 2026-11-17: this alert is the real guard.
 
 Each send logs `[hosted] alert.sent which=<spots-80|spots-95|spots-100|storage>`; a failed send logs
