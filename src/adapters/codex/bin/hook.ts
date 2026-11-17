@@ -8,7 +8,7 @@
  *
  * with the payload on stdin (`session_id`, `transcript_path`, `cwd`,
  * `hook_event_name`, `model`, and per event `prompt`, `source`,
- * `stop_hook_active`). It prints one JSON object or nothing (`../envelope.ts`)
+ * `stop_hook_active`). It prints one JSON object or nothing (`#codexDelivery`)
  * and ALWAYS exits 0: no hook ever fails the host.
  *
  * The order is the guarantee, as in Claude Code's entry (claude-code CONTRACT
@@ -20,6 +20,14 @@
  * borrows Claude Code's embedder and doctor), so the config, scope and session
  * readers below are Claude Code's own, unchanged: the rule for which file and
  * which directory is one rule on every host.
+ *
+ * ONE FILE, ON PURPOSE (2026-11-17): the adapter, its words, the rollout reader,
+ * the envelope, the `hooks.json`/`config.toml` edits and doctor's Codex lines
+ * live here as sections above the entry's, not as seven modules, so the plugin
+ * bundle stays inside its file margins (core 490, the directory's 512; the
+ * precedent is `mcp/NOTES.md`, "No new files, on purpose"). The library
+ * sections still use no other adapter; only the entry section, last, borrows
+ * Claude Code's readers (a test asserts it).
  */
 
 import { readFileSync, readdirSync, realpathSync } from "node:fs";
@@ -49,7 +57,7 @@ import { usePrivateUmask } from "../../private-umask.js";
 import { eventDirectory, hookConfigChoice, hookScopeVerdict, hostConfig, sessionScope } from "../../claude-code/bin/hook.js";
 import { openEmbedder } from "../../claude-code/embed-client.js";
 
-// ─── words ──────────────────────────────────────────────────────────────────
+// ─── words (was words.ts) ───────────────────────────────────────────────────
 
 /**
  * WHAT THIS HOST SAYS, AND WHEN IT SAYS NOTHING (2026-11-09, CX2).
@@ -149,13 +157,13 @@ export function codexStopAsk(sessionId: string, chapter: number, model: string |
   ].join("\n");
 }
 
-/** `transcript.ts#CODEX_STOP_OPENER`, restated here so this file stays a leaf (a test pins them equal). */
+/** `CODEX_STOP_OPENER`, restated (the words were their own leaf module until the 11-17 fold; a test pins them equal). */
 export const CODEX_STOP_OPENER_WORDS = "Counterparts, before this session closes:";
 
 /** What the person sees beside the ask, when Codex shows the hook's reason. */
 export const CODEX_STOP_HUMAN_LINE = "Counterparts: asking the model to write up this session's memories.";
 
-// ─── transcript ─────────────────────────────────────────────────────────────
+// ─── transcript (was transcript.ts) ─────────────────────────────────────────
 
 /**
  * CODEX'S TRANSCRIPT, READ (2026-11-09, CX2) — the sibling of
@@ -371,7 +379,7 @@ export function readCodexTranscript(path: string | undefined): CodexTranscriptRe
   return { ...parseCodexTranscript(raw), ok: true, reason: "read" };
 }
 
-// ─── adapter ────────────────────────────────────────────────────────────────
+// ─── adapter (was adapter.ts) ───────────────────────────────────────────────
 
 /**
  * THE CODEX ADAPTER (2026-11-09, CX2): the host lifecycle (`../lifecycle.ts`),
@@ -386,8 +394,8 @@ export function readCodexTranscript(path: string | undefined): CodexTranscriptRe
  *     catches up a night run, or tells a morning share. The worker spawned at
  *     each boundary (the Hebbian flush, the sleep cycle) is host-agnostic and
  *     runs as it does everywhere.
- *   - **Not the counterpart.** The wake opens with a frame (`words.ts
- *     #codexFrame`): the counterpart's shared memory, read by `<model>` in
+ *   - **Not the counterpart.** The wake opens with a frame
+ *     (`#codexFrame`): the counterpart's shared memory, read by `<model>` in
  *     Codex; the self page shown for history, not to speak as. The end ask asks
  *     the model to write as itself.
  *   - **None of Claude Code's person-facing machinery** — the first meeting, the
@@ -421,7 +429,7 @@ export interface CodexHookInput extends SessionInput {
   readonly transcriptPath?: string;
   /** The re-fire of a blocked Stop (`stop_hook_active`): asks nothing, advances nothing. */
   readonly reFired?: boolean;
-  /** Whether a person is there: false for `codex exec` (`words.ts#attendedOfOriginator`). */
+  /** Whether a person is there: false for `codex exec` (`#attendedOfOriginator`). */
   readonly attended?: boolean;
   /** Why SessionStart fired: `startup`, `resume`, `clear`, `compact`, `fork`. */
   readonly source?: string;
@@ -609,7 +617,7 @@ export class CodexAdapter extends Lifecycle {
   }
 }
 
-// ─── envelope ───────────────────────────────────────────────────────────────
+// ─── envelope (was envelope.ts) ─────────────────────────────────────────────
 
 /**
  * WHAT A CODEX HOOK PRINTS (2026-11-09, CX2) — only the shapes measured on
@@ -652,15 +660,15 @@ export function codexDelivery(
   return "";
 }
 
-// ─── index ──────────────────────────────────────────────────────────────────
+// ─── index (was index.ts) ───────────────────────────────────────────────────
 
 /**
  * `adapters/codex/` — the Codex host's public surface (2026-11-09, CX2).
  *
  * A sibling of `claude-code/`, importing only the shared leaves
  * (`lifecycle.ts`, `hosts.ts`, `sessions.ts`, `scopes.ts`, `config.ts`, …) and
- * `core/` — never another adapter (a test asserts it). Its entry point
- * (`bin/hook.ts`) may borrow Claude Code's config and scope readers and its
+ * `core/` — never another adapter (a test asserts it). Its entry section
+ * (the end of this file) may borrow Claude Code's config and scope readers and its
  * embedder, as the MCP server's entry point already does.
  */
 
@@ -691,7 +699,7 @@ export function openCodexAdapter(config: AdapterConfig, opts: OpenCodexOptions =
   return new CodexAdapter({ counterpart, config, ...rest });
 }
 
-// ─── wire ───────────────────────────────────────────────────────────────────
+// ─── wire (was wire.ts) ─────────────────────────────────────────────────────
 
 /**
  * CODEX'S TWO FILES, AS THIS PACKAGE EDITS THEM (2026-11-09, CX2) — pure
@@ -1161,7 +1169,7 @@ export function formatLike(previous: string | null, doc: unknown): string {
   return previous === null || /\r?\n$/.test(previous) ? `${body}${eol}` : body;
 }
 
-// ─── doctor ─────────────────────────────────────────────────────────────────
+// ─── doctor (was doctor.ts) ─────────────────────────────────────────────────
 
 /**
  * DOCTOR'S CODEX LINES (2026-11-09, CX2; CX1 §5). Reads Codex's files only —

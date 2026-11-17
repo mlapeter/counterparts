@@ -1393,11 +1393,18 @@ describe("the envelope", () => {
 // ── import direction ───────────────────────────────────────────────────────
 
 describe("adapters/codex is a sibling, not a fork", () => {
-  test("its library files import no other adapter (only its entry point borrows Claude Code's readers)", () => {
-    const dir = resolve(import.meta.dir, "../src/adapters/codex");
-    for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts"))) {
-      const text = readFileSync(join(dir, f), "utf8");
-      expect({ f, bad: /from "\.\.\/(claude-code|mcp|cli|dashboard|remote)\//.test(text) }).toEqual({ f, bad: false });
-    }
+  test("its library sections use no other adapter (only its entry section borrows Claude Code's readers)", () => {
+    // One file since the bundle fold (2026-11-17): the library sections sit above the
+    // entry's, and the only other adapter it imports is Claude Code's, used below that line.
+    const text = readFileSync(resolve(import.meta.dir, "../src/adapters/codex/bin/hook.ts"), "utf8");
+    const borrowed = [...text.matchAll(/^import (?:type )?\{([^}]*)\} from "\.\.\/\.\.\/(claude-code|mcp|cli|dashboard|remote)\/[^"]+";$/gm)];
+    expect(borrowed.map((m) => m[2])).toEqual(["claude-code", "claude-code"]);
+    expect(/from "\.\.\/\.\.\/(mcp|cli|dashboard|remote)\//.test(text)).toBe(false);
+    const names = borrowed.flatMap((m) => m[1]!.split(",").map((n) => n.trim())).filter((n) => n.length > 0);
+    expect(names.length).toBeGreaterThan(0);
+    const cut = text.indexOf("// ─── the hook entry");
+    expect(cut).toBeGreaterThan(0);
+    const library = text.slice(text.indexOf("// ─── words"), cut);
+    for (const n of names) expect({ n, used: new RegExp(`\\b${n}\\b`).test(library) }).toEqual({ n, used: false });
   });
 });
