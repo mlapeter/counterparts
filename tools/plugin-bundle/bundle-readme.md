@@ -384,8 +384,9 @@ The hooks, the memory server and the commands run the plugin's own entry points 
 each by its path (`src/adapters/claude-code/bin/hook.js`, `src/adapters/mcp/bin/serve.js`,
 `src/adapters/cli/bin/counterparts.js`), whose first line starts Bun with your project's
 `.env` and `bunfig.toml` left unread and Bun's automatic package install off. They are the
-same code the npm package runs, transpiled from its TypeScript sources at each release
-(types and comments removed, one file for each).
+same code the npm package runs, bundled from its TypeScript sources at each release with
+Bun's bundler (types and comments removed, not minified): each entry at its source's path,
+the code they share in `src/chunks/`.
 <!-- /flavor:directory -->
 
 Dreaming, the daily consolidation, is on by default for a new install (a memory that

@@ -249,6 +249,16 @@ the directory steps say so; see the list below.
   (the first meeting's close names `/counterparts` only beside a sidebar); its README is
   unchanged (compared 2026-10-22, master 35642c54 against #547's directory plan). Nobody pushes the `directory` branch while that submission is under review.
   Whoever next touches it rebuilds it on purpose, from the master of that day.
+- From 2026-11-17 (#844) the directory flavor's JavaScript is BUNDLED, not one `.js` per
+  source: the per-module files named above (`host-wiring.js`, `plugin.js`, `server.js` …)
+  are gone, and their code sits in `src/chunks/chunk-<hash>.js` beside the entries (at
+  their sources' paths). The first rebuild after that replaces about 360 files with about
+  95, so its diff against the held submission is near-total. After it, a chunk's name is a
+  hash of the modules it holds, not of their bytes: an edit inside modules changes those
+  chunks' contents and leaves the names; a module added, removed or moved between chunks
+  renames the chunks it touches. Claude Code installs each plugin version into its own
+  folder (`plugins/cache/<marketplace>/<plugin>/<version>`), so a renamed chunk never
+  meets a stale one.
 - `claude plugin validate <sidebar clone>` is required, every split release:
   `test/plugin-split.test.ts`'s check that runs Claude Code is skipped where `claude` isn't
   installed (CI).
@@ -266,7 +276,7 @@ Each empties its clone (keeping `.git`) and writes the bundle. Check each with
 from the split on; and `--bundle=directory`), and `build.ts --check <clone>` against a
 second build, with the flavor written there: `--flavor core` and `--flavor sidebar` from
 the split on (no flavor means full, which the tripwire refuses then), no flavor before it,
-and `--flavor directory` only when the directory steps call for it (the directory flavor's bytes depend on the Bun version), then commit them
+and `--flavor directory` only when the directory steps call for it (the directory flavor's bundled bytes depend on the Bun version), then commit them
 there. When the sidebar changed, compare `validate`'s hooks, calls and env lines with the
 README's "What it can reach" (`tools/plugin-bundle/bundle-readme.md`, one block per
 flavor; `tools/plugin-bundle/sidebar-readme.md` for the sidebar plugin) and update both. At
