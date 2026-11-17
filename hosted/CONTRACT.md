@@ -290,8 +290,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       timer pick up one made later. An account delete never touches them.
     - **The control re-key carries them** (`migrate-keys`): replicated and proven at the new base with control's
       own, the old base's `host/` deleted with control's old replicas, and the abort deletes the new base's. A re-key
-      is refused while one is missing here with a replica in the bucket, or while the old base holds a replica the run
-      doesn't name (`HOSTED_SERVER_DATABASES` unset for `migrate-keys`).
+      is refused, before anything is made, while one is missing here with a replica in the bucket, while a listed one
+      it can't carry (a link, dangling or not; a folder outside the product's part) has a replica, or while the old
+      base holds a replica the run doesn't name (`HOSTED_SERVER_DATABASES` unset for `migrate-keys`): the old base's
+      `host/` is deleted after the switch, so each of those would lose its only backup.
     - **Restored with control** (`restoreControl`: `restore control`, `restore --all`, and `prepareVolume` at
       `RESTORE_ON_BOOT`), BEFORE control's own files, so a cut-short restore leaves control missing and the start
       refuses. **One in place is never touched without `--force`**; `--force` moves it aside (`.pre-restore-*`,
@@ -301,6 +303,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       Missing with nothing in the bucket: the product's to make. Lost while serving: not detected (as 26b's last line).
     - `CONTROL_ASIDE` (and `recover-keys --control-aside`) moves them with `control/`, into
       `control.aside-<label>/server-databases/`: beside control databases that aren't the bucket's, they aren't either.
+      Into `control/` first, then the one rename, so the next aside finishes one cut short; never through a link.
+      `restore control` and `--control-aside` warn when `HOSTED_SERVER_DATABASES` is unset and the bucket has
+      server replicas under control. `-wal`, `-shm` and `-journal` names are refused as side files.
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
@@ -551,7 +556,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       replica (if any) with it. A start says which waiting stores have nothing in the bucket to restore
       (`StartReport.waitingEmpty`; audited `store.waiting.empty`, logged `store.waiting-empty` by tag).
       `App.nothingToRestore(storeId, rel?)` answers the same for a product's own door (replica objects only, one
-      LIST; with `rel`, one of its `tenantDatabases`).
+      LIST; with `rel`, one of its `tenantDatabases`). With backups off it answers FALSE and the start says nothing:
+      with no bucket to look in it can't tell, and "can't tell" never reads as "nothing to lose".
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading AND uploads are landing. Otherwise it answers `503`.
     The body is the check names and their words (`ok`, `off`, `down`, `starting`, `stale`): no id, no key, no

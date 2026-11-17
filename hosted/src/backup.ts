@@ -127,7 +127,7 @@ export function tenantDatabasePaths(list: readonly string[] | undefined): string
     const lower = rel.toLowerCase();
     const first = segs[0]!.toLowerCase();
     if (first === "store" || first === "config.json" || first === RESTORED_MARKER || first.startsWith("litestream")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} is hosted's own (store/, config.json, ${RESTORED_MARKER}, litestream*)`);
-    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith(".restoring") || lower.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
+    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith("-journal") || lower.endsWith(".restoring") || lower.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
     for (const other of out) {
       const o = other.toLowerCase();
       if (o === lower || o.startsWith(`${lower}/`) || lower.startsWith(`${o}/`)) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
@@ -181,7 +181,7 @@ export function serverDatabasePaths(list: readonly string[] | undefined): string
     if (!plain) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} isn't a plain path inside the data root (relative, no "..", no leading "/" or ".")`);
     const lower = rel.toLowerCase();
     if (dataRootOwn(segs[0]!.toLowerCase())) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} is in hosted's own part of the data root (control/, tenants/, keys/, scratch/, overrides/, litestream*, serving.*)`);
-    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith(".restoring") || lower.includes(".pre-restore-") || lower.includes(".rekey-proof")) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
+    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith("-journal") || lower.endsWith(".restoring") || lower.includes(".pre-restore-") || lower.includes(".rekey-proof")) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
     for (const other of out) {
       const o = other.toLowerCase();
       if (o === lower || o.startsWith(`${lower}/`) || lower.startsWith(`${o}/`)) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
@@ -211,6 +211,17 @@ function realInside(top: string, file: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Does this path stay in the product's part of the data root? Not itself a
+ * link, its nearest existing folder resolving inside the data root and not
+ * into hosted's own part of it (`journal/` a link to `control/`).
+ */
+export function serverPathInside(dataRoot: string, file: string): boolean {
+  const real = realInside(dataRoot, file);
+  if (real === null) return false;
+  return real === "" || !dataRootOwn(real.split(sep)[0]!.toLowerCase());
 }
 
 /** The refusal when the bucket's control key is another DEK than this volume's. */
@@ -761,6 +772,15 @@ export class Backups {
     if ((await this.opts.objects.list(`${this.controlBase()}${SERVER_DATABASES_BASE}/`)).some((k) => !named.some((p) => k.startsWith(p)))) {
       throw new Error("the bucket has a server database's replica under control that this run doesn't name: run migrate-keys again with the same HOSTED_SERVER_DATABASES the server has (the control re-key did not start)");
     }
+    // A listed one with a replica that the re-key wouldn't carry (its file a link, dangling or not; its folder resolving
+    // outside the data root or into hosted's own part): its only backup would go with the old base. Refused too.
+    const carried = new Set(this.rekeyServer());
+    for (const rel of this.serverDatabases) {
+      if (carried.has(rel)) continue;
+      if ((await this.opts.objects.list(serverDatabasePrefix(this.controlBase(), rel))).length > 0) {
+        throw new Error(`the bucket has a replica of the server database ${rel}, and the re-key can't carry it (its file here is a link, or its folder resolves outside the data root): put the real file in place (restore control), then run migrate-keys again (the control re-key did not start)`);
+      }
+    }
     if (this.opts.keys.wrapped(CONTROL_NEXT_ID) === null) await this.opts.keys.create(CONTROL_NEXT_ID);
     const base = controlBaseFor((await this.opts.keys.keyId(CONTROL_NEXT_ID))!);
     const yml = join(this.opts.dataRoot, "litestream.rekey.yml");
@@ -1035,9 +1055,7 @@ export class Backups {
    * hosted's own part of it either (`journal/` a symlink to `control/`).
    */
   private insideServer(file: string): boolean {
-    const real = realInside(this.opts.dataRoot, file);
-    if (real === null) return false;
-    return real === "" || !dataRootOwn(real.split(sep)[0]!.toLowerCase());
+    return serverPathInside(this.opts.dataRoot, file);
   }
 
   /** A server database's file on this volume. */

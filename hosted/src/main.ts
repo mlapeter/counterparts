@@ -69,7 +69,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions, ControlVolume } from "./app.js";
 import { errorLine } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, SERVER_DATABASES_META, serverDatabasePaths, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, SERVER_DATABASES_META, serverDatabasePaths, serverPathInside, TENANT_DATABASES_BASE, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, UploadsEvent } from "./backup.js";
 import { signupsCommand } from "./signups.js";
 import { STORE_ID, Tenants, storeTag } from "./tenants.js";
@@ -226,6 +226,16 @@ export async function startOverCommand(dataRoot: string, backup: AppBackupOption
   }
 }
 
+/**
+ * A warning, or null: HOSTED_SERVER_DATABASES is unset here, and the bucket has server databases' replicas under
+ * control (`control/host/…`, or a re-keyed base's `control/<key id>/host/…`), which this run then leaves alone.
+ */
+export async function unnamedServerReplicas(backup: AppBackupOptions, what: string): Promise<string | null> {
+  if ((backup.serverDatabases ?? []).length > 0) return null;
+  const any = (await backup.objects.list("control/")).some((k) => /^control\/(?:[A-Za-z0-9_-]{22}\/)?host\//.test(k));
+  return any ? `warning: the bucket has server databases' replicas under control (…/host/), and HOSTED_SERVER_DATABASES is unset here, so they ${what}. Run it again with the same HOSTED_SERVER_DATABASES the server has.` : null;
+}
+
 export async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[], embedder: SharedEmbedder): Promise<{ text: string; failed: number }> {
   const force = args.includes("--force");
   const target = args.find((a) => !a.startsWith("--")) ?? (args.includes("--all") ? "--all" : undefined);
@@ -241,6 +251,8 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
     const r = await restoreControl(dataRoot, backup, run, { ...(force ? { force } : { missingOnly: true }), onServerDatabase: said });
     lines.push(`control: ${String(r.restored)} restored, ${String(r.kept)} already here, ${String(r.empty)} with no backup`);
     if ((backup.serverDatabases ?? []).length > 0) lines.push(`server databases: ${String(r.server.restored)} restored, ${String(r.server.kept)} already here, ${String(r.server.empty)} with no backup`);
+    const unnamed = await unnamedServerReplicas(backup, "were not restored");
+    if (unnamed !== null) lines.push(unnamed);
     if (target === CONTROL_KEY_ID) return { text: lines.join("\n"), failed: 0 };
   }
   const accountsPath = join(dataRoot, "control", "accounts.sqlite");
@@ -455,28 +467,37 @@ export function controlAside(dataRoot: string, label: string, now: number = Date
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     return { line: guardState(dataRoot, label)! };
   }
-  renameSync(control, aside);
   // The server databases (`AppBackupOptions.serverDatabases`) go with it: written beside control databases that
   // aren't the bucket's, they aren't the bucket's either, and kept here they would be streamed over its copies.
-  // Into the aside dir (swept with it), never followed through a link; their Litestream position goes.
+  // INTO control/ FIRST (`control/server-databases/<path>`), then control/ moves as one rename: a crash part-way
+  // leaves those moved inside control/, and the next aside (a new label, as for any cut-short one) carries them
+  // and finishes the rest. Each file and its -wal on its own, so a half-moved pair finishes too. Never through a
+  // link (a link, dangling or not, or a folder resolving out of the product's part, stays and isn't counted); their
+  // Litestream position goes.
   let moved = 0;
   for (const rel of serverDatabases) {
     const file = join(dataRoot, rel);
-    let there = false;
-    try {
-      lstatSync(file);
-      there = true;
-    } catch {
-      /* not here */
+    if (!serverPathInside(dataRoot, file)) continue;
+    const to = join(control, "server-databases", rel);
+    let main = false;
+    for (const [from, dest] of [[file, to], [`${file}-wal`, `${to}-wal`]] as const) {
+      let plain = false;
+      try {
+        plain = !lstatSync(from).isSymbolicLink();
+      } catch {
+        /* not here */
+      }
+      if (!plain) continue;
+      mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
+      renameSync(from, dest);
+      if (from === file) main = true;
     }
-    if (!there) continue;
-    const to = join(aside, "server-databases", rel);
-    mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
-    for (const [from, dest] of [[file, to], [`${file}-wal`, `${to}-wal`]] as const) if (existsSync(from)) renameSync(from, dest);
+    if (!main) continue;
     rmSync(`${file}-shm`, { force: true });
     rmSync(join(dataRoot, SERVER_DATABASES_META, rel), { recursive: true, force: true });
     moved += 1;
   }
+  renameSync(control, aside);
   writeFileSync(guard, `moved ${new Date(now).toISOString()}\n`);
   return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label}${moved > 0 ? ` with ${String(moved)} server databases` : ""} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
 }
@@ -1044,6 +1065,8 @@ async function main(): Promise<void> {
         return;
       }
       process.stderr.write(`[hosted] ${moved.line.replace(/ Unset CONTROL_ASIDE now; it won't/, " It won't").replace(/^CONTROL_ASIDE=/, "--control-aside ")}\n`);
+      const unnamed = await unnamedServerReplicas(backup, "were not moved aside with control/ (a server database here may not be the bucket's)");
+      if (unnamed !== null) process.stderr.write(`[hosted] ${unnamed}\n`);
     }
     const text = await readSecret(rest, "recovery private key");
     const opener = recoveryOpenerFromText(text);

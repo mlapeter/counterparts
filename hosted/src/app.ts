@@ -36,7 +36,7 @@ import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
 import { STORE_ID, Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, replicaPrefix, serverDatabasePaths, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, replicaPrefix, serverDatabasePaths, serverPathInside, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import { seedSample } from "./sample.js";
@@ -178,8 +178,8 @@ export interface StartReport {
   /** Stores opened before whose files are missing, left waiting (no RESTORE_ON_BOOT, or a restore that found nothing). */
   readonly needsRestore: number;
   /**
-   * Of those, the ones nothing can bring back: backups off, or the bucket holds
-   * no replica object of them (`App.nothingToRestore`). Each is audited
+   * Of those, the ones the bucket holds no replica object of
+   * (`App.nothingToRestore`); 0 with backups off, which can't tell. Each is audited
    * (`store.waiting.empty`) and logged by tag (`store.waiting-empty`). Their
    * person's account delete works as for any store; `start-over` is the operator's way to give them a new one.
    */
@@ -212,9 +212,11 @@ export interface App {
    */
   storeWaiting(storeId: string): boolean;
   /**
-   * WOULD A RESTORE BRING ANYTHING OF THIS STORE BACK? True when backups are
-   * off, or the bucket holds no replica object under the store's prefix (its
-   * own file's or any of its host databases'); with `rel` (one of
+   * IS THERE NOTHING IN THE BUCKET TO RESTORE THIS STORE FROM? True only when
+   * backups are on and the bucket holds no replica object under the store's
+   * prefix; FALSE with backups off (no bucket to look in: "can't tell" never
+   * reads as "nothing to lose"). The prefix covers the store's own file and
+   * all its host databases; with `rel` (one of
    * `tenantDatabases`), under that host database's prefix only. Key objects
    * don't count: a key with nothing under it restores nothing. Reads the
    * bucket (one LIST); an R2 failure throws, so a product treats it as "maybe".
@@ -544,11 +546,12 @@ export function createApp(opts: AppOptions): App {
   };
   deleteRef = deleteAccount;
 
-  /** `App.nothingToRestore`: replica objects only (the key objects say nothing of what a restore would bring). */
+  /** `App.nothingToRestore`: replica objects only (the key objects say nothing of what a restore would bring); false with backups off. */
   const nothingToRestore = async (storeId: string, rel?: string): Promise<boolean> => {
     if (!STORE_ID.test(storeId)) throw new Error("not a store id");
     if (rel !== undefined && !tenantDatabases.includes(rel)) throw new Error("not one of backup.tenantDatabases");
-    if (backups === null) return true;
+    // Backups off: there is no bucket to look in, so this can't tell, and "can't tell" never reads as "nothing to lose".
+    if (backups === null) return false;
     return (await backups.objectsUnder(rel === undefined ? replicaPrefix(storeId) : tenantDatabasePrefix(storeId, rel))) === 0;
   };
   /**
@@ -914,9 +917,9 @@ export function createApp(opts: AppOptions): App {
       const waiting = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id)));
       const needsRestore = waiting.length;
       // A WAITING STORE WITH NOTHING TO RESTORE waits forever: said, so an operator sees it (audited, logged by tag).
-      // A LIST that fails is skipped (the next start looks again), never a failed start.
+      // A LIST that fails is skipped (the next start looks again), never a failed start. Backups off: nothing to look in, nothing said.
       let waitingEmpty = 0;
-      for (const id of waiting) {
+      for (const id of backups === null ? [] : waiting) {
         try {
           if (!(await nothingToRestore(id))) continue;
         } catch {
@@ -1109,7 +1112,8 @@ export function sweepAside(dataRoot: string, tenantsRoot: string, now: number, t
   // The host's own databases' folders too (`AppBackupOptions.tenantDatabases`): a restore sets their copies aside there.
   const hostDirs = [...new Set(tenantDatabases.map((rel) => dirname(rel)))];
   // And the server databases' folders (`AppBackupOptions.serverDatabases`): a forced control restore sets theirs aside there.
-  const serverDirs = [...new Set(serverDatabases.map((rel) => join(dataRoot, dirname(rel))))];
+  // A folder that is a link, or resolves outside the data root or into hosted's own part, is never swept through.
+  const serverDirs = [...new Set(serverDatabases.map((rel) => join(dataRoot, dirname(rel))))].filter((d) => serverPathInside(dataRoot, join(d, ".sweep")));
   const dirs = [join(dataRoot, "control"), ...serverDirs, ...list(tenantsRoot).flatMap((id) => [join(tenantsRoot, id, "store"), ...hostDirs.map((d) => join(tenantsRoot, id, d))])];
   for (const dir of dirs) for (const name of list(dir)) if (name.includes(".pre-restore-")) gone(join(dir, name), stampOf(name));
   return swept;

@@ -671,3 +671,11 @@ The journal's two asks after #834 (Mike approved 11-16).
   account page too, for a waiting store with and without a replica, before any hosted change. Added for the product:
   `App.nothingToRestore(storeId, rel?)` (replica objects only: key objects say nothing of what a restore brings),
   and the start's `store.waiting-empty` event and `StartReport.waitingEmpty`, so an operator sees such a store.
+- **The #838 review.** (1) A listed server database the re-key can't carry (its file a link, dangling or not, or its
+  folder outside the product's part) passed both refusals, and `dropOldControlReplicas` would then delete its only
+  backup: now refused too, before anything is made. (2) `nothingToRestore` answered true with backups off; it
+  answers false now (no bucket to look in: "can't tell" must never read as "nothing to lose"), and the start says
+  nothing of waiting stores then. Smaller: `CONTROL_ASIDE` checks each path (a link stays, uncounted) and moves the
+  files into `control/` before the one rename, so the next aside finishes one cut short; the sweep never follows a
+  linked folder; `restore control` and `--control-aside` warn when the list is unset and the bucket has server
+  replicas; `-journal` is refused as a side file.
