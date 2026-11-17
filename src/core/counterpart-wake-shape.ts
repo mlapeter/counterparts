@@ -142,13 +142,13 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
 
 /**
  * A DATED ROW'S LINE IN "COMING UP" (2026-11-17, the living journal's Tomás
- * memory): `titleOfRow`, unless the row is untitled (or its title is a clip of
- * its first sentence) and a later sentence names its date where the lead
- * doesn't: then that sentence, cut to about a title's length
- * (`time.ts#datedSentence`, which a host calls for its own frame).
+ * memory): `titleOfRow`, unless its lead (title, else first sentence) names
+ * another day and a later sentence names its own: then that sentence, cut to
+ * about a title's length (`time.ts#datedSentence`, which a host calls for its
+ * own frame). A repeat keeps its lead.
  */
-export function datedTitleOfRow(row: Pick<MemoryRow, "title" | "body">, due: string | null | undefined): string {
-  return datedSentence(row.body, due, row.title) ?? titleOfRow(row);
+export function datedTitleOfRow(row: Pick<MemoryRow, "title" | "body">, due: string | null | undefined, recurring?: string | null): string {
+  return datedSentence(row.body, due, row.title, { recurring }) ?? titleOfRow(row);
 }
 
 /** A sentence as an untitled row's line: whole when it fits, else cut at a word's end with "…". */
@@ -232,8 +232,7 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     out.push({
       id: h.id,
       // The sentence that names its date, not a first sentence about something else (2026-11-17).
-      // A repeat's date moves each time; its lead says what it is.
-      title: datedTitleOfRow(row, due === "" || h.every !== undefined ? null : due),
+      title: datedTitleOfRow(row, due === "" ? null : due, h.every ?? null),
       // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
       body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),

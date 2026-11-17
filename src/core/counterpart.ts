@@ -428,6 +428,7 @@ export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measu
 export { plantTold } from "./told.js";
 /** The sentence that names a dated memory's date (`time.ts`, 2026-11-17): what "Coming up" says it by, for a host's own frame. */
 export { datedSentence, sentenceNamingDate } from "./time.js";
+export type { DatedOptions } from "./time.js";
 /** What counts as a folder's WORK (`self/work.ts`), for a host or the harness measuring folder separation by the product's own rule. */
 export { craftBornDay, craftSince, isWorkMemory } from "./self/work.js";
 export type { ToldSurface } from "./told.js";
