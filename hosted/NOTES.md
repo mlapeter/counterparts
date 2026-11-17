@@ -679,3 +679,29 @@ The journal's two asks after #834 (Mike approved 11-16).
   files into `control/` before the one rename, so the next aside finishes one cut short; the sweep never follows a
   linked folder; `restore control` and `--control-aside` warn when the list is unset and the bucket has server
   replicas; `-journal` is refused as a side file.
+
+## 2026-11-17 — counts, sign-up sources, alerts, and a 100 MB quota (CN1, SA1, AL1)
+
+- **"Connected" and "active" weren't recorded anywhere usable.** `last_wake_on` covers `wake` only; the OAuth
+  `grant_use` times are per grant (gone at a disconnect) and in the other database; `stores.opened_at` is set by
+  the first `/mcp` POST of any kind (an `initialize` opens the store), so it isn't "made a tool call". So a new day
+  stamp, `people.last_seen_on`, written from the door's call log for every `tools/call` the same way as
+  `last_wake_on` (a read, and a write once a day). Back-filled from `last_wake_on` in the ALTER's transaction, so
+  today's 11 accounts that already woke count as connected from the deploy on.
+- **Sources ride the login link's row, like `tz`.** No cookie and nothing in the emailed URL: `GET /login`'s query
+  becomes hidden fields, `POST /login` writes them on the `login_links` row (sign-up links only), and `useLink`'s
+  INSERT copies them onto the person. A member signing in through a tagged link is unchanged. The bad-email
+  re-render keeps the fields. With no `ref`, the Referer's origin is used unless it's ours, so a connector sign-up
+  (claude.ai → `/authorize` → `/login`) reads `https://claude.ai`.
+- **The storage alert reads the volume, not the stores** (the coordinator's production fact, 11-17: `/data` is
+  4.6 GB, 13–14 MB used by 11 accounts). A 5 GiB sum-of-stores line would never fire before the disk is full, so
+  it's `statfs(dataRoot)` at 70% used, with `HOSTED_STORAGE_ALERT_BYTES` as an override. Both bun 1.3.10 and Node 24
+  have `statfsSync`; if it ever throws, the sum of the data root's files stands in for "used", and only an override
+  can fire.
+- **Alert state is durable and claimed before the send.** In memory it would re-send at every deploy, and `spots
+  set` runs in another process. `settings` holds `alert.spots = <total>:<percent>`; `setSpots` clears it when the
+  total changes; a failed send puts the old state back.
+- **The quota drop is graceful by construction**: `limits.ts` only refuses the next write (it never trims), so an
+  existing store over 100 MB (none today) keeps everything and serves reads. A delete doesn't promise room at once
+  (the files shrink only when a held delete is erased), so the message says to email support@counterparts.ai,
+  and `main.ts quota <email> <MB|default>` is the operator's answer.

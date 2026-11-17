@@ -7,6 +7,7 @@
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts spots [set N | emails M]   (SU1: how many accounts hosted takes in all; shows N,
  *                                         people and spots left; `set` takes effect at once, no restart. Never set: 0, closed.
  *                                         EC1: `emails M`, the sign-in emails an hour while open; never set: 100)
+ *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts quota <email> <MB|default>   (one store's size limit; default 100 MB)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts signups   (people and sign-ups per week, counts only; reads, safe beside the running server)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId|control|--all> [--force]   (server stopped)
  *   node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>   (a store that never reached the bucket)
@@ -68,7 +69,7 @@ import { openDb } from "../../src/core/store/db.js";
 import { openEmbedder } from "../../src/adapters/claude-code/embed-client.js";
 import { isEntryPoint } from "../../src/adapters/mcp/bin/serve.js";
 import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
-import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS } from "./accounts.js";
+import { Accounts, MAX_EMAILS_PER_HOUR, MAX_SPOTS, REVIEWER_DEFAULT_DAYS, normalizeEmail } from "./accounts.js";
 import { OidcStore } from "./oauth-adapter.js";
 import { controlVolume, createApp, foreignControlRefusal, restoreControl } from "./app.js";
 import type { AppBackupOptions, ControlVolume } from "./app.js";
@@ -866,7 +867,7 @@ async function main(): Promise<void> {
     process.stdout.write(`${out.text}\n`);
     return;
   }
-  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over" || command === "reviewer") {
+  if (command === "invite" || command === "spots" || command === "migrate-keys" || command === "start-over" || command === "reviewer" || command === "quota") {
     // None may make a control database on a volume that isn't the bucket's
     // (prepareVolume); `invite` needs the backups named or BACKUPS=off said
     // (the #653 review, L6), so it can never skip that check by accident.
@@ -932,6 +933,32 @@ async function main(): Promise<void> {
       `spots: ${String(s.total)} (accounts in all)\npeople: ${String(s.people)} (accounts that exist now)\nleft: ${String(s.left)} (${s.left > 0 ? "open: a new address signs up with just its email" : "closed: only an invite code signs up"})\n` +
         `emails: ${String(cap.perHour)} an hour while open (${String(cap.thisHour)} this hour${cap.reached && s.left > 0 ? ": reached, new addresses wait for the next hour" : ""})\n`,
     );
+    return;
+  }
+  if (command === "quota") {
+    // 2026-11-17: one store's own size limit (`stores.quota_bytes`), for a person whose memory is full and asked
+    // for more. `quota <email> <MB>` sets it; `quota <email> default` clears it (100 MB, limits.ts). At once, no
+    // restart (the server reads it at each write; a measured size is trusted a minute). Never touches the store.
+    const email = normalizeEmail(rest[0]);
+    const raw = rest[1] ?? "";
+    const mbs = /^\d{1,6}$/.test(raw) ? Number(raw) : null;
+    if (email === null || rest.length !== 2 || (raw !== "default" && (mbs === null || mbs < 1))) {
+      process.stderr.write("[hosted] refused: quota takes an account's email and a size in MB (1 to 999999), or `default`.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
+    const personId = accounts.personByIdentity("email", email);
+    const storeId = personId === null ? null : (accounts.person(personId)?.storeId ?? null);
+    if (storeId === null) {
+      accounts.close();
+      process.stderr.write("[hosted] refused: no live account has that email.\n");
+      process.exitCode = 1;
+      return;
+    }
+    accounts.setQuota(storeId, mbs === null ? null : mbs * 1024 * 1024);
+    accounts.close();
+    process.stdout.write(mbs === null ? "quota: the default (100 MB)\n" : `quota: ${String(mbs)} MB\n`);
     return;
   }
   if (command === "reviewer") {
@@ -1003,7 +1030,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "serve" && command !== "migrate-keys" && command !== "recover-keys" && command !== "restore") {
-    process.stderr.write(`[hosted] commands: serve, invite, reviewer, spots, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
+    process.stderr.write(`[hosted] commands: serve, invite, reviewer, spots, quota, signups, restore, start-over, migrate-keys, recover-keys, recovery-keygen, recovery-fingerprint, hold${command === "rewrap" ? " (rewrap is gone since WB1: the KEK is on the volume, and migrate-keys moves the keys from ${KEK_ENV} onto it)" : ""}\n`);
     process.exitCode = 1;
     return;
   }
