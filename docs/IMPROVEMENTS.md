@@ -27,6 +27,35 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## Wake bundle, read from ~/random: past events overdue, stale handoffs, a twin, bare chapter lines (2026-11-17)
+
+Found by Étienne waking in `~/random` on 11-17, passed on at Mike's ask. Wake shaping lives in
+`src/core/counterpart-wake-shape.ts`. Status: `open`.
+
+1. **Coming up calls past events "overdue".** "Anthropic's rule against cruelty to Claude takes
+   effect Nov 12" showed 5 days overdue, "Chart essay live on r/claudexplorers 11-02" 7 days.
+   They're events that happened, not tasks. They bury the one real item due today (the weekly
+   backup) and read as being behind. Proposed: tell a dated event from a dated task (the
+   `status` field, or `remind: quiet` vs `plain`), and let an event drop off once its day passes;
+   only a task goes overdue.
+2. **Stale handoffs read as live.** 11-10 and 11-11 handoffs in `~/random` still said "waiting on
+   Mike" 5 to 7 days on. Proposed: show their age on the line, and once a newer session here has
+   ended, ask it to retire or keep each older one.
+3. **A twin in Still open.** "Promise to Dan: date every Firm line" (mem_ea3f6b980893) and "Dan's
+   suggestion: date each Firm line" (mem_cee9f1362fd9) are one item. Dedup didn't catch the
+   promise-vs-suggestion pair; the night could settle open twins.
+4. **"Since, here" reads as fragments.** One line was a bare chapter title ("Thursday morning on
+   Opus: …") with no date and no hint why it showed. Proposed: date and age it like Elsewhere's
+   lines.
+
+What worked: the page first; the day's-end closing line on what mattered, not only what happened;
+Elsewhere at a glance.
+
+Related, in flight 11-17: `fix/coming-up-dated-sentence` (Coming up shows the sentence naming the
+date; date ranges count). It doesn't touch item 1.
+
+---
+
 ## Decisions to review — the mechanisms work, groups 1–5 (2026-10-10)
 
 **Status:** the record of these decisions and their reasons, not a queue for the owner. Retired as
