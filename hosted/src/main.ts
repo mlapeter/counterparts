@@ -48,6 +48,11 @@
  *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
  *                      stays), and only on a volume refused as "not the key that wrote the bucket's backups";
  *                      with RESTORE_ON_BOOT=1
+ *   HOSTED_COUNTS_TOKEN   the bearer token for GET /ops/counts (counts.ts: accounts, connected, active, spots,
+ *                      sign-ups by source; counts only). Unset: that path is a 404
+ *   HOSTED_ALERT_EMAIL the operator's address for alerts (alerts.ts): spots at 80%, 95%, 100% of the total, and the
+ *                      data volume at 70% used. Unset: no alert is checked or sent
+ *   HOSTED_STORAGE_ALERT_BYTES   optional: the storage alert at this many used bytes on the volume, not 70% of its size
  *   NEW_BUCKET         <R2_ENDPOINT's host>/<R2_BUCKET>: this volume has lived (a person or a store) and the
  *                      bucket has no control key ON PURPOSE (a move to a new bucket, or turning backups on after
  *                      BACKUPS=off). Without it such a start is refused (R7). One deploy, then unset
@@ -356,6 +361,9 @@ export function callLine(r: HostedCallRecord): string {
  * store tag, nothing else: never an id, an address or an error's text.
  */
 export function eventLine(name: string, store: string): string {
+  // AL1: which alert (`spots-80`, `storage`), never an address.
+  if (name === "alert.sent") return `[hosted] ${name} which=${store}: an alert went to HOSTED_ALERT_EMAIL\n`;
+  if (name === "alert.failed") return `[hosted] ${name} which=${store}: an alert to HOSTED_ALERT_EMAIL didn't send; the next check (ten minutes) tries again\n`;
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   // AR1: counts and codes only; the second argument is never an id here.
   if (name === "retention.failed") return `[hosted] ${name} code=${store}: a deleted account past its 365 days couldn't be forgotten this pass (r2: the bucket didn't answer; leftover: something of its store is still in the bucket; forget: its rows didn't go). It waits and is tried again\n`;
@@ -1147,6 +1155,25 @@ async function main(): Promise<void> {
   const cookieKeys = env["COOKIE_KEYS"]?.split(",").map((k) => k.trim()).filter((k) => k.length >= 32);
   if (cookieKeys === undefined || cookieKeys.length === 0) process.stderr.write("[hosted] COOKIE_KEYS is not set (or no key in it is 32+ characters): the form keys are random per process, so open sign-in and account forms expire on every restart\n");
   const allowedOrigins = mcpAllowedOrigins(env["MCP_ALLOWED_ORIGINS"]);
+  const countsToken = (env["HOSTED_COUNTS_TOKEN"] ?? "").trim();
+  if (countsToken !== "" && countsToken.length < 24) {
+    process.stderr.write("[hosted] refused: HOSTED_COUNTS_TOKEN is at least 24 characters (openssl rand -hex 32 makes one), or unset.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const alertTo = (env["HOSTED_ALERT_EMAIL"] ?? "").trim();
+  if (alertTo !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertTo)) {
+    process.stderr.write("[hosted] refused: HOSTED_ALERT_EMAIL is one email address, or unset.\n");
+    process.exitCode = 1;
+    return;
+  }
+  const storageRaw = (env["HOSTED_STORAGE_ALERT_BYTES"] ?? "").trim();
+  const storageBytes = storageRaw === "" ? null : Number(storageRaw);
+  if (storageBytes !== null && (!Number.isSafeInteger(storageBytes) || storageBytes <= 0)) {
+    process.stderr.write("[hosted] refused: HOSTED_STORAGE_ALERT_BYTES is a whole number of bytes (e.g. 3500000000), or unset.\n");
+    process.exitCode = 1;
+    return;
+  }
   if ("refusal" in allowedOrigins) {
     process.stderr.write(`[hosted] ${allowedOrigins.refusal}\n`);
     process.exitCode = 1;
@@ -1163,6 +1190,9 @@ async function main(): Promise<void> {
     // DIR1: exact browser origins `/mcp` answers (MCP Inspector's web page while testing); unset: none.
     ...(allowedOrigins.length === 0 ? {} : { allowedOrigins }),
     onEvent: (name, store) => process.stderr.write(eventLine(name, store)),
+    // CN1, AL1 (2026-11-17): the counts endpoint's token and the operator's alerts, each off when unset.
+    ...(countsToken === "" ? {} : { countsToken }),
+    ...(alertTo === "" ? {} : { alerts: { to: alertTo, ...(storageBytes === null ? {} : { storageBytes }) } }),
     // Uploads not landing in R2 while the sidecar runs (G3): every look while stale, and once when they land again.
     onUploads: (e) => process.stderr.write(uploadsLine(e)),
     // Every /mcp message, ids and codes only (CONTRACT §6), and every error that became a 500 or an

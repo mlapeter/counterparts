@@ -2,7 +2,9 @@
  * THE ACCOUNT PAGES (OL2 step 3; design §4.2): log in by email link, the
  * account page, log out. Server-rendered HTML, no framework.
  *
- *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full
+ *   GET  /login            the form (email, an optional invite code, `next`); says so when hosted is full.
+ *                          Takes where a sign-up came from (SA1): `r` (or `utm_source`), `ref`, `land`,
+ *                          cleaned (`accounts.ts#cleanAttribution`) into hidden fields the POST carries
  *   POST /login            sends the link — the same words on the page whatever the outcome; a reviewer's
  *                          code beside its account's email signs in at once, with no email (DIR1)
  *   GET  /login/link       uses the link: one time, in time, in the browser that asked
@@ -24,7 +26,8 @@ import { randomBytes } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 
 import type { Accounts } from "./accounts.js";
-import { LINK_MS } from "./accounts.js";
+import { LINK_MS, NO_ATTRIBUTION, cleanAttribution, cleanReferrer } from "./accounts.js";
+import type { Attribution } from "./accounts.js";
 import type { Mailer } from "./egress.js";
 import type { Route } from "./server.js";
 import { foxHtml } from "./fox.js";
@@ -57,6 +60,8 @@ export interface PagesOptions {
   readonly now?: () => number;
   /** A sign-up just made a person and a store (step 5: the store's key and backup). A throw is audited, not shown. */
   readonly onSignup?: (personId: string, storeId: string) => Promise<void>;
+  /** A sign-up made a person (AL1: the spots alert's check). Not awaited; a throw is swallowed. */
+  readonly onCreated?: (personId: string) => void;
   /** Export (step 5): a file to send, and how to clean it up. */
   readonly exportStore?: (personId: string) => Promise<{ readonly path: string; readonly filename: string; readonly cleanup: () => void }>;
   /** Delete everything now: the account and memory erased at once (step 5). */
@@ -104,6 +109,9 @@ const SENT_WORDS_FULL = "If that address has an account, or your invite code is 
 // member, who still gets a link, and for a newcomer, who gets none this hour.
 const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works for 15 minutes, once, in this browser.";
 const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts? Try again in an hour.";
+
+/** The step-by-step for adding Counterparts as a connector in Claude (the account page's empty state). */
+export const SETUP_URL = "https://counterparts.ai/claude-ai/#setup";
 
 /** Where a new person goes when hosted is full: the site's hosted waiting list. */
 export const WAITLIST_URL = "https://counterparts.ai/#waitlist";
@@ -210,7 +218,7 @@ export function accountPages(opts: PagesOptions): Pages {
   };
   const spotsOrigins = opts.spotsOrigins ?? SPOTS_ORIGINS;
 
-  const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = ""): void => {
+  const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = "", from: Attribution = NO_ATTRIBUTION): void => {
     const nonce = randomBytes(16).toString("base64");
     // Full: said to everyone alike, under the form and to newcomers. Sign-in and a code still work.
     const full = opts.accounts.spots().left === 0;
@@ -228,7 +236,7 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
-<label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
+${from.source === null ? "" : `<input type="hidden" name="r" value="${escapeHtml(from.source)}">\n`}${from.referrer === null ? "" : `<input type="hidden" name="ref" value="${escapeHtml(from.referrer)}">\n`}${from.landing === null ? "" : `<input type="hidden" name="land" value="${escapeHtml(from.landing)}">\n`}<label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
 <details><summary>Have an invite code?</summary>
 <label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
 </details>
@@ -326,7 +334,13 @@ ${
         redirect(res, "/account");
         return true;
       }
-      loginForm(res, browser, safeNext(url.searchParams.get("next")));
+      // SA1: where this sign-up came from, as the site's link to this page says it (`r` or `utm_source`,
+      // `ref`, `land`), cleaned; with no `ref`, the Referer's origin unless it is ours (a connector's
+      // sign-in arrives through /authorize, so its Referer is where the person clicked Connect).
+      const q = url.searchParams;
+      const referer = cleanReferrer(req.headers["referer"]);
+      const from = cleanAttribution({ r: q.get("r"), utm_source: q.get("utm_source"), ref: q.get("ref") ?? (referer === new URL(opts.publicOrigin).origin ? null : referer), land: q.get("land") });
+      loginForm(res, browser, safeNext(q.get("next")), 200, "", from);
       return true;
     }
     if (p === "/login" && req.method === "POST") {
@@ -360,9 +374,10 @@ ${
       // The email cap (EC1), read with the spots and before the ask, and with
       // nothing awaited between here and the ask, so it agrees with the ask.
       const busy = open && opts.accounts.emailCap().reached;
-      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft });
+      const from = cleanAttribution({ r: form.get("r"), ref: form.get("ref"), land: form.get("land") });
+      const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft, attribution: from });
       if (!asked.send && asked.reason === "bad-email") {
-        loginForm(res, browser!, next, 400, "That doesn't look like an email address.");
+        loginForm(res, browser!, next, 400, "That doesn't look like an email address.", from);
         return true;
       }
       if (asked.send) {
@@ -405,6 +420,13 @@ ${
         }
         return true;
       }
+      if (used.created) {
+        try {
+          opts.onCreated?.(used.personId);
+        } catch {
+          /* a note, not a gate */
+        }
+      }
       if (used.created && opts.onSignup !== undefined) {
         const storeId = opts.accounts.person(used.personId)?.storeId ?? null;
         if (storeId !== null) {
@@ -443,7 +465,8 @@ ${
 <h2>Connected AIs</h2>
 ${
   connections.length === 0
-    ? `<p class="muted">None yet. Add Counterparts as a connector in Claude with the address <code>${escapeHtml(opts.publicOrigin)}/mcp</code>.</p>`
+    ? `<p class="muted">None yet. Add Counterparts as a connector in Claude with the address <code>${escapeHtml(opts.publicOrigin)}/mcp</code>.</p>
+<p><a href="${SETUP_URL}">Step-by-step: how to add it in Claude</a></p>`
     : `<ul>${connections
         .map(
           (c) =>

@@ -12,8 +12,9 @@
  *   2. **In flight**: 8 POSTs per account at once. The ninth is a `429` with
  *      `Retry-After`: a transport answer, for a client that doesn't wait for
  *      its own answers.
- *   3. **Size**: 1 GiB per store (a store's own `stores.quota_bytes` wins when
- *      set). Over it, every tool that can add to the memory refuses; `recall`,
+ *   3. **Size**: 100 MB per store (Mike, 2026-11-17; 1 GiB before it), a
+ *      store's own `stores.quota_bytes` winning when set, and `AppOptions.mcpLimits.quotaBytes`
+ *      changing the default. Over it, every tool that can add to the memory refuses; `recall`,
  *      `status`, `wake`, `scope`, `delete_memory` (a delete frees room) and reading
  *      the self page keep working.
  *
@@ -34,7 +35,10 @@ import { RateLimit } from "./web.js";
 export const MCP_CALLS_PER_MINUTE = 120;
 export const MCP_CALLS_PER_HOUR = 1500;
 export const MCP_IN_FLIGHT = 8;
-export const STORE_QUOTA_BYTES = 1024 * 1024 * 1024;
+/** 100 MB (2026-11-17). `mb()` prints it as "100 MB". */
+export const STORE_QUOTA_BYTES = 100 * 1024 * 1024;
+/** Where a person whose memory is full writes for more room (forwards to the operator). */
+export const QUOTA_CONTACT = "support@counterparts.ai";
 /** How long a measured size is trusted before the dir is walked again. */
 export const SIZE_TTL_MS = 60_000;
 
@@ -176,7 +180,9 @@ export class McpLimits {
         stored: false,
         reason: "store-full",
         quotaBytes: quota,
-        message: `This memory has reached the hosted beta's size limit (${mb(quota)}), so nothing new can be added to it right now. Everything already in it is still there, and recall still works. Counterparts can raise the limit for you: write to us.`,
+        // Plain words the model can pass on as they are, and the one thing to do. A delete doesn't promise
+        // room at once: the files shrink only when a held delete is erased.
+        message: `This memory is full: it has reached the hosted beta's size limit of ${mb(quota)}, so this was not saved. Nothing already in it was lost, and recall still works. To get more room, email ${QUOTA_CONTACT} from the address you signed up with and ask for a bigger limit.`,
       }),
     };
   }

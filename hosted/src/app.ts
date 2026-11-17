@@ -39,6 +39,9 @@ import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, replicaPrefix, serverDatabasePaths, serverPathInside, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
+import { Alerts } from "./alerts.js";
+import type { AlertEvent, AlertsConfig } from "./alerts.js";
+import { countsRoute } from "./counts.js";
 import { seedSample } from "./sample.js";
 import type { LimitReason } from "./limits.js";
 import type { Readiness } from "./server.js";
@@ -117,7 +120,7 @@ export interface AppOptions {
    * `leftover`, `forget`), and `retention.waiting` with how many tombstones
    * wait (when that count changes).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting" | "backup.host.set-aside" | "backup.host.outside" | "backup.server.set-aside" | "backup.server.outside" | "backup.refresh.failed" | "store.waiting-empty", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting" | "backup.host.set-aside" | "backup.host.outside" | "backup.server.set-aside" | "backup.server.outside" | "backup.refresh.failed" | "store.waiting-empty" | AlertEvent, store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -147,6 +150,10 @@ export interface AppOptions {
   readonly sessionTtlMs?: TenantsOptions["sessionTtlMs"];
   /** `TenantsOptions.wakeBudgetBytes` (2026-11-16, opt-in): every wake assembled at session start, to this budget (the worker's bundle too). Absent: wakes delivered as published, as before. */
   readonly wakeBudgetBytes?: TenantsOptions["wakeBudgetBytes"];
+  /** CN1 (2026-11-17): the bearer token for `GET /ops/counts` (`counts.ts`; `HOSTED_COUNTS_TOKEN`). Absent or empty: that path is a 404. */
+  readonly countsToken?: string;
+  /** AL1 (2026-11-17): the operator's alerts (`alerts.ts`; `HOSTED_ALERT_EMAIL`, `HOSTED_STORAGE_ALERT_BYTES`). Absent: none are checked or sent. */
+  readonly alerts?: AlertsConfig;
 }
 
 export interface StartOptions {
@@ -256,6 +263,8 @@ export interface App {
   pruneRetention(): Promise<RetentionReport>;
   /** End every reviewer account whose codes have all expired, its connections too (DIR1 review): start-up, the timer while serving, and tests. Returns whom. */
   endExpiredReviewers(): string[];
+  /** AL1: run the operator's alert checks now (a sign-up and the timer do this; tests too). A no-op without `AppOptions.alerts`. Never rejects. */
+  checkAlerts(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -282,6 +291,18 @@ export function createApp(opts: AppOptions): App {
   const serverDatabases = serverDatabasePaths(opts.backup?.serverDatabases);
   const publicOrigin = opts.publicOrigin.replace(/\/+$/, "");
   const accounts = new Accounts({ path: join(opts.dataRoot, "control", "accounts.sqlite"), ...(opts.now === undefined ? {} : { now: opts.now }) });
+  // AL1: the operator's alerts, only when an address is named.
+  const alerts =
+    opts.alerts === undefined || opts.alerts.to.trim() === ""
+      ? null
+      : new Alerts({
+          ...opts.alerts,
+          accounts,
+          mailer: opts.mailer,
+          dataRoot: opts.dataRoot,
+          publicOrigin: opts.publicOrigin,
+          onEvent: (name, which) => opts.onEvent?.(name, which),
+        });
   const keys = opts.backup === undefined ? null : new KeyStore({ path: join(opts.dataRoot, "keys", "keys.sqlite"), wrapper: opts.backup.wrapper });
   const backups =
     opts.backup === undefined || keys === null
@@ -368,6 +389,8 @@ export function createApp(opts: AppOptions): App {
       disconnect: (personId: string, id: string): Promise<void> => oauth?.connections.disconnect(personId, id) ?? Promise.resolve(),
     },
     ...(backups === null ? {} : { onSignup: (_personId: string, storeId: string) => backups.ensureStore(storeId) }),
+    // AL1: a new account may cross a spots threshold. Not awaited: an alert never delays a sign-up.
+    ...(alerts === null ? {} : { onCreated: () => void alerts.check() }),
     exportStore,
     deleteAccount: (personId: string) => (deleteRef === null ? Promise.reject(new Error("not ready")) : deleteRef(personId)),
     scheduleDelete: (personId: string) => (scheduleRef === null ? Promise.reject(new Error("not ready")) : scheduleRef(personId)),
@@ -797,13 +820,15 @@ export function createApp(opts: AppOptions): App {
     publicOrigin,
     authenticate: o.authenticate,
     // THE DASHBOARD (HD2): the local dashboard's page and views, read-only, for the signed-in owner.
-    routes: [o.route, pages.route, dashboardRoute({ pages, accounts, tenants, onError: (storeId, err) => opts.onError?.("route", storeId === null ? null : storeTag(storeId), err) })],
+    routes: [countsRoute({ accounts, token: opts.countsToken, ...(opts.now === undefined ? {} : { now: opts.now }) }), o.route, pages.route, dashboardRoute({ pages, accounts, tenants, onError: (storeId, err) => opts.onError?.("route", storeId === null ? null : storeTag(storeId), err) })],
     limits,
     readiness,
     ...(opts.allowedOrigins === undefined ? {} : { allowedOrigins: opts.allowedOrigins }),
     ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
     // The day of each person's last wake (LW1): a read, and a write once a day at most.
     onWake: (personId) => void accounts.noteWake(personId),
+    // The day of each person's last tool call (CN1): the counts' "connected" and "active". A write once a day at most.
+    onToolCall: (personId) => void accounts.noteSeen(personId),
     ...(opts.onError === undefined ? {} : { onError: opts.onError }),
     ...(opts.onEvent === undefined ? {} : { onEvent: opts.onEvent }),
     ...(opts.logForwardedFor === undefined ? {} : { logForwardedFor: opts.logForwardedFor }),
@@ -950,6 +975,8 @@ export function createApp(opts: AppOptions): App {
             });
           retentionTick();
           endExpiredReviewers();
+          // AL1: a `spots set` from another process, and the volume filling, are seen here.
+          void alerts?.check();
           try {
             o.store.sweepClients();
           } catch {
@@ -975,6 +1002,7 @@ export function createApp(opts: AppOptions): App {
     finishDueHolds,
     pruneRetention,
     endExpiredReviewers,
+    checkAlerts: () => alerts?.check() ?? Promise.resolve(),
     async close(): Promise<void> {
       started = false;
       uploads?.stop();
