@@ -498,6 +498,11 @@ describe("3b. due today before the overdue words", () => {
   });
 });
 
+/** `back` before `now`, but no earlier than the start of `now`'s UTC day (the hook's zone). */
+function sameDayBack(now: number, back: number): number {
+  return Math.max(now - back, now - (now % DAY));
+}
+
 describe("4b. Elsewhere says when and what", () => {
   test("a live folder with nothing written says since when and that it's quiet; every titled line carries its age", () => {
     const w = brain();
@@ -510,7 +515,10 @@ describe("4b. Elsewhere says when and what", () => {
     mkdirSync(join(root, "pantry"), { recursive: true });
     mkdirSync(join(root, "cellar"), { recursive: true });
     scopes({ [HERE]: "on", [THERE]: "on", [join(root, "pantry")]: "on", [join(root, "cellar")]: "on" });
-    recordSession(storeDir, { sessionId: OTHER, scope: THERE, phase: "start", at: NOW - 30 * MIN });
+    // Half an hour back, but never before today's UTC midnight: the hook reads the
+    // real clock, so a run just after 00:00 put the start on yesterday and the wake
+    // (rightly) said "open since 11-16 23:55". Clamped, the start stays today.
+    recordSession(storeDir, { sessionId: OTHER, scope: THERE, phase: "start", at: sameDayBack(NOW, 30 * MIN) });
     const lines = section(hook(), "Elsewhere:").split("\n");
     const live = lines.find((l) => l.startsWith("- bakery"));
     expect(live).toMatch(/^- bakery \(live\): open since \d\d:\d\d, nothing written there since yesterday$/);
