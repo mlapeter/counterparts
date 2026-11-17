@@ -3,7 +3,7 @@
 #
 # The Codex adapter stands down when Codex was started from inside Claude Code
 # (codex-plugin-cc's /codex:rescue, /codex:review, the review gate), on two
-# signals (src/adapters/codex/bin/hook.ts#codexStandDown): the hook's environment
+# signals (src/adapters/codex/words.ts#codexStandDown): the hook's environment
 # (CODEX_COMPANION_*, or Claude Code's CLAUDECODE / CLAUDE_CODE_ENTRYPOINT /
 # CLAUDE_PROJECT_DIR), then the rollout's session_meta.originator ("Claude
 # Code", the plugin's client name). Neither is measured yet. This prints what a

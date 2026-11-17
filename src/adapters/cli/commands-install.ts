@@ -55,11 +55,12 @@ import { isPromptAborted, ui, ask } from "./ui.js";
 import type { Ui } from "./ui.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
-import { codexWired, look, realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire, wireCodex } from "./wire.js";
+import { tilde, realSpawner, realProcessLister, wire, unwire, sessionsNote, look } from "./wire.js";
 import type { WireResult, Spawner, WireInput, ProcessLister } from "./wire.js";
 import { desktopUnavailable, connectDesktop, repairDesktop } from "./desktop.js";
 import type { DesktopRepair } from "./desktop.js";
 import { CODEX_HOST, DESKTOP_ALWAYS_ALLOW } from "../hosts.js";
+import { codexWired, wireCodex } from "./codex.js";
 // `humanBytes` comes from `uninstall.ts` rather than from the private one
 // below: the two spell a size differently ("7.6 MB" against "7.6 MiB"), and
 // the folder `install` offers to bring back is the one `uninstall --park` set
@@ -1145,7 +1146,7 @@ export async function hostWiringCommand(
   // NAMES the one it knows, because "unknown host" without a list is the
   // refusal that teaches nothing (constitution 16).
   // `--host codex` (CX2, 2026-11-09), or `codex` as the host's name: Codex's
-  // two files instead of Claude Code's (`cli/wire.ts`, its Codex section).
+  // two files instead of Claude Code's (`cli/codex.ts`).
   const hostFlag = parsed.flags["host"];
   const askedHost = typeof hostFlag === "string" && hostFlag.length > 0 ? hostFlag : parsed.positional[0];
   const codex = command !== "uninstall" && askedHost === CODEX_HOST;

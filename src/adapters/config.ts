@@ -254,7 +254,7 @@ export const TUNABLES = {
   /**
    * CODEX'S `additionalContextLimit` (CX2, 2026-11-09), in Codex's approximate
    * TOKENS, written onto our SessionStart and UserPromptSubmit hooks in
-   * `hooks.json` (`codex/bin/hook.ts#codexHandler`). Codex spills `additionalContext` past
+   * `hooks.json` (`codex/wire.ts`). Codex spills `additionalContext` past
    * ~2,500 tokens to a file with a preview (codex-rs `HookHandlerConfig`,
    * "Unset uses 2,500 tokens; `0` disables spilling"); our envelope is held to
    * `HOST_OUTPUT_CHARS` (about 2,500 tokens), so this sits well above it. It is

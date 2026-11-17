@@ -19,9 +19,9 @@ notes signed with their own name.
 
 - The lifecycle seam whole: the wake's composition, recall per turn, the boundary (capture through the per-session
   cursor), the ask's pacer, the registry (records carry `host: codex` and the model), the detached worker.
-- Claude Code's config, scope and session-scope rules, borrowed by the entry section of `bin/hook.ts` unchanged, so
+- Claude Code's config, scope and session-scope rules, borrowed by the entry point (`bin/hook.ts`) unchanged, so
   which file and which directory is one rule on every host; its embedder, the same way.
-- The Stop ask's two lines, reworded for the model's own voice (`bin/hook.ts#codexStopAsk`).
+- The Stop ask's two lines, reworded for the model's own voice (`words.ts#codexStopAsk`).
 
 ## 4. Drops / simplifies
 
@@ -37,20 +37,19 @@ notes signed with their own name.
 **Inputs** — Codex's hook payload on stdin (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`;
 `prompt`, `source`, `stop_hook_active`, `turn_id` per event) and the rollout `.jsonl` it names.
 
-**Outputs** — one JSON object or nothing (`bin/hook.ts#codexDelivery`): `hookSpecificOutput.additionalContext` at SessionStart
+**Outputs** — one JSON object or nothing (`envelope.ts`): `hookSpecificOutput.additionalContext` at SessionStart
 and UserPromptSubmit, `{"decision":"block","reason":…}` at Stop; appended spans; the worker spawn.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
-1. **[M] No adapter is used by this directory's library code**; only the entry section of `bin/hook.ts`, last in
-   the file, borrows Claude Code's readers (`test/codex.test.ts`, "a sibling, not a fork"). The library and the
-   entry share that one file since 2026-11-17, for the plugin bundle's file margins (NOTES). The core imports nothing from here.
-2. **[M] No hook ever fails the host**: every event is wrapped (`bin/hook.ts`, `CodexAdapter#guard`), the entry exits 0.
+1. **[M] No adapter is imported by this directory's library files**; only `bin/hook.ts`, an entry point, borrows
+   Claude Code's readers (`test/codex.test.ts`, "a sibling, not a fork"). The core imports nothing from here.
+2. **[M] No hook ever fails the host**: every event is wrapped (`adapter.ts#guard`), the entry exits 0.
 3. **[M] Stop captures every turn through the per-session cursor**; SessionEnd is a final boundary that tolerates an
    empty session (no transcript, or no turns).
 4. **[M] Our own ask never enters capture**: it comes home as a user-role `<hook_prompt>` with hook provenance and is
    `ritual`; another tool's Stop prompt is `plumbing`; developer-role context (our wake and recall) is no turn.
-5. **[M] The wake opens with the reader frame** (`bin/hook.ts#codexFrame`), outside the wake block.
+5. **[M] The wake opens with the reader frame** (`words.ts#codexFrame`), outside the wake block.
 6. **[M] A Codex started from inside Claude Code does nothing** (CX1 §6): no wake, recall or capture, one stderr
    line and one process-log line. Signals: the environment (`CODEX_COMPANION_*`, Claude Code's markers), then the
    rollout's `originator` ("Claude Code"). **[A]** neither is measured yet: `tools/codex-standdown-probe.sh`.

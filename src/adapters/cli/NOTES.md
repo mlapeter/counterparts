@@ -2144,9 +2144,9 @@ door the plugin's `/counterparts:uninstall` drives.
 
 ## 2026-11-09 — `connect --host codex` (CX2)
 
-- `cli/codex.ts` (since 2026-11-17 the Codex section of `cli/wire.ts`) reads both of Codex's files before writing either, refuses a `hooks.json` it cannot parse or an
+- `cli/codex.ts` reads both of Codex's files before writing either, refuses a `hooks.json` it cannot parse or an
   MCP entry named ours in a shape it does not edit, backs each up beside itself, and writes whole (temp + rename).
-  The edits themselves are pure (then `codex/wire.ts`, now in `codex/bin/hook.ts`): hooks appended last (Codex's trust is positional), the TOML edited
+  The edits themselves are pure (`codex/wire.ts`): hooks appended last (Codex's trust is positional), the TOML edited
   as lines so every other table and comment stays byte for byte. `--host codex` (or `codex` as the host's name)
   routes `connect`/`disconnect` there before anything of Claude Code's is read. Doctor gains the Codex lines
-  (then `codex/doctor.ts`, now in `codex/bin/hook.ts`) only when something of ours is in Codex's files, and never runs `codex`.
+  (`codex/doctor.ts`) only when something of ours is in Codex's files, and never runs `codex`.

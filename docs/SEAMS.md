@@ -279,5 +279,5 @@ only — no live stores exist yet, so there is no migration path and none was wr
   `Schemas#fileSupport`, the dream's belief candidate and `nominate-core`, the reflection's `lived`/`notLivedReason`,
   and the core lane (`sleep/consolidate.ts`). The night's own refusals are covered through `fileSupport` and
   `setAbout`; a dream run over a reader's note is not exercised end to end (open).
-- **Host seam**: `hosts.ts#CODEX_HOST`, `READER_HOSTS`, a `HOST_WORDING` entry; `codex/bin/hook.ts#CodexAdapter` extends
+- **Host seam**: `hosts.ts#CODEX_HOST`, `READER_HOSTS`, a `HOST_WORDING` entry; `codex/adapter.ts` extends
   `lifecycle.ts` without importing `claude-code/` (asserted in `test/codex.test.ts`).

@@ -88,8 +88,8 @@ import {
 import type { Io, Parsed } from "./commands-shared.js";
 import { STORE_STARTED_KEY, STORE_PREVIOUS_PARKED_KEY } from "./commands-start-fresh.js";
 import { isTold, starterNotes } from "../../core/told.js";
-import { codexFindings } from "../codex/bin/hook.js";
-import { codexHome } from "./wire.js";
+import { codexFindings } from "../codex/doctor.js";
+import { codexHome } from "./codex.js";
 import { BIN as CLI_BIN } from "./install.js";
 
 // ── status ──────────────────────────────────────────────────────────────────
