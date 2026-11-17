@@ -770,3 +770,7 @@ repeat. Any weekly reminder hits this.
   fit. The review saw a section grow from 468 to 2,859 bytes before the cap and the lead rule; it is back to 468.
 - **Left as it was:** the shape-off composition prints the whole body on its due-today line. The `still open` door's
   dated list (`Self.comingUpList`) still shows the title or the clipped first line.
+- **Followed the same day by the plain reminder's line:** `what` for a plain reminder (`Counterpart.plainDueToday`,
+  so the on-time and late beats, and `plainCrossing`) is `datedSentence(body, eventDate, title, { recurring })`, else
+  the title or first line as before (`counterpart.ts#plainWhat`). The hook's line still clips it at
+  `PLAIN_WHAT_MAX_CHARS`; the dated line is already within 120. `test/plain-reminder-dated-sentence.test.ts`.
