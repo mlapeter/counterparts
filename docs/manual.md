@@ -57,7 +57,7 @@ Save with `remember` while it's fresh, put dates in `eventDate`, mark open thing
 
 ## Fields
 
-The fields of `remember` and `session_end` in full: how to set `salience`, the date shapes, `about`, `feelings`, and closing what is open.
+All `remember` and `session_end` fields: `salience`, date shapes, `about`, `feelings`, closing open things.
 
 Both `remember` and each `session_end` entry take these. A field that can't be read is left out and named in the answer (dropped), and a value read as something else is said (readAs); the memory is always kept.
 
@@ -126,7 +126,7 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 
 ## Codex (new)
 
-[local] OpenAI's Codex can use this memory after `counterparts connect --host codex`, as itself rather than as the counterpart.
+[local] `counterparts connect --host codex` lets Codex read this memory as itself.
 
 - [local] `counterparts connect --host codex` adds four hooks to Codex's hooks.json and the memory server to its config.toml (in ~/.codex, or CODEX_HOME). The person then approves the hooks once in Codex's /hooks and restarts Codex; until then the tools work and the hooks are skipped. `counterparts doctor` says which hooks are approved.
 - What works there: a wake at the start of each session, recall on each prompt, the end-of-session ask, and each turn kept for write-up. Memories written there are labelled with Codex and the model.
