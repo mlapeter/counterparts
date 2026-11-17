@@ -261,6 +261,8 @@ export type SupportFileReason =
   | "stance-unknown"
   /** Not a lived memory: a schema row (but a belief, by `link`), a dream's words, a reflection's own entry. */
   | "not-lived"
+  /** A reader host's note about itself (CX2, `core/reader-note.ts`): another model's words about that model, never a belief's evidence. */
+  | "reader-self-note"
   /** A word that is not a support route — a rating, a showing, a recall is never one. */
   | "route-unknown"
   /** `use` backs beliefs about work, people and projects, not beliefs about me or us. */

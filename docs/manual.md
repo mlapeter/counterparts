@@ -57,7 +57,7 @@ Save with `remember` while it's fresh, put dates in `eventDate`, mark open thing
 
 ## Fields
 
-The fields of `remember` and `session_end` in full: how to set `salience`, the date shapes, `about`, `feelings`, and closing what is open.
+All `remember` and `session_end` fields: `salience`, date shapes, `about`, `feelings`, closing open things.
 
 Both `remember` and each `session_end` entry take these. A field that can't be read is left out and named in the answer (dropped), and a value read as something else is said (readAs); the memory is always kept.
 
@@ -123,6 +123,16 @@ If something seems off (no wake, no night), check before guessing: `status`, and
 - [local] `counterparts install --host claude-desktop` connects Claude Desktop's chat to the same memory. Desktop's chat has no hooks: the `wake` tool starts each chat, there are no footnotes, and the write-up is asked on a tool result once a chat has gone on a while.
 - [hosted] The account page lists the connected AIs, with when each was last used, and disconnects one.
 - A tool that refuses says why and what to do. Pass that on in plain words, don't retry blindly.
+
+## Codex (new)
+
+[local] `counterparts connect --host codex` lets Codex read this memory as itself.
+
+- [local] `counterparts connect --host codex` adds four hooks to Codex's hooks.json and the memory server to its config.toml (in ~/.codex, or CODEX_HOME). The person then approves the hooks once in Codex's /hooks and restarts Codex; until then the tools work and the hooks are skipped. `counterparts doctor` says which hooks are approved.
+- What works there: a wake at the start of each session, recall on each prompt, the end-of-session ask, and each turn kept for write-up. Memories written there are labelled with Codex and the model.
+- Codex's model reads this memory as itself, not as the counterpart whose memory it is: the self page is shown for history, and it writes in its own voice. A memory it marks "about: me" is kept as its own note, never the counterpart's self, and one it marks "about: us" as its own note about it and the person, never the counterpart's us. It can't write the self page, dream, reflect or hold the first meeting.
+- No nights run in Codex: dreams and reflection stay in Claude Code. A Codex that Claude Code itself starts (the Codex plugin's rescue or review) does nothing, since Claude Code already records that work.
+- [local] `counterparts disconnect --host codex` takes out only what connect put in. Windows isn't wired for Codex yet.
 
 ## Hosted
 

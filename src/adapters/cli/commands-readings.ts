@@ -88,6 +88,9 @@ import {
 import type { Io, Parsed } from "./commands-shared.js";
 import { STORE_STARTED_KEY, STORE_PREVIOUS_PARKED_KEY } from "./commands-start-fresh.js";
 import { isTold, starterNotes } from "../../core/told.js";
+import { codexFindings } from "../codex/doctor.js";
+import { codexHome } from "./codex.js";
+import { BIN as CLI_BIN } from "./install.js";
 
 // ── status ──────────────────────────────────────────────────────────────────
 
@@ -829,14 +832,19 @@ export const DOCTOR_RED_EXIT = 1;
  * when there is no PATH to search, which the fix line reads as "not looked".
  */
 function claudeOnPath(env: Record<string, string | undefined>): boolean | null {
+  return onPath("claude", env);
+}
+
+/** The same walk for any executable's name (`codex` since CX2). */
+function onPath(name: string, env: Record<string, string | undefined>): boolean | null {
   const path = env["PATH"] ?? env["Path"];
   if (path === undefined || path.trim().length === 0) return null;
-  // Windows: `claude.exe` or npm's `claude.cmd`, and no exec bit to read (W1).
-  if (process.platform === "win32") return whichOnPath("claude", env) !== null;
+  // Windows: `<name>.exe` or npm's `<name>.cmd`, and no exec bit to read (W1).
+  if (process.platform === "win32") return whichOnPath(name, env) !== null;
   for (const dir of path.split(delimiter)) {
     if (dir.length === 0) continue;
     try {
-      const st = statSync(join(dir, "claude"));
+      const st = statSync(join(dir, name));
       if (st.isFile() && (st.mode & 0o111) !== 0) return true;
     } catch {
       /* not here */
@@ -984,7 +992,7 @@ export function doctorCommand(
         } else if (open?.migration === undefined || !isStoreError(err, "STORE_UNINITIALIZED")) throw err;
       }
     }
-    const findings = doctorFindings({
+    const claudeFindings = doctorFindings({
       configPath,
       configReason: reason,
       ...(unreadableKeys === undefined ? {} : { configUnreadableKeys: unreadableKeys }),
@@ -1026,6 +1034,12 @@ export function doctorCommand(
       install: installRoute(env),
       ...(open === undefined ? {} : { open }),
     });
+    // CODEX (CX2, 2026-11-09): its lines when anything of ours is in its
+    // files, and none otherwise — reads of Codex's files, never a run of it.
+    const findings = [
+      ...claudeFindings,
+      ...codexFindings({ codexHome: codexHome(home ?? homedir(), env), codexOnPath: onPath("codex", env), cli: CLI_BIN.cli }),
+    ];
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(reportJson(findings, today), null, 2));
     } else {

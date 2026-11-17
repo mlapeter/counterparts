@@ -1209,3 +1209,8 @@ store's nights stay quiet in the log-sweep tests).
   never a wrong close. Both closes on the copy rest on done rows.
 - A closed item without `settlesWhen` is no longer an open item to the interference sweep, so a later night can fade
   it under the release; the reflect tool's `reopen` undoes that fade too (`open-close.ts#reopenNightClosed`).
+
+## 2026-11-09 — a reader host's note about itself (CX2)
+
+- The core lane blocks a reader host's note about itself by name (`reader-self-note`), as a belt: its null `about`
+  already keeps it out of `aboutMe`. Read through the store's re-export of `isReaderSelfRow`.

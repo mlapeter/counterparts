@@ -1548,3 +1548,9 @@ as leave to fold a ruling (a standing "never" folded into a dated snapshot, fabl
 The prompt now says: never list a ruling (something the person said is always or never so) or a
 lesson as a fold's source; mention or link it instead. "earlier under the fold" became "folded in",
 matching recall's new label. Check later on a sim or the journal whether folds still take rulings.
+
+## 2026-11-09 — a reader host's note about itself (CX2)
+
+- A belief candidate drops a reader host's note about itself from its sources, `nominate-core` refuses one
+  (`reader-self-note`), and the reflection reads one as not lived: no cite, no mark, no trait, no feeling
+  (`notLivedReason`, `lived`). `core/reader-note.ts` says what such a note is.

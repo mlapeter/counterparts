@@ -2141,3 +2141,12 @@ door the plugin's `/counterparts:uninstall` drives.
   `start-fresh` is a look that didn't happen (`NO_LOOK`, as it always handled); and renaming a store a running server has
   open can fail there (EBUSY), where macOS lets it; nothing yet turns that error into "quit Claude Code first"
   (open in `INTERFACE-GAPS.md`).
+
+## 2026-11-09 — `connect --host codex` (CX2)
+
+- `cli/codex.ts` reads both of Codex's files before writing either, refuses a `hooks.json` it cannot parse or an
+  MCP entry named ours in a shape it does not edit, backs each up beside itself, and writes whole (temp + rename).
+  The edits themselves are pure (`codex/wire.ts`): hooks appended last (Codex's trust is positional), the TOML edited
+  as lines so every other table and comment stays byte for byte. `--host codex` (or `codex` as the host's name)
+  routes `connect`/`disconnect` there before anything of Claude Code's is read. Doctor gains the Codex lines
+  (`codex/doctor.ts`) only when something of ours is in Codex's files, and never runs `codex`.

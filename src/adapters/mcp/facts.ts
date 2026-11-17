@@ -183,6 +183,8 @@ import {
   provenanceParts,
 } from "./deliberate.js";
 import { isTold } from "../../core/told.js";
+import { readerNoteLine } from "../../core/reader-note.js";
+import { CODEX_HOST, CODEX_HOST_NAME } from "../hosts.js";
 
 // ── the working defaults (held lightly; revisit after a few days of use) ────
 
@@ -371,6 +373,12 @@ export interface FactItem {
   /** The words hold a list or a table (`blockOf`): said on a cut excerpt, so a reader knows to read it whole. */
   readonly block?: string;
   readonly saidBy: string | null;
+  /**
+   * A reader host's own note (CX2, `core/reader-note.ts`): whose it is and that
+   * its `me` or `us` is not the counterpart's — "gpt-x in Codex's own note about
+   * itself and the owner — not about us". Absent on an ordinary memory.
+   */
+  readonly reader?: string;
   readonly status: string | null;
   readonly occurredOn: string | null;
   /**
@@ -1464,6 +1472,8 @@ function factItem(
     whole: body.length === flat.length && chapter === undefined,
     ...(block === null ? {} : { block }),
     saidBy: row.said_by,
+    // A recall row carries no meta for a memory: the stored row does.
+    ...(journal ? {} : readerOf(store.row(row.id))),
     status: row.status,
     occurredOn: row.occurred_on,
     // A journal entry is no reminder.
@@ -1609,6 +1619,12 @@ function partlyInWindow(occurredOn: string | null, window: DayWindow | null): st
   return overlaps && !contained ? " · may be inside the time asked" : "";
 }
 
+/** A reader host's own note, labelled for recall (CX2, `core/reader-note.ts`). */
+function readerOf(row: { readonly meta?: unknown } | undefined): { reader?: string } {
+  const line = readerNoteLine(row, (h) => (h === CODEX_HOST ? CODEX_HOST_NAME : h));
+  return line === null ? {} : { reader: line };
+}
+
 function itemLines(m: FactItem, i: number, today: string, excerptChars: number, time: string | undefined, window: DayWindow | null): string[] {
   const out: string[] = [];
   const mark = m.journal ? "[journal] " : "";
@@ -1632,6 +1648,7 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
         : `due ${shortDateWithWeekday(m.due, today)}${m.every === undefined ? "" : `, ${m.every}`}${m.timeBy === "due" ? " (in the window by this date)" : ""}`;
     const occurred = [happened, dueSaid].filter((s): s is string => s !== null).join(" · ") || "no event date";
     out.push(`   ${said} · ${status} · ${occurred}`);
+    if (m.reader !== undefined) out.push(`   ${m.reader}`);
     const where = m.where === null ? "" : ` in ${m.where}`;
     const who = m.who === null ? "" : ` · ${m.who}`;
     const standing = m.current ? "CURRENT" : m.folded === true ? `folded into ${m.now ?? "?"}` : `earlier — now ${m.now ?? "?"}`;

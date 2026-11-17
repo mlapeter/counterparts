@@ -3046,3 +3046,11 @@ night starts and reaches `claude -p`.
 run's counterpart on the system clock plus that offset. Only hosted sets it, under `storeClock` (a simulated month):
 without it, a page revised the day before read "more than 14 days" old in every bundle the worker published.
 `planSpawn` drops an inherited one, so the hooks' workers never see a value a shell exported.
+
+## 2026-11-09 — a second hooked host borrows this entry's readers (CX2)
+
+- `codex/bin/hook.ts` imports `hookConfigChoice`, `hostConfig`, `eventDirectory`, `sessionScope` and
+  `hookScopeVerdict` from `bin/hook.ts`, and `openEmbedder`: an entry point borrowing, as `mcp/bin/serve.ts` does.
+  `sessionScope`'s `opensASession` keys on `SessionStart`, which is Codex's spelling too. Nothing here changed; the
+  Codex hook's command (`adapters/codex/bin/hook.ts`) does not match `HOOK_COMMAND_MARK`, so neither host's
+  `connect` reads the other's line as its own.

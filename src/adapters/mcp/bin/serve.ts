@@ -57,7 +57,7 @@ import { staleWindowsLine } from "../../claude-code/stale-windows.js";
 import { updateLineInputHere, updateNoticeLine, urgentUpdateLine } from "../../update-check.js";
 import { SPAWN_REFUSAL_PREFIX, SPAWN_START_COUNT_KEY, SPAWN_START_DATE_KEY } from "../../lifecycle.js";
 import { WORKER_RUNNER_PATH } from "../../spawn.js";
-import { claudeCodeEnvMarker } from "../../hosts.js";
+import { CODEX_HOST, claudeCodeEnvMarker } from "../../hosts.js";
 import { localDate } from "../../../core/time.js";
 import type { Store } from "../../../core/store/index.js";
 import { hostScope, openServer } from "../index.js";
@@ -106,6 +106,13 @@ export interface LaunchOptions {
   dir?: string;
   observer: boolean;
   /**
+   * WHICH HOST LAUNCHED THIS SERVER, when its registration says so (CX2,
+   * 2026-11-09): `--host codex`, written by `counterparts connect --host
+   * codex`. Decided by the launch, never by the client's name (the claude.ai
+   * precedent). Only a host this build knows to name here is kept.
+   */
+  host?: string;
+  /**
    * One line per stance variable this launch could not read, ready for stderr.
    * ALWAYS present, usually empty — a caller destructures it off before the
    * rest goes to `openServer`, so the stance stays a pair of booleans and the
@@ -137,6 +144,7 @@ export function launchOptions(
       // `serverConfigChoice` below, which is the one rule all four entry points
       // share; this declaration only keeps the parse honest.
       config: { type: "string" },
+      host: { type: "string" },
     },
     strict: false,
   });
@@ -157,6 +165,7 @@ export function launchOptions(
     ...(session === undefined || session.length === 0 ? {} : { session }),
     ...(scope === undefined || scope.length === 0 ? {} : { scope }),
     ...(dir === undefined || dir.length === 0 ? {} : { dir }),
+    ...(values["host"] === CODEX_HOST ? { host: CODEX_HOST } : {}),
     observer: observer.on,
     unreadable,
   };

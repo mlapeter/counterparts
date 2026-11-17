@@ -46,7 +46,7 @@
  */
 
 import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility, coreDoorMode, coreFeeling, coreDoorSupport, promote, promotionEligibility, strength } from "../physics/index.js";
-import { IDENTITY_ABOUT_MARKS, IDENTITY_KINDS, LATER_FEELING_SOURCES, PLAN_STATUSES, defaultStrength, isSelfRelevantFeeling } from "../store/index.js";
+import { IDENTITY_ABOUT_MARKS, IDENTITY_KINDS, LATER_FEELING_SOURCES, PLAN_STATUSES, defaultStrength, isReaderHostRow, isSelfRelevantFeeling } from "../store/index.js";
 import type { CoreContext, CoreDoorSupport, MemoryPhysics, PromotionCrossing, PromotionReason, Recurrence, SupportFiling } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import type { MemoryRow } from "../store/operational.js";
@@ -956,6 +956,13 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // physics and store (test/sleep.test.ts, structural guarantees).
     if (row.source === "told") {
       block("told");
+      continue;
+    }
+    // A READER HOST'S NOTE ABOUT ITSELF IS NEVER THE SELF (CX2,
+    // `core/reader-note.ts`): its `about` is null, so `aboutMe` already passes
+    // it by; this names it, in case a mark ever reached it by another road.
+    if (isReaderHostRow(row)) {
+      block("reader-self-note");
       continue;
     }
     if (p.promotedIdentity) {

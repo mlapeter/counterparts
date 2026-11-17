@@ -72,9 +72,14 @@ const paths = bundlePaths(plan);
  *  Directory was back at 510 on 2026-11-17, when bundling its JavaScript
  *  (tools/plugin-bundle/bundle-js.ts) took it to 271: its margin is 320, room
  *  for the modules a few waves add (each adds a chunk at most, often none)
- *  while a change that brought back one file per module would fail here. */
+ *  while a change that brought back one file per module would fail here.
+ *  Core's margin went to 510 the same day (CX2's Codex modules took it to 498):
+ *  it only ever guarded "should core become what the directory gets", and the
+ *  directory now builds its own bundled flavor. Core ships through our
+ *  marketplace, which has no file limit, so 510 is a loose tripwire for a trace
+ *  that suddenly balloons, not a budget. */
 const FILE_MARGIN = 510;
-const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: 320, core: 490, sidebar: 100 };
+const MARGINS: Record<string, number> = { full: FILE_MARGIN, directory: 320, core: 510, sidebar: 100 };
 const withinMargin = (flavor: string, count: number): void => {
   const margin = MARGINS[flavor] ?? FILE_MARGIN;
   if (count > margin) {
@@ -379,12 +384,14 @@ describe("the directory flavor", () => {
   });
 
   test("every script a process starts by its path, and every file another install looks for, is an entry at its own path", () => {
-    // The five: hook, server, console (Claude Code), worker and nightly run (what the hook and server spawn).
+    // The six: hook, server, console (Claude Code), worker and nightly run (what the hook and server spawn),
+    // and Codex's hook (what `connect --host codex` writes into Codex's hooks.json).
     expect(scripts).toEqual([
       "src/adapters/claude-code/bin/hook.ts",
       "src/adapters/claude-code/bin/nightly.ts",
       "src/adapters/claude-code/bin/runner.ts",
       "src/adapters/cli/bin/counterparts.ts",
+      "src/adapters/codex/bin/hook.ts",
       "src/adapters/mcp/bin/serve.ts",
     ]);
     for (const s of [...scripts, ...DIRECTORY_PROBED]) {

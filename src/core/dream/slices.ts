@@ -12,7 +12,7 @@
 import { FEELINGS_WHEEL } from "../feelings-wheel.js";
 import { clipBytes, fit, lineOf, offeredOf } from "../fit/index.js";
 import type { AliasMap, Fidelity, FitCandidate, FitReport, Placed } from "../fit/index.js";
-import { readChapterLead } from "../self/episodes.js";
+import { chapterHosts, readChapterLead } from "../self/episodes.js";
 import { automaticSummaryText, chapterSummaries } from "../self/summaries.js";
 import { liveHandoffRows } from "../handoff/index.js";
 import { isDirectoryScope, isWorkMemory, projectFolder } from "../self/work.js";
@@ -405,7 +405,11 @@ export function dayJournal(
       const at = row.updated_at ?? row.created_at;
       if (at === null || localDate(at, zone) < opts.about) continue;
       const all = chapterEntries(row.body);
-      const fresh = all.filter((e) => e.date === said);
+      // A READER HOST'S CHAPTER IS NOT MY DAY (option B, 2026-11-10,
+      // `self/episodes.ts#CHAPTER_HOSTS_META`): another model's account of its
+      // work is never handed to day's end as the counterpart's journal.
+      const readers = readerChapters(row.meta);
+      const fresh = all.filter((e) => e.date === said && (e.chapter === null || !readers.has(e.chapter)));
       if (fresh.length === 0) continue;
       entries += fresh.length;
       episodes.push({ row: { id, title: row.title }, at, fresh, earlier: all.length - fresh.length });
@@ -423,6 +427,17 @@ export function dayJournal(
     ...(opts.summaries === true ? { summaries: true } : {}),
   });
   return { chapters: fitted.chapters, entries, notShown: fitted.notShown, used: fitted.used };
+}
+
+/** The chapters a reader host wrote, from an episode row's meta (`CHAPTER_HOSTS_META`). Never throws. */
+export function readerChapters(meta: unknown): Set<number> {
+  try {
+    const m = typeof meta === "string" ? (JSON.parse(meta) as unknown) : meta;
+    if (m === null || typeof m !== "object" || Array.isArray(m)) return new Set();
+    return new Set(Object.keys(chapterHosts(m as Record<string, unknown>)).map(Number));
+  } catch {
+    return new Set();
+  }
 }
 
 let wheelWords: Set<string> | null = null;
