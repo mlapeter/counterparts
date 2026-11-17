@@ -186,7 +186,11 @@ async function buildOnce(repo: string, entries: readonly string[], problems: str
           b.onLoad({ filter: /\.ts$/ }, (args) => {
             const rel = posix.relative(repo, args.path.split("\\").join("/"));
             const marked = markModuleUrl(rel, readFileSync(args.path, "utf8"));
-            for (const p of marked.problems) if (!seenProblems.has(p)) seenProblems.add(p), problems.push(p);
+            for (const p of marked.problems) {
+              if (seenProblems.has(p)) continue;
+              seenProblems.add(p);
+              problems.push(p);
+            }
             return { contents: marked.text, loader: "ts" };
           });
         },

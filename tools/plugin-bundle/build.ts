@@ -18,10 +18,13 @@
  *   - `full` (the default): the TypeScript sources as they are, started through
  *     `src/adapters/plugin-run.sh`, which finds Bun or Node or downloads the
  *     single binary. What our own marketplace installs.
- *   - `directory`: the same sources TRANSPILED one for one (`src/x.ts` →
- *     `src/x.js`, types and comments stripped by Bun's transpiler, same tree),
- *     because the directory's validator times out on ~7 MB of commented
- *     TypeScript. No launcher, no binary: Claude Code runs the three entries
+ *   - `directory`: the same sources as JavaScript, because the directory's
+ *     validator times out on ~7 MB of commented TypeScript: from 2026-10-14
+ *     transpiled one for one (`src/x.ts` → `src/x.js`), from 2026-11-17
+ *     BUNDLED (`bundle-js.ts`, for file room: ~360 files became ~95), each
+ *     entry at its source's path as `.js` and each module's `import.meta.url`
+ *     still its own `.js` path, so the code finds what it found in the one-for-one
+ *     tree. No launcher, no binary: Claude Code runs the three entries
  *     (hook, server, console) BY THEIR OWN PATH, each starting with
  *     `DIRECTORY_SHEBANG` and written executable — the validator holds a
  *     manifest whose command is `bun`, a package manager to it, and passes one
@@ -73,7 +76,7 @@
  * installs that at plugin install: docs/plugin.md), and README.md
  * (tools/plugin-bundle/bundle-readme.md, its blocks for the flavor). The
  * directory flavor also generates `hooks/hooks.json`, `commands/*.md` (each
- * launcher line as the entry's own path) and every transpiled `.js`.
+ * launcher line as the entry's own path) and every bundled `.js`.
  *
  * ONE STYLESHEET, in the directory flavor (2026-10-30, for file room): the
  * dashboard's sheets are traced as above (their `url()`s bring the fonts), then
@@ -86,8 +89,8 @@
  * file over 5 MiB, more than 512 files, or versions that disagree; for the
  * directory flavor also any file over 256 KiB (2026-10-14: three.js, the one
  * there was, is left out with the dashboard's brain picture), a launcher left
- * in a root it generated, and a tree that does not mirror the sources one for
- * one.
+ * in a root it generated, a bundled module the trace did not reach, and a
+ * script something starts by its path that is not an entry at that path.
  */
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -198,6 +201,15 @@ export const DIRECTORY_ENTRIES = {
   cli: "src/adapters/cli/bin/counterparts.js",
 } as const;
 
+/** Sources the directory flavor keeps at their own path as `.js` although
+ *  nothing runs them by it, because another install looks for the file:
+ *  `host-wiring.ts#pluginStandsDown` tells the directory flavor by its
+ *  `src/adapters/runtime.js`, and `readsMarker` by its `src/adapters/npm-live.js`
+ *  (an npm install of any version reading the plugin's folder). Bundled, each
+ *  is an entry of its own (bundle-js.ts), most often a few lines re-exporting
+ *  a chunk: the file is there, the code is shared. */
+export const DIRECTORY_PROBED: readonly string[] = ["src/adapters/npm-live.ts", "src/adapters/runtime.ts"];
+
 /** The directory flavor's entries' first line. Bun from PATH; `--no-env-file`
  *  and `--config=/dev/null` keep the project's `.env` and `bunfig.toml`
  *  (whose `preload` would run inside us) out, and `--no-install` stands for
@@ -260,6 +272,9 @@ export interface Plan {
   /** Said, not refused (the directory flavor nearing the file limit). */
   readonly warnings: readonly string[];
   readonly version: string;
+  /** The directory flavor's JavaScript: the bundle's entries (the given ones
+   *  and those it promoted) and the sources it holds (bundle-js.ts). */
+  readonly bundled?: { readonly entries: readonly string[]; readonly inputs: readonly string[] };
 }
 
 // ── the roots Claude Code reads ────────────────────────────────────────────
@@ -635,8 +650,8 @@ export function bundleProblems(
   const traced = new Set(sources);
   for (const i of bundle.inputs) if (!traced.has(i)) problems.push(`the bundle holds ${i}, which the trace did not reach`);
   for (const s of scripts) {
-    if (!bundle.entries.includes(s)) problems.push(`${s} is started by its path but is not an entry of the bundle`);
-    else if (bundle.outputs[bundledPath(s)] === undefined) problems.push(`${s} is started by its path but the bundle wrote no ${bundledPath(s)}`);
+    if (!bundle.entries.includes(s)) problems.push(`${s} is started or looked for by its path but is not an entry of the bundle`);
+    else if (bundle.outputs[bundledPath(s)] === undefined) problems.push(`${s} is started or looked for by its path but the bundle wrote no ${bundledPath(s)}`);
   }
   for (const f of copied) {
     if (f.startsWith("src/") && /\.(ts|tsx|mts|cts)$/.test(f)) problems.push(`${f} is TypeScript left in the bundled tree`);
@@ -915,6 +930,7 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
   };
   const placed: Record<string, string> = { [ICON_PATH]: ICON_SOURCE };
   const executable: string[] = [];
+  let bundledInfo: Plan["bundled"];
   let copied = [...traced.files.filter((f) => f !== ".claude-plugin/plugin.json"), "LICENSE"].sort();
 
   if (flavor === "core") {
@@ -940,13 +956,16 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
     Object.assign(generated, roots.commands);
     const sources = copied.filter(isBundled);
     copied = copied.filter((f) => !isBundled(f));
-    // The entries: what Claude Code runs, and every script a process starts by its path.
+    // The entries: what Claude Code runs, every script a process starts by its
+    // path, and the files another install looks for by theirs.
     const claudeCode = Object.values(DIRECTORY_ENTRIES).map((e) => e.replace(/\.js$/, ".ts"));
-    const missing = claudeCode.filter((e) => !sources.includes(e));
-    for (const e of missing) problems.push(`${bundledPath(e)} (an entry Claude Code runs) has no source in the file set`);
-    const bundled = missing.length > 0 ? null : bundleDirectoryJs(repo, [...new Set([...claudeCode, ...traced.scripts])]);
+    const byPath = [...new Set([...traced.scripts, ...DIRECTORY_PROBED])].sort();
+    const missing = [...claudeCode, ...DIRECTORY_PROBED].filter((e) => !sources.includes(e));
+    for (const e of missing) problems.push(`${bundledPath(e)} (an entry of the bundle) has no source in the file set`);
+    const bundled = missing.length > 0 ? null : bundleDirectoryJs(repo, [...new Set([...claudeCode, ...byPath])]);
     if (bundled !== null) {
-      problems.push(...bundled.problems, ...bundleProblems(traced.files, traced.scripts, bundled, copied));
+      bundledInfo = { entries: bundled.entries, inputs: bundled.inputs };
+      problems.push(...bundled.problems, ...bundleProblems(traced.files, byPath, bundled, copied));
       for (const [f, js] of Object.entries(bundled.outputs)) {
         try {
           generated[f] = escapeInvisible(js);
@@ -976,7 +995,8 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
     }
   }
 
-  return finishPlan(repo, { flavor, copied, placed, generated, executable: executable.sort(), warnings, version }, problems);
+  const plan: Plan = { flavor, copied, placed, generated, executable: executable.sort(), warnings, version };
+  return finishPlan(repo, bundledInfo === undefined ? plan : { ...plan, bundled: bundledInfo }, problems);
 }
 
 /** The checks every flavor's plan passes (header: what it refuses), then the plan. */
