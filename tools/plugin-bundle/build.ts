@@ -93,6 +93,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync,
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, posix, relative, resolve, sep } from "node:path";
 import ts from "typescript";
+import { type BundleResult, bundleSync } from "./bundle-js.js";
 
 export const REPO = resolve(import.meta.dir, "../..");
 const HERE = import.meta.dir;
@@ -413,8 +414,9 @@ function pluginRootPaths(text: string): string[] {
 /** The bundle's file set, traced from what Claude Code reads. For the
  *  directory flavor, a root naming `src/…/x.js` is traced from `src/…/x.ts`,
  *  and the roots themselves are generated (not in the set). */
-export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?: Roots): { files: string[]; problems: string[] } {
+export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?: Roots): { files: string[]; problems: string[]; scripts: string[] } {
   const files = new Set<string>();
+  const scripts = new Set<string>();
   const problems: string[] = [];
   const queue: string[] = [];
   const add = (rel: string, why: string): void => {
@@ -487,7 +489,7 @@ export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?:
       if (f.endsWith(".d.ts")) followModule(repo, f, text, add, problems);
       continue;
     }
-    followModule(repo, f, text, add, problems);
+    followModule(repo, f, text, add, problems, (rel) => scripts.add(rel));
   }
 
   // The dashboard's page: served from a directory the server names by
@@ -497,8 +499,9 @@ export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?:
     for (const w of traceWeb(repo, web, problems)) add(w, "the dashboard's page");
   }
 
-  const out = [...files].filter((f) => flavor !== "directory" || !DIRECTORY_DROPPED.includes(f));
-  return { files: out.sort(), problems };
+  const kept = (f: string): boolean => flavor !== "directory" || !DIRECTORY_DROPPED.includes(f);
+  const out = [...files].filter(kept);
+  return { files: out.sort(), problems, scripts: [...scripts].filter((s) => kept(s) && files.has(s)).sort() };
 }
 
 function followModule(
@@ -507,6 +510,7 @@ function followModule(
   text: string,
   add: (rel: string, why: string) => void,
   problems: string[],
+  script: (rel: string) => void = () => {},
 ): void {
   const src = text.replace(/^#!.*\n/, "\n");
   const specs = ts.preProcessFile(src, true, true).importedFiles.map((i) => i.fileName);
@@ -521,7 +525,9 @@ function followModule(
   }
   // Scripts a process starts or a launcher runs, by URL from the module.
   for (const m of src.matchAll(/new URL\(\s*["'`](\.{1,2}\/[^"'`$]*[^/"'`$])["'`]\s*,\s*import\.meta\.url\s*\)/g)) {
-    add(join(dirname(f), m[1]!), f);
+    const rel = join(dirname(f), m[1]!);
+    add(rel, f);
+    if (/\.ts$/.test(rel)) script(toPosix(normalize(rel)));
   }
   // Files read from the install by their path from the package root. A
   // directory (the dashboard's web root, `src` for log trimming) is not a file
@@ -579,35 +585,64 @@ export function traceWeb(repo: string, web: string, problems: string[] = []): st
   return [...out].sort();
 }
 
-// ── transpiling (the directory flavor) ─────────────────────────────────────
+// ── bundling (the directory flavor) ────────────────────────────────────────
 
-/** Is this a source the directory flavor transpiles? The TypeScript under
+/** Is this a source the directory flavor bundles? The TypeScript under
  *  `src/` — every one a server-side module, the dashboard's included (the
  *  browser is served `.js`, `.css` and `.html` only). The sidebar's `.ts(x)`
  *  under `hooks/` stay as they are: Claude Code compiles a hooks module itself. */
-export function isTranspiled(rel: string): boolean {
+export function isBundled(rel: string): boolean {
   return rel.startsWith("src/") && /\.ts$/.test(rel) && !rel.endsWith(".d.ts");
 }
 
-/** `src/x.ts` → `src/x.js`: the transpiled tree mirrors the sources. */
-export function transpiledPath(rel: string): string {
+/** `src/x.ts` → `src/x.js`: where an entry of the bundle lands, and the path
+ *  each bundled module's `import.meta.url` names (tools/plugin-bundle/bundle-js.ts). */
+export function bundledPath(rel: string): string {
   return rel.replace(/\.ts$/, ".js");
 }
 
-let transpiler: InstanceType<typeof Bun.Transpiler> | null = null;
+const bundles = new Map<string, BundleResult>();
 
-/** One TypeScript source as the JavaScript the directory flavor ships: types
- *  and comments stripped, imports as written (`./x.js`, the transpiled
- *  sibling). The sources keep `verbatimModuleSyntax` (tsconfig.json), so every
- *  type-only import says so and nothing else is dropped. The output depends on
+/** The directory flavor's JavaScript (tools/plugin-bundle/bundle-js.ts), built
+ *  once per repository and entry set in this process. The output depends on
  *  the Bun version, which `--check` names. */
-export function transpileSource(text: string): string {
-  transpiler ??= new Bun.Transpiler({
-    loader: "ts",
-    target: "node",
-    tsconfig: { compilerOptions: { verbatimModuleSyntax: true } } as unknown as string,
-  });
-  return escapeInvisible(transpiler.transformSync(text));
+export function bundleDirectoryJs(repo: string, entries: readonly string[]): BundleResult {
+  const key = JSON.stringify([repo, [...entries].sort()]);
+  let b = bundles.get(key);
+  if (b === undefined) {
+    b = bundleSync({ repo, entries: [...entries].sort() });
+    bundles.set(key, b);
+  }
+  return b;
+}
+
+/**
+ * What would make the bundle not the program the sources are: a module the
+ * bundler reached that the trace did not (the trace decides what ships), a
+ * traced script (a file a process starts by its path, `new URL("./x.ts",
+ * import.meta.url)`) that is not an entry at its own path, TypeScript left
+ * under `src/`, or a file under `src/` that is neither bundled output nor
+ * carried as it is. A traced source the bundler left out carries no runtime
+ * code (its imports are all type-only), and is fine. Pure.
+ */
+export function bundleProblems(
+  sources: readonly string[],
+  scripts: readonly string[],
+  bundle: Pick<BundleResult, "inputs" | "entries" | "outputs">,
+  copied: readonly string[],
+): string[] {
+  const problems: string[] = [];
+  const traced = new Set(sources);
+  for (const i of bundle.inputs) if (!traced.has(i)) problems.push(`the bundle holds ${i}, which the trace did not reach`);
+  for (const s of scripts) {
+    if (!bundle.entries.includes(s)) problems.push(`${s} is started by its path but is not an entry of the bundle`);
+    else if (bundle.outputs[bundledPath(s)] === undefined) problems.push(`${s} is started by its path but the bundle wrote no ${bundledPath(s)}`);
+  }
+  for (const f of copied) {
+    if (f.startsWith("src/") && /\.(ts|tsx|mts|cts)$/.test(f)) problems.push(`${f} is TypeScript left in the bundled tree`);
+    if (bundle.outputs[f] !== undefined) problems.push(`${f} is both bundled output and a file carried as it is`);
+  }
+  return problems;
 }
 
 /**
@@ -903,20 +938,34 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
   if (flavor === "directory") {
     generated["hooks/hooks.json"] = roots.hooks;
     Object.assign(generated, roots.commands);
-    const sources = copied.filter(isTranspiled);
-    copied = copied.filter((f) => !isTranspiled(f));
-    for (const s of sources) generated[transpiledPath(s)] = transpileSource(readFileSync(join(repo, s), "utf8"));
-    for (const entry of Object.values(DIRECTORY_ENTRIES)) {
-      const js = generated[entry];
-      if (js === undefined) {
-        problems.push(`${entry} (an entry Claude Code runs) was not transpiled: its source is not in the file set`);
-        continue;
+    const sources = copied.filter(isBundled);
+    copied = copied.filter((f) => !isBundled(f));
+    // The entries: what Claude Code runs, and every script a process starts by its path.
+    const claudeCode = Object.values(DIRECTORY_ENTRIES).map((e) => e.replace(/\.js$/, ".ts"));
+    const missing = claudeCode.filter((e) => !sources.includes(e));
+    for (const e of missing) problems.push(`${bundledPath(e)} (an entry Claude Code runs) has no source in the file set`);
+    const bundled = missing.length > 0 ? null : bundleDirectoryJs(repo, [...new Set([...claudeCode, ...traced.scripts])]);
+    if (bundled !== null) {
+      problems.push(...bundled.problems, ...bundleProblems(traced.files, traced.scripts, bundled, copied));
+      for (const [f, js] of Object.entries(bundled.outputs)) {
+        try {
+          generated[f] = escapeInvisible(js);
+        } catch (err) {
+          problems.push(`${f}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-      generated[entry] = `${DIRECTORY_SHEBANG}\n${js}`;
-      executable.push(entry);
+      for (const entry of Object.values(DIRECTORY_ENTRIES)) {
+        const js = generated[entry];
+        if (js === undefined) {
+          problems.push(`${entry} (an entry Claude Code runs) is not in the bundle's output`);
+          continue;
+        }
+        // Bun keeps a source's own `#!` line on its entry; the directory's replaces it.
+        generated[entry] = `${DIRECTORY_SHEBANG}\n${js.replace(/^#!.*\n/, "")}`;
+        executable.push(entry);
+      }
     }
-    problems.push(...mirrorProblems(sources, copied, generated));
-    // No invisible character in any .js the bundle carries, transpiled or as it is.
+    // No invisible character in any .js the bundle carries, bundled or as it is.
     const scripts: [string, string][] = [
       ...Object.entries(generated).filter(([f]) => f.endsWith(".js")),
       ...copied.filter((f) => f.endsWith(".js")).map((f): [string, string] => [f, readFileSync(join(repo, f), "utf8")]),
@@ -1087,27 +1136,6 @@ export function planSidebar(repo: string = REPO): Plan {
   }
   if (!isFile(repo, ICON_SOURCE)) problems.push(`${ICON_SOURCE} (the listing icon) is missing`);
   return finishPlan(repo, { flavor: "sidebar", copied: ["LICENSE"], placed, generated, executable: [], warnings: [], version }, problems);
-}
-
-/** The directory flavor's tree must mirror the sources one for one: every
- *  transpiled source as its `.js` at the same path, no TypeScript left under
- *  `src/`, no `.js` there that is neither a transpiled source nor a file
- *  carried as it is (the dashboard's browser files), and no two landing on
- *  one path. */
-export function mirrorProblems(sources: readonly string[], copied: readonly string[], generated: Readonly<Record<string, string>>): string[] {
-  const problems: string[] = [];
-  const fromSource = new Set(sources.map(transpiledPath));
-  for (const s of sources) {
-    if (generated[transpiledPath(s)] === undefined) problems.push(`${s} has no ${transpiledPath(s)}`);
-  }
-  for (const f of copied) {
-    if (fromSource.has(f)) problems.push(`${f} is both a transpiled source and a file carried as it is`);
-    if (f.startsWith("src/") && /\.(ts|tsx|mts|cts)$/.test(f)) problems.push(`${f} is TypeScript left in the transpiled tree`);
-  }
-  for (const f of Object.keys(generated)) {
-    if (f.startsWith("src/") && f.endsWith(".js") && !fromSource.has(f)) problems.push(`${f} is generated under src/ from no source`);
-  }
-  return problems;
 }
 
 /** Every bundle path, copied, placed and generated, sorted. */
