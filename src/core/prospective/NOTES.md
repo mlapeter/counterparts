@@ -738,3 +738,23 @@ repeat. Any weekly reminder hits this.
 - **Left as it was:** a month (`2026-10`) still takes no wake line on either road, nor in the `coming up` door (its own
   call; a month "due today" for thirty days is a different question from this gap). `plainDueOn` is still day-only, so a
   plain range is listed as an ordinary due-today line and doesn't lead the lane as a plain day reminder does.
+
+## 2026-11-17 — a dated memory is said by the sentence that names its date
+
+- **What broke (the living journal):** the shaped wake's "Coming up" and the `coming up` door said an untitled dated memory
+  by its first sentence. A memory led by "The CR-V listing runs through Friday the 16th…" that also held "Marisol visits
+  Friday 16 to Sunday 18 October", dated 16–18 Oct, read as the CR-V listing. The journal's other report, that a range
+  never took a line and the door never listed one, was #833 (11-16); its vendored core already has it.
+- **Now:** `core/dated-sentence.ts` (a leaf, pure; exported from the package entry as `datedSentence`,
+  `sentenceNamingDate`, `namesDate`, `sentencesOf`) scores every sentence by the days of the date it names: an ISO or
+  m/d date, or the day's number with its month's name, beats the number with its weekday or as an ordinal, which beats the
+  weekday alone; a bare number never counts. Best score wins, the earliest on a tie. First match would have kept the bug,
+  since the CR-V sentence names the range's first day too. The splitter (#836's abbreviations) moved there; an ellipsis
+  ("…") now ends a sentence too, as "..." already did.
+- **The title rule** (`counterpart-wake-shape.ts#datedTitleOfRow`, used by `readCues`): the line stays the row's title or
+  first sentence when the title names the date, or the date sits in the first sentence; otherwise it is the dated
+  sentence. A title is presumed to say what the memory leads with, so a date in a later sentence is the sign the memory
+  holds two things and its title may be the other one. Swapping whenever a title lacks the date would have replaced most
+  good short titles ("Coast trip") with a longer sentence for no gain.
+- **Left as it was:** the shape-off composition prints the whole body on its due-today line, so nothing is mispinned
+  there. The `still open` door's dated list (`Self.comingUpList`) still shows the title or the clipped first line.

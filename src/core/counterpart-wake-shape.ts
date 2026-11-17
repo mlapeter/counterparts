@@ -125,34 +125,9 @@ export interface ShapedWake {
   readonly page: string | null;
 }
 
-/** Sentence ends, as handoff/ reads them. */
-const END = /[.!?](?=\s|$)/g;
-
-/**
- * A full stop that ends a common abbreviation or a lone initial, not a sentence
- * (2026-11-16, journal finding 17: "a stress test with Dr. Okafor at 9:30." read
- * "a stress test with Dr."). Case-sensitive, so "said no. Then" still ends;
- * "No." only before a number ("No. 5"); a lone capital only after a space or
- * the start ("J. Smith", not "FBI."), and never "I" ("so did I. Then").
- */
-const ABBREV_BEFORE = /(?:^|[\s("'“‘])(?:Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Mt|vs|etc|[Ee]\.g|[Ii]\.e|[ap]\.m|[AP]\.M|[A-HJ-Z])$/u;
-const NUMBER_ABBREV = /(?:^|[\s("'“‘])No$/u;
-
-/** Not a sentence's end: the "." after an abbreviation or an initial. */
-function abbreviationAt(s: string, dot: number): boolean {
-  if (s[dot] !== ".") return false;
-  const before = s.slice(0, dot);
-  if (ABBREV_BEFORE.test(before)) return true;
-  return NUMBER_ABBREV.test(before) && /^\s+\d/u.test(s.slice(dot + 1));
-}
-
-export function firstSentence(s: string): string {
-  END.lastIndex = 0;
-  for (let m = END.exec(s); m !== null; m = END.exec(s)) {
-    if (!abbreviationAt(s, m.index)) return s.slice(0, m.index + 1);
-  }
-  return s;
-}
+/** The splitter lives in the leaf module (2026-11-17), so the dated-sentence pick and this read the same sentences. */
+import { firstSentence, namesDate, sentenceNamingDate } from "./dated-sentence.js";
+export { firstSentence };
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
 const norm = (s: string): string => s.trim().replace(/\/+$/, "");
@@ -162,7 +137,31 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
   const t = (row.title ?? "").trim();
   if (t.length > 0) return flatten(t);
   const first = flatten(row.body.split("\n").find((l) => l.trim().length > 0) ?? "");
-  const sentence = firstSentence(first);
+  return untitledLine(firstSentence(first));
+}
+
+/**
+ * A DATED ROW'S LINE IN "COMING UP" (2026-11-17, the living journal's CR-V
+ * memory): the sentence that names its date when that is not the row's first
+ * (`dated-sentence.ts`), so a date is never pinned to a lead about something
+ * else; otherwise `titleOfRow` as before. A title stays when it names the date
+ * itself, or when the date sits in the first sentence: a title is presumed to
+ * say what the memory leads with, and a date in a later sentence is the sign
+ * that the memory holds more than one thing and its title may be the other one.
+ * Its `Names:` line (#697) is not read.
+ */
+export function datedTitleOfRow(row: Pick<MemoryRow, "title" | "body">, due: string | null | undefined): string {
+  const base = titleOfRow(row);
+  const body = row.body.replace(/\n+Names: [^\n]*\s*$/, "");
+  const hit = sentenceNamingDate(body, due);
+  if (hit === null || hit.index === 0) return base;
+  const t = (row.title ?? "").trim();
+  if (t.length > 0 && namesDate(t, due)) return base;
+  return untitledLine(flatten(hit.sentence));
+}
+
+/** A sentence as an untitled row's line: whole when it fits, else cut at a word's end with "…". */
+function untitledLine(sentence: string): string {
   if (byteLength(sentence) <= SHAPE.UNTITLED_BYTES) return sentence;
   const start = [...sentence].slice(0, SHAPE.UNTITLED_CHARS).join("");
   // At a word's end where it has words; text with no spaces has no such place.
@@ -241,7 +240,8 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     const past = !today && h.plainDue !== true && (h.past === true || (isDay(due) && due < at));
     out.push({
       id: h.id,
-      title: titleOfRow(row),
+      // The sentence that names its date, not a first sentence about something else (2026-11-17).
+      title: datedTitleOfRow(row, due === "" ? null : due),
       // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
       body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),
