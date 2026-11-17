@@ -340,6 +340,14 @@ What the bucket holds:
   live), and `--force` sets it aside and says so (`backup.host.set-aside`). A delete removes them with the store.
   Run `main.ts restore` with the same `HOSTED_TENANT_DATABASES` the server has, or it restores the store's file
   only. A product file lost while its store's file stayed needs the point-in-time steps below;
+- when a product names its own server-level databases (`backup.serverDatabases`, or
+  `HOSTED_SERVER_DATABASES=journal/auth.sqlite,journal/subscriptions.sqlite` for `main.ts`), each of those, under the
+  control key, at `control/host/<path>/` (under control's re-keyed base after a re-key). They come back with
+  `restore control` / `--all` / `RESTORE_ON_BOOT`, before control's own; one on the volume is **never replaced**
+  unless `--force`, which sets it aside and says so (`backup.server.set-aside`). A start with one missing whose
+  backup is in the bucket refuses until you deploy with `RESTORE_ON_BOOT=1`. Run `main.ts restore` with the same
+  `HOSTED_SERVER_DATABASES` the server has (and `migrate-keys` too: its control re-key carries them, and refuses a
+  replica it isn't told about). `CONTROL_ASIDE` moves them aside with `control/`;
 
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
 - each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the
@@ -413,7 +421,8 @@ Its person's `/mcp` calls get `503` with `Retry-After`. The log shows `store.nee
 `RESTORE_ON_BOOT=1` deploy restores every store that is missing, and touches none that are present.
 
 **A store that never reached the bucket** (its person signed up and the volume died within seconds) stays at `503`:
-a restore finds nothing. Its way out is to start it over as a new, empty store. It is refused while the bucket holds
+a restore finds nothing. The start logs it (`store.waiting-empty storeTag=…`, and a count line). Its person can still
+delete their account (hosted's delete never opens the store). Its way out is to start it over as a new, empty store. It is refused while the bucket holds
 any replica of it, or its tombstone.
 
 It is **safe against the running server** (`railway ssh`, then the line below). It only clears the store's

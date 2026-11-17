@@ -127,7 +127,7 @@ export function tenantDatabasePaths(list: readonly string[] | undefined): string
     const lower = rel.toLowerCase();
     const first = segs[0]!.toLowerCase();
     if (first === "store" || first === "config.json" || first === RESTORED_MARKER || first.startsWith("litestream")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} is hosted's own (store/, config.json, ${RESTORED_MARKER}, litestream*)`);
-    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith(".restoring") || lower.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
+    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith("-journal") || lower.endsWith(".restoring") || lower.includes(".pre-restore-")) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
     for (const other of out) {
       const o = other.toLowerCase();
       if (o === lower || o.startsWith(`${lower}/`) || lower.startsWith(`${o}/`)) throw new Error(`backup.tenantDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
@@ -135,6 +135,93 @@ export function tenantDatabasePaths(list: readonly string[] | undefined): string
     out.push(rel);
   }
   return out;
+}
+
+/**
+ * A HOST'S OWN SERVER-LEVEL DATABASES (`AppBackupOptions.serverDatabases`): a
+ * product's SQLite files that belong to no one person (the living journal's
+ * `journal/auth.sqlite`, `journal/subscriptions.sqlite`), named relative to
+ * the data root. The same sidecar streams each, as the control databases are:
+ *
+ *   - under the CONTROL key's SSE-C key (`control/litestream.key`);
+ *   - to `<control base>host/<relative path>/`: `control/host/<path>/` by
+ *     default, `control/<key id>/host/<path>/` after a control re-key, so they
+ *     follow control's key wherever it goes (`rekeyControl` moves and proves
+ *     them with control's own). `host` is never a control database's name
+ *     (`accounts.sqlite`, `oauth.sqlite`) and never a key id (22 base64url
+ *     characters), so nothing of control's meets it;
+ *   - their Litestream state in `<data root>/litestream-meta-server/<path>`,
+ *     never beside the file in the product's own folder.
+ *
+ * Never deleted by an account delete: they are the server's, not a person's.
+ */
+export const SERVER_DATABASES_BASE = "host";
+export const SERVER_DATABASES_META = "litestream-meta-server";
+export const serverDatabasePrefix = (controlBase: string, rel: string): string => `${controlBase}${SERVER_DATABASES_BASE}/${rel}/`;
+
+/** The data root's own entries a server database may never be in (first segment, lower case). */
+const DATA_ROOT_OWN = ["control", "tenants", "keys", "scratch", "overrides", SERVER_DATABASES_META];
+const dataRootOwn = (first: string): boolean =>
+  DATA_ROOT_OWN.includes(first) || first.startsWith("control.") || first.startsWith("litestream") || first.startsWith("serving.");
+
+/**
+ * The host's server-level list, checked as `tenantDatabasePaths` checks its
+ * own, against the data root: a plain relative path (no `..`, no leading `/`
+ * or `.`), not in hosted's own entries there (`control/`, `control.aside-*`,
+ * `tenants/`, `keys/`, `scratch/`, `overrides/`, `litestream*`,
+ * `serving.heartbeat`), no side file, no repeat, none inside another.
+ * Case-insensitive. Anything else throws, saying which.
+ */
+export function serverDatabasePaths(list: readonly string[] | undefined): string[] {
+  if (list === undefined) return [];
+  const out: string[] = [];
+  for (const rel of list) {
+    const segs = typeof rel === "string" ? rel.split("/") : [];
+    const plain = segs.length > 0 && segs.every((s) => /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(s));
+    if (!plain) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} isn't a plain path inside the data root (relative, no "..", no leading "/" or ".")`);
+    const lower = rel.toLowerCase();
+    if (dataRootOwn(segs[0]!.toLowerCase())) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} is in hosted's own part of the data root (control/, tenants/, keys/, scratch/, overrides/, litestream*, serving.*)`);
+    if (lower.endsWith("-wal") || lower.endsWith("-shm") || lower.endsWith("-journal") || lower.endsWith(".restoring") || lower.includes(".pre-restore-") || lower.includes(".rekey-proof")) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} names a database's side file, not a database`);
+    for (const other of out) {
+      const o = other.toLowerCase();
+      if (o === lower || o.startsWith(`${lower}/`) || lower.startsWith(`${o}/`)) throw new Error(`backup.serverDatabases: ${JSON.stringify(rel)} repeats or nests in ${JSON.stringify(other)}`);
+    }
+    out.push(rel);
+  }
+  return out;
+}
+
+/**
+ * The real path of `file`'s nearest folder that exists, relative to `top`'s
+ * real path ("" for `top` itself), or null: the file itself is a symlink, a
+ * folder on the way is a dangling link, or it resolves outside `top`.
+ */
+function realInside(top: string, file: string): string | null {
+  try {
+    const root = realpathSync(top);
+    if (lstatQuiet(file)?.isSymbolicLink() === true) return null;
+    let d = dirname(file);
+    while (lstatQuiet(d) === null) {
+      if (d === top || dirname(d) === d) return null;
+      d = dirname(d);
+    }
+    const real = realpathSync(d);
+    if (real === root) return "";
+    return real.startsWith(`${root}${sep}`) ? real.slice(root.length + 1) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does this path stay in the product's part of the data root? Not itself a
+ * link, its nearest existing folder resolving inside the data root and not
+ * into hosted's own part of it (`journal/` a link to `control/`).
+ */
+export function serverPathInside(dataRoot: string, file: string): boolean {
+  const real = realInside(dataRoot, file);
+  if (real === null) return false;
+  return real === "" || !dataRootOwn(real.split(sep)[0]!.toLowerCase());
 }
 
 /** The refusal when the bucket's control key is another DEK than this volume's. */
@@ -232,6 +319,14 @@ export interface BackupsOptions {
    * restored (`outside`). The app audits and logs it by tag.
    */
   readonly onHostDatabase?: (storeId: string, what: "set-aside" | "outside") => void;
+  /** A host's own server-level databases, relative to the data root (`serverDatabasePaths`). Absent: none, and the configuration is as before. */
+  readonly serverDatabases?: readonly string[];
+  /**
+   * A server database a forced control restore moved aside (`set-aside`), or
+   * one whose folder resolves outside the data root, or into hosted's own part
+   * of it (a symlink), and so is neither streamed nor restored (`outside`).
+   */
+  readonly onServerDatabase?: (rel: string, what: "set-aside" | "outside") => void;
 }
 
 /**
@@ -309,8 +404,12 @@ export class Backups {
   /** The host's own per-tenant databases, checked (`tenantDatabasePaths`). */
   readonly tenantDatabases: readonly string[];
 
+  /** The host's own server-level databases, checked (`serverDatabasePaths`). */
+  readonly serverDatabases: readonly string[];
+
   constructor(opts: BackupsOptions) {
     this.tenantDatabases = tenantDatabasePaths(opts.tenantDatabases);
+    this.serverDatabases = serverDatabasePaths(opts.serverDatabases);
     this.opts = opts;
     this.configPath = join(opts.dataRoot, "litestream.yml");
   }
@@ -665,6 +764,23 @@ export class Backups {
     if (!this.controlRekeyDue()) return "not-due";
     const paths = this.dbPaths(CONTROL_KEY_ID);
     for (const p of paths) if (!existsSync(p)) throw new Error("a control re-key needs both control databases on this volume: restore them first");
+    // A server database missing here whose replica is at the old base would lose that replica with the old base (step 5).
+    if ((await this.serverMissingWithReplica()).length > 0) throw new Error("a control re-key needs the server databases the bucket has on this volume too: restore control first (restore control brings back the missing ones)");
+    // A server database's replica this run doesn't name (HOSTED_SERVER_DATABASES unset here, or another list) would be
+    // deleted with the old base without being carried: refused, so nothing is lost.
+    const named = this.serverDatabases.map((rel) => serverDatabasePrefix(this.controlBase(), rel));
+    if ((await this.opts.objects.list(`${this.controlBase()}${SERVER_DATABASES_BASE}/`)).some((k) => !named.some((p) => k.startsWith(p)))) {
+      throw new Error("the bucket has a server database's replica under control that this run doesn't name: run migrate-keys again with the same HOSTED_SERVER_DATABASES the server has (the control re-key did not start)");
+    }
+    // A listed one with a replica that the re-key wouldn't carry (its file a link, dangling or not; its folder resolving
+    // outside the data root or into hosted's own part): its only backup would go with the old base. Refused too.
+    const carried = new Set(this.rekeyServer());
+    for (const rel of this.serverDatabases) {
+      if (carried.has(rel)) continue;
+      if ((await this.opts.objects.list(serverDatabasePrefix(this.controlBase(), rel))).length > 0) {
+        throw new Error(`the bucket has a replica of the server database ${rel}, and the re-key can't carry it (its file here is a link, or its folder resolves outside the data root): put the real file in place (restore control), then run migrate-keys again (the control re-key did not start)`);
+      }
+    }
     if (this.opts.keys.wrapped(CONTROL_NEXT_ID) === null) await this.opts.keys.create(CONTROL_NEXT_ID);
     const base = controlBaseFor((await this.opts.keys.keyId(CONTROL_NEXT_ID))!);
     const yml = join(this.opts.dataRoot, "litestream.rekey.yml");
@@ -675,12 +791,14 @@ export class Backups {
         // Whatever is at the new base is unproven: it goes, and Litestream starts a fresh snapshot there.
         for (const db of CONTROL_DATABASES) await this.opts.objects.deletePrefix(`${base}${db}/`);
         for (const p of paths) rmSync(join(dirname(p), `.${basename(p)}-litestream`), { recursive: true, force: true });
+        await this.opts.objects.deletePrefix(`${base}${SERVER_DATABASES_BASE}/`);
+        for (const rel of this.rekeyServer()) rmSync(this.serverDatabaseMeta(rel), { recursive: true, force: true });
         const sidecar = o.sidecar(yml);
         await sidecar.reload();
         let proven = false;
         try {
           // A write to each, so even a Litestream that ships only on change has one to ship.
-          for (const p of paths) touchDatabase(p);
+          for (const p of [...paths, ...this.rekeyServer().map((rel) => this.serverPath(rel))]) touchDatabase(p);
           const until = Date.now() + (o.proveMs ?? 120_000);
           while (!proven && Date.now() < until) {
             await new Promise((r) => setTimeout(r, 1000));
@@ -729,6 +847,9 @@ export class Backups {
     let deleted = 0;
     for (const db of CONTROL_DATABASES) deleted += await this.opts.objects.deletePrefix(`${base}${db}/`);
     for (const p of this.dbPaths(CONTROL_KEY_ID)) rmSync(join(dirname(p), `.${basename(p)}-litestream`), { recursive: true, force: true });
+    // The server databases had moved to the new base with control's: theirs go too, and their position.
+    deleted += await this.opts.objects.deletePrefix(`${base}${SERVER_DATABASES_BASE}/`);
+    for (const rel of this.serverDatabases) rmSync(this.serverDatabaseMeta(rel), { recursive: true, force: true });
     this.opts.keys.delete(CONTROL_NEXT_ID);
     rmSync(this.keyFile(CONTROL_NEXT_ID), { force: true });
     rmSync(join(this.opts.dataRoot, "litestream.rekey.yml"), { force: true });
@@ -738,7 +859,9 @@ export class Backups {
   /** The control databases restored from `base` (the re-key's config) equal the files here: the new snapshot is proven. */
   private async rekeyProven(base: string, yml: string, run: LitestreamRun): Promise<boolean> {
     for (const db of CONTROL_DATABASES) if ((await this.opts.objects.list(`${base}${db}/`)).length === 0) return false;
-    for (const path of this.dbPaths(CONTROL_KEY_ID)) {
+    const server = this.rekeyServer();
+    for (const rel of server) if ((await this.opts.objects.list(serverDatabasePrefix(base, rel))).length === 0) return false;
+    for (const path of [...this.dbPaths(CONTROL_KEY_ID), ...server.map((rel) => this.serverPath(rel))]) {
       const out = `${path}.rekey-proof`;
       const clean = (): void => {
         for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
@@ -766,6 +889,8 @@ export class Backups {
     if (this.controlBase() === CONTROL_BASE) return 0;
     let n = 0;
     for (const db of CONTROL_DATABASES) n += await this.opts.objects.deletePrefix(`${CONTROL_BASE}${db}/`);
+    // The server databases' old replicas, under the old key, too (`serverDatabasePrefix`).
+    n += await this.opts.objects.deletePrefix(`${CONTROL_BASE}${SERVER_DATABASES_BASE}/`);
     return n;
   }
 
@@ -921,20 +1046,115 @@ export class Backups {
    * tenant dir. A dangling link, or a missing tenant dir, is false.
    */
   private insideTenant(storeId: string, file: string): boolean {
-    try {
-      const top = tenantDir(this.tenantsRoot(), storeId);
-      const root = realpathSync(top);
-      if (lstatQuiet(file)?.isSymbolicLink() === true) return false;
-      let d = dirname(file);
-      while (lstatQuiet(d) === null) {
-        if (d === top || dirname(d) === d) return false;
-        d = dirname(d);
-      }
-      const real = realpathSync(d);
-      return real === root || real.startsWith(`${root}${sep}`);
-    } catch {
-      return false;
+    return realInside(tenantDir(this.tenantsRoot(), storeId), file) !== null;
+  }
+
+  /**
+   * Does this server database stay in the product's part of the data root? As
+   * `insideTenant`, against the data root, and its real folder isn't in
+   * hosted's own part of it either (`journal/` a symlink to `control/`).
+   */
+  private insideServer(file: string): boolean {
+    return serverPathInside(this.opts.dataRoot, file);
+  }
+
+  /** A server database's file on this volume. */
+  serverPath(rel: string): string {
+    return join(this.opts.dataRoot, rel);
+  }
+
+  /** Litestream's state for a server database: `<data root>/litestream-meta-server/<path>`, out of the product's folder. */
+  serverDatabaseMeta(rel: string): string {
+    return join(this.opts.dataRoot, SERVER_DATABASES_META, rel);
+  }
+
+  /** `outside` said once per path and process (`config` runs at every refresh); `set-aside` every time. A throw is swallowed. */
+  private readonly saidServerOutside = new Set<string>();
+  private serverEvent(rel: string, what: "set-aside" | "outside"): void {
+    if (what === "outside") {
+      if (this.saidServerOutside.has(rel)) return;
+      this.saidServerOutside.add(rel);
     }
+    try {
+      this.opts.onServerDatabase?.(rel, what);
+    } catch {
+      /* a log, not a gate */
+    }
+  }
+
+  /**
+   * The server databases missing here whose replica the bucket has, at
+   * control's current base: what a start must restore before the product
+   * makes them again (an empty one would be streamed over the backup).
+   */
+  async serverMissingWithReplica(): Promise<string[]> {
+    const out: string[] = [];
+    for (const rel of this.serverDatabases) {
+      if (lstatQuiet(this.serverPath(rel)) !== null) continue;
+      if ((await this.opts.objects.list(serverDatabasePrefix(this.controlBase(), rel))).length > 0) out.push(rel);
+    }
+    return out;
+  }
+
+  /**
+   * THE SERVER DATABASES, BACK FROM THE BUCKET (`restoreControl` runs it
+   * before control's own, so a restore cut short leaves control missing, which
+   * every start refuses on). Run with no sidecar, like `restore`.
+   *
+   * Without `force`, A SERVER DATABASE THAT IS HERE IS NEVER TOUCHED (the #834
+   * review's B1, again): only the missing ones come back, and one here is
+   * counted `kept`. With `force`, one here is moved aside (`.pre-restore-*`,
+   * swept after a day) and `onServerDatabase` says `set-aside`. One whose folder
+   * resolves outside the data root, or into hosted's own part of it, is
+   * skipped and said (`outside`), before any folder is made. Under the control
+   * key, which this volume must hold or adopt (as `restore("control")`).
+   */
+  async restoreServer(run: LitestreamRun, opts: { force?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
+    let restored = 0;
+    let empty = 0;
+    // A dangling link counts as here: never followed, never replaced without force.
+    const todo = this.serverDatabases.filter((rel) => opts.force === true || lstatQuiet(this.serverPath(rel)) === null);
+    let kept = this.serverDatabases.length - todo.length;
+    if (todo.length === 0) return { restored, empty, kept };
+    if (this.opts.keys.wrapped(CONTROL_KEY_ID) === null && !(await this.inBucket(CONTROL_KEY_ID))) {
+      throw new Error("the bucket has no control key object, and this volume has no control key: there is nothing to restore the server databases with.");
+    }
+    await this.ensureStore(CONTROL_KEY_ID, { reload: false });
+    // The server databases being restored are in this configuration even though their files are missing (`config`'s skip).
+    writeFileSync(this.configPath, this.config(CONTROL_KEY_ID), { mode: 0o600 });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    for (const rel of todo) {
+      const path = this.serverPath(rel);
+      if (!this.insideServer(path)) {
+        this.serverEvent(rel, "outside");
+        kept += 1;
+        continue;
+      }
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      const out = `${path}.restoring`;
+      for (const f of [out, `${out}-wal`, `${out}-shm`]) rmSync(f, { force: true });
+      const r = await run(["restore", "-config", this.configPath, "-o", out, "-if-replica-exists", path]);
+      if (r.code !== 0) throw new Error(`litestream restore exited ${String(r.code)}: ${r.stderr.trim().split("\n").filter((l) => !l.startsWith("time=")).slice(-2).join(" / ").slice(0, 300)}`);
+      if (!existsSync(out)) {
+        empty += 1;
+        continue;
+      }
+      if (existsSync(path)) this.serverEvent(rel, "set-aside");
+      for (const f of [path, `${path}-wal`]) if (existsSync(f)) renameSync(f, `${f}.pre-restore-${stamp}`);
+      rmSync(`${path}-shm`, { force: true });
+      rmSync(join(dirname(path), `.${basename(path)}-litestream`), { recursive: true, force: true });
+      rmSync(this.serverDatabaseMeta(rel), { recursive: true, force: true });
+      renameSync(out, path);
+      if (existsSync(`${out}-wal`)) renameSync(`${out}-wal`, `${path}-wal`);
+      rmSync(`${out}-shm`, { force: true });
+      restored += 1;
+    }
+    return { restored, empty, kept };
+  }
+
+  /** The server databases a control re-key carries: those on this volume, in the product's part of it. */
+  private rekeyServer(): string[] {
+    return this.serverDatabases.filter((rel) => existsSync(this.serverPath(rel)) && this.insideServer(this.serverPath(rel)));
   }
 
   /** `outside` said once per store and process (`config` runs at every refresh); `set-aside` every time. A throw is swallowed. */
@@ -976,6 +1196,8 @@ export class Backups {
   rekeyConfig(base: string): string {
     const lines = ["# Generated by hosted/src/backup.ts for a control re-key (migrate-keys). Not the sidecar's.", "logging:", "  stderr: true", "snapshot:", `  interval: ${SNAPSHOT_HOURS}h`, `  retention: ${SNAPSHOT_HOURS}h`, "dbs:"];
     for (const db of CONTROL_DATABASES) lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...this.replicaLines(`${base}${db}`, this.keyFile(CONTROL_NEXT_ID)));
+    // The server databases follow control's key (`serverDatabasePrefix`): re-keyed with it, to the new base.
+    for (const rel of this.rekeyServer()) lines.push(`  - path: ${yamlString(this.serverPath(rel))}`, `    meta-path: ${yamlString(this.serverDatabaseMeta(rel))}`, ...this.replicaLines(serverDatabasePrefix(base, rel).slice(0, -1), this.keyFile(CONTROL_NEXT_ID)));
     return `${lines.join("\n")}\n`;
   }
 
@@ -1011,6 +1233,18 @@ export class Backups {
     if (ids.includes(CONTROL_KEY_ID)) {
       for (const db of CONTROL_DATABASES) {
         lines.push(`  - path: ${yamlString(join(this.opts.dataRoot, "control", db))}`, ...replica(`${this.controlBase()}${db}`, this.keyFile(CONTROL_KEY_ID)));
+      }
+      // The host's own server databases (`serverDatabases`), under the control key at control's base: each only
+      // once its file exists (`refresh` picks it up), or while control is being restored (`restoreServer`).
+      for (const rel of this.serverDatabases) {
+        const file = this.serverPath(rel);
+        if (restoring !== CONTROL_KEY_ID && !existsSync(file)) continue;
+        // A folder that resolves outside the data root, or into hosted's own part of it, is never streamed, and said.
+        if (!this.insideServer(file)) {
+          this.serverEvent(rel, "outside");
+          continue;
+        }
+        lines.push(`  - path: ${yamlString(file)}`, `    meta-path: ${yamlString(this.serverDatabaseMeta(rel))}`, ...replica(serverDatabasePrefix(this.controlBase(), rel).slice(0, -1), this.keyFile(CONTROL_KEY_ID)));
       }
     }
     for (const id of ids) {
@@ -1123,6 +1357,11 @@ export class Backups {
     const sealed = (await this.opts.objects.get(keyObject(storeId))) === null ? 0 : 1;
     const legacy = (await this.opts.objects.get(legacyKeyObject(storeId))) === null ? 0 : 1;
     return sealed + legacy + (await this.opts.objects.list(replicaPrefix(storeId))).length;
+  }
+
+  /** How many objects the bucket holds under one prefix (`App.nothingToRestore`). */
+  async objectsUnder(prefix: string): Promise<number> {
+    return (await this.opts.objects.list(prefix)).length;
   }
 
   /** The live stores with a tombstone in the bucket: deleted, whatever the accounts database says. */

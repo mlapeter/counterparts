@@ -34,9 +34,9 @@ import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import { Csrf } from "./web.js";
 import type { ErrorWhere, HostedCallRecord } from "./server.js";
-import { Tenants, storeTag, tenantDir } from "./tenants.js";
+import { STORE_ID, Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, tenantDatabasePaths, tombstoneObject } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, UPLOADS_EVERY_MS, UploadWatch, keyObject, legacyKeyObject, replicaPrefix, serverDatabasePaths, serverPathInside, tenantDatabasePaths, tenantDatabasePrefix, tombstoneObject } from "./backup.js";
 import type { KeylessReason, LitestreamRun, Sidecar, UploadsEvent } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
 import { seedSample } from "./sample.js";
@@ -68,6 +68,20 @@ export interface AppBackupOptions {
    * Litestream needs. Absent: none, and the configuration is unchanged.
    */
   readonly tenantDatabases?: readonly string[];
+  /**
+   * A product's own SERVER-LEVEL SQLite databases, belonging to no one person,
+   * relative to the data root (the living journal:
+   * `["journal/auth.sqlite", "journal/subscriptions.sqlite"]`). Each is streamed
+   * by the same sidecar under the CONTROL key to `<control base>host/<path>/`
+   * (`control/host/<path>/` until a control re-key, which carries them with
+   * control's own), once its file exists (`Backups.refresh`, and the app's own
+   * timer), and restored with control (`restoreControl`: missing ones only;
+   * one here is replaced only by `--force`, which sets it aside and says so).
+   * Each must be in WAL mode. Paths that escape the data root, or are in
+   * hosted's own part of it (`control/`, `tenants/`, `keys/`, …), are refused
+   * here. Absent: none, and the configuration is unchanged.
+   */
+  readonly serverDatabases?: readonly string[];
 }
 
 export interface AppOptions {
@@ -103,7 +117,7 @@ export interface AppOptions {
    * `leftover`, `forget`), and `retention.waiting` with how many tombstones
    * wait (when that count changes).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting" | "backup.host.set-aside" | "backup.host.outside" | "backup.refresh.failed", store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed" | "removal.overdue" | "sample.seeded" | "sample.seed.failed" | "retention.failed" | "retention.waiting" | "backup.host.set-aside" | "backup.host.outside" | "backup.server.set-aside" | "backup.server.outside" | "backup.refresh.failed" | "store.waiting-empty", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, pending deletes now due, and a chat's deletes whose 24-hour hold has passed (HD1). Ten minutes by default. */
@@ -163,6 +177,13 @@ export interface StartReport {
   readonly minted: number;
   /** Stores opened before whose files are missing, left waiting (no RESTORE_ON_BOOT, or a restore that found nothing). */
   readonly needsRestore: number;
+  /**
+   * Of those, the ones the bucket holds no replica object of
+   * (`App.nothingToRestore`); 0 with backups off, which can't tell. Each is audited
+   * (`store.waiting.empty`) and logged by tag (`store.waiting-empty`). Their
+   * person's account delete works as for any store; `start-over` is the operator's way to give them a new one.
+   */
+  readonly waitingEmpty: number;
   /** Registered OAuth clients never used, dropped. */
   readonly clientsSwept: number;
   /** Live stores the bucket's tombstone said were deleted: their deletes were finished. */
@@ -190,6 +211,22 @@ export interface App {
    * by the restore, not replaced by the bucket's copy.
    */
   storeWaiting(storeId: string): boolean;
+  /**
+   * IS THERE NOTHING IN THE BUCKET TO RESTORE THIS STORE FROM? True only when
+   * backups are on and the bucket holds no replica object under the store's
+   * prefix; FALSE with backups off (no bucket to look in: "can't tell" never
+   * reads as "nothing to lose"). The prefix covers the store's own file and
+   * all its host databases; with `rel` (one of
+   * `tenantDatabases`), under that host database's prefix only. Key objects
+   * don't count: a key with nothing under it restores nothing. Reads the
+   * bucket (one LIST); an R2 failure throws, so a product treats it as "maybe".
+   *
+   * For a product's own door in front of an account delete: a store waiting
+   * for a restore (`storeWaiting`) with nothing to restore waits forever, so
+   * a delete there loses nothing. Hosted's own delete (`deleteAccount`, the
+   * account page, a pending delete's erase) never looks at the restore state.
+   */
+  nothingToRestore(storeId: string, rel?: string): Promise<boolean>;
   /** Start-up work that may touch the network: finish any delete a crash cut short, then backups' `ensureAll`, then (RESTORE_ON_BOOT) restores, then the sidecar. */
   start(opts?: StartOptions): Promise<StartReport>;
   /** `/readyz`'s report. */
@@ -241,6 +278,8 @@ export function createApp(opts: AppOptions): App {
   if (refused !== null) throw new Error(refused);
   // Before anything opens: a host database path that escapes its tenant's dir, or is hosted's own, is refused here.
   const tenantDatabases = tenantDatabasePaths(opts.backup?.tenantDatabases);
+  // And a server database path that escapes the data root, or is in hosted's own part of it.
+  const serverDatabases = serverDatabasePaths(opts.backup?.serverDatabases);
   const publicOrigin = opts.publicOrigin.replace(/\/+$/, "");
   const accounts = new Accounts({ path: join(opts.dataRoot, "control", "accounts.sqlite"), ...(opts.now === undefined ? {} : { now: opts.now }) });
   const keys = opts.backup === undefined ? null : new KeyStore({ path: join(opts.dataRoot, "keys", "keys.sqlite"), wrapper: opts.backup.wrapper });
@@ -256,6 +295,7 @@ export function createApp(opts: AppOptions): App {
           endpoint: opts.backup.endpoint,
           sidecar: opts.backup.sidecar ?? null,
           ...(tenantDatabases.length === 0 ? {} : { tenantDatabases }),
+          ...(serverDatabases.length === 0 ? {} : { serverDatabases }),
           liveStores: () => accounts.liveStoreIds(),
           openedBefore: (storeId) => accounts.wasOpened(storeId),
           locked: (storeId) => accounts.storeLocked(storeId),
@@ -274,6 +314,15 @@ export function createApp(opts: AppOptions): App {
             accounts.audit(accounts.personOfStore(storeId), storeId, `backup.host.${what}`, null);
             try {
               opts.onEvent?.(`backup.host.${what}`, storeTag(storeId));
+            } catch {
+              /* a log, not a gate */
+            }
+          },
+          // A server database whose folder resolves outside the data root (a symlink): audited with its path, logged.
+          onServerDatabase: (rel, what) => {
+            accounts.audit(null, null, `backup.server.${what}`, rel);
+            try {
+              opts.onEvent?.(`backup.server.${what}`, "");
             } catch {
               /* a log, not a gate */
             }
@@ -496,6 +545,15 @@ export function createApp(opts: AppOptions): App {
     return p;
   };
   deleteRef = deleteAccount;
+
+  /** `App.nothingToRestore`: replica objects only (the key objects say nothing of what a restore would bring); false with backups off. */
+  const nothingToRestore = async (storeId: string, rel?: string): Promise<boolean> => {
+    if (!STORE_ID.test(storeId)) throw new Error("not a store id");
+    if (rel !== undefined && !tenantDatabases.includes(rel)) throw new Error("not one of backup.tenantDatabases");
+    // Backups off: there is no bucket to look in, so this can't tell, and "can't tell" never reads as "nothing to lose".
+    if (backups === null) return false;
+    return (await backups.objectsUnder(rel === undefined ? replicaPrefix(storeId) : tenantDatabasePrefix(storeId, rel))) === 0;
+  };
   /**
    * A REVIEWER'S CODES ALL EXPIRED (DIR1 review): the account ends as `reviewer revoke` ends it, its
    * connections too, so a token made with the code stops at its next call. At start-up and every tick.
@@ -760,7 +818,7 @@ export function createApp(opts: AppOptions): App {
     backups,
     async start(startOpts: StartOptions = {}): Promise<StartReport> {
       rmSync(scratchRoot, { recursive: true, force: true });
-      const asideSwept = sweepAside(opts.dataRoot, tenants.root, (opts.now ?? Date.now)(), tenantDatabases);
+      const asideSwept = sweepAside(opts.dataRoot, tenants.root, (opts.now ?? Date.now)(), tenantDatabases, serverDatabases);
       // No sidecar until the restores are done (`Backups.hold`; the #653 review, L2).
       backups?.hold();
       // Every live store whose database is here has lived: mark it (a database
@@ -856,7 +914,26 @@ export function createApp(opts: AppOptions): App {
           uploadsTimer.unref?.();
         }
       }
-      const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
+      const waiting = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id)));
+      const needsRestore = waiting.length;
+      // A WAITING STORE WITH NOTHING TO RESTORE waits forever: said, so an operator sees it (audited, logged by tag).
+      // A LIST that fails is skipped (the next start looks again), never a failed start. Backups off: nothing to look in, nothing said.
+      let waitingEmpty = 0;
+      for (const id of backups === null ? [] : waiting) {
+        try {
+          if (!(await nothingToRestore(id))) continue;
+        } catch {
+          continue;
+        }
+        waitingEmpty += 1;
+        // Audited once per store (the log line says it at every start).
+        if (!accounts.storeAudited(id, ["store.waiting.empty"])) accounts.audit(accounts.personOfStore(id), id, "store.waiting.empty", null);
+        try {
+          opts.onEvent?.("store.waiting-empty", storeTag(id));
+        } catch {
+          /* a log, not a gate */
+        }
+      }
       const clientsSwept = o.store.sweepClients();
       endExpiredReviewers();
       if (retryTimer === null) {
@@ -864,7 +941,7 @@ export function createApp(opts: AppOptions): App {
           void finishPendingDeletes();
           void finishDueHolds();
           // A host database made since the last tick (`Backups.refresh`): reloads only when the configuration changed.
-          if (backups !== null && backups.tenantDatabases.length > 0) void backups.refresh().catch(() => {
+          if (backups !== null && (backups.tenantDatabases.length > 0 || backups.serverDatabases.length > 0)) void backups.refresh().catch(() => {
               try {
                 opts.onEvent?.("backup.refresh.failed", "");
               } catch {
@@ -883,10 +960,11 @@ export function createApp(opts: AppOptions): App {
       }
       started = true;
       const legacyKeys = keys?.notOnCurrent() ?? 0;
-      return { restored, restoreFailed, keyless, minted, needsRestore, clientsSwept, tombstoned, leftovers, asideSwept, legacyKeys };
+      return { restored, restoreFailed, keyless, minted, needsRestore, waitingEmpty, clientsSwept, tombstoned, leftovers, asideSwept, legacyKeys };
     },
     readiness,
     storeWaiting: (storeId) => accounts.wasOpened(storeId) && !existsSync(join(tenantDir(tenants.root, storeId), "store", DATABASE_FILE)),
+    nothingToRestore,
     lookAtUploads: async () => {
       await uploads?.look();
     },
@@ -956,15 +1034,37 @@ export function foreignControlRefusal(dataRoot: string, v: ControlVolume): strin
  * file: keeping that file and adopting the key would make it "the bucket's",
  * and the next serve would replicate it over the real one.
  */
-export async function restoreControl(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, opts: { force?: boolean; missingOnly?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
+export async function restoreControl(
+  dataRoot: string,
+  backup: AppBackupOptions,
+  run: LitestreamRun,
+  opts: { force?: boolean; missingOnly?: boolean; onServerDatabase?: (rel: string, what: "set-aside" | "outside") => void } = {},
+): Promise<{ restored: number; empty: number; kept: number; server: { restored: number; empty: number; kept: number } }> {
   if (opts.force !== true) {
     const refusal = foreignControlRefusal(dataRoot, await controlVolume(dataRoot, backup));
     if (refusal !== null) throw new Error(refusal.replace(/^refused: /, ""));
   }
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
-    const b = new Backups({ dataRoot, keys, objects: backup.objects, sealer: backup.sealer, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });
-    return await b.restore(CONTROL_KEY_ID, run, opts);
+    const b = new Backups({
+      dataRoot,
+      keys,
+      objects: backup.objects,
+      sealer: backup.sealer,
+      bucket: backup.bucket,
+      endpoint: backup.endpoint,
+      sidecar: null,
+      ...(backup.serverDatabases === undefined ? {} : { serverDatabases: backup.serverDatabases }),
+      ...(opts.onServerDatabase === undefined ? {} : { onServerDatabase: opts.onServerDatabase }),
+      liveStores: () => [],
+    });
+    // THE SERVER DATABASES FIRST, control's own LAST (as #834 put the store's file last): a restore cut short
+    // leaves control missing, which every start refuses on. One here is kept, unless `force` (`restoreServer`).
+    // `restore`'s own refusal of a control file in place, said before anything of the server's is touched.
+    if (opts.force !== true && opts.missingOnly !== true && b.dbPaths(CONTROL_KEY_ID).some((p) => existsSync(p))) await b.restore(CONTROL_KEY_ID, run);
+    const server = await b.restoreServer(run, opts.force === true ? { force: true } : {});
+    const own = await b.restore(CONTROL_KEY_ID, run, { ...(opts.force === undefined ? {} : { force: opts.force }), ...(opts.missingOnly === undefined ? {} : { missingOnly: opts.missingOnly }) });
+    return { ...own, server };
   } finally {
     keys.close();
   }
@@ -983,7 +1083,7 @@ export const ASIDE_KEEP_MS = 24 * 60 * 60 * 1000;
  * labels, `main.ts#controlAside`) is never listed: a guard swept with its copy
  * would re-arm a forgotten override (R3).
  */
-export function sweepAside(dataRoot: string, tenantsRoot: string, now: number, tenantDatabases: readonly string[] = []): number {
+export function sweepAside(dataRoot: string, tenantsRoot: string, now: number, tenantDatabases: readonly string[] = [], serverDatabases: readonly string[] = []): number {
   let swept = 0;
   const gone = (path: string, at: number): void => {
     if (!Number.isFinite(at) || now - at < ASIDE_KEEP_MS) return;
@@ -1011,7 +1111,10 @@ export function sweepAside(dataRoot: string, tenantsRoot: string, now: number, t
   }
   // The host's own databases' folders too (`AppBackupOptions.tenantDatabases`): a restore sets their copies aside there.
   const hostDirs = [...new Set(tenantDatabases.map((rel) => dirname(rel)))];
-  const dirs = [join(dataRoot, "control"), ...list(tenantsRoot).flatMap((id) => [join(tenantsRoot, id, "store"), ...hostDirs.map((d) => join(tenantsRoot, id, d))])];
+  // And the server databases' folders (`AppBackupOptions.serverDatabases`): a forced control restore sets theirs aside there.
+  // A folder that is a link, or resolves outside the data root or into hosted's own part, is never swept through.
+  const serverDirs = [...new Set(serverDatabases.map((rel) => join(dataRoot, dirname(rel))))].filter((d) => serverPathInside(dataRoot, join(d, ".sweep")));
+  const dirs = [join(dataRoot, "control"), ...serverDirs, ...list(tenantsRoot).flatMap((id) => [join(tenantsRoot, id, "store"), ...hostDirs.map((d) => join(tenantsRoot, id, d))])];
   for (const dir of dirs) for (const name of list(dir)) if (name.includes(".pre-restore-")) gone(join(dir, name), stampOf(name));
   return swept;
 }

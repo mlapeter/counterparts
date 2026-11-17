@@ -229,4 +229,19 @@ describe("HOSTED_TENANT_DATABASES (a host's own per-tenant databases)", () => {
       assert.match(refused.refusal, /HOSTED_TENANT_DATABASES/);
     }
   });
+
+  test("HOSTED_SERVER_DATABASES: a comma-separated list reaches the backup options; unset is none; a path out of the data root or into hosted's own is refused", () => {
+    const dataRoot = join(tmp.root, "data");
+    const listed = backupFromEnv(env({ HOSTED_SERVER_DATABASES: " journal/auth.sqlite , journal/subscriptions.sqlite" }), dataRoot);
+    assert.ok(listed !== null && !("refusal" in listed));
+    assert.deepEqual(listed.serverDatabases, ["journal/auth.sqlite", "journal/subscriptions.sqlite"]);
+    const unset = backupFromEnv(env({}), dataRoot);
+    assert.ok(unset !== null && !("refusal" in unset));
+    assert.equal("serverDatabases" in unset, false);
+    for (const bad of ["../x.sqlite", "/abs/x.sqlite", "control/accounts.sqlite", "Tenants/x.sqlite"]) {
+      const refused = backupFromEnv(env({ HOSTED_SERVER_DATABASES: bad }), dataRoot);
+      assert.ok(refused !== null && "refusal" in refused, bad);
+      assert.match(refused.refusal, /HOSTED_SERVER_DATABASES/);
+    }
+  });
 });

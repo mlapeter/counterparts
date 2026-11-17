@@ -645,3 +645,37 @@ Journal findings item 15: the journal keeps each person's words in `<tenant>/app
 - The restore counts in `app.start()`, its `store.restored` audit (`1`, `host`, `0`) and the CLI are per store; a
   store where only a host file came back is not opened and is counted apart ("with only a product database back").
   With the option unset they are the same as before.
+
+## 2026-11-16 — a host's server-level databases; delete for a store waiting with nothing to restore
+
+The journal's two asks after #834 (Mike approved 11-16).
+
+- **`backup.serverDatabases`** (`HOSTED_SERVER_DATABASES`): the journal's `journal/auth.sqlite` (Apple revocations
+  owed, sign-in nonces) and `journal/subscriptions.sqlite` belong to no person, so they ride the CONTROL key, at
+  `<control base>host/<path>/`. Under control's *base*, not a fixed `control/host/`: the WB1 re-key gives control a
+  new SSE-C key and a new base, and a fixed prefix would have the new key's writes land on old-key objects. So the
+  re-key carries them (its config, its proof, the touch, the abort, and `dropOldControlReplicas` deleting
+  `control/host/`); the stand-in drill in `wb1.test.ts` re-keys one and restores it on a lost volume. The re-key's
+  touch writes a create/drop-table to each (as to control's), with the server stopped.
+- **Restore order and the #834 lesson.** `restoreControl` restores them BEFORE control's own files (a cut-short
+  restore leaves control missing, which every start refuses), and never touches one in place without `--force`.
+  Where #834 had `storeWaiting` to stop the product making an empty file, there is no per-file record here, so the
+  guard is at the start: control whole, a server database missing, and its prefix non-empty → `prepareVolume`
+  refuses without `RESTORE_ON_BOOT` and restores with it. The journal opens both files in its constructor, after
+  `backupsAtStart` (which runs `prepareVolume`), so that is the only place a restore can land before the product
+  makes them. A file lost while serving is still not detected (26b's gap, the same here).
+- **What blocked the journal's account delete: its own front door, not hosted.** `DELETE /v1/account` opens the
+  person's `app.sqlite` first (to move the Apple refresh token to owed revocations), and `openJournal` throws
+  `StoreWaiting` for a waiting store, so it answers 503 before `hosted.deleteAccount` is reached. Hosted's delete
+  (`runDelete`: retire, close, `removeStore`, rm the dir) never opens the store; the new tests show it, through the
+  account page too, for a waiting store with and without a replica, before any hosted change. Added for the product:
+  `App.nothingToRestore(storeId, rel?)` (replica objects only: key objects say nothing of what a restore brings),
+  and the start's `store.waiting-empty` event and `StartReport.waitingEmpty`, so an operator sees such a store.
+- **The #838 review.** (1) A listed server database the re-key can't carry (its file a link, dangling or not, or its
+  folder outside the product's part) passed both refusals, and `dropOldControlReplicas` would then delete its only
+  backup: now refused too, before anything is made. (2) `nothingToRestore` answered true with backups off; it
+  answers false now (no bucket to look in: "can't tell" must never read as "nothing to lose"), and the start says
+  nothing of waiting stores then. Smaller: `CONTROL_ASIDE` checks each path (a link stays, uncounted) and moves the
+  files into `control/` before the one rename, so the next aside finishes one cut short; the sweep never follows a
+  linked folder; `restore control` and `--control-aside` warn when the list is unset and the bucket has server
+  replicas; `-journal` is refused as a side file.

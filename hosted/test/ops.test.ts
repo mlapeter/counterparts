@@ -407,7 +407,7 @@ describe("the restore drill, through the door", () => {
     await assert.rejects(restoreControl(dataRoot, fresh, litestreamRunner(bin, litestreamEnv())), /recover-keys/);
     await recoverKeys(dataRoot, fresh, RECOVERY.opener);
     const r = await restoreControl(dataRoot, fresh, litestreamRunner(bin, litestreamEnv()));
-    assert.deepEqual(r, { restored: 2, empty: 0, kept: 0 });
+    assert.deepEqual(r, { restored: 2, empty: 0, kept: 0, server: { restored: 0, empty: 0, kept: 0 } });
     assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")) && existsSync(join(dataRoot, "control", "oauth.sqlite")));
   });
 });
@@ -1401,9 +1401,10 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
     const until = Date.now() + 5000;
     while (!events.some(([n]) => n === "backup.ensure.failed") && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
-    // At that server's start it was a store waiting for a restore (no database, no key: never minted); then the failed set-up.
+    // At that server's start it was a store waiting for a restore (no database, no key: never minted), with nothing in the bucket to restore (said); then the failed set-up.
     assert.deepEqual(events, [
       [`backup.keyless.no-database`, storeTag(id)],
+      ["store.waiting-empty", storeTag(id)],
       ["backup.ensure.failed", storeTag(id)],
     ]);
     s3.fault = null;
