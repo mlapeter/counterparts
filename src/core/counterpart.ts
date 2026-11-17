@@ -426,9 +426,8 @@ export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measu
 // store its caller has just created, here so a host that makes its own stores
 // (hosted's signup, the harness's week) reaches it through the package entry.
 export { plantTold } from "./told.js";
-/** The sentence that names a dated memory's date (`dated-sentence.ts`, 2026-11-17): what "Coming up" says it by, for a host's own frame. */
-export { datedSentence, namesDate, sentenceNamingDate, sentencesOf } from "./dated-sentence.js";
-export type { DatedHit } from "./dated-sentence.js";
+/** The sentence that names a dated memory's date (`time.ts`, 2026-11-17): what "Coming up" says it by, for a host's own frame. */
+export { datedSentence, sentenceNamingDate } from "./time.js";
 /** What counts as a folder's WORK (`self/work.ts`), for a host or the harness measuring folder separation by the product's own rule. */
 export { craftBornDay, craftSince, isWorkMemory } from "./self/work.js";
 export type { ToldSurface } from "./told.js";

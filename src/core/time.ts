@@ -1066,3 +1066,268 @@ function looseMonthDay(mo: number | null, d: number, year: string | undefined, t
   const y = year !== undefined ? Number(year) : yearFor(mo, d, ty, tm, td, lean);
   return dayText(y, mo, d);
 }
+
+// ---------------------------------------------------------------------------
+// THE SENTENCE THAT NAMES A DATED MEMORY'S DATE (2026-11-17, the living
+// journal's Tomás memory). "Coming up" said an untitled dated memory by its
+// first sentence. The journal's memory opened "On 1 Oct Tomás listed Elena's
+// grey 2014 CR-V…" and only its last sentence held "Marisol is coming home from
+// Denver Friday 16 to Sunday 18 October", the day it was dated (2026-10-16), so
+// the visit read as the CR-V listing.
+//
+// It lives here, beside the day arithmetic, because it is the leaf a host
+// already imports (the journal vendors `core/time.ts`) and its dates are read
+// the way this module reads them: as labels, never as moments, no `Date`. The
+// sentence splitter it needs lives here with it; `counterpart-wake-shape.ts`
+// re-exports `firstSentence` for its callers.
+// ---------------------------------------------------------------------------
+
+/** Sentence ends, as handoff/ reads them. */
+const SENTENCE_END = /[.!?](?=\s|$)/g;
+/** A clause end too, for the dated pick (the journal's `dueSentence` splits on ";" as well). */
+const CLAUSE_END = /[.!?;](?=\s|$)/g;
+
+/**
+ * A full stop that ends a common abbreviation or a lone initial, not a sentence
+ * (2026-11-16, journal finding 17: "a stress test with Dr. Okafor at 9:30." read
+ * "a stress test with Dr."). Case-sensitive, so "said no. Then" still ends;
+ * "No." only before a number ("No. 5"); a lone capital only after a space or
+ * the start ("J. Smith", not "FBI."), and never "I" ("so did I. Then").
+ */
+const ABBREV_BEFORE = /(?:^|[\s("'“‘])(?:Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Mt|vs|etc|[Ee]\.g|[Ii]\.e|[ap]\.m|[AP]\.M|[A-HJ-Z])$/u;
+const NUMBER_ABBREV = /(?:^|[\s("'“‘])No$/u;
+/** A month's or a weekday's short name ("Oct.", "Fri."): not an end before a number or a lowercase word ("Oct. 16", "Fri. the 16th"). */
+const DATE_ABBREV = /(?:^|[\s("'“‘])(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)$/iu;
+
+/** Not a sentence's end: the "." after an abbreviation or an initial. */
+function abbreviationAt(s: string, dot: number): boolean {
+  if (s[dot] !== ".") return false;
+  const before = s.slice(0, dot);
+  if (ABBREV_BEFORE.test(before)) return true;
+  const after = s.slice(dot + 1);
+  if (DATE_ABBREV.test(before) && /^\s+[\d\p{Ll}]/u.test(after)) return true;
+  return NUMBER_ABBREV.test(before) && /^\s+\d/u.test(after);
+}
+
+function firstBy(s: string, end: RegExp): string {
+  end.lastIndex = 0;
+  for (let m = end.exec(s); m !== null; m = end.exec(s)) {
+    if (!abbreviationAt(s, m.index)) return s.slice(0, m.index + 1);
+  }
+  return s;
+}
+
+/** The first sentence of `s`, past an abbreviation's or an initial's full stop; `s` whole when none ends. */
+export function firstSentence(s: string): string {
+  return firstBy(s, SENTENCE_END);
+}
+
+/**
+ * Every sentence of `text`, in order, trimmed, by `firstSentence`'s rule; a line
+ * break ends one too, and with `clauses` a ";" does. Empty ones dropped.
+ */
+export function sentencesOf(text: string, clauses = false): string[] {
+  if (typeof text !== "string") return [];
+  const end = clauses ? CLAUSE_END : SENTENCE_END;
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    let rest = line.trim();
+    while (rest.length > 0) {
+      const s = firstBy(rest, end);
+      const t = s.trim();
+      if (t.length > 0) out.push(t);
+      rest = rest.slice(s.length).trim();
+    }
+  }
+  return out;
+}
+
+const DATED_MONTHS: readonly string[] = ["January|Jan", "February|Feb", "March|Mar", "April|Apr", "May", "June|Jun", "July|Jul", "August|Aug", "September|Sept|Sep", "October|Oct", "November|Nov", "December|Dec"];
+const DATED_WEEKDAYS: readonly string[] = ["Sunday|Sun", "Monday|Mon", "Tuesday|Tues|Tue", "Wednesday|Wed", "Thursday|Thurs|Thur|Thu", "Friday|Fri", "Saturday|Sat"];
+/** A range longer than this is weighed by its two ends only. */
+const DATED_MAX_DAYS = 31;
+/** A title this many words or more that starts the first sentence is a clip of it, not a title of its own ("Rent" never is). */
+const DATED_CLIP_WORDS = 5;
+/** A dated line's most characters, about what a title line gets: past it, cut at word ends around the date words. */
+export const DATED_LINE_CHARS = 120;
+
+/** One day of the date, as the words name it. */
+interface NamedDay {
+  readonly ymd: string;
+  readonly y: number;
+  readonly mo: number;
+  readonly d: number;
+  readonly wd: number;
+}
+
+/** The days `eventDate` covers (a day, or a range `a..b`), each as its parts; null for anything else. */
+function namedDays(eventDate: unknown): NamedDay[] | null {
+  if (typeof eventDate !== "string") return null;
+  const span = daySpan(eventDate.trim().replace(/\s*\.\.\s*/, ".."));
+  if (span === null) return null;
+  const a = dayOf(span.first);
+  const b = dayOf(span.last);
+  if (a === null || b === null) return null;
+  const numbers = b - a + 1 > DATED_MAX_DAYS ? [a, b] : Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  return numbers.map((z) => {
+    const ymd = fromDayNumber(z);
+    const [y, mo, d] = ymd.split("-").map(Number) as [number, number, number];
+    // Day 0 of the count (1970-01-01) was a Thursday.
+    return { ymd, y, mo, d, wd: (((z + 4) % 7) + 7) % 7 };
+  });
+}
+
+/** A number that is a day of the month as words say it: not a time, money, a decimal, a version, an id, a size. */
+const NUM_LEAD = String.raw`(?<![\d:$£€.,/#\p{L}])`;
+const NUM_TAIL = String.raw`(?![\d:%]|[.,]\d|\p{L})`;
+const ORD = String.raw`(?:st|nd|rd|th)?`;
+const ANY_DAY = String.raw`0?\d{1,2}${ORD}`;
+const RANGE_JOIN = String.raw`\s*(?:–|—|-|to|through|thru|until|till|and)\s*(?:the\s+)?`;
+/** A year right after the date words: a different year names a different day. */
+const YEAR_AFTER = /^,?\s*(\d{4})(?!\d)/u;
+
+/** Where `sentence` names `day` by its words, with a year that doesn't contradict it: the matches' spans. */
+function dayMatches(sentence: string, day: NamedDay): { at: number; end: number }[] {
+  const month = `(?:${DATED_MONTHS[day.mo - 1] ?? "x^"})\\.?`;
+  const weekday = `(?:${DATED_WEEKDAYS[day.wd] ?? "x^"})\\.?`;
+  const dd = `0?${String(day.d)}${ORD}`;
+  const n = (x: string): string => `${NUM_LEAD}${x}${NUM_TAIL}`;
+  const patterns = [
+    // "16 October", "16th of Oct", "16–18 Oct", "16 to 18 October", "the 16th to the 18th of October".
+    `${n(dd)}(?:${RANGE_JOIN}${n(ANY_DAY)})?\\s+(?:of\\s+)?${month}(?!\\p{L})`,
+    // "18 Oct" as a range's end: "16–18 Oct" names the 18th directly by the first pattern; "Oct 16-18" by this one.
+    `(?<!\\p{L})${month}\\s+(?:the\\s+)?${n(ANY_DAY)}${RANGE_JOIN}${n(dd)}`,
+    // "Oct 16", "October 16th", "Oct. 16".
+    `(?<!\\p{L})${month}\\s+(?:the\\s+)?${n(dd)}`,
+    // "Friday the 16th", "Fri 16", "Friday, 16".
+    `(?<!\\p{L})${weekday},?\\s+(?:the\\s+)?${n(dd)}`,
+  ];
+  const out: { at: number; end: number }[] = [];
+  for (const p of patterns) {
+    const re = new RegExp(p, "giu");
+    for (let m = re.exec(sentence); m !== null; m = re.exec(sentence)) {
+      const end = m.index + m[0].length;
+      const year = YEAR_AFTER.exec(sentence.slice(end));
+      if (year !== null && Number(year[1]) !== day.y) continue;
+      out.push({ at: m.index, end: year === null ? end : end + year[0].length });
+    }
+  }
+  const iso = sentence.indexOf(day.ymd);
+  if (iso >= 0) out.push({ at: iso, end: iso + day.ymd.length });
+  // m/d with its year ("10/16/2026", "10/16/26"): a bare "3/4" is a fraction.
+  const md = new RegExp(`(?<![\\d/])0?${String(day.mo)}/0?${String(day.d)}/(?:${String(day.y)}|${String(day.y % 100).padStart(2, "0")})(?!\\d)`, "u").exec(sentence);
+  if (md !== null) out.push({ at: md.index, end: md.index + md[0].length });
+  return out;
+}
+
+/** The days of the date `sentence` names, and where its date words run. */
+function weighSentence(sentence: string, days: readonly NamedDay[]): { named: number; at: number; end: number } {
+  let named = 0;
+  let at = Infinity;
+  let end = -1;
+  for (const day of days) {
+    const ms = dayMatches(sentence, day);
+    if (ms.length === 0) continue;
+    named += 1;
+    for (const m of ms) {
+      at = Math.min(at, m.at);
+      end = Math.max(end, m.end);
+    }
+  }
+  return { named, at, end };
+}
+
+/** A memory's words as the wake reads them: its `Names:` line (#697) off, whitespace flat. */
+function datedText(text: string): string {
+  return text.replace(/\n+Names: [^\n]*\s*$/u, "");
+}
+const flat = (s: string): string => s.replace(/\s+/gu, " ").trim();
+
+/** The best of `text`'s sentences (clauses) for `days`: most days named, the earliest on a tie. */
+function bestNaming(text: string, days: readonly NamedDay[]): { sentence: string; index: number; named: number; at: number; end: number } | null {
+  const all = sentencesOf(datedText(text), true);
+  let best: { sentence: string; index: number; named: number; at: number; end: number } | null = null;
+  for (let index = 0; index < all.length; index++) {
+    const sentence = flat(all[index] ?? "").replace(/;$/u, ""); // a clause ends without its ";"
+    const w = weighSentence(sentence, days);
+    if (w.named > 0 && (best === null || w.named > best.named)) best = { sentence, index, ...w };
+  }
+  return best;
+}
+
+/** `sentence` cut to `DATED_LINE_CHARS` at word ends, keeping the date words (`at`..`end`) in. */
+function capDated(sentence: string, at: number, end: number): string {
+  const chars = [...sentence];
+  if (chars.length <= DATED_LINE_CHARS) return sentence;
+  // Code units to characters, for the date words' place.
+  const ci = (u: number): number => [...sentence.slice(0, u)].length;
+  const a = ci(at);
+  const b = ci(end);
+  // From the start when the date words end in room; else as early as still
+  // ends past them (never past their start), at a word's start.
+  let start = 0;
+  if (b > DATED_LINE_CHARS - 1) {
+    start = Math.min(a, b - (DATED_LINE_CHARS - 2));
+    const sp = chars.indexOf(" ", start - 1);
+    if (sp >= 0 && sp + 1 <= a) start = sp + 1;
+  }
+  const room = DATED_LINE_CHARS - (start > 0 ? 1 : 0) - 1;
+  let stop = Math.min(chars.length, start + room);
+  if (stop < chars.length) {
+    const sp = chars.slice(0, stop).lastIndexOf(" ");
+    if (sp >= b) stop = sp;
+  }
+  const body = chars.slice(start, stop).join("").trim();
+  return `${start > 0 ? "…" : ""}${body}${stop < chars.length ? "…" : ""}`;
+}
+
+/**
+ * The sentence (or ";" clause) of `text` that names `eventDate` (a day
+ * `YYYY-MM-DD` or a range `YYYY-MM-DD..YYYY-MM-DD`) most fully, flattened; null
+ * when none does, or the date is not a day or a range. A day is named by its
+ * number beside its month ("16 October", "Oct 16", "16–18 Oct") or its weekday
+ * ("Friday the 16th"), by its ISO date, or by m/d with its year; a bare number
+ * or ordinal never is ("3rd floor", "16GB", "PR #16", "$16", "16:30"), nor a
+ * date with another year ("12 March 1990" for 2026-03-12). Lowercase counts.
+ * No title rule and no cap: what `datedSentence` builds on.
+ */
+export function sentenceNamingDate(text: unknown, eventDate: unknown): string | null {
+  if (typeof text !== "string") return null;
+  const days = namedDays(eventDate);
+  if (days === null) return null;
+  return bestNaming(text, days)?.sentence ?? null;
+}
+
+/**
+ * THE LINE A DATED MEMORY IS SAID BY IN "COMING UP", WHEN IT IS NOT ITS LEAD
+ * (what the wake's Coming up and the `coming up` door show,
+ * `counterpart-wake-shape.ts#datedTitleOfRow`): the sentence that names
+ * `eventDate`, its `Names:` line off, flattened and cut to about a title's
+ * length around its date words (`DATED_LINE_CHARS`). Null when the memory's own
+ * lead stands, which is the usual case:
+ *
+ * - a real title stands: only an untitled memory, or one whose title is just
+ *   the start of its first sentence (a model's clipped lead, as the journal's
+ *   was), is said by its dated sentence instead;
+ * - the dated sentence must be a later one, and name more of the date's days
+ *   than the first sentence does (a lead that names the day keeps its place).
+ *
+ * A host calls it as `datedSentence(text, eventDate, title) ?? itsOwnLine`.
+ * Null-safe: anything that isn't text and a day or a range is null.
+ *
+ *   datedSentence("On 1 Oct Tomás listed the CR-V. Marisol is home Friday 16 to Sunday 18 October.", "2026-10-16")
+ *   // "Marisol is home Friday 16 to Sunday 18 October."
+ */
+export function datedSentence(text: unknown, eventDate: unknown, title?: unknown): string | null {
+  if (typeof text !== "string") return null;
+  const days = namedDays(eventDate);
+  if (days === null) return null;
+  const t = typeof title === "string" ? flat(title).replace(/[\s.…,;:–—-]+$/u, "") : "";
+  // A real title stands; a clip of the first sentence is no title of its own.
+  const lead = flat(firstSentence(flat(datedText(text))));
+  if (t.length > 0 && (t.split(" ").length < DATED_CLIP_WORDS || !lead.toLowerCase().startsWith(t.toLowerCase()))) return null;
+  const hit = bestNaming(text, days);
+  if (hit === null || hit.index === 0) return null;
+  if (hit.named <= weighSentence(lead, days).named) return null;
+  return capDated(hit.sentence, hit.at, hit.end);
+}

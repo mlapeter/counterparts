@@ -125,8 +125,8 @@ export interface ShapedWake {
   readonly page: string | null;
 }
 
-/** The splitter lives in the leaf module (2026-11-17), so the dated-sentence pick and this read the same sentences. */
-import { datedSentence, firstSentence, sentenceNamingDate } from "./dated-sentence.js";
+/** The splitter lives in `time.ts` (2026-11-17), beside the dated-sentence pick that reads the same sentences. */
+import { datedSentence, firstSentence } from "./time.js";
 export { firstSentence };
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -141,19 +141,14 @@ export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
 }
 
 /**
- * A DATED ROW'S LINE IN "COMING UP" (2026-11-17, the living journal's CR-V
- * memory): `dated-sentence.ts#datedSentence`'s pick, so a date is never pinned
- * to a lead about something else, with `titleOfRow`'s cap on an untitled line.
- * Its `Names:` line (#697) is not read.
+ * A DATED ROW'S LINE IN "COMING UP" (2026-11-17, the living journal's Tomás
+ * memory): `titleOfRow`, unless the row is untitled (or its title is a clip of
+ * its first sentence) and a later sentence names its date where the lead
+ * doesn't: then that sentence, cut to about a title's length
+ * (`time.ts#datedSentence`, which a host calls for its own frame).
  */
 export function datedTitleOfRow(row: Pick<MemoryRow, "title" | "body">, due: string | null | undefined): string {
-  const base = titleOfRow(row);
-  const t = (row.title ?? "").trim();
-  const body = row.body.replace(/\n+Names: [^\n]*\s*$/, "");
-  const hit = sentenceNamingDate(body, due);
-  const said = datedSentence(body, due, t);
-  // The lead kept (the title, or the first sentence): titleOfRow's line, unchanged.
-  return hit === null || said !== hit.sentence || hit.index === 0 ? base : untitledLine(flatten(said));
+  return datedSentence(row.body, due, row.title) ?? titleOfRow(row);
 }
 
 /** A sentence as an untitled row's line: whole when it fits, else cut at a word's end with "…". */
@@ -237,7 +232,8 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     out.push({
       id: h.id,
       // The sentence that names its date, not a first sentence about something else (2026-11-17).
-      title: datedTitleOfRow(row, due === "" ? null : due),
+      // A repeat's date moves each time; its lead says what it is.
+      title: datedTitleOfRow(row, due === "" || h.every !== undefined ? null : due),
       // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
       body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),

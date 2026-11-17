@@ -741,22 +741,27 @@ repeat. Any weekly reminder hits this.
 
 ## 2026-11-17 — a dated memory is said by the sentence that names its date
 
-- **What broke (the living journal):** the shaped wake's "Coming up" and the `coming up` door said an untitled dated memory
-  by its first sentence. A memory led by "The CR-V listing runs through Friday the 16th…" that also held "Marisol visits
-  Friday 16 to Sunday 18 October", dated 16–18 Oct, read as the CR-V listing. The journal's other report, that a range
-  never took a line and the door never listed one, was #833 (11-16); its vendored core already has it.
-- **Now:** `core/dated-sentence.ts` (a leaf, pure; exported from the package entry as `datedSentence`,
-  `sentenceNamingDate`, `namesDate`, `sentencesOf`) weighs every sentence by the days of the date it names: an ISO or
-  m/d date, or the day's number with its month's name, beats the number with its weekday or as an ordinal, which beats the
-  weekday alone; a bare number never counts. The most days named by number wins, then the score, then the earliest.
-  First match would have kept the bug, since the CR-V sentence names the range's first day too. The splitter (#836's
-  abbreviations) moved there; an ellipsis ("…") now ends a sentence before a capital or the end, not mid-thought.
-- **The swap rule** (`datedSentence(text, date, title)`, which `counterpart-wake-shape.ts#datedTitleOfRow` wraps with the
-  byte cap, so a host's frame and the wake say the same): the title, or else the first sentence, stays unless all hold —
-  the title doesn't name the date; the dated sentence is a later one; it names the date by number (a weekday in passing
-  never displaces a title); and it names more of the date's days than the first sentence does (one day both name keeps
-  the lead). A title is presumed to say what the memory leads with, so a later sentence that names the date better is
-  the sign the memory holds two things. Swapping whenever a title lacks the date would have replaced most good short
-  titles ("Coast trip") with a longer sentence.
-- **Left as it was:** the shape-off composition prints the whole body on its due-today line, so nothing is mispinned
-  there. The `still open` door's dated list (`Self.comingUpList`) still shows the title or the clipped first line.
+- **What broke (the living journal, month 14):** the shaped wake's "Coming up" and the `coming up` door said an untitled
+  dated memory by its first sentence. Tomás's memory opened "On 1 Oct Tomás listed Elena's grey 2014 CR-V…" and only
+  its last sentence said "His daughter Marisol is coming home from Denver Friday 16 to Sunday 18 October", the day it
+  was dated (2026-10-16), so the visit read as the CR-V listing. (The journal's other report, that a range never took a
+  line, was #833 on 11-16; its vendored core already has it.)
+- **Now:** `time.ts#datedSentence(text, eventDate, title)` returns the line to say the memory by instead of its lead,
+  or null when the lead stands; `datedTitleOfRow` is `datedSentence(...) ?? titleOfRow(row)`, and a host calls it the
+  same way for its own frame (exported from the package entry, with `sentenceNamingDate`). It lives in `time.ts`
+  because that is the leaf the journal already imports, its dates are read as labels without `Date` (time.test's rule
+  1), and a new file would have put the directory flavor over its 510-file margin. The sentence splitter moved there
+  with it; `counterpart-wake-shape.ts` re-exports `firstSentence`.
+- **When it swaps (lightly held):** only for an untitled memory, or one whose title (5 words or more) is the start of
+  its first sentence, the model's clipped lead the journal's fixture has; a real title always stands ("Ana's
+  birthday", "Rent", "Marisol's visit"). The dated sentence must be a later one and name more of the date's days than
+  the first sentence does. A repeat never swaps: its date moves each time. The line is cut to `DATED_LINE_CHARS` (120)
+  at word ends, around its date words, so a swapped line takes about a title's room (the review saw a section grow
+  from 468 to 2,859 bytes before the cap and the title rule).
+- **What names a day:** its number beside its month ("16 October", "Oct. 16", "16–18 Oct", "16 to 18 oct") or its
+  weekday ("Friday the 16th", "Fri. the 16th"), its ISO date, or m/d with its year. A bare number or ordinal never does
+  ("3rd floor", "16GB", "PR #16", "Lena turns 16 in October", "3/4 cup"), nor a date with another year ("Born 12 March
+  1990"). The pick splits on ";" too, as the journal's `dueSentence` does, and "Oct." or "Fri." before a number or a
+  lowercase word doesn't end a sentence.
+- **Left as it was:** the shape-off composition prints the whole body on its due-today line. The `still open` door's
+  dated list (`Self.comingUpList`) still shows the title or the clipped first line.

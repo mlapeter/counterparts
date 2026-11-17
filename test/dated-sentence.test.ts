@@ -1,15 +1,17 @@
 /**
  * THE SENTENCE THAT NAMES A DATED MEMORY'S DATE (2026-11-17, the living
- * journal's finding): "Coming up" said a dated memory by its first sentence, so
- * a memory led by "The CR-V listing runs through Friday the 16th…" that also
- * held "Marisol visits Friday 16 to Sunday 18 October", dated 16–18 Oct, read as
- * the CR-V listing. Now the line is the sentence that names the date.
+ * journal's Tomás memory): "Coming up" said an untitled dated memory by its
+ * first sentence. The journal's memory opened with the CR-V listing on 1 Oct and
+ * only its last sentence held Marisol's visit, the day it was dated
+ * (2026-10-16), so the visit read as the CR-V listing. Now an untitled memory
+ * (or one whose title is a clip of its first sentence) is said by the sentence
+ * that names its date; a real title still stands.
  *
- * The helper alone, then through the real doors: `remember` with a range
- * `eventDate`, the session-start `wake`, and `recall` with the `coming up`
- * handle, the shape on (a new install's and the journal's). Hermetic
- * (CLAUDE.md): a fresh temp data dir per test, removed afterwards. Every name
- * is invented.
+ * The helper (`time.ts#datedSentence`, `#sentenceNamingDate`), then through the
+ * real doors: `remember`, the session-start `wake` (the shape on, a new
+ * install's and the journal's) and `recall` with the `coming up` handle, on a
+ * fixed clock. Hermetic (CLAUDE.md): a fresh temp data dir per test, removed
+ * afterwards.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -19,100 +21,120 @@ import { join } from "node:path";
 import { CLAUDE_CODE_BUDGET_BYTES } from "../src/adapters/config.js";
 import { DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
-import { Counterpart, datedSentence as fromEntry } from "../src/core/counterpart.js";
+import { Counterpart, datedSentence as fromEntry, sentenceNamingDate as namingFromEntry } from "../src/core/counterpart.js";
 import { WAKE_SHAPE_KEY, datedTitleOfRow } from "../src/core/counterpart-wake-shape.js";
-import { datedSentence, namesDate, sentenceNamingDate, sentencesOf } from "../src/core/dated-sentence.js";
-import { addDays } from "../src/core/time.js";
+import { DATED_LINE_CHARS, datedSentence, sentenceNamingDate, sentencesOf } from "../src/core/time.js";
 
-const CRV = "The CR-V listing runs through Friday the 16th…";
-const VISIT = "Marisol visits Friday 16 to Sunday 18 October.";
-const BODY = `${CRV} ${VISIT}`;
+/** The journal's memory, word for word (living-journal sim month14-tomas, knows.json). */
+const REAL =
+  "On 1 Oct Tomás listed Elena's grey 2014 CR-V (88,000 miles) for $9,500; it took him a long time to press the button. He played dominoes on Ray Delgado's porch (Ray is his next-door neighbor of twenty-two years; Tomás won three games). His daughter Marisol is coming home from Denver Friday 16 to Sunday 18 October, and he wants to cook for her, which he hasn't really done since March.";
+const MARISOL_START = "His daughter Marisol is coming home from Denver Friday 16 to Sunday 18 October";
+/** The journal's own test fixture (server/test/app.test.ts), titled by a clip of its first sentence. */
+const FIXTURE = "On 1 Oct Tomás played dominoes on Ray Delgado's porch (Ray is his next-door neighbor of twenty-two years). That night he listed Elena's grey CR-V for $9,500. Marisol is coming home from Denver Fri 16 Oct to Sun 18 Oct; he wants to cook for her.";
+const FIXTURE_TITLE = "On 1 Oct Tomás played dominoes on Ray Delgado's porch";
+const DAY = "2026-10-16";
 const RANGE = "2026-10-16..2026-10-18";
 
 describe("datedSentence", () => {
-  test("the CR-V/Marisol memory: the visit's sentence, not the listing's, though both name the 16th", () => {
-    expect(datedSentence(BODY, RANGE)).toBe(VISIT);
-    expect(sentenceNamingDate(BODY, RANGE)).toEqual({ sentence: VISIT, index: 1, named: 2, score: 4 });
-    // The package entry exports the same function, for the journal's own frame.
-    expect(fromEntry(BODY, RANGE)).toBe(VISIT);
+  test("the journal's memory, dated the single day 16 Oct: the Marisol sentence, cut to a title's length at a word's end", () => {
+    const line = datedSentence(REAL, DAY);
+    expect(line?.startsWith(MARISOL_START)).toBe(true);
+    expect(line?.endsWith("…")).toBe(true);
+    expect([...(line ?? "")].length).toBeLessThanOrEqual(DATED_LINE_CHARS);
+    expect(datedSentence(REAL, RANGE)).toBe(line);
+    expect(sentenceNamingDate(REAL, DAY)).toBe(`${MARISOL_START}, and he wants to cook for her, which he hasn't really done since March.`);
+    // The package entry exports the same functions, for the journal's own frame.
+    expect(fromEntry(REAL, DAY)).toBe(line);
+    expect(namingFromEntry(REAL, DAY)).toBe(sentenceNamingDate(REAL, DAY));
   });
 
-  test("ranges said every common way", () => {
+  test("the journal's fixture, titled by a clip of its first sentence: the clause that names the day", () => {
+    expect(datedSentence(FIXTURE, DAY, FIXTURE_TITLE)).toBe("Marisol is coming home from Denver Fri 16 Oct to Sun 18 Oct");
+    expect(datedTitleOfRow({ title: FIXTURE_TITLE, body: FIXTURE }, DAY)).toBe("Marisol is coming home from Denver Fri 16 Oct to Sun 18 Oct");
+  });
+
+  test("a real title stands", () => {
+    const cases: [string, string, string][] = [
+      ["Ana's birthday", "She likes lemon cake and hates surprises. Born 12 March 2026.", "2026-03-12"],
+      ["Rent", "Pay Simone by bank transfer. It is due on 5 October.", "2026-10-05"],
+      ["Marisol's visit", "She's bringing the kids and the dog. Arrives Friday 16 October around noon.", DAY],
+      ["Dentist: cleaning with Dr. Okafor", "Six-month cleaning. It's on Friday 16 October at 9:30.", DAY],
+      ["Standup", "Notes are in the shared doc. This week it is on Friday 16 October.", DAY],
+    ];
+    for (const [title, body, due] of cases) {
+      expect(datedSentence(body, due, title)).toBeNull();
+      expect(datedTitleOfRow({ title, body }, due)).toBe(title);
+    }
+    // A short title that happens to start the first sentence is still a title.
+    expect(datedSentence("Rent is paid by transfer. Due 5 October.", "2026-10-05", "Rent")).toBeNull();
+  });
+
+  test("a lead that names the day keeps its place: the swap needs more of the date's days than the first sentence names", () => {
+    expect(datedSentence("Ines stays from Friday the 16th. Ines stays 16–18 Oct.", RANGE)).toBe("Ines stays 16–18 Oct.");
+    expect(datedSentence("Ines arrives Friday the 16th. She stays until 16 October.", DAY)).toBeNull();
+    expect(datedSentence("Marisol is home Friday 16 October. The CR-V sold on 1 Oct.", DAY)).toBeNull();
+  });
+
+  test("ranges and days said the common ways, lowercase and dotted abbreviations included", () => {
     const lead = "Bought new sheets for the spare room.";
-    for (const said of ["Ines stays 16–18 Oct.", "Ines stays Oct 16-18.", "Ines stays October 16 to 18.", "Ines stays from the 16th to the 18th.", "Ines stays 2026-10-16 to 2026-10-18.", "Ines stays 10/16–10/18."]) {
+    for (const said of [
+      "Ines stays 16–18 Oct.",
+      "Ines stays Oct 16-18.",
+      "Ines stays October 16 to 18.",
+      "Ines stays from the 16th to the 18th of October.",
+      "Ines stays 2026-10-16 to 2026-10-18.",
+      "Ines stays 10/16/2026 to 10/18/2026.",
+      "Ines stays Oct. 16 to 18.",
+      "ines stays 16 to 18 oct.",
+    ]) {
       expect(datedSentence(`${lead} ${said}`, RANGE)).toBe(said);
     }
+    expect(datedSentence(`${lead} Ines arrives Fri. the 16th with the kids.`, DAY)).toBe("Ines arrives Fri. the 16th with the kids.");
+    expect(sentencesOf("Ines stays Oct. 16 to 18. Then home.")).toEqual(["Ines stays Oct. 16 to 18.", "Then home."]);
+    expect(sentencesOf("Fri. the 16th, Dr. Okafor; then lunch.", true)).toEqual(["Fri. the 16th, Dr. Okafor;", "then lunch."]);
   });
 
-  test("a day: by number and month, ISO, weekday and ordinal, the strongest winning", () => {
-    const day = "2026-10-16";
-    expect(datedSentence("Groceries on Friday. The dentist is on 16 October.", day)).toBe("The dentist is on 16 October.");
-    expect(datedSentence("Water the ferns. Pay the rent by 2026-10-16.", day)).toBe("Pay the rent by 2026-10-16.");
-    // A weekday alone names the day, but never displaces the lead.
-    expect(sentenceNamingDate("Water the ferns. The kiln opens Friday.", day)?.sentence).toBe("The kiln opens Friday.");
-    expect(datedSentence("Water the ferns. The kiln opens Friday.", day)).toBe("Water the ferns.");
-    expect(datedSentence("Water the ferns. The kiln opens on the 16th.", day)).toBe("The kiln opens on the 16th.");
-    // A weekday that is not the date's day names nothing.
-    expect(sentenceNamingDate("The kiln opens Thursday.", day)).toBeNull();
+  test("chance matches name nothing: a bare number or ordinal, another year, a fraction", () => {
+    const none: [string, string][] = [
+      ["The meeting is on the 3rd floor.", "2026-10-03"],
+      ["The 1st draft is done.", "2026-10-01"],
+      ["The 2nd time it broke.", "2026-10-02"],
+      ["A 16th century chest.", DAY],
+      ["The 16GB model ships in October only.", DAY],
+      ["Review PR #16 by Friday.", DAY],
+      ["May I bring 16 friends?", "2026-05-16"],
+      ["Sat with 17 people at dinner.", "2026-10-17"],
+      ["Lena turns 16 in October.", DAY],
+      ["Add 3/4 cup of flour.", "2026-03-04"],
+      ["Use 1/2 the butter.", "2026-01-02"],
+      ["Born 12 March 1990.", "2026-03-12"],
+      ["It was on 16 October 2025.", DAY],
+      ["It cost $16. Lunch at 16:30. Version v0.3.16. 1.16 litres.", DAY],
+      ["Water the ferns. The kiln opens Friday.", DAY],
+    ];
+    for (const [text, due] of none) expect(sentenceNamingDate(text, due)).toBeNull();
+    expect(sentenceNamingDate("It was on 16 October 2026.", DAY)).toBe("It was on 16 October 2026.");
   });
 
-  test("a bare number names nothing: a time, money, a decimal, a year", () => {
-    const day = "2026-10-16";
-    expect(sentenceNamingDate("Lunch at 9:16 with Ana. It cost $16. The pot holds 1.16 litres. Built in 2016.", day)).toBeNull();
-    expect(sentenceNamingDate("Sixteen 16 bulbs in the bed.", day)).toBeNull();
+  test("a very long dated sentence is cut around its date words, at word ends", () => {
+    const body = "Bought sheets. Marisol, who has not been here since the spring when the garden was still mostly mud and the fence was down, and who is bringing both kids and the dog, visits from Friday 16 to Sunday 18 October and stays in the spare room.";
+    const line = datedSentence(body, RANGE) ?? "";
+    expect([...line].length).toBeLessThanOrEqual(DATED_LINE_CHARS);
+    expect(line).toContain("Friday 16 to Sunday 18 October");
+    expect(line.startsWith("…")).toBe(true);
   });
 
-  test("an abbreviation stays inside its sentence", () => {
-    const body = "Feed the cat. Tomás sees Dr. Okafor on Friday 16 October at 9 a.m. sharp. Then lunch.";
-    expect(datedSentence(body, "2026-10-16")).toBe("Tomás sees Dr. Okafor on Friday 16 October at 9 a.m. sharp.");
-    expect(sentencesOf("Bring tools, e.g. the saw. Mr. Patel has the rest.")).toEqual(["Bring tools, e.g. the saw.", "Mr. Patel has the rest."]);
-  });
-
-  test("nothing names the date: the fallback, else the first sentence; a month or nothing readable names nothing", () => {
-    const body = "Clear the gutters. Ask Wren for the ladder.";
-    expect(datedSentence(body, "2026-10-16", "Gutters")).toBe("Gutters");
-    expect(datedSentence(body, "2026-10-16")).toBe("Clear the gutters.");
-    expect(datedSentence(BODY, "2026-10", "Fallback")).toBe("Fallback");
-    expect(datedSentence(BODY, null)).toBe(CRV);
-    expect(datedSentence(BODY, "soon")).toBe(CRV);
-  });
-
-  test("a single day both sentences name keeps the lead: the swap needs more of the date's days", () => {
-    expect(sentenceNamingDate(BODY, "2026-10-16")?.sentence).toBe(VISIT);
-    expect(datedSentence(BODY, "2026-10-16")).toBe(CRV);
-  });
-
-  test("with a title: kept when it names the date, the date is in the lead, or a later sentence names it only by weekday", () => {
-    expect(datedSentence(BODY, RANGE, "CR-V listing")).toBe(VISIT);
-    expect(datedSentence(BODY, RANGE, "Marisol 16–18 Oct")).toBe("Marisol 16–18 Oct");
-    expect(datedSentence("The coast trip runs 16–18 Oct. The cabin is booked.", RANGE, "Coast trip")).toBe("Coast trip");
-    expect(datedSentence("Cleaning at 9:30. Ana works Friday so I'll take the bus.", "2026-10-16", "Dentist")).toBe("Dentist");
-  });
-
-  test("an ellipsis ends a sentence before a new one, not mid-thought", () => {
-    expect(sentencesOf("Wait… The gate is open.")).toEqual(["Wait…", "The gate is open."]);
-    expect(sentencesOf("Mike asked twice… then stopped. Done.")).toEqual(["Mike asked twice… then stopped.", "Done."]);
-  });
-
-  test("namesDate reads a title", () => {
-    expect(namesDate("Marisol, 16–18 Oct", RANGE)).toBe(true);
-    expect(namesDate("Marisol's visit", RANGE)).toBe(false);
-  });
-});
-
-describe("datedTitleOfRow: the line Coming up says a dated row by", () => {
-  test("untitled: the dated sentence when it is not the first; the first sentence when it is", () => {
-    expect(datedTitleOfRow({ title: null, body: BODY }, RANGE)).toBe(VISIT);
-    expect(datedTitleOfRow({ title: null, body: `${VISIT} ${CRV}` }, RANGE)).toBe(VISIT);
-    expect(datedTitleOfRow({ title: null, body: "Clear the gutters. Ask Wren." }, RANGE)).toBe("Clear the gutters.");
-  });
-
-  test("titled: the title stays when it names the date or the date is in the lead; else the dated sentence", () => {
-    expect(datedTitleOfRow({ title: "CR-V listing", body: BODY }, RANGE)).toBe(VISIT);
-    expect(datedTitleOfRow({ title: "Marisol 16–18 Oct", body: BODY }, RANGE)).toBe("Marisol 16–18 Oct");
-    expect(datedTitleOfRow({ title: "Coast trip", body: "The coast trip runs 16–18 Oct. The cabin is booked." }, RANGE)).toBe("Coast trip");
-    expect(datedTitleOfRow({ title: "Coast trip", body: "The coast trip runs over the long weekend." }, RANGE)).toBe("Coast trip");
-    expect(datedTitleOfRow({ title: "Dentist", body: "Cleaning at 9:30. Ana works Friday so I'll take the bus." }, "2026-10-16")).toBe("Dentist");
+  test("the host gets what the wake shows: Names: line off, whitespace flat, null-safe", () => {
+    const body = "Bought   sheets.\n\nInes   stays\t16–18 Oct.\n\nNames: mem_a, mem_b for 17 October";
+    expect(datedSentence(body, RANGE)).toBe("Ines stays 16–18 Oct.");
+    expect(datedTitleOfRow({ title: null, body }, RANGE)).toBe("Ines stays 16–18 Oct.");
+    expect(datedSentence(null, DAY)).toBeNull();
+    expect(datedSentence(REAL, 20261016)).toBeNull();
+    expect(datedSentence(REAL, "2026-10")).toBeNull();
+    expect(datedSentence(REAL, "2026-13-05")).toBeNull();
+    expect(datedSentence(REAL, null)).toBeNull();
+    expect(sentenceNamingDate(undefined, DAY)).toBeNull();
+    expect(datedSentence("Bought sheets. Ines stays 16–18 Oct.", " 2026-10-16 .. 2026-10-18 ")).toBe("Ines stays 16–18 Oct.");
   });
 });
 
@@ -132,75 +154,55 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-// The wake and `remember` read the wall clock, so the real-path memory is the
-// CR-V/Marisol one with its days moved to this week: the same words around them.
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const dayOf = (ymd: string): Date => new Date(`${ymd}T00:00:00Z`);
-const ordinal = (n: number): string => `${String(n)}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
-function memoryFor(first: string, last: string): { body: string; visit: string; range: string } {
-  const a = dayOf(first);
-  const b = dayOf(last);
-  const crv = `The CR-V listing runs through ${WEEKDAYS[a.getUTCDay()] ?? ""} the ${ordinal(a.getUTCDate())}…`;
-  const visit = `Marisol visits ${WEEKDAYS[a.getUTCDay()] ?? ""} ${String(a.getUTCDate())} to ${WEEKDAYS[b.getUTCDay()] ?? ""} ${String(b.getUTCDate())} ${MONTHS[b.getUTCMonth()] ?? ""}.`;
-  return { body: `${crv} ${visit}`, visit, range: `${first}..${last}` };
+interface Door {
+  readonly id: string;
+  readonly title: string;
+  readonly due?: string;
 }
 
-test("memoryFor says the journal's memory word for word on its own dates", () => {
-  expect(memoryFor("2026-10-16", "2026-10-18")).toEqual({ body: BODY, visit: VISIT, range: RANGE });
-});
+/** Remember on 14 Oct 2026 (a Wednesday), then wake and open the `coming up` door at `readAt`. */
+async function through(args: Record<string, unknown>, readAt = "2026-10-14T12:00:00Z"): Promise<{ id: string; coming: string; door: Record<string, Door[]> }> {
+  const dir = join(root, `store-${String(open.length)}`);
+  let now = Date.parse("2026-10-14T12:00:00Z");
+  const c = Counterpart.open({ dir, timeZone: "UTC", budgetBytes: CLAUDE_CODE_BUDGET_BYTES, now: () => now });
+  open.push(c);
+  c.store.setMeta(WAKE_SHAPE_KEY, "on");
+  const server = new McpServer({ counterpart: c, host: DESKTOP_HOST, scope: join(root, "home"), registryDir: dir, env: {}, now: () => now, lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: CLAUDE_CODE_BUDGET_BYTES } }, manifestVersion: () => null } as never);
+  const said = (await server.call("remember", args)).structuredContent;
+  expect(said["stored"]).toBe(true);
+  now = Date.parse(readAt);
+  const wake = String((await server.call("wake", {})).structuredContent["wake"]);
+  const coming = wake.split("\n\n").find((p) => p.startsWith("Coming up:")) ?? "";
+  const door = (await server.call("recall", { handle: "coming up" })).structuredContent as unknown as Record<string, Door[]>;
+  return { id: String(said["id"]), coming, door };
+}
 
 describe("through the real doors: remember, the session-start wake, recall `coming up`", () => {
-  const run = async (from: number, to: number, title?: string, text?: (m: { body: string }) => string): Promise<{ id: string; visit: string; range: string; coming: string; door: Record<string, unknown> }> => {
-    const dir = join(root, `store-${String(open.length)}`);
-    const scope = join(root, "home");
-    const c = Counterpart.open({ dir, timeZone: "UTC", budgetBytes: CLAUDE_CODE_BUDGET_BYTES });
-    open.push(c);
-    c.store.setMeta(WAKE_SHAPE_KEY, "on");
-    const today = c.store.today();
-    const m = memoryFor(addDays(today, from), addDays(today, to));
-    const server = new McpServer({ counterpart: c, host: DESKTOP_HOST, scope, registryDir: dir, env: {}, lifecycle: { spawner: () => ({ pid: 1 }), config: { injectionBudgetBytes: CLAUDE_CODE_BUDGET_BYTES } }, manifestVersion: () => null } as never);
-    const said = (await server.call("remember", { ...(title === undefined ? {} : { title }), text: text === undefined ? m.body : text(m), eventDate: m.range })).structuredContent;
-    expect(said["stored"]).toBe(true);
-    const id = String(said["id"]);
-    const wake = String((await server.call("wake", {})).structuredContent["wake"]);
-    const coming = wake.split("\n\n").find((p) => p.startsWith("Coming up:")) ?? "";
-    const door = (await server.call("recall", { handle: "coming up" })).structuredContent;
-    return { id, ...m, coming, door };
-  };
-  const inDoor = (door: Record<string, unknown>, bucket: string, id: string): { id: string; title: string; due?: string } | undefined => (door[bucket] as { id: string; title: string; due?: string }[]).find((x) => x.id === id);
-
-  test("untitled, two days ahead: Coming up and the door say the visit, not the listing", async () => {
-    const r = await run(2, 4);
-    expect(r.coming).toContain(`${r.visit} [${r.id}]`);
+  test("the journal's memory, untitled, two days ahead: Coming up and the door say the Marisol sentence", async () => {
+    const r = await through({ text: REAL, eventDate: DAY });
+    expect(r.coming).toContain(`- 10-16 · ${MARISOL_START}`);
+    expect(r.coming).toContain(`[${r.id}]`);
     expect(r.coming).not.toContain("CR-V");
-    expect(inDoor(r.door, "later", r.id)).toMatchObject({ title: r.visit, due: r.range });
-    expect(JSON.stringify(r.door)).not.toContain("CR-V");
+    const item = r.door["later"]?.find((x) => x.id === r.id);
+    expect(item?.title.startsWith(MARISOL_START)).toBe(true);
+    expect(item?.due).toBe(DAY);
   });
 
-  test("untitled, on its middle day: due today, said by the visit", async () => {
-    const r = await run(-1, 1);
-    expect(r.coming).toContain(`- Due today (`);
-    expect(r.coming).toContain(`${r.visit} [${r.id}]`);
-    expect(r.coming).not.toContain("CR-V");
-    expect(inDoor(r.door, "today", r.id)).toMatchObject({ title: r.visit, due: r.range });
+  test("overdue: the overdue line says the Marisol sentence too", async () => {
+    const r = await through({ text: REAL, eventDate: DAY }, "2026-10-19T12:00:00Z");
+    expect(r.coming).toContain(`- 3 days overdue · ${MARISOL_START}`);
+    expect(r.door["overdue"]?.find((x) => x.id === r.id)?.title.startsWith(MARISOL_START)).toBe(true);
   });
 
-  test("titled by the other topic: the dated sentence wins over the title", async () => {
-    const r = await run(2, 4, "CR-V listing");
-    expect(r.coming).toContain(`${r.visit} [${r.id}]`);
-    expect(inDoor(r.door, "later", r.id)?.title).toBe(r.visit);
+  test("a real title stands", async () => {
+    const r = await through({ title: "Marisol's visit", text: "She's bringing the kids and the dog. Arrives Friday 16 October around noon.", eventDate: DAY });
+    expect(r.coming).toContain(`- 10-16 · Marisol's visit [${r.id}]`);
+    expect(r.door["later"]?.find((x) => x.id === r.id)?.title).toBe("Marisol's visit");
   });
 
-  test("titled, a later sentence names the date only by its weekday: the title stays", async () => {
-    let weekday = "";
-    const r = await run(2, 2, "Dentist", (m) => {
-      weekday = (/through (\w+) the/.exec(m.body) ?? [])[1] ?? "";
-      return `Cleaning at 9:30. Ana works ${weekday} so I'll take the bus.`;
-    });
-    expect(weekday.length).toBeGreaterThan(0);
-    expect(r.coming).toContain(`Dentist [${r.id}]`);
-    expect(r.coming).not.toContain("Ana works");
-    expect(inDoor(r.door, "later", r.id)?.title).toBe("Dentist");
+  test("a repeat keeps its lead: its date moves each time", async () => {
+    const r = await through({ text: "Team standup notes go in the shared doc. This week it is on Friday 16 October.", eventDate: DAY, recurring: "weekly" });
+    expect(r.coming).toContain("Team standup notes go in the shared doc.");
+    expect(r.coming).not.toContain("This week it is");
   });
 });

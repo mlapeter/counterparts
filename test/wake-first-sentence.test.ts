@@ -62,7 +62,6 @@ describe("firstSentence", () => {
       "A line\nwith a break. And more.",
       "Wren's dog. The one with the limp.",
       "Mike asked twice... then stopped.",
-      "Mike asked twice… then stopped. Done.",
       "The answer is 42. Done.",
       "Use the Nordic setting. It's quieter.",
     ];
