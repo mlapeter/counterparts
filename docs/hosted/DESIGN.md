@@ -594,6 +594,10 @@ crypto-shred below), not every tiny scrap. Forgetting ONE memory is unchanged: t
     goes only while the upload watch proves the accounts database is uploading, so the bucket's copy is this one,
     a year after the delete went into it.
   - The rows go only when the bucket is proven to hold nothing of the store. With backups off, tombstones wait.
+  - Where a sign-up came from (SA1, 2026-11-17: a source tag, the first referrer's origin, the landing path) and
+    the day of the last tool call are personal data of the account, not account events: kept while the account
+    lives and cleared at the erase with the time zone (`markDeleted`), so the tombstone kept for 365 days carries
+    none of them (CONTRACT §31c, §41).
   - `client_use` (oauth.sqlite: a client id and when someone first allowed it, no person) isn't pruned. It is what
     keeps a once-allowed client from the DCR sweep.
   - The account page's beta note says the record of account events is "kept for 12 months, then erased", and the
