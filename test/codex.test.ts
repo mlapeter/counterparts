@@ -17,12 +17,20 @@ import { join, resolve } from "node:path";
 
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
-import { runCodexHook } from "../src/adapters/codex/bin/hook.js";
-import { codexFindings } from "../src/adapters/codex/doctor.js";
-import { codexDelivery } from "../src/adapters/codex/envelope.js";
-import { CODEX_STOP_OPENER, parseCodexTranscript } from "../src/adapters/codex/transcript.js";
-import { mergeCodexHooks, ourPositions, stateKey, tomlProblem } from "../src/adapters/codex/wire.js";
-import { CODEX_STOP_OPENER_WORDS, codexStandDown, codexStopAsk } from "../src/adapters/codex/words.js";
+import {
+  CODEX_STOP_OPENER,
+  CODEX_STOP_OPENER_WORDS,
+  codexDelivery,
+  codexFindings,
+  codexStandDown,
+  codexStopAsk,
+  mergeCodexHooks,
+  ourPositions,
+  parseCodexTranscript,
+  runCodexHook,
+  stateKey,
+  tomlProblem,
+} from "../src/adapters/codex/bin/hook.js";
 import { CODEX_HOST } from "../src/adapters/hosts.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { CODEX_INSTRUCTIONS } from "../src/adapters/mcp/server.js";
@@ -32,7 +40,7 @@ import type { Spawner } from "../src/adapters/spawn.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { aboutMe, selfRelevantFeeling } from "../src/core/sleep/index.js";
 import { feelingWeeks } from "../src/core/dream/feeling-weeks.js";
-import { wireCodex } from "../src/adapters/cli/codex.js";
+import { wireCodex } from "../src/adapters/cli/wire.js";
 import { storyHeadStart } from "../src/core/self/stories.js";
 import { isStoreError } from "../src/core/store/index.js";
 import { readerSelfOfRow, readerUsOfRow } from "../src/core/reader-note.js";
