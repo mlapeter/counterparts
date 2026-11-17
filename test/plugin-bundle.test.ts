@@ -401,13 +401,27 @@ describe("the directory flavor", () => {
       expect(text).not.toContain(MARK);
       // (`import.meta.require` is the bundler's own helper, for Bun's `require`.)
       expect(text).not.toMatch(/import\.meta\.(dir|path|filename|dirname|main)\b/);
-      for (const m of text.matchAll(/isEntryPoint\(process\.argv\[1\], new URL\("([^"]+)", import\.meta\.url\)\.href\)/g)) guarded.push(posix.join(posix.dirname(f), m[1]!));
+      // (`\d*`: hook.ts and runner.ts each define one; in one file the bundler would number one.)
+      for (const m of text.matchAll(/isEntryPoint\d*\(process\.argv\[1\], new URL\("([^"]+)", import\.meta\.url\)\.href\)/g)) guarded.push(posix.join(posix.dirname(f), m[1]!));
     }
     expect(guarded.sort()).toEqual(scripts.map(bundledPath).sort());
     // runtime.ts's own URL, as the code reads it: the package root two folders up, the empty bunfig beside it.
     const urls = js.flatMap((f) => [...dir.generated[f]!.matchAll(/new URL\("([^"]+)", import\.meta\.url\)/g)].map((m) => posix.join(posix.dirname(f), m[1]!)));
     expect(urls).toContain("src/adapters/runtime.js");
     expect(urls).toContain("src/core/store/operational.js");
+  });
+
+  test("every file a bundled file imports, statically or on demand, is in the bundle", () => {
+    // The chunks the dashboard, its probe, the narrator and the console's
+    // actions load only when asked (`import("…")`) included.
+    const named: string[] = [];
+    for (const f of js) {
+      const text = dir.generated[f]!;
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)"(\.{1,2}\/[^"]+)"/g)) named.push(posix.join(posix.dirname(f), m[1]!));
+    }
+    expect(named.length).toBeGreaterThan(js.length);
+    expect([...new Set(named)].filter((n) => !dirPaths.includes(n))).toEqual([]);
+    expect(named.filter((n) => n.startsWith(`${CHUNK_DIR}/`)).length).toBeGreaterThan(0);
   });
 
   test("the marks: a module's import.meta.url as its own path, then as a URL from the file it lands in", () => {

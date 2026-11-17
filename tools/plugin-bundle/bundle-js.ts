@@ -184,7 +184,7 @@ async function buildOnce(repo: string, entries: readonly string[], problems: str
         name: "module-url",
         setup(b) {
           b.onLoad({ filter: /\.ts$/ }, (args) => {
-            const rel = posix.relative(repo, args.path.split("\\").join("/"));
+            const rel = posix.relative(repo.split("\\").join("/"), args.path.split("\\").join("/"));
             const marked = markModuleUrl(rel, readFileSync(args.path, "utf8"));
             for (const p of marked.problems) {
               if (seenProblems.has(p)) continue;
@@ -233,6 +233,13 @@ export async function bundle(req: BundleRequest): Promise<BundleResult> {
         outputs[path] = out;
       }
       for (const e of entries) if (outputs[e.replace(/\.ts$/, ".js")] === undefined) problems.push(`the entry ${e} came out at no ${e.replace(/\.ts$/, ".js")}`);
+      // A bundled module the marks do not cover (a `.js` the server shares with
+      // the browser, `dashboard/web/shared/dates.js`) must not read its own URL.
+      for (const i of Object.keys(built.meta.inputs)) {
+        if (!/\.ts$/.test(i) && /\bimport\.meta\b/.test(readFileSync(join(req.repo, i), "utf8"))) {
+          problems.push(`${i} reads import.meta, and only .ts sources keep their own URL in the bundle`);
+        }
+      }
       return { outputs, inputs: Object.keys(built.meta.inputs).sort(), entries: [...entries].sort(), problems };
     }
     for (const m of promote) entries.add(m);
