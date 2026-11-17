@@ -455,10 +455,10 @@ describe("the rated field on session_end", () => {
     const props = (spec?.inputSchema as { properties: Record<string, { description?: string; items?: unknown }> }).properties;
     const d = props["rated"]?.description ?? "";
     for (const words of Object.values(RATING_ANCHORS)) expect(d).toContain(words);
-    expect(d).toContain("the last score counts");
-    // 2026-10-19: the field says plainly that a score counts (no longer "tracking only").
+    // Trim PR 2: the field is the anchors, word for word; that a score counts as use (2026-10-19,
+    // no longer "tracking only") is the engine's row, audited, and the Stop ask asks for it.
     expect(d).not.toContain("Tracking only");
-    expect(d).toContain("counts as use");
+    expect(spec?.engine?.some((p) => p.claim.includes("each score is a use of the memory"))).toBe(true);
   });
 });
 

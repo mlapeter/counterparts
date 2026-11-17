@@ -433,10 +433,16 @@ the plugin first, quit Claude Code, and type the confirmation yourself in a term
 ## License
 
 <!-- flavor:full core -->
-MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
+Business Source License 1.1. See [LICENSE](LICENSE). Free to use for anyone, personally or at
+work; building it into a product or service you offer others, or offering it as a hosted or API
+service, needs a commercial license (hello@counterparts.ai). Each version becomes Apache 2.0
+four years after release. Bundled fonts (Outfit, Courier Prime) are under the SIL Open
 Font License and three.js under MIT; their licence texts sit beside them.
 <!-- /flavor:full core -->
 <!-- flavor:directory -->
-MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
+Business Source License 1.1. See [LICENSE](LICENSE). Free to use for anyone, personally or at
+work; building it into a product or service you offer others, or offering it as a hosted or API
+service, needs a commercial license (hello@counterparts.ai). Each version becomes Apache 2.0
+four years after release. Bundled fonts (Outfit, Courier Prime) are under the SIL Open
 Font License; their licence texts sit beside them.
 <!-- /flavor:directory -->

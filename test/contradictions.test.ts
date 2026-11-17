@@ -196,14 +196,17 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     expect(pair?.over).toBeNull();
   });
 
-  test("an unknown how is refused by name, and nothing is stored", async () => {
+  // Changed 2026-11-13 (write tools fail open): an unknown how refused the
+  // memory (`malformed`); now it is dropped by name and the revision lands
+  // with the default (changed).
+  test("an unknown how is dropped by name, and the revision is stored with the default", async () => {
     const s = server();
     const store = s.counterpart.store;
     aged(store);
     const old = put(store, "The deploy runs on Fridays.");
     const r = payload(await s.call("remember", { text: "The deploy runs on Tuesdays now.", updates: old, how: "sideways" }));
-    expect(r["stored"]).toBe(false);
-    expect(r["reason"]).toBe("malformed");
+    expect(r["stored"]).toBe(true);
+    expect(r["dropped"]).toContainEqual(expect.objectContaining({ field: "how", reason: "how-unknown", sent: "sideways" }));
   });
 
   test("session_end entries settle the same way, each on its own", async () => {

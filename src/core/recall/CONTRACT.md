@@ -423,7 +423,16 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     with its margin, `capped`, `budgetTrimmed`, `inhibited`, beside `echoSkipped` and
     `projectSkipped`), read off the verdicts and the render's trims after the turn is
     decided (`stopCounts`): observation only — the same memories, order and bytes with
-    `STOP_COUNTS` on or off (`near-miss-logging.test.ts`).
+    `STOP_COUNTS` on or off (`near-miss-logging.test.ts`). Since 2026-11-13, under the same
+    switch, `loudRefusal`: which gate kept a memory's words off the turn (`by`, a stable
+    code from `LOUD_GATES` in the order the gates apply, the furthest any candidate got;
+    null when one showed loud, `empty` when nothing cued reached the gate; `lead`, the row
+    of the candidate that got there, which may have been shown as a footnote) and at most
+    `LOUD_REFUSAL_ROWS` candidates NOT SHOWN AT ALL, closest to the gate that stopped each
+    first, each with its code, activation and the threshold it failed — ids and numbers
+    only, under `LOUD_REFUSAL_BYTES` serialized (`loudRefusal`, `loud-refusal.test.ts`).
+    Guarded on its own: a throw costs the row that key, not the stop counts. The gate
+    records that threshold on the verdict (`limit`); no rule reads it.
 16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
     vocabulary (`none`, `lagged`, `in-line`, `in-line-skipped`, `stale`, `other-model`,
     `unreadable`, and the worker's four named failures; `other-model`, 2026-09-23: a lag row
@@ -538,7 +547,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     revisit — an experiment, Mike's go via BENCHMARK): "lately", "recently", "these
     days", "nowadays" (`time-ask.ts#SOFT_WORDS`) come back marked `soft`, and facts mode
     ranks the past week first instead of filtering, unless the question is only time;
-    explicit windows are unchanged (mcp CONTRACT §6f). Facts answers also list the next
+    explicit windows are unchanged (mcp CONTRACT §6f). Ranges of days ("between 12 and
+    18 October") are one window, and the forward words ("tomorrow", "next week", "next
+    month", "this weekend", "the coming week") are read, exact (2026-11-13; `time-ask.ts`'s
+    header lists every form); a window reaching past today also reads reminder dates in
+    facts mode (mcp CONTRACT §6f). Facts answers also list the next
     20 matches as title lines after the page (the title tail, §6f there): listed is not
     shown, and credits nothing. What this guarantee said, for the record:
     **A deliberate question about time leads with the session it means**
@@ -696,7 +709,9 @@ is recallable, ranked or gated moves. The deliberate path carries the same as a
 
 **[M] "Earlier (now [id])" names the end of the chain** (review of #408, 2026-10-11): the
 id is `headOf`'s, the same memory a write's neighbours and the dream's bundles name with
-`earlier (now mem_…)` — on A→B→C, A reads `now [C]`. And `headOf` decides whether it is
+`earlier (now mem_…)` — on A→B→C, A reads `now [C]`. (A dream fold's part, when the fold's
+pair is the newest over it, reads `Folded into [id]` / `folded into mem_…` instead, and the
+fold names its parts `folds in [ids]`: words only, 2026-11-14, `foldedOver`.) And `headOf` decides whether it is
 earlier at all (the wake's `settledOver` rule): a memory whose holder is gone with nothing
 live after it carries no `Earlier`. Since 2026-10-11 (Group 3 part B; random-06, lightly
 held) a settle speaks only about the pair it names: a newer pair in which a memory holds no

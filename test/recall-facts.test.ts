@@ -649,6 +649,45 @@ describe("current first: earlier versions fold, corrected ones are named as wron
     expect(text).toContain("CURRENT");
   });
 
+  // 2026-11-14: two matched earlier memories came out in the order the pairs
+  // were read (newest pair first), not by how well each matched.
+  const twoEarlier = (c: Counterpart): { best: string; weak: string; now: string } => {
+    seed(c);
+    const best = c.store.put({ type: "memory", kind: "fact", title: "Pool lane three", body: "The zqpool zqlane swim is in lane three." });
+    const weak = c.store.put({ type: "memory", kind: "fact", title: "Pool at noon", body: "The zqpool session is at noon." });
+    const now = c.store.put({ type: "memory", kind: "fact", title: "Pool moved", body: "Swimming moved to the evening, lane five." });
+    // The best match's pair is settled FIRST, so pair order alone would name it second.
+    expect(settle(c.store, { holds: now, over: best, how: "changed", why: "the lane changed", actor: "session" }).ok).toBe(true);
+    expect(settle(c.store, { holds: now, over: weak, how: "changed", why: "the time changed", actor: "session" }).ok).toBe(true);
+    return { best, weak, now };
+  };
+
+  test("two matched earlier memories: the best match is named first", () => {
+    const c = brain();
+    const { best, weak, now } = twoEarlier(c);
+    const r = ask(c, "zqpool zqlane");
+    expect(r.memories[0]?.id).toBe(now);
+    expect(r.memories[0]?.earlier.map((e) => e.id)).toEqual([best, weak]);
+    const text = renderFacts(r);
+    expect(text.indexOf(`· ${best}`)).toBeLessThan(text.indexOf(`· ${weak}`));
+  });
+
+  test("through the recall tool, the earlier lines read best match first, the same every time", async () => {
+    const c = brain();
+    const { best, weak } = twoEarlier(c);
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", now: () => NOW });
+    const answers: string[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const r = await s.call("recall", { question: "zqpool zqlane", mode: "facts" });
+      answers.push(String(r.structuredContent["answer"]));
+    }
+    const lines = (answers[0] ?? "").split("\n").filter((l) => l.trimStart().startsWith("earlier: "));
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toContain(best);
+    expect(lines[1]).toContain(weak);
+    expect(answers[1]).toBe(answers[0]);
+  });
+
   test("a corrected version is out of the answer and named, as wrong, on the one that holds", () => {
     const c = brain();
     seed(c);

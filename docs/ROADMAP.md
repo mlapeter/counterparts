@@ -35,6 +35,17 @@ neighbours after the bench measures the tail)
 - Dream throughput (after ~10-22)
 - The decisive memory staying quiet at the moment of action, with footnote noise (F3, at the ~10-22 check)
 
+**From the three-month journal test (11-12)**, a counterpart run for 93 simulated days in a plain chat, checked against
+a live store (notes: `~/counterparts-notes/2026-11-12-pepys-findings.md`; decided there: the loud bar is not lowered):
+- Fix: a footnote says why it matched when its title doesn't (a short snippet around the match). Titles are what get
+  used; under 6% of footnotes are opened.
+- Fix: the stated target for showing a memory in full ("about one in four" turns, `recall/tunables.ts`) is stale; it
+  is under 2%, and ratings say a higher score doesn't mean a more useful memory. Words only.
+- Fix: the age on a "Still open" line counts calendar days since the event; the doc says lived days since touched.
+- Experiment: more weight on meaning when choosing footnotes, judged on ratings (meaning matches rate useful more often).
+- Question for the next hosted read: do chat-host counterparts rate and open footnotes at all? The test's rated twice
+  in 93 days.
+
 **Elsewhere:** the plugin directory approval and whether to post without it (10-21) · the site's SEO push
 
 ---

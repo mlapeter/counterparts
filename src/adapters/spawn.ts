@@ -87,6 +87,16 @@ export const SESSION_ENV = "COUNTERPARTS_SESSION";
 export const NIGHT_RUN_ENV = "COUNTERPARTS_NIGHT_RUN";
 export const SCOPE_ENV = "COUNTERPARTS_SCOPE";
 /**
+ * THE STORE'S CLOCK, as an offset from the system's in ms (2026-11-16): a host
+ * that runs a store on a clock of its own (hosted's `storeClock`, a simulated
+ * month) sets it on the worker it starts, so the child dates the store as the
+ * server does (the page's "last revised", the lived day, the sweeps). An
+ * offset, not a time: a pool may start a queued plan later. Never inherited:
+ * `planSpawn` drops one from the caller's environment, so only the spawner
+ * that owns the clock can set it.
+ */
+export const STORE_CLOCK_OFFSET_ENV = "COUNTERPARTS_STORE_CLOCK_OFFSET_MS";
+/**
  * WHICH CHILD OF THE HEADLESS NIGHT this MCP server serves (2026-10-11):
  * `dream` (the page writer and the dream) or `reflection`, set on the
  * server's own environment by the night's MCP configuration
@@ -162,6 +172,8 @@ export function planSpawn(input: PlanInput): SpawnPlan {
   for (const [key, value] of Object.entries(base)) {
     if (value !== undefined) env[key] = value;
   }
+  // A shell's exported store clock never reaches a worker (`STORE_CLOCK_OFFSET_ENV`).
+  delete env[STORE_CLOCK_OFFSET_ENV];
   const refuse = (reason: SpawnRefusal): SpawnPlan => ({
     ok: false,
     reason,

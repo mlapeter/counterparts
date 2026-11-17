@@ -1898,3 +1898,128 @@ stdout and decision rows (timing fields removed, ids normalized) byte-identical.
 
 **Read by** doctor's `Recall steps` line (`adapters/claude-code/doctor-recall-steps.ts`): the last 7 lived days'
 p50 per step, the eight largest by name, all in `--json` as `p50.<step>`. The read itself is `docs/CHECK-AFTER.md`.
+
+## Time asks: ranges and the forward words (2026-11-13, the wren findings' P1 and P5, owner-approved, lightly held)
+
+**What was wrong.** `readTimeAsk` read one date of a range: "between 12 and 18 October" was 10-18 (the named-date
+match is "18 October"), "from 12 October to 18 October" was 10-12, and "Oct 12-18" or "12-18 October" was December 18
+(the short-date match is `12-18`). In the wren run the model asked for its owner's week "between 12 and 18 October"
+and got "0 match · 38 more match outside it". "Tomorrow", "next week", "next month", "this weekend" and "this coming
+week" read as no time at all.
+
+**What it does now** (`time-ask.ts`'s header lists every form). A range is read before any single date, one window,
+exact. The forward words mirror the backward ones but do not stretch: nothing is learned in the future, so a stretch
+back from "next week" asked on a Saturday would only pull in what was learned that weekend.
+
+**"This week" and "this month" still end today** (review of #815). The first cut ran them to Sunday and the month's
+end, and claimed past questions read as before; they did not: with the window reaching past today, facts mode read
+reminder dates under it, and "what happened this week" went from 1 result to 5, four of them reminders still to
+come. Reverted: they are past questions; "the coming week", "next week", "this weekend" and "the next N days" look
+ahead.
+
+**The range grammar, tightened on the review of #815.** A bare second day ("Oct 12-18", "Oct 5 to 7") ends a range
+only at the text's end, before punctuation, or before a year (which is then both ends'): "Nov 1 - 5 tasks left", "Oct
+5 - 12 attendees" are dates with an amount after them, as master read them. A day number right after the second end
+starts a date of its own ("sets of 8 - 12 Oct 3"). A range whose second end has to roll into the next year is one only
+when it spans at most 62 days (`RANGE_ROLL_DAYS`, a year-end crossing): "between 3/4 and 1/2" was a ten-month window.
+A bound word in front bounds the range as a whole, chosen over reading one end as master did (master read "by
+10/12-10/18" as by 10-12 and "until 12 to 18 October" as until 10-18, the two ends of the same phrase): "until"/"by"
+through its last day, "before" before its first, "after" after its last, "since" from its first, a yearless one not
+yet come this year being last year's under "since" and "after", as for one date.
+
+**Left as it was, on purpose.** A yearless day whose month has not begun is still last year's ("on 5 December" asked
+in November is 2025-12-05; a range's first end follows the same rule). That is `yearFor`'s rule for every date alone,
+and a look-ahead question in a later month has to name the year or use the forward words: **explicit-date
+look-ahead works only within the current month** (and a range starting in it) until `yearFor` changes, which this
+work did not do. "Upcoming" (the `coming up` handle answers it), "next Saturday" and "this Saturday" are still not
+read.
+
+**Known limits, left as they are (second review of #815).** Under a look-ahead window, night-made rows (dream,
+reflection) count as dated, so a plan the night distilled without a date is filtered out where a hand-written undated
+one is kept. And the header's count line does not mark the undated rows a look-ahead window kept: they are counted as
+matches like the rest, only ranked after the ones inside. Two other edges from the same review are fixed: a bare
+second day before a word that goes on with the question ("Oct 12-18 at the cabin") is a range again (`RANGE_GOES_ON`,
+a closed list; a noun or an amount after it still is not), and a past question about today ("what did I do today",
+`facts.ts#PAST_ASK`) reads no reminder dates.
+
+
+**Also due in this window (2026-11-13, the follow-up to #815; `mcp/facts.ts#alsoDueLines`).** The replay of the
+wren beat showed the window could not find the vet on the model's own question: a window filters what the words and
+the meaning reached, and the vet was 106th by meaning. A topical question with a window ahead (a look-ahead window, or
+"today" under the today rule) now lists, after the page, the reminders due in the window that nothing reached. Choices:
+the source is the dated rows themselves (`Store.datedMemories` plus the repeats), through the same rules as a match
+(`dueIn`: done, closed occurrence, `happenedAlready`, the moved-out version) and the same visibility; one line per
+memory, so a daily repeat is one line and a weekly one over two weeks is one line, at its first occurrence in the
+window with "every Tuesday"; at most 10 by date, then "+K more"; page 1 only (it is about the window, not the
+ranking); after the title tail, and the first thing dropped when the answer runs out of room, so it never pushes a
+match off; a memory shown or listed on the page (or folded under one) is not listed again; titles cut at 80, longer
+than the tail's 48, since the title is all it shows. Not counted, not in `ids`, never credited. Review of #817: the
+first cut excluded only the page's results and tail, so a match on page 3 or a near-duplicate the walk left out was
+listed as "not matches"; it now excludes every matched candidate, every near-duplicate and what each folds. A
+month-dated reminder sorted by its 1st and headed every list of its month; day-dated ones now come first, and a month
+reads "due in October". On the replay the
+model's exact d14 question now ends with the vet (`due Thu 10-15`) and the care-plan review under the heading; the
+six matches and their ids are unchanged.
+## Which gate refused the loud tier (2026-11-13, observation only; under `recall.STOP_COUNTS`)
+
+The Wren run showed a memory's words on 0 of 252 turns, Pepys on 4 of 254, live on under 2%, and no
+row said which gate refused. `recall.decision` now carries `loudRefusal: {by, lead, top}`. `by` is a
+code from `LOUD_GATES` (`dark dedup floor bar echo project temporal told cold cuefrac strong loudbar
+inhibited outranked trimmed`, the order the gate applies them, then the loud slot, then the render's
+bytes): the furthest any candidate got, the strongest on a tie; null when a memory showed loud;
+`empty` when nothing cued reached the gate. `lead` is that candidate's row, so `by`'s number is on
+the row; it is often a footnote, so `by` says how far the turn's best got, not why a memory went
+unshown. `top` is at most `LOUD_REFUSAL_ROWS` (5) candidates **not shown at all** (footnotes are on
+the row already), closest to the gate that stopped each first (`value` or `act` over `limit`), then
+the gates with no threshold, furthest first. Each row: id, `act`, `gate`, and where the gate has one
+the threshold it failed (`limit`) and the number it compared when that is not `act` (`value`: the
+cue fraction, or activation less priming). Ids and two-decimal numbers; rows drop from the end of
+`top` until the field is under `LOUD_REFUSAL_BYTES` (600) serialized. It has its own try/catch, so
+a throw costs the row this key and not the stop counts beside it.
+
+- **Review of #816 (owner's call): `top` lists the unshown.** The first version ranked `top` by
+  stage, so footnotes (stopped at the loud checks) filled it, and on d17-react the guitarist memory
+  was not named. The byte cap was a test's number; now the code enforces it.
+
+- **No rule moved.** The gate records the threshold it already compared on the verdict (`limit`);
+  nothing reads it but `loudRefusal`. `near-miss-logging.test.ts`'s twin test (same prompts through
+  the hook, on and off) covers it, and before/after against master (8625c93b), outside the tree: five
+  prompts on a 25-memory store through the hook, shown ids, bytes, reasons and injections (ids
+  normalized) identical.
+- **Two "below-bar"s.** As a verdict it is the admission bar (`bar`); as `loudBlockedBy` it is the
+  loud bar (`loudbar`). Pointers (`via: "link"`) are left out: they never compete for the loud tier.
+- **The d17-react replay** (Wren findings P3), on a copy of `store-day16`, schema 15 (no migration),
+  the session's wake and its three turns replayed in order at their times, static embedder on
+  (`semantic: in-line`, as the run recorded); the night between turns 1 and 2 and the model's writes
+  were not replayed. Turn 1's footnotes matched the run's exactly; d17-react's did not (the run
+  showed `mem_5876e11812ab`, which the replay had as a near miss, and `mem_70e581b5690c`, written
+  after the snapshot), so the numbers below are the replay's, not the run's. On d17-react: `by: "strong"`. The
+  best candidate, at 12.87, was under the strong floor (4.5 units, 23.43 at 364 memories); nothing
+  came close. The "guitarist" memory (`mem_dea85a8850b2`) was a candidate, cued only by its words
+  (`semantic` 0), and stopped at the admission bar: 9.41 against its bar of 10.86, 12th of 26 by
+  activation, outside `nearMiss`'s 0.1 margin (0.87 of its bar). With `top` listing the unshown,
+  the row names it, fourth: `{"id":"mem_dea85a8850b2","gate":"bar","act":9.41,"limit":10.86}`,
+  after two near misses at 0.94 and 0.92 of their bars and one at 0.875; `lead` is the strong-floor
+  footnote at 12.87. The run's own row (`store-day17`) did not list it as a near miss either. With
+  the embedder off the same turn footnoted it (11.88 against 10.79), so it is not in `top` there:
+  the turns before it carry different cues, so it sits at the margin of the bar either way.
+
+## 2026-11-14 — `standingOf` takes a `rank`
+
+The `(earlier: [a], [b])` pointers on a memory over two or more named them in pair order (newest
+pair first), whatever this turn reached. `standingOf` takes an optional `rank` now; the prompt-time
+render passes each candidate's activation, so the best-reached is named first; unranked ones keep
+pair order (stable). The wake and the by-id paths pass none. Facts mode's `earlier:` lines follow
+the same rule by score (`adapters/mcp/NOTES.md`, same date).
+
+## 2026-11-14 — a fold's part reads folded, not earlier (owner-approved that day, lightly held)
+
+A dream fold settles each part `changed` (source `fold`), and every label read it as replaced:
+`Earlier (now [fold])`, `(earlier: …)`, `earlier (now …)`. For a standing rule folded into a dated
+snapshot that is false. Render only: `foldedOver` (the newest standing settle over a memory is a
+fold's) turns the part's mark into `Folded into [id]` / `folded into id`; the fold's suffix names
+its parts `folds in [ids]`, apart from real earlier versions. `earlierMark(head, folded)` carries it
+to the write neighbours, the dream and reflection bundles and meaning mode. A part changed again
+for real later reads earlier as before. Nothing else moves: parts still fade and still count as
+not current. `FOLD_SOURCE` lives in `core/types.ts` now (recall → reconsolidation would cycle).
+Check later whether sessions treat folded parts as still holding.

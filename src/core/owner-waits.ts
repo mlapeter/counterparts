@@ -21,15 +21,22 @@
  *   - PARKED: after the last step, the item parks: out of the wake, still
  *     listed (marked parked) under `recall "still open"`. Not closed.
  *   - ANSWERED: a revision of the item (its `revision`, a handoff's `version`)
- *     starts the chain again; an item no longer `asked` or no longer open is no
- *     longer a candidate at all.
+ *     starts the chain again; an item no longer open is no longer a candidate
+ *     at all, and its chain is dropped at the next raise written. An `asked`
+ *     mark only decides which door says it (the mention, or a "Still open"
+ *     line on the roads where `asked` items are lines).
+ *   - STILL OPEN'S LINES (the putty, 2026-11-13): every open memory listed as a
+ *     line of the lane is raised on the same chain (`noteLaneShown`), listed
+ *     only on its steps (`laneState`, no week floor), and parks after the last.
+ *     With no chain at all (an upgrade, or one the bound let go) an item
+ *     untouched `OPEN_CARRY_DAYS` lived days is parked, a fresher one new.
  *
  * Meta and events only: no store-format change. Never throws: a chain that
  * won't read is an item never raised (it may be raised again), never one hidden.
  */
 import { everydayFactor, informativeness } from "./recall/cues.js";
 import { TUNABLES as RECALL_TUNABLES } from "./recall/tunables.js";
-import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
+import { SELF_TUNABLES, WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import { tokenize } from "./store/index.js";
 import type { Store } from "./store/index.js";
 import { stemTerm } from "./store/stem.js";
@@ -98,18 +105,124 @@ export function waitState(days: readonly number[], today: number, steps: readonl
 }
 
 /**
- * THE OPEN MEMORIES PARKED BY THE BACKOFF on lived day `today`: their chain is
- * at the row's current `revision`, the row still `asked`, and every step is
- * waited out. Read by "Still open" (the wake and the handle), which lists them
- * parked. Never throws.
+ * "STILL OPEN"'S LINES FOLLOW THE SAME SCHEDULE (2026-11-13, the putty: a
+ * counterpart's own open questions were listed in every wake, and one subject
+ * was raised 11 times in 10 days). An open memory listed as one of the lane's
+ * lines is a raise (`noteLaneShown`), on the SAME chain and record as the turn
+ * lane's and the wake's mention, and is listed again only when the turn lane's
+ * steps let it through (3, 7, 14 lived days, no weekly floor), then parks.
+ * Listed all of the day it was raised on (the day latch), so every wake that
+ * day says it. Pure.
  */
-export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number): ReadonlySet<string> {
+export type LaneState = "list" | "waiting" | "parked";
+
+export function laneState(days: readonly number[], today: number, steps: readonly number[] = SHAPE.OWNER_RAISE_STEPS): LaneState {
+  if (days.includes(today)) return "list";
+  const st = waitState(days, today, steps, 0);
+  return st.kind === "due" ? "list" : st.kind;
+}
+
+/**
+ * THE OPEN THREADS WITH NO CHAIN THAT COUNT AS PARKED (review of #819): an
+ * open memory never raised at its current version (an upgrade, or a chain the
+ * record's bound let go) and untouched `OPEN_CARRY_DAYS` lived days or more
+ * (`Store#openThreadTouches`, the carry rule's own reading of a touch). Only a
+ * fresher one is "new". Decided at read time: no flag, no migration. Without
+ * this a store with hundreds of old open items would list a different few as
+ * new every day for weeks. Dated items are left to their date; an `asked` one
+ * is raised first (the carry rule never parks it either). Never throws.
+ */
+function unchainedParked(store: Pick<Store, "openThreadTouches" | "today">, record: RaiseRecord, today: number, rows: (id: string) => { readonly revision: number; readonly band?: string | null } | undefined): Set<string> {
   const out = new Set<string>();
   try {
-    for (const [id, c] of Object.entries(raiseRecord(store))) {
+    for (const f of store.openThreadTouches({ at: store.today() })) {
+      // An `asked` one is raised first, on any road (its mention, or its line), then backs off: never parked unseen.
+      if (f.dated || f.asked || today - f.touchedDay < SELF_TUNABLES.OPEN_CARRY_DAYS) continue;
+      const row = rows(f.id);
+      // A core memory being reconsidered keeps its own rule.
+      if (row === undefined || row.band === "identity" || raisesAt(record, f.id, row.revision).length > 0) continue;
+      out.add(f.id);
+    }
+  } catch {
+    /* none: listed, never hidden */
+  }
+  return out;
+}
+
+/**
+ * What holds an open memory out of "Still open"'s lines on lived day `today`:
+ * "waiting" (raised, its step not yet waited out: counted as more open),
+ * "parked" (every step waited out, or never raised and untouched a fortnight:
+ * `unchainedParked`), or null (listed). One record read for all. The caller
+ * exempts what keeps its own rule (a dated item, a core memory being
+ * reconsidered). Never throws: unreadable is listed, never hidden.
+ */
+export function laneHeld(store: Pick<Store, "getMeta" | "row" | "openThreadTouches" | "today">, today: number): (id: string) => "waiting" | "parked" | null {
+  let record: RaiseRecord = {};
+  try {
+    record = raiseRecord(store);
+  } catch {
+    record = {};
+  }
+  const old = unchainedParked(store, record, today, (id) => store.row(id));
+  return (id) => {
+    try {
+      if (old.has(id)) return "parked";
+      if (record[id] === undefined) return null;
+      const row = store.row(id);
+      if (row === undefined) return null;
+      const st = laneState(raisesAt(record, id, row.revision), today);
+      return st === "list" ? null : st;
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * RECORD THE LANE'S LINES AS RAISED (the putty, 2026-11-13): each id a
+ * delivered wake listed under "Still open" that is an open memory with no date
+ * of its own and not a core memory being reconsidered, through `noteRaised`
+ * (`via: "lane"`), so the day latch dedups it with any other raise that day.
+ * The caller has decided the wake was delivered to a session (not a night's
+ * own run, not observer). How many it raised. Never throws.
+ */
+export function noteLaneShown(store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "row" | "readProse" | "openThreadIds">, ids: readonly string[], at: { readonly day: number; readonly session: string }): number {
+  let n = 0;
+  for (const id of new Set(ids)) {
+    try {
+      const row = store.row(id);
+      if (row === undefined || row.type !== "memory" || row.band === "identity" || row.archived !== 0) continue;
+      const doc = store.readProse(id);
+      if (doc.meta["unresolved"] !== true || (doc.eventDate !== undefined && doc.eventDate.trim() !== "")) continue;
+      // Only a showing the schedule lets through counts: a bundle composed on an
+      // earlier day may still list one waiting its step, which is no step taken.
+      if (laneState(raisesAt(raiseRecord(store), id, row.revision), at.day) !== "list") continue;
+      if (noteRaised(store, { id, version: row.revision, kind: "memory", scope: row.origin_scope ?? null }, { day: at.day, session: at.session, via: "lane" })) n += 1;
+    } catch {
+      /* not raised: listed again, never hidden */
+    }
+  }
+  return n;
+}
+
+/**
+ * THE OPEN MEMORIES PARKED BY THE BACKOFF on lived day `today`: their chain is
+ * at the row's current `revision` and every step is waited out. Any status
+ * since the putty (2026-11-13): a lane line raised to the end parks as an
+ * `asked` item does. And an item with no chain that is a fortnight untouched
+ * and not `asked` (`unchainedParked`). Read by "Still open" (the wake and the handle), which lists them
+ * parked. Never throws.
+ */
+export function ownerParked(store: Pick<Store, "getMeta" | "row" | "openThreadTouches" | "today">, today: number): ReadonlySet<string> {
+  const out = new Set<string>();
+  try {
+    const record = raiseRecord(store);
+    for (const id of unchainedParked(store, record, today, (x) => store.row(x))) out.add(id);
+    for (const [id, c] of Object.entries(record)) {
       if (c.kind !== "memory") continue;
       const row = store.row(id);
-      if (row === undefined || row.status !== "asked") continue;
+      if (row === undefined) continue;
       if (waitState(raisesAt({ [id]: c }, id, row.revision), today).kind === "parked") out.add(id);
     }
   } catch {
@@ -126,9 +239,9 @@ export function ownerParked(store: Pick<Store, "getMeta" | "row">, today: number
  * Never throws.
  */
 export function noteRaised(
-  store: Pick<Store, "appendEvent" | "getMeta" | "setMeta">,
+  store: Pick<Store, "appendEvent" | "getMeta" | "setMeta" | "openThreadIds">,
   item: { readonly id: string; readonly version: number; readonly kind: "memory" | "handoff"; readonly scope?: string | null },
-  at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" },
+  at: { readonly day: number; readonly session: string; readonly via: "wake" | "turn" | "lane" },
 ): boolean {
   try {
     const seq = store.appendEvent({
@@ -143,8 +256,18 @@ export function noteRaised(
     const before = raisesAt(was, item.id, item.version);
     const { [item.id]: _old, ...rest } = was;
     const chain: RaiseChain = { version: item.version, days: [...before, at.day], kind: item.kind, ...(item.scope ? { scope: item.scope } : {}) };
-    // Newest last; past the bound the oldest go (only lets one be raised again).
-    const kept = Object.entries(rest).slice(-(SHAPE.OWNER_RAISES_KEPT - 1));
+    // A memory no longer open has nothing left to raise: its chain goes (review
+    // of #819: kept, closed items' chains pushed a parked item's out, and it came
+    // back as new). Then, past the bound, the oldest go; one let go that is a
+    // fortnight untouched reads as parked (`unchainedParked`), not new.
+    let open: ReadonlySet<string> | null = null;
+    try {
+      open = new Set(store.openThreadIds());
+    } catch {
+      open = null;
+    }
+    const live = Object.entries(rest).filter(([id, c]) => open === null || c.kind !== "memory" || open.has(id));
+    const kept = live.slice(-(SHAPE.OWNER_RAISES_KEPT - 1));
     store.setMeta(OWNER_RAISED_KEY, JSON.stringify(Object.fromEntries([...kept, [item.id, chain]])));
     return true;
   } catch {

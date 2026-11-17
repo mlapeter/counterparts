@@ -114,6 +114,22 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     carries `Strict-Transport-Security: max-age=31536000; includeSubDomains`, set once before routing, so the pages,
     redirects and the OAuth library's answers have it too (G1 L1). `includeSubDomains` on `app.counterparts.ai`
     covers only names under it, never the site at the apex or `www`.
+15a. **Another way in** (JS1, 2026-11-13): `Accounts.signUpWithIdentity` / `personByIdentity` make or find a person
+    by a non-email identity the caller has verified (not `email`, which stays the link's). It skips the spots, though its people still count in `spots().people`, so on a control database shared with email sign-ups they use those up (the
+    caller gates sign-up), returns a pending-delete person rather than making a second, and after an erase makes a
+    new one. The email path is unchanged.
+15b. **The morning share, as a product wants it** (2026-11-13, an experiment, lightly held): `AppOptions.shares`
+    (`"off"`) and `sharesPerWeek` are written into each store's `config.json` (the worker's night reads them there)
+    and handed to the store's own server. Absent: on, no cap, as before. The rule is `core/dream`'s. With
+    `nights: "first-chat"` the night runs in the person's chat, so its share words are written there before the
+    finish holds them.
+15c. **A host's evening and its wakes** (2026-11-16; defaults unchanged): `AppOptions.sessionTtlMs` reaches each
+    store's server, so a host that closes the evening hours later (the journal's ~03:00 night) still names a live
+    session; absent, 4 hours. `AppOptions.wakeBudgetBytes` is written into each store's `config.json` as
+    `injectionBudgetBytes`, so every `wake` is composed for its moment rather than delivered as the last published
+    bundle, and the worker publishes to that budget too; absent, no key, and wakes are delivered as published.
+    Under `storeClock` the worker child is handed the clock's offset (`STORE_CLOCK_OFFSET_ENV`) and opens its
+    counterpart on it, so it dates the store as its server does.
 
 ### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
 
@@ -199,6 +215,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
   - The src lane OL1d makes "auto on a hookless host spawns no night run" true in `src/` too, and makes launch refuse
     while dreaming is `off`.
 - **A store that already exists is never re-initialized.**
+- **Seams for a product on hosted** (JS1, 2026-11-13; defaults unchanged): `TenantsOptions.newStore` replaces
+  `startNewStore` for a store an open creates, `TenantsOptions.nights: "host"` leaves the first-chat night out of a
+  chat's wake (the host calls `dream` itself) and, since 2026-11-16, its handoff lines and "Open here now" too, and `AppOptions` passes both, and `storeClock`, through to `Tenants`.
 - **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
 
 ### Keys, backups, export, delete (step 5: `src/keys.ts`, `src/backup.ts`, `src/egress.ts`, `src/app.ts`)
@@ -237,6 +256,56 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       volume. A new recovery key re-seals every object at the next start.
     - The sidecar's configuration holds paths only. Its environment holds R2 credentials only (and `SSL_CERT_FILE`
       when set: the local drill's certificate).
+26b. **A host's own per-tenant databases** (2026-11-16; opt-in, default unchanged byte for byte):
+    `AppBackupOptions.tenantDatabases` (`main.ts`: `HOSTED_TENANT_DATABASES`, comma-separated) names SQLite files
+    relative to each tenant's dir (the living journal: `["app/app.sqlite"]`). Paths that leave the dir (`..`, absolute,
+    hidden) or are hosted's own (`store/`, `config.json`, `restored.marker`, `litestream*`, compared case-insensitively)
+    are refused at `createApp`. One whose folder resolves outside the tenant's dir (a symlink) is neither streamed nor
+    restored (`backup.host.outside`).
+    - Each is streamed by the same sidecar, under the store's own SSE-C key file, to `tenants/<storeId>/host/<path>/`,
+      inside the store's replica prefix: a delete's prefix delete takes it, `objectsLeft` counts it, and
+      `recover-keys`' proof reads it under the same key; start-over looks at the store's own objects only, and refuses while a listed host file is missing here
+      with a replica in the bucket (`restore <id>` first brings it back). A host file is checked before any folder is
+      made for it, and a file that is itself a symlink is refused too. Its
+      Litestream state is at `<tenant>/litestream-meta-host/<path>`.
+    - Listed only once its file exists, and never for a store waiting for a restore (`App.storeWaiting`, for the
+      product to check before making its file). A file made after sign-up is picked up by `Backups.refresh()` (written
+      and reloaded only when the configuration changed, and not before start-up releases its hold): the product calls
+      it after making the file, and the app's finish timer calls it every tick (10 minutes by default).
+    - Restored with its store by the restore CLI and `RESTORE_ON_BOOT`, the store's file LAST, so a restore cut short
+      leaves the store waiting. **A host database in place is never touched without `--force`** (it may be live):
+      only missing ones come back. `--force` moves one aside (`.pre-restore-*`, swept after a day), audited and logged
+      (`backup.host.set-aside`). A host database lost while its store's file stayed is not detected, and only a
+      point-in-time restore by hand brings it back (RUNBOOK).
+26c. **A host's own server-level databases** (2026-11-16; opt-in, default unchanged byte for byte):
+    `AppBackupOptions.serverDatabases` (`main.ts`: `HOSTED_SERVER_DATABASES`, comma-separated) names SQLite files
+    that belong to no one person, relative to the data root (the living journal: `journal/auth.sqlite`,
+    `journal/subscriptions.sqlite`). Each must be in WAL mode. Paths that leave the data root, or are in hosted's own
+    part of it (`control*`, `tenants/`, `keys/`, `scratch/`, `overrides/`, `litestream*`, `serving.*`, any case), are
+    refused at `createApp` and by `backupFromEnv`; one whose folder resolves outside the data root or into hosted's
+    own part (a symlink), or that is itself a symlink, is neither streamed nor restored (`backup.server.outside`).
+    - Streamed by the same sidecar under the CONTROL key to `<control base>host/<path>/` (`control/host/<path>/`;
+      `control/<key id>/host/<path>/` after a re-key), never meeting control's own replicas; Litestream state at
+      `<data root>/litestream-meta-server/<path>`. Listed once its file exists; `Backups.refresh()` and the finish
+      timer pick up one made later. An account delete never touches them.
+    - **The control re-key carries them** (`migrate-keys`): replicated and proven at the new base with control's
+      own, the old base's `host/` deleted with control's old replicas, and the abort deletes the new base's. A re-key
+      is refused, before anything is made, while one is missing here with a replica in the bucket, while a listed one
+      it can't carry (a link, dangling or not; a folder outside the product's part) has a replica, or while the old
+      base holds a replica the run doesn't name (`HOSTED_SERVER_DATABASES` unset for `migrate-keys`): the old base's
+      `host/` is deleted after the switch, so each of those would lose its only backup.
+    - **Restored with control** (`restoreControl`: `restore control`, `restore --all`, and `prepareVolume` at
+      `RESTORE_ON_BOOT`), BEFORE control's own files, so a cut-short restore leaves control missing and the start
+      refuses. **One in place is never touched without `--force`**; `--force` moves it aside (`.pre-restore-*`,
+      swept after a day) and says so (`backup.server.set-aside`, a line in the CLI's output and its log).
+    - A start with control whole and a server database missing **whose replica is in the bucket** refuses without
+      `RESTORE_ON_BOOT` (the product would make it empty and stream it over the backup) and restores it with it.
+      Missing with nothing in the bucket: the product's to make. Lost while serving: not detected (as 26b's last line).
+    - `CONTROL_ASIDE` (and `recover-keys --control-aside`) moves them with `control/`, into
+      `control.aside-<label>/server-databases/`: beside control databases that aren't the bucket's, they aren't either.
+      Into `control/` first, then the one rename, so the next aside finishes one cut short; never through a link.
+      `restore control` and `--control-aside` warn when `HOSTED_SERVER_DATABASES` is unset and the bucket has
+      server replicas under control. `-wal`, `-shm` and `-journal` names are refused as side files.
 27. **Delete is locked at once and erased after 24 hours, unless kept** (R6, Mike 2026-10-27; it replaced 10-26's
     "at once, everywhere" as the default, which stays as "delete everything now").
     - **The lock** (`app.ts#scheduleDelete`): the person and store turn `pending-delete` with `people.delete_after` (now
@@ -292,10 +361,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - the store leaves the sidecar, and the delete waits for the old Litestream child to EXIT (its last upload done);
     - the key file, the wrapped DEK, its R2 key objects (`.sealed`, and an old `.wrapped`) and the whole R2 replica prefix are deleted;
     - the tenant dir is removed;
-    - identities, sessions and links are deleted, and tombstones stay.
+    - identities, sessions and links are deleted, and tombstones stay (for 365 days: §31c).
 
-    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written, and it is never removed
-    (§31a). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
+    Before the key object goes, a tombstone `deleted/<storeId>` (the time, no PII) is written. It stays until the
+    account's tombstone rows are erased, 365 days after the erase (§31a, §31c). A test reads R2 right after the delete: nothing of the store is left, including a final flush the sidecar makes on
     its way out. The store turns `deleting` first, durably: start-up never gives it a new key, and a delete cut short
     (a crash, R2 down) is finished at start-up and on a timer. Both deletes ask for the typed address and a CSRF token.
 28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
@@ -424,6 +493,55 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     The restore CLI never restores a tombstoned store.
 31b. **No sidecar until start-up's restores are done** (`Backups.hold`/`release`): a pending delete finished at
     start-up writes the configuration but starts nothing.
+31c. **Account events and a deleted account's tombstone are kept 365 days, then erased** (AR1, Mike 2026-11-10;
+    `accounts.ts#RETENTION_DAYS`, `app.ts#pruneRetention`). The finish timer runs the pass once a day. With a sidecar (its
+    upload watch), a pass that left a tombstone waiting runs again at the next tick (ten minutes); without one, the next
+    day. Only a person who is `deleted`, past 365 days, with no store that isn't `deleted` is ever selected, and
+    `Accounts#forgettable` checks that again before any bucket call for them (a wrong selection never reaches
+    `removeStore`).
+    - Audit rows older than 365 days are deleted, a live account's or a deleted one's. The one exception: a deleted
+      store's `delete.backups` / `delete.leftovers` rows (§31a's leftovers pass reads them) stay while its tombstone
+      does, and go with it.
+    - 365 days after a deleted account's erase (`people.deleted_at`), it is forgotten:
+      - first, each of its stores' `deleted/<storeId>` markers is removed from the bucket;
+      - then, in one transaction, its remaining audit rows (naming the person or any of its stores), its `stores`
+        rows and its `people` row are deleted.
+      - No audit row records this, because it would name the person again.
+      - A marker that fails to go leaves the rows that name it, for the next pass.
+    - **What the marker guards.** It guards against one thing: an accounts database from before the delete coming
+      back, with the account active and its email (a restore after the sidecar was down at the delete).
+      - Every reader of the marker acts only on a store the accounts database calls live: start-up's
+        `tombstoned()`, the restore CLI, R5's mint (d), `start-over`, and `recover-keys`' skip.
+      - A restore brings back the bucket's LATEST upload of `accounts.sqlite`, however old it is, so the marker's
+        age alone proves nothing.
+      - So it goes only while uploads are proven to be landing (`UploadWatch#rose`: the accounts replica's TXID rose
+        in this process, and isn't stale since). The bucket's latest accounts database is then this one, written a
+        year after the delete went into it.
+      - The other way back, a copy on the volume (`control.aside-*`, `*.pre-restore-*`), is deleted at the first start a day or more later
+        (§31a). An older accounts database in the bucket's own history is gone within the 24 h purge's bound
+        (DESIGN §5.4: max(snapshot interval, retention), both 12 h, plus Litestream's unmeasured lag).
+      - Until uploads are proven, the marker stays, and so do the account's rows.
+    - **What the rows guard.**
+      - Store and person ids are 128 random bits made at sign-up (`id128`), so no id is ever reused.
+      - An invite's uses are counted on the invite, so nothing reads `people.invite_id` after sign-up.
+      - The `stores` row is §31a's index of deletes that may have left something in the bucket. So the row goes
+        only once the bucket is proven to hold nothing of the store (`objectsLeft` = 0, the key objects and the
+        replica). A leftover is erased first with the delete's own `removeStore`, then checked again.
+      - Without that check, a delete made with backups off would leave a key object and a replica that nothing
+        ever looks for again, and `recover-keys` would bring that key back.
+    - **Backups off:** there is no bucket to prove anything against, so tombstones wait. Audit rows still go.
+    - **Backups:** an erased row lasts in the control database's backups at most about 24 h more (the 24 h purge's
+      bound). So while uploads land and the bucket answers, "12 months" means 365 days, plus up to a day for the
+      pass, plus about a day for the backups. While uploads are stale or R2 is down, a tombstone waits as long as
+      that lasts. With backups off (or no sidecar), a tombstone is never erased. A waiting pass writes no audit row
+      (it would name the person). It logs counts and codes only: `retention.failed code=r2|leftover|forget`, and
+      `retention.waiting n=<count>` when the count changes.
+    - `signups`' weeks count tombstones, so a week more than 365 days old loses those who later left and were
+      forgotten.
+    - **`client_use` (oauth.sqlite) isn't pruned.** It holds no person: just a client id and when someone first
+      allowed it. It is the flag that keeps a once-allowed client from the DCR sweep (§35), and the open backfills
+      it from live grants. Pruning it by age would sweep clients still in use, held back only by the
+      belt-and-braces check.
 32. **A store that lived and lost its files waits for a restore.** `stores.opened_at` (in the replicated control
     database) records the first open, and every start marks each live store whose database is present (a database
     from before the column heals). A store opened before whose DATABASE FILE is missing (a dir left behind by a
@@ -433,6 +551,13 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     reached the bucket has a way out: `main.ts start-over <storeId>`, refused while the bucket holds any replica of
     it or its tombstone, or while its account is set to be deleted (R6). It's safe against the running server: the store's first open after it gets its key and a
     place in the sidecar's configuration then (`Backups.inConfig`), not at the next restart.
+    - **Account delete works whatever the restore state** (2026-11-16, tested): `deleteAccount`, the account page's
+      delete and a pending delete's erase never open the store, so a waiting store is deleted like any other, its
+      replica (if any) with it. A start says which waiting stores have nothing in the bucket to restore
+      (`StartReport.waitingEmpty`; audited `store.waiting.empty`, logged `store.waiting-empty` by tag).
+      `App.nothingToRestore(storeId, rel?)` answers the same for a product's own door (replica objects only, one
+      LIST; with `rel`, one of its `tenantDatabases`). With backups off it answers FALSE and the start says nothing:
+      with no bucket to look in it can't tell, and "can't tell" never reads as "nothing to lose".
 33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
     key, and (with backups on) the sidecar is up or reloading AND uploads are landing. Otherwise it answers `503`.
     The body is the check names and their words (`ok`, `off`, `down`, `starting`, `stale`): no id, no key, no

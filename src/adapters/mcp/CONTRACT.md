@@ -157,9 +157,15 @@ actually wrote (chapter), the written self page or the version a write to it pro
    model to set salience, so silence is the common case, and a mechanism that only works
    when the model remembers to speak is the same class of gap this guarantee exists for.
    An author's own **dimensions** (relevance, emotional, predictive) may be given per note
-   and per session-end entry; they reach the row exactly as written, an out-of-range one is
-   refused by name rather than clamped or dropped, and `novelty` remains unclaimable —
-   prediction error is measured, never asserted.
+   and per session-end entry; one in range reaches the row exactly as written, and `novelty`
+   remains unclaimable — prediction error is measured, never asserted. Since 2026-11-13
+   (the write tools fail open, §6d″) a dimension, like every optional field, is **dropped
+   and said, never refused by name**: a number sent as text is read; one out of range is
+   never clamped — read on a 0-10 or 0-100 scale (7 as 0.7, 70 as 0.7) and echoed in
+   `readAs`, or, negative or past 100, dropped and named in `dropped` along with one that is
+   no number — the memory kept either way. (It was refused by name before, on the ground
+   that a dimension quietly vanishing is worse than one never offered; it is not quiet now,
+   and the refusal cost the memory.)
 
    **Stated ⇒ mechanized; mechanized ⇏ stated (2026-10-11, the context-trims lane).** A
    description is loaded into the model's context every time its tool is (`session_end`
@@ -185,7 +191,10 @@ actually wrote (chapter), the written self page or the version a write to it pro
      memory habituated (an experiment since 2026-10-19; check ~10-22).
    - `recall`: the bookkeeping a call writes; what facts mode considers and how it ranks;
      the count header and paging; the bounded answer; every
-     memory's provenance; observer stand-down.
+     memory's provenance; observer stand-down; and since 2026-11-13 what a journal chapter
+     is (a facts answer and an ids or handle read mark and gloss one themselves; meaning
+     mode's own claim says its answer is chapters), moved when `recall` began loading up
+     front (below).
    - `chapter`: the journal's gate; earlier states kept on revision; observer stand-down;
      `drewOn`'s credit.
    Most are also guarantees elsewhere in this section (1, 4–6, 12, 16, 6b–6f) or in the
@@ -204,6 +213,30 @@ actually wrote (chapter), the written self page or the version a write to it pro
    read-only, their writes being bookkeeping) and its own `delete_memory` (`CLAUDE_AI_DELETE`,
    destructive), which carries `remember`'s `remove` there, so `remember` only adds. The test now
    holds served = none and engine = the base's rows.
+   **`recall` loads up front on Claude Code (2026-11-13).** Claude Code defers MCP tools behind
+   its tool search unless a `tools/list` entry carries `"_meta": {"anthropic/alwaysLoad":
+   true}`, and cuts an up-front tool's description at 4,096 characters (its docs, MCP page,
+   "Scale with MCP tool search"; 4,096 from 2.1.296, read in the 2.1.323 binary, and 2,048
+   before). `ToolSpec.alwaysLoad` marks `recall`; `toolDefinitions` emits the key for a
+   Claude Code client only (`servesAlwaysLoad`, by host: not Desktop, not claude.ai), since
+   the key is Claude Code's and Desktop's and claude.ai's copies spread the same spec. Its served claims were tightened
+   to fit (4,606 → 3,846 characters), the journal claim moved to the engine rows, and
+   `test/description-cut.test.ts` holds every flagged tool at 4,096 or under and the key on
+   `recall` alone, over the server's own `tools/list`.
+   **And every host serves no claim but `recall`'s (2026-11-13, trim PR 2, owner-approved).**
+   Every other tool's claims — Claude Code's and Desktop's too, and Desktop's `wake` — are
+   its `engine` rows, still mechanized and audited; what one said that changes a call is said
+   on its field, in the result (`dropped`, `readAs`, `neighboursHint`, `reminder`), in the
+   Stop ask, the wake or the night's prompts, or in the manual's "Fields" section (recall
+   "manual fields"). The field words are a line each, and the write tools publish strings
+   for `feelings`, `feelingsNow` and `traits` (traits on `remember` only), no
+   `relevance`/`emotional`/`predictive` and no old feeling-object fields, and no
+   `additionalProperties: false` — every old shape is still read (§6d″). The ten tools on
+   Claude Code went from 90,686 to about 26,300 characters; Desktop's 93,867 to about 27,600;
+   claude.ai's 40,203 to about 26,300, its `CLAUDE_AI_TRIM` retired down to what is false or
+   missing there. `recall` keeps its served claims until trim PR 3. The remember claim the
+   fail-open PR made false is reworded as engine rows: an unreadable `eventDate` is dropped
+   and said, not refused; a dimension on a 0-10 or 0-100 scale is read, not stored as given.
 3. **[M] Every tool carries an admission test and at least one named negative example** in
    its description, plus an engine-side check wherever the rule is safety-relevant
    (scar §2.16 — v1's `thread.open` shipped with no criteria and produced 33 opens and zero
@@ -322,7 +355,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `WRITE_UP_CLAIM_MS`); while another session's claim is young, a fetch or an answer
     from here is refused `claimed`, and the SessionStart pointer passes the subject over.
     An ordinary writer lets its claim go when its part comes back. **ANSWER**
-    (`writeUp` with `memories`) deposits for the part last fetched; an EMPTY batch is a
+    (`writeUp` with `memories`; one object, a JSON string of a list or text is read as
+    `session_end` reads it, `server-args.ts#readMemoriesList`, and said in `readAs`)
+    deposits for the part last fetched; an EMPTY batch is a
     real answer — nothing worth keeping — and closes the part without minting. The last
     part's answer marks the ended session's words here as kept (coverage), then marks it
     written up through B3's seam (`remember/write-up-seam.ts#recordWriteUp`, `by:
@@ -340,7 +375,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
     `live-session` (this session's own id included), `other-project`,
     `already-written-up`, `owes-nothing` (with `why`: below-threshold, answered, no-text),
     `not-asked` (a fetch it was not pointed at, memories before a fetch), `wrong-part`,
-    `part-already-written`, `memories-required` (present and not a list),
+    `part-already-written`, `memories-required` (present and not readable as a list),
     `nothing-landed` (every entry of a non-empty batch refused; a duplicate counts as
     landed), `part-not-landed` (a memory of this part threw and the same memories can come
     back: what landed stands and the part stays open; on a last part where one landed its
@@ -436,6 +471,12 @@ actually wrote (chapter), the written self page or the version a write to it pro
     calendar day) tells that conversation to run the night, then answer, or to ask
     first on `ask`; no other wake is told while that claim holds (a later one only if the
     night was never run, after `ABANDONED_AFTER_MS`, at most `RELAUNCHES_PER_DAY` times).
+    `nights: "host"` (JS1, 2026-11-13; absent: `first-chat`, unchanged) is for a host that
+    runs nights itself: the chat wake carries no night line and claims nothing. Since
+    2026-11-16 (journal finding 18) its wake also reads no handoff and names no other open
+    session: no "No handoff here", "Handoff, …" or "Last handoff" line, no "Open here now"
+    (`WakeHere.withoutHandoffs`). The rest of the wake, the `dream` tool and
+    `session_end`'s handoff field are as before.
 21. **[M] Desktop's server serves a Code-tab session that names itself** (2026-10-01).
     Measured: in Desktop's Code tab the `counterparts` tools the model calls are Desktop's
     server (same name, shadowing the session's own). So a Desktop call whose `session`
@@ -570,6 +611,56 @@ the eventDate is dropped and said in `facts.dropped` (`server-args.ts#doneDateAs
 A date ending after today, a repeat and a revision are left as they were; `prospective/`
 keeps a done row dated today or earlier out of Coming up whichever way it was written.
 
+## 6d″. The write tools fail open (2026-11-13, owner-approved that day)
+
+`remember` and `session_end` are the only road from conversation to memory, so an optional
+field never costs the memory. **[M]** Each `remember` call and each `session_end` entry
+(write-ups included) is cleaned before any reader sees it (`server-args.ts#normalizeMemoryFields`):
+- **Kept always:** the content. The content-level refusals stand: no text, the stub floor,
+  a duplicate, a credential alone, a size limit.
+- **Read and said** (`readAs: [{field, sent, readAs}]`): enum synonyms for kind, how, remind,
+  recurring, about, saidBy and status — only words that mean the owner in this tool's
+  vocabulary read as owner ("user", "the user", and "them" for `about`), never a third
+  person ("her", "him", "they", a name: dropped); `text` and `content` as one field, a list
+  of strings joined as lines; numbers sent as text; a 0-1 number sent out of 10 or 100,
+  read on that scale (never clamped); `eventDate` and `occurredOn` written as words ("next
+  Friday", "Oct 15", "late October", "in two weeks", "yesterday", "this morning", "friday
+  at 3pm"), or as an instant, read by `core/time.ts#readLooseDate` against the server's day
+  in the store's zone (an instant with a zone is its day in the store's zone; a datetime
+  with none is the day it names, never read in the server's zone), the field's whole value only (never a date out of the memory's
+  text), no further than 10 years ahead or 100 back; `remove` given as an id; trait pole
+  words ("bold — what showed it", `{toward}`) to their axis; feelings as strings ("self:
+  relieved — the test passed"; whose defaults to self; "happy, sad" is two) or one string
+  where the list goes; a session_end entry sent as a string, and `memories` sent as one
+  object, a JSON string of a list or of one object, or a string — on an ordinary
+  `session_end` and a write-up's answer alike. Text that starts like JSON (`[` or `{`) and
+  does not parse as a list or an object is not read: `memories-required`, nothing kept, a
+  write-up's part left open, and a handoff sent beside it still lands.
+- **Placed:** a feeling with no core whose word is off the wheel takes a core from, in
+  order, the thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`), an "-ing" form of a
+  wheel participle or a core, a typo-shaped misspelling of a wheel or thesaurus word (two
+  letters swapped, one doubled or undoubled, and from 9 letters one dropped or added inside
+  the word; never a substitution; ordinary words found one slip away listed in
+  `NOT_SLIPS`) (`server-args.ts#placeFeelingWord`), or the embedder when one is live and
+  sure (cosine ≥ 0.60 to a core's centroid and 0.15 ahead of the runner-up). The writer's
+  word is kept as theirs (`other` + `other_word`). Never a guessed core.
+- **Dropped and said** (`dropped: [{field, reason, sent?, note?}]`): whatever still cannot
+  be read — one feeling or one trait alone, never its siblings; a repeat beside a date that
+  is not one day (the date kept); a malformed side operation (`core`, `remark`, `remove`,
+  `settle`, `feelingsNow`) sent beside text (the text stored; alone, it is still refused by
+  name, there being nothing to keep). On claude.ai, `remove` beside text deletes nothing and
+  keeps the text.
+  Every drop carries a `note` saying what to send instead. A done memory's passed
+  `eventDate` kept as `occurredOn` is not a drop: only `facts.dropped` says it.
+- **Counted:** a remember or session_end call in which something was refused or dropped
+  leaves one durable `mcp.write` row: entries refused by reason code, fields dropped by field
+  and code (read off each answer's own `dropped`, the same way for both tools), how many
+  values were read as something else, and the feeling words nothing placed — each one plain
+  lower-case word of at most 20 letters, else `(phrase)`. A call whose values were only read
+  as something else leaves no row. The `mcp.session_end` log line carries one count per
+  refusal code. Codes, counts and those words only.
+`remember/intake` stays strict; the cleaning only ever hands it what it takes.
+
 ## 6d'. Tags (2026-10-21, schema v14, wave 2 lane B)
 
 **[M]** `remember` and each `session_end` entry (write-ups included) take an optional
@@ -681,7 +772,43 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   ("$5-10"), or a fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
   still January 2); one written with a leading zero ("09-28 minutes") is a date. A range
   of days or weeks ago ("3-4 days ago", "two or three weeks ago") covers both ends
-  (review of #345). "Around the X"
+  (review of #345). A RANGE of days (2026-11-13) is one window, exact: "between 12 and
+  18 October", "from 12 October to 18 October", "Oct 12-18", "12-18 October", "the 12th
+  to the 18th of October", "10/12 to 10/18" (a bare day takes the other end's month;
+  yearless, the first end's year as a date alone and the second the next time it comes
+  round, so a range across the new year ends in January; a year roll longer than 62 days
+  is no range; a bare second day ends a range only before the text's end, punctuation
+  or a year, so "Oct 5 - 12 attendees" is October 5; a bound word in front bounds the
+  range, "by 10/12-10/18" through 10-18); before, one end alone was read ("between 12 and
+  18 October" was 10-18, "from 12 October to 18 October" was 10-12, "Oct 12-18" was
+  December 18). Forward words (2026-11-13):
+  "tomorrow", "the day after tomorrow", "this weekend", "next week" (next Monday to
+  Sunday), "next month", "the coming week" / "the week ahead" / "the next week" (today and
+  the seven after), "the next N days", "the next month" (rolling); a window still to
+  come does not stretch, and filters only what carries a date: a match with neither an
+  event date nor a reminder date stays, ranked after those inside (review of #815).
+  "This week" and "this month" end today, as before.
+  "Upcoming", "next Saturday" and "this Saturday" are not read. **A window whose days as
+  asked run past today, or that is today alone, also takes a memory by its reminder
+  date** (`event_date`;
+  2026-11-13, lightly held) when that date falls in the window's days as asked
+  (unstretched), from today on: a repeat by its occurrence there (`occurrenceBetween`,
+  as the wake finds it), an occurrence closed as done skipped for the next; a one-off
+  marked done whose date is today (`prospective/derive.ts` "done"), or due today and
+  said done by a newer memory (the wake's `happenedAlready`, fenced to the asking
+  folder), is not taken, nor the earlier version of a `changed` pair (a reminder moved
+  out of the window is not in it). Asked as only time, such a window lists by date.
+  Asked with topic words, the reminders due in it that no way reached follow the page
+  under `also due in this window (N), not matches (open any by id):`, one line each
+  (`- <title> · due Thu 10-15[, every Tuesday] · mem_…`), by date, at most 10 and `+K
+  more`, from `Store.datedMemories` and the repeats through the same `dueIn` rules and
+  visibility; never in `matched` or `ids`, never credited, never a match on any page, a
+  near-duplicate left out, or a version folded under one (review of #817); a day-dated
+  reminder first by date, then month and range ones (a month reads `due in October`);
+  page 1 only; dropped first when the answer runs out of room (2026-11-13). The
+  line says `due <date> (in the window by this date)`. A window wholly in the past or
+  otherwise ending today ("this week"), an open end ("after 7/22"), an anchor, a clock time and a soft word read no
+  reminder dates: past-only questions answer as before. "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
 - **[M]** **Soft time words do not filter** (2026-10-20, from the benchmark loss read;
@@ -697,7 +824,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   (the chapter, labeled journal); near-duplicates (token overlap ≥ 0.85) are left out and
   counted; the self page and handoffs are never results.
 - **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
-  | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
+  | due <date> | no event date` (`due` is the reminder date, 2026-11-13: a repeat's
+  occurrence with `, every Tuesday`; beside `happened` only when it is another day; "no
+  event date" only when it has neither, since a memory with a reminder date read as
+  having none); `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
   (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
   current one in); corrected ones never results, but named under the one that corrected
   them — `corrected (was wrong): "…" (learned <date>), corrected <date> · mem_…`, the
@@ -773,6 +903,16 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   `recent: true`" (replaced by the time filter and the session anchor); "a question about
   feeling is answered from the feelings recorded on memories" (meaning mode's now);
   "considered is reported beside `consideredCap`" (the count header replaces it).
+
+## 6g. The host's morning-share setting (2026-11-13, an experiment, lightly held)
+
+`openServer`'s `shares` / `sharesPerWeek` go to `Counterpart.open`; the stdio entry point
+(`bin/serve.ts`, where the night's reflection finishes) and `remote/bin/serve-http.ts` read
+them from the configuration's `shares` / `sharesPerWeek` (`config.ts#shareOptions`, lenient
+and quiet: anything but `"on"`/`"off"` and a number of zero or more is ignored). The reflect
+tool answers a held night with `share: {offered: false, reason: "host-off" | "weekly-cap"}`,
+and with shares off the wake carries no share offered earlier (`Reflections#carryLine`).
+The rule is `core/dream`'s (its CONTRACT, the share). Absent: on, no cap.
 
 ## 7. Open questions
 

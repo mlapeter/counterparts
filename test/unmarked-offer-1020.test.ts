@@ -391,11 +391,12 @@ describe("the tool text for about", () => {
         tool === "remember"
           ? (spec.properties["about"] as { description: string })
           : ((spec.properties["memories"] as { items: { properties: Record<string, { description: string }> } }).items.properties["about"] as { description: string });
-      expect(about.description).toContain("owner or us, so it reaches every folder");
-      expect(about.description).toContain("Work belongs to the folder it was written in (and the folders joined to it as one project), though sessions elsewhere may see its title.");
-      expect(about.description).toContain("counts as this folder's work and is shown only here — so mark the personal ones.");
+      // Shortened in trim PR 2; the whole rule (a skill unmarked is craft, work's title may be seen
+      // elsewhere) is the manual's "Fields".
+      expect(about.description).toContain("owner or us so it reaches every folder");
+      if (tool === "remember") expect(about.description).toContain("unmarked counts as this folder's work");
     }
     const chapter = (toolSpec("chapter")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];
-    expect(chapter?.description).toContain("stays with this folder, though sessions elsewhere may see its title");
+    expect(chapter?.description).toContain("work stays here");
   });
 });

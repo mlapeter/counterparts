@@ -150,9 +150,12 @@ describe("core by meaning: the about mark, not the kind", () => {
       expect(s.counterpart.store.read(id).aboutBy).toBe("writer");
       expect(s.counterpart.store.coreEvents({ memoryId: id, action: "about" })[0]?.actor).toBe("writer");
 
+      // Changed 2026-11-13 (write tools fail open): a made-up mark is dropped
+      // and said, the memory kept unmarked (it was refused `about-malformed`).
       const bad = await s.call("remember", { text: "A note with a made-up mark on it.", about: "core" });
-      expect(bad.isError).toBe(true);
-      expect(bad.structuredContent["reason"]).toBe("about-malformed");
+      expect(bad.structuredContent["stored"]).toBe(true);
+      expect(bad.structuredContent["dropped"]).toContainEqual(expect.objectContaining({ field: "about", reason: "about-unknown", sent: "core" }));
+      expect(s.counterpart.store.read(bad.structuredContent["id"] as string).about).toBeNull();
 
       const ended = await s.call("session_end", {
         session: SESSION,

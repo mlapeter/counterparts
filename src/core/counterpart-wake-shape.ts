@@ -58,7 +58,7 @@ import { readSentinel, settledOver } from "./self/index.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "./self/tunables.js";
 import type { WakeDelivery, WakeResult } from "./self/index.js";
 import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } from "./self/work.js";
-import { addDays, ageWords, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
+import { addDays, ageWords, daySpan, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
 import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS } from "./prospective/index.js";
@@ -70,7 +70,7 @@ import { happenedAlready, lastNightAt, sinceLastNight } from "./counterpart-wake
 import { SET_DOWN_HANDLE, SET_DOWN_TOLD_KEY, contentWords, lineOnPage, nightSetDowns, preparePage } from "./self/set-down.js";
 import type { PreparedPage } from "./self/set-down.js";
 import type { NewsItem } from "./counterpart-wake-news.js";
-import { NO_TERMS, noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
+import { NO_TERMS, laneHeld, noteRaised, ownerParked, raiseRecord, raisesAt, sharedWeight, termsOf, touches, waitState, weighMany } from "./owner-waits.js";
 import type { TermWeights } from "./owner-waits.js";
 import { hashText } from "./store/prose.js";
 
@@ -128,10 +128,30 @@ export interface ShapedWake {
 /** Sentence ends, as handoff/ reads them. */
 const END = /[.!?](?=\s|$)/g;
 
-function firstSentence(s: string): string {
+/**
+ * A full stop that ends a common abbreviation or a lone initial, not a sentence
+ * (2026-11-16, journal finding 17: "a stress test with Dr. Okafor at 9:30." read
+ * "a stress test with Dr."). Case-sensitive, so "said no. Then" still ends;
+ * "No." only before a number ("No. 5"); a lone capital only after a space or
+ * the start ("J. Smith", not "FBI."), and never "I" ("so did I. Then").
+ */
+const ABBREV_BEFORE = /(?:^|[\s("'“‘])(?:Dr|Mr|Mrs|Ms|St|Jr|Sr|Prof|Mt|vs|etc|[Ee]\.g|[Ii]\.e|[ap]\.m|[AP]\.M|[A-HJ-Z])$/u;
+const NUMBER_ABBREV = /(?:^|[\s("'“‘])No$/u;
+
+/** Not a sentence's end: the "." after an abbreviation or an initial. */
+function abbreviationAt(s: string, dot: number): boolean {
+  if (s[dot] !== ".") return false;
+  const before = s.slice(0, dot);
+  if (ABBREV_BEFORE.test(before)) return true;
+  return NUMBER_ABBREV.test(before) && /^\s+\d/u.test(s.slice(dot + 1));
+}
+
+export function firstSentence(s: string): string {
   END.lastIndex = 0;
-  const m = END.exec(s);
-  return m === null ? s : s.slice(0, m.index + 1);
+  for (let m = END.exec(s); m !== null; m = END.exec(s)) {
+    if (!abbreviationAt(s, m.index)) return s.slice(0, m.index + 1);
+  }
+  return s;
 }
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -444,7 +464,9 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   // The handoffs in the order the wake tells them (WK3): a stale wait on the
   // owner sinks, and a week-old one nothing refers to isn't listed.
   const sunkIds = new Set<string>();
-  const hs: readonly Handoff[] = scope.length === 0 ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now, reader, sunkIds), []);
+  // A host with no use for handoffs (`WakeHere.withoutHandoffs`) reads none.
+  const noHandoffs = here?.withoutHandoffs === true;
+  const hs: readonly Handoff[] = scope.length === 0 || noHandoffs ? [] : safe(() => handoffsTold(cp, cp.handoffs.readAll(scope), hereFolders, now, reader, sunkIds), []);
   const newest = hs[0];
   const newestAt = newest === undefined ? null : safe(() => cp.handoffs.writtenAt(newest), null);
   const chaptersHere: readonly ChapterHere[] = scope.length === 0 ? [] : safe(() => cp.chaptersHereFor(scope, null, cp["chaptersInWindow"](day)).map((f) => f.chapter), []);
@@ -501,6 +523,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const later = scope.length === 0 ? null : safe(() => sinceHere(cp, scope, since, { handoffSession: newest?.session ?? null, handoffAt: newestAt, reader, lead: lead5, chapters: chaptersHere, skip: cueIds, folders: hereFolders, closing: sunkClosing }), null);
   const sinceAged = (later?.items ?? []).map((s) => ({ ...s, age: ageOf(s.chapter ? s.at : Math.min(s.at, factAt(s.id))) }));
   const open = safe(() => cp.self.stillOpen(day, cp["threadReader"](here?.scope, here?.exportsFrom), ownerParked(store, day)), { items: [], parked: 0 });
+  const lane = safe(() => laneHeld(store, day), (_id: string) => null as "waiting" | "parked" | null);
   const folders = ourFolders;
   const rule = { craftTravels: cp.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(store) };
   const openRows = open.items
@@ -594,14 +617,16 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const leadLines = spareOn.has("folder") ? SHAPE.LEAD_LINES_SPARE : SHAPE.LEAD_LINES;
     const leadBytes = spareOn.has("folder") ? SHAPE.LEAD_BYTES_SPARE : SHAPE.LEAD_BYTES;
     const sinceLines = sinceAged.filter((s) => !claim.has(s.id));
-    const tail = here?.sessions === undefined ? null : openHereLine(liveHere, at, zone);
+    const tail = here?.sessions === undefined || noHandoffs ? null : openHereLine(liveHere, at, zone);
     // A sunk handoff said as Still open's ask isn't also its pointer line here (SO1 step 4: shown once).
     const olderPick = pickOlder(owed?.kind === "handoff" ? hs.filter((h) => h.id !== owed.id) : hs);
     const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number } => {
       const out = ["Where this folder stands:"];
       let leadSize = 0;
       let stepped: string | null = null;
-      if (newest === undefined) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
+      if (newest === undefined) {
+        if (!noHandoffs) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
+      }
       else if (stepDown) {
         const seat = seatOf(newest.body) ?? `session ${shortSession(newest.session)}`;
         stepped = `Last handoff, ${seat}, ${monthDay(newest.writtenOn)} (${ageOf(newestAt ?? startOfLocalDay(newest.writtenOn, zone))} old; ${plural(sinceSessions, "session")} here since${amongWords}): recall ${newest.id}`;
@@ -661,6 +686,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     while (size() > b && n.lead > 1) n.lead -= 1;
     if (size() > b && n.since > 0) n.since = 0;
     const lines = build(n);
+    // Nothing under the head (a host with no handoffs, nothing since): no section.
+    if (lines.lines.length <= 1) return { text: "", ids: [], items: 0 };
     const text = blockOf(lines.lines);
     if (byteLength(text) > b) return { text: "", ids: [], items: 0 };
     const shownOlder = olderPick.slice(0, n.older);
@@ -710,16 +737,31 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const again = ranked.filter((c) => retold.has(c.id));
     const folded = live.filter((c) => shownEarlier.has(c.id)).length;
     const rest = ranked.filter((c) => !c.plain);
-    const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => String(y.due).localeCompare(String(x.due)));
+    // Overdue by the day it became overdue: a range by its last day (2026-11-16).
+    const lastDue = (c: Cue): string => (c.due === null ? "null" : (daySpan(c.due)?.last ?? c.due));
+    const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => lastDue(y).localeCompare(lastDue(x)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
     const other = live.filter((c) => !saysHere(c));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
     const settlesWords = (c: Cue): string => (c.settles === null ? "" : ` · settles when ${flatten(c.settles)}`);
-    const dueLine = (c: Cue): string => `- Due today · ${c.plain ? c.body : c.title}${settlesWords(c)} [${c.id}]`;
+    // A RANGE (2026-11-16) says its span: due today on each of its days,
+    // overdue counted from its last, and later by both ends.
+    // A day is its own one-day span, and only a span of two days or more says both ends.
+    const spanOf = (c: Cue): { first: string; last: string } | null => (c.due === null ? null : daySpan(c.due));
+    const spanWords = (s: { first: string; last: string }): string => (s.first === s.last ? monthDay(s.first) : `${monthDay(s.first)}–${monthDay(s.last)}`);
+    const dueSpan = (c: Cue): string => {
+      const s = spanOf(c);
+      return s === null || s.first === s.last ? "" : ` (${spanWords(s)})`;
+    };
+    const dueLine = (c: Cue): string => `- Due today${dueSpan(c)} · ${c.plain ? c.body : c.title}${settlesWords(c)} [${c.id}]`;
     // Told in another session today: its title, not its whole body again (WK3).
-    const againLine = (c: Cue): string => `- Due today · ${c.title}${settlesWords(c)} [${c.id}]`;
-    const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
-    const laterLine = (c: Cue): string => `- ${c.due === null ? "Soon" : monthDay(c.due)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
+    const againLine = (c: Cue): string => `- Due today${dueSpan(c)} · ${c.title}${settlesWords(c)} [${c.id}]`;
+    const overdueLine = (c: Cue): string => `- ${c.due === null ? "Overdue" : `${plural(Math.max(1, daysBetween(spanOf(c)?.last ?? c.due, at)), "day")} overdue`} · ${c.title} [${c.id}]`;
+    const laterWhen = (c: Cue): string => {
+      const s = spanOf(c);
+      return c.due === null ? "Soon" : s === null ? monthDay(c.due) : spanWords(s);
+    };
+    const laterLine = (c: Cue): string => `- ${laterWhen(c)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
     const order: { c: Cue; line: string }[] = [
       ...plain.map((c) => ({ c, line: dueLine(c) })),
       ...again.slice(0, SHAPE.RETOLD_SHOWN).map((c) => ({ c, line: againLine(c) })),
@@ -735,7 +777,12 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const namedParts = otherPlain.length === 0 ? [] : [...otherPlain.slice(0, PLAIN_OTHER_NAMED).map((c) => `${c.folder === null ? "elsewhere" : placeWords(c.folder, among)}: ${short(flatten(c.title))}`), ...(otherPlain.length > PLAIN_OTHER_NAMED ? [`and ${String(otherPlain.length - PLAIN_OTHER_NAMED)} more`] : [])];
     const namedOther = namedParts.join("; ");
     // Overdue is said in other folders' count too (WK3): a count, never their lines (SO1 step 3).
-    const oldestOf = (cs: readonly Cue[]): string | null => cs.reduce<string | null>((o, c) => (c.due !== null && isDay(c.due) && (o === null || c.due < o) ? c.due : o), null);
+    // A range is overdue from its last day (2026-11-16): the date it is oldest by.
+    const oldestOf = (cs: readonly Cue[]): string | null =>
+      cs.reduce<string | null>((o, c) => {
+        const d = spanOf(c)?.last ?? c.due;
+        return d !== null && isDay(d) && (o === null || d < o) ? d : o;
+      }, null);
     const otherLate = other.filter((c) => c.past);
     const otherOldest = oldestOf(otherLate);
     const otherLateWords = otherLate.length === 0 ? "" : `${String(otherLate.length)} overdue${otherOldest === null ? "" : `, oldest ${monthDay(otherOldest)}`}`;
@@ -790,7 +837,13 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const openSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const cap = spareOn.has("open") ? SHAPE.OPEN_SHOWN_SPARE : SHAPE.OPEN_SHOWN;
     // What waits on the owner is said once, as `owed`, or not at all (SO1 step 4).
-    const carried = openRows.filter((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
+    const all = openRows.filter((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
+    // ON THE RAISE SCHEDULE (the putty, 2026-11-13; `owner-waits.ts#laneHeld`):
+    // a line listed on a day is raised, and listed again on its 3/7/14 steps;
+    // between, counted as more open. A dated item or a core memory being
+    // reconsidered keeps its own rule. Parked ones are already out (`ownerParked`).
+    const carried = all.filter((x) => x.i.date !== undefined || x.i.reconsidering === true || lane(x.i.id) === null);
+    const resting = all.length - carried.length;
     // A memory another section said is said; a sunk handoff's pointer line above isn't the ask, so it is still said here.
     const owe = owed !== null && (owed.kind === "handoff" || !claim.has(owed.id)) ? owed : null;
     const oweLines = owe === null ? [] : aged([{ text: owe.text, age: ageOf(owe.at), tail: owe.tail }]);
@@ -800,7 +853,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       tail: `${x.i.reconsidering === true ? " · a core memory being reconsidered" : ""}${x.i.settlesWhen === undefined ? "" : ` · settles when ${flatten(x.i.settlesWhen)}`} [${x.i.id}]`,
     });
     const render = (k: number): string[] => {
-      const more = carried.length - k;
+      const more = carried.length - k + resting;
       const door = more > 0 || open.parked > 0 ? `(${[more > 0 ? `${String(more)} more open` : "", open.parked > 0 ? `${String(open.parked)} parked` : ""].filter((w) => w.length > 0).join(", ")}; recall "still open")` : "";
       // Nothing open and nothing parked: no section (WF1), not "Nothing open."
       if (k === 0 && door === "" && oweLines.length === 0) return [];

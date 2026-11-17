@@ -103,5 +103,11 @@ documented here, not in the README or the user docs. Unknown `debug` keys are ig
 
 ## License
 
-Counterparts is MIT licensed. See [`LICENSE`](LICENSE). By contributing, you agree that your
-contribution is licensed under the same terms.
+Counterparts is source-available under the Business Source License 1.1; see [`LICENSE`](LICENSE)
+and the summary in the README.
+
+By submitting a contribution, you agree that it is licensed under this repository's license, and
+you grant Mike LaPeter a perpetual, worldwide, non-exclusive, royalty-free, irrevocable license to
+use, copy, modify, sublicense and distribute your contribution under any terms, including
+commercial licenses. You confirm the contribution is your own work, or that you have the right to
+submit it on these terms.

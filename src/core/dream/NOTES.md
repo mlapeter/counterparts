@@ -1491,6 +1491,64 @@ What it moves, on purpose:
   rested on so a line brought back can cite them. Set-down memories are night rows (`source: reflection`), so they
   never reach `core`, `candidates` or `felt`.
 
+## 2026-11-13 — the reflection is told the host's room; the night may be a day before yesterday
+
+An experiment, Mike's go, lightly held; check on the live store around 2026-11-18 (self NOTES, same date).
+
+- **The room.** The reflection's page line states the room through `pageWritingRule(form, this.ctx.pageRoom)`;
+  `ReflectContext.pageRoom` is the host's `selfTunables.PAGE_ROOM_BYTES`, wired by `counterpart.ts` beside
+  `pageWrites`, the same number `writePage` sends a page back at. Absent: the default, word for word as before.
+  The reflect tool's static `finish` description (`mcp/tools.ts`) still names the default.
+- **The night's day.** `self/writer.ts#pageWriterNight` may now be a day before yesterday, after empty days
+  (`NIGHT_LOOKBACK_DAYS`). The dream's day summary (`told`, `daySummaryFor`) reads it as before; the summary
+  is matched by session first, and the night holds that day through the run. The bundle's heading carries
+  the date, so it reads plainly either way.
+
+## 2026-11-13 — a host can hold the morning share (lightly held, an experiment)
+
+- The living journal (a product on hosted's `createApp`) saw a Haiku-run night share 7 times in a month, several
+  intrusive. Mike's ruling (11-13): build a host setting, lightly held. `shares: "off"`, or `sharesPerWeek: n`;
+  absent, today's behavior — the owner's own store shares every night and still does.
+- Decided once per finish, before anything that rides in a share (`Reflections#shareHeld`), and not for a
+  reflection that already offered one. The window is CALENDAR days (the coordinator's ruling in review): the
+  reflections dated in the 7 days ending on this night's date, in the store's zone. First built on lived days, like
+  other windows here, but to a host "per week" is a week, and lived days stand still while the person is away (the
+  reviewer's probe: away 30 days, still held). Counted by the night that wrote the share, not the day it was told.
+  A cap of 0 is the same as off (`host-off`). It counts every
+  share offered in it, told or not yet: first built to count only `told`/`carried`, but an offered share stays
+  deliverable (`pendingShare` finds the newest offered one however old, then the next), so "never told" can't be
+  told apart from "not told yet", and a week nobody woke would have offered every night and delivered the backlog
+  one per wake. A true delivery cap would gate the carry too; out of scope here. Held nights count nothing.
+- Every way a share gets offered goes through the same gate, not only the reflection's own words: a became-core or
+  re-label line, the closed line, the core line, a join proposal. A self-close is listed as "may be done" instead
+  of closing unsaid; a join is not proposed (it would rest as asked); a became-core line waits for a night that
+  may share (its "mentioned" mark needs an offered share). Not a retry: nothing the reflection could send again
+  changes the host's setting.
+- A held night must not change the self silently (CONSTITUTION §4, §16; the coordinator's ruling in review, for
+  Mike): a re-label into me, us or the owner and a core retire are deferred, not applied — the part comes back
+  `deferred-share-held` (not a retry) and `detail.deferred` lists them. The memory keeps its mark, the core memory
+  stays waiting, so a night that may share, or the waking session, can still act on it. A keep changes nothing and
+  stands. First built applying them with their line dropped.
+- Off, a share offered BEFORE the host turned shares off is not delivered after: `pendingShare` and `carryLine`
+  return nothing, and every delivery (the hooks, a chat host's wake, the dream's hand-back) goes through them. A
+  cap only stops new offers: an older offered share can still be delivered under it.
+- Still able to put a held night's words in front of the person, named, not fixed: the wake's night own-line
+  (`counterpart-wake-shape.ts#ownToldOnce`, the reflection's `line`), which no share setting reads; and on hosted
+  with `nights: "first-chat"`, the night runs in the person's own chat, so the model wrote its share there in
+  front of them before the finish held it. And `begin` still asks for a share and says `closeNow` closes tonight,
+  so a held night spends a little effort on words nobody hears.
+- Check after a few days on the journal: how many nights held, by reason (`detail.shareHeld`, written too when the
+  only thing held was a self-close), and whether self-closes piling up as "may be done" is a cost. Revisit or drop
+  freely.
+
+## 2026-11-14 — rulings stay out of folds (owner-approved, lightly held)
+
+"Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold" read
+as leave to fold a ruling (a standing "never" folded into a dated snapshot, fable-continuity sims).
+The prompt now says: never list a ruling (something the person said is always or never so) or a
+lesson as a fold's source; mention or link it instead. "earlier under the fold" became "folded in",
+matching recall's new label. Check later on a sim or the journal whether folds still take rulings.
+
 ## 2026-11-09 — a reader host's note about itself (CX2)
 
 - A belief candidate drops a reader host's note about itself from its sources, `nominate-core` refuses one

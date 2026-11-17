@@ -322,6 +322,19 @@ export interface RecallTunables {
    * no candidate is judged by it, and the row records the value used. CAL.
    */
   NEAR_MISS_MARGIN: number;
+  /**
+   * WHICH GATE REFUSED THE LOUD TIER (2026-11-13, observation only): at most
+   * this many unshown candidates on the `recall.decision` row's
+   * `loudRefusal.top`, closest to the gate that stopped each first. Read only
+   * to write the row; nothing is judged by it.
+   */
+  LOUD_REFUSAL_ROWS: number;
+  /**
+   * The `loudRefusal` field's size, serialized, in bytes: rows are dropped
+   * from the end of `top` until it is under this. Observation only. 600: five
+   * rows of ordinary ids with every number present, and the lead, fit.
+   */
+  LOUD_REFUSAL_BYTES: number;
 
   // ── an unsettled pair competes (2026-10-24, E3 — an experiment; check ~7 lived days) ──
   /**
@@ -817,6 +830,9 @@ export const TUNABLES: RecallTunables = {
   // LT2 part 1, 2026-11-09: timed, never decided by.
   STEP_TIMING: true,
   NEAR_MISS_MARGIN: 0.1,
+  // 2026-11-13: written, never judged by.
+  LOUD_REFUSAL_ROWS: 5,
+  LOUD_REFUSAL_BYTES: 600,
 
   // E3, 2026-10-24 (an experiment; check ~7 lived days after install). Revert:
   // `UNSETTLED_COMPETES: false` (nothing read, the turn exactly as before).

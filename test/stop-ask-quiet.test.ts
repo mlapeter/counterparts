@@ -577,10 +577,11 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // 01 C1's text, verbatim (2026-10-10, Group 1c): what caught your
     // attention, one idea each, not what is "worth keeping". The ratings
     // clause since 2026-10-14 (Mike's call, tracking only). What open means
-    // since 2026-10-22 (the open-threads brief: someone owes an answer).
+    // since 2026-10-22 (the open-threads brief: someone owes an answer; since 2026-11-13, trim PR 2:
+    // something is blocked).
     // The settlesWhen invitation since 2026-10-27 (F1, after S1).
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it; `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
+      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `unresolved` only when something is blocked (a decision you need from them, a promise, a dated check), plus `settlesWhen` if you can name what closes it; `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
         "2) Write chapter 3 with the counterparts chapter tool, session: SID.",
     );
   });
@@ -649,25 +650,23 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
   };
 
   test("the field detail the ask dropped is where the model reads it — inside the host's cut, or on the field itself", () => {
-    const served = renderDescription(toolSpec("session_end")!).slice(0, HOST_DESCRIPTION_CAP);
-    // Inside the 2,048 characters the host serves:
-    expect(served).toContain("`updates` is a FIELD");
-    expect(served).toContain("A salience you claim is a floor");
-    expect(served).toContain("An entry that claims no salience gets a default floor by what it is about");
+    const served = renderDescription(toolSpec("session_end")!);
+    // Since trim PR 2 the whole description is inside the cut, and serves no claim: what a claim
+    // said that changes a call is on the field (the floor rules are the engine's rows, audited).
+    expect(served.length).toBeLessThanOrEqual(HOST_DESCRIPTION_CAP);
+    expect(served).toContain("`updates` anything dated or open now done");
+    const engine = (toolSpec("session_end")!.engine ?? []).map((p) => p.claim);
+    expect(engine.some((c) => c.startsWith("A salience you claim is a floor"))).toBe(true);
+    expect(engine.some((c) => c.startsWith("An entry that claims no salience gets a default floor by what it is about"))).toBe(true);
     // On the fields themselves, which the host serves whole:
     const item = ["properties", "memories", "items", "properties"];
-    expect(fieldDescription("session_end", ...item, "updates")).toContain("A field — never written into `content`");
-    // The anchored scale, framed by attention (2026-10-10, Group 1c).
-    expect(fieldDescription("session_end", ...item, "salience")).toContain(
-      "how much this caught your attention, as you felt it — not what category it is",
-    );
-    expect(fieldDescription("session_end", ...item, "salience")).toContain(
-      "Their rulings, preferences and corrections stay high even about work",
-    );
+    expect(fieldDescription("session_end", ...item, "updates")).toContain("Id of a memory this revises");
+    // The scale, framed by attention (2026-10-10, Group 1c; the whole of it is the manual's since trim PR 2).
+    expect(fieldDescription("session_end", ...item, "salience")).toContain("how much it caught you; unset for routine");
     expect(fieldDescription("session_end", "properties", "memories")).toContain(
       "`[]` only when nothing happened since you last wrote",
     );
-    expect(fieldDescription("session_end", "properties", "handoff")).toContain("not a memory");
+    expect(fieldDescription("session_end", "properties", "handoff")).toContain("Not a memory");
     // The chapter's "short and true" is in its first screen.
     expect(renderDescription(toolSpec("chapter")!).slice(0, HOST_DESCRIPTION_CAP)).toContain(
       "a short true chapter beats a deep-sounding one",
@@ -791,7 +790,7 @@ describe("the one shape, end to end through the hook process", () => {
     // The settlesWhen invitation reaches the model through the real hook (F1),
     // spelled out here so a change to `OPEN_MEANS` cannot carry it away unseen.
     expect(String(feedbackOf(stop.stdout)["additionalContext"])).toContain(
-      "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise), plus `settlesWhen` if you can name what closes it;",
+      "`unresolved` only when something is blocked (a decision you need from them, a promise, a dated check), plus `settlesWhen` if you can name what closes it;",
     );
     expect(stop.stderr).not.toContain(STOP_ASK_OPENER);
     const refire = runHook(config, {

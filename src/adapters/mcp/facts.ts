@@ -24,7 +24,34 @@
  *   - **time** — a window the question names (`recall/time-ask.ts`) FILTERS:
  *     only memories inside it, by when the thing happened (`occurred_on`) or,
  *     with no event date, when it was learned (and the line says which), plus a
- *     count of the matches outside it. A question that is only time ("what
+ *     count of the matches outside it. A window that reaches past today ("next
+ *     week", "between 12 and 18 October" asked on the 11th), or is today alone,
+ *     also takes a memory whose REMINDER date (`event_date`) falls in its days
+ *     as asked (unstretched), from today on (2026-11-13, the wren findings' P5,
+ *     lightly held; `dueIn`): a repeat by its next occurrence there, the way
+ *     the wake's "Coming up" counts it, one closed as done skipped for the
+ *     next; a one-off marked done whose date is today, or due today and said
+ *     done by a newer memory (`happenedAlready`, fenced to this folder as the
+ *     wake's own read), is not still to come; nor an earlier version of a
+ *     `changed` pair (a reminder moved). Its line says `due <date> (in the
+ *     window by this date)`. A window wholly in the past or otherwise ending
+ *     today ("this week"), an open-ended one ("after 7/22"), an anchor, a
+ *     clock time and a soft word read no reminder dates. A window that starts
+ *     today or later and runs past it ("next week", "tomorrow", "the coming
+ *     week") FILTERS ONLY WHAT CARRIES A DATE (review of #815): a match with no
+ *     event date and no reminder date stays, after the matches inside it, so
+ *     "dinner with Sam next week" still finds the undated "dinner with Sam next
+ *     Thursday"; asked as only time, it lists by date, soonest first. Asked
+ *     with topic words, the reminders due in the window that the words and
+ *     the meaning did not reach follow the page as "also due in this window"
+ *     (2026-11-13, after #815; `alsoDueLines`): by date, a title each, one
+ *     line per memory (a daily or weekly repeat by its first occurrence in
+ *     the window), day-dated ones first by date then month and range ones (a
+ *     month reads "due in October"), never a match on any page or a
+ *     near-duplicate left out (review of #817), at most `FACTS_ALSO_DUE_SIZE`
+ *     and "+K more", page 1 only,
+ *     never counted, never in the answer's ids, never credited, the first
+ *     thing dropped when the answer runs out of room. A question that is only time ("what
  *     happened last week?") answers with everything in the window. An event
  *     anchor ("around the cut-over") is resolved by searching the phrase and
  *     taking the top match's date, shown in the header; "the last session" is
@@ -80,9 +107,15 @@
  *
  *   1. Gym moved to 6am · mem_… · words, subject
  *      you said · done · happened Mon 09-28
+ *        (no `occurred_on` and a reminder date: `· due Thu 10-15`, a repeat's
+ *        next occurrence with `, every Tuesday`; both, and they differ:
+ *        `· happened Mon 10-05 · due Thu 10-15`; neither: `· no event date`)
  *      learned 09-28 in ~/counterparts · session a1b2c3d4 · CURRENT
  *        (with another result on the same day: `learned 09-28 14:05 …`)
  *      earlier: "gym at 7" (learned 09-12), changed 09-28 · mem_…
+ *        (a part a dream fold gathered is not replaced: `part: "no shellfish,
+ *        ever" (learned 11-02), folded in 11-10 · mem_…`; shown on its own
+ *        it reads `folded into mem_…`, not `earlier — now`; 2026-11-14)
  *      corrected (was wrong): "gym on Tuesdays" (learned 09-10), corrected 09-11 · mem_…
  *      <the body whole when short, else a 300-character excerpt>
  *
@@ -116,6 +149,7 @@
  */
 import type { Counterpart } from "../../core/counterpart.js";
 import { sessionsHere } from "../../core/coverage/index.js";
+import { happenedAlready } from "../../core/counterpart-wake-news.js";
 import { chaptersOf } from "../../core/handoff/last-here.js";
 
 import {
@@ -124,6 +158,8 @@ import {
   earlierMark,
   everydayFactor,
   headOf,
+  foldedOverIn,
+  isFoldPair,
   informativeness,
   localKey,
   readTimeAsk,
@@ -131,9 +167,11 @@ import {
 } from "../../core/recall/index.js";
 import type { DayWindow, FeelingWhose, SemanticSource, TimeAsk } from "../../core/recall/index.js";
 import { STOPWORDS } from "../../core/recall/reference.js";
-import { stemTerm, tokenize } from "../../core/store/index.js";
+import { recurringWindowAt, withTunables } from "../../core/prospective/index.js";
+import { statusOf, stemTerm, tokenize } from "../../core/store/index.js";
 import type { ContradictionRow, RecallRow } from "../../core/store/index.js";
-import { addDays, daysBetween, localDate, localTime, parseCalendarDate } from "../../core/time.js";
+import { addDays, daysBetween, localDate, localTime, occurrenceBetween, parseCalendarDate, readableMonth, readableRecurrence } from "../../core/time.js";
+import type { Recurrence } from "../../core/time.js";
 import { UNBOUND_SESSION } from "../../core/types.js";
 import {
   RECALL_EXCERPT_CHARS,
@@ -195,6 +233,16 @@ export const FACTS_TAIL_SIZE = 20;
 export const FACTS_TAIL_TITLE_CHARS = 48;
 
 /**
+ * How many reminders "also due in this window" lists, by date, before saying
+ * how many more (2026-11-13): the wake's "Coming up" lists about as many. One
+ * line per memory, so a daily repeat is one line, not seven.
+ */
+export const FACTS_ALSO_DUE_SIZE = 10;
+
+/** A title in that list, cut here: longer than the tail's, since the title is all it shows (a reminder's day and hour live there). */
+export const FACTS_ALSO_DUE_TITLE_CHARS = 80;
+
+/**
  * SOFT TIME WORDS (2026-10-20, from the benchmark loss read; helps real recall
  * too; lightly held, revisit): with "lately" (`recall/time-ask.ts#SOFT_WORDS`)
  * nothing is filtered by date; a match inside the past week gains this share
@@ -221,11 +269,27 @@ export const FACTS_JOURNAL_GLOSS =
  * (bench 2788b940: the Zumba schedule 32nd of 76, 26th without it).
  */
 const ASKS_NOTHING = new Set([
-  "remember", "remembered", "recall", "tell", "happened", "happen", "happens", "decide", "decided",
+  "remember", "remembered", "recall", "tell", "happened", "happen", "happens", "happening", "decide", "decided",
   "anything", "something", "everything", "ever", "else", "did", "does", "do", "talk", "talked",
   "discuss", "discussed", "mention", "mentioned", "about", "whats", "who", "whom", "whose",
   "many", "much", "often", "typical", "typically", "usually",
 ]);
+
+/**
+ * A question about what has happened (second review of #815): under "today"
+ * it reads no reminder dates, so "what did I do today" answers as it always
+ * did. A closed list of past markers.
+ */
+const PAST_ASK = new RegExp(
+  "\\b(?:" +
+    [
+      "did", "didn['’]t", "happened", "was", "wasn['’]t", "were", "went", "done", "said", "decided", "finished", "worked",
+      "talked", "learned", "learnt", "wrote", "made", "had", "got", "spent", "ate", "met", "saw", "fixed", "changed",
+      "discussed", "mentioned", "told", "asked", "sent", "bought",
+    ].join("|") +
+    ")\\b",
+  "i",
+);
 
 /** The words only a facts question's own wording carries, never its content. */
 function contentTokens(text: string): string[] {
@@ -269,6 +333,12 @@ export interface EarlierVersion {
   readonly changed: string | null;
   /** A separate memory (a `changed` pair) has an id to open; an in-place version has none. */
   readonly id?: string;
+  /**
+   * A part a dream fold gathered (its pair's source is `fold`): shown as
+   * `part: …, folded in <date>`, never `earlier … changed` — the fold did not
+   * replace it (2026-11-14, `recall/standing.ts#foldedOver`).
+   */
+  readonly folded?: true;
 }
 
 /**
@@ -311,6 +381,15 @@ export interface FactItem {
   readonly reader?: string;
   readonly status: string | null;
   readonly occurredOn: string | null;
+  /**
+   * Its reminder date (`event_date`; a day, a month, a range or a year), as the
+   * line says `due <date>` (2026-11-13). For a repeat, an occurrence: the one a
+   * window still to come matched it by, else the next on or after today.
+   * Absent when it has none.
+   */
+  readonly due?: string;
+  /** How a repeating reminder comes round ("every Tuesday"); absent for a one-off. */
+  readonly every?: string;
   /** When it was learned, `YYYY-MM-DD` in the store's zone (a chapter: when first written). */
   readonly learned: string | null;
   /** A chapter's latest write, when later than `learned`. */
@@ -328,8 +407,12 @@ export interface FactItem {
   readonly current: boolean;
   /** For an earlier version shown on its own: the current one's id ("a later version" when this asker may not be told it). */
   readonly now?: string;
+  /** With `now`: a dream fold's part — `folded into <now>`, not `earlier — now` (`recall/standing.ts#foldedOver`). */
+  readonly folded?: true;
   readonly earlier: readonly EarlierVersion[];
   readonly earlierMore: number;
+  /** Of the hidden ones, how many are a fold's parts (`folded`): said `+N more parts`, apart (2026-11-14). */
+  readonly partsMore?: number;
   /** Corrected (wrong) versions of it: every one, named or not. */
   readonly corrected: number;
   /**
@@ -341,10 +424,16 @@ export interface FactItem {
   /** Pair labels besides earlier/corrected: disagrees with, unsettled. */
   readonly standing: readonly string[];
   readonly ways: readonly FactWay[];
-  /** Under a time window: whether its event date or (none recorded) its learned date put it there. */
-  readonly timeBy?: "event" | "learned";
+  /**
+   * Under a time window: whether its event date, its reminder date (a window
+   * reaching past today, `dueIn`) or (neither) its learned date put it there.
+   */
+  readonly timeBy?: TimeBy;
   readonly score: number;
 }
+
+/** What put a result inside the time window asked (`inWindow`). */
+export type TimeBy = "event" | "due" | "learned";
 
 export interface FactsTime {
   readonly cue: string;
@@ -379,6 +468,8 @@ export interface FactTailItem {
   readonly line: string;
   /** Its event date, else when it was learned (a chapter: when first written); null when none is known. */
   readonly date: string | null;
+  /** The window took it by its reminder date, which `date` then is (shown `due <date>`). */
+  readonly due?: true;
   readonly journal: boolean;
   readonly faded: boolean;
   /**
@@ -389,6 +480,8 @@ export interface FactTailItem {
    * review of #544).
    */
   readonly now?: string;
+  /** With `now`: a dream fold's part, marked `folded into …` (`earlierMark`). */
+  readonly folded?: true;
 }
 
 export interface FactsResult {
@@ -407,6 +500,16 @@ export interface FactsResult {
    * answer's `ids`, never credited for being listed.
    */
   readonly tail: readonly FactTailItem[];
+  /**
+   * The reminders due in a window still to come that the question's words and
+   * meaning did not reach (`FACTS_ALSO_DUE_SIZE` at most, by date; `more` the
+   * rest). Not results: not in `matched`, not in the answer's `ids`, never
+   * credited. Absent when there are none, or the question is only time.
+   */
+  readonly alsoDue?: {
+    readonly items: readonly { readonly id: string; readonly line: string; readonly due: string; readonly every?: string }[];
+    readonly more: number;
+  };
   /** How many of the `matched` facts are faded (below reach): ranked with the rest, each labeled. */
   readonly faded: number;
   readonly weak: number;
@@ -428,9 +531,12 @@ interface Candidate {
   readonly id: string;
   score: number;
   readonly ways: Set<FactWay>;
-  timeBy?: "event" | "learned";
-  /** Earlier memories (changed pairs) folded into this one because they matched. */
-  readonly foldedEarlier: Set<string>;
+  timeBy?: TimeBy;
+  /**
+   * Earlier memories (changed pairs) folded into this one because they matched,
+   * each with the score it matched at — what orders its `earlier:` lines.
+   */
+  readonly foldedEarlier: Map<string, number>;
 }
 
 /** The row's learned moment and dates in the store's zone. */
@@ -467,10 +573,58 @@ function sessionOf(row: RecallRow): string | null {
   return null;
 }
 
+/** A repeating reminder, by id (`Store.recurringMemories`): its anchor day and its rule. */
+type Repeats = ReadonlyMap<string, { readonly anchor: string; readonly rule: Recurrence }>;
+
+/**
+ * THE REMINDER DATE A WINDOW STILL TO COME TAKES (2026-11-13, the wren
+ * findings' P5, lightly held): the row's `event_date` when it falls in `ahead`
+ * (the part of the window from today on), else null. A repeat is read by its
+ * occurrences there (`occurrenceBetween`, as the wake's "Coming up" finds
+ * them), an occurrence already closed as done (`closeOccurrence`: its firing
+ * row `suppressed`) skipped for the next. A one-off marked done whose date
+ * ends by today is when it happened, not a reminder (`prospective/derive.ts`
+ * "done"), nor one due today that a newer done memory says happened (the
+ * wake's `happenedAlready`, which settles nothing dated after today); one
+ * marked done with a date still ahead is left in, as the wake leaves it.
+ * Reads only.
+ */
+function dueIn(
+  row: RecallRow,
+  ahead: DayWindow,
+  today: string,
+  repeats: Repeats,
+  closed: (id: string, occurrence: string, anchor: string, rule: Recurrence) => boolean,
+  happened: (id: string) => boolean,
+): string | null {
+  const date = row.event_date;
+  if (date === null || date.length === 0) return null;
+  const repeat = repeats.get(row.id);
+  if (repeat !== undefined) {
+    let from = ahead.from;
+    // A few closed in a row is already more than the wake ever closes; stop there.
+    for (let i = 0; i < 3; i += 1) {
+      const occurrence = occurrenceBetween(repeat.anchor, repeat.rule, from, ahead.to);
+      if (occurrence === null) return null;
+      if (!closed(row.id, occurrence, repeat.anchor, repeat.rule)) return occurrence;
+      from = addDays(occurrence, 1);
+    }
+    return null;
+  }
+  const c = parseCalendarDate(date);
+  if (c === null || c.first > ahead.to || c.last < ahead.from) return null;
+  if (statusOf(row.status) === "done" && c.last <= today) return null;
+  if (c.precision === "day" && c.first === today && happened(row.id)) return null;
+  return date;
+}
+
 /**
  * Is the row inside the window — by its event date when it has one, else by
  * when it was learned (a chapter: anywhere between its first and latest
- * write)? A clock window also asks the learned moment's time of day.
+ * write)? A clock window also asks the learned moment's time of day. With
+ * `due` (a window reaching past today), a reminder date inside the window's
+ * days still to come puts it there too, ahead of the learned date
+ * (`dueIn`); without it, exactly as before.
  */
 function inWindow(
   row: RecallRow,
@@ -478,7 +632,8 @@ function inWindow(
   clock: TimeAsk["clock"],
   zone: string,
   chapterDates?: (id: string) => readonly string[],
-): "event" | "learned" | null {
+  due?: (row: RecallRow) => string | null,
+): TimeBy | null {
   // A chapter is also inside the window when one of its headings is dated
   // there: an episode written up the next morning names the day it was about.
   if (row.type === "episode" && chapterDates !== undefined && clock === null) {
@@ -486,8 +641,13 @@ function inWindow(
   }
   if (row.occurred_on !== null) {
     const c = parseCalendarDate(row.occurred_on);
-    if (c !== null) return c.first <= window.to && c.last >= window.from ? "event" : null;
+    if (c !== null) {
+      if (c.first <= window.to && c.last >= window.from) return "event";
+      // Done on one day, due on another ("booked the vet" on the 5th, the visit on the 15th).
+      return due !== undefined && due(row) !== null ? "due" : null;
+    }
   }
+  if (due !== undefined && due(row) !== null) return "due";
   const first = row.created_at;
   if (first === null || first <= 0) {
     const d = row.learned_on;
@@ -699,6 +859,84 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     softWindow = window;
     window = null;
   }
+  // ── a window still to come reads reminder dates too (`dueIn`) ──────────
+  // Only a window the question named whose days as asked run past today, or
+  // that is today itself ("what's on today"): a window wholly in the past is
+  // read exactly as before. Not an anchor (it resolves to a past date), an
+  // open end ("after 7/22", a cutoff on what happened, which would take every
+  // pending reminder), a clock time or a soft word. Only the window's days
+  // from today on: what was due before today is past, read by when it
+  // happened or was learned, as ever.
+  let repeatsHeld: Map<string, { anchor: string; rule: Recurrence }> | null = null;
+  /** The repeating reminders, read once and only when a reminder date is read. */
+  const repeats = (): Repeats => {
+    if (repeatsHeld === null) {
+      repeatsHeld = new Map();
+      for (const r of safe(() => store.recurringMemories(), [])) repeatsHeld.set(r.id, { anchor: r.eventDate, rule: r.recurring });
+    }
+    return repeatsHeld;
+  };
+  const prospectiveTunables = withTunables({});
+  /** An occurrence closed as done (`Prospective#closeOccurrence`): its window's firing row is `suppressed`. */
+  const closedOccurrence = (id: string, occurrence: string, anchor: string, rule: Recurrence): boolean =>
+    safe(() => {
+      const key = recurringWindowAt(anchor, rule, occurrence, prospectiveTunables, id)?.key;
+      return key !== undefined && store.prospectiveFor(id).some((p) => p.window_key === key && p.state === "suppressed");
+    }, false);
+  // The days AS ASKED, not stretched: a reminder has its day. A window that
+  // ends today reads none ("this week" is a past question), unless it is
+  // today alone.
+  const said = time?.anchor === null && time.soft !== true && time.clock === null ? time.said : null;
+  // Today alone reads them only when the question is not about the past
+  // ("what's on today", not "what did I do today": second review of #815).
+  const todayAhead = said !== null && said.from === today && said.to === today && !PAST_ASK.test(question);
+  const reachesAhead = said !== null && said.to !== OPEN_END && (said.to > today || todayAhead);
+  const ahead: DayWindow | null = window !== null && said !== null && reachesAhead ? { from: said.from > today ? said.from : today, to: said.to } : null;
+  /**
+   * A window that starts today or later and runs past it ("next week",
+   * "tomorrow", "the coming week"): what carries no date of its own (no event
+   * date, no reminder date) is not filtered out by it but ranked after what is
+   * inside it (review of #815): "dinner with Sam next Thursday", written with
+   * no date, still answers "dinner with Sam next week". A row that carries a
+   * date outside the window is still outside it.
+   */
+  const lookAhead = ahead !== null && said !== null && said.from >= today && said.to > today;
+  // A journal, its chapter copy and what the night wrote are accounts of days
+  // already lived, dated by them: never "no date" here (the replay of the wren
+  // run kept 17 of them under a week still to come).
+  const undated = (r: RecallRow): boolean =>
+    r.type === "memory" && r.source !== "episode" && nightlyMade(r) === null && (r.occurred_on ?? "") === "" && (r.event_date ?? "") === "";
+  // The reader's fence, as the wake's own read with no host fence: what was written in this folder.
+  const here = ctx.scope?.trim().replace(/\/+$/, "");
+  const happenedOpts = here === undefined || here.length === 0 ? {} : { open: (r: { origin_scope: string | null }) => (r.origin_scope ?? "").trim().replace(/\/+$/, "") === here };
+  /** Due today and already said done by a newer memory (`happenedAlready`, the wake's own read): not still to come. */
+  const happened = (id: string): boolean => safe(() => happenedAlready(store, id, today, happenedOpts) !== null, false);
+  // The current memory of a `changed` pair, by the one it settled over: an earlier
+  // version's reminder date is not the reminder's any more (review of #815: a
+  // reminder moved from 10-06 to 10-20 was listed under the week of 10-06).
+  const pairs = safe(() => store.contradictions({ limit: 100_000 }), [] as ContradictionRow[]).filter(
+    (p) => p.via === null && p.state !== "withdrawn",
+  );
+  const nowOf = new Map<string, string>();
+  for (const p of pairs) {
+    if (p.state === "settled" && p.how === "changed" && p.over !== null && p.holds !== null) nowOf.set(p.over, p.holds);
+  }
+  const due =
+    ahead === null ? undefined : (r: RecallRow): string | null => (nowOf.has(r.id) ? null : dueIn(r, ahead, today, repeats(), closedOccurrence, happened));
+  /**
+   * The reminder date a result's line names (`FactItem.due`): a one-off's as
+   * stored; a repeat's occurrence — the one the window took it by, else the
+   * next on or after today — never its anchor (a birthday's 1990).
+   */
+  const dueLine = (r: RecallRow, by: TimeBy | undefined): { date: string; every?: string } | null => {
+    if (r.event_date === null || r.event_date.length === 0) return null;
+    const repeat = repeats().get(r.id);
+    if (repeat === undefined) return { date: r.event_date };
+    const at = (by === "due" && due !== undefined ? due(r) : null) ?? occurrenceBetween(repeat.anchor, repeat.rule, today, OPEN_END) ?? r.event_date;
+    const every = readableRecurrence(repeat.anchor, repeat.rule);
+    return { date: at, ...(every === "" ? {} : { every }) };
+  };
+
   // A question that is only time asks for the window, and its meaning is
   // "what happened": the embedding of that would rank noise.
   const onlyTime = window !== null && w.tokens.length === 0 && subjectIds.length === 0;
@@ -720,7 +958,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const add = (id: string, way: FactWay, score: number): void => {
     let c = pool.get(id);
     if (c === undefined) {
-      c = { id, score: 0, ways: new Set(), foldedEarlier: new Set() };
+      c = { id, score: 0, ways: new Set(), foldedEarlier: new Map() };
       pool.set(id, c);
     }
     c.score += score;
@@ -743,7 +981,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   if (onlyTime && window !== null) {
     for (const [id, r] of rows) {
       if (r.type === "schema") continue;
-      if (inWindow(r, window, time?.clock ?? null, zone, chapterDates) !== null) add(id, "time", 0.1);
+      if (inWindow(r, window, time?.clock ?? null, zone, chapterDates, due) !== null) add(id, "time", 0.1);
     }
   }
   /** Is this row the anchor session's own — its words, not the nightly run's? */
@@ -769,7 +1007,9 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       continue;
     }
     if (window !== null) {
-      const by = inWindow(r, window, time?.clock ?? null, zone, chapterDates);
+      const by = inWindow(r, window, time?.clock ?? null, zone, chapterDates, due);
+      // A window still to come keeps what carries no date (`lookAhead`): unlabeled, after what is inside.
+      if (by === null && lookAhead && undated(r)) continue;
       if (by === null) {
         beyond.set(id, c);
         pool.delete(id);
@@ -791,7 +1031,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
       if (r.type !== "memory" || r.source !== "episode" || r.origin_ref === null || !r.origin_ref.startsWith("epi_")) continue;
       const chapter = r.origin_ref;
       if (visible(chapter) === undefined) continue;
-      const to = into.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      const to = into.get(chapter) ?? { id: chapter, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Map<string, number>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
       to.score = Math.max(to.score, c.score);
       for (const way of c.ways) to.ways.add(way);
       into.set(chapter, to);
@@ -800,13 +1040,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   };
 
   // ── current first: an earlier version that matched brings its current one ──
-  const pairs = safe(() => store.contradictions({ limit: 100_000 }), [] as ContradictionRow[]).filter(
-    (p) => p.via === null && p.state !== "withdrawn",
-  );
-  const nowOf = new Map<string, string>();
-  for (const p of pairs) {
-    if (p.state === "settled" && p.how === "changed" && p.over !== null && p.holds !== null) nowOf.set(p.over, p.holds);
-  }
+  // (`pairs` and `nowOf` are read above, where the reminder dates are.)
   const foldEarlier = (into: Map<string, Candidate>): void => {
     for (const [id, c] of [...into]) {
       let head = id;
@@ -816,10 +1050,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
         head = next;
       }
       if (head === id) continue;
-      const to = into.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Set<string>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
+      const to = into.get(head) ?? { id: head, score: 0, ways: new Set<FactWay>(), foldedEarlier: new Map<string, number>(), ...(c.timeBy === undefined ? {} : { timeBy: c.timeBy }) };
       to.score = Math.max(to.score, c.score);
       for (const way of c.ways) to.ways.add(way);
-      to.foldedEarlier.add(id);
+      to.foldedEarlier.set(id, Math.max(to.foldedEarlier.get(id) ?? 0, c.score));
       into.set(head, to);
       into.delete(id);
     }
@@ -897,8 +1131,37 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   // `core/told.ts`): whatever the scores, lived matches first, then the seeds,
   // each by its match. A seed is never dropped for a lived one either (the weak
   // tail above sets a lived match's bar from lived matches only).
+  // A WINDOW STILL TO COME (review of #815): what is inside it before what
+  // carries no date and was kept (`lookAhead`); a question that is only such
+  // a window lists by date, soonest first ("what's on next week").
+  const outsideAhead = (c: Candidate): number => (lookAhead && c.timeBy === undefined ? 1 : 0);
+  const dated = new Map<string, string>();
+  const whenOf = (c: Candidate): string => {
+    if (!(onlyTime && ahead !== null)) return "";
+    const held = dated.get(c.id);
+    if (held !== undefined) return held;
+    const r = rows.get(c.id) as RecallRow;
+    const d =
+      c.timeBy === "due"
+        ? (dueLine(r, "due")?.date ?? "")
+        : c.timeBy === "event"
+          ? (parseCalendarDate(r.occurred_on ?? "")?.first ?? "")
+          : (learnedOf(r, zone) ?? "");
+    dated.set(c.id, d);
+    return d;
+  };
+  const byDate = (a: Candidate, b: Candidate): number => {
+    const x = whenOf(a);
+    const y = whenOf(b);
+    return x < y ? -1 : x > y ? 1 : 0;
+  };
   const order = (a: Candidate, b: Candidate): number =>
-    (told(a.id) ? 1 : 0) - (told(b.id) ? 1 : 0) || b.score - a.score || moment(b.id) - moment(a.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    (told(a.id) ? 1 : 0) - (told(b.id) ? 1 : 0) ||
+    outsideAhead(a) - outsideAhead(b) ||
+    byDate(a, b) ||
+    b.score - a.score ||
+    moment(b.id) - moment(a.id) ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   main.sort(order);
 
   // ── near-duplicates, walked in order as far as this page needs ─────────
@@ -960,7 +1223,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
    */
   const canName = (id: string): boolean => !denied.has(id);
   const memories = shown.map((c) =>
-    factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window, canName, fadedIds.has(c.id)),
+    factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window, canName, fadedIds.has(c.id), dueLine(rows.get(c.id) as RecallRow, c.timeBy)),
   );
   // The title tail: the next matches, one line each, from what the walk kept.
   const tail: FactTailItem[] = kept.slice(page * FACTS_PAGE_SIZE, page * FACTS_PAGE_SIZE + FACTS_TAIL_SIZE).map((c) => {
@@ -972,15 +1235,55 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     // As `factItem` reads it: changed over, and a head after it, named when it may be.
     const over = pairs.some((p) => p.state === "settled" && p.how === "changed" && p.over === c.id && p.holds !== null);
     const head = over ? headOf(store, c.id) : null;
+    // Taken by its reminder date: that date, said as one (`due 10-15`), not when it was learned.
+    const dueOn = c.timeBy === "due" ? (dueLine(r, c.timeBy)?.date ?? null) : null;
     return {
       id: c.id,
       line: plainLine(title !== null && title.trim().length > 0 ? title : doc.body, FACTS_TAIL_TITLE_CHARS),
-      date: event !== null && event.length > 0 ? event : learnedOf(r, zone),
+      date: dueOn ?? (event !== null && event.length > 0 ? event : learnedOf(r, zone)),
+      ...(dueOn === null ? {} : { due: true as const }),
       journal,
       faded: fadedIds.has(c.id),
-      ...(head === null ? {} : { now: canName(head) ? head : "a later version" }),
+      ...(head === null ? {} : { now: canName(head) ? head : "a later version", ...(foldedOverIn(pairs, c.id, head) ? { folded: true as const } : {}) }),
     };
   });
+
+  // ── also due in this window (2026-11-13, after #815) ───────────────────
+  // A window still to come, asked with topic words, filters what the words
+  // and the meaning reached; a reminder in the window that neither reached
+  // was never offered (the wren run's vet, 106th by meaning). Listed apart,
+  // by date, from the dated rows themselves: never a match, never counted,
+  // never credited. Page 1 only: it is about the window, not the ranking.
+  let alsoDue: FactsResult["alsoDue"];
+  if (ahead !== null && due !== undefined && !onlyTime && page === 1) {
+    // Every match is out of it, whatever page it is on, and every near-duplicate
+    // the walk left out, and what each folds (review of #817): `main` holds them
+    // all, matched and duplicate alike.
+    const listed = new Set<string>();
+    for (const c of main) {
+      listed.add(c.id);
+      for (const e of c.foldedEarlier.keys()) listed.add(e);
+    }
+    const ids = new Set<string>(safe(() => store.datedMemories(ahead.from, ahead.to).map((d) => d.id), [] as string[]));
+    for (const id of repeats().keys()) ids.add(id);
+    const found: { id: string; line: string; due: string; every?: string }[] = [];
+    for (const id of ids) {
+      if (listed.has(id)) continue;
+      const r = rows.get(id);
+      if (r === undefined || r.type !== "memory" || neverAResult(r)) continue;
+      const on = due(r);
+      if (on === null) continue;
+      const shape = dueLine(r, "due");
+      const title = r.title !== null && r.title.trim().length > 0 ? r.title : (read(id)?.body ?? "");
+      found.push({ id, line: plainLine(title, FACTS_ALSO_DUE_TITLE_CHARS), due: on, ...(shape?.every === undefined ? {} : { every: shape.every }) });
+    }
+    // A day first, by date; a month or a range after, by its first day (review
+    // of #817: "2026-10" sorted by the 1st headed every October list).
+    const first = (d: string): string => parseCalendarDate(d)?.first ?? d;
+    const isDayDate = (d: string): number => (parseCalendarDate(d)?.precision === "day" ? 0 : 1);
+    found.sort((a, b) => isDayDate(a.due) - isDayDate(b.due) || first(a.due).localeCompare(first(b.due)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (found.length > 0) alsoDue = { items: found.slice(0, FACTS_ALSO_DUE_SIZE), more: Math.max(0, found.length - FACTS_ALSO_DUE_SIZE) };
+  }
 
   return {
     mode: "facts",
@@ -991,6 +1294,7 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     pages,
     memories,
     tail,
+    ...(alsoDue === undefined ? {} : { alsoDue }),
     faded: fadedMatched,
     weak,
     duplicates,
@@ -1028,6 +1332,7 @@ function factItem(
   window: DayWindow | null,
   canName: (id: string) => boolean,
   faded: boolean,
+  due: { readonly date: string; readonly every?: string } | null,
 ): FactItem {
   const store = ctx.counterpart.store;
   const journal = row.type === "episode";
@@ -1093,6 +1398,7 @@ function factItem(
         learned: o.learned_on.length > 0 ? o.learned_on : null,
         changed: localDate(p.updated_at, zone),
         id: p.over,
+        ...(isFoldPair(p) ? { folded: true as const } : {}),
       });
     } else if (p.state === "settled" && p.how === "changed" && p.over === c.id && p.holds !== null) {
       changedOver = true;
@@ -1122,15 +1428,30 @@ function factItem(
   // neighbours and the dream's bundles name (`recall/standing.ts#headOf`): on
   // A→B→C, A reads now C, not B. `headOf` also decides whether it is earlier
   // at all, as it does there — re-affirmed, or nothing live after it, it stands.
+  let folded = false;
   if (changedOver) {
     const head = headOf(store, c.id);
-    if (head !== null) now = canName(head) ? head : "a later version";
+    if (head !== null) {
+      now = canName(head) ? head : "a later version";
+      folded = foldedOverIn(pairs, c.id, head);
+    }
   }
-  // Matched earlier memories first, then by when they changed, newest first.
+  // Matched earlier memories first, the best match first (2026-11-14: two
+  // matched ones came out in whatever order the pairs were read); then by when
+  // they changed, newest first. The sort is stable: a tie keeps the order read —
+  // in-place versions newest first, then the pairs newest first
+  // (`contradictionsOf`: `created_at DESC, rowid DESC`), as the footnote's
+  // `(earlier: …)` does (`recall/standing.ts#standingOf`).
+  const matchedAt = (e: EarlierVersion): number | undefined => (e.id === undefined ? undefined : c.foldedEarlier.get(e.id));
   earlier.sort((a, b) => {
-    const fa = a.id !== undefined && c.foldedEarlier.has(a.id) ? 0 : 1;
-    const fb = b.id !== undefined && c.foldedEarlier.has(b.id) ? 0 : 1;
-    return fa - fb || (b.changed ?? "").localeCompare(a.changed ?? "");
+    const sa = matchedAt(a);
+    const sb = matchedAt(b);
+    if (sa !== undefined || sb !== undefined) {
+      if (sa === undefined) return 1;
+      if (sb === undefined) return -1;
+      if (sa !== sb) return sb - sa;
+    }
+    return (b.changed ?? "").localeCompare(a.changed ?? "");
   });
   // Corrected: those the question's words reach first (a search that names
   // one should find it here), then the latest corrected.
@@ -1155,15 +1476,18 @@ function factItem(
     ...(journal ? {} : readerOf(store.row(row.id))),
     status: row.status,
     occurredOn: row.occurred_on,
+    // A journal entry is no reminder.
+    ...(due === null || journal ? {} : { due: due.date, ...(due.every === undefined ? {} : { every: due.every }) }),
     learned,
     ...(lastWritten !== null && lastWritten !== learned ? { lastWritten } : {}),
     ...(learnedAt.length === 5 ? { learnedAt } : {}),
     where: parts?.where ?? null,
     who: parts?.who ?? null,
     current: now === undefined,
-    ...(now === undefined ? {} : { now }),
+    ...(now === undefined ? {} : { now, ...(folded ? { folded: true as const } : {}) }),
     earlier: earlier.slice(0, FACTS_EARLIER_SHOWN),
-    earlierMore: Math.max(0, earlier.length - FACTS_EARLIER_SHOWN),
+    earlierMore: earlier.slice(FACTS_EARLIER_SHOWN).filter((e) => e.folded !== true).length,
+    ...(earlier.slice(FACTS_EARLIER_SHOWN).some((e) => e.folded === true) ? { partsMore: earlier.slice(FACTS_EARLIER_SHOWN).filter((e) => e.folded === true).length } : {}),
     corrected,
     ...(correctedShown.length === 0 ? {} : { correctedShown }),
     standing: standing.slice(0, 2),
@@ -1311,15 +1635,23 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
   } else {
     const said = m.saidBy === null ? "speaker unknown" : (SAID[m.saidBy] ?? m.saidBy);
     const status = m.status ?? "status unknown";
-    const occurred =
+    const happened =
       m.occurredOn === null
-        ? "no event date"
+        ? null
         : `${m.status === "planned" || m.status === "proposed" || m.status === "asked" ? "for" : "happened"} ${shortDateWithWeekday(m.occurredOn, today)}${partlyInWindow(m.occurredOn, window)}`;
+    // THE REMINDER DATE (2026-11-13, the wren findings' P2): "no event date" on a
+    // memory with one read as "no reminder date" and was written down as such.
+    // Beside an event date only when it says something more (a different day).
+    const dueSaid =
+      m.due === undefined || (m.occurredOn !== null && m.due === m.occurredOn)
+        ? null
+        : `due ${shortDateWithWeekday(m.due, today)}${m.every === undefined ? "" : `, ${m.every}`}${m.timeBy === "due" ? " (in the window by this date)" : ""}`;
+    const occurred = [happened, dueSaid].filter((s): s is string => s !== null).join(" · ") || "no event date";
     out.push(`   ${said} · ${status} · ${occurred}`);
     if (m.reader !== undefined) out.push(`   ${m.reader}`);
     const where = m.where === null ? "" : ` in ${m.where}`;
     const who = m.who === null ? "" : ` · ${m.who}`;
-    const standing = m.current ? "CURRENT" : `earlier — now ${m.now ?? "?"}`;
+    const standing = m.current ? "CURRENT" : m.folded === true ? `folded into ${m.now ?? "?"}` : `earlier — now ${m.now ?? "?"}`;
     const extra = m.standing.length === 0 ? "" : ` · ${m.standing.join(" · ")}`;
     const by = m.timeBy === "learned" && m.occurredOn === null ? " (in the window by this date)" : "";
     const at = time === undefined ? "" : ` ${time}`;
@@ -1327,10 +1659,12 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
   }
   for (const e of m.earlier) {
     const learned = e.learned === null ? "" : ` (learned ${shortDate(e.learned, today)})`;
-    const changed = e.changed === null ? "" : `, changed ${shortDate(e.changed, today)}`;
-    out.push(`   earlier: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
+    // A fold's part was gathered, not replaced: `part: …, folded in <date>`.
+    const changed = e.changed === null ? "" : `, ${e.folded === true ? "folded in" : "changed"} ${shortDate(e.changed, today)}`;
+    out.push(`   ${e.folded === true ? "part" : "earlier"}: "${e.text}"${learned}${changed}${e.id === undefined ? "" : ` · ${e.id}`}`);
   }
   if (m.earlierMore > 0) out.push(`   +${String(m.earlierMore)} more earlier`);
+  if ((m.partsMore ?? 0) > 0) out.push(`   +${String(m.partsMore)} more ${m.partsMore === 1 ? "part" : "parts"}`);
   // Corrected versions were WRONG: said so in front, never read as a fact,
   // each with its id so it can be opened (a correction can itself be wrong).
   const named = m.correctedShown ?? [];
@@ -1426,15 +1760,18 @@ export function renderFacts(r: FactsResult): string {
   // benchmark loss read; helps real recall too; lightly held, revisit; first
   // after the excerpts reached 60, changed on the review of #544): the page's
   // own results outrank a sight of the next ones.
-  const steps: readonly (readonly [number, boolean])[] = [
-    [RECALL_EXCERPT_CHARS, true],
-    [RECALL_EXCERPT_CHARS, false],
-    [150, false],
-    [60, false],
-    [0, false],
+  // "Also due in this window" goes first of all (2026-11-13): it is not a
+  // match, and never pushes one off the page.
+  const steps: readonly (readonly [number, boolean, boolean])[] = [
+    [RECALL_EXCERPT_CHARS, true, true],
+    [RECALL_EXCERPT_CHARS, true, false],
+    [RECALL_EXCERPT_CHARS, false, false],
+    [150, false, false],
+    [60, false, false],
+    [0, false, false],
   ];
-  for (const [excerpt, withTail] of steps) {
-    const text = renderAt(r, r.today, excerpt, withTail);
+  for (const [excerpt, withTail, withAlso] of steps) {
+    const text = renderAt(r, r.today, excerpt, withTail, withAlso);
     if (text.length <= RECALL_RESULT_CHARS || excerpt === 0) return text.length <= RECALL_RESULT_CHARS ? text : cutExcerpt(text, RECALL_RESULT_CHARS);
   }
   return "";
@@ -1454,14 +1791,38 @@ function tailLines(r: FactsResult, today: string): string[] {
   const first = (r.page - 1) * FACTS_PAGE_SIZE + r.memories.length;
   const out = [`next ${String(r.tail.length)}, titles only (open any by id):`];
   r.tail.forEach((t, i) => {
-    const date = t.date === null ? "" : ` · ${shortDate(t.date, today)}`;
-    const earlier = t.now === undefined ? "" : `${earlierMark(t.now)}: `;
+    const date = t.date === null ? "" : ` · ${t.due === true ? "due " : ""}${shortDate(t.date, today)}`;
+    const earlier = t.now === undefined ? "" : `${earlierMark(t.now, t.folded === true)}: `;
     out.push(`${String(first + i + 1)}. ${t.journal ? "[journal] " : ""}${earlier}${t.line} · ${t.id}${date}${t.faded ? " · faded" : ""}`);
   });
   return out;
 }
 
-function renderAt(r: FactsResult, today: string, excerpt: number, withTail = true): string {
+/**
+ * "Also due in this window" (2026-11-13): the reminders due in a window still
+ * to come that the question's words did not reach, by date, a title each.
+ *
+ *   also due in this window (3), not matches (open any by id):
+ *   - Biscuit's vet: Thu 15 Oct 2026, 14:30 · due Thu 10-15 · mem_…
+ *   - Put the bins out · due Tue 10-13, every Tuesday · mem_…
+ *   +2 more
+ */
+function alsoDueLines(r: FactsResult, today: string): string[] {
+  const a = r.alsoDue;
+  if (a === undefined || a.items.length === 0) return [];
+  const total = a.items.length + a.more;
+  const out = [`also due in this window (${String(total)}), not matches (open any by id):`];
+  for (const i of a.items) {
+    // A month reads as one ("due in October", review of #817); a day or a range as the lines above write it.
+    const month = readableMonth(i.due, today);
+    const when = month === null ? shortDateWithWeekday(i.due, today) : `in ${month}`;
+    out.push(`- ${i.line} · due ${when}${i.every === undefined ? "" : `, ${i.every}`} · ${i.id}`);
+  }
+  if (a.more > 0) out.push(`+${String(a.more)} more`);
+  return out;
+}
+
+function renderAt(r: FactsResult, today: string, excerpt: number, withTail = true, withAlso = true): string {
   const lines: string[] = [];
   const first = (r.page - 1) * FACTS_PAGE_SIZE;
   const shown = r.memories.length;
@@ -1514,9 +1875,11 @@ function renderAt(r: FactsResult, today: string, excerpt: number, withTail = tru
   if (r.duplicates > 0) {
     lines.push(`${String(r.duplicates)} near-duplicate${r.duplicates === 1 ? "" : "s"} of a result shown left out`);
   }
+  const also = withAlso ? alsoDueLines(r, today) : [];
   if (r.matched === 0) {
     lines.push("");
     lines.push("Nothing matched. Try the words the memory itself would use, a person or project it names, or a wider time.");
+    if (also.length > 0) lines.push("", ...also);
     return lines.join("\n");
   }
   const times = sameDayTimes(r.memories);
@@ -1531,6 +1894,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number, withTail = tru
     lines.push("");
     lines.push(...tail);
   }
+  if (also.length > 0) lines.push("", ...also);
   lines.push("");
   const foot: string[] = [];
   if (r.memories.some((m) => !m.whole) || tail.length > 0) foot.push(`read any whole with ids: [...] (up to ${String(RECALL_MAX_IDS)})`);

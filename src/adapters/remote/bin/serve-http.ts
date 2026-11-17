@@ -32,6 +32,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { configLine, implicitConfigRefusal, namedConfigRefusal, namedUnreadableRefusal, resolveConfigPath } from "../../config-path.js";
+import { shareOptions } from "../../config.js";
 import { CLAUDE_AI_HOST } from "../../hosts.js";
 import { openServer } from "../../mcp/index.js";
 import { isEntryPoint, questionEmbedder } from "../../mcp/bin/serve.js";
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
     ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
     ...(timeZone === undefined ? {} : { timeZone }),
     ...(pageWriterMode === undefined ? {} : { pageWriterMode }),
+    ...shareOptions(config),
     lifecycle: {
       // The store the flag named, whatever the file says: one store, one door.
       config: { ...config, dataDir: launch.dir },

@@ -333,6 +333,22 @@ above is the tested path.
 What the bucket holds:
 
 - every store's database, under that store's own SSE-C key;
+- when a product built on `createApp` names its own per-tenant databases (`backup.tenantDatabases`, or
+  `HOSTED_TENANT_DATABASES=app/app.sqlite` for `main.ts`; the living journal's `app/app.sqlite`), each of those
+  too, under the same store's key, at `tenants/<storeId>/host/<path>/`. Those that are missing are restored with
+  their store (the store's file last); one that is on the volume is **never replaced** unless `--force` (it may be
+  live), and `--force` sets it aside and says so (`backup.host.set-aside`). A delete removes them with the store.
+  Run `main.ts restore` with the same `HOSTED_TENANT_DATABASES` the server has, or it restores the store's file
+  only. A product file lost while its store's file stayed needs the point-in-time steps below;
+- when a product names its own server-level databases (`backup.serverDatabases`, or
+  `HOSTED_SERVER_DATABASES=journal/auth.sqlite,journal/subscriptions.sqlite` for `main.ts`), each of those, under the
+  control key, at `control/host/<path>/` (under control's re-keyed base after a re-key). They come back with
+  `restore control` / `--all` / `RESTORE_ON_BOOT`, before control's own; one on the volume is **never replaced**
+  unless `--force`, which sets it aside and says so (`backup.server.set-aside`). A start with one missing whose
+  backup is in the bucket refuses until you deploy with `RESTORE_ON_BOOT=1`. Run `main.ts restore` with the same
+  `HOSTED_SERVER_DATABASES` the server has (and `migrate-keys` too: its control re-key carries them, and refuses a
+  replica it isn't told about). `CONTROL_ASIDE` moves them aside with `control/`;
+
 - the two control databases (`accounts.sqlite`, `oauth.sqlite`), under the `control` key;
 - each store's key (and the `control` key), once, at `keys/<storeId>.sealed`, **sealed to the recovery key**: the
   server can write these and never read them back. (Before WB1: `keys/<storeId>.wrapped`, under `HOSTED_KEKS`.)
@@ -405,7 +421,8 @@ Its person's `/mcp` calls get `503` with `Retry-After`. The log shows `store.nee
 `RESTORE_ON_BOOT=1` deploy restores every store that is missing, and touches none that are present.
 
 **A store that never reached the bucket** (its person signed up and the volume died within seconds) stays at `503`:
-a restore finds nothing. Its way out is to start it over as a new, empty store. It is refused while the bucket holds
+a restore finds nothing. The start logs it (`store.waiting-empty storeTag=…`, and a count line). Its person can still
+delete their account (hosted's delete never opens the store). Its way out is to start it over as a new, empty store. It is refused while the bucket holds
 any replica of it, or its tombstone.
 
 It is **safe against the running server** (`railway ssh`, then the line below). It only clears the store's
@@ -416,6 +433,34 @@ It refuses a store whose account is set to be deleted: if its person keeps it, s
 ```sh
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts start-over <storeId>
 ```
+
+### A product's database lost while its store stayed (point in time, by hand)
+
+For a product that names `tenantDatabases` (the journal's `app/app.sqlite`). If that file is lost while the store's
+own file stays, the product makes it again, empty. The sidecar streams the empty file, and Litestream 0.5.17
+snapshots a database that is behind its replica, so the bucket's latest state becomes the empty file. A plain
+`restore`, even `--force`, brings back the empty one. **Only a restore to a time before the loss works, and only
+within the 12 h snapshot retention.** Do it the same day. There is no command for it yet. By hand, on the server
+(`railway ssh`), with `<id>` the store id:
+
+```sh
+T="$HOSTED_DATA_ROOT/tenants/<id>"
+# 1. When was it lost? The new file's birth time (or the product's log). Pick a UTC time a little before it.
+stat "$T/app/app.sqlite"
+# 2. A copy from that time, beside the live file (safe while the server runs; it writes only the -o file):
+LITESTREAM_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" LITESTREAM_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
+  litestream restore -config "$HOSTED_DATA_ROOT/litestream.yml" -timestamp 2026-11-16T09:55:00Z \
+  -o "$T/app/app.sqlite.pit" "$T/app/app.sqlite"
+# 3. Check the copy holds the person's entries (sqlite3 if the image has it, or copy it out and look).
+# 4. Stop the server. Move the empty file aside, put the copy in its place, drop Litestream's position for it:
+mv "$T/app/app.sqlite" "$T/app/app.sqlite.empty"; rm -f "$T/app/app.sqlite-wal" "$T/app/app.sqlite-shm"
+mv "$T/app/app.sqlite.pit" "$T/app/app.sqlite"
+rm -rf "$T/litestream-meta-host/app/app.sqlite"
+# 5. Start the server. Remove app.sqlite.empty once the person's words are back.
+```
+
+The products' own check comes before all of this: a product should ask `app.storeWaiting(storeId)` before it makes
+its file, and never make one for a store that is waiting.
 
 ### By hand (a local copy, or the drill), with the server stopped
 
@@ -799,6 +844,13 @@ and keep it; "delete everything now" erases at once. Nothing here needs you:
 - **Audit codes** (`accounts.sqlite`'s `audit`, ids only): `account.pending-delete`, `account.kept`,
   `account.deleting.due` (the deadline's erase began), then the erase's own `delete.backups`, `delete.store`,
   `account.deleted`, or `delete.retry.failed` while R2 is down.
+- **Twelve months, then gone** (AR1, 2026-11-10). Audit rows are kept for 365 days. A deleted account's tombstone rows
+  and the bucket's `deleted/<storeId>` marker go 365 days after its erase, in a daily pass. The pass removes a marker
+  only while the upload watch sees uploads landing, and only if the bucket holds nothing of that store. Otherwise
+  it waits and tries again, logging `retention.waiting n=<count>` (and `retention.failed code=...` when the bucket
+  didn't answer or wasn't clean): a stale-uploads line in the log is the usual thing to fix. The pass writes no audit row, so
+  an erased account leaves nothing to look up. For an operator question about an account deleted more than a year
+  ago, the answer is that there's no record.
 
 ## Rollback
 

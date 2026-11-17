@@ -3259,3 +3259,156 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
 - **Item 4 (true blockers raised until answered) deferred 11-09:** live with the relevance lane + weekly mention
   first; if true blockers still sink after ~a week, add an explicit field (not inference), batched with the next
   store-format change.
+
+## 2026-11-13 — Still open's lines on the raise schedule (the putty)
+
+- **What was wrong.** A journal counterpart kept asking its person how a video went; in a simulated month the
+  wake's "Still open" listed the counterpart's own curiosities ("I said I'd like to hear what he says when Wren
+  tells him · settles when Wren tells their dad…") every evening, one 12 times. SO1 step 4's backoff governed only
+  `asked` items' one mention (shaped road) and the turn lane (a directory scope only: a chat scope never gets
+  it). The shaped lane's other lines, the assembled lane and the published bundle (the default roads,
+  `WAKE_SHAPE` off; asked items included) had no schedule. The journal's wakes were the published bundle
+  delivered as it was ("composed at the last boundary": its MCP wake reported no budget), and `carriesOpen` never parks an item with `settlesWhen` or `asked`. The
+  night's close sweep closes only release steps, so an item waiting on the person answering stays open until a
+  write settles it.
+- **Built.** On all three roads, a listed line is a raise (`noteLaneShown`, `via: "lane"`; not a night's own wake,
+  not a headless session, not a stale bundle's waiting item), and the lane lists only what
+  `laneState` lets through: new, raised today, or due on the turn lane's steps (3/7/14, no week floor). The
+  shaped mention keeps its week floor. `ownerParked` now parks any status's exhausted chain, not only `asked`.
+  Dated items and core memories being reconsidered are exempt.
+- **Chosen over** parking in `openCarry` (it also feeds the night's `settlesOpen` door, doctor and close hints)
+  and over a new per-item field (no store change: the record and latch already exist per item).
+- **Replay** (a copy of the journal's `sim-wren-full2`, its 28 stored evening wakes, all the published bundle,
+  where every open item is a line; the lane's room and order assumed unchanged): "settles when Wren tells their dad and shares his reaction" was listed 12 times, the
+  schedule would list it 3; "how closing night and Dad in the booth went" 4 → 2; the lemonade story 10 → 3
+  (2 by evening count); Marcus's show 21 → 3, parked from 29 Oct by calendar day. That store's `livedDay` stayed
+  1 all month (the journal's worker had no simulated date), so lived days were read as calendar days or as
+  evenings.
+- **Review of #819.** Kept chains of closed items pushed a parked item's chain past the record's bound and it came
+  back as new: a raise now drops chains of memories no longer open first. An item with no chain (upgrade, or let
+  go) a fortnight untouched reads as parked; otherwise a store with hundreds of old open items would list a
+  different few as new each day for weeks. A chat `wake` the host says nobody attends takes no step. All waiting
+  and nothing listed, the assembled and published lanes now say how many are open, "none due today".
+- **Lived days, not calendar days.** The schedule counts `livedDay`, which only the sleep cycle advances
+  (`advanceClock`: the detached run after a turn-end on a new calendar day, or a night). A store whose `livedDay` never advances (the journal's simulated month stayed on
+  1) gets no backoff: every wake on that frozen day lists the item, since raised-today stays listed all day.
+- **Not fixed: the published bundle on a host that only composes it at session end.** Delivered the next day as it
+  was, it carries yesterday's lane: measured shown on days 0,1,4,5,12,13, chain 0,4,12. The fix is reading the lane
+  at delivery (a threads twin of `hintsForReader`, which can only take lines out, so the step still slips a day; or
+  assembling under the bundle's own recorded ceiling when the host reports no budget, which changes the road for
+  every budgetless host). Left for a decision.
+- **Behaviour change to see.** On the assembled and published roads an `asked` item listed in the morning wake takes
+  the day's latch and its step, so the relevance-matched turn raise won't raise it that day or that step. A
+  counterpart's own undated promise parks after three showings like any other open item.
+- **Open.** With several `asked` items, the shaped wake's one mention rotates among them (each weekly), so some
+  "Waiting on" line is in most wakes. Telling a casual question from a blocker needs a mark the store doesn't
+  keep (see the PR).
+
+
+## 2026-11-13 — the night's page writers: a line still ahead, the host's room, the day before a gap
+
+Three experiments, Mike's go 2026-11-13, lightly held. **Check on the live store around 2026-11-18**: whether
+a page's "ahead" lines move to past or get set down after the thing happens (and that past-tense story pages
+don't churn), and whether a night after a skipped day writes about the last day lived.
+
+- **A line still ahead after it passed (`writer.ts#AHEAD_PASSED_RULE`, in `PAGE_WRITING_RULE`).** A simulated
+  month's page kept "the wedding is ahead" after the wedding. Both night writers were shown the wedding-done
+  memories and chose to leave the page as it stood; nothing pointed them at a line gone stale. One sentence, in
+  the rule's voice, after the "write a date" sentence: "A line that speaks of something ahead whose day has come
+  is no longer true as written: say what became of it where a memory tells, or set it down." It speaks only to
+  lines that still read as ahead, so a story page told in the past tense has nothing to change. The first wording
+  ("which has since happened or passed … say it as past") was changed in review: it could push a writer to say a
+  thing happened with no memory saying so, against `NO_RECORD_RULE` right after it. Words only. Deferred, not
+  built: a reader listing page lines whose cited dates have passed. Revert: drop the sentence.
+- **The room told is the room held to.** `selfTunables.PAGE_ROOM_BYTES` could be overridden, and the send-back
+  (`counterpart.ts` `writePage`, `Self#revisePage`) used the override, but every prompt string stated the module
+  constant: a host at 600 told its writers "4,600 bytes of room" and then sent them back at 600. Now
+  `pageWritingRule(form, room)` and `pageRoomRule(room)` take the room; `writerInstruction` takes `opts.room`
+  (the rule and the "its room is N" line), passed `this.self.tunables.PAGE_ROOM_BYTES` by `nightWriterFitted`;
+  the reflection reads `ReflectContext.pageRoom`, wired beside `pageWrites`. With the default room every string is
+  byte for byte what it was. Not threaded: the MCP tool specs' static descriptions (`mcp/tools.ts`, the reflect
+  tool's `finish` and `self_page`'s), which still name the default; a host that sets the room should know its
+  tool descriptions say 4,600 until those are built per server. The CLI's `self-page` lines read the default too.
+- **The day before a gap (`pageWriterNight`, `NIGHT_LOOKBACK_DAYS` = 7).** Day's end always read calendar
+  yesterday and skipped with `no-memories` when it was empty, so after a gap the last day lived before it was
+  never shown to day's end, which under `PAGE_SPLIT` is Lately's only writer. A Claude Code night starts with the
+  first session of a new day, so anyone who skips days hit it. Now, when yesterday is empty, the night walks back
+  a day at a time, at most 7 days before yesterday, and is about the first day that holds a memory. It stops at a
+  day a night has closed (`closesNight`: the same test `pageWriterDue` answers `already-claimed` by, now one
+  function), so no day is written twice and no backlog is chased: one day or none. Nothing found: yesterday, which
+  falls through to `no-memories` as before. In `pageWriterNight` itself, so `Self`, the dream's day summary and
+  doctor read one night; the tunable is read at use from the module defaults for that reason, not per instance.
+  - *Holding through the night.* Once day's end claims and writes the earlier day, that day is closed, and a
+    walk that stopped there would hand the dream after it, and doctor, yesterday again. So a day with a run made
+    TODAY is tonight's whatever its outcome, and the night stays that day until the calendar turns. And a
+    yesterday with any run but a `skipped` one is never walked past, even when its memories were let go since
+    (a dream's forgetting, the owner's remove) and it reads empty: otherwise the night after yesterday was
+    written could hand an older day on as owed.
+  - *Two claims in one day, about different days (review of #824, low).* Yesterday empty, the night claims the
+    earlier day; if a second-hand write-up then lands a memory on yesterday later that same day, yesterday is no
+    longer empty and a second day's end can be due about it. Two claims in one day, about different days, and
+    nothing written twice. Narrow, because the night's catch-up runs before the writer, so most write-ups of
+    yesterday have landed before the walk is read. Left as it is.
+  - *The dashboard.* `views/mind.ts#writerWords` reads "last night" as `about === yesterday`, so a run about a
+    day before a gap reads as an older night there; it only changes which remedy sentence a skip or failure
+    gets. Left as it is.
+  - *How it reads.* Day's end's block says "the day is <date>"; doctor's line says "<date> is owed"; the dream's
+    "today, as day's end told it (<date>)" heading carries the date. All name the date, not "yesterday", so an
+    earlier day reads plainly. The block's opening still says "from the day just lived", which is loose for a day
+    a few days back; left as it is.
+  - *Tests moved.* Two tests pinned the old rule with a day inside the walk's reach (an every-other-day store, a
+    twice-a-week machine). Their point was that an empty day is not asked about; they now put the lived day past
+    the reach, and the new tests in `nightly-run.test.ts` cover the walk.
+
+## 2026-11-14 — a person's own words about how to treat them (`OWN_WORDS_RULE`)
+
+- A simulated week (season two): Wren's "if i tell you something heavy and then change the subject, the subject
+  is changed" became, on night 1's page, "I don't bring personal things up unprompted", and the keep line ("every
+  sentence that still holds, word for word") held it all week; the counterpart didn't ask after her dad's new fall.
+  2 of 4 draws of that night widened her words. `HOW_I_WORK_RULE`'s "general lessons" pushed the widening.
+- Words only, one sentence in `PAGE_WRITING_RULE` (day's end and the reflection, both forms): a stated preference
+  keeps their words and scope, a line wider than them does not "still hold" (so the keep lines, in all three
+  branches, don't keep a paraphrase), and something new on the subject is a reason to ask once. Its own constant
+  because a page in its own form drops `HOW_I_WORK_RULE`. The writer instruction's pin went 2,450 → 2,800 bytes.
+- Not traced: whether the night-1 writer was shown her verbatim memory. Showing her words may matter more than any
+  rule sentence; a re-run of season two week 1 is the check.
+- On review (#829): the second sentence now keeps an explicit "never" standing and asks once per new event —
+  `Unless they said "never", a preference covers the moment they meant, not the subject: …a reason to ask about it
+  once.` The writer instruction's pin went to 2,900 bytes (2,815 measured).
+
+## 2026-11-16 — the own-words rule taken out
+
+`OWN_WORDS_RULE` (2026-11-14) is out of `PAGE_WRITING_RULE` (Mike's go, lightly held). The
+season-two rerun on 0cba4198 still widened Wren's "don't fuss" on the page ("without raising
+them again"), so the rule did not do its job. Season one, with no such rule, wrote the best
+line of the three runs ("acknowledge it briefly and follow them to the next thing"). The rule
+also drew the writers' attention to restraint, in a demo where the counterpart was already
+holding back next to the built-in (on day 7 it would not answer "what do you know about me").
+The tool-text half of #829 (their words when saved) stays. The writer block's pin is back to
+2,450.
+
+## 2026-11-16 — the shaped wake's first sentence passes "Dr." (journal finding 17)
+
+`counterpart-wake-shape.ts#firstSentence`, which `titleOfRow` uses for an untitled row (Coming up,
+Still open, Since, Carried forward, Elsewhere), ended at the first "." before a space, so the
+journal's "Tomás has a stress test with Dr. Okafor at 9:30." read "… with Dr." and lost the time.
+It now walks the same candidate ends and skips a "." after Dr, Mr, Mrs, Ms, St, Jr, Sr, Prof, Mt,
+vs, etc, e.g, i.e, a.m, p.m, after "No" only before a number, and after a lone capital other than
+"I" ("J. Smith", not "FBI." or "so did I."). Case-sensitive, so "said no. Then" still ends. A
+decimal or a time ("9.30") never split: the rule wants a space after the stop. Every other
+sentence splits as before (`test/wake-first-sentence.test.ts` checks a corpus against the old
+rule). The cost, on every host: a sentence that really ends in one of these ("Supper at 6 p.m.
+Bring wine.", "Plan B. Then …") now runs on into the next, up to `UNTITLED_BYTES`. "J.K." with no
+space still splits. Not changed, same flaw: `handoff/#firstRealSentence` (the "Older handoffs" line) and
+`self/page.ts#firstSentence`.
+
+## 2026-11-16 — a host that runs its own nights has no handoffs in its wake (journal finding 18)
+
+`WakeHere.withoutHandoffs`: the shaped road reads no handoff (no "No handoff here", "Handoff, …",
+"Last handoff", older handoffs, or a sunk handoff as Still open's ask) and names no other open
+session ("Open here now"); "Since, here" and "Last here" stay, and a "Where this folder stands"
+with nothing under its head isn't printed (a guard; no store measured reaches it, since a quiet
+folder still says "Nothing here since yesterday."). The assembled road's pointer (`pointerPlan`)
+reads no handoff either. Set by the MCP `wake` tool when `nights: "host"`; every other host's
+wake is as before. Not gated: the Since door's `recall "handoffs"` words, and the turn lane's
+own handoff read (`owedForTurn`).

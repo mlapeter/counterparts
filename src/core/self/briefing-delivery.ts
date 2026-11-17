@@ -270,16 +270,23 @@ export function arrivingTense(text: string, today: string, room: number): string
   const prior = addDays(today, -1);
   // A date whole (`2026-10-15`) or short (`Oct 15`, 2026-10-16: the wake
   // trims), read as the day nearest today; the line keeps the form it has.
-  const shape = /^(- (?:(?:by )?(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}) \()?)(was )?due (\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})(?=[,)]| · )/;
+  // A range (2026-11-16) says its span, `Oct 16–18` or `Oct 30–Nov 2`, and is
+  // past once its LAST day is.
+  const shape = /^(- (?:(?:by )?(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}) \()?)(was )?due (\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})(–(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}|\d{1,2}))?(?=[,)]| · )/;
   const was = `${DUE_PAST_WORD} `;
   const words = { was: byteLength(was) - byteLength(`${DUE_WORD} `), yesterday: byteLength("yesterday, ") };
   const past: { i: number; head: string; already: boolean; date: string; said: string; rest: string; was: boolean; yesterday: boolean }[] = [];
   for (let i = start + 1; i < lines.length && lines[i] !== ""; i++) {
     const line = lines[i] ?? "";
     const m = shape.exec(line);
-    const said = m?.[3];
-    const date = said === undefined ? undefined : isDay(said) ? said : (dayOfShort(said, today) ?? undefined);
-    if (m === null || said === undefined || date === undefined || date >= today) continue;
+    const from = m?.[3];
+    const first = from === undefined ? undefined : isDay(from) ? from : (dayOfShort(from, today) ?? undefined);
+    // `Oct 16–18`: the end is a day of the start's month.
+    const end = m?.[4]?.slice("–".length);
+    const last = end === undefined || first === undefined ? first : /^\d{1,2}$/.test(end) ? `${first.slice(0, "YYYY-MM-".length)}${end.padStart(2, "0")}` : isDay(end) ? end : (dayOfShort(end, today) ?? undefined);
+    const date = last !== undefined && isDay(last) ? last : undefined;
+    if (m === null || from === undefined || date === undefined || date >= today) continue;
+    const said = `${from}${m[4] ?? ""}`;
     const already = m[2] !== undefined;
     past.push({ i, head: m[1] ?? "- ", already, date, said, rest: line.slice(m[0].length), was: already, yesterday: false });
   }

@@ -379,8 +379,9 @@ describe("recall opens the manual", () => {
     const text = String(structured(answers.get(2))["text"]);
     // The cap follows the content, not the other way (11-04, ROADMAP): it was set from
     // #738's size, so a new section raises it rather than trimming reviewed lines.
-    // About 2,325 B with "Taking your hosted memory home" (EX1); a little room above that.
-    // About 2,460 B with "Codex (new)" (CX2, 2026-11-09).
+    // About 2,325 B with "Taking your hosted memory home" (EX1); 2,470 B with "Fields" (trim PR 2,
+    // the long field words the tools no longer serve); a little room above that. With "Codex (new)"
+    // (CX2) on top it measures 2,620 B (merge of master, 2026-11-17): over this cap, left for a decision.
     expect(Buffer.byteLength(text)).toBeLessThan(2550);
     const norm = (x: string): string => x.toLowerCase().replace(/[’]/g, "'");
     // A concrete thing: a code span, a quoted phrase, or a file name.

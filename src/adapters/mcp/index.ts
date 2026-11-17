@@ -120,6 +120,10 @@ export interface OpenServerOptions extends Omit<McpServerOptions, "counterpart">
   /** The host config's `pageWriter.mode` — `off` stops the reflection's page
    *  write too (owner ruling D3 on #256). Absent: `session`. */
   pageWriterMode?: "session" | "off";
+  /** The host's morning-share setting (`CounterpartOptions.shares` and
+   *  `sharesPerWeek`, 2026-11-13, an experiment). Absent: on, no cap. */
+  shares?: "on" | "off";
+  sharesPerWeek?: number;
   /** Which surface this server serves, for the starter memories' words
    *  (`Counterpart.open`'s `toldSurface`, EX1): the stdio entry point says
    *  `local`, hosted's tenant open says `hosted`. Absent: never switched. */
@@ -149,6 +153,8 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.snapshotsDir === undefined ? {} : { snapshotsDir: opts.snapshotsDir }),
     ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
     ...(opts.pageWriterMode === undefined ? {} : { pageWriterMode: opts.pageWriterMode }),
+    ...(opts.shares === undefined ? {} : { shares: opts.shares }),
+    ...(opts.sharesPerWeek === undefined ? {} : { sharesPerWeek: opts.sharesPerWeek }),
     ...(opts.toldSurface === undefined ? {} : { toldSurface: opts.toldSurface }),
     ...(opts.observer === undefined ? {} : { observer: opts.observer }),
     ...(opts.onCounterpartEvent === undefined ? {} : { onEvent: opts.onCounterpartEvent }),
@@ -174,6 +180,7 @@ export function openServer(opts: OpenServerOptions = {}): McpServer {
     ...(opts.lifecycle === undefined ? {} : { lifecycle: opts.lifecycle }),
     ...(opts.wakeNotice === undefined ? {} : { wakeNotice: opts.wakeNotice }),
     ...(opts.removal === undefined ? {} : { removal: opts.removal }),
+    ...(opts.nights === undefined ? {} : { nights: opts.nights }),
     ...(opts.manifestVersion === undefined ? {} : { manifestVersion: opts.manifestVersion }),
     ...(opts.pluginVersion === undefined ? {} : { pluginVersion: opts.pluginVersion }),
     ...(opts.env === undefined ? {} : { env: opts.env }),

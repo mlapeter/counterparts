@@ -517,6 +517,11 @@ keep buttons primary; the delete form's red), so no page body changed. `bun host
 renders every variant through the real app to static files; `hosted/test/web.test.ts` pins the nonce and that the
 frame loads nothing.
 
+**2026-11-10 (LP1).** The sign-in pages (/login, check your email, the link's pages) take counterparts.ai/claude-ai/'s
+warm look through `page({ warm: true })`, which appends `WARM_STYLE` in the same `<style>`. The rest keep the look
+above. With no image allowed, the sidebar's fox is pixels in the page's nonce'd script drawn on one canvas (`fox.ts`),
+so the CSP didn't change. `hosted/test/sign-in-look.test.ts` pins both.
+
 ## 2026-11-06 — write-only backups (WB1)
 
 The bucket's key objects are sealed to an offline X25519 key, so the server can write them and never read them; the
@@ -567,3 +572,110 @@ read from the call record, not from `initialize`**: claude.ai reuses one connect
 first call is `wake` (the instruction block's rule 1), so the record's `tool === "wake"` is the one signal that
 means a person came back. The door's `onCall` runs before the answer is written, so the day is in place when the
 client reads the wake.
+
+### The morning share, as a product wants it (2026-11-13, an experiment)
+
+- `AppOptions.shares` / `sharesPerWeek` → `TenantsOptions` → each store's synthesized `config.json` (where the
+  worker's night reads it: the night's reflection finishes on `mcp/bin/serve.ts`, which reads that file) and the
+  tenant's own server (`openServer`). Absent: on, no cap, as claude.ai's stores have it. The rule itself lives in
+  `core/dream/reflect.ts#shareHeld`; its NOTES entry says what is held and what is counted. Lightly held.
+
+### A host's evening, its wakes, and the worker's clock (2026-11-16)
+
+- `sessionTtlMs` is read by the store's `McpServer` and nowhere else. Two places still use the 4-hour default:
+  `lifecycle.ts`'s "Today, elsewhere" live flag (cosmetic) and Claude Code's share carry (`hooks.ts`, not a hosted
+  path). With a long TTL, a call that names no session binds to the most recent live one, which may be yesterday's;
+  the journal always names one.
+- With a reported budget the wake goes through the wake's shape (WK2) when that is on, `assembleWake` when not; the
+  test counts either event. Without one, `wake` serves the published bundle, so before this a hosted store's wakes
+  were one boundary behind (journal findings 13). Setting the budget also sizes the worker's bundle (an explicit key
+  bypasses `withBudgetDefault`'s 9,000). A bad number is refused at `createApp`, since the config reader would call
+  the file unreadable.
+- The worker child is its own process, so `storeClock` crosses the spawn as an offset from the system clock, set by
+  `Tenants#workerSpawner` and allow-listed in `workerEnv`. The runner opens its counterpart on it, so what reads
+  the counterpart's or the store's clock moves: today's date, the lived day, the page's dateline, the hold sweep,
+  the retention pass's date. That changes a simulated month's nights; production sets no store clock. The process
+  log's timestamps, step timings and the session registry's own stamps stay on the system clock. `planSpawn` drops
+  an inherited offset, so a shell variable never shifts a local worker.
+
+## 2026-11-14 — the sample's "Science fair judges" is `planned`, not `asked` (#829)
+
+`asked` means a question or request of the counterpart's still waiting on the owner, and the wake raises it
+("Waiting on …"); the science-fair line waits on nobody. The lake-cabin question stays `asked`.
+
+`wakeBudgetBytes`, on a store with the wake shape off (pre-WK2 hosted stores, or `wake-shape off`):
+the fallback `self.assemble` returns null while the published bundle's ceiling differs from the
+reported budget (self/index.ts ~1427). A budget other than 9,000 therefore serves the published
+bundle until the worker republishes at the new size. New stores have the shape on, so they compose
+fresh from the first wake. Since review: the budget must be a whole number, 1,000 or more.
+
+## 2026-11-16 — a host's own per-tenant databases are backed up (`backup.tenantDatabases`)
+
+Journal findings item 15: the journal keeps each person's words in `<tenant>/app/app.sqlite`, which no backup covered.
+
+- **Inside the store's prefix, under `host/`.** Delete, `objectsLeft` and `recover-keys`' replica proof read
+  `tenants/<id>/` whole, so the product's replica rides each of them with no new code; start-over reads only the
+  store's own objects (not `host/`), so a product-only replica doesn't wedge it. `host` is a fixed segment that is
+  not 4-hex: Litestream 0.5 puts the store's own LTX files at `tenants/<id>/<4 hex level>/`, and a product path such
+  as `0001/x.sqlite` would otherwise sit among them. Unproven against the real binary: that Litestream 0.5.17's
+  retention and `-if-replica-exists` on the store's path ignore a sibling `host/` tree. The stand-in can't show it;
+  the real-binary drill should, before any deploy.
+- **Pick-up is `Backups.refresh()`**, not `ensureStore`: the product makes its file after sign-up, so a write at
+  sign-up alone would wait for someone else's sign-up or a restart. `refresh` compares the generated text with the
+  file on disk and reloads only on a change (a reload restarts the Litestream child for every store), and does
+  nothing until start-up has released its hold. The finish timer calls it (a failure is `backup.refresh.failed`), so
+  the worst case without the product's call is one tick.
+- **Restore never touches a host file that is there** (the #834 review, B1, reproduced): the journal makes
+  `app.sqlite` at sign-up, before the store's file exists, so a never-opened store is in `missingStores()` and
+  RESTORE_ON_BOOT used to set the live journal aside and put the bucket's older copy in its place (the sweep then
+  deleted the live one a day later). The same for an opened store that lost only its own file while the product kept
+  writing. Now only missing host files come back; one in place is `kept`. Only `--force` moves one aside, and says
+  so (`backup.host.set-aside`, audited and logged by tag). The store's file still lands last, so a cut-short restore
+  leaves the store waiting. A store waiting for a restore is left out of the configuration with its host files, so
+  an empty journal made meanwhile is never streamed; but the restore keeps it too, so the product should check
+  `app.storeWaiting(storeId)` before making its file.
+- **A folder that resolves outside the tenant's dir** (a symlink) is neither listed nor restored, and said once per
+  store and process (`backup.host.outside`). Names compare case-insensitively (`Store/` is `store/` on macOS).
+- **Not covered: a host file lost while its store's file stayed.** Nothing records that it existed, so the product
+  makes it empty and it is listed and streamed to the same replica path. Litestream 0.5.17 snapshots a database
+  that is behind its replica (db.go ~1589 / ~1767), so the replica's LATEST state becomes the empty file: a plain
+  `restore` (even `--force`) brings back the empty one. Only a point-in-time restore from before the loss, within
+  the 12 h retention, recovers it: `docs/hosted/RUNBOOK.md`, "A product's database lost while its store stayed".
+  There is no command for it yet; by hand.
+- The restore counts in `app.start()`, its `store.restored` audit (`1`, `host`, `0`) and the CLI are per store; a
+  store where only a host file came back is not opened and is counted apart ("with only a product database back").
+  With the option unset they are the same as before.
+
+## 2026-11-16 — a host's server-level databases; delete for a store waiting with nothing to restore
+
+The journal's two asks after #834 (Mike approved 11-16).
+
+- **`backup.serverDatabases`** (`HOSTED_SERVER_DATABASES`): the journal's `journal/auth.sqlite` (Apple revocations
+  owed, sign-in nonces) and `journal/subscriptions.sqlite` belong to no person, so they ride the CONTROL key, at
+  `<control base>host/<path>/`. Under control's *base*, not a fixed `control/host/`: the WB1 re-key gives control a
+  new SSE-C key and a new base, and a fixed prefix would have the new key's writes land on old-key objects. So the
+  re-key carries them (its config, its proof, the touch, the abort, and `dropOldControlReplicas` deleting
+  `control/host/`); the stand-in drill in `wb1.test.ts` re-keys one and restores it on a lost volume. The re-key's
+  touch writes a create/drop-table to each (as to control's), with the server stopped.
+- **Restore order and the #834 lesson.** `restoreControl` restores them BEFORE control's own files (a cut-short
+  restore leaves control missing, which every start refuses), and never touches one in place without `--force`.
+  Where #834 had `storeWaiting` to stop the product making an empty file, there is no per-file record here, so the
+  guard is at the start: control whole, a server database missing, and its prefix non-empty → `prepareVolume`
+  refuses without `RESTORE_ON_BOOT` and restores with it. The journal opens both files in its constructor, after
+  `backupsAtStart` (which runs `prepareVolume`), so that is the only place a restore can land before the product
+  makes them. A file lost while serving is still not detected (26b's gap, the same here).
+- **What blocked the journal's account delete: its own front door, not hosted.** `DELETE /v1/account` opens the
+  person's `app.sqlite` first (to move the Apple refresh token to owed revocations), and `openJournal` throws
+  `StoreWaiting` for a waiting store, so it answers 503 before `hosted.deleteAccount` is reached. Hosted's delete
+  (`runDelete`: retire, close, `removeStore`, rm the dir) never opens the store; the new tests show it, through the
+  account page too, for a waiting store with and without a replica, before any hosted change. Added for the product:
+  `App.nothingToRestore(storeId, rel?)` (replica objects only: key objects say nothing of what a restore brings),
+  and the start's `store.waiting-empty` event and `StartReport.waitingEmpty`, so an operator sees such a store.
+- **The #838 review.** (1) A listed server database the re-key can't carry (its file a link, dangling or not, or its
+  folder outside the product's part) passed both refusals, and `dropOldControlReplicas` would then delete its only
+  backup: now refused too, before anything is made. (2) `nothingToRestore` answered true with backups off; it
+  answers false now (no bucket to look in: "can't tell" must never read as "nothing to lose"), and the start says
+  nothing of waiting stores then. Smaller: `CONTROL_ASIDE` checks each path (a link stays, uncounted) and moves the
+  files into `control/` before the one rename, so the next aside finishes one cut short; the sweep never follows a
+  linked folder; `restore control` and `--control-aside` warn when the list is unset and the bucket has server
+  replicas; `-journal` is refused as a side file.

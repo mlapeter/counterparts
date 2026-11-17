@@ -315,7 +315,12 @@ describe("re-feeling while awake: note's feelingsNow", () => {
       expect((both.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
       expect(store.feelingsFor(other)[0]).toMatchObject({ whose: "owner", source: "awake" });
 
-      const bad = await s.call("remember", { feelingsNow: { id } });
+      // Changed 2026-11-13 (write tools fail open): one object where the list
+      // goes is read as a one-item list now, answered item by item; what is
+      // no list or item at all, alone, is still refused by name.
+      const one = await s.call("remember", { feelingsNow: { id } });
+      expect(one.structuredContent["reason"]).toBe("feelings-now-only");
+      const bad = await s.call("remember", { feelingsNow: 42 });
       expect(bad.structuredContent["reason"]).toBe("feelings-now-malformed");
     } finally {
       s.counterpart.close();

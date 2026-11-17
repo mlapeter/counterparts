@@ -36,7 +36,7 @@ import { strength } from "../physics/index.js";
 import type { UseTier } from "../physics/index.js";
 import type { ProseDoc, ProspectiveInput, ProspectiveRow, Store } from "../store/index.js";
 import { RECURRING_META, statusOf } from "../store/index.js";
-import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, occurrenceOnOrAfter } from "../time.js";
+import { addDays, daySpan, daysBetween, isDay, isRecurrence, occurrenceBetween, occurrenceOnOrAfter } from "../time.js";
 import type { Recurrence } from "../time.js";
 import { derive } from "./derive.js";
 import type { DerivableMemory, DeriveReason, ExtractedDate, Prospectivity } from "./derive.js";
@@ -156,14 +156,18 @@ export function plainDueOn(item: { readonly eventDate?: string; readonly mode?: 
  * Within a tier, the nearest date first, in whole days either side of `at`: a
  * date in its grace days is as near as one the same number of days ahead. A
  * tie keeps the order it came in (the sort is stable; `arrivals()` hands them
- * by ramp x strength). Day dates only — `horizon()` offers nothing else; a
- * date that will not count sorts last in its tier. Pure.
+ * by ramp x strength). Day and range dates only — `horizon()` offers nothing
+ * else; a date that will not count sorts last in its tier. Pure.
  */
 export function byArrivingOrder(at: string): (a: Arrival, b: Arrival) => number {
   const tier = (x: Arrival): number => (plainDueOn(x, at) ? 0 : x.mode === "plain" ? 1 : 2);
   const away = (x: Arrival): number => {
-    const d = isDay(x.eventDate) && isDay(at) ? daysBetween(at, x.eventDate) : Number.POSITIVE_INFINITY;
-    return Math.abs(d);
+    // A range is as near as its nearer end, and none away inside itself (2026-11-16).
+    const span = isDay(at) ? daySpan(x.eventDate) : null;
+    if (span === null) return Number.POSITIVE_INFINITY;
+    if (span.first > at) return daysBetween(at, span.first);
+    if (span.last < at) return daysBetween(span.last, at);
+    return 0;
   };
   return (a, b) => tier(a) - tier(b) || away(a) - away(b);
 }
@@ -673,7 +677,8 @@ export class Prospective {
         // decided by COUNTERPARTS, lightly held): it is no longer arriving,
         // only "was due", and one cued out in its lead days leaves the lane
         // after its day instead of riding the whole grace week.
-        const pastQuiet = mode !== "plain" && w.precision === "day" && isDay(w.eventDate) && isDay(input.at) && w.eventDate < input.at;
+        // A range keeps them once its last day is behind it, as a day does (2026-11-16).
+        const pastQuiet = mode !== "plain" && (w.precision === "day" || w.precision === "range") && isDay(input.at) && w.lastDay < input.at;
         const brake = lane && !pastQuiet && braked !== null && CUE_ONLY_BRAKES.has(braked) ? null : braked;
         if (brake !== null) {
           suppressed.push({ memoryId: id, windowKey: w.key, reason: brake });
@@ -764,9 +769,13 @@ export class Prospective {
     }
     // Tune question (c), 2026-09-26 — the owner's human-memory framing: people
     // date-fire DAY-precision things (trash day, a defense tomorrow). A month
-    // or a range lives as footnote warmth and context corroboration only; it
-    // still arrives as a cue every day of its window, it just never takes a
-    // wake line.
+    // lives as footnote warmth and context corroboration only; it still
+    // arrives as a cue every day of its window, it just never takes a wake
+    // line. A RANGE takes one since 2026-11-16 (Mike's go): a range names
+    // exactly which days, so it counts like a day item whose day runs from its
+    // first to its last — coming up before, due on each day inside, overdue
+    // after (`core/briefing.ts#horizonFor`). A trip on 16–18 Oct was missing
+    // from "Coming up" before, during and after it.
     //
     // A PLAIN reminder that has been TOLD leaves the lane (2026-09-29): it was
     // said outright on its day, and "Arriving:" for the grace week after is the
@@ -807,7 +816,7 @@ export class Prospective {
     // "Arriving:" can be traced to the rule that left it out.
     const excluded = { notDay: [] as string[], daily: [] as string[], told: [] as string[] };
     const offered = considered.arrivals.filter((a) => {
-      if (a.precision !== "day") excluded.notDay.push(a.memoryId);
+      if (a.precision !== "day" && a.precision !== "range") excluded.notDay.push(a.memoryId);
       else if (a.recurring === "daily") excluded.daily.push(a.memoryId);
       else if (this.toldForGood(a, input.at)) excluded.told.push(a.memoryId);
       else return true;
@@ -1119,7 +1128,9 @@ export class Prospective {
    *  written against. */
   private toldForGood(a: Arrival, at: string): boolean {
     if (a.mode !== "plain") return false;
-    if (a.precision === "day" && isDay(a.eventDate) && isDay(at) && a.eventDate >= at) return false;
+    // On its own day — or any day of its range (2026-11-16) — it stays.
+    const span = a.precision === "month" || !isDay(at) ? null : daySpan(a.eventDate);
+    if (span !== null && span.last >= at) return false;
     return this.plainTold(a.memoryId, a.windowKey, a.precision === "day" ? "day" : "last-day");
   }
 

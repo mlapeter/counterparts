@@ -406,15 +406,16 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
 
   test("the about field asks for owner or us on anything personal", () => {
     const about = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];
-    expect(about?.description).toContain("Mark anything personal — people, feelings, life outside the work — owner or us");
+    // Shortened in trim PR 2, verbatim on both write tools (the design's §6: about decides what crosses folders).
+    expect(about?.description).toContain("Mark anything personal owner or us so it reaches every folder");
     expect(about?.description).not.toContain("Leave it out when unsure");
   });
 
   test("the tool asks for it", () => {
     const about = (toolSpec("chapter")?.inputSchema as { properties: Record<string, { description: string; enum: string[] }> }).properties["about"];
     expect(about?.enum).toEqual(["me", "us", "owner", "work", "world"]);
-    expect(about?.description).toContain("A session that was only building is work");
-    expect(about?.description).toContain("people, feelings or life outside the work is owner or us");
+    // Shortened in trim PR 2.
+    expect(about?.description).toContain("Please set it: me, us or owner carries the chapter to other folders; work stays here.");
   });
 });
 

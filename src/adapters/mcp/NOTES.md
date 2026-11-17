@@ -2064,6 +2064,337 @@ asked for. Hosted only for now: a claude.ai connector to a local store isn't cov
   reflection's all say the final message is the hand-back: the night routine's rule (`night: true`), left as it is. The
   wake line says the chat's own: the reply to the person, with the dream's line in it once.
 
+## 2026-11-13 — reminder dates in facts mode (the wren findings' P2 and P5, owner-approved, lightly held)
+
+**The line.** A memory with a reminder date (`event_date`) and no `occurred_on` printed "no event date", and in the
+wren run the model wrote itself a false note from it ("on record with no reminder date"). The line now says `due
+<date>` in the same style (`due Thu 10-15`; a repeat's occurrence, `, every Tuesday`); beside `happened` only when the
+days differ. `RecallRow` carries `event_date` for it (read only, no schema change).
+
+**The window.** `inWindow` read `occurred_on`, else the learned date, never `event_date`, so a correctly read week
+ahead still could not find a reminder written days earlier. A window whose days as asked (`said`, not the stretched
+window: "last week" asked on a Monday stretches into tomorrow) run past today now also takes a row whose reminder date
+falls in those days, unstretched, from today on (`dueIn`), as its own match kind, `due`, ranked ahead of `learned`.
+Unstretched because a reminder has its day. A window ending today ("this week", "this weekend" asked on a Sunday)
+reads none, but today alone does ("what's on today", review of #815). A repeat is read by its
+occurrence (`occurrenceBetween` over `Store.recurringMemories`, as the prospective horizon finds them; store reads only,
+so a store-only `FactsSource` still works), an occurrence closed as done (its firing row `suppressed`) skipped for the
+next. A one-off marked done whose date ends by today is not still to come (`derive.ts`'s "done" rule), nor one due
+today that a newer done memory says happened (`happenedAlready`, called without the wake's folder fence: facts mode
+has its own denied set); one done with a date ahead stays in, as the wake leaves it. "happening" joined `ASKS_NOTHING`
+(beside "happened", "happen", "happens"), so "what is happening tomorrow" is a question only of time; it applies to
+every facts question. 
+
+**Review of #815.** Three faults in the first cut, fixed:
+- *Forward words dropped answers.* Read as a hard filter, "next week" or "tomorrow" kept out every match with no date
+  of its own, and those are most plans as written: "dinner with Sam next week" lost "Dinner with Sam next Thursday at
+  7…", and "what did we decide about tomorrow's shop launch" lost the decision. A window that starts today or later and
+  runs past it now filters only what carries a date (an event date or a reminder date outside it); the undated stay,
+  after the matches inside (`lookAhead`), not scored up. "No date" means a memory row: a journal, its chapter copy and
+what the night wrote are accounts of days already lived and stay filtered (on the wren replay the first cut of this
+kept 17 of them under "between 12 and 18 October"; with them out, 5 undated notes remain beside the one in-window
+match, the price of not dropping undated plans). Chosen over the soft words' bonus as the simpler of the two:
+  no score moves, the order alone says it.
+- *A moved reminder read as in the window.* A reminder for 10-06 changed to 10-20 was listed under the week of 10-06 as
+  `due Tue 10-20 (in the window by this date)`: the earlier version matched by its old date and the fold carried that
+  onto the current one. An earlier version of a `changed` pair now reads no reminder date (`nowOf`, read before the
+  window now); the current one matches by its own.
+- *"This week"/"this month" ran to their ends*: reverted (recall NOTES).
+Also: `happenedAlready` gets the asking folder as its fence (the wake's own rule when the host has none; the console
+asks with no folder and none is passed); `recurringMemories` is read only when a reminder date is; a question that is
+only a window ahead lists by date. Daily repeats are taken too: they are on every day of the week asked. An
+open end ("after 7/22") reads no reminder dates: it is a cutoff on what happened, and would take every pending one.
+
+**The replay** (d14-q-week, `trace-w2.jsonl.store-day13.sqlite` copied, clock 2026-10-12T02:00Z, America/Denver,
+embedder on). The model's own question ("appointments, meetings, deliveries, fittings or other non-movie events
+between 12 and 18 October") went from "0 match · time: 18 October → 10-18" to "3 match · time: between 12 and 18
+October → 10-12..10-18", but **still without the vet**: the window filters, it does not pool, and the vet shares no
+word with the question and is 106th by meaning, past `FACTS_MEANING_CAP` (100). Asked as only time ("what's on between
+12 and 18 October", "what's on next week") it is found, `due Thu 10-15 (in the window by this date)`. Pooling every
+reminder in a look-ahead window, or the `coming up` handle listing every pending dated item (findings P5b), would close
+that gap; neither is built.
+
+## 2026-11-13 — the write tools fail open (trim PR 1, owner-approved that day)
+
+**Why.** `remember` and `session_end` are the only road to memory, and the thinner tool
+definitions coming next will draw looser input. Until now an unreadable `eventDate`, a feeling
+word off the wheel with no core, a malformed trait or `about`, a number out of range, an
+unknown `kind` or `how`, or a malformed side operation beside text refused the whole memory
+(or the whole entry), and its words were lost: intake's "degrades to a span" is read only by
+the crash fallback. CONTRACT §6d″ is the rule; this is what the build learned.
+
+**Where the leniency lives.** All of it in the adapter (`server-args.ts#normalizeMemoryFields`), BEFORE the
+readers; `remember/intake`, `checkFeelings`, `checkTraits`, the wheel's `lookupWord` and
+`ALIASES` stay strict. The cleaning hands the readers only shapes they already took, and each
+remaining `"refused" in …` branch in `rememberCore` and `depositEntries` became drop-and-say
+too, as a net (`readReminderLoose` and friends). Adding thesaurus words as wheel ALIASES was
+the other road, rejected: an alias replaces the writer's word, and `lookupWord` feeds the
+numbers of every stored `other` row, so it would have moved old rows' defaults.
+
+**Placement, and the embedder's bar.** The thesaurus (`core/feelings-wheel.ts#FEELINGS_THESAURUS`, 563 words,
+40+ per core) decides a CORE, never a word: the writer's word is stored as `other` +
+`other_word`. Order: wheel and aliases; thesaurus; an "-ing" form of a WHEEL participle or a
+core, with a stem of five letters or more ("worrying", "relieving", "calming"; not "moving",
+"chilling", "concerning"); a misspelling by a typo's shape only, the first letter kept (two
+letters swapped, one doubled or undoubled; from 9 letters one dropped or added inside the
+word; from 10 two such slips), never a substitution; then the embedder. Every step past the
+thesaurus answers only when all its best candidates agree on the core; a negation ("not
+happy") or a negating prefix of a known word ("unhappy", "uncaring") is never placed past the
+thesaurus.
+
+*The dictionary run (review of #818).* `/usr/share/dict/words` (about 209k lower-case words)
+through the placement: the first cut placed 781 real words by spelling and 404 by stem
+("affliction" → warm, "homeless" → sad, "graceful" → warm, "wrong" → angry). After the
+typo-shape rule, the wheel-only "-ing" rule and `NOT_SLIPS` (ordinary words the run found one
+slip from a feeling word: "sacred", "scarred", "insulated", "thrusting", …): 11 by spelling,
+all rare dictionary words read as their plain slip ("vindicative" → vindictive, "clamer" →
+calmer), and 41 by stem, all "-ing" forms of a wheel participle ("annoying", "terrifying";
+the shakiest "engaging", "respecting", "warming"). Rerun it when the wheel or the thesaurus
+grows; add what it finds to `NOT_SLIPS`.
+
+The embedder's bar was measured on potion-base-8M by holding each thesaurus word out of its
+core's centroid: at cosine ≥ 0.60 with a margin ≥ 0.15 it placed 25 of 563 held-out words,
+all right, and none of 50 non-feeling words or negations; every looser bar let a wrong core
+through ("unhappy" → angry at 0.65 / 0.14, "not happy" → happy at 0.59). So the step is rare
+on purpose. Unplaced words are counted on the `mcp.write` row; grow the thesaurus from them,
+not the bar.
+
+*Owner's rulings, 2026-11-13 (lightly held).* Pure-energy words (tired, exhausted, drained,
+weary, worn out, fatigued, burned/burnt out, spent, listless, sleepy) are not in the thesaurus
+and the wheel names none of them, so they go unplaced, dropped and counted. focused and
+determined → happy, alert → curious, corrected → uneasy stand. Crisis words are placed so the
+feeling that matters most is never the one dropped: suicidal, abused → sad (beside despair
+and victimized); traumatized, triggered, unsafe → uneasy (beside afraid and shocked); harassed
+→ angry (beside threatened and violated); hopeless was already sad. terrible, horrible,
+hurting → sad; awful is the wheel's (angry). fine, okay, busy, bad stay unplaced. The core
+emotions may need adjusting or adding to later (Mike, 2026-11-13); the unplaced-word log is
+the evidence to decide from.
+
+**Dates in words.** `core/time.ts#readLooseDate`, self-contained (it does not import
+`recall/time-ask.ts`), reads one field's whole value, anchored. `eventDate` leans ahead ("Oct
+15" is the next one; a bare "Friday" is today or the next), `occurredOn` back. "next Friday" is
+the first Friday after today, whatever the lean: early is seen, late is missed. A day word is
+read whole first ("this morning", "last night"), then without a time after it ("friday at
+3pm", "monday morning"). "end of the week" on a weekend, leaning ahead, is the coming Friday.
+An instant ("2026-11-14T03:00Z", or with an offset) is its day in the store's zone. A
+datetime with no zone ("2026-11-14T03:00") is the day it names, its first ten characters:
+`Date.parse` reads it in the SERVER's zone, so on a UTC host a Denver store's 03:00 landed
+the day before (review of #818). A day that does not exist
+("the 31st" in November, "Feb 29" in 2027) and anything past 10 years ahead or 100 back ("in
+999 years") are not read: dropped and said. A done memory's `eventDate` (no `updates`) leans
+back, so "yesterday" there becomes when it happened by the existing done-date rule, and that
+move is not a drop (only `facts.dropped` says it). Every answer is held to `parseCalendarDate`.
+
+**Defaults chosen.** A trait sent as a pole word has no strength; it takes
+`DEFAULT_TRAIT_STRENGTH` (0.5, middling). A feeling with no `whose` is self's. A `whose` that is
+neither self nor the owner's words ("owner", "user", "the user") — "her", "him", "they", a
+name, "both" — drops that feeling rather than guess: it may be a third person, and the
+memory's text carries it. `saidBy` "they" or "person" is dropped the same way; `about`
+"them" stays owner (the field's own words are "them as a person"), "him", "her", "they" are
+dropped. A 0-1 number out of range is never clamped (review of #818: salience 7 clamped to 1
+fed ranking at its maximum): 1 < n ≤ 10 is read as n/10, 10 < n ≤ 100 as n/100, and said;
+anything else, or a negative, is dropped and said. One object where `feelings`, `traits`,
+`feelingsNow` or `memories` takes a list is that one item; `memories` as a JSON string of a
+list is that list, as plain text one entry — on a write-up's answer too (review of #818:
+the door kept refusing them `memories-required`; it now reads them through the same
+`server-args.ts#readMemoriesList`, after which the FETCH rule applies, so `"[]"` before any
+fetch is a fetch, and after a fetch the real empty answer, as `[]` is). A JSON string of one
+object is that object. Text that starts like JSON and does not parse (a trailing comma, a list
+cut off) is NOT one entry (review of #821): kept, it was a memory of raw JSON, and on the
+write-up door it closed the part so the host could not resend. It is `memories-required`,
+the path a `memories: 42` already took: the handoff (and `drewOn`, `rated`) still land and
+ride out on the refusal, nothing else is kept, and the call can be sent again. `text` or
+`content` as a list of strings is its
+lines, joined. "self: happy, sad" is two feelings; "Note:" or "Feeling:" before a feeling is a
+label, not a whose. Every drop carries a `note` saying what to send instead.
+
+**Where the refusal reasons land (PR 0).** `emit` goes to the in-memory ring and, through
+`onEvent`, to the MCP process's 7-day log (`sessions/log/<day>.log`, `adapters/log`), not the
+store. The `mcp.session_end` line now carries one flat count per refusal code
+(`refused.<code>`; the log writes maps as their size, so flat keys) and the drop count; the
+new durable `mcp.write` row (the `events` table, a telemetry write that never fails the call)
+carries the reasons, the drops by field and code (read off each answer's own `dropped`, so
+remember and session_end count alike), the readAs count and the unplaced words. It is written
+only when an entry was refused or a field dropped (a write-up's entries included), never for
+values only read as something else. `remember`'s own refusals were and still are `mcp.refused`
+log lines; they now reach `mcp.write` too. An unplaced feeling is logged as its word only when
+it is one plain lower-case word of at most 20 letters; anything else is `(phrase)`, since it
+can be a person's words ("owner: sarah's biopsy").
+
+**No new files, on purpose.** The first cut added four (`core/loose-date.ts`,
+`core/feelings-thesaurus.ts`, `core/feelings-place.ts`, `server-normalize.ts`) and took the
+plugin bundle past its margins (core 492 of 490; directory 514, over the directory's 512). So
+the date reader lives in `core/time.ts` (the one module that converts dates, which the
+hand-built-date scan also wants), the thesaurus beside the wheel in `core/feelings-wheel.ts`,
+and the placement and the cleaning in `server-args.ts` beside the readers they feed.
+
+**Left for PR 2.** `tools.ts` still says what is no longer true, because another PR is editing
+that file; the trim PR rewrites them: the `eventDate` claim row ("an unreadable one is refused
+by name") and field text; the dimensions claim ("stored exactly as you gave them"); `feelings[]`
+`whose` listed as required and `emotion`'s "ONE word … from the wheel" with its cores; the
+`memories` item schema allowing only objects; traits `required: ["axis","toward","strength"]`;
+the feelingsNow "one object each" wording.
+
+## 2026-11-13 — the tool text trim (trim PR 2, owner-approved that day)
+
+The design is `~/counterparts-notes/2026-11-13-tool-trim-design.md` §7, checked against what the
+code does after #818 and #821 rather than pasted.
+
+**What a description serves now.** Summary, admission and Do NOTs, every one under 1,000
+characters on every host, so no client's cut (2,048 or 4,096) touches them. No guarantees list on any host
+but `recall`'s (PR 3 trims recall). The claims moved to `engine` in the source (`privileges: []`
+on every spec but recall), not by a mapping at list time, so `TOOLS` says what it serves.
+
+**What the schema publishes.** A line per field; strings for `feelings` ("self: relieved — what
+carried it"), `feelingsNow` ("<id>: word — what changed") and `traits` ("bold — what showed it",
+on `remember` only). Not published, still read: `relevance`, `emotional`, `predictive`, a
+feeling's `core`/`strength`/`valence`/`beneath`/`other_word`, traits on a `session_end` entry,
+the old object forms. The write tools and their nested objects carry no
+`additionalProperties: false`, so a client that validates cannot reject a shape the server
+takes. The night's own fields are typed only, and read against what states their shapes:
+dream `changes` items (the `begin` prompt lists every action's fields, `dream/index.ts`),
+reflect `finish` fields (its `begin` lists feelings, about, core, traits, closeNow/close, the
+beliefs shapes and the page's claims and setDown, `dream/reflect.ts`), the tagging child's
+`tagged`/`merges`/`kinds` (`dream/tags.ts#tagsPrompt`), and self_page's `claims` (day's end,
+`self/writer.ts`) and `setDown` (the nightly block's `SET_DOWN_RULE`; a session-side write goes
+without, and the diff records what it drops). None of them is exercised by Tier 0 (its night
+seat refuses reflect, day's end and tags): the night compare is the check. `settle`'s fields
+are taught by the result's `neighboursHint`; the `text-required` refusal now says which side
+operations stand in for text, which the `text` field said before.
+
+**Claims the fail-open PR made false, fixed.** The `eventDate` row ("an unreadable one is
+refused by name before anything is stored") now says it is dropped and said; the dimensions row
+("stored exactly as you gave them") now says a 0-10 or 0-100 score is read and said; the field
+words no longer say an unreadable date is refused, that `whose`/`emotion` are required, that a
+feeling is ONE word from the wheel with its cores, that traits need axis, toward and strength,
+or that feelingsNow is one object each.
+
+**`unresolved`, narrowed again (the wording half of #819).** True only when something is
+blocked on it: a decision the counterpart needs from the person, a promise, a dated check —
+never curiosity about how something went. The Stop ask's `OPEN_MEANS` says the same in its
+770-character pin ("never curiosity" is the field's alone: no room).
+
+**The words moved, not lost.** The manual's new "Fields" section (`recall "manual fields"`)
+carries the whole salience scale, the date shapes, the `about` rule, the feelings and traits
+forms and the closing rules; `remember`'s admission points at it. The `rated` field is the
+anchors word for word; that a score counts as use is the engine's row and the Stop ask's.
+The Desktop `wake` no longer says "recall alone is a slice" (DESKTOP_INSTRUCTIONS does).
+
+**claude.ai.** `CLAUDE_AI_TRIM` is down to `remember`'s `remove` dropped, the tagging child
+dropped, the chat's `session` on the session-bound tools, and `about`/`handoff` without
+folders. `CLAUDE_AI_WORDS` keeps the chat's summaries where the base names an ask claude.ai
+never makes; `status` keeps "Memory status" first for tool search.
+
+**No new files.** The plugin bundle's margins (core 492 of 490) are unchanged by this PR.
+
+**Review of #822 (fix round).** A close sent with no words (`{updates, unresolved: false}`
+alone) is refused on both tools, so the words say it: `text` and the entry's `content` open
+"Required", `updates` asks for "a line saying it is done", and both refusals say what to send
+(`text-required`'s detail; a wordless entry's new `ENTRY_CONTENT_REQUIRED` detail). The entry
+still publishes no `required`, since `text` alone is read. A feeling string may name its core in
+parentheses ("flibbertigibbet (calm) — the rain", `server-args.ts#CORE_IN_PARENS`), and the note
+for an unplaced word says exactly that shape. `feelings`, `feelingsNow` and `traits` items are
+`["string", "object"]`, so a validating client still takes the object forms. self_page's `short`
+says it can go alone, and `cites` says what it is for. Desktop's `session_end` and `chapter`
+take wake's `session` words. The manual's folder clause on `about` is marked `[local]`.
+
+## 2026-11-14 — the `earlier:` lines, best match first (owner-approved that day)
+
+Two matched earlier memories folded under one result came out in pair order (newest pair first),
+whatever each matched at: `foldedEarlier` kept the ids and dropped their scores. It is a map now,
+id → the score it matched at, and the `earlier:` lines read matched first, best score first, then
+by when they changed, newest first; a tie keeps the order read (stable sort: in-place versions,
+then pairs newest first, as `contradictions` reads them), the same tie order the footnote keeps.
+The ambient footnote's `(earlier: [a], [b])` (`recall/standing.ts#standingOf`) takes an optional
+`rank`, which the prompt-time render passes as each candidate's activation this turn; the wake and
+the by-id path have no score and keep pair order, which was already deterministic.
+`counterparts ask` renders a question through `renderFacts`, so it follows without a change of its
+own; its by-id path prints `standingOf`'s note, unranked, as the recall tool's by-id path does.
+
+## 2026-11-14 — a fold's part under the fold reads `part:`, not `earlier: … changed`
+
+Facts mode listed a dream fold's parts as `earlier: "…", changed <date>`, as if the fold had
+replaced them. Now `part: "…" (learned …), folded in <date> · mem_…`; on its own, a part's
+standing reads `folded into <id>`, as does its tail mark (`recall/standing.ts#foldedOver`, same
+date). Render only. Hidden ones are counted apart: `+N more earlier`, `+N more parts`. The recall tool description was left
+alone (its length is pinned and the claude.ai trim guards it); the line explains itself.
+
+## 2026-11-14 — closing words: a closing or a deferral is not open; `asked` is said
+
+`text` / `content` gain: lists, numbers, quotes, what they asked of you, closed or put off: word for word, as
+far as it reached (the season-two paraphrases that widened "the subject is changed" were written in content,
+with no `unresolved` set, so the words go where they were written; coordinator's call on review).
+`unresolved` gains: nor what they put off: "ask me after I've slept" is an eventDate (a journal month stored
+that deferral as an open item, on the lane that raises). `status` gains a description: asked is a question or
+request of yours, waiting on them, not one they asked you — as `owner-waits.ts` reads an open `asked` (raised to the owner) and the
+close sweep leaves it; a model had used it for "she asked me, don't answer yet". +227 bytes on each of
+`remember` and `session_end`, every host (claude.ai's list 26,469 → 26,923 B, ceiling 28,500); the claude.ai
+trim overrides neither field, so the drift guard did not move. The manual's Fields section says the same,
+longer. The Stop ask's `OPEN_MEANS` was left as it is (per-session bytes).
+
+On review (#829): `text` / `content` now say "What they ask of you, and a subject they close or put off: their
+words, no wider than they said." as its own sentence (the "word for word" pin restored); `unresolved`'s example
+resolves to a date ("is an eventDate (the next day)"); `status` is "a question or request of yours, waiting on
+them, not one they asked you." Net vs master: +285 B on `remember`, +285 B on `session_end` (claude.ai's list
+26,469 → 27,039 B). The hosted sample's "Science fair judges" was `asked` with nothing waiting on the owner: now
+`planned`.
+
+## 2026-11-16 — recall: search before answering "what do you know about me"
+
+One sentence in `recall`'s admission (Mike's go, lightly held): when they ask what you know about
+them or a subject, search before answering, since the wake holds only part of it. In all three
+Starlite runs' day-7 "what do you know about me? not the project. me." the counterpart answered
+from the wake alone and left out stored things (the old live recordings, Dolly, the flaky salt),
+while the built-in read its whole notes file.
+Recall's Claude Code description is now 4,071 of the 4,096 up-front cut: the next line added to recall has to make room first.
+
+## 2026-11-16 — a moved or cancelled date is a revision (eventDate field)
+
+One sentence at the end of `EVENT_DATE_PROPERTY`, which remember and every session_end entry
+share on all three hosts: "If the dated thing moves or is cancelled: `updates` with the old
+memory's id and the new date here (null to cancel), not a new memory beside it." From the living
+journal's months 10 and 11 (journal findings 3, item 12): a moved visit was saved as a new memory,
+so the old date stayed in "Coming up" and its reminder fired. tools/list grows by about 148 bytes
+per list (two copies); claude.ai is about 27.45K of 28.5K. The reply already names a carried
+date (`reminder.carriedOver`) and a cleared one (`reminder.cleared`). Known gap, not built:
+moving one occurrence of a repeating reminder with `updates` and a new date re-anchors the whole
+series (`recurring` carries over); UPDATES_TEXT covers "done this once", not "moved this once".
+
+## 2026-11-16 — `nights: "host"` also means no handoffs in the wake (journal finding 18)
+
+The living journal's wakes said "No handoff here. Leave one with session_end's handoff field" or
+"Last handoff … recall sch_…", and once "Open here now: session …" naming its own night session;
+its continuity is its record and its page. With `nights: "host"` the `wake` tool composes with
+`withoutHandoffs` (`Lifecycle#composeWake` → `WakeHere.withoutHandoffs`), on any host. The
+default (`first-chat`) and the Claude Code and Desktop wakes are unchanged, and so is
+`session_end`'s handoff field: a close that writes one still writes it. Tests:
+`hosted/test/journal-seams.test.ts`, both roads, each with a default-host control.
+
+## 2026-11-16 — recall: the search and the wake together
+
+The 11-16 recall line became: "When the person asks what you know about them or a subject,
+search, then answer from both the search and the wake, its news too." (Mike's go, lightly
+held.) In the season-one rerun on 36a202f9, day 7's "what do you know about me" searched
+trait-shaped questions, answered from the hits, and left out Gus's fall and the doctor's line that
+were in that morning's wake. The run before #830 hadn't searched, and it led with the fall. The
+search should add to the wake, not replace it. Recall on Claude Code is now 4,083 of 4,096.
+
+## 2026-11-16 — rolled back before the season-one demo rerun
+
+These lines were rolled back on Mike's go after a review of every demo-motivated change since
+season one (ecdf00cc). Each leaned the counterpart toward saying less, or toward trusting its
+wake less, with no run showing it helped:
+- #826's night gap line, at launch and on a catch-up start ("say you may not have it yet"), and
+  the re-check line after a catch-up. The model narrated it in its first reply ("if I'm fuzzy on
+  the last day or two"). Reverted whole.
+- #829's text/content clause ("a subject they close or put off: their words, no wider") and its
+  unresolved deferral clause. take3b still widened "don't fuss" with them. `asked`'s description
+  stays: it fixed a real inversion.
+- #830/#835's recall line ("when the person asks what you know about them … search"). In both
+  runs since, the search-first answer was narrower than season one's wake-only answer: it dropped
+  Gus's fall, and missed day-one personal facts after reading only page 1.
+Recall's description is back to 3,954.
+
 ## 2026-11-09 — a reader host: Codex (CX2)
 
 - **`--host codex` at launch, never the client's name** (the claude.ai precedent): `bin/serve.ts#launchOptions` keeps

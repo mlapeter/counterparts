@@ -633,7 +633,10 @@ proposals and their archive; render and delivery telemetry.
     the page row by name and points at it.
 19. **[M]** **THE NIGHTLY PAGE WRITER RUNS ON THE CALENDAR, AT MOST ONCE, AND IS NOT A
     SECOND PACER** (`writer.ts`, S2, 2026-09-20 — true for now). A run is ABOUT one
-    calendar date, always yesterday, and never chases a backlog. Since 2026-09-23 the
+    calendar date, yesterday, and never chases a backlog. Since 2026-11-13 (an
+    experiment): when yesterday holds nothing, the night is the last day lived before it
+    that no night has closed, at most `NIGHT_LOOKBACK_DAYS` back, and never past a closed
+    one, so one day, not a backlog (`pageWriterNight`, NOTES 2026-11-13). Since 2026-09-23 the
     night turns over at LOCAL midnight (`writer.ts#pageWriterNight`, which doctor reads
     too), held back only east of UTC until the provenance date it reads has closed, and a
     claim whose day has ended closes its night (NOTES §22). It is keyed to the
@@ -763,7 +766,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WAKE_LINE_BYTES` | 240 | A list item ("How I work", "Still open", "Might be relevant", "Coming up") longer than this prints as `date · title [id]` (G2, #489 C, 2026-10-16, lightly held). CAL. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
 | `PAGE_MAX_BYTES` | 16,384 | The WRITE CEILING, in bytes: a sanity bound. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names it. #358 lowered it to the room (6,078) for one day, 2026-10-09, as a stopgap; the page's history kept missing that by a few hundred bytes. |
-| `PAGE_ROOM_BYTES` | 4,600 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's TARGET, in bytes, the one its writer is told (2026-10-16, the wake trims, lightly held; until then the whole room, 5,681), under the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (`pageRoomBytes(9_000)`, 5,750; §16). Past it the page is kept, and a short version is kept with it only then and only within this. A value above `pageRoomBytes(9_000)` gives up the every-day guarantee. |
+| `PAGE_ROOM_BYTES` | 4,600 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's TARGET, in bytes, the one its writer is told (2026-10-16, the wake trims, lightly held; until then the whole room, 5,681), under the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (`pageRoomBytes(9_000)`, 5,750; §16). Past it the page is kept, and a short version is kept with it only then and only within this. A value above `pageRoomBytes(9_000)` gives up the every-day guarantee. A host may set it (`selfTunables`); since 2026-11-13 the nightly writers (day's end and the reflection) are told the host's number, the one they are sent back at. |
 | `PAGE_HELD_TO_ROOM` | true | The nightly page writer and the reflection are refused the night's first page past `PAGE_ROOM_BYTES` (`past-room`, "cut, don't add a short version"); a second send that night is kept, and a held page never sent again is kept at the run's end (2026-10-20, Mike's go, lightly held, an experiment; §16). Off: the room is every writer's target, as from 2026-10-10. |
 | `PAGE_SHORT_PAST_ROOM` | true | A page past `PAGE_ROOM_BYTES` with a short version shows the short version, even where the whole page fits (2026-10-20, with the hold; §16). Off: the whole page whenever it fits. |
 | `CRAFT_IN_WAKE` | false | Whether the store-wide "How I work:" list (skill-kind above the warm floor, not this directory's work) is a lane of the wake (2026-10-16, the wake trims, lightly held). Off: in no lane, listed or counted; the page's "## How I work" says the lessons, and a craft memory still comes up per turn as a footnote. |
@@ -774,6 +777,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_WRITER_MEMORY_BYTES` | 8,192 | Bytes of the day just gone the nightly writer is handed. It reads one day, not a life, and what did not fit is counted on the run's row. |
 | `PAGE_WRITER_MEMORY_MAX` | 40 | ...and a ceiling on the count, so a day of very short memories cannot become a hundred bullets. |
 | `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
+| `NIGHT_LOOKBACK_DAYS` | 7 | Days before an EMPTY yesterday the night walks back over to the last day lived that no night has closed (2026-11-13, an experiment, lightly held). It stops at a closed day, so no day is written twice. 0: yesterday only. Read at use. |
 | `FIRST_ASK_TURNS` / `FIRST_ASK_TEXT_BYTES` | 6 / 24,000 | The first ask: turns the person typed, OR bytes of conversation text from both roles, whichever comes first — so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_TEXT_BYTES` | 8 / 24,000 | A later ask: typed turns OR text bytes since the last ask, whichever comes first. A third way since 2026-09-30, on the first ask and every later one: what the session has not written up — three pieces, half an hour after the later of the first of them and the last ask (`due-unwritten`). Its numbers are `core/coverage/tunables.ts`'s, handed in as `PaceOptions.unwritten`; `self/` imports neither `remember/` nor `coverage/`. |
 | `CORE_FROM_BELIEFS` | false | The core as beliefs (wave 2 lane F, 2026-10-22, design §6, an experiment): on, the strongest current beliefs about me and us on the self subject that pass the floors below, at most `IDENTITY_MAX`, are the page's spine — shown to the reflection, citable on the page, the only things "## Core" states as settled; the nightly page writer then leaves "## Core" to the reflection. On a store with no earned belief the spine is empty and "## Core" is hollowed to "still forming" (no fallback, on purpose). A view: nothing is promoted or written, the lanes run alongside unchanged, so off is exactly as before (a golden test). Read at use, so `harness compare --set self.CORE_FROM_BELIEFS=true` sets it. |
@@ -874,6 +878,35 @@ fits: <title> · needs: <settlesWhen> · waiting <age> [id]", under the same rec
 without the week floor. **[M]** A sunk handoff said as the wake's ask is not also its pointer line; one
 that names an `asked` memory here, or touches its words, is that memory's subject and raise chain.
 Not built: true blockers raised until answered (point 4: deferred 11-09, no blocker mark exists). No store-format change.
+
+**Still open's lines follow the raise schedule (the putty, 2026-11-13; owner-approved direction, lightly
+held).** `core/owner-waits.ts#laneHeld`, `#noteLaneShown`. **[M]** An open memory listed as one of "Still
+open"'s lines, on every wake road (the shaped `openSec`, the assembled `Self#assemble` threads lane, and
+the published bundle `Self#buildWithLanes` composes at a boundary, delivered as it was), is
+a raise on the same record, latch and chain as above (`via: "lane"`): listed every wake of the day it is
+new, then only when the turn lane's steps let it through (3, 7, 14 lived days, no week floor: days 0, 3,
+10), then parked from day 24, counted in the wake's "N parked", listed parked by `recall "still open"`.
+Between steps it is not a line: the shaped road counts it in "N more open"; the assembled road counts it
+in the lane's more only beside a listed line (alone, the collapsed line would say "no room"). **[M]**
+Recorded by the host for a session's own wake (`Lifecycle#composeWake` → `Counterpart#noteStillOpenShown`,
+from `WakeOutcome.stillOpenShown`). Not recorded for a night's own run, under observer, for a session the
+registry names by a non-interactive entrypoint (`sdk-cli`, the SDKs), or for one the host says nobody attends
+(`SessionInput.attended` false: the hook's `CLAUDE_CODE_SESSION_ATTENDED=0`, and the chat `wake` tool's same
+variable; with no word a chat `wake` counts as a person's). Those follow the schedule but use none of it.
+Only a showing the schedule lets through is a step: a bundle composed on an earlier lived day that still
+lists a waiting item takes none. **[M]** An open item with no chain (an upgrade, or one the record's bound
+let go) that is untouched `OPEN_CARRY_DAYS` lived days is parked, not new (`unchainedParked`, read-time; an
+`asked` one is raised first, as the carry rule never parks it). Writing a raise drops the chains of memories no longer open first.
+**[M]** All waiting and nothing listed: the assembled and published lanes say `Still open: N — none due
+today; recall "still open" lists them` with the parked count after; the shaped one its "(N more open, M
+parked; …)" door. **[A]** The published bundle delivered as it was on a host that composes it only at
+session end: a showing slips a day and repeats the day after (measured days 0,1,4,5,12,13); the fix is a
+delivery-time read, not built. **[M]** Exempt: a dated item (its date's rule) and a core memory being reconsidered. One chain
+per item: a raise by the turn lane or the wake's mention counts here too. A revision starts it again.
+On the roads where `asked` items are lines (assembled, published), the wake's listing takes the day's latch
+and a step of the chain the turn lane reads, so the relevance-matched raise won't raise it that day or that
+step. A counterpart's own undated promise is an open item like any other: it parks after three showings. Nothing is closed or deleted; `carriesOpen`/`openCarry` are
+unchanged. No store-format change.
 
 **The page's stories (PS1, 2026-11-09; working default, lightly held).** **[A]** An own-form
 store's nightly page writers are told to keep a mix of story kinds and the selection test

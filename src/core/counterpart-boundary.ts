@@ -1,4 +1,5 @@
 /** `Counterpart` at a boundary: the session's end, the contiguity pass, re-briefing and the wake's refresh, and the records the sleep cycle and the briefing file (bodies moved out of `counterpart.ts`, 2026-10-11; the class keeps a delegate for each). */
+import { laneHeld } from "./owner-waits.js";
 import { planContiguity, planAtWrite, pairKey } from "./associate/index.js";
 import type { PairDelta, FlushReport } from "./associate/index.js";
 import { selfRenderer } from "./briefing.js";
@@ -146,6 +147,8 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
     // The ceiling this room was cut from, kept with what the bundle shows,
     // so a session start assembles under the same one (2026-10-10).
     ...(budgetBytes === null ? {} : { ceilingBytes: budgetBytes }),
+    // Still open on the raise schedule (the putty, 2026-11-13; `owner-waits.ts#laneHeld`).
+    laneHeld: (day: number) => laneHeld(cp.store, day),
     onEvent: (name, data) => cp["emit"](name, undefined, data),
   });
   // The PHYSICS date key, and the host's to supply — every live entry point
@@ -693,6 +696,8 @@ export function republish(
     handoffLendBytes: handoff.lend,
     handoffKeepBytes: handoff.keep,
     ceilingBytes: budgetBytes,
+    // Still open on the raise schedule (the putty, 2026-11-13; `owner-waits.ts#laneHeld`).
+    laneHeld: (day: number) => laneHeld(cp.store, day),
     onEvent: (name, data) => cp["emit"](name, undefined, data),
   });
   // Read before the render, as the boundary reads it (`self/behind.ts`).

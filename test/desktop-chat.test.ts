@@ -196,7 +196,7 @@ describe("end to end over stdio, as Claude Desktop's chat (client `claude-ai`)",
     // Wake first, every new chat; recall alone is a slice (2026-10-02).
     expect(DESKTOP_INSTRUCTIONS).toContain("In every new chat, call its wake tool first");
     expect(DESKTOP_INSTRUCTIONS).toContain("never present it as complete");
-    expect(WAKE.negativeExamples.some((n) => n.includes("never call what `recall` returned the full record"))).toBe(true);
+    // Since trim PR 2 "a slice" is said only here, in the instructions every Desktop chat is sent.
     expect((hello["capabilities"] as Record<string, unknown>)["prompts"]).toBeDefined();
     expect(s.host).toBe(DESKTOP_HOST);
     expect(s.scope).toBe(DESKTOP_SCOPE);

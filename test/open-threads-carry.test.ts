@@ -138,11 +138,24 @@ describe("1. open means someone owes an answer", () => {
     const entry = (toolSpec("session_end")?.inputSchema as { properties: { memories: { items: { properties: Record<string, { description: string }> } } } }).properties.memories.items
       .properties["unresolved"];
     for (const d of [remembered?.description, entry?.description]) {
-      expect(d).toContain("true only when someone owes an answer — a question to the owner, a check with a date, a promise");
-      expect(d).toContain("A bug observation, a design note or a fact is a memory with no open flag");
-      expect(d).toContain("`unresolved: false`");
+      // Narrowed again in trim PR 2 (the wording half of #819's raise schedule): blocked, never curiosity.
+      expect(d).toContain("true only when something is blocked on it: a decision you need from them, a promise, a dated check");
+      expect(d).toContain("Never curiosity about how something went");
+      // The closing words (2026-11-14) were rolled back on 2026-11-16, before the season-one demo rerun.
+      expect(d).not.toContain("nor what they put off");
     }
-    expect(stopAsk("s1", 1)).toContain("`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise)");
+    // `asked` is said: waiting on THEM, as the engine reads it (`owner-waits.ts`), not one they asked you.
+    const statusOf = (tool: string, entry: boolean): string | undefined => {
+      const props = (toolSpec(tool)?.inputSchema as { properties: Record<string, { description?: string; items?: { properties: Record<string, { description?: string }> } }> }).properties;
+      return (entry ? props["memories"]?.items?.properties["status"] : props["status"])?.description;
+    };
+    for (const d of [statusOf("remember", false), statusOf("session_end", true)]) {
+      expect(d).toBe("asked: a question or request of yours, waiting on them, not one they asked you.");
+    }
+    // How to close one is said on `updates`.
+    const updates = (toolSpec("remember")?.inputSchema as { properties: Record<string, { description: string }> }).properties["updates"];
+    expect(updates?.description).toContain("`unresolved: false`");
+    expect(stopAsk("s1", 1)).toContain("`unresolved` only when something is blocked (a decision you need from them, a promise, a dated check)");
   });
 });
 

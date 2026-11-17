@@ -792,7 +792,7 @@ export function bundlePackageJson(version: string, model: { version: string }): 
     version,
     private: true,
     description: "The Counterparts Claude Code plugin. Generated from github.com/mlapeter/counterparts by tools/plugin-bundle/build.ts.",
-    license: "MIT",
+    license: "BUSL-1.1",
     type: "module",
     dependencies: { [MODEL_PACKAGE]: model.version },
   };
@@ -820,7 +820,7 @@ export function bundleLock(version: string, model: { version: string; integrity:
     lockfileVersion: 3,
     requires: true,
     packages: {
-      "": { name: "counterparts", version, license: "MIT", dependencies: { [MODEL_PACKAGE]: model.version } },
+      "": { name: "counterparts", version, license: "BUSL-1.1", dependencies: { [MODEL_PACKAGE]: model.version } },
       [`node_modules/${MODEL_PACKAGE}`]: {
         version: model.version,
         resolved: `https://registry.npmjs.org/${MODEL_PACKAGE}/-/${MODEL_PACKAGE}-${model.version}.tgz`,

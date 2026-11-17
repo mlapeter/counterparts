@@ -348,17 +348,19 @@ describe("remark beside each other part: an error only when nothing landed (revi
       expect(remarkOk(r1)).toBe(false);
       expect(err(r1)).toBe(false);
 
-      // An early refusal of the note (salience not a number): the remark still lands.
-      const r2 = (await s.call("remember", { text: "Another note.", salience: "high", remark: { id: shown, about: "owner", why: "His plans." } })) as R;
-      expect(r2.structuredContent["reason"]).toBe("salience-not-a-number");
+      // A refusal of the note: the remark still lands. (Changed 2026-11-13: the
+      // refusal was `salience: "high"`, which is dropped and said now, the note
+      // kept; a stub is a refusal that stands.)
+      const r2 = (await s.call("remember", { text: "TODO", remark: { id: shown, about: "owner", why: "His plans." } })) as R;
+      expect(r2.structuredContent["stored"]).toBe(false);
       expect(remarkOk(r2)).toBe(true);
       expect(err(r2)).toBe(false);
       expect(s.counterpart.store.read(shown).about).toBe("owner");
 
-      const r3 = (await s.call("remember", { text: "Another note.", salience: "high", remark: { id: "mem_nope", about: "us" } })) as R;
+      const r3 = (await s.call("remember", { text: "TODO", remark: { id: "mem_nope", about: "us" } })) as R;
       expect(err(r3)).toBe(true);
       // A bad mark on a shown memory is a failed remark too.
-      const r4 = (await s.call("remember", { text: "Another note.", salience: "high", remark: { id: shown, about: "personal" } })) as R;
+      const r4 = (await s.call("remember", { text: "TODO", remark: { id: shown, about: "personal" } })) as R;
       expect((r4.structuredContent["remark"] as { reason: string }).reason).toBe("about-is-me-us-owner-work-or-world");
       expect(err(r4)).toBe(true);
     } finally {

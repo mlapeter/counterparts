@@ -83,6 +83,25 @@ async function remember(s: McpServer, args: Record<string, unknown>): Promise<Re
   return result?.structuredContent ?? {};
 }
 
+/**
+ * A note captured whose memory does not land. Until 2026-11-13 these tests
+ * sent `feelings: "not a list"`, which refused the memory after its raw copy
+ * was on disk; the write tools fail open now (a bad field is dropped, the
+ * memory kept), so the deposit itself is made to fail, once, after capture.
+ */
+async function refusedNote(s: McpServer, text: string): Promise<Record<string, unknown>> {
+  const c = s.counterpart;
+  const real = c.submitJot.bind(c);
+  c.submitJot = async () => {
+    throw new Error("the deposit failed on purpose");
+  };
+  try {
+    return await remember(s, { text });
+  } finally {
+    c.submitJot = real;
+  }
+}
+
 const note = (day: number): string =>
   `Field note for day ${String(day)}: the survey of the north ridge counted ${String(day * 7 + 3)} nests and the weather held.`;
 
@@ -149,9 +168,9 @@ describe("a note every 2 days, through the door and the worker", () => {
 
   test("a note whose memory did not land is kept to the ceiling, then goes, whatever it owes", async () => {
     const s = sessionless();
-    // Captured, then refused: `feelings` is read after the raw copy is on disk.
-    const refused = await remember(s, { text: "The refused note about the ridge survey, kept only as a raw copy.", feelings: "not a list" });
-    expect(refused["reason"]).toBe("feelings-malformed");
+    // Captured, then refused: the deposit fails after the raw copy is on disk.
+    const refused = await refusedNote(s, "The refused note about the ridge survey, kept only as a raw copy.");
+    expect(refused["reason"]).toBe("threw");
     expect(jotsOf(UNBOUND_SESSION)).toHaveLength(1);
 
     for (let day = 2; day <= 14; day += 2) {
@@ -187,7 +206,7 @@ describe("what a write-up of the bucket can still use", () => {
     const c = s.counterpart;
     for (let i = 0; i < 12; i++) {
       setSystemTime(new Date(T0 + i * 10 * MIN));
-      await remember(s, { text: `Refused note ${String(i)} about the ridge survey, kept only as a raw copy.`, feelings: "not a list" });
+      await refusedNote(s, `Refused note ${String(i)} about the ridge survey, kept only as a raw copy.`);
     }
     setSystemTime(new Date(at(1)));
     const standing = writeUpStanding(writeUpPlan({ store: c.store, spans: c.spans }), c.store.dir, UNBOUND_SESSION, SCOPE, at(1));
@@ -366,7 +385,7 @@ describe("the plan's edges", () => {
 
   test("a write-up mark alone does not make an unread line written: only a claim does", async () => {
     const s = sessionless();
-    await remember(s, { text: "A refused note nobody read, kept only as a raw copy.", feelings: "not a list" });
+    await refusedNote(s, "A refused note nobody read, kept only as a raw copy.");
     const c = s.counterpart;
     setSystemTime(new Date(at(1)));
     appendFileSync(join(dir, "spans", keyFor(SCOPE), "writeups.jsonl"), `${JSON.stringify({ session: UNBOUND_SESSION, scope: SCOPE, at: at(1), by: "next-session" })}\n`, "utf8");
@@ -469,7 +488,7 @@ describe("a writer holding a part of the bucket across a pass, through the real 
     for (const base of [0, 5]) {
       for (let n = 0; n < 12; n++) {
         setSystemTime(new Date(at(base) + n * 10 * MIN));
-        expect((await remember(s, { text: words(i), feelings: "not a list" }))["reason"]).toBe("feelings-malformed");
+        expect((await refusedNote(s, words(i)))["reason"]).toBe("threw");
         i += 1;
       }
     }

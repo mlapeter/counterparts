@@ -251,7 +251,8 @@ describe("the tool schemas", () => {
     const end = JSON.stringify(TOOLS.find((t) => t.name === "session_end")?.inputSchema);
     for (const text of [note, end]) {
       expect(text).toContain('"tags"');
-      expect(text).toContain("Not a date");
+      // Shortened in trim PR 2: the night's tagging prompt says what a tag is not.
+      expect(text).toContain("3-5 short lowercase topics");
     }
   });
 });
