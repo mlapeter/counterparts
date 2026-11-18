@@ -119,7 +119,7 @@ describe("the composition (shape off)", () => {
 
 describe("the shaped wake (shape on)", () => {
   test("a range: later by both ends, due today with its span, then overdue from its last day", () => {
-    const { c, id } = brain(RANGE, true);
+    const { c, id } = brain(RANGE, true, { status: "planned" });
     expect(comingUp(wakeOn(c, "2026-10-14"))).toEqual(["Coming up:", `- 10-16–10-18 · Coast trip [${id}]`]);
     for (const at of ["2026-10-16", "2026-10-17", "2026-10-18"]) {
       const w = wakeOn(c, at);
@@ -132,15 +132,20 @@ describe("the shaped wake (shape on)", () => {
     expect(comingUp(wakeOn(c, "2026-10-21"))).toEqual(["Coming up:", `- 3 days overdue · Coast trip [${id}]`]);
   });
 
+  test("a range nobody owes: Was by both ends after its last day, never overdue (2026-11-18)", () => {
+    const { c, id } = brain(RANGE, true);
+    expect(comingUp(wakeOn(c, "2026-10-19"))).toEqual(["Coming up:", `- Was 10-16–10-18 · Coast trip [${id}]`]);
+  });
+
   test("a one-day range reads as its day, and its overdue line doesn't throw the shape off", () => {
-    const { c, id } = brain("2026-10-16..2026-10-16", true);
+    const { c, id } = brain("2026-10-16..2026-10-16", true, { status: "planned" });
     expect(comingUp(wakeOn(c, "2026-10-14"))).toEqual(["Coming up:", `- 10-16 · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-16"))).toEqual(["Coming up:", `- Due today · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-17"))).toEqual(["Coming up:", `- 1 day overdue · Coast trip [${id}]`]);
   });
 
   test("control: a day item reads byte for byte as before", () => {
-    const { c, id } = brain(DAY, true);
+    const { c, id } = brain(DAY, true, { status: "planned" });
     expect(comingUp(wakeOn(c, "2026-10-14"))).toEqual(["Coming up:", `- 10-16 · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-16"))).toEqual(["Coming up:", `- Due today · Coast trip [${id}]`]);
     expect(comingUp(wakeOn(c, "2026-10-17"))).toEqual(["Coming up:", `- 1 day overdue · Coast trip [${id}]`]);
@@ -166,13 +171,13 @@ describe("the doors: recall `coming up` and `still open`", () => {
     const c = Counterpart.open({ dir: mkdtempSync(join(dir, "store-")), timeZone: "UTC", now: () => clock });
     open.push(c);
     c.store.setMeta(WAKE_SHAPE_KEY, "on");
-    const id = c.store.put({ type: "memory", kind: "person", title: "Coast trip", body: "The coast trip runs over the long weekend.", learnedOn: "2026-08-25", eventDate: RANGE, salience: { novelty: null, relevance: 0.8, emotional: 0.8, predictive: 0.8 } });
+    const id = c.store.put({ type: "memory", kind: "person", status: "planned", title: "Coast trip", body: "The coast trip runs over the long weekend.", learnedOn: "2026-08-25", eventDate: RANGE, salience: { novelty: null, relevance: 0.8, emotional: 0.8, predictive: 0.8 } });
     const on = (ymd: string): void => {
       clock = Date.parse(`${ymd}T12:00:00Z`);
     };
     const bucket = (): string => {
       const u = c.comingUp();
-      return u.today.some((x) => x.id === id) ? "today" : u.overdue.some((x) => x.id === id) ? "overdue" : u.later.some((x) => x.id === id) ? "later" : "none";
+      return u.today.some((x) => x.id === id) ? "today" : u.overdue.some((x) => x.id === id) ? "overdue" : u.passed.some((x) => x.id === id) ? "passed" : u.later.some((x) => x.id === id) ? "later" : "none";
     };
     const listed = () => c.stillOpen().comingUp.find((x) => x.id === id);
     on("2026-10-14");
@@ -235,7 +240,7 @@ function clocked(start: string): { c: Counterpart; on(stamp: string): void } {
 describe("overdue order: a range by its last day (review of #833)", () => {
   test("a range 10-01..10-20 and a day 10-15, both overdue on 10-21: ordered by the day each became overdue, on both roads and the doors", () => {
     const { c } = clocked("2026-10-21T12:00:00Z");
-    const put = (title: string, eventDate: string): string => c.store.put({ type: "memory", kind: "person", title, body: `${title}, as planned.`, learnedOn: "2026-08-25", eventDate, salience: SAL });
+    const put = (title: string, eventDate: string): string => c.store.put({ type: "memory", kind: "person", title, body: `${title}, as planned.`, status: "planned", learnedOn: "2026-08-25", eventDate, salience: SAL });
     const range = put("Harbour survey", "2026-10-01..2026-10-20");
     const day = put("Kiln repair", "2026-10-15");
     // Newest overdue first: the range (overdue from 10-20), then the day (from 10-15).

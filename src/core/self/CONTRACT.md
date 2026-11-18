@@ -844,7 +844,11 @@ closing line carries an unshown open thread forward instead. A read; nothing is 
 told-once latch for set-downs is untouched. **[A]** Overdue items not listed are their own
 clause at Coming up's door, "N (more) overdue (oldest MM-DD)", never folded into "more here";
 another folder's are counted as overdue inside its count, never listed; the one pass keeps
-that door when it must take the section down. **[A]** A handoff whose lead
+that door when it must take the section down. Only an item someone owes is overdue
+(`Cue#owed`, 2026-11-18: planned or asked, unresolved or with a settles-when, plain, or a
+repeat); a past dated fact nobody owes is listed after the owed ones in the same slots as
+"Was MM-DD", counted behind the door as more here, and is `passed` at the `coming up` door,
+never overdue. **[A]** A handoff whose lead
 item waits on the owner (`counterpart-wake-shape.ts#waitsOnOwner`: an `asked` memory it names,
 or waiting words over the whole lead) that has led `LEAD_SHOWN_SINK` wakes since its last
 revision, with no reply since, sinks below the others until revised (a lead that doesn't wait

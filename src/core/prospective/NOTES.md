@@ -774,3 +774,14 @@ repeat. Any weekly reminder hits this.
   so the on-time and late beats, and `plainCrossing`) is `datedSentence(body, eventDate, title, { recurring })`, else
   the title or first line as before (`counterpart.ts#plainWhat`). The hook's line still clips it at
   `PLAIN_WHAT_MAX_CHARS`; the dated line is already within 120. `test/plain-reminder-dated-sentence.test.ts`.
+
+## Only what someone owes is overdue (2026-11-18)
+
+- **The case:** a plain dated fact ("the rule takes effect Nov 12") read "6 days overdue" through its grace window. About
+  half the past-dated rows with no status are real follow-ups whose writer set none, so nothing is hidden: wording and
+  rank only, in the shaped wake and its `coming up` door (`counterpart-wake-shape.ts#owedOf`). Derive and the windows
+  are unchanged; recall's grace cue is as it was.
+- **Owed:** status planned or asked, unresolved or a settles-when, `remind: plain`, or a repeat. Owed past items read
+  and count as before. The rest read `- Was MM-DD · title` after them in the same `OVERDUE_SHOWN` slots, count as
+  more here, and sit in the door's `passed`. Other folders' overdue count is owed-only too.
+- **Left as it was:** the shape-off composition's count words and the `still open` door's `overdue: true` mark.
