@@ -807,6 +807,14 @@ export function recordSleepCycle(
     // table had nothing wrong" and "this row cannot tell you" are different
     // facts; a phase that did not run carries no field at all.
     ...(p.reconciled === undefined ? {} : { reconciled: p.reconciled }),
+    // THE VERSIONS PHASE'S TWO SWEEPS (#728's check, 2026-11-18): how many
+    // superseded versions went, and what recall's gate sweep did — `{ pruned,
+    // cutoffDay }` or `{ error }` (a code). Their `sleep.*` events reach no
+    // durable store, so this entry is the only record. Numbers and a code,
+    // never a row; absent on every other phase and on a versions phase that
+    // did not run under apply.
+    ...(p.versionsPruned === undefined ? {} : { versionsPruned: p.versionsPruned }),
+    ...(p.gate === undefined ? {} : { gate: p.gate }),
     // WHETHER THE PHASE RAN OUT OF ROAD. The report has carried this since the
     // budgets existed and nothing durable copied it, so the store could not
     // say that a phase had stopped at its cap — which is how a consolidate

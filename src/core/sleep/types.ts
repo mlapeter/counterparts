@@ -295,6 +295,15 @@ export interface PhaseReport {
    * crossed a band" are different facts (scar §2.4).
    */
   readonly reconciled?: number;
+  /**
+   * The superseded versions this phase let go — present on the `versions`
+   * phase when it ran under apply, absent everywhere else. The same number as
+   * its `examined` and `changed`, named so a durable reader need not know that
+   * (#728's check, 2026-11-18).
+   */
+  readonly versionsPruned?: number;
+  /** Recall's gate-row sweep inside the `versions` phase: see `GateSweep`. */
+  readonly gate?: GateSweep;
   readonly markerBefore: number;
   readonly markerAfter: number;
   /** Machine-readable failure code. Present only when `status === "failed"`. */
@@ -630,7 +639,24 @@ export interface PhaseOutcome {
    * defect (`decay.ts#DecayResult.bandsReconciled`).
    */
   reconciled?: number;
+  /** OPTIONAL, versions phase only: see `PhaseReport.versionsPruned`. */
+  versionsPruned?: number;
+  /** OPTIONAL, versions phase only: see `GateSweep`. */
+  gate?: GateSweep;
 }
+
+/**
+ * WHAT RECALL'S GATE SWEEP DID, on the `versions` phase (#728's check,
+ * 2026-11-18). Its `sleep.gate.*` events reach only the in-memory ring and a
+ * host `onEvent` that persists nothing, so this is how the sweep's result
+ * reaches the durable `sleep.cycle` row. Three cases a reader can tell apart:
+ * the field ABSENT (the phase did not run under apply, or the port has no
+ * `pruneGateSessions`); `{ pruned, cutoffDay }` when the sweep ran, 0 included;
+ * `{ error }` when it threw — swallowed, so the phase itself still stands.
+ */
+export type GateSweep =
+  | { readonly pruned: number; readonly cutoffDay: number }
+  | { readonly error: string };
 
 export function emptyOutcome(): PhaseOutcome {
   return { examined: 0, changed: 0, skipped: {}, budgetExhausted: false, skippedForBudget: 0 };
