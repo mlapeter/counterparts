@@ -284,7 +284,16 @@ describe("through recallForTurn", () => {
     expect(got).toEqual(before);
     expect(got.map((b) => b.id).sort()).toEqual([adaBelief, wrenBelief].sort());
 
+    // The whole turn, through the hook's door: one scan of the schema rows
+    // (the beliefs slot's catch-up), however many subjects the prompt names.
+    schemaLists = 0;
+    c.store.list = (filter = {}) => {
+      if (filter.type === "schema") schemaLists += 1;
+      return list(filter);
+    };
     const out = c.recallForTurn({ sessionId: "s-beliefs", text });
+    c.store.list = list;
+    expect(schemaLists).toBe(1);
     expect(out.decision.beliefs?.offered).toBe(2);
     expect([...(out.decision.beliefs?.shown ?? [])].sort()).toEqual([adaBelief, wrenBelief].sort());
   });
