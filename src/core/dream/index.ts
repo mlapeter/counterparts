@@ -2269,7 +2269,7 @@ export class Dreams {
           type: "memory",
           kind: best.r.kind,
           // What its originals bore on (BO1), when the merged words dropped the line.
-          body: keepSourcesAreas(withNames(words.text, names.kept), rs.map((r) => r.body)),
+          body: withNames(keepSourcesAreas(words.text, rs.map((r) => r.body), { about: about?.about ?? null, kind: best.r.kind }), names.kept),
           ...(change.title !== undefined && change.title.trim().length > 0 ? { title: change.title.trim().slice(0, DREAM_TUNABLES.MAX_TITLE_CHARS) } : {}),
           salience: { ...best.p.salience },
           physics: {
@@ -2457,7 +2457,7 @@ export class Dreams {
           // memories add up to; `source` and `meta.fold` keep where it came from.
           title: isFold ? (title.length > 0 ? title : firstLine(words.text)) : `Dreamed: ${title.length > 0 ? title : firstLine(words.text)}`,
           // A fold stands for its parts, so it keeps what they bore on (BO1); a gist's sources stay.
-          body: isFold ? keepSourcesAreas(withNames(words.text, names.kept), (sourceRows as MemoryRow[]).map((r) => r.body)) : withNames(words.text, names.kept),
+          body: withNames(isFold ? keepSourcesAreas(words.text, (sourceRows as MemoryRow[]).map((r) => r.body), { about: about?.about ?? null, kind }) : words.text, names.kept),
           salience: isFold
             ? { novelty: null, relevance: claim, emotional: 0, predictive: claim, claimed: claim }
             : {

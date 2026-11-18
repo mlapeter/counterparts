@@ -89,6 +89,11 @@ export function readAreas(raw: unknown): AreasRead {
   return kept.length === 0 ? { dropped: said } : { sent: [...kept], dropped: said };
 }
 
+/** Is a memory with this mark and kind one areas are for: about owner or us, or a person? */
+export function forPeople(about: string | null | undefined, kind: unknown): boolean {
+  return about === "owner" || about === "us" || kind === "person";
+}
+
 /**
  * The engine's two backstops. Off-subject (not about owner or us, and not a
  * person): none kept. Otherwise each area whose words (stemmed, as the index
@@ -100,8 +105,7 @@ export function admitAreas(
   on: { readonly about: string | null | undefined; readonly kind: unknown; readonly text: string },
 ): { readonly areas: readonly string[]; readonly dropped: readonly string[] } {
   if (areas.length === 0) return { areas: [], dropped: [] };
-  const person = on.about === "owner" || on.about === "us" || on.kind === "person";
-  if (!person) return { areas: [], dropped: [AREAS_OFF_SUBJECT] };
+  if (!forPeople(on.about, on.kind)) return { areas: [], dropped: [AREAS_OFF_SUBJECT] };
   const named = new Set(indexTerms(on.text));
   const kept: string[] = [];
   const dropped: string[] = [];
@@ -126,18 +130,19 @@ export function areasOfLine(line: string): string[] {
 
 /**
  * A NIGHT'S MERGE OR FOLD KEEPS WHAT ITS SOURCES BORE ON (review of #846,
- * round 2): the dream writes the model's words as the new body, so a line the
- * sources carried would go with them. When the new body has none and any
- * source had one, the union of their areas — through the one screen, so at
- * most `TAGS_PER_MEMORY` — becomes its line. Not re-judged for subject: each
- * was admitted when its source was written.
+ * rounds 2-3): the dream writes the model's words as the new body, so a line
+ * the sources carried would go with them. When the new words have none and
+ * any source had one, the union of their areas — through the one screen, so
+ * at most `TAGS_PER_MEMORY`, then the same backstops a write gets, against the
+ * NEW memory's mark, kind and words (`admitAreas`) — becomes its line. Called
+ * on the model's words BEFORE `withNames`, so a "Names:" line stays last.
  */
-export function keepSourcesAreas(body: string, sources: readonly string[]): string {
-  if (hasAreasLine(body)) return body;
+export function keepSourcesAreas(text: string, sources: readonly string[], on: { readonly about: string | null | undefined; readonly kind: unknown }): string {
+  if (hasAreasLine(text)) return text;
   const all = sources.flatMap((s) => {
     const line = areasLineOf(s);
     return line === null ? [] : areasOfLine(line);
   });
-  if (all.length === 0) return body;
-  return foldAreas(body, screenTags(all).kept);
+  if (all.length === 0) return text;
+  return foldAreas(text, admitAreas(screenTags(all).kept, { about: on.about, kind: on.kind, text }).areas);
 }

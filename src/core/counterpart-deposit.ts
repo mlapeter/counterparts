@@ -4,7 +4,7 @@ import { mintProposal, settlesWhenOf, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_ME
 import { nightClosedOf, reopenNightClosed } from "./open-close.js";
 import type { MintResult } from "./mint.js";
 import { screenTags } from "./tag-screen.js";
-import { admitAreas, areasLineOf, carryAreasLine, foldAreas, hasAreasLine, readAreas, stripAreasLine } from "./areas.js";
+import { admitAreas, areasLineOf, carryAreasLine, foldAreas, forPeople, hasAreasLine, readAreas, stripAreasLine } from "./areas.js";
 import type { AreasRead } from "./areas.js";
 import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
 import { errCode, OWN_PLUMBING_META_KEY, ownPlumbingCue, prepareProposal, settleProposal } from "./remember/index.js";
@@ -785,29 +785,13 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
 }
 
 /**
- * A NEW MEMORY'S TAGS (v14, lane B, 2026-10-21): what the writer sent, or —
- * for a revision of a memory the author addressed by `updates:` (declared and
- * resolved, as `carryFacts` reads it) and sent no tags — the tags of the
- * memory it revises, every one whatever found it (as `about` is carried).
- * Sent as `null` or empty: none, nothing carried. Sent tags pass the one
- * screen (`tag-screen.ts#screenTags`); a list that keeps none is read as not
- * sent. Nothing MOVES: the old memory keeps its own. Null when nothing was
- * sent, dropped or carried.
- */
-/**
- * BO1: A REVISION KEEPS WHAT ITS FACT BEARS ON. When `updates` resolved to a
- * memory by its declared address and the writer did not send `bearsOn` at
- * all, the target's areas line comes over onto the new text (unless the new
- * text has one of its own). `bearsOn: null` opts out. The line was admitted
- * and gated when the target was written, so it is not re-judged here.
- */
-/**
  * BO1: what the memory's text carries of the areas, decided once everything
  * else is (review of #846, round 2). Sent areas that survive the backstops
  * (`areas.ts#admitAreas`, against the stored mark) REPLACE any areas line the
  * text has; none kept — nothing sent, or every sent one dropped, but never an
- * explicit null — a revision carries its target's line. The answer names only
- * what landed.
+ * explicit null — a revision carries its target's line, when the memory as
+ * stored is one areas are for (`areas.ts#forPeople`, round 3). The answer
+ * names only what landed.
  */
 export function applyAreas(cp: Counterpart, p: Proposal, read: AreasRead, about: string | null): { proposal: Proposal; areas: DepositAreas | null } {
   const bare = stripAreasLine(p.content);
@@ -817,13 +801,14 @@ export function applyAreas(cp: Counterpart, p: Proposal, read: AreasRead, about:
   if (admitted.areas.length > 0) {
     return { proposal: { ...p, content: foldAreas(bare, admitted.areas) }, areas: { areas: [...admitted.areas], ...said } };
   }
-  const carried = read.sent !== null && !hasAreasLine(p.content) ? carryAreas(cp, p) : null;
+  const carried = read.sent !== null && !hasAreasLine(p.content) && forPeople(about, p.kind) ? carryAreas(cp, p) : null;
   if (carried !== null) {
     return { proposal: { ...p, content: carryAreasLine(p.content, carried.line) }, areas: { areas: [], carriedFrom: carried.from, ...said } };
   }
   return { proposal: p, areas: dropped.length === 0 ? null : { areas: [], dropped } };
 }
 
+/** BO1: the areas line of the memory a revision addressed by `updates` (declared and resolved), or null. */
 export function carryAreas(cp: Counterpart, p: Proposal): { line: string; from: string } | null {
   const target = p.updates?.method === "declared" ? p.updates.resolved : null;
   if (target === null) return null;
@@ -836,6 +821,16 @@ export function carryAreas(cp: Counterpart, p: Proposal): { line: string; from: 
   }
 }
 
+/**
+ * A NEW MEMORY'S TAGS (v14, lane B, 2026-10-21): what the writer sent, or —
+ * for a revision of a memory the author addressed by `updates:` (declared and
+ * resolved, as `carryFacts` reads it) and sent no tags — the tags of the
+ * memory it revises, every one whatever found it (as `about` is carried).
+ * Sent as `null` or empty: none, nothing carried. Sent tags pass the one
+ * screen (`tag-screen.ts#screenTags`); a list that keeps none is read as not
+ * sent. Nothing MOVES: the old memory keeps its own. Null when nothing was
+ * sent, dropped or carried.
+ */
 export function carryTags(cp: Counterpart, p: Proposal, sent: readonly string[] | null | undefined): DepositTags | null {
   if (sent === null || (sent !== undefined && sent.length === 0)) return { tags: [], from: null };
   // THE ONE SCREEN, at the core's own seam (review of #570): an embedder's

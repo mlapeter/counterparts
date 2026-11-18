@@ -27,6 +27,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { AREAS_LABEL, AREAS_OFF_SUBJECT, admitAreas, areasLineOf, areasOfLine, foldAreas, keepSourcesAreas, readAreas, stripAreasLine } from "../src/core/areas.js";
 import { CODEX_HOST } from "../src/adapters/hosts.js";
 import { titleOfRow } from "../src/core/counterpart-wake-shape.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import { STOPWORDS } from "../src/core/recall/reference.js";
 import { tokenize } from "../src/core/store/index.js";
 import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
@@ -422,17 +423,72 @@ describe("fix round 2 (review of #846)", () => {
     expect(body(s, out["id"] as string)).toBe(`The owner and I keep a vegan kitchen when we cook together.\n\n${AREAS_LABEL} restaurants, gifts.`);
   });
 
-  test("R4. a night's merge or fold keeps the union of its sources' areas when its words dropped them", () => {
-    const merged = keepSourcesAreas("Mia and Sam are both vegan.", [
-      `Mia is vegan.\n\n${AREAS_LABEL} cooking, restaurants.`,
-      `Sam is vegan.\n\n${AREAS_LABEL} restaurants, gifts.`,
-      "Sam lives in Leeds.",
-    ]);
+  test("R4. a night's merge or fold keeps the union of its sources' areas when its words dropped them, for people only, minus what its words name", () => {
+    const owner = { about: "owner", kind: "fact" };
+    const merged = keepSourcesAreas(
+      "Mia and Sam are both vegan.",
+      [`Mia is vegan.\n\n${AREAS_LABEL} cooking, restaurants.`, `Sam is vegan.\n\n${AREAS_LABEL} restaurants, gifts.`, "Sam lives in Leeds."],
+      owner,
+    );
     expect(merged).toBe(`Mia and Sam are both vegan.\n\n${AREAS_LABEL} cooking, restaurants, gifts.`);
-    expect(keepSourcesAreas(`Merged.\n\n${AREAS_LABEL} baking.`, [`x\n\n${AREAS_LABEL} cooking.`])).toBe(`Merged.\n\n${AREAS_LABEL} baking.`);
-    expect(keepSourcesAreas("Merged.", ["no line here"])).toBe("Merged.");
-    const many = Array.from({ length: 12 }, (_, i) => `area ${String(i)}`);
-    expect(areasOfLine(areasLineOf(keepSourcesAreas("M.", [`x\n\n${AREAS_LABEL} ${many.join(", ")}.`])) ?? "")).toHaveLength(8);
+    expect(keepSourcesAreas(`Merged.\n\n${AREAS_LABEL} baking.`, [`x\n\n${AREAS_LABEL} cooking.`], owner)).toBe(`Merged.\n\n${AREAS_LABEL} baking.`);
+    expect(keepSourcesAreas("Merged.", ["no line here"], owner)).toBe("Merged.");
+    // Round 3: the merged memory's own mark and words decide, as a write's do.
+    expect(keepSourcesAreas("Merged.", [`x\n\n${AREAS_LABEL} cooking.`], { about: "work", kind: "fact" })).toBe("Merged.");
+    expect(keepSourcesAreas("Merged.", [`x\n\n${AREAS_LABEL} cooking.`], { about: null, kind: "person" })).toBe(`Merged.\n\n${AREAS_LABEL} cooking.`);
+    expect(keepSourcesAreas("They cook at home.", [`x\n\n${AREAS_LABEL} cooking, gifts.`], owner)).toBe(`They cook at home.\n\n${AREAS_LABEL} gifts.`);
+    const many = Array.from({ length: 12 }, (_, i) => `area${String.fromCharCode(97 + i)}`);
+    expect(areasOfLine(areasLineOf(keepSourcesAreas("M.", [`x\n\n${AREAS_LABEL} ${many.join(", ")}.`], owner)) ?? "")).toHaveLength(8);
+  });
+
+  test("R4b. a real merge: the areas line sits before the Names line, which stays last, so the wake's strip leaves no ids", () => {
+    const c = Counterpart.open({ dir: join(root, "dream"), identity: { name: "Mike" } });
+    open.push(c);
+    c.store.advanceClock("2026-09-10");
+    for (let d = 11; d <= 14; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
+    const day = c.store.livedDay();
+    const at = { physics: { birthDay: day, lastUsedDay: day } };
+    const named = c.store.put({ type: "memory", kind: "fact", body: "Mike's parents visit every spring and stay a week at the house.", about: "owner", ...at });
+    const a = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: `Mike has been vegan for years, as his parents know (${named}).\n\n${AREAS_LABEL} cooking, restaurants.`,
+      about: "owner",
+      salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 },
+      ...at,
+    });
+    const b = c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: `Mike eats no animal products at all, and has not for years.\n\n${AREAS_LABEL} restaurants, gifts.`,
+      about: "owner",
+      salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 },
+      ...at,
+    });
+    const begun = c.dreams.begin({ session: "s-dream", scope: "/proj" });
+    if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+    const out = c.dreams.propose({ dream: begun.bundle.dream, session: "s-dream", changes: [{ action: "merge", ids: [a, b], text: "Mike has been fully vegan for years and eats no animal products" }] });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const merged = out.results[0]?.id as string;
+    const mergedBody = c.store.row(merged)?.body ?? "";
+    expect(mergedBody).toBe(`Mike has been fully vegan for years and eats no animal products.\n\n${AREAS_LABEL} cooking, restaurants, gifts.\n\nNames: ${named}`);
+    // The two strips the wake reads (`counterpart-wake-shape.ts`, `time.ts#datedText`) take a LAST Names line only.
+    const read = mergedBody.replace(/\n+Names: [^\n]*\s*$/u, "");
+    expect(read).not.toContain("mem_");
+    expect(read).not.toContain("Names:");
+    expect(titleOfRow({ title: null, body: mergedBody })).toBe("Mike has been fully vegan for years and eats no animal products.");
+  });
+
+  test("R6. a revision carries its target's line only when the memory as stored is one areas are for", async () => {
+    const s = server("store");
+    const id = await writeVegan(s, VEGAN_BEARS_ON);
+    const world = (await s.call("remember", { text: "Veganism has grown a lot in this city over the last decade.", about: "world", kind: "fact", updates: id, how: "changed" })).structuredContent;
+    expect(world["stored"]).toBe(true);
+    expect(body(s, world["id"] as string)).toBe("Veganism has grown a lot in this city over the last decade.");
+    expect(world["bearsOn"]).toBeUndefined();
+    // It did revise the vegan fact (settled over it, not held): the carry was asked, and refused.
+    expect((world["settled"] as { over: string }).over).toBe(id);
   });
 
   test("R5. two people's facts sharing the same areas are not one memory to the near-duplicate hide", async () => {
