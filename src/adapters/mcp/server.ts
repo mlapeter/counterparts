@@ -3315,6 +3315,7 @@ export class McpServer {
                 ...(c.due === undefined ? {} : { due: c.due }),
                 ...(c.every === undefined ? {} : { every: c.every }),
                 ...(c.overdue === true ? { overdue: true } : {}),
+                ...(c.passed === true ? { passed: true } : {}),
               })),
             }),
         note:
@@ -3327,7 +3328,7 @@ export class McpServer {
             : ` ${maybeShown === 1 ? "One is" : `${String(maybeShown)} are`} marked mayBeDone: the night thought it may be done but wasn't sure enough to close it, and the memory in brackets is why. If it is done, close it (a write that updates it with unresolved: false); nobody is asked. A question to the owner (status asked) closes only on the owner's answer, never on this mark.`) +
           (comingUp.length === 0 || at !== 1
             ? ""
-            : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true; the longest past its date first), then by date.`),
+            : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true, what someone owes; the longest past its date first), then what passed (passed: true, a dated fact nobody owes), then by date.`),
       },
       false,
     );

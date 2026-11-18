@@ -31,7 +31,7 @@
  * transitions never stall a host-facing path, and every refusal has a name.
  */
 import type { Kind } from "../types.js";
-import { isKnownSession } from "../types.js";
+import { isKnownSession, settlesWhenOf } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { UseTier } from "../physics/index.js";
 import type { ProseDoc, ProspectiveInput, ProspectiveRow, Store } from "../store/index.js";
@@ -130,6 +130,33 @@ export const CUE_MODE_META = "remind";
 
 export function cueModeOf(doc: Pick<ProseDoc, "meta">): CueMode {
   return doc.meta[CUE_MODE_META] === "plain" ? "plain" : "quiet";
+}
+
+/**
+ * SOMEONE OWES IT (2026-11-18): what makes a dated memory past its day
+ * "overdue" rather than a fact whose day went by. Status planned or asked, an
+ * open thread (`unresolved: true`, or a settles-when not closed by
+ * `unresolved: false`, which is how a thread is closed), a plain reminder, or
+ * a repeat. Read by the shaped wake's Coming up, the `coming up` door and the
+ * `still open` door's dated list, so the three agree. Pure; wording and rank
+ * only: a past item nobody owes is still listed. A meta that will not parse is
+ * read as empty.
+ */
+export function owedOf(row: { readonly status: unknown; readonly meta: string | Readonly<Record<string, unknown>> | null | undefined }, repeats = false): boolean {
+  const status = statusOf(row.status);
+  if (repeats || status === "planned" || status === "asked") return true;
+  let meta: Readonly<Record<string, unknown>> = {};
+  if (typeof row.meta === "string") {
+    try {
+      const parsed = JSON.parse(row.meta) as unknown;
+      if (parsed !== null && typeof parsed === "object") meta = parsed as Record<string, unknown>;
+    } catch {
+      meta = {};
+    }
+  } else if (row.meta !== null && row.meta !== undefined) meta = row.meta;
+  const open = meta["unresolved"];
+  if (open === true || (open !== false && settlesWhenOf(meta) !== null)) return true;
+  return cueModeOf({ meta }) === "plain" || (meta[RECURRING_META] !== undefined && meta[RECURRING_META] !== null);
 }
 
 /**

@@ -61,9 +61,8 @@ import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } f
 import { addDays, ageWords, daySpan, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
-import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS, cueModeOf } from "./prospective/index.js";
+import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS, owedOf } from "./prospective/index.js";
 import type { Kind } from "./types.js";
-import { RECURRING_META, statusOf } from "./store/index.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
@@ -244,7 +243,7 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
       // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
       body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),
-      owed: owedOf(row, h),
+      owed: owedOf(row, h.every !== undefined),
       due: due === "" ? null : due,
       every: h.every ?? null,
       today: today || h.plainDue === true,
@@ -257,20 +256,6 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     });
   }
   return out;
-}
-
-/** Whether someone owes a dated row (`Cue#owed`): its status, its open mark, its cue mode, or its repeat. */
-function owedOf(row: Pick<MemoryRow, "meta" | "status">, h: HorizonLine): boolean {
-  const status = statusOf(row.status);
-  if (status === "planned" || status === "asked" || h.every !== undefined) return true;
-  let meta: Record<string, unknown> = {};
-  try {
-    const parsed = JSON.parse(row.meta ?? "{}") as unknown;
-    if (parsed !== null && typeof parsed === "object") meta = parsed as Record<string, unknown>;
-  } catch {
-    return false;
-  }
-  return settlesWhenOf(meta) !== null || meta["unresolved"] === true || cueModeOf({ meta }) === "plain" || (meta[RECURRING_META] !== undefined && meta[RECURRING_META] !== null);
 }
 
 function settlesOf(row: Pick<MemoryRow, "meta">): string | null {

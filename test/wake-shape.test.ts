@@ -1015,6 +1015,44 @@ describe("Coming up", () => {
     expect(idsOf(d["today"])).toContain(now);
   });
 
+  test("a thread closed through updates (unresolved: false, its settles-when kept) and a proposed item read Was, on every door", async () => {
+    const { c, today } = brain();
+    const was = addDays(today, -3);
+    const learnedOn = addDays(today, -9);
+    const thread = memory(c, "Hear back from the supplier about the kiln part.", { title: "Hear back from the supplier", eventDate: was, learnedOn, meta: { unresolved: true, settlesWhen: "the supplier answers" } });
+    const proposed = memory(c, "Maybe move the kiln to the shed.", { title: "Maybe move the kiln", status: "proposed", eventDate: addDays(today, -2), learnedOn });
+    // Closed where it stands, as the night and the reflection close a thread (`open-close.ts#writeClose`): the flag false, its settles-when left.
+    const shelf = memory(c, "Wait on the shelf brackets.", { title: "Wait on the shelf brackets", eventDate: addDays(today, -4), learnedOn, meta: { unresolved: true, settlesWhen: "the brackets arrive" } });
+    // Open, they are owed.
+    expect(idsOf(c.comingUp({ scope: HERE }).overdue)).toEqual([thread, shelf]);
+    c.store.revise(shelf, { meta: { unresolved: false }, reason: "thread-closed" });
+    expect(c.store.readProse(shelf).meta["settlesWhen"]).toBe("the brackets arrive");
+    recordSession(storeDir, { sessionId: OWN, scope: HERE, phase: "start" });
+    const w = new McpServer({ counterpart: c, scope: HERE, registryDir: storeDir, session: OWN, scopesFile: join(conf, "scopes.json") });
+    const closed = (await w.call("remember", { text: "The supplier answered: the kiln part ships Friday.", kind: "fact", updates: thread, unresolved: false })).structuredContent;
+    expect((closed["thread"] as { closed: string } | undefined)?.closed).toBe(thread);
+    expect(c.store.readProse(thread).meta["settlesWhen"]).toBe("the supplier answers");
+    // Through `updates` the reminder moves to the successor (`reminderMovedTo`): it is what is listed, owed by nobody.
+    const next = String(closed["id"]);
+    const shownId = c.store.row(next)?.event_date === was ? next : thread;
+    c.close();
+    const block = section(hook().wake, "Coming up:");
+    expect(block).not.toContain("overdue");
+    expect(block).toContain(`- Was ${addDays(today, -2).slice(5)} · Maybe move the kiln [${proposed}]`);
+    expect(block).toContain(`- Was ${was.slice(5)} · Hear back from the supplier [${shownId}]`);
+    // Past the two slots, the closed one is one more here, not overdue.
+    expect(block).toContain(`(1 more here; recall "coming up")`);
+    const d = await door();
+    expect(idsOf(d["overdue"])).toEqual([]);
+    expect(idsOf(d["passed"])).toEqual([proposed, shownId, shelf]);
+    // The `still open` door's dated list agrees: passed, never overdue.
+    const again = brain();
+    const s = new McpServer({ counterpart: again.c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
+    const still = (await s.call("recall", { handle: "still open" })).structuredContent["comingUp"] as { id: string; overdue?: true; passed?: true }[];
+    expect(still.filter((x) => x.overdue === true)).toEqual([]);
+    expect(still.filter((x) => x.passed === true).map((x) => x.id).sort()).toEqual([proposed, shownId, shelf].sort());
+  });
+
   test("a plain one and an unresolved quiet one stay overdue; owed rank first and a hidden passed fact is more here, not overdue", async () => {
     const { c, today } = brain();
     const learnedOn = addDays(today, -9);

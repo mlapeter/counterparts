@@ -490,7 +490,7 @@ describe("3b. due today before the overdue words", () => {
     c.revisePage(`## Core\n\n${"I keep the kiln's ledger, carefully, every single day. ".repeat(146)}`, { reason: "first", by: "owner" });
     const long = `Water the cold frame: ${"carry each tray out, check the soil, water from the left, ".repeat(1)}then close the lid.`;
     const id = memory(c, long, { title: "Water the cold frame", eventDate: today, meta: { remind: "plain" } });
-    for (const d of [1, 3]) memory(c, `Overdue ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door ${String(d)}`, eventDate: addDays(today, -d) });
+    for (const d of [1, 3]) memory(c, `Overdue ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door ${String(d)}`, status: "planned", eventDate: addDays(today, -d) });
     for (const d of [3, 5]) memory(c, `Later ${String(d)}: turn the compost.`, { title: `Turn the compost ${String(d)}`, eventDate: addDays(today, d) });
     for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, status: "planned", eventDate: addDays(today, -d), scope: THERE });
     c.close();
