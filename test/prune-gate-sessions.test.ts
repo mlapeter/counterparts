@@ -134,3 +134,87 @@ describe("the versions phase calls the gate sweep", () => {
     }
   });
 });
+
+/**
+ * THE SWEEP'S RESULT REACHES THE DURABLE ROW (#728's check, 2026-11-18).
+ *
+ * `sleep.gate.pruned` / `sleep.gate.failed` reach only the cycle's in-memory
+ * ring and a host `onEvent` that persists nothing, so on a live store the gate
+ * sweep left no trace. These read the `sleep.cycle` row back out of the events
+ * table after a real `sessionEnd` — not the ring, not the `CycleReport`.
+ */
+describe("the sleep.cycle row's versions entry carries both sweeps", () => {
+  interface VersionsLine {
+    phase: string;
+    status: string;
+    code?: string;
+    versionsPruned?: number;
+    gate?: { pruned?: number; cutoffDay?: number; error?: string };
+  }
+  function versionsLines(cp: Counterpart): VersionsLine[] {
+    return cp.store
+      .eventLog({ name: "sleep.cycle", limit: 10 })
+      .map((row) => JSON.parse(row.payload ?? "{}") as { phases: VersionsLine[] })
+      .map((p) => p.phases.find((l) => l.phase === "versions") as VersionsLine);
+  }
+
+  test("a clean night: versionsPruned and gate.pruned 0 with its cutoff, on the versions entry only", async () => {
+    const cp = Counterpart.open({ dir });
+    try {
+      cp.store.advanceClock("2026-01-01");
+      seed(cp.store, "recent", 1, "mem_aaaaaaaaaaaa");
+      await cp.sessionEnd({ date: "2026-01-02" });
+      const lines = versionsLines(cp);
+      expect(lines).toHaveLength(1);
+      const v = lines[0] as VersionsLine;
+      expect(v.status).not.toBe("failed");
+      expect(v.versionsPruned).toBe(0);
+      expect(v.gate?.pruned).toBe(0);
+      expect(typeof v.gate?.cutoffDay).toBe("number");
+      expect(v.gate?.error).toBeUndefined();
+      // Small row: no other phase grew the fields.
+      const row = JSON.parse(cp.store.eventLog({ name: "sleep.cycle", limit: 1 })[0]?.payload ?? "{}") as {
+        phases: Record<string, unknown>[];
+      };
+      for (const p of row.phases.filter((l) => l["phase"] !== "versions")) {
+        expect("gate" in p).toBe(false);
+        expect("versionsPruned" in p).toBe(false);
+      }
+      expect(loadGateState(cp.store, "recent").status).toBe("loaded");
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("a sweep that throws: gate.error on the row, and the versions phase still stands", async () => {
+    const cp = Counterpart.open({ dir });
+    try {
+      cp.store.advanceClock("2026-01-01");
+      const boom = Object.assign(new Error("no"), { code: "GATE_BOOM" });
+      (cp.store as unknown as { pruneGateSessions: () => never }).pruneGateSessions = () => {
+        throw boom;
+      };
+      await cp.sessionEnd({ date: "2026-01-02" });
+      const v = versionsLines(cp)[0] as VersionsLine;
+      expect(v.status).not.toBe("failed");
+      expect(v.code).toBeUndefined();
+      expect(v.gate).toEqual({ error: "GATE_BOOM" });
+      expect(v.versionsPruned).toBe(0);
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("an observer's boundary writes no sleep.cycle row", async () => {
+    const w = Counterpart.open({ dir });
+    w.store.advanceClock("2026-01-01");
+    w.close();
+    const o = Counterpart.open({ dir, observer: true });
+    try {
+      await o.sessionEnd({ date: "2026-01-02" });
+      expect(o.store.eventLog({ name: "sleep.cycle", limit: 10 })).toEqual([]);
+    } finally {
+      o.close();
+    }
+  });
+});

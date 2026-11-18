@@ -357,6 +357,9 @@ export function runCycle(opts: SleepOptions): CycleReport {
         // Present only where the phase set it (the decay pass, U8). Copied like
         // every other number here — this function invents no verdict.
         ...(result.reconciled === undefined ? {} : { reconciled: result.reconciled }),
+        // Present only on the versions phase under apply (#728's check).
+        ...(result.versionsPruned === undefined ? {} : { versionsPruned: result.versionsPruned }),
+        ...(result.gate === undefined ? {} : { gate: result.gate }),
       };
 
       if (observer) {
@@ -474,6 +477,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       const report = store.pruneSupersededVersions();
       out.examined = report.pruned;
       out.changed = report.pruned;
+      out.versionsPruned = report.pruned;
       emit("sleep.versions.pruned", undefined, {
         count: report.pruned,
         cutoffDay: report.cutoffDay,
@@ -485,10 +489,14 @@ export function runCycle(opts: SleepOptions): CycleReport {
       // with its day (`recall/session.ts#saveGateState`). A session with no rows
       // loads `absent` and starts fresh. Its own try: the version prune above
       // has committed, and a gate sweep that threw must not fail it. Counted in
-      // its event only, so the phase's numbers stay the versions'.
+      // its event and in `out.gate`, never in `examined`/`changed`, so the
+      // phase's numbers stay the versions'. `out.gate` is what reaches the
+      // durable `sleep.cycle` row: the events reach only the ring and a host
+      // `onEvent` that persists nothing (#728's check, 2026-11-18).
       if (store.pruneGateSessions !== undefined) {
         try {
           const gate = store.pruneGateSessions();
+          out.gate = { pruned: gate.pruned, cutoffDay: gate.cutoffDay };
           emit("sleep.gate.pruned", undefined, {
             count: gate.pruned,
             cutoffDay: gate.cutoffDay,
@@ -496,7 +504,9 @@ export function runCycle(opts: SleepOptions): CycleReport {
           });
         } catch (err) {
           if (err instanceof CycleKilled) throw err;
-          emit("sleep.gate.failed", undefined, { error: errorCode(err) });
+          const code = errorCode(err);
+          out.gate = { error: code };
+          emit("sleep.gate.failed", undefined, { error: code });
         }
       }
       return out;
