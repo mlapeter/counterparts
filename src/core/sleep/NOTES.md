@@ -1214,3 +1214,11 @@ store's nights stay quiet in the log-sweep tests).
 
 - The core lane blocks a reader host's note about itself by name (`reader-self-note`), as a belt: its null `about`
   already keeps it out of `aboutMe`. Read through the store's re-export of `isReaderSelfRow`.
+
+## 2026-11-18 — the gate sweep reaches the durable row (#728's check)
+
+- `sleep.gate.pruned` / `sleep.gate.failed` and `sleep.versions.pruned` reach only the cycle's in-memory ring and a
+  host `onEvent` that persists nothing, so on the live store the sweep's result, and whether it threw, was never
+  durable. The versions phase now sets `versionsPruned` and `gate` on its outcome (`types.ts#GateSweep`: absent,
+  `{ pruned, cutoffDay }`, or `{ error }`), `runPhase` copies them like `reconciled`, and `recordSleepCycle` puts them
+  on the versions entry only. The events stay. A sweep that throws is still swallowed; the phase stands.

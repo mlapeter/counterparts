@@ -97,7 +97,8 @@ alone.
   2026-09-05, unlatched event-log rows past the retention window — §5 G16 — and, since
   2026-11-03, recall's per-session `gate_session` rows past the same window, swept in the
   `versions` phase beside the version prune (`Store#pruneGateSessions`, event
-  `sleep.gate.pruned`). None is a memory; v1's spec names telemetry as "the one system-path exception to no-deletion —
+  `sleep.gate.pruned`; durably, since 2026-11-18, the `sleep.cycle` row's versions entry
+  as `gate` beside `versionsPruned`). None is a memory; v1's spec names telemetry as "the one system-path exception to no-deletion —
   bounded-retention logs" (`docs/harvest/behavioral-spec.md` #17; `log-audit.md` §3
   records v1's `pruneLogs` as exactly that exception), and the sweep is not silent.)*
 - **Autonomous, budgeted, and loud**: at most once per lived day, on its own trigger, never
