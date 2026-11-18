@@ -101,6 +101,7 @@ import {
   undo as undoContradiction,
   withdrawSlot,
 } from "../reconsolidation.js";
+import { keepSourcesAreas } from "../areas.js";
 
 export { DREAM_ACTIONS, DREAM_TUNABLES } from "./tunables.js";
 export type { DreamAction } from "./tunables.js";
@@ -2267,7 +2268,8 @@ export class Dreams {
         const newId = this.store.put({
           type: "memory",
           kind: best.r.kind,
-          body: withNames(words.text, names.kept),
+          // What its originals bore on (BO1), when the merged words dropped the line.
+          body: keepSourcesAreas(withNames(words.text, names.kept), rs.map((r) => r.body)),
           ...(change.title !== undefined && change.title.trim().length > 0 ? { title: change.title.trim().slice(0, DREAM_TUNABLES.MAX_TITLE_CHARS) } : {}),
           salience: { ...best.p.salience },
           physics: {
@@ -2454,7 +2456,8 @@ export class Dreams {
           // A fold's title is its own (review 11 C4): it states what lived
           // memories add up to; `source` and `meta.fold` keep where it came from.
           title: isFold ? (title.length > 0 ? title : firstLine(words.text)) : `Dreamed: ${title.length > 0 ? title : firstLine(words.text)}`,
-          body: withNames(words.text, names.kept),
+          // A fold stands for its parts, so it keeps what they bore on (BO1); a gist's sources stay.
+          body: isFold ? keepSourcesAreas(withNames(words.text, names.kept), (sourceRows as MemoryRow[]).map((r) => r.body)) : withNames(words.text, names.kept),
           salience: isFold
             ? { novelty: null, relevance: claim, emotional: 0, predictive: claim, claimed: claim }
             : {

@@ -113,3 +113,31 @@ export function admitAreas(
   }
   return { areas: kept, dropped };
 }
+
+/** The areas an areas line names, in order. */
+export function areasOfLine(line: string): string[] {
+  return line
+    .replace(AREAS_LINE, "")
+    .replace(/\.\s*$/, "")
+    .split(",")
+    .map((a) => a.trim())
+    .filter((a) => a.length > 0);
+}
+
+/**
+ * A NIGHT'S MERGE OR FOLD KEEPS WHAT ITS SOURCES BORE ON (review of #846,
+ * round 2): the dream writes the model's words as the new body, so a line the
+ * sources carried would go with them. When the new body has none and any
+ * source had one, the union of their areas — through the one screen, so at
+ * most `TAGS_PER_MEMORY` — becomes its line. Not re-judged for subject: each
+ * was admitted when its source was written.
+ */
+export function keepSourcesAreas(body: string, sources: readonly string[]): string {
+  if (hasAreasLine(body)) return body;
+  const all = sources.flatMap((s) => {
+    const line = areasLineOf(s);
+    return line === null ? [] : areasOfLine(line);
+  });
+  if (all.length === 0) return body;
+  return foldAreas(body, screenTags(all).kept);
+}

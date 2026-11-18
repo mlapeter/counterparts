@@ -460,7 +460,7 @@ const BEARS_ON_PROPERTY = {
   type: ["array", "null"],
   items: { type: "string" },
   description:
-    "Only for a lasting fact about them or someone they care for (diet, health, pets, schedule): everyday areas it changes advice on that the text doesn't name, e.g. vegan: cooking, restaurants, gifts. Otherwise leave it out.",
+    "Only for a lasting fact about them or someone they care for (diet, health, pets, schedule), marked about owner or us or kind person: everyday areas it changes advice on that the text doesn't name, e.g. vegan: cooking, restaurants, gifts. Otherwise leave it out.",
 } as const;
 
 /** The claim `remember` and `session_end` share for the three fields (v12). */

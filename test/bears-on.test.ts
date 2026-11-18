@@ -24,7 +24,8 @@ import { join } from "node:path";
 
 import { TOOLS, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { AREAS_LABEL, AREAS_OFF_SUBJECT, admitAreas, foldAreas, readAreas, stripAreasLine } from "../src/core/areas.js";
+import { AREAS_LABEL, AREAS_OFF_SUBJECT, admitAreas, areasLineOf, areasOfLine, foldAreas, keepSourcesAreas, readAreas, stripAreasLine } from "../src/core/areas.js";
+import { CODEX_HOST } from "../src/adapters/hosts.js";
 import { titleOfRow } from "../src/core/counterpart-wake-shape.js";
 import { STOPWORDS } from "../src/core/recall/reference.js";
 import { tokenize } from "../src/core/store/index.js";
@@ -379,6 +380,75 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
     expect(await factsReach(s, COOK, id as string)).toBe(true);
     expect(turnReach(s, COOK, id as string).admitted).toBe(true);
     expect(await factsReach(s, UNRELATED, id as string)).toBe(false);
+  });
+});
+
+describe("fix round 2 (review of #846)", () => {
+  test("R1. a revision with no about mark inherits its target's, so its areas are judged against that; all dropped, the old line carries", async () => {
+    const s = server("store");
+    const id = await writeVegan(s, VEGAN_BEARS_ON);
+    const rev = (await s.call("remember", { text: "User has been vegan for years and also avoids honey and gelatin.", kind: "fact", updates: id, how: "changed", bearsOn: ["baking"] })).structuredContent;
+    expect(rev["stored"]).toBe(true);
+    expect(body(s, rev["id"] as string)).toBe(`User has been vegan for years and also avoids honey and gelatin.\n\n${AREAS_LABEL} baking.`);
+    expect(rev["bearsOn"]).toEqual({ stored: true, areas: ["baking"] });
+    // Every sent area dropped (the text names it): the old line is kept, not lost.
+    const again = (await s.call("remember", { text: "User has been vegan for years; honey and gelatin are out.", kind: "fact", updates: rev["id"], how: "changed", bearsOn: ["vegan"] })).structuredContent;
+    expect(body(s, again["id"] as string)).toBe(`User has been vegan for years; honey and gelatin are out.\n\n${AREAS_LABEL} baking.`);
+    expect((again["bearsOn"] as { carriedFrom: string }).carriedFrom).toBe(rev["id"] as string);
+  });
+
+  test("R2. a text with its own areas line and bearsOn sent: the line is replaced, and the answer names what was folded; nothing landed is never stored:true", async () => {
+    const s = server("store");
+    const out = (
+      await s.call("remember", { text: `User is lactose intolerant.\n\n${AREAS_LABEL} dairy aisle.`, about: "owner", kind: "fact", bearsOn: ["cooking", "restaurants"] })
+    ).structuredContent;
+    expect(body(s, out["id"] as string)).toBe(`User is lactose intolerant.\n\n${AREAS_LABEL} cooking, restaurants.`);
+    expect(out["bearsOn"]).toEqual({ stored: true, areas: ["cooking", "restaurants"] });
+    const none = (await s.call("remember", { text: "User is allergic to shellfish.", about: "owner", kind: "fact", bearsOn: ["shellfish"] })).structuredContent;
+    expect(none["stored"]).toBe(true);
+    expect((none["bearsOn"] as { stored: boolean }).stored).toBe(false);
+    expect(body(s, none["id"] as string)).toBe("User is allergic to shellfish.");
+  });
+
+  test("R3. the description says the mark it needs; a reader host's us is let through though it stores no mark", async () => {
+    const remember = TOOLS.find((t) => t.name === "remember");
+    const desc = (remember?.inputSchema as { properties: Record<string, { description?: string }> }).properties["bearsOn"]?.description ?? "";
+    expect(desc).toContain("marked about owner or us or kind person");
+    const s = openServer({ dir: join(root, "codex"), snapshotsDir: join(root, "codex-snaps"), session: "sess_cx", host: CODEX_HOST, scope: "/proj/one", now: () => clock });
+    open.push(s.counterpart);
+    const out = (await s.call("remember", { text: "The owner and I keep a vegan kitchen when we cook together.", about: "us", kind: "fact", bearsOn: ["restaurants", "gifts"] })).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(s.counterpart.store.row(out["id"] as string)?.about ?? null).toBeNull();
+    expect(body(s, out["id"] as string)).toBe(`The owner and I keep a vegan kitchen when we cook together.\n\n${AREAS_LABEL} restaurants, gifts.`);
+  });
+
+  test("R4. a night's merge or fold keeps the union of its sources' areas when its words dropped them", () => {
+    const merged = keepSourcesAreas("Mia and Sam are both vegan.", [
+      `Mia is vegan.\n\n${AREAS_LABEL} cooking, restaurants.`,
+      `Sam is vegan.\n\n${AREAS_LABEL} restaurants, gifts.`,
+      "Sam lives in Leeds.",
+    ]);
+    expect(merged).toBe(`Mia and Sam are both vegan.\n\n${AREAS_LABEL} cooking, restaurants, gifts.`);
+    expect(keepSourcesAreas(`Merged.\n\n${AREAS_LABEL} baking.`, [`x\n\n${AREAS_LABEL} cooking.`])).toBe(`Merged.\n\n${AREAS_LABEL} baking.`);
+    expect(keepSourcesAreas("Merged.", ["no line here"])).toBe("Merged.");
+    const many = Array.from({ length: 12 }, (_, i) => `area ${String(i)}`);
+    expect(areasOfLine(areasLineOf(keepSourcesAreas("M.", [`x\n\n${AREAS_LABEL} ${many.join(", ")}.`])) ?? "")).toHaveLength(8);
+  });
+
+  test("R5. two people's facts sharing the same areas are not one memory to the near-duplicate hide", async () => {
+    const s = server("store");
+    await seed(s, { filler: true });
+    const areas = ["cooking", "food", "restaurants", "recipes", "gifts", "baking"];
+    // "Mia is vegan." alone is under the content floor, so a few words more; the
+    // two texts differ only by the name (word overlap 0.8 without the line, 0.89 with it).
+    const mia = (await s.call("remember", { text: "Mia has been strictly vegan for many years now.", kind: "person", salience: 0.8, bearsOn: areas })).structuredContent["id"] as string;
+    const sam = (await s.call("remember", { text: "Sam has been strictly vegan for many years now.", kind: "person", salience: 0.8, bearsOn: areas })).structuredContent["id"] as string;
+    expect(body(s, mia)).toContain(AREAS_LABEL);
+    expect(body(s, sam)).toContain(AREAS_LABEL);
+    const d = s.counterpart.recallForTurn({ sessionId: "turn-r5", text: "Any recipes for cooking and baking gifts for Mia and Sam?" }).decision;
+    const shown = [...d.surfaced, ...d.footnotes];
+    expect(shown).toContain(mia);
+    expect(shown).toContain(sam);
   });
 });
 
