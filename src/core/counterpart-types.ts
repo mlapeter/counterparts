@@ -548,6 +548,16 @@ export interface DepositTags {
   readonly dropped?: readonly string[];
 }
 
+/** BO1: what a deposit did with the writer's `bearsOn`. */
+export interface DepositAreas {
+  /** The areas folded into the text (empty when none were). */
+  readonly areas: readonly string[];
+  /** The memory whose areas line this revision carried because none was sent; absent otherwise. */
+  readonly carriedFrom?: string;
+  /** Why each dropped one went, plainly; never the value. Absent when none were. */
+  readonly dropped?: readonly string[];
+}
+
 /** What a deposit recorded of the three fields (v12), and what it carried over. */
 export interface DepositFacts {
   readonly occurredOn: string | null;
@@ -577,6 +587,13 @@ export interface DepositContext {
    * memory's over (`carryTags`); `null` or empty: sent as none.
    */
   tags?: readonly string[] | null;
+  /**
+   * BO1 (2026-11-17): the writer's `bearsOn` as sent — a list or a
+   * comma-separated string; the core reads, screens and admits it
+   * (`core/areas.ts`). Absent: not sent — a revision carries its memory's
+   * areas line over; `null` or empty: sent as none.
+   */
+  bearsOn?: unknown;
   /**
    * What the memory is about, as the writer marked it (`me`, `us`, `owner`,
    * `work`, `world`), or null/absent when unmarked. Read at the mint only for
@@ -712,6 +729,8 @@ export interface DepositResult {
   readonly facts?: DepositFacts;
   /** v14, lane B: the tags recorded, and the memory they were carried from when the writer sent none. */
   readonly tags?: DepositTags;
+  /** BO1: the areas folded into its text, carried from a revised memory, or dropped (`core/areas.ts`). Absent when none were sent or carried. */
+  readonly areas?: DepositAreas;
   /**
    * The older memory the slot detector read this one as the newer state of
    * (2026-10-11, Group 2): proposed provisionally, for the writer to confirm

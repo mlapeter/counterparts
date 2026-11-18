@@ -997,6 +997,32 @@ function readRanged(rec: Record<string, unknown>, key: string, lo: number, hi: n
  * `settle`) are the tool's own to judge — this only reads `remove` given as
  * an id and `feelingsNow` given as strings.
  */
+/**
+ * BEARS ON (BO1, 2026-11-17): what the core did with the writer's `bearsOn`
+ * (`core/areas.ts`, read and folded in the deposit, after the battery): the
+ * areas folded in, the memory a revision carried them from, and why any were
+ * dropped — the reasons only, never a sent value (it may hold a secret). A
+ * repeat of a stored memory with areas says how to add them to it.
+ */
+export const AREAS_DUPLICATE_NOTE = "This memory was already stored; to add areas to it, send updates with its id and bearsOn.";
+
+export function areasEcho(deposit: DepositResult, sent: unknown): Record<string, unknown> {
+  const a = deposit.areas;
+  if (a === undefined) {
+    if (sent === undefined || sent === null) return {};
+    if (deposit.reason === "duplicate-content") return { bearsOn: { stored: false, reason: "memory-not-stored", note: AREAS_DUPLICATE_NOTE } };
+    return deposit.deposited ? {} : { bearsOn: { stored: false, reason: "memory-not-stored" } };
+  }
+  return {
+    bearsOn: {
+      stored: deposit.deposited && (a.areas.length > 0 || a.carriedFrom !== undefined),
+      areas: [...a.areas],
+      ...(a.carriedFrom === undefined ? {} : { carriedFrom: a.carriedFrom }),
+      ...(a.dropped === undefined ? {} : { dropped: [...a.dropped] }),
+    },
+  };
+}
+
 export async function normalizeMemoryFields(
   raw: Record<string, unknown>,
   contentKey: "text" | "content",

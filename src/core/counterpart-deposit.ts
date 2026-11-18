@@ -4,6 +4,8 @@ import { mintProposal, settlesWhenOf, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_ME
 import { nightClosedOf, reopenNightClosed } from "./open-close.js";
 import type { MintResult } from "./mint.js";
 import { screenTags } from "./tag-screen.js";
+import { admitAreas, areasLineOf, carryAreasLine, foldAreas, forPeople, hasAreasLine, readAreas, stripAreasLine } from "./areas.js";
+import type { AreasRead } from "./areas.js";
 import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
 import { errCode, OWN_PLUMBING_META_KEY, ownPlumbingCue, prepareProposal, settleProposal } from "./remember/index.js";
 import type { OwnPlumbingCue, Proposal, SubmitContext, SubmitResult, ProposalSource } from "./remember/index.js";
@@ -37,6 +39,7 @@ import type {
   SentFacts,
   DepositFacts,
   DepositTags,
+  DepositAreas,
   FactField,
   ThreadRefusal,
   ReminderCarryPlan,
@@ -177,6 +180,10 @@ export async function deposit(
     covers: [],
   });
 
+  // BO1: the areas a lasting fact bears on — read and screened here; admitted
+  // and folded below, after the battery and once what it is about is resolved.
+  const areasRead = readAreas(ctx.bearsOn);
+
   const submit: SubmitContext = {
     session: ctx.session,
     scope: ctx.scope,
@@ -291,9 +298,18 @@ export async function deposit(
       : { ...(ctx.readerMeta ?? {}), [READER_US_META_KEY]: { host: readerUs.host, model: readerUs.model } };
   const readerOwn = readerSelf !== undefined || readerUs !== undefined;
   const about = readerOwn && (unplumbed?.about === "me" || unplumbed?.about === "us") ? null : unplumbed;
+  // BO1: THE AREAS, judged against what the memory is about AS IT WILL BE
+  // STORED (review of #846, round 2): a revision that sends no mark inherits
+  // its target's, and a reader host's `us` is stored as its own note's mark,
+  // so the sent mark alone refused both.
+  const storedAbout: string | null =
+    about !== null ? about.about : sentAbout === undefined || sentAbout === null || (readerOwn && (sentAbout === "me" || sentAbout === "us")) ? null : sentAbout;
+  const withAreas = applyAreas(cp, minting2, areasRead, readerUs !== undefined ? "us" : storedAbout);
+  const minting3: Proposal = withAreas.proposal;
+  const areas: DepositAreas | null = withAreas.areas;
   let mint: MintResult;
   try {
-    mint = mintProposal(cp.store, minting2, {
+    mint = mintProposal(cp.store, minting3, {
       self: cp.self,
       channel: "authored",
       ...(plumbing === null ? {} : { ownPlumbing: plumbing.cue }),
@@ -316,7 +332,7 @@ export async function deposit(
     // it, so a throw can come with the row on disk: that memory stands, and it
     // settles as any other, or a retry would mint its twin. A read that cannot
     // tell says no, the side that keeps the words.
-    const landed = mintLanded(cp, minting2.id);
+    const landed = mintLanded(cp, minting3.id);
     if (landed) settleProposal(cp.spans, result, submit);
     cp["emit"]("counterpart.deposit.mint.failed", undefined, { source, landed, error: errCode(err) });
     throw err;
@@ -325,7 +341,7 @@ export async function deposit(
   // row costs a repeat a twin, which sleep folds; the memory stands either way.
   const claimed = settleProposal(cp.spans, result, submit);
   if (!claimed.accepted) cp["emit"]("counterpart.deposit.ledger.failed", mint.id, { source });
-  const proposal: Proposal = { ...minting2, covers: result.proposal.covers };
+  const proposal: Proposal = { ...minting3, covers: result.proposal.covers };
   // BEFORE the revision dispatch: a current-state target is superseded there,
   // and the date must leave the row while it is still the live one.
   // A CLOSE CLOSES THE WHOLE CHAIN (2026-10-14): the date dropped, or spent
@@ -407,6 +423,7 @@ export async function deposit(
     ...(thread === null ? {} : { thread }),
     ...(facts === null ? {} : { facts }),
     ...(tags === null ? {} : { tags }),
+    ...(areas === null ? {} : { areas }),
     ...(about === null ? {} : { aboutCarried: { mark: about.about, from: about.from } }),
     ...(titled.carried === undefined ? {} : { titleCarried: titled.carried }),
     ...(titled.asked ? { titleAsked: true as const } : {}),
@@ -593,8 +610,8 @@ export async function guardUpdate(cp: Counterpart, p: Proposal, ctx: DepositCont
     // No names to set aside: the words read as they are.
   }
   const read = updateRelatedness({
-    over: `${row.title ?? ""}\n${row.body}`,
-    text: `${p.title ?? ""}\n${p.content}`,
+    over: `${row.title ?? ""}\n${stripAreasLine(row.body)}`,
+    text: `${p.title ?? ""}\n${stripAreasLine(p.content)}`,
     overVec,
     textVec,
     ignoreNames,
@@ -765,6 +782,43 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
     return sent === undefined || Object.keys(sent).length === 0 ? null : { occurredOn, saidBy, status, inherited, from: null };
   }
   return { occurredOn, saidBy, status, inherited, from: inherited.length > 0 ? (target as string) : null };
+}
+
+/**
+ * BO1: what the memory's text carries of the areas, decided once everything
+ * else is (review of #846, round 2). Sent areas that survive the backstops
+ * (`areas.ts#admitAreas`, against the stored mark) REPLACE any areas line the
+ * text has; none kept — nothing sent, or every sent one dropped, but never an
+ * explicit null — a revision carries its target's line, when the memory as
+ * stored is one areas are for (`areas.ts#forPeople`, round 3). The answer
+ * names only what landed.
+ */
+export function applyAreas(cp: Counterpart, p: Proposal, read: AreasRead, about: string | null): { proposal: Proposal; areas: DepositAreas | null } {
+  const bare = stripAreasLine(p.content);
+  const admitted = admitAreas(read.sent ?? [], { about, kind: p.kind, text: `${p.title ?? ""}\n${bare}` });
+  const dropped = [...read.dropped, ...admitted.dropped];
+  const said = dropped.length === 0 ? {} : { dropped };
+  if (admitted.areas.length > 0) {
+    return { proposal: { ...p, content: foldAreas(bare, admitted.areas) }, areas: { areas: [...admitted.areas], ...said } };
+  }
+  const carried = read.sent !== null && !hasAreasLine(p.content) && forPeople(about, p.kind) ? carryAreas(cp, p) : null;
+  if (carried !== null) {
+    return { proposal: { ...p, content: carryAreasLine(p.content, carried.line) }, areas: { areas: [], carriedFrom: carried.from, ...said } };
+  }
+  return { proposal: p, areas: dropped.length === 0 ? null : { areas: [], dropped } };
+}
+
+/** BO1: the areas line of the memory a revision addressed by `updates` (declared and resolved), or null. */
+export function carryAreas(cp: Counterpart, p: Proposal): { line: string; from: string } | null {
+  const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+  if (target === null) return null;
+  try {
+    const row = cp.store.row(target);
+    const line = row === undefined ? null : areasLineOf(row.body);
+    return line === null ? null : { line, from: target };
+  } catch {
+    return null;
+  }
 }
 
 /**

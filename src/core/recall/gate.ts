@@ -36,6 +36,7 @@ import { MIN_RARITY_STORE, informativeness } from "./cues.js";
 import type { GateState } from "./session.js";
 import { strongFloor } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
+import { stripAreasLine } from "../areas.js";
 
 export type Verdict =
   /** Admitted, loud tier: "came to mind". */
@@ -218,8 +219,9 @@ export interface GateResult {
 
 /** Jaccard over indexed tokens — the similarity the cache itself would compute. */
 export function similarity(a: Candidate, b: Candidate): number {
-  const sa = new Set(tokenize(`${a.doc.title ?? ""}\n${a.doc.body}`));
-  const sb = new Set(tokenize(`${b.doc.title ?? ""}\n${b.doc.body}`));
+  // Without the areas line (BO1): two people's facts that share everyday areas are not one memory.
+  const sa = new Set(tokenize(`${a.doc.title ?? ""}\n${stripAreasLine(a.doc.body)}`));
+  const sb = new Set(tokenize(`${b.doc.title ?? ""}\n${stripAreasLine(b.doc.body)}`));
   if (sa.size === 0 || sb.size === 0) return 0;
   let inter = 0;
   for (const tok of sa) if (sb.has(tok)) inter += 1;

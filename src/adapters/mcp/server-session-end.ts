@@ -12,6 +12,7 @@ import {
   readWriteFacts,
   doneDateAsOccurred,
   readTags,
+  areasEcho,
   MEMORY_KINDS,
   reminderEcho,
   ownPlumbingEcho,
@@ -274,6 +275,8 @@ export async function depositEntries(
   const traitsOf: TraitsRead[] = [];
   const factsOf: FactsRead[] = [];
   const tagsOf: TagsRead[] = [];
+  // BO1: each entry's `bearsOn` as sent; the core reads it (`core/areas.ts`).
+  const areasOf: unknown[] = [];
   // FAIL OPEN (2026-11-13): each entry is cleaned before any reader sees it
   // (`server-args.ts#normalizeMemoryFields`). An optional field that cannot be read is dropped
   // and said on THAT entry's outcome; the entry itself is refused only for
@@ -298,6 +301,7 @@ export async function depositEntries(
       traitsOf.push({ inputs: [] });
       factsOf.push({ sent: {}, dropped: [], notes: [] });
       tagsOf.push({ dropped: [] });
+      areasOf.push(undefined);
       continue;
     }
     let rec: Record<string, unknown>;
@@ -338,6 +342,7 @@ export async function depositEntries(
     traitsOf.push(readTraitsLoose(rec["traits"], notes));
     factsOf.push(doneAt.facts);
     tagsOf.push(readTags(rec));
+    areasOf.push(rec["bearsOn"]);
   }
 
   const outcomes: Record<string, unknown>[] = [];
@@ -362,6 +367,7 @@ export async function depositEntries(
     }
     const facts = factsOf[n] ?? { sent: {}, dropped: [], notes: [] };
     const tags = tagsOf[n] ?? { dropped: [] };
+    const bearsOn = areasOf[n];
     // A READER HOST'S ENTRY (CX2): its host, and `me` kept as its own note.
     const reader = server["readerDeposit"](about.mark, draft["kind"], model, feelings.inputs, facts.sent);
     let result: DepositResult;
@@ -374,6 +380,7 @@ export async function depositEntries(
         facts: reader.facts,
         ...(reader.readerMeta === undefined ? {} : { readerMeta: reader.readerMeta }),
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
+        ...(bearsOn === undefined ? {} : { bearsOn }),
         ...(reader.host === undefined ? {} : { host: reader.host }),
         ...(reader.readerSelf === undefined ? {} : { readerSelf: reader.readerSelf }),
         // What it is about sets an unclaimed entry's default floor (2026-10-10).
@@ -422,6 +429,7 @@ export async function depositEntries(
       ...undatedReminderWarning(result, dated, draft["title"], draft["content"]),
       ...factsEcho(result, facts),
       ...tagsEcho(result, tags),
+      ...areasEcho(result, bearsOn),
       ...server["settledOf"](result, draft["how"] !== undefined),
       ...threadOf(result),
       ...ownPlumbingEcho(result),

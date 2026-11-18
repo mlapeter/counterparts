@@ -67,6 +67,7 @@ import { TUNABLES as PHYSICS, changedFade, fadeOf, sal } from "./physics/index.j
 import { supersede } from "./reconsolidation.js";
 import { SETTLES_WHEN_META_KEY } from "./types.js";
 import type { Store, WorkEventRow } from "./store/index.js";
+import { stripAreasLine } from "./areas.js";
 
 /** The pair `source` this sweep writes (no DDL: a TEXT value). */
 export const INTERFERENCE_SOURCE = "interference";
@@ -301,9 +302,10 @@ export function headline(r: { readonly title: string | null; readonly body: stri
   const t = r.title?.trim() ?? "";
   if (t.length > 0) return t;
   const max = INTERFERENCE_TUNABLES.HEADLINE_CHARS;
-  if (r.body.length <= max) return r.body;
+  const body = stripAreasLine(r.body);
+  if (body.length <= max) return body;
   // Cut at a space, never inside a word: `…0.3.4|6` must not read as 0.3.4, nor `#74|1` as #74.
-  const cut = r.body.slice(0, max + 1);
+  const cut = body.slice(0, max + 1);
   const at = cut.search(/\s\S*$/);
   return at > 0 ? cut.slice(0, at) : "";
 }

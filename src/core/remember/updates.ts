@@ -20,6 +20,7 @@
  */
 import { tokenize, cosine } from "../store/cache.js";
 import { TUNABLES } from "./tunables.js";
+import { stripAreasLine } from "../areas.js";
 
 export interface Candidate {
   id: string;
@@ -130,7 +131,7 @@ export async function resolveUpdates(
   }
 
   const scored = candidates
-    .map((c) => ({ candidate: c, score: similarity(ctx.content, c.text) }))
+    .map((c) => ({ candidate: c, score: similarity(stripAreasLine(ctx.content), stripAreasLine(c.text)) }))
     .sort((a, b) => b.score - a.score || a.candidate.id.localeCompare(b.candidate.id));
 
   const best = scored[0];

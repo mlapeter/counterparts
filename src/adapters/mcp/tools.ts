@@ -449,6 +449,20 @@ const TAGS_PROPERTY = {
   description: "3-5 short lowercase topics.",
 } as const;
 
+/**
+ * BO1 (2026-11-17): the everyday areas a lasting fact changes advice about,
+ * folded into the text as its last paragraph ("Also about: …") after the
+ * battery, so a search in those areas finds it (`core/areas.ts`). The engine
+ * backstops the narrow use the text asks for (e7's smoke, 11-17): kept only on
+ * a memory about owner or us, or a person; an area the text names is dropped.
+ */
+const BEARS_ON_PROPERTY = {
+  type: ["array", "null"],
+  items: { type: "string" },
+  description:
+    "Only for a lasting fact about them or someone they care for (diet, health, pets, schedule), marked about owner or us or kind person: everyday areas it changes advice on that the text doesn't name, e.g. vegan: cooking, restaurants, gifts. Otherwise leave it out.",
+} as const;
+
 /** The claim `remember` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
@@ -562,6 +576,13 @@ const OWN_PLUMBING_NEGATIVE = "Do NOT save refused calls unless the person raise
  * still answers (`TOOL_ALIASES`). Trimmed 2026-11-13 (trim PR 2): 20,219 →
  * about 4,500 characters; every claim an engine row.
  */
+const BEARS_ON_ENGINE: Privilege = {
+  claim:
+    "`bearsOn` is kept as the text's last paragraph, \"Also about: …\", folded in after the content floor and redaction have judged the text alone, so it never rescues a write; it is indexed and embedded with the rest. Kept only on a memory about owner or us, or a person, and an area the text already names is dropped, each said. A revision that sends no bearsOn carries its memory's line; null sends none.",
+  mechanizedBy:
+    "src/core/counterpart-deposit.ts#deposit (core/areas.ts#readAreas + #admitAreas; #carryAreas) -> src/core/remember/proposals.ts#prepareProposal (core/areas.ts#foldAreas)",
+};
+
 const REMEMBER: ToolSpec = {
   name: "remember",
   annotations: annotate("Remember", { readOnly: false }),
@@ -578,6 +599,7 @@ const REMEMBER: ToolSpec = {
   // The engine's (since trim PR 2 every claim is): each is said on a field, in
   // the result, or in a refusal that names itself (`ToolSpec.engine`).
   engine: [
+    BEARS_ON_ENGINE,
     {
       claim:
         "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the memory unlinked rather than refusing it when the address does not hold.",
@@ -671,6 +693,7 @@ const REMEMBER: ToolSpec = {
       saidBy: SAID_BY_PROPERTY,
       status: STATUS_PROPERTY,
       tags: TAGS_PROPERTY,
+      bearsOn: BEARS_ON_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
       settlesWhen: SETTLES_WHEN_PROPERTY,
@@ -951,6 +974,7 @@ const SESSION_END: ToolSpec = {
   ],
   privileges: [],
   engine: [
+    BEARS_ON_ENGINE,
     {
       claim:
         "It is bound to ONE session for the life of this server: the one the host named at launch, or — when the host could not name one — the first session id you pass that this machine's hooks have recorded as live, in this project. A second, different id is refused.",
@@ -1061,6 +1085,7 @@ const SESSION_END: ToolSpec = {
             saidBy: SAID_BY_PROPERTY,
             status: STATUS_PROPERTY,
             tags: TAGS_PROPERTY,
+            bearsOn: BEARS_ON_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,
             settlesWhen: SETTLES_WHEN_PROPERTY,
