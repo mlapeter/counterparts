@@ -1,0 +1,199 @@
+/**
+ * A TOLD PLAIN REMINDER STAYS IN THE DELIBERATE LOOKUPS (2026-11-18).
+ *
+ * A plain reminder whose last beat was told leaves the wake's horizon lane once
+ * its day is past (2026-09-29, `Prospective#horizon`'s `toldForGood`), so the
+ * wake doesn't say it again. The `coming up` door (`Counterpart#comingUp`, the
+ * MCP handle) and the still-open door's dated list read that same lane, and the
+ * reminder vanished from them too, though nobody closed it and it is still
+ * owed (OW1). Now the lookups ask for the told ones too (`readCues`'
+ * `includeTold`); the wake does not.
+ *
+ * Through the doors: MCP `remember`, the SessionStart hook (which tells it),
+ * then the `coming up` and `still open` handles and the next wake.
+ *
+ * Hermetic (CLAUDE.md): a fresh temp dir per test, removed in `afterEach`.
+ */
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
+import { startOfLocalDay } from "../src/core/time.js";
+
+const ZONE = "UTC";
+const SCOPE = "/work/studio";
+const SESSION = "sess_coming_up_keeps_told";
+
+let dir: string;
+const closers: { close(): void }[] = [];
+
+beforeEach(() => {
+  process.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
+  dir = mkdtempSync(join(tmpdir(), "counterparts-coming-up-told-"));
+});
+
+afterEach(() => {
+  setSystemTime();
+  for (const c of closers.splice(0)) {
+    try {
+      c.close();
+    } catch {
+      /* already closed */
+    }
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
+
+/** The adapter on the store, the wake's shape on unless told (`readCues` serves the shaped wake). */
+function adapter(shaped = true): ReturnType<typeof openAdapter> {
+  const a = openAdapter(
+    { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE },
+    {
+      command: "/bin/true",
+      args: ["runner"],
+      spawner: () => ({ pid: 1 }),
+      embedder: null,
+    },
+  );
+  closers.push(a.counterpart);
+  if (shaped) a.counterpart.store.setMeta(WAKE_SHAPE_KEY, "on");
+  return a;
+}
+
+function server(a: ReturnType<typeof openAdapter>): McpServer {
+  return new McpServer({
+    counterpart: a.counterpart,
+    session: SESSION,
+    scope: SCOPE,
+  });
+}
+
+/** Move the frozen clock and the store's lived day to `ymd`. */
+function dayOf(a: ReturnType<typeof openAdapter>, ymd: string, hour = 9): void {
+  setSystemTime(new Date(startOfLocalDay(ymd, ZONE) + hour * 3_600_000));
+  a.counterpart.store.advanceClock(ymd);
+}
+
+async function remember(s: McpServer, args: Record<string, unknown>): Promise<string> {
+  const body = (await s.call("remember", args)).structuredContent;
+  expect(body["stored"]).toBe(true);
+  return body["id"] as string;
+}
+
+/** The wake a new session here gets, as the hook builds it: the whole injection, and its "Coming up" lane. */
+async function wake(a: ReturnType<typeof openAdapter>, session: string): Promise<{ all: string; lane: string }> {
+  expect(
+    (
+      await runOnce({
+        config: { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE },
+        embedder: null,
+      })
+    ).ran,
+  ).toBe(true);
+  const input = toHookInput(
+    {
+      session_id: session,
+      hook_event_name: "SessionStart",
+      source: "startup",
+      cwd: SCOPE,
+    },
+    { scope: SCOPE, timeZone: ZONE, env: {} },
+  );
+  const r = a.sessionStart(input);
+  // The hook's delivery claims what its envelope carries (`envelope.ts#deliverTurn`): that is the telling.
+  if (r.plain !== undefined && r.plain.length > 0) a.claimPlain(input, r.plain);
+  const all = r.injection ?? "";
+  const lines = all.split("\n");
+  const at = lines.indexOf("Coming up:");
+  const out: string[] = [];
+  if (at >= 0) for (let i = at + 1; i < lines.length && lines[i] !== ""; i++) out.push(lines[i] ?? "");
+  return { all, lane: out.join("\n") };
+}
+
+async function door(s: McpServer, handle: string): Promise<Record<string, unknown>> {
+  return (await s.call("recall", { handle })).structuredContent;
+}
+const idsOf = (xs: unknown): string[] => ((xs ?? []) as { id: string }[]).map((x) => x.id);
+
+/** A plain reminder for 11-05, written 11-04, told by the 11-05 wake. */
+async function told(a: ReturnType<typeof openAdapter>, s: McpServer): Promise<string> {
+  dayOf(a, "2026-11-04");
+  const id = await remember(s, {
+    title: "Ring the glazier",
+    text: "Ring the glazier about the cracked kiln window.",
+    eventDate: "2026-11-05",
+    remind: "plain",
+  });
+  dayOf(a, "2026-11-05");
+  const first = await wake(a, "s-told");
+  expect(first.all).toContain("Ring the glazier");
+  // The wake told it: the horizon's lane leaves it out from the day after.
+  expect(a.counterpart.prospective.plainToldOn(id, "2026-11-05", () => true)).toBe(true);
+  return id;
+}
+
+describe("a told plain reminder past its day", () => {
+  for (const shaped of [true, false])
+    test(`the coming up door and core comingUp still list it as overdue; the next wake does not say it again (shape ${shaped ? "on" : "off"})`, async () => {
+      const a = adapter(shaped);
+      expect((a.counterpart as unknown as { wakeShapeOn(): boolean }).wakeShapeOn()).toBe(shaped);
+      const s = server(a);
+      const id = await told(a, s);
+      dayOf(a, "2026-11-07");
+      // The wake's own lane leaves it out (2026-09-29), as before.
+      expect(a.counterpart.prospective.horizon({ at: "2026-11-07" }).items.map((i) => i.memoryId)).not.toContain(id);
+      const up = a.counterpart.comingUp({ scope: SCOPE });
+      expect(up.overdue.map((c) => c.id)).toEqual([id]);
+      expect([...up.today, ...up.passed, ...up.later, ...up.otherFolders].map((c) => c.id)).not.toContain(id);
+      const d = await door(s, "coming up");
+      expect(idsOf(d["overdue"])).toEqual([id]);
+      expect(d["total"]).toBe(1);
+      // The still-open door's dated list agrees: overdue, not passed.
+      const open = ((await door(s, "still open"))["comingUp"] ?? []) as {
+        id: string;
+        overdue?: boolean;
+        passed?: boolean;
+      }[];
+      expect(open.find((c) => c.id === id)).toMatchObject({ overdue: true });
+      expect(open.find((c) => c.id === id)?.passed).toBeUndefined();
+      // The next wake: not under Coming up, not counted.
+      const next = await wake(a, "s-next");
+      expect(next.lane).not.toContain("Ring the glazier");
+      expect(next.lane).not.toMatch(/overdue/);
+    });
+
+  for (const close of [
+    { how: "status done", args: { status: "done" } },
+    { how: "its date dropped (eventDate null)", args: { eventDate: null } },
+  ] as const) {
+    test(`closed by ${close.how}, it stays out of the lookups and the wake`, async () => {
+      const a = adapter();
+      const s = server(a);
+      const id = await told(a, s);
+      dayOf(a, "2026-11-06");
+      await remember(s, {
+        title: "Rang the glazier",
+        text: "Rang the glazier; the kiln window is booked in.",
+        updates: id,
+        ...close.args,
+      });
+      dayOf(a, "2026-11-07");
+      const up = a.counterpart.comingUp({ scope: SCOPE });
+      expect([...up.today, ...up.overdue, ...up.passed, ...up.later, ...up.otherFolders].map((c) => c.title).join("|")).not.toContain("glazier");
+      const d = await door(s, "coming up");
+      expect(d["total"]).toBe(0);
+      const open = ((await door(s, "still open"))["comingUp"] ?? []) as {
+        title: string;
+      }[];
+      expect(open.map((c) => c.title).join("|")).not.toContain("glazier");
+      expect((await wake(a, "s-next")).lane).not.toContain("glazier");
+    });
+  }
+});

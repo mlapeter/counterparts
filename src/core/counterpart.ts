@@ -1759,7 +1759,8 @@ export class Counterpart {
    */
   comingUp(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { today: Cue[]; overdue: Cue[]; passed: Cue[]; later: Cue[]; otherFolders: Cue[] } {
     try {
-      const all = readCues(this, this.store.today(), here);
+      // A told plain reminder past its day is still owed here (2026-11-18): the lookup lists it, the wake doesn't.
+      const all = readCues(this, this.store.today(), here, { includeTold: true });
       const by = (c: Cue): string => c.due ?? UNDATED_LAST;
       const lastBy = (c: Cue): string => (c.due === null ? UNDATED_LAST : (daySpan(c.due)?.last ?? c.due));
       return {
@@ -1826,10 +1827,11 @@ export class Counterpart {
       const at = this.store.today();
       const day = this.store.livedDay();
       const asked = horizonFor(this.prospective, at, day, { readToday: READ_TODAY_AT_START });
-      const list = this.self.comingUpList([...asked.items, ...asked.moreItems], at, day);
+      // The told ones too (2026-11-18), as the `coming up` door lists them: still owed, so overdue.
+      const list = this.self.comingUpList([...asked.items, ...asked.moreItems, ...asked.toldItems], at, day);
       // With the wake's shape on, this door honours the closed fence as its count does (WK2).
       if (here === undefined || !this.wakeShapeOn()) return list;
-      const open = new Set(readCues(this, at, here).map((c) => c.id));
+      const open = new Set(readCues(this, at, here, { includeTold: true }).map((c) => c.id));
       return list.filter((c) => open.has(c.id));
     } catch {
       return [];
