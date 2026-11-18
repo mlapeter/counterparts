@@ -225,4 +225,29 @@ describe("a told plain reminder past its day", () => {
     dayOf(a, "2026-11-12");
     expect(c.comingUp({ scope: SCOPE }).today.map((x) => x.id)).toContain(id);
   });
+
+  test("a quiet dated thread closed by unresolved false is no reminder: its date carries over and reads Was, never overdue", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Hear back from the supplier", text: "Hear back from the supplier about the kiln part.", eventDate: "2026-11-05", unresolved: true });
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "The supplier answered", text: "The supplier answered: the kiln part ships Friday.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    const next = String(body["id"]);
+    // The date moved to the revision, kept (`reminderMovedTo`).
+    expect(c.store.row(next)?.event_date).toBe("2026-11-05");
+    dayOf(a, "2026-11-08");
+    const up = c.comingUp({ scope: SCOPE });
+    expect(up.overdue).toEqual([]);
+    expect(up.passed.map((x) => x.id)).toEqual([next]);
+    const d = await door(s, "coming up");
+    expect(idsOf(d["overdue"])).toEqual([]);
+    expect(idsOf(d["passed"])).toEqual([next]);
+    const lane = (await wake(a, "s-next")).lane;
+    expect(lane).toContain(`- Was 11-05 · `);
+    expect(lane).toContain(`[${next}]`);
+    expect(lane).not.toMatch(/overdue/);
+  });
 });

@@ -941,12 +941,14 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
   // A `done` SPENDS IT (review of #427, 2026-10-11): a write that says the
   // dated thing is done, and sends no date, does not inherit one to fire on
   // a plan already carried out — the rule the one door keeps for a settle.
-  // CLOSED IN WORDS SPENDS IT TOO (2026-11-18): `unresolved: false` sent at a
-  // dated memory, with no date of its own, is the close the tools teach ("its
-  // id with `eventDate: null` or `unresolved: false`"). It carried the date and
-  // the plain mode over before, so the "closed" reminder stayed owed. Now it
-  // reads as a `done`: a one-off's date drops, a repeat's occurrence closes.
-  const closedInWords = p.threadSaid === true && p.unresolved === false;
+  // CLOSED IN WORDS SPENDS A REMINDER TOO (2026-11-18): `unresolved: false`
+  // sent at a plain or repeating reminder, with no date of its own, is the
+  // close the tools teach ("its id with `eventDate: null` or `unresolved:
+  // false`"). It carried the date and the plain mode over before, so the
+  // "closed" reminder stayed owed. Now it reads as a `done`: a one-off's date
+  // drops, a repeat's occurrence closes. A quiet dated item keeps its date:
+  // there the date is often when the thing happened, and it reads "Was".
+  const closedInWords = p.threadSaid === true && p.unresolved === false && (priorMode === "plain" || priorRule !== null);
   const spent = intent.eventDate === "absent" && (sentStatus === "done" || closedInWords);
   // DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
   // a `done` at a REPEATING reminder, with no date and no `recurring: null`

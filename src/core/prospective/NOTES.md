@@ -794,6 +794,7 @@ repeat. Any weekly reminder hits this.
   counts), `horizonFor` reads them as `toldItems`, and `readCues(..., { includeTold: true })` adds them through the
   same fences. Only the two lookups ask; the wake's lane, cues and counts are unchanged. A told past plain item is owed,
   so overdue.
-- **Closing it:** `updates` + `unresolved: false` with no date of its own now spends a dated reminder as `done` does
-  (`counterpart-deposit.ts#carryReminder`): a one-off's date drops, a repeat's open occurrence closes and the repeat
-  stays. Before, it carried the date and plain mode over, so the "closed" reminder stayed owed.
+- **Closing it:** `updates` + `unresolved: false` with no date of its own now spends a plain or repeating reminder as
+  `done` does (`counterpart-deposit.ts#carryReminder`): a one-off's date drops, a repeat's open occurrence closes and
+  the repeat stays. Before, it carried the date and plain mode over, so the "closed" reminder stayed owed. A quiet dated
+  item is not a reminder: its date carries over as before and reads "Was <date>".

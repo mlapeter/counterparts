@@ -1032,26 +1032,25 @@ describe("Coming up", () => {
     const closed = (await w.call("remember", { text: "The supplier answered: the kiln part ships Friday.", kind: "fact", updates: thread, unresolved: false })).structuredContent;
     expect((closed["thread"] as { closed: string } | undefined)?.closed).toBe(thread);
     expect(c.store.readProse(thread).meta["settlesWhen"]).toBe("the supplier answers");
-    // Closed through `updates` with no date of its own, the date is spent as a `done` spends it (2026-11-18,
-    // #854 follow-up): neither the thread nor its successor holds it, so it is on no door. Closed where it
-    // stands (the shelf), the date stays and reads Was.
+    // Through `updates` the reminder moves to the successor (`reminderMovedTo`): it is what is listed, owed by nobody.
     const next = String(closed["id"]);
-    expect(c.store.row(next)?.event_date ?? null).toBeNull();
-    expect(c.store.row(thread)?.event_date ?? null).toBeNull();
+    const shownId = c.store.row(next)?.event_date === was ? next : thread;
     c.close();
     const block = section(hook().wake, "Coming up:");
     expect(block).not.toContain("overdue");
     expect(block).toContain(`- Was ${addDays(today, -2).slice(5)} · Maybe move the kiln [${proposed}]`);
-    expect(block).not.toContain("Hear back from the supplier");
+    expect(block).toContain(`- Was ${was.slice(5)} · Hear back from the supplier [${shownId}]`);
+    // Past the two slots, the closed one is one more here, not overdue.
+    expect(block).toContain(`(1 more here; recall "coming up")`);
     const d = await door();
     expect(idsOf(d["overdue"])).toEqual([]);
-    expect(idsOf(d["passed"])).toEqual([proposed, shelf]);
+    expect(idsOf(d["passed"])).toEqual([proposed, shownId, shelf]);
     // The `still open` door's dated list agrees: passed, never overdue.
     const again = brain();
     const s = new McpServer({ counterpart: again.c, scope: HERE, registryDir: storeDir, session: READER, scopesFile: join(conf, "scopes.json") });
     const still = (await s.call("recall", { handle: "still open" })).structuredContent["comingUp"] as { id: string; overdue?: true; passed?: true }[];
     expect(still.filter((x) => x.overdue === true)).toEqual([]);
-    expect(still.filter((x) => x.passed === true).map((x) => x.id).sort()).toEqual([proposed, shelf].sort());
+    expect(still.filter((x) => x.passed === true).map((x) => x.id).sort()).toEqual([proposed, shownId, shelf].sort());
   });
 
   test("a plain one and an unresolved quiet one stay overdue; owed rank first and a hidden passed fact is more here, not overdue", async () => {
