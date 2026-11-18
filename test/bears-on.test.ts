@@ -235,10 +235,12 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
 
   // THE GAP THIS DOES NOT CLOSE (BO1, measured on a copy of the bench's Sam
   // store too): at the default salience a writer leaves on an owner fact, the
-  // soup memories that share "parents", "Sunday" and "family" with the cook
-  // question set the turn's relative bar, and the vegan fact — now a
-  // candidate — stays under it. Admission there is the gate's question, not
-  // the write's; when it is answered this starts passing and should flip.
+  // soup memories set the cook turn's relative bar and the vegan fact — now a
+  // candidate — stays under it. On the bench store it is worse: at its real
+  // age (written day 88, asked day 150, never used) the fact has faded below
+  // reach, and ambient recall leaves a below-reach memory out whatever its
+  // words. Admission there is the gate's and forgetting's question, not the
+  // write's; when it is answered this starts passing and should flip.
   test.failing("per-prompt recall, the cook question at the default salience: admitted", async () => {
     const bears = server("bears");
     await seed(bears, { filler: true });
