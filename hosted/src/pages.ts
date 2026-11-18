@@ -220,7 +220,7 @@ export function accountPages(opts: PagesOptions): Pages {
   };
   const spotsOrigins = opts.spotsOrigins ?? SPOTS_ORIGINS;
 
-  const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = "", from: Attribution = NO_ATTRIBUTION): void => {
+  const loginForm = (res: ServerResponse, browser: string, next: string, status = 200, notice = "", from: Attribution = NO_ATTRIBUTION, typed = ""): void => {
     const nonce = randomBytes(16).toString("base64");
     // Full: said to everyone alike, under the form and to newcomers. Sign-in and a code still work.
     const full = opts.accounts.spots().left === 0;
@@ -231,14 +231,14 @@ export function accountPages(opts: PagesOptions): Pages {
       body: `<div class="cp-hero">${foxHtml(nonce)}
 <p class="cp-eyebrow">Counterparts for claude.ai</p>
 <h1>Sign in to Counterparts</h1>
-${full ? "" : `<p class="muted">New here? Your email is all it takes to sign up.</p>`}
+${full ? "" : `<p class="muted">This is the free hosted beta for claude.ai. New here? Your email is all it takes to sign up.</p>`}
 </div>
 ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 <form method="post" action="/login">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
-${from.source === null ? "" : `<input type="hidden" name="r" value="${escapeHtml(from.source)}">\n`}${from.referrer === null ? "" : `<input type="hidden" name="ref" value="${escapeHtml(from.referrer)}">\n`}${from.landing === null ? "" : `<input type="hidden" name="land" value="${escapeHtml(from.landing)}">\n`}<label>Email<br><input type="email" name="email" required autocomplete="email"></label><br>
+${from.source === null ? "" : `<input type="hidden" name="r" value="${escapeHtml(from.source)}">\n`}${from.referrer === null ? "" : `<input type="hidden" name="ref" value="${escapeHtml(from.referrer)}">\n`}${from.landing === null ? "" : `<input type="hidden" name="land" value="${escapeHtml(from.landing)}">\n`}<label>Email<br><input type="email" name="email" required autocomplete="email"${typed.length > 0 ? ` value="${escapeHtml(typed)}"` : ""}></label><br>
 <details><summary>Have an invite code?</summary>
 <label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
 </details>
@@ -380,7 +380,8 @@ ${
       const from = cleanAttribution({ r: form.get("r"), ref: form.get("ref"), land: form.get("land") });
       const asked = opts.accounts.requestLink({ email: form.get("email"), inviteCode: form.get("invite"), timeZone: form.get("tz"), browser: browser!, spotsLeft, attribution: from });
       if (!asked.send && asked.reason === "bad-email") {
-        loginForm(res, browser!, next, 400, "That doesn't look like an email address.", from);
+        // Said back with what was typed (escaped, and only to the browser that typed it), so a typo is fixed, not retyped.
+        loginForm(res, browser!, next, 400, "That doesn't look like an email address — check it and try again.", from, (form.get("email") ?? "").slice(0, 320));
         return true;
       }
       if (asked.send) {

@@ -154,6 +154,9 @@ describe("the production default: spots never set", () => {
     // Sign-in leads; the full notice is for newcomers, after the form, and the code field stays folded.
     assert.ok(login.indexOf("<form") < login.indexOf("Hosted is full for now"));
     assert.match(login, /New to Counterparts\? Hosted is full for now/);
+    // Full: no beta line and no "New here?" sign-up invitation.
+    assert.doesNotMatch(login, /free hosted beta/);
+    assert.doesNotMatch(login, /New here\?/);
     assert.doesNotMatch(login, /<details open/);
 
     const stranger = await signUp(r, "stranger@example.com");
@@ -182,6 +185,7 @@ describe("spots left", () => {
     const login = await (await new Browser(r.base).go("/login")).text();
     assert.doesNotMatch(login, /Hosted is full/);
     assert.match(login, /Your email is all it takes to sign up/);
+    assert.match(login, /This is the free hosted beta for claude\.ai\./);
 
     const me = new Browser(r.base);
     const asked = await askLink(r, me, "New@Example.com");
@@ -209,6 +213,29 @@ describe("spots left", () => {
     assert.equal(again.click?.status, 303);
     assert.equal(r.mail.sent.at(-1)!.subject, "Your Counterparts sign-in link");
     assert.equal(people(r), 1);
+  });
+
+  test("a malformed email gets the form back with a plain notice and what was typed (escaped); no email, no link", async () => {
+    const r = await rig();
+    r.accounts.setSpots(5);
+    for (const typed of ["name@gmail", "name gmail.com", "name@gmail.com,", 'a"><b>@x.com']) {
+      const asked = await askLink(r, new Browser(r.base), typed);
+      assert.equal(asked.status, 400, typed);
+      assert.match(asked.body, /That doesn&#39;t look like an email address — check it and try again\./, typed);
+      assert.match(asked.body, /<form method="post" action="\/login">/, typed);
+      assert.doesNotMatch(asked.body, /Check your email/, typed);
+      assert.equal(asked.link, null, typed);
+    }
+    const kept = await askLink(r, new Browser(r.base), "name@gmail");
+    assert.match(kept.body, /name="email" required autocomplete="email" value="name@gmail">/);
+    const hostile = await askLink(r, new Browser(r.base), 'a"><b>@x.com');
+    assert.ok(hostile.body.includes('value="a&quot;&gt;&lt;b&gt;@x.com"'));
+    assert.ok(!hostile.body.includes("<b>@x.com"));
+    assert.equal(r.mail.sent.length, 0);
+    // A good address after a typo goes through as ever.
+    const fixed = await askLink(r, new Browser(r.base), "name@gmail.com");
+    assert.equal(fixed.status, 200);
+    assert.ok(fixed.link !== null);
   });
 
   test("a mistyped or used-up code while spots are left falls through to a spot", async () => {
