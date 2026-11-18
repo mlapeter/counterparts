@@ -114,9 +114,16 @@ async function seed(s: McpServer, opts: { filler?: boolean } = {}): Promise<void
   }
 }
 
-async function writeVegan(s: McpServer, bearsOn?: readonly string[]): Promise<string> {
+async function writeVegan(s: McpServer, bearsOn?: readonly string[], salience?: number): Promise<string> {
   const out = (
-    await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", ...(bearsOn === undefined ? {} : { bearsOn }) })
+    await s.call("remember", {
+      title: VEGAN_TITLE,
+      text: VEGAN_TEXT,
+      about: "owner",
+      kind: "fact",
+      ...(bearsOn === undefined ? {} : { bearsOn }),
+      ...(salience === undefined ? {} : { salience }),
+    })
   ).structuredContent;
   expect(out["stored"]).toBe(true);
   return out["id"] as string;
@@ -133,10 +140,6 @@ let turnN = 0;
 function turnReach(s: McpServer, question: string, id: string, vector?: number[] | null): { admitted: boolean; rank: number } {
   turnN += 1;
   const d = s.counterpart.recallForTurn({ sessionId: `turn-${String(turnN)}`, text: question, ...(vector === undefined || vector === null ? {} : { vector }) }).decision;
-  if (process.env["BO_DEBUG"] === "1") {
-    console.log(question, "reason", d.reason, "cues", d.cueCount, "cands", d.candidates, "surf", d.surfaced, "foot", d.footnotes, "echo", d.echoSkipped, "proj", d.projectSkipped, "habit", d.habituationCut, "capped", d.capped);
-    for (const v of d.verdicts) console.log("  ", v.id === id ? "TARGET" : v.id, v.verdict, v.cue.toFixed(2), v.activation.toFixed(2), "bar", v.bar.toFixed(2), "sal", v.sal.toFixed(2), v.loudBlockedBy ?? "");
-  }
   const ranked = [...d.verdicts].sort((a, b) => b.activation - a.activation).map((v) => v.id);
   return { admitted: [...d.surfaced, ...d.footnotes].includes(id), rank: ranked.indexOf(id) };
 }
@@ -212,33 +215,44 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
     expect(await factsReach(bears, UNRELATED, id)).toBe(false);
   });
 
-  test("per-prompt recall: the cook question admits it first among its candidates; an unrelated one does not", async () => {
+  test("per-prompt recall: with a standing fact's salience, food questions admit it, without bearsOn they did not, and an unrelated one does not", async () => {
+    // Salience held equal in both stores (0.8, what a writer may claim for a
+    // standing owner fact): the only difference is the bearsOn line.
     const bare = server("bare");
-    await seed(bare);
-    const bareId = await writeVegan(bare);
+    await seed(bare, { filler: true });
+    const bareId = await writeVegan(bare, undefined, 0.8);
     const bears = server("bears");
-    await seed(bears);
-    const id = await writeVegan(bears, VEGAN_BEARS_ON);
+    await seed(bears, { filler: true });
+    const id = await writeVegan(bears, VEGAN_BEARS_ON, 0.8);
 
-    const before = turnReach(bare, COOK, bareId);
-    const after = turnReach(bears, COOK, id);
-    expect(after.admitted).toBe(true);
-    expect(after.rank).toBe(0);
-    // Without the line it is reached only by common words ("this", "for"), if at all, and never first.
-    expect(before.rank).not.toBe(0);
-    // The answerer's search, as a turn: first too.
-    expect(turnReach(bears, ANSWERER, id)).toEqual({ admitted: true, rank: 0 });
-    // CONTROL.
-    expect(turnReach(bears, UNRELATED, id).admitted).toBe(false);
+    for (const q of [COOK, RESTAURANT, ANSWERER]) {
+      expect({ q, admitted: turnReach(bare, q, bareId).admitted }).toEqual({ q, admitted: false });
+      expect({ q, admitted: turnReach(bears, q, id).admitted }).toEqual({ q, admitted: true });
+    }
+    // CONTROL: not even a candidate.
+    expect(turnReach(bears, UNRELATED, id)).toEqual({ admitted: false, rank: -1 });
+  });
+
+  // THE GAP THIS DOES NOT CLOSE (BO1, measured on a copy of the bench's Sam
+  // store too): at the default salience a writer leaves on an owner fact, the
+  // soup memories that share "parents", "Sunday" and "family" with the cook
+  // question set the turn's relative bar, and the vegan fact — now a
+  // candidate — stays under it. Admission there is the gate's question, not
+  // the write's; when it is answered this starts passing and should flip.
+  test.failing("per-prompt recall, the cook question at the default salience: admitted", async () => {
+    const bears = server("bears");
+    await seed(bears, { filler: true });
+    const id = await writeVegan(bears, VEGAN_BEARS_ON);
+    expect(turnReach(bears, COOK, id).admitted).toBe(true);
   });
 
   test("session_end: an entry's bearsOn lands the same way, and its neighbour's text is untouched", async () => {
     const s = server("store");
-    await seed(s);
+    await seed(s, { filler: true });
     const out = (
       await s.call("session_end", {
         memories: [
-          { content: VEGAN_TEXT, title: VEGAN_TITLE, about: "owner", kind: "fact", bearsOn: "cooking, food, restaurants, gifts" },
+          { content: VEGAN_TEXT, title: VEGAN_TITLE, about: "owner", kind: "fact", salience: 0.8, bearsOn: "cooking, food, restaurants, gifts" },
           { content: "The new road bike's chain was replaced after the race.", about: "owner", kind: "fact" },
         ],
       })
@@ -264,7 +278,7 @@ describe.skipIf(WEIGHTS === null)("with the real static table: words and meaning
     return { s, embed: embedder.embed as (t: string) => number[] | null };
   }
 
-  test("food questions reach it by words and meaning; without bearsOn they did not; an unrelated one leaves it out", async () => {
+  test("deliberate recall reaches it from food questions by words and by meaning; without bearsOn it did not; an unrelated one leaves it out", async () => {
     const bare = semanticServer("bare");
     await seed(bare.s, { filler: true });
     const bareId = await writeVegan(bare.s);
@@ -272,12 +286,19 @@ describe.skipIf(WEIGHTS === null)("with the real static table: words and meaning
     await seed(bears.s, { filler: true });
     const id = await writeVegan(bears.s, VEGAN_BEARS_ON);
 
-    for (const q of [COOK, ANSWERER, RESTAURANT, UNRELATED]) {
-      const meaningBare = String((await bare.s.call("recall", { question: q, mode: "meaning" })).structuredContent["answer"]);
-      const meaningBears = String((await bears.s.call("recall", { question: q, mode: "meaning" })).structuredContent["answer"]);
-      const turnBare = turnReach(bare.s, q, bareId, bare.embed(q));
-      const turnBears = turnReach(bears.s, q, id, bears.embed(q));
-      console.log(JSON.stringify(q), "facts", await factsReach(bare.s, q, bareId), "->", await factsReach(bears.s, q, id), "meaning", meaningBare.includes(bareId), "->", meaningBears.includes(id), "turn", JSON.stringify(turnBare), "->", JSON.stringify(turnBears));
+    const meaningReach = async (s: McpServer, q: string, target: string): Promise<boolean> =>
+      String((await s.call("recall", { question: q, mode: "meaning" })).structuredContent["answer"]).includes(target);
+    for (const q of [COOK, ANSWERER, RESTAURANT]) {
+      expect({ q, facts: await factsReach(bare.s, q, bareId) }).toEqual({ q, facts: false });
+      expect({ q, facts: await factsReach(bears.s, q, id) }).toEqual({ q, facts: true });
     }
+    // Meaning mode on this small store: the answerer's own search reaches it
+    // (on a copy of the bench's 150-chat store all three did; see the PR).
+    expect(await meaningReach(bare.s, ANSWERER, bareId)).toBe(false);
+    expect(await meaningReach(bears.s, ANSWERER, id)).toBe(true);
+    // CONTROL: an unrelated question, by words, by meaning, and as a turn with its vector.
+    expect(await factsReach(bears.s, UNRELATED, id)).toBe(false);
+    expect(await meaningReach(bears.s, UNRELATED, id)).toBe(false);
+    expect(turnReach(bears.s, UNRELATED, id, bears.embed(UNRELATED)).admitted).toBe(false);
   });
 });

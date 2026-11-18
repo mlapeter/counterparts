@@ -591,7 +591,7 @@ const REMEMBER: ToolSpec = {
   engine: [
     {
       claim:
-        "`bearsOn` is kept as the text's last line, \"Bears on: …\", before the gate, so search by words and by meaning finds the memory from a question in those areas; a revision carries no earlier line over.",
+        "`bearsOn` is kept as the text's last line, \"Bears on: …\", before the gate: it is indexed and embedded with the rest of the text, so a search in those areas can reach the memory without naming it; a revision carries no earlier line over.",
       mechanizedBy: "src/adapters/mcp/server-args.ts#foldBearsOn -> src/core/store/index-text.ts#indexTextOf",
     },
     {
