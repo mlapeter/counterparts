@@ -6,9 +6,10 @@
  * years", written from a chat about leather, was never reached by "What
  * should I cook for my parents this Sunday?" — not by per-prompt recall and
  * not by the answerer's own search. `remember` and each `session_end` entry
- * now take `bearsOn`, folded into the text as its last line
- * (`server-args.ts#foldBearsOn`), which is what the token index and the
- * embedder read (`store/index-text.ts#indexTextOf`).
+ * now take `bearsOn`, folded into the text after the battery as its last
+ * paragraph, "Also about: …" (`core/areas.ts`), which is what the token index
+ * and the embedder read (`store/index-text.ts#indexTextOf`). The fix round
+ * (review of #846, numbered 1-9 and (a)-(b) below) holds what the line may not do.
  *
  * Every write here goes through the MCP door; every read through the recall
  * tool or `recallForTurn`. Each test has a CONTROL: the same store with the
@@ -23,7 +24,10 @@ import { join } from "node:path";
 
 import { TOOLS, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
-import { BEARS_ON_PREFIX, WriteNotes, foldBearsOn } from "../src/adapters/mcp/server-args.js";
+import { AREAS_LABEL, AREAS_OFF_SUBJECT, admitAreas, foldAreas, readAreas, stripAreasLine } from "../src/core/areas.js";
+import { titleOfRow } from "../src/core/counterpart-wake-shape.js";
+import { STOPWORDS } from "../src/core/recall/reference.js";
+import { tokenize } from "../src/core/store/index.js";
 import { openStaticEmbedder } from "../src/adapters/claude-code/embed-client.js";
 import { resolveStaticWeights } from "../src/core/embed/static.js";
 
@@ -144,61 +148,164 @@ function turnReach(s: McpServer, question: string, id: string, vector?: number[]
   return { admitted: [...d.surfaced, ...d.footnotes].includes(id), rank: ranked.indexOf(id) };
 }
 
-describe("the door folds bearsOn into the text", () => {
-  test("a list, or a comma-separated string, becomes the text's last line", () => {
-    const rec: Record<string, unknown> = { text: "Vegan for years.  ", bearsOn: ["Cooking", "restaurants", "cooking", " gifts "] };
-    foldBearsOn(rec, "text", new WriteNotes());
-    expect(rec["text"]).toBe(`Vegan for years.\n${BEARS_ON_PREFIX} cooking, restaurants, gifts.`);
-    expect(rec["bearsOn"]).toBeUndefined();
-    const csv: Record<string, unknown> = { content: "Bad left knee.", bearsOn: "hikes, stairs" };
-    foldBearsOn(csv, "content", new WriteNotes());
-    expect(csv["content"]).toBe(`Bad left knee.\n${BEARS_ON_PREFIX} hikes, stairs.`);
+const KEY = "sk-ant-api03-" + "A".repeat(90) + "AA";
+const LINE = `${AREAS_LABEL} cooking, food, restaurants, recipes, gifts.`;
+const VEGAN_STORED = `${VEGAN_TEXT}\n\n${LINE}`;
+
+function body(s: McpServer, id: string): string {
+  return s.counterpart.store.row(id)?.body ?? "";
+}
+
+describe("the core reads, admits and folds the areas", () => {
+  test("a list, or a comma-separated string, screened like tags; reasons, never values", () => {
+    expect(readAreas(["Cooking", "restaurants", "cooking", " gifts "])).toEqual({ sent: ["cooking", "restaurants", "gifts"], dropped: [] });
+    expect(readAreas("hikes, stairs").sent).toEqual(["hikes", "stairs"]);
+    expect(readAreas(null)).toEqual({ sent: null, dropped: [] });
+    expect(readAreas(undefined)).toEqual({ dropped: [] });
+    const r = readAreas(["food", 7, KEY]);
+    expect(r.sent).toEqual(["food"]);
+    expect(r.dropped).toHaveLength(2);
+    expect(JSON.stringify(r)).not.toContain("sk-ant");
   });
 
-  test("nothing sent, nothing kept, no text, or a line already there: the text is left as it was", () => {
-    for (const bearsOn of [undefined, null, [], [7], ""]) {
-      const rec: Record<string, unknown> = { text: "Vegan for years.", bearsOn };
-      foldBearsOn(rec, "text", new WriteNotes());
-      expect(rec["text"]).toBe("Vegan for years.");
-    }
-    const empty: Record<string, unknown> = { bearsOn: ["food"] };
-    foldBearsOn(empty, "text", new WriteNotes());
-    expect(empty["text"]).toBeUndefined();
-    const own: Record<string, unknown> = { text: "Vegan for years.\nbears on: food", bearsOn: ["gifts"] };
-    foldBearsOn(own, "text", new WriteNotes());
-    expect(own["text"]).toBe("Vegan for years.\nbears on: food");
+  test("off-subject: none kept; an area the text names (stemmed) is dropped", () => {
+    expect(admitAreas(["cooking"], { about: "work", kind: "fact", text: "x" })).toEqual({ areas: [], dropped: [AREAS_OFF_SUBJECT] });
+    expect(admitAreas(["cooking"], { about: null, kind: "person", text: "Katie" }).areas).toEqual(["cooking"]);
+    const named = admitAreas(["home network", "router placement", "cooking"], { about: "owner", kind: "fact", text: "The user moved the router off the home network shelf; the cook works nights." });
+    expect(named.areas).toEqual([]);
+    expect(named.dropped).toHaveLength(3);
   });
 
-  test("what cannot be kept is dropped and said; the rest is kept", () => {
-    const notes = new WriteNotes();
-    const rec: Record<string, unknown> = { text: "Vegan for years.", bearsOn: ["food", 7, "x".repeat(80)] };
-    foldBearsOn(rec, "text", notes);
-    expect(rec["text"]).toBe(`Vegan for years.\n${BEARS_ON_PREFIX} food.`);
-    expect(notes.dropped).toHaveLength(1);
-    expect(notes.dropped[0]?.field).toBe("bearsOn");
-    expect(notes.dropped[0]?.note).toContain("Kept food.");
+  test("the fold ends the text as a sentence, then the line as its own paragraph; once only", () => {
+    expect(foldAreas("Vegan for years", ["cooking"])).toBe(`Vegan for years.\n\n${AREAS_LABEL} cooking.`);
+    expect(foldAreas("Vegan for years.", ["cooking", "gifts"])).toBe(`Vegan for years.\n\n${AREAS_LABEL} cooking, gifts.`);
+    const once = foldAreas("Vegan.", ["cooking"]);
+    expect(foldAreas(once, ["gifts"])).toBe(once);
+    expect(stripAreasLine(once)).toBe("Vegan.");
   });
 
-  test("remember and each session_end entry publish bearsOn", () => {
+  test("the label's words are words no search uses: both are query stopwords", () => {
+    for (const w of tokenize(AREAS_LABEL)) expect(STOPWORDS.has(w)).toBe(true);
+  });
+
+  test("remember and each session_end entry publish bearsOn, narrowly, and both carry the engine row", () => {
     const remember = TOOLS.find((t) => t.name === "remember");
     const sessionEnd = TOOLS.find((t) => t.name === "session_end");
-    const rProps = (remember?.inputSchema as { properties: Record<string, { description?: string }> }).properties;
-    expect(rProps["bearsOn"]?.description).toContain("vegan: cooking, restaurants, gifts");
+    const desc = (remember?.inputSchema as { properties: Record<string, { description?: string }> }).properties["bearsOn"]?.description ?? "";
+    expect(desc).toContain("that the text doesn't name");
+    expect(desc).toContain("Otherwise leave it out.");
     const items = (sessionEnd?.inputSchema as { properties: { memories: { items: { properties: Record<string, unknown> } } } }).properties.memories.items;
     expect(items.properties["bearsOn"]).toBeDefined();
+    for (const t of [remember, sessionEnd]) expect((t?.engine ?? []).some((p) => p.claim.startsWith("`bearsOn`"))).toBe(true);
+  });
+});
+
+describe("through the door: what the line may and may not do", () => {
+  test("remember with bearsOn: the stored text carries the line, and the answer says what was folded", async () => {
+    const s = server("store");
+    const out = (await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", bearsOn: VEGAN_BEARS_ON })).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(body(s, out["id"] as string)).toBe(VEGAN_STORED);
+    expect(out["bearsOn"]).toEqual({ stored: true, areas: VEGAN_BEARS_ON });
+  });
+
+  test("1. the line never rescues a write: a stub, or a credential alone, is refused as before", async () => {
+    const s = server("store");
+    const stub = (await s.call("remember", { text: "ok", about: "owner", bearsOn: ["cooking", "food"] })).structuredContent;
+    expect(stub["stored"]).not.toBe(true);
+    const key = (await s.call("remember", { text: KEY, about: "owner", bearsOn: ["cooking", "food"] })).structuredContent;
+    expect(key["stored"]).not.toBe(true);
+    const end = (await s.call("session_end", { memories: [{ content: "ok", about: "owner", bearsOn: "cooking, food" }] })).structuredContent;
+    expect((end["outcomes"] as Record<string, unknown>[])[0]?.["stored"]).toBe(false);
+  });
+
+  test("2. a re-save of the same fact with other areas is a duplicate, pointed at updates", async () => {
+    const s = server("store");
+    await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", bearsOn: ["cooking"] });
+    const again = (await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", bearsOn: ["gifts"] })).structuredContent;
+    expect(again["stored"]).toBe(false);
+    expect(again["reason"]).toBe("duplicate-content");
+    expect(JSON.stringify(again["bearsOn"])).toContain("send updates with its id and bearsOn");
+  });
+
+  test("3. the label reaches nothing: bear and Chicago Bears questions leave the fact out", async () => {
+    const s = server("store");
+    await seed(s);
+    const id = await writeVegan(s, VEGAN_BEARS_ON);
+    for (const q of ["bear safety while camping", "Did the Chicago Bears win?"]) {
+      expect({ q, reached: await factsReach(s, q, id) }).toEqual({ q, reached: false });
+      expect({ q, admitted: turnReach(s, q, id).admitted }).toEqual({ q, admitted: false });
+    }
+    // The label's own words are stopwords to the facts search. (Per-prompt
+    // weighs words by rarity, not a stop list: in a store this small "also" and
+    // "about" are rare, so that path is not asserted here; in a lived store
+    // they are among the commonest words it holds.)
+    expect(await factsReach(s, "what else is it also about", id)).toBe(false);
+    // CONTROL: the old label, written by hand, is what "bear" reached.
+    const old = (await s.call("remember", { text: "User is lactose intolerant.\nBears on: cooking, food.", about: "owner", kind: "fact" })).structuredContent;
+    expect(await factsReach(s, "bear safety while camping", old["id"] as string)).toBe(true);
+  });
+
+  test("4. a dropped area is said by its reason; a secret is never echoed", async () => {
+    const s = server("store");
+    const out = (await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", bearsOn: ["food", KEY] })).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(body(s, out["id"] as string)).toBe(`${VEGAN_TEXT}\n\n${AREAS_LABEL} food.`);
+    expect(JSON.stringify(out)).not.toContain("sk-ant");
+    expect((out["bearsOn"] as { dropped: string[] }).dropped).toHaveLength(1);
+  });
+
+  test("5. two unrelated facts sharing areas are not offered as each other's neighbours", async () => {
+    const s = server("store");
+    await writeVegan(s, ["cooking", "food", "restaurants", "gifts"]);
+    const out = (
+      await s.call("remember", { title: "Peanut allergy", text: "User is allergic to peanuts.", about: "owner", kind: "fact", bearsOn: ["cooking", "food", "restaurants", "gifts"] })
+    ).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(out["neighbours"]).toBeUndefined();
+  });
+
+  test("6. a revision carries its memory's line; bearsOn: null sends none; its own areas replace", async () => {
+    const s = server("store");
+    const id = await writeVegan(s, VEGAN_BEARS_ON);
+    const rev = (await s.call("remember", { text: "User has been vegan for years and avoids honey too.", about: "owner", kind: "fact", updates: id, how: "changed" })).structuredContent;
+    expect(body(s, rev["id"] as string)).toBe(`User has been vegan for years and avoids honey too.\n\n${LINE}`);
+    expect((rev["bearsOn"] as { carriedFrom: string }).carriedFrom).toBe(id);
+    const off = (await s.call("remember", { text: "User has been vegan for years, and eats no honey or gelatin.", about: "owner", kind: "fact", updates: rev["id"], how: "changed", bearsOn: null })).structuredContent;
+    expect(body(s, off["id"] as string)).toBe("User has been vegan for years, and eats no honey or gelatin.");
+    const own = (await s.call("session_end", { memories: [{ content: "User has been vegan for years; gelatin is out too.", about: "owner", kind: "fact", updates: rev["id"], how: "changed", bearsOn: ["baking"] }] })).structuredContent;
+    const ownId = (own["outcomes"] as Record<string, unknown>[])[0]?.["id"] as string;
+    expect(body(s, ownId)).toBe(`User has been vegan for years; gelatin is out too.\n\n${AREAS_LABEL} baking.`);
+  });
+
+  test("7. an untitled memory's heading stops before the line", async () => {
+    const s = server("store");
+    const out = (await s.call("remember", { text: "User has been vegan for years", about: "owner", kind: "fact", bearsOn: ["cooking"] })).structuredContent;
+    const row = s.counterpart.store.row(out["id"] as string);
+    expect(row?.body).toBe(`User has been vegan for years.\n\n${AREAS_LABEL} cooking.`);
+    expect(titleOfRow({ title: null, body: row?.body ?? "" })).not.toContain("Also about");
+  });
+
+  test("(a) off-subject: a memory not about people stores without the line, and says why", async () => {
+    const s = server("store");
+    const out = (await s.call("remember", { text: "Moved the router to the hallway shelf for better coverage.", about: "work", bearsOn: ["wifi"] })).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(body(s, out["id"] as string)).toBe("Moved the router to the hallway shelf for better coverage.");
+    expect(out["bearsOn"]).toEqual({ stored: false, areas: [], dropped: [AREAS_OFF_SUBJECT] });
+  });
+
+  test("(b) areas the text already names are dropped; none left, no line", async () => {
+    const s = server("store");
+    const out = (
+      await s.call("remember", { text: "The user's home network drops when the router sits in the closet; router placement matters.", about: "owner", bearsOn: ["home network", "router placement"] })
+    ).structuredContent;
+    expect(out["stored"]).toBe(true);
+    expect(body(s, out["id"] as string)).not.toContain(AREAS_LABEL);
+    expect((out["bearsOn"] as { dropped: string[] }).dropped).toHaveLength(2);
   });
 });
 
 describe("a lasting fact comes back for a question in an area it bears on", () => {
-  test("remember with bearsOn: the stored text carries the line, and the answer says nothing extra", async () => {
-    const s = server("store");
-    const out = (await s.call("remember", { title: VEGAN_TITLE, text: VEGAN_TEXT, about: "owner", kind: "fact", bearsOn: VEGAN_BEARS_ON })).structuredContent;
-    expect(out["stored"]).toBe(true);
-    expect(out["dropped"]).toBeUndefined();
-    const body = s.counterpart.store.row(out["id"] as string)?.body ?? "";
-    expect(body).toBe(`${VEGAN_TEXT}\n${BEARS_ON_PREFIX} cooking, food, restaurants, recipes, gifts.`);
-  });
-
   test("deliberate recall: a food question that never says vegan finds it; without bearsOn it did not", async () => {
     const bare = server("bare");
     await seed(bare);
@@ -216,8 +323,7 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
   });
 
   test("per-prompt recall: with a standing fact's salience, food questions admit it, without bearsOn they did not, and an unrelated one does not", async () => {
-    // Salience held equal in both stores (0.8, what a writer may claim for a
-    // standing owner fact): the only difference is the bearsOn line.
+    // Salience held equal in both stores (0.8): the only difference is the line.
     const bare = server("bare");
     await seed(bare, { filler: true });
     const bareId = await writeVegan(bare, undefined, 0.8);
@@ -233,14 +339,22 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
     expect(turnReach(bears, UNRELATED, id)).toEqual({ admitted: false, rank: -1 });
   });
 
+  test("9. per-prompt, the cook question at the default salience: the fact is a candidate (the precondition the gap below needs)", async () => {
+    const bears = server("bears");
+    await seed(bears, { filler: true });
+    const id = await writeVegan(bears, VEGAN_BEARS_ON);
+    expect(turnReach(bears, COOK, id).rank).toBeGreaterThanOrEqual(0);
+  });
+
   // THE GAP THIS DOES NOT CLOSE (BO1, measured on a copy of the bench's Sam
   // store too): at the default salience a writer leaves on an owner fact, the
-  // soup memories set the cook turn's relative bar and the vegan fact — now a
-  // candidate — stays under it. On the bench store it is worse: at its real
-  // age (written day 88, asked day 150, never used) the fact has faded below
-  // reach, and ambient recall leaves a below-reach memory out whatever its
-  // words. Admission there is the gate's and forgetting's question, not the
-  // write's; when it is answered this starts passing and should flip.
+  // soup memories set the cook turn's relative bar and the vegan fact — a
+  // candidate, by the test above — stays under it. On the bench store it is
+  // worse: at its real age (written day 88, asked day 150, never used) the
+  // fact has faded below reach, and ambient recall leaves a below-reach memory
+  // out whatever its words. Admission there is the gate's and forgetting's
+  // question, not the write's; when it is answered this starts passing and
+  // should flip.
   test.failing("per-prompt recall, the cook question at the default salience: admitted", async () => {
     const bears = server("bears");
     await seed(bears, { filler: true });
@@ -260,8 +374,8 @@ describe("a lasting fact comes back for a question in an area it bears on", () =
       })
     ).structuredContent;
     const [id, other] = (out["outcomes"] as Record<string, unknown>[]).map((o) => o["id"] as string);
-    expect(s.counterpart.store.row(id as string)?.body).toBe(`${VEGAN_TEXT}\n${BEARS_ON_PREFIX} cooking, food, restaurants, gifts.`);
-    expect(s.counterpart.store.row(other as string)?.body).toBe("The new road bike's chain was replaced after the race.");
+    expect(body(s, id as string)).toBe(`${VEGAN_TEXT}\n\n${AREAS_LABEL} cooking, food, restaurants, gifts.`);
+    expect(body(s, other as string)).toBe("The new road bike's chain was replaced after the race.");
     expect(await factsReach(s, COOK, id as string)).toBe(true);
     expect(turnReach(s, COOK, id as string).admitted).toBe(true);
     expect(await factsReach(s, UNRELATED, id as string)).toBe(false);

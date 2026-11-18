@@ -4,6 +4,7 @@ import { mintProposal, settlesWhenOf, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_ME
 import { nightClosedOf, reopenNightClosed } from "./open-close.js";
 import type { MintResult } from "./mint.js";
 import { screenTags } from "./tag-screen.js";
+import { admitAreas, areasLineOf, carryAreasLine, readAreas } from "./areas.js";
 import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
 import { errCode, OWN_PLUMBING_META_KEY, ownPlumbingCue, prepareProposal, settleProposal } from "./remember/index.js";
 import type { OwnPlumbingCue, Proposal, SubmitContext, SubmitResult, ProposalSource } from "./remember/index.js";
@@ -37,6 +38,7 @@ import type {
   SentFacts,
   DepositFacts,
   DepositTags,
+  DepositAreas,
   FactField,
   ThreadRefusal,
   ReminderCarryPlan,
@@ -177,11 +179,20 @@ export async function deposit(
     covers: [],
   });
 
+  // BO1: the areas a lasting fact bears on — read, screened and admitted here,
+  // folded after the battery (`prepareProposal`), carried below on a revision.
+  const areasRead = readAreas(ctx.bearsOn);
+  const rawDraft = draft !== null && typeof draft === "object" && !Array.isArray(draft) ? (draft as Record<string, unknown>) : {};
+  const draftText = [rawDraft["title"], rawDraft["content"]].filter((x): x is string => typeof x === "string").join("\n");
+  const admitted = admitAreas(areasRead.sent ?? [], { about: ctx.about, kind: rawDraft["kind"], text: draftText });
+  const areasDropped = [...areasRead.dropped, ...admitted.dropped];
+
   const submit: SubmitContext = {
     session: ctx.session,
     scope: ctx.scope,
     source,
     gate: batteryGate(cp["vectors"]),
+    ...(admitted.areas.length === 0 ? {} : { areas: admitted.areas }),
     ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
     ...(ctx.cover === undefined ? {} : { cover: ctx.cover }),
     resolveUpdates: (declared, content) => cp["resolveUpdatesFor"](ctx.scope, declared, content),
@@ -242,10 +253,20 @@ export async function deposit(
   const titledProposal: Proposal = titled.carried === undefined ? withFacts : { ...withFacts, title: titled.carried.title };
   // v14, lane B: its tags, a revision's carried over when none were sent.
   const tags = carryTags(cp, carry.proposal, ctx.tags);
-  const tagged: Proposal =
+  const tagged0: Proposal =
     tags === null || tags.tags.length === 0
       ? titledProposal
       : { ...titledProposal, tags: tags.tags, tagsVia: tags.from === null ? "write" : "carried" };
+  // BO1: its areas line, a revision's carried over when `bearsOn` was not sent at all.
+  const areasCarried = ctx.bearsOn === undefined ? carryAreas(cp, carry.proposal) : null;
+  const tagged: Proposal =
+    areasCarried === null ? tagged0 : { ...tagged0, content: carryAreasLine(tagged0.content, areasCarried.line) };
+  const areas: DepositAreas | null =
+    areasCarried !== null && tagged.content !== tagged0.content
+      ? { areas: [], carriedFrom: areasCarried.from }
+      : admitted.areas.length > 0 || areasDropped.length > 0
+        ? { areas: [...admitted.areas], ...(areasDropped.length === 0 ? {} : { dropped: areasDropped }) }
+        : null;
   // What would settle it, a carried-on thread's kept when none was sent (S1).
   const settles = carrySettles(cp, tagged);
   const minting: Proposal = settles === null ? tagged : { ...tagged, settlesWhen: settles };
@@ -407,6 +428,7 @@ export async function deposit(
     ...(thread === null ? {} : { thread }),
     ...(facts === null ? {} : { facts }),
     ...(tags === null ? {} : { tags }),
+    ...(areas === null ? {} : { areas }),
     ...(about === null ? {} : { aboutCarried: { mark: about.about, from: about.from } }),
     ...(titled.carried === undefined ? {} : { titleCarried: titled.carried }),
     ...(titled.asked ? { titleAsked: true as const } : {}),
@@ -777,6 +799,25 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
  * sent. Nothing MOVES: the old memory keeps its own. Null when nothing was
  * sent, dropped or carried.
  */
+/**
+ * BO1: A REVISION KEEPS WHAT ITS FACT BEARS ON. When `updates` resolved to a
+ * memory by its declared address and the writer did not send `bearsOn` at
+ * all, the target's areas line comes over onto the new text (unless the new
+ * text has one of its own). `bearsOn: null` opts out. The line was admitted
+ * and gated when the target was written, so it is not re-judged here.
+ */
+export function carryAreas(cp: Counterpart, p: Proposal): { line: string; from: string } | null {
+  const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+  if (target === null) return null;
+  try {
+    const row = cp.store.row(target);
+    const line = row === undefined ? null : areasLineOf(row.body);
+    return line === null ? null : { line, from: target };
+  } catch {
+    return null;
+  }
+}
+
 export function carryTags(cp: Counterpart, p: Proposal, sent: readonly string[] | null | undefined): DepositTags | null {
   if (sent === null || (sent !== undefined && sent.length === 0)) return { tags: [], from: null };
   // THE ONE SCREEN, at the core's own seam (review of #570): an embedder's

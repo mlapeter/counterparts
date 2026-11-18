@@ -92,6 +92,7 @@ import { isCounterpartIdentityRow, isReaderHostRow, readerNoteLine } from "./rea
 import type { ContradictionRow, MemoryRow, Store } from "./store/index.js";
 import { FOLD_SOURCE, SETTLE_HOWS } from "./types.js";
 import type { Band, MemoryPhysics, SettleHow } from "./types.js";
+import { stripAreasLine } from "./areas.js";
 
 export { FOLD_SOURCE, SETTLE_HOWS } from "./types.js";
 export type { SettleHow } from "./types.js";
@@ -1715,7 +1716,9 @@ export function writeNeighbours(
       /* no session rows: the indexes decide */
     }
   }
-  const text = `${row.title ?? ""}\n${row.body}`;
+  // The text without its areas line (BO1): two facts that share everyday
+  // areas are not the same fact, so the words they share there count for nothing.
+  const text = `${row.title ?? ""}\n${stripAreasLine(row.body)}`;
   const skip = new Set<string>([input.id, ...(input.exclude ?? [])]);
   const vec = (() => {
     try {
@@ -1753,7 +1756,7 @@ export function writeNeighbours(
     } catch {
       continue;
     }
-    const lex = similarity(text, `${c.title ?? ""}\n${c.body}`);
+    const lex = similarity(text, `${c.title ?? ""}\n${stripAreasLine(c.body)}`);
     let cos = cosByHit.get(id) ?? null;
     if (cos === null && vec !== null) {
       const other = store.vectorOf(id);
@@ -1781,8 +1784,8 @@ export function writeNeighbours(
     out.push({
       id: s.id,
       ...(head === null ? {} : { standing: earlierMark(head, foldedOver(store, s.id, head)) }),
-      title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: s.row.body }) || null : s.row.title,
-      excerpt: excerptOf(s.row.body, T.EXCERPT_CHARS),
+      title: s.row.title === null || s.row.title.trim().length === 0 ? lineOf({ body: stripAreasLine(s.row.body) }) || null : s.row.title,
+      excerpt: excerptOf(stripAreasLine(s.row.body), T.EXCERPT_CHARS),
       ...readerLabelOf(s.row),
     });
   }

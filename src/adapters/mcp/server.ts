@@ -314,6 +314,7 @@ import {
   readWriteFacts,
   doneDateAsOccurred,
   readTags,
+  areasEcho,
   reminderEcho,
   ownPlumbingEcho,
   titleEcho,
@@ -2081,6 +2082,7 @@ export class McpServer {
         facts: reader.facts,
         ...(reader.readerMeta === undefined ? {} : { readerMeta: reader.readerMeta }),
         ...(tags.sent === undefined ? {} : { tags: tags.sent }),
+        ...(args["bearsOn"] === undefined ? {} : { bearsOn: args["bearsOn"] }),
         // What it is about sets an unclaimed memory's default floor (2026-10-10).
         about: reader.about,
         ...(model === undefined ? {} : { model }),
@@ -2119,6 +2121,7 @@ export class McpServer {
       ...undatedReminderWarning(deposit, dated, args["title"], text),
       ...factsEcho(deposit, facts),
       ...tagsEcho(deposit, tags),
+      ...areasEcho(deposit, args["bearsOn"]),
       ...this.settledOf(deposit, args["how"] !== undefined),
       ...threadOf(deposit),
       ...ownPlumbingEcho(deposit),

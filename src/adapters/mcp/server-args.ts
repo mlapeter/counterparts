@@ -5,7 +5,7 @@ import { ALIASES, CORE_EMOTIONS, FEELINGS_THESAURUS, FEELINGS_WHEEL, V10_CORES, 
 import type { CoreEmotion } from "../../core/feelings-wheel.js";
 import type { Recurrence } from "../../core/time.js";
 import { AUTHOR_DIMENSIONS, ownPlumbingNote } from "../../core/remember/index.js";
-import { TAGS_PER_MEMORY, screenTags } from "../../core/tag-screen.js";
+import { screenTags } from "../../core/tag-screen.js";
 import {
   ABOUT_MARKS,
   SAID_BY,
@@ -998,45 +998,29 @@ function readRanged(rec: Record<string, unknown>, key: string, lo: number, hi: n
  * an id and `feelingsNow` given as strings.
  */
 /**
- * BEARS ON (BO1, 2026-11-17): the everyday areas a lasting fact changes advice
- * about, which its words do not name — vegan: cooking, restaurants, gifts.
- * Measured miss (Memorilla "Buried Clue"): a fact written as "vegan, so they
- * avoid leather" was never reached by "what should I cook for my parents",
- * because nothing it was indexed under said food.
- *
- * FOLDED INTO THE TEXT, as its last line (`Bears on: cooking, restaurants,
- * gifts.`), here, before the gate — not kept beside it. The token index and
- * the embedder both read exactly the title and the body (`store/index-text.ts`),
- * at every site that indexes (put, revise, the cache rebuild, the backfill, the
- * pre-deposit warm), so a line in the body is found by words and by meaning
- * with no index change, no store-format change, and the redaction, the floor
- * and the content hash all see it as they see the rest of the text. It also
- * reads back with the memory, saying why it came up for a question that never
- * named it.
- *
- * Loose first, as `tags` (and screened by the same screen): a list or a
- * comma-separated string; what cannot be kept is dropped and said. Nothing is
- * added to a call with no text (the content refusals stay where they are), nor
- * to a text that already carries its own `Bears on:` line. A revision by
- * `updates` is new text: it carries no earlier line over, so it sends its own.
+ * BEARS ON (BO1, 2026-11-17): what the core did with the writer's `bearsOn`
+ * (`core/areas.ts`, read and folded in the deposit, after the battery): the
+ * areas folded in, the memory a revision carried them from, and why any were
+ * dropped — the reasons only, never a sent value (it may hold a secret). A
+ * repeat of a stored memory with areas says how to add them to it.
  */
-export const BEARS_ON_PREFIX = "Bears on:";
+export const AREAS_DUPLICATE_NOTE = "This memory was already stored; to add areas to it, send updates with its id and bearsOn.";
 
-export function foldBearsOn(rec: Record<string, unknown>, contentKey: "text" | "content", notes: WriteNotes): void {
-  const raw = rec["bearsOn"];
-  delete rec["bearsOn"];
-  if (raw === undefined || raw === null) return;
-  const items: unknown[] = typeof raw === "string" ? raw.split(",") : Array.isArray(raw) ? raw : [raw];
-  const { kept, dropped } = screenTags(items);
-  if (dropped.length > 0) {
-    const room = `Each area is a few words of text, at most ${String(TAGS_PER_MEMORY)}.`;
-    notes.drop("bearsOn", "bears-on-unreadable", raw, kept.length === 0 ? `None kept. ${room}` : `Kept ${kept.join(", ")}. ${room}`);
+export function areasEcho(deposit: DepositResult, sent: unknown): Record<string, unknown> {
+  const a = deposit.areas;
+  if (a === undefined) {
+    if (sent === undefined || sent === null) return {};
+    if (deposit.reason === "duplicate-content") return { bearsOn: { stored: false, reason: "memory-not-stored", note: AREAS_DUPLICATE_NOTE } };
+    return deposit.deposited ? {} : { bearsOn: { stored: false, reason: "memory-not-stored" } };
   }
-  if (kept.length === 0) return;
-  const text = rec[contentKey];
-  if (typeof text !== "string" || text.trim().length === 0) return;
-  if (text.split("\n").some((line) => line.trim().toLowerCase().startsWith(BEARS_ON_PREFIX.toLowerCase()))) return;
-  rec[contentKey] = `${text.trimEnd()}\n${BEARS_ON_PREFIX} ${kept.join(", ")}.`;
+  return {
+    bearsOn: {
+      stored: deposit.deposited && (a.areas.length > 0 || a.carriedFrom !== undefined),
+      areas: [...a.areas],
+      ...(a.carriedFrom === undefined ? {} : { carriedFrom: a.carriedFrom }),
+      ...(a.dropped === undefined ? {} : { dropped: [...a.dropped] }),
+    },
+  };
 }
 
 export async function normalizeMemoryFields(
@@ -1064,7 +1048,6 @@ export async function normalizeMemoryFields(
     notes.read(other, "(text)", contentKey);
   }
   delete rec[other];
-  foldBearsOn(rec, contentKey, notes);
 
   readEnum(rec, "kind", MEMORY_KINDS, KIND_SYNONYMS, notes);
   if (rec["title"] !== undefined && rec["title"] !== null && typeof rec["title"] !== "string") {

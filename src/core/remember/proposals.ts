@@ -22,6 +22,7 @@
 import { SETTLE_HOWS, cutPhrase } from "../types.js";
 import type { Kind, Salience, SettleHow } from "../types.js";
 import { hashText } from "../store/prose.js";
+import { foldAreas } from "../areas.js";
 import type { WriteFacts } from "../store/index.js";
 import { isDay, isRecurrence, parseCalendarDate } from "../time.js";
 import type { Recurrence } from "../time.js";
@@ -564,6 +565,13 @@ export interface SubmitContext {
   scope: string;
   source: ProposalSource;
   gate?: GateFn;
+  /**
+   * The areas a lasting fact bears on (BO1, `core/areas.ts`), already admitted:
+   * folded into the content AFTER the battery accepts it, so the floor and the
+   * redaction judge the writer's own words and the duplicate hash never sees
+   * them. Absent or empty: nothing folded.
+   */
+  areas?: readonly string[];
   /** The span this deposit IS (a jot's own span), withheld from the sweep outright. */
   ownSpanHash?: string | null;
   /** Injected `updates:` resolver — see `updates.ts`. Absent means no resolution
@@ -749,7 +757,7 @@ export async function prepareProposal(
     source: ctx.source,
     session: ctx.session,
     scope: ctx.scope,
-    content: verdict.content,
+    content: foldAreas(verdict.content, ctx.areas ?? []),
     kind,
     title: draft.title ?? null,
     // The author's three dimensions, with novelty STRIPPED explicitly before

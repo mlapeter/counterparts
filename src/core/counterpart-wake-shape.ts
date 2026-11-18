@@ -127,6 +127,7 @@ export interface ShapedWake {
 
 /** The splitter lives in `time.ts` (2026-11-17), beside the dated-sentence pick that reads the same sentences. */
 import { datedSentence, firstSentence } from "./time.js";
+import { stripAreasLine } from "./areas.js";
 export { firstSentence };
 
 const plural = (n: number, w: string): string => `${String(n)} ${w}${n === 1 ? "" : "s"}`;
@@ -136,7 +137,7 @@ const norm = (s: string): string => s.trim().replace(/\/+$/, "");
 export function titleOfRow(row: Pick<MemoryRow, "title" | "body">): string {
   const t = (row.title ?? "").trim();
   if (t.length > 0) return flatten(t);
-  const first = flatten(row.body.split("\n").find((l) => l.trim().length > 0) ?? "");
+  const first = flatten(stripAreasLine(row.body).split("\n").find((l) => l.trim().length > 0) ?? "");
   return untitledLine(firstSentence(first));
 }
 
