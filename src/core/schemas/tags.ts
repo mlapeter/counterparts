@@ -407,8 +407,14 @@ export function tagPartners(
   const members = new Map<string, string[] | null>();
   const membersOf = (head: string): string[] | null => {
     if (members.has(head)) return members.get(head) ?? null;
+    // Each word read to one past the cap (2026-11-18): a tag over it is
+    // skipped whatever the rest, and one under it reads whole, so the answer
+    // is the same and a word on thousands of memories costs cap + 1 rows.
     const ids = new Set<string>();
-    for (const w of clusters.get(head) ?? [head]) for (const id of store.memoriesTagged(w)) ids.add(id);
+    for (const w of clusters.get(head) ?? [head]) {
+      for (const id of store.memoriesTagged(w, { limit: opts.maxTagMemories + 1 })) ids.add(id);
+      if (ids.size > opts.maxTagMemories) break;
+    }
     const kept = ids.size > opts.maxTagMemories ? null : [...ids];
     members.set(head, kept);
     return kept;

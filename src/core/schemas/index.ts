@@ -1170,11 +1170,24 @@ export class Schemas {
     const self = this.store.selfSubject();
     if (self !== null) subjects.delete(self);
     const out: { id: string; subject: string; statement: string; strength: number; support: number; contested: boolean }[] = [];
+    if (subjects.size === 0) return out;
+    // ONE CATCH-UP A CALL, not one a subject (2026-11-18, the recall latency
+    // diagnosis): `catchUp` lists every schema row, a scan of `memories`
+    // (no index covers `type`), and each subject's `beliefStanding` ran it
+    // again. Once here, at the point the first subject's used to; the
+    // subjects then read what this index knows, as `slices()` does. A belief
+    // another process files in the milliseconds between two subjects is seen
+    // next turn. A catch-up that fails offers nothing, as it did per subject.
+    try {
+      this.catchUp();
+    } catch {
+      return out;
+    }
     for (const id of [...subjects].sort()) {
       try {
         const row = this.store.row(id);
         if (row === undefined || row.archived === 1 || this.removed(id, row)) continue;
-        const standing = this.beliefStanding(id, day);
+        const standing = this.standingOf(this.beliefsKnown(id), day);
         if (standing.length === 0) continue;
         const name = this.subjectName(id, row);
         for (const b of standing) out.push({ id: b.id, subject: name, statement: b.statement, strength: b.strength, support: b.support, contested: b.contested });
@@ -2537,7 +2550,12 @@ export class Schemas {
    * to a belief rather than write it again. A read.
    */
   beliefStanding(entityId: string, day: number): BeliefStanding[] {
-    return this.beliefs(entityId)
+    return this.standingOf(this.beliefs(entityId), day);
+  }
+
+  /** Beliefs already read, as they stand on `day` (`beliefStanding` without its catch-up; `beliefsNamedIn` catches up once). */
+  private standingOf(beliefs: readonly ElementView[], day: number): BeliefStanding[] {
+    return beliefs
       .map((b): BeliefStanding => {
         const rows = this.store.supportOf(b.id);
         const row = this.store.row(b.id);

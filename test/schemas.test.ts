@@ -1324,6 +1324,8 @@ const PRIVATE_HELPERS = new Set([
   "catchUp",
   // A subject's beliefs without the catch-up (slices catches up once).
   "beliefsKnown",
+  // 2026-11-18: beliefs already read, as they stand (beliefsNamedIn catches up once a call).
+  "standingOf",
   // The card twins (2026-10-21): one row into the index the way `load` reads it,
   // the rows another process wrote since, and `settle`'s name gates asked of
   // them under the write lock. Reads and the index; no new operation. And the
