@@ -683,6 +683,15 @@ a "recently deleted" list on the account page.
 `server.ts#rememberTool`; release any holds left (`remove.undo`, or append `released`). The `held` stage, the sweep and
 the column can stay inert. The store's format never changed (still v15).
 
+**Checked 2026-11-18 (two weeks on, partial: not exercised).** Mike's live store: no `held`, `released` or
+`erasing` row ever. Its only `removal_record` rows are 3 console removals on 10-30 (requested, dark, chased, complete,
+actor owner, before HD1), and the late and stuck queries return nothing. So nobody has deleted a memory from chat
+locally yet. Hosted: no `removal.overdue` event in the service log for 14 days (`railway logs --since 14d --filter
+removal`, empty), and `/readyz` is all ok. The audit table (`removal.held` / `erased` / `failed`) needs a
+production shell, so its counts wait for Mike's `railway ssh`. Nothing failed or ran late, and there was nothing to
+undo. **Re-read** when the hosted audit counts are in, or at the first chat delete on either side. The 48 h backup
+check below is still not run.
+
 ## ~48 h after the first hosted chat delete (HD1 backups)
 
 (2026-11-04, fix round item 4.) **What we're checking.** The hosted reply says a deleted memory is "gone from our
