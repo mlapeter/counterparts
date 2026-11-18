@@ -449,6 +449,17 @@ const TAGS_PROPERTY = {
   description: "3-5 short lowercase topics.",
 } as const;
 
+/**
+ * BO1 (2026-11-17): the everyday areas a lasting fact changes advice about,
+ * folded into the text as its last line so words and meaning search find it
+ * from a question in those areas (`server-args.ts#foldBearsOn`).
+ */
+const BEARS_ON_PROPERTY = {
+  type: ["array", "null"],
+  items: { type: "string" },
+  description: "A lasting fact about them or someone they care for: the everyday areas it changes advice on, unnamed in the text (vegan: cooking, restaurants, gifts).",
+} as const;
+
 /** The claim `remember` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
@@ -580,6 +591,11 @@ const REMEMBER: ToolSpec = {
   engine: [
     {
       claim:
+        "`bearsOn` is kept as the text's last line, \"Bears on: …\", before the gate, so search by words and by meaning finds the memory from a question in those areas; a revision carries no earlier line over.",
+      mechanizedBy: "src/adapters/mcp/server-args.ts#foldBearsOn -> src/core/store/index-text.ts#indexTextOf",
+    },
+    {
+      claim:
         "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the memory unlinked rather than refusing it when the address does not hold.",
       mechanizedBy:
         "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
@@ -671,6 +687,7 @@ const REMEMBER: ToolSpec = {
       saidBy: SAID_BY_PROPERTY,
       status: STATUS_PROPERTY,
       tags: TAGS_PROPERTY,
+      bearsOn: BEARS_ON_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
       settlesWhen: SETTLES_WHEN_PROPERTY,
@@ -1061,6 +1078,7 @@ const SESSION_END: ToolSpec = {
             saidBy: SAID_BY_PROPERTY,
             status: STATUS_PROPERTY,
             tags: TAGS_PROPERTY,
+            bearsOn: BEARS_ON_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,
             settlesWhen: SETTLES_WHEN_PROPERTY,
