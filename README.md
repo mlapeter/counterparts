@@ -80,9 +80,8 @@ walkthrough is in [`docs/QUICKSTART.md`](docs/QUICKSTART.md).
 
 How Claude Code's own memory works, and where Counterparts fits:
 [counterparts.ai/guides/claude-code-memory](https://counterparts.ai/guides/claude-code-memory/).
-More at [counterparts.ai](https://counterparts.ai). A hosted version for claude.ai is coming
-soon, in beta; [sign up on the home page](https://counterparts.ai/#waitlist) to hear when it
-opens.
+More at [counterparts.ai](https://counterparts.ai). Hosted Counterparts, for claude.ai, is
+open as a free beta: [sign up at app.counterparts.ai](https://app.counterparts.ai/login).
 
 Found a bug? [Open an issue](https://github.com/mlapeter/counterparts/issues). For anything
 else, write to mike@resonantventures.com.
