@@ -292,7 +292,7 @@ describe("3. overdue items are said", () => {
     const { c, today } = brain();
     c.revisePage(PAGE, { reason: "first", by: "owner" });
     const days = [1, 2, 3, 4, 5];
-    for (const d of days) memory(c, `Overdue note ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door, part ${String(d)}`, eventDate: addDays(today, -d) });
+    for (const d of days) memory(c, `Overdue note ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door, part ${String(d)}`, status: "planned", eventDate: addDays(today, -d) });
     c.close();
     const wake = hook();
     intact(wake);
@@ -307,10 +307,12 @@ describe("3. overdue items are said", () => {
   test("another folder's overdue items are counted as overdue there, never listed here", () => {
     const { c, today } = brain();
     c.revisePage(PAGE, { reason: "first", by: "owner" });
-    for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, eventDate: addDays(today, -d), scope: THERE });
+    for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, status: "planned", eventDate: addDays(today, -d), scope: THERE });
+    // A dated fact there that nobody owes (2026-11-18): one of the folder's count, never its overdue.
+    memory(c, "The bakery's new oven was delivered.", { title: "New oven delivered", eventDate: addDays(today, -1), scope: THERE });
     c.close();
     const coming = section(hook(), "Coming up:");
-    expect(coming).toBe(`Coming up:\n(3 in other folders (3 overdue, oldest ${monthDay(addDays(today, -6))}); recall "coming up")`);
+    expect(coming).toBe(`Coming up:\n(4 in other folders (3 overdue, oldest ${monthDay(addDays(today, -6))}); recall "coming up")`);
   });
 });
 
@@ -488,9 +490,9 @@ describe("3b. due today before the overdue words", () => {
     c.revisePage(`## Core\n\n${"I keep the kiln's ledger, carefully, every single day. ".repeat(146)}`, { reason: "first", by: "owner" });
     const long = `Water the cold frame: ${"carry each tray out, check the soil, water from the left, ".repeat(1)}then close the lid.`;
     const id = memory(c, long, { title: "Water the cold frame", eventDate: today, meta: { remind: "plain" } });
-    for (const d of [1, 3]) memory(c, `Overdue ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door ${String(d)}`, eventDate: addDays(today, -d) });
+    for (const d of [1, 3]) memory(c, `Overdue ${String(d)}: repaint the potting shed's north door.`, { title: `Repaint shed door ${String(d)}`, status: "planned", eventDate: addDays(today, -d) });
     for (const d of [3, 5]) memory(c, `Later ${String(d)}: turn the compost.`, { title: `Turn the compost ${String(d)}`, eventDate: addDays(today, d) });
-    for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, eventDate: addDays(today, -d), scope: THERE });
+    for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, status: "planned", eventDate: addDays(today, -d), scope: THERE });
     c.close();
     const coming = section(hook(), "Coming up:");
     expect(coming).toContain(`[${id}]`);

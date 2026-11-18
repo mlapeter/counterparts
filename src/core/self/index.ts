@@ -48,6 +48,7 @@ import type { AboutMark, ProseDoc, Store } from "../store/index.js";
 import { CHAPTER_SUMMARY_META, CLAIMED_DEFAULT_SPELLED, aboutMarkOf, hashText } from "../store/index.js";
 import type { ChapterSummaryKind } from "../store/index.js";
 import { chaptersOf } from "../handoff/last-here.js";
+import { owedOf } from "../prospective/index.js";
 import {
   SUMMARY_CHAPTER_META,
   automaticSummaryText,
@@ -380,8 +381,10 @@ export interface ComingUpItem {
   readonly due?: string;
   /** How often it comes round, in words, when it repeats. */
   readonly every?: string;
-  /** Past its date (a one-off in its grace days). */
+  /** Past its date (a one-off in its grace days), and someone owes it (`prospective#owedOf`). */
   readonly overdue?: true;
+  /** Past its date and nobody owes it: a dated fact whose day went by (2026-11-18). Never `overdue`. */
+  readonly passed?: true;
 }
 
 /** The most characters of a title the `still open` handle gives. */
@@ -1343,15 +1346,19 @@ export class Self {
         const whole = flatten((s.doc.title ?? "").trim() || first);
         const title = whole.length <= STILL_OPEN_TITLE_CHARS ? whole : `${whole.slice(0, STILL_OPEN_TITLE_CHARS - 1).trimEnd()}…`;
         const due = h.due?.trim() ?? "";
-        const overdue = h.today !== true && h.plainDue !== true && (h.past === true || (isDay(due) && due < today));
+        const late = h.today !== true && h.plainDue !== true && (h.past === true || (isDay(due) && due < today));
+        // Only what someone owes is overdue (`prospective#owedOf`, 2026-11-18), as the wake and the `coming up` door say it; the rest passed.
+        const overdue = late && owedOf({ status: this.store.row(h.id)?.status ?? null, meta: s.doc.meta }, h.every !== undefined);
+        const passed = late && !overdue;
         out.push({
           id: h.id,
           title,
           ...(due === "" ? {} : { due }),
           ...(h.every === undefined ? {} : { every: h.every }),
           ...(overdue ? { overdue: true as const } : {}),
-          // Overdue by the day it became overdue: a range by its last day (2026-11-16).
-          sortKey: `${overdue ? "0" : "1"}${due === "" ? "9999-99-99" : overdue ? (daySpan(due)?.last ?? due) : due}${h.id}`,
+          ...(passed ? { passed: true as const } : {}),
+          // Overdue by the day it became overdue: a range by its last day (2026-11-16). Then what passed, the same way; then the rest.
+          sortKey: `${overdue ? "0" : passed ? "1" : "2"}${due === "" ? "9999-99-99" : late ? (daySpan(due)?.last ?? due) : due}${h.id}`,
         });
       } catch {
         /* an item that will not read is left out */

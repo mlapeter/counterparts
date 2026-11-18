@@ -101,7 +101,7 @@ async function wake(a: ReturnType<typeof openAdapter>, session: string): Promise
 
 function comingUpIds(a: ReturnType<typeof openAdapter>): { overdue: string[]; all: string[] } {
   const c = a.counterpart.comingUp({ scope: SCOPE });
-  return { overdue: c.overdue.map((x) => x.id), all: [...c.today, ...c.overdue, ...c.later].map((x) => x.id) };
+  return { overdue: c.overdue.map((x) => x.id), all: [...c.today, ...c.overdue, ...c.passed, ...c.later].map((x) => x.id) };
 }
 
 function facts(body: Record<string, unknown>): Record<string, unknown> {
@@ -118,8 +118,8 @@ describe("the write: a done with a passed date keeps it as when it happened", ()
     const a = adapter();
     const s = server(a);
     dayOf(a, "2026-11-07");
-    // A control: the same shape, not done, is a real overdue reminder.
-    const open = await remember(s, { title: "Send the kiln invoice", text: "Send the kiln repair invoice to the landlord.", eventDate: "2026-11-05" });
+    // A control: the same shape, planned rather than done, is a real overdue reminder (a no-status one is listed as passed, 2026-11-18).
+    const open = await remember(s, { title: "Send the kiln invoice", text: "Send the kiln repair invoice to the landlord.", eventDate: "2026-11-05", status: "planned" });
     const body = await remember(s, { title: "Night test PASSED", text: "The scheduled night test ran and passed on the studio machine.", eventDate: "2026-11-05", status: "done" });
     const id = body["id"] as string;
 
@@ -163,7 +163,7 @@ describe("the write: a done with a passed date keeps it as when it happened", ()
         session: SESSION,
         memories: [
           { title: "Handoff for 11-06 written", content: "Wrote the handoff for the 11-06 session and left it in the notes folder.", kind: "fact", eventDate: "2026-11-06", status: "done" },
-          { title: "Renew the studio lease", content: "Renew the studio lease with the landlord before it lapses.", kind: "fact", eventDate: "2026-11-06" },
+          { title: "Renew the studio lease", content: "Renew the studio lease with the landlord before it lapses.", kind: "fact", eventDate: "2026-11-06", status: "planned" },
         ],
       })
     ).structuredContent;

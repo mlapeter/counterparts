@@ -350,7 +350,7 @@ describe("through the doors", () => {
     const before = (n: number): string => new Date(Date.parse(`${today}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
     const late: string[] = [];
     for (const n of [1, 2, 3]) {
-      late.push(c.store.put({ type: "memory", kind: "person", body: `Return the borrowed tiller, number ${String(n)}.`, learnedOn: before(9), eventDate: before(n), salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } }));
+      late.push(c.store.put({ type: "memory", kind: "person", status: "planned", body: `Return the borrowed tiller, number ${String(n)}.`, learnedOn: before(9), eventDate: before(n), salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } }));
     }
     for (let i = 0; i < 3; i++) {
       recordSession(dir, { sessionId: `sess_${String(i)}`, scope: HERE, phase: "start" });

@@ -3140,7 +3140,7 @@ export class McpServer {
     const closed = this.nightClosed();
     const list = this.counterpart.comingUp({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
     // A folder by its name; by its path only when another the door names, or this one, has the same name (FS1).
-    const among = [this.scope, ...[...list.today, ...list.overdue, ...list.later, ...list.otherFolders].flatMap((c) => (c.folder === null ? [] : [c.folder]))];
+    const among = [this.scope, ...[...list.today, ...list.overdue, ...list.passed, ...list.later, ...list.otherFolders].flatMap((c) => (c.folder === null ? [] : [c.folder]))];
     const shown = (cs: readonly Cue[]): Record<string, unknown>[] =>
       cs
         .filter((c) => !closed.has(c.id))
@@ -3155,9 +3155,10 @@ export class McpServer {
         }));
     const today = shown(list.today);
     const overdue = shown(list.overdue);
+    const passed = shown(list.passed);
     const later = shown(list.later);
     const otherFolders = shown(list.otherFolders);
-    const total = today.length + overdue.length + later.length + otherFolders.length;
+    const total = today.length + overdue.length + passed.length + later.length + otherFolders.length;
     this.emit("mcp.recall.comingup", undefined, { total });
     return this.result(
       {
@@ -3167,12 +3168,13 @@ export class McpServer {
         total,
         today,
         overdue,
+        passed,
         later,
         otherFolders,
         note:
           total === 0
             ? "Nothing dated is coming up here."
-            : "What's due: today, then overdue (newest first), then later (soonest first), this folder's and what's about you or the owner; then other folders'. Recall an id to read it whole.",
+            : "What's due: today, then overdue (what's owed, newest first), then passed (dated facts whose day went by, nobody owing them; newest first), then later (soonest first), this folder's and what's about you or the owner; then other folders'. Recall an id to read it whole.",
       },
       false,
     );
@@ -3313,6 +3315,7 @@ export class McpServer {
                 ...(c.due === undefined ? {} : { due: c.due }),
                 ...(c.every === undefined ? {} : { every: c.every }),
                 ...(c.overdue === true ? { overdue: true } : {}),
+                ...(c.passed === true ? { passed: true } : {}),
               })),
             }),
         note:
@@ -3325,7 +3328,7 @@ export class McpServer {
             : ` ${maybeShown === 1 ? "One is" : `${String(maybeShown)} are`} marked mayBeDone: the night thought it may be done but wasn't sure enough to close it, and the memory in brackets is why. If it is done, close it (a write that updates it with unresolved: false); nobody is asked. A question to the owner (status asked) closes only on the owner's answer, never on this mark.`) +
           (comingUp.length === 0 || at !== 1
             ? ""
-            : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true; the longest past its date first), then by date.`),
+            : ` comingUp: what the wake's "Coming up" lists or counts, the overdue first (overdue: true, what someone owes; the longest past its date first), then what passed (passed: true, a dated fact nobody owes), then by date.`),
       },
       false,
     );

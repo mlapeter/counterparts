@@ -213,10 +213,12 @@ describe("through the real doors: remember, the session-start wake, recall `comi
     expect(r.door["later"]?.find((x) => x.id === r.id)).toMatchObject({ title: MARISOL, due: DAY });
   });
 
-  test("overdue: the overdue line says the Marisol sentence too", async () => {
+  test("past its day: the line says the Marisol sentence too (a fact nobody owes reads Was, not overdue)", async () => {
     const r = await through({ text: REAL, eventDate: DAY }, "2026-10-19T12:00:00Z");
-    expect(r.coming).toContain(`- 3 days overdue · ${MARISOL} [${r.id}]`);
-    expect(r.door["overdue"]?.find((x) => x.id === r.id)?.title).toBe(MARISOL);
+    expect(r.coming).toContain(`- Was 10-16 · ${MARISOL} [${r.id}]`);
+    expect(r.coming).not.toContain("overdue");
+    expect(r.door["passed"]?.find((x) => x.id === r.id)?.title).toBe(MARISOL);
+    expect(r.door["overdue"]?.find((x) => x.id === r.id)).toBeUndefined();
   });
 
   test("a real title stands", async () => {
