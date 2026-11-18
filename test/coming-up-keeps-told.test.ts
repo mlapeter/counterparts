@@ -24,7 +24,6 @@ import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
-import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { startOfLocalDay } from "../src/core/time.js";
 
 const ZONE = "UTC";
