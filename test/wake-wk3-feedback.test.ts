@@ -308,9 +308,11 @@ describe("3. overdue items are said", () => {
     const { c, today } = brain();
     c.revisePage(PAGE, { reason: "first", by: "owner" });
     for (const d of [2, 4, 6]) memory(c, `Bakery overdue ${String(d)}: descale the proofing drawer.`, { title: `Descale proofing drawer ${String(d)}`, status: "planned", eventDate: addDays(today, -d), scope: THERE });
+    // A dated fact there that nobody owes (2026-11-18): one of the folder's count, never its overdue.
+    memory(c, "The bakery's new oven was delivered.", { title: "New oven delivered", eventDate: addDays(today, -1), scope: THERE });
     c.close();
     const coming = section(hook(), "Coming up:");
-    expect(coming).toBe(`Coming up:\n(3 in other folders (3 overdue, oldest ${monthDay(addDays(today, -6))}); recall "coming up")`);
+    expect(coming).toBe(`Coming up:\n(4 in other folders (3 overdue, oldest ${monthDay(addDays(today, -6))}); recall "coming up")`);
   });
 });
 
