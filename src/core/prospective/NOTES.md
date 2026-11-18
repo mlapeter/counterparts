@@ -785,3 +785,15 @@ repeat. Any weekly reminder hits this.
   and count as before. The rest read `- Was MM-DD · title` after them in the same `OVERDUE_SHOWN` slots, count as
   more here, and sit in the door's `passed`. Other folders' overdue count is owed-only too.
 - **Left as it was:** the shape-off composition's count words and the `still open` door's `overdue: true` mark.
+
+## A told plain reminder stays in the lookups (2026-11-18, #854)
+
+- **The case:** a told plain reminder past its day leaves the wake's lane (`toldForGood`, 2026-09-29), and the `coming
+  up` door and the still-open door's dated list read that lane, so it vanished from them too while still owed.
+- **Now:** `horizon()` hands back what it left out as told (`HorizonResult.told`, the ids `excluded.told` already
+  counts), `horizonFor` reads them as `toldItems`, and `readCues(..., { includeTold: true })` adds them through the
+  same fences. Only the two lookups ask; the wake's lane, cues and counts are unchanged. A told past plain item is owed,
+  so overdue.
+- **Closing it:** `updates` + `unresolved: false` with no date of its own now spends a dated reminder as `done` does
+  (`counterpart-deposit.ts#carryReminder`): a one-off's date drops, a repeat's open occurrence closes and the repeat
+  stays. Before, it carried the date and plain mode over, so the "closed" reminder stayed owed.

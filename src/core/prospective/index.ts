@@ -883,7 +883,7 @@ export class Prospective {
       arrived: considered.arrivals.length,
       ids: items.map((i) => i.memoryId).join(","),
     });
-    return { items, more, told: [...toldArrivals].sort(byArrivingOrder(input.at)), reason, suppressedWholesale: false, considered };
+    return { items, more, told: toldArrivals.sort(byArrivingOrder(input.at)), reason, suppressedWholesale: false, considered };
   }
 
   // ── plain items: the one exception to "a cue, not a command" ──────────────

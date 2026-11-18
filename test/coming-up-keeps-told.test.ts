@@ -164,13 +164,16 @@ describe("a told plain reminder past its day", () => {
       expect(open.find((c) => c.id === id)?.passed).toBeUndefined();
       // The next wake: not under Coming up, not counted.
       const next = await wake(a, "s-next");
-      expect(next.lane).not.toContain("Ring the glazier");
+      // Not vacuous: an absent lane reads "" (review of #854), so the whole wake is read too.
+      expect(next.all).not.toContain("Ring the glazier");
       expect(next.lane).not.toMatch(/overdue/);
     });
 
   for (const close of [
     { how: "status done", args: { status: "done" } },
     { how: "its date dropped (eventDate null)", args: { eventDate: null } },
+    // The close the tools teach (2026-11-18): it carried the date and plain mode over, so the reminder stayed owed.
+    { how: "unresolved false", args: { unresolved: false } },
   ] as const) {
     test(`closed by ${close.how}, it stays out of the lookups and the wake`, async () => {
       const a = adapter();
@@ -192,7 +195,34 @@ describe("a told plain reminder past its day", () => {
         title: string;
       }[];
       expect(open.map((c) => c.title).join("|")).not.toContain("glazier");
-      expect((await wake(a, "s-next")).lane).not.toContain("glazier");
+      const next = await wake(a, "s-next");
+      expect(next.lane).not.toContain("glazier");
+      expect(next.all).not.toContain("Ring the glazier");
     });
   }
+
+  test("a repeating one closed by unresolved false: this occurrence is done, the repeat stays", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Sweep the kiln room", text: "Sweep the kiln room every Thursday.", eventDate: "2026-11-05", recurring: "weekly", remind: "plain" });
+    dayOf(a, "2026-11-05");
+    expect((await wake(a, "s-told")).all).toContain("Sweep the kiln room");
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "Swept the kiln room", text: "Swept the kiln room this Thursday.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-11-05", recurring: "weekly", next: "2026-11-12" });
+    expect(c.store.row(id)?.event_date).toBe("2026-11-05");
+    dayOf(a, "2026-11-07");
+    const up = c.comingUp({ scope: SCOPE });
+    expect([...up.today, ...up.overdue, ...up.passed].map((x) => x.id)).not.toContain(id);
+    expect(idsOf((await door(s, "coming up"))["overdue"])).not.toContain(id);
+    const open = ((await door(s, "still open"))["comingUp"] ?? []) as { id: string; overdue?: boolean }[];
+    expect(open.filter((x) => x.overdue === true).map((x) => x.id)).not.toContain(id);
+    expect((await wake(a, "s-next")).lane).not.toMatch(/overdue/);
+    // Next week it comes round again.
+    dayOf(a, "2026-11-12");
+    expect(c.comingUp({ scope: SCOPE }).today.map((x) => x.id)).toContain(id);
+  });
 });
