@@ -222,6 +222,13 @@ the sentence, and `remember/spans.ts` runs the same scan on every turn and note 
 
 Revert: remove the two `password` entries from `SECRET_FAMILIES` (the raw-buffer scan stays: it is the same gate).
 
+**Checked 2026-11-18 (nine lived days on 0.3.52–0.3.54).** `gate.deposit` from day 49: 1,752 writes; `password` 7
+redactions in 4 writes, `assigned-credential` 2 in 2. 7 live memories hold `[REDACTED:password]`, all born day 49 or
+later. Hand-read around the marker: 6 are development notes about SX1 itself (its examples and test phrasings), no real
+password; one looks like a false positive, "pin" beside a commit hash in a work note (mem_dba9f6eae9b9, 0.3.54). No
+report from Mike. Whether that earns a `PROSE_STOP` word or a test row is Mike's call; otherwise **keep**. **Re-read**
+at the next report, or once non-development memories carry the marker.
+
 ## Recall's steps are timed (LT2 part 1)
 
 LT2 part 1 (2026-11-09, Mike's yes 11-07; measurement only, `recall.STEP_TIMING`). The 11-07 read had recall's p50
@@ -448,6 +455,13 @@ model decides; nothing closes on its own.
 
 Revert: `CLOSE_HINT_TUNABLES.ON = false` (`core/close-hint.ts`): no list, nothing counted.
 
+**Checked 2026-11-18 (nine lived days on 0.3.52–0.3.54).** 8 entries listed (`open.close-hint.shown`, days 49–57), 6
+distinct ids, 15 listings in all; one umbrella item (mem_62e7c7bdb564) was listed 7 times through `settlesWhen`. Rules
+used: `settles-when` mostly, `version` once, `pr` once. 5 of the 6 ids were closed, all the day they were listed
+(`daysAfter` 0); the sixth, a queued README item listed after #843 (day 57), is still open. Cost p50 3.4 ms, max 10.9
+ms. Hand-read of the 6 listed titles against their entries: 0 plainly irrelevant, 1 weak (the umbrella), against the
+11-07 baseline's 3 of 19 irrelevant plus 2 weak. **Keep.**
+
 ## Growth exits (FD1 step 2)
 
 **What we're trying.** Every growing table names its exit and gets one doctor line saying how full it is, what came in
@@ -613,6 +627,14 @@ Tier 0 cost: Dana unchanged; Theo one more write-up in the week (14 → 15), no 
 - **Nothing lost the other way.** No session whose record followed its compaction is newly owed.
 
 Revert: drop the `|| isDebt(stretchOf(tail), false)` arm in `ledger` (`core/coverage/index.ts`).
+
+**Checked 2026-11-18 (two weeks on, partial: not read).** Mike's store compacts 3–4 times a lived day
+(`pre-compaction` boundaries in 11 of 48 span folders; 7 on 11-17). Since day 45, 66 sessions were owed
+(`coverage.owed`): 62 ended (1.6 pieces on average), 4 quiet. `compactionTail` lives only in the ledger and is never
+logged, so splitting the owed rows into CT1 tails and S2 short sessions needs `counterparts coverage` on a snapshot
+copy, which a read-only pass doesn't run; the person's-words-or-plumbing hand-read of the tails isn't done either. The
+night's write-ups stayed small (10 runs since day 45). **Re-read** with a snapshot ledger read and the tails'
+hand-read together; only then keep or narrow.
 
 ## Folder attribution (FS1)
 
@@ -848,6 +870,12 @@ puts inside the rejected `tool_result` and so has never reached capture, turning
 door's `next`. The reader: move the two frames back into `HOST_FRAMES` (both read as `injected` again, and the hook
 frame inside a system reminder goes back to `classifyBlock`'s `injected`). Neither touches the store's shape.
 
+**Checked 2026-11-18 (two weeks on, on 0.3.46–0.3.54).** 215 write-up memories born since day 43; one title matches
+permission, declined, denied, hook or refused (mem_387e04d8ed20, 0.3.47), and it is product copy using the word
+"hook", not plumbing. No write-up about a permission prompt, a refused tool or a hook landed, and nothing looks lost:
+write-ups kept coming every night (`adapter.night.writeup` 10 since day 45). The harness's Dana item 8 was not re-run
+here. **Keep.**
+
 ## Due a few nights after refused calls stay plumbing (2026-11-04, TC1, lightly held — a fix, no switch)
 
 **What we're trying.** In the developer week (11-04) and Dana's (11-03) the carried morning share asked the session to
@@ -879,6 +907,15 @@ told (the host marks delivery, not the telling).
 
 **How to revert:** separate. The carry: write `carried` again in `carryLine` and restore the `told` ask (`CARRIED_TOLD_NOTE`).
 The gate: return null from `ownPlumbingOf`. Neither touches the store's shape.
+
+**Checked 2026-11-18 (two weeks on, on 0.3.47–0.3.54).** The carry half holds: every reflection's share from day 45
+to day 58 is `told` (12 nights), none stuck `offered`. The gate half has never fired: 0 memories carry
+`meta.ownPlumbing`. Since day 45, 20 memory titles say permission, denied, declined or refused: 18 are work memories
+about product refusals or guards, one is an `us` decision, and one is our own refused call (mem_690cafd37910, day 45,
+0.3.47, `about: me`, a hook install the permission classifier blocked) that kept its me mark, so the cue missed that
+phrasing ("blocked by permission classifier"). The one dated row is this check's own reminder. One miss in two weeks:
+**keep**. Adding that phrasing to `own-plumbing.ts` is Mike's call. **Re-read** at the next me/us memory about a
+refused call.
 
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
@@ -2992,6 +3029,12 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a steady rate of `landed: false` means writers are holding the lock past 5 seconds, which is its own fix. Twins that sleep doesn't fold mean the kill window isn't as small as it reads. A `notLanded` on a nightly write-up with nothing saved after it means that last-part case needs a resend.
 
 **How to revert:** `counterpart-deposit.ts#deposit` back to `submitProposal` before the mint. That restores the loss.
+
+**Checked 2026-11-18 (two and a half weeks on, partial: not exercised).** The session log keeps 8 days: in
+`sessions/log/` for 11-11 to 11-18 (19,731 lines), 0 `counterpart.deposit.mint.failed` lines and no `mcp.refused`
+with `threw`; the 20 refusals there are argument refusals (mode-required 8, text-required 5, past-room 2,
+session-not-live 2, already-written-up 2, write-up-runner 1). The store has no mint event, and 11-01 to 11-10 have
+rolled off the log. No failed mint, so no retry or twin to look at. **Keep**; re-read at the first `mint.failed`.
 
 ## Each item shows where it can be acted on (SO1 step 3)
 
