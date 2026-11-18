@@ -1751,13 +1751,13 @@ export class Counterpart {
 
   /**
    * "COMING UP" WHOLE, FOR THIS FOLDER (WK2, 2026-10-30; the `coming up` handle,
-   * the door the shaped wake's count names): what is due today, then overdue,
-   * then later, this folder's and the personal ones; then other folders' the
+   * the door the shaped wake's count names): what is due today, then overdue
+   * (owed), then passed (a dated fact whose day went by, nobody owing it), then later, this folder's and the personal ones; then other folders' the
    * host's setting lets be named. A closed folder's are neither listed nor
    * counted. Each by whole title. Reads only; empty on a store that cannot
    * answer; never throws.
    */
-  comingUp(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { today: Cue[]; overdue: Cue[]; later: Cue[]; otherFolders: Cue[] } {
+  comingUp(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { today: Cue[]; overdue: Cue[]; passed: Cue[]; later: Cue[]; otherFolders: Cue[] } {
     try {
       const all = readCues(this, this.store.today(), here);
       const by = (c: Cue): string => c.due ?? UNDATED_LAST;
@@ -1765,12 +1765,14 @@ export class Counterpart {
       return {
         today: all.filter((c) => c.today && c.mine),
         // Overdue by the day it became overdue: a range by its last day (2026-11-16).
-        overdue: all.filter((c) => c.past && c.mine).sort((a, b) => lastBy(b).localeCompare(lastBy(a))),
+        // Only what someone owes is overdue (`Cue#owed`, 2026-11-18); a dated fact whose day went by is `passed`, in the same order.
+        overdue: all.filter((c) => c.past && c.mine && c.owed).sort((a, b) => lastBy(b).localeCompare(lastBy(a))),
+        passed: all.filter((c) => c.past && c.mine && !c.owed).sort((a, b) => lastBy(b).localeCompare(lastBy(a))),
         later: all.filter((c) => !c.today && !c.past && c.mine).sort((a, b) => by(a).localeCompare(by(b))),
         otherFolders: all.filter((c) => !c.mine),
       };
     } catch {
-      return { today: [], overdue: [], later: [], otherFolders: [] };
+      return { today: [], overdue: [], passed: [], later: [], otherFolders: [] };
     }
   }
 

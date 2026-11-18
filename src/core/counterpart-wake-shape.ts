@@ -61,8 +61,9 @@ import { craftSince, isWorkMemory, projectFolder, threadPlace, type WorkRule } f
 import { addDays, ageWords, daySpan, daysBetween, isDay, localDate, localStamp, monthDay, stampDay, startOfLocalDay } from "./time.js";
 import { settlesWhenOf } from "./types.js";
 import { lastNightCloses, OPEN_CLOSE_TUNABLES } from "./open-close.js";
-import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS } from "./prospective/index.js";
+import { PLAIN_OTHER_NAMED, PLAIN_OTHER_TITLE_CHARS, cueModeOf } from "./prospective/index.js";
 import type { Kind } from "./types.js";
+import { RECURRING_META, statusOf } from "./store/index.js";
 import type { MemoryRow } from "./store/index.js";
 import { TOLD_SOURCE, isTold } from "./told.js";
 import { OWN_PLUMBING_META_KEY } from "./remember/own-plumbing.js";
@@ -177,6 +178,13 @@ export interface Cue {
   readonly today: boolean;
   readonly past: boolean;
   readonly plain: boolean;
+  /**
+   * SOMEONE OWES IT (2026-11-18): planned or asked, unresolved or with a
+   * settles-when, a plain reminder, or a repeat. Only an owed item past its
+   * date is "overdue"; a dated fact nobody owes is said as what it was
+   * ("Was Nov 12"), never counted overdue. Wording and rank only: both are listed.
+   */
+  readonly owed: boolean;
   /** This reader's (this folder or personal), or another folder's that may be named. */
   readonly mine: boolean;
   /** The other folder it was written in, when not `mine`. */
@@ -236,6 +244,7 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
       // A fold's last `Names:` line (#697) is for recall by id, not a list of bare ids here.
       body: flatten(row.body.replace(/\n+Names: [^\n]*\s*$/, "")),
       settles: settlesOf(row),
+      owed: owedOf(row, h),
       due: due === "" ? null : due,
       every: h.every ?? null,
       today: today || h.plainDue === true,
@@ -248,6 +257,20 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
     });
   }
   return out;
+}
+
+/** Whether someone owes a dated row (`Cue#owed`): its status, its open mark, its cue mode, or its repeat. */
+function owedOf(row: Pick<MemoryRow, "meta" | "status">, h: HorizonLine): boolean {
+  const status = statusOf(row.status);
+  if (status === "planned" || status === "asked" || h.every !== undefined) return true;
+  let meta: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(row.meta ?? "{}") as unknown;
+    if (parsed !== null && typeof parsed === "object") meta = parsed as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+  return settlesWhenOf(meta) !== null || meta["unresolved"] === true || cueModeOf({ meta }) === "plain" || (meta[RECURRING_META] !== undefined && meta[RECURRING_META] !== null);
 }
 
 function settlesOf(row: Pick<MemoryRow, "meta">): string | null {
@@ -730,7 +753,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const rest = ranked.filter((c) => !c.plain);
     // Overdue by the day it became overdue: a range by its last day (2026-11-16).
     const lastDue = (c: Cue): string => (c.due === null ? "null" : (daySpan(c.due)?.last ?? c.due));
-    const overdue = live.filter((c) => c.past && c.mine).sort((x, y) => lastDue(y).localeCompare(lastDue(x)));
+    const overdue = live.filter((c) => c.past && c.mine && c.owed).sort((x, y) => lastDue(y).localeCompare(lastDue(x)));
+    // PAST, AND NOBODY OWES IT (2026-11-18): a dated fact whose day went by.
+    // Listed after the overdue in the same slots, as what it was ("Was Nov 12"),
+    // and behind the door it is one more here, never overdue.
+    const passed = live.filter((c) => c.past && c.mine && !c.owed).sort((x, y) => lastDue(y).localeCompare(lastDue(x)));
     const laterAll = live.filter((c) => !c.today && !c.past && c.mine).sort((x, y) => String(x.due ?? UNDATED_LAST).localeCompare(String(y.due ?? UNDATED_LAST)));
     const other = live.filter((c) => !saysHere(c));
     const laterCap = spareOn.has("coming") ? SHAPE.LATER_SHOWN_SPARE : SHAPE.LATER_SHOWN;
@@ -753,11 +780,14 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       return c.due === null ? "Soon" : s === null ? monthDay(c.due) : spanWords(s);
     };
     const laterLine = (c: Cue): string => `- ${laterWhen(c)}${c.every === null ? "" : ` (${c.every})`} · ${c.title} [${c.id}]`;
+    const passedLine = (c: Cue): string => `- ${c.due === null ? "Passed" : `Was ${laterWhen(c)}`} · ${c.title} [${c.id}]`;
+    const overdueShown = overdue.slice(0, SHAPE.OVERDUE_SHOWN);
     const order: { c: Cue; line: string }[] = [
       ...plain.map((c) => ({ c, line: dueLine(c) })),
       ...again.slice(0, SHAPE.RETOLD_SHOWN).map((c) => ({ c, line: againLine(c) })),
       ...rest.slice(0, SHAPE.DUE_TODAY_SHOWN).map((c) => ({ c, line: dueLine(c) })),
-      ...overdue.slice(0, SHAPE.OVERDUE_SHOWN).map((c) => ({ c, line: overdueLine(c) })),
+      ...overdueShown.map((c) => ({ c, line: overdueLine(c) })),
+      ...passed.slice(0, SHAPE.OVERDUE_SHOWN - overdueShown.length).map((c) => ({ c, line: passedLine(c) })),
       ...laterAll.slice(0, laterCap).map((c) => ({ c, line: laterLine(c) })),
     ];
     // OTHER FOLDERS' PLAIN REMINDERS DUE TODAY BY NAME (SO1 step 3 fix round): at
@@ -774,7 +804,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
         const d = spanOf(c)?.last ?? c.due;
         return d !== null && isDay(d) && (o === null || d < o) ? d : o;
       }, null);
-    const otherLate = other.filter((c) => c.past);
+    const otherLate = other.filter((c) => c.past && c.owed);
     const otherOldest = oldestOf(otherLate);
     const otherLateWords = otherLate.length === 0 ? "" : `${String(otherLate.length)} overdue${otherOldest === null ? "" : `, oldest ${monthDay(otherOldest)}`}`;
     const otherWords = (named: boolean): string => {
@@ -789,7 +819,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const lateHidden = overdue.filter((c) => !ids.has(c.id));
       const oldest = oldestOf(lateHidden);
       const lateWords = lateHidden.length === 0 ? "" : `${String(lateHidden.length)}${lateHidden.length < overdue.length ? " more" : ""} overdue${oldest === null || terse ? "" : ` (oldest ${monthDay(oldest)})`}`;
-      const hereMore = laterAll.filter((c) => !ids.has(c.id)).length;
+      const hereMore = [...passed, ...laterAll].filter((c) => !ids.has(c.id)).length;
       const more = [hiddenToday > 0 ? `${String(hiddenToday)} more due today` : "", lateWords, hereMore > 0 ? `${String(hereMore)} more here` : "", other.length > 0 ? (terse ? `${String(other.length)} in other folders` : otherWords(named)) : ""].filter((x) => x.length > 0).join(", ");
       // The fold is its own clause: "2 due today, shown earlier in this session; 1 more due today; recall …".
       const words = [folded > 0 ? `${String(folded)} due today, shown earlier in this session` : "", more].filter((x) => x.length > 0).join("; ");
