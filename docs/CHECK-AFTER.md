@@ -293,6 +293,14 @@ Revert: each piece is local. The fold rule is `shownEarlier`/`retold` in `shaped
 `ownToldOnce`; the overdue clause is `lateWords`; the handoff order is `handoffsTold`; the quote is `quoteOf`; the night
 line's journaled branch is the first `if` in `nightLine`; the head field is `own` in `Lifecycle#composeWake`.
 
+**Checked 2026-11-18 (8 lived days on, partial: size only; the six-point read is not done).** Delivered
+`adapter.wake.injected` bytes, daily means: 7,600–8,950 on days 40–49 (before), 7,000–8,950 on days 50–58 on
+0.3.53/0.3.54 (after); max 8,989 of the 9,000 budget, none over; at or under the brief's ~8.6 KB most days. The
+threads section grew (~800 → 800–1,030 B) with the overdue words and titled reminders. Transcript counts since 11-03,
+118 wakes: "shown earlier" 1, "under way" 7 (not timed against the journal), "Waiting on" 81. The six-point read
+against the brief needs a fresh session over the week's wakes: **Mike's call** whether to spend one. Nothing seen says
+revert.
+
 ## What waits on the owner (SO1 step 4)
 
 SO1 step 4, revised (Mike 11-07 12:04, lightly held; coordinator's 11-09 note on sunk handoffs), `core/owner-waits.ts`
@@ -321,6 +329,16 @@ and `owedOne` in `core/counterpart-wake-shape.ts`. Only the shaped wake changes.
 
 Revert: the filter `x.r?.status !== "asked"` and `owe` in `openSec`, `ownerParked` passed to `Self#stillOpen` (two
 callers), and `attended` in `Lifecycle#recallTurn` (the turn lane). The record and events are inert once nothing reads them.
+
+**Checked 2026-11-18 (8 lived days on).** `open.owner.raised`, days 50–58: 116 raises of 100 distinct items, 67 by
+wake and 49 by turn, 2–21 a day; 4 are sunk handoffs (`kind: handoff`); no item raised in two sessions on one day.
+Chains in meta `wake.owner.raised`: 84 raised once, 16 twice, none three times, so **nothing is parked yet**
+(expected before 3+7+14 days). Answered: none — all 96 memory items raised are still `asked`, none revised, closed or
+superseded. Live open grew to 362 and `asked` to 112, against 290 / 99 on 11-05. The `owed` step on
+`recall.decision.steps` is 0 on most turns; on the 743 that built it, p50 30 ms, p90 126 ms, max 1,779 ms (6 over 500
+ms). The relevance hand-read wasn't done. **Mike's call:** the raise works as built but has drawn no answers — either
+~100 asked items are too many to raise one a wake, or he answers by another road. **Re-read** ~day 74, when the first
+chains reach parked.
 
 ## The page names what it sets down (PG1)
 
@@ -595,6 +613,13 @@ day asked: a done dated today has happened), `Prospective#plainDue` skips the sa
 Revert: drop the `done` arm in `derive.ts` and its `load()` field, the `plainDue` skip, and the
 `doneDateAsOccurred` calls in `server.ts` and `server-session-end.ts`.
 
+**Checked 2026-11-18 (8 lived days on).** 3 live rows are `status = 'done'` with `event_date` on or before today, none
+recurring; one (mem_4bd50e3c085c, dated 11-15) showed in a wake's Coming up on 11-12 while its date was still ahead,
+by design, and none shows in any wake after its date passed. The wake's overdue count, from transcripts since 11-09:
+medians 8–10 a day through 11-16, then 6 on 11-17 and 4 on 11-18 (1–13 by folder). The write side: of 442 done rows
+born since day 49, 408 carry `occurred_on` with no `event_date`, and none landed with an `event_date` on or before its
+write day. No real reminder seen missing (no hand-read of bodies). **Keep.**
+
 ## A newer routine work event fades the older one (FD1 step 3)
 
 FD1 step 3 (2026-11-07, from the Fable fresh-eyes review and Mike's ruling mem_dc74aa500871, lightly held),
@@ -804,6 +829,14 @@ lines: tool, session, ok, reason, the hashed store; no words) and what people sa
 
 Revert: drop the `night` line from claude.ai's wake (`server.ts#claudeAiNight` returning null); the setting words, the
 tool words, the told lines and the manual go back with it.
+
+**Checked 2026-11-18 (partial: one night in log reach; the rest waits on Mike's production read).** `railway logs
+--since 14d --filter "[hosted] mcp"` only reaches the current deploy (from 11-18 06:13 UTC): 2 stores, 168 lines, one
+night. A `claude-code` connection called `wake`, then `chapter`/`session_end`, 7 `dream` calls (all ok) and 3
+`reflect`, one store, one connection; a claude.ai connection initialized 7 s before it and made no tool call. So that
+night was a routine's, not a chat's; no double start, no refusal. Nights started from chats, owed days with no night,
+and complaints across the week **wait on Mike's production read** (or on logs kept across deploys). Not exercised in
+what the logs reach.
 
 ## The wake knows yesterday's news (WF1)
 
@@ -3113,6 +3146,13 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **Revert:** `HINTS_IN_WAKE` true for the lane; the rest by reverting the PR. The ids in count lines are not behind a switch.
 
+**Checked 2026-11-18 (two weeks past due, numbers only; no ~/random wake read).** `self.briefing` by span:
+`trimmedTotal` per render 11.3 on days 33–39 → 4.9 on days 40–48 → 5.0 on days 49–58; `trimmedLanes.threads` 3.6 →
+4.6 → 4.8, so the drop is hints no longer being candidates (hints 0.08 → 0), as expected. `handoff.lasthere.noroom`:
+43 rows on days 19–41, none since; `self.work.overflow` none since day 41. The stands block is 420–1,300 B a wake. The
+wider block found room, nothing overflows, no bare-id complaint since. **Keep.** WK3's feedback stands in for the
+~/random wake read.
+
 ## A closed folder's plain reminder
 
 **What we're trying:** a plain reminder that is a closed folder's work isn't said and isn't spent; marked about the owner, or with no folder, it is said whatever the folder. Coming up holds whatever the mark, so the two differ on purpose.
@@ -3122,6 +3162,11 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a real date lost that way (mark it, or tell at the off switch what's waiting), or a personal line from an off folder that shouldn't have been said (drop the `isWorkMemory` line in `dream/slices.ts#reminderHeldBack`, and it matches Coming up).
 
 **How to revert:** `Lifecycle#plainFor` stops asking `plainHeldBack`.
+
+**Checked 2026-11-18 (two weeks on: not exercised).** Mike's `scopes.json` has 6 folders not on (5 off, 1 observer),
+and the live store holds no memory from any of them, dated or not, so no plain reminder could be held back and no real
+date could have gone unsaid. The held-back count lives only in doctor, not run on the live store. **Keep.** Re-read the
+first time a folder with dated work goes off.
 
 ## The wake's shape (WK2)
 
@@ -3134,6 +3179,15 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a wake that fails the test, or a claim read as live that the lead has since settled. Unused room stays unused for now (ROADMAP, 10-30): 500-1,250 B on the 10-30 corpus; read the number, and `SPARE` in the composer is the one list to extend if it should go somewhere. Elsewhere's door is `recall "elsewhere"` since 10-30, which lists what the section counts: read whether a session that follows it finds the folder it wanted, and whether a folder named with no title (a quiet one) is any use.
 
 **How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
+
+**Checked 2026-11-18 (17 lived days on, numbers only; the wake read is Mike's call).** `adapter.wake.injected` days
+40–58: every delivered wake is the shaped one (`sec_*` on every row), `pageRung` whole on all, none over the 9,000
+budget (max 8,994). Section means steady across builds: page ~4,790 B, stands 420–1,300, threads 250–1,030 (rising
+after WK3). The process logs (11-11..11-18) have no `counterpart.wake.shape.declined` or `.failed` line. In the
+transcripts since 11-03, "Nothing here since." printed in 17 of 118 wakes, so it earns its line. The door: 21 handle
+recalls on days 40–58 (`handleResolved`, ~1 a day; which handle isn't recorded). No ROADMAP write-up of the draft's
+test was found; WK3's feedback on five mornings is the nearest read, and it changed the shape. **Keep the shape on
+Mike's store.** On by default is ROADMAP's and Mike's call, once a wake read against the test is written up.
 
 ## A failed mint
 
@@ -3176,3 +3230,10 @@ a deadline that still went unsaid would argue for crossing sooner than 2 lived d
 
 **How to revert:** in `counterpart-wake-shape.ts` set `saysHere` back to `c.mine || c.plain`, drop the `plainAway` and
 `plainCrossing` calls in `lifecycle.ts#plainFor`, and drop the `about === "world"` clause in `threadPlace`.
+
+**Checked 2026-11-18 (8 lived days on, partial: ids on the wake's `Due today` and `Still open` header lines only).**
+Host transcripts 11-10..11-18, distinct item × folder pairs joined to each id's `origin_scope` and `about`: work items
+shown outside their folder 0; personal (me/us/owner) shown away 5 on 11-10, 11 on 11-17, 1 on 11-18, all allowed;
+the rest at home (37). `prospective.plain.crossed`: 1 row ever (day 57), a work reminder told once elsewhere after its
+folder had no session; whether Mike wanted that one is his to say. Claude.ai chats and doctor's amber line weren't
+read. **Keep.**
