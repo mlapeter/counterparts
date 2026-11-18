@@ -259,6 +259,16 @@ the build and `record` after it, outside `elapsedMs`; the rest tile the build.
 That read briefs the fix for whichever step grows. Revert: `recall.STEP_TIMING=false` (the key leaves the row;
 nothing else moves).
 
+**Checked 2026-11-18 (lived days 49–58, the steps' first 9 days; typed against host not split).** Per-step p50 by
+lived day from `recall.decision`'s `steps`, and `elapsedMs` (2,359 turns). Everything since day 51 is 0.3.54, so what
+follows is not a build change. The turn's p50 went 201 ms (day 49) → 245–296 (days 50–54) → 387 / 353 on the busy
+days 56–57 (414 and 463 turns). Two steps grow: `primePlan` 13.5 ms (day 49) → 20–28 (days 50–52) → 73–80 (days
+53–57), and `beliefs` 54 → 103–104 on days 56–57. `semantic` is two-sided: its p50 fell from 92–131 (days 49–52) to
+16–23 from day 53, but its mean is still ~111, so a minority of turns pay 100+ ms. `spread` drifted 6 → 10. Flat:
+`cue` (~30), `rank` (~12), `settledOver`, `learned`, `competing`, `gateLoad`, `habituation` (each under 4), `rest` 0.1
+(no unnamed step). **Keep** the timing; **the read briefs the fix**: `primePlan` and `beliefs` first, then
+`semantic`'s slow minority. The typed/host split through `adapter.recall` goes with part 2's brief. Closed as a read.
+
 ## The wake as its reader read it (WK3)
 
 WK3 (2026-11-09, from a counterpart's own feedback on five mornings of its wake; Mike agreed the same day; lightly
@@ -534,6 +544,16 @@ and the dream are unchanged.
 **What would change it:** if 7–13-day chapters stay under ~0.3 and the freed slots go to better footnotes, move N to
 7 (one line in `journalAged`; it stops reusing `LAST_HERE_LIFE_DAYS`). An old chapter Mike missed in a footnote says
 lengthen it. **How to revert:** drop the `journal-aged` line in `recallableRow`; the counts stay at 0.
+
+**Checked 2026-11-18 (lived days 49–58, 0.3.52–0.3.54).** `recall.decision`'s `journalAged` and `journalCandidates`,
+and footnote ratings of chapter ids (`epi_…`) against memories; a chapter's age is read from its journal file's date
+(when it started), so this reads older than its last heading. The skip fires on 2,195 of 2,201 ambient turns, 28–35
+chapters a turn (max 103). The journal's share of the cut fell 11.9% → 9.7% / 7.6% / 7.1% on 0.3.52 / .53 / .54
+(3,067 of 43,080 on 0.3.54); the pool is 49–64 against 78. Turns whose footnotes were all chapters: 23 on days 51–57,
+against 83 a week before. Chapter footnotes rated 0.81 with 21% zero (n 42), memories 0.97 / 35% (n 1,360). By start
+age: <7 days 0.82 (n 38), 7–13 days 0.67 (n 3), 14+ 1 (n 1, a chapter whose last heading is newer). Meaning mode not
+exercised: no `mcp.recall` used it since day 49 (143 handle, 63 question). **Keep** N at 14; the 7–13 bucket (n 3) is
+too small for "move N to 7". **Re-read** when it reaches ~15 rated, or at the first meaning-mode recalls.
 
 ## A done memory is never overdue (SO1 step 2)
 
@@ -831,6 +851,15 @@ in the older 7 days aren't held until then. The next rating row rebuilds it (tes
 **How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
 once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
 
+**Checked 2026-11-18 (numbers only; ROADMAP owns the verdict; the held-set script was not run).** Live counts, not the
+review's replay. `habituationCut` per turn was 0.30–0.51 on days 35–42 (the 7-day window), stayed 0.30–0.51 on days
+43–54, and was lower on days 56–57 (0.13, 0.25). Footnote noise / useful (score 0 / 2+) from `recall.rated`: 39.7% /
+17.8% on 0.3.37–0.3.43 (n 1,779), 31.1% / 28.8% on 0.3.45 (n 386), 27.8% / 25.4% on 0.3.46–0.3.53 (n 1,167), 37.3% /
+23.7% on 0.3.54 (n 989); R3S and other changes move the same number, so it isn't H14's alone. Since day 43 the `asked`
+lane has 24 ratings at a mean 2.54, `opened` 20 at 2.3. Not read here: held-set size, held memories later opened,
+asked for or rated 2–3, and any rating-3 memory sitting held; those need `held.py` on a store copy. Nobody has
+reported a missing ruling. **ROADMAP's read.**
+
 ## Due a few nights after write-ups skip plumbing (2026-11-03, WP1, Mike's OK 14:41, lightly held — a fix, no switch)
 
 **What we're trying.** In the 11-03 Dana re-run the night's catch-up wrote a refused tool call into memory ("Declined
@@ -982,6 +1011,12 @@ a broken `at` or a stranded `.striking` file. `over4days` above 0 is normal only
 A real note's words missing from a write-up later would mean the rewind isn't doing its job (`remember/NOTES.md`).
 
 **Revert.** `docs/IMPROVEMENTS.md`, Undo.
+
+**Checked 2026-11-18 (lived days 49–58).** `remember.prune` ran every lived day from day 49 to 58, STARTED then
+PRUNED, 5–28 sessions deleted a day; `unboundLines` 3 on day 49, 10 on day 53, 1 on day 54, 0 otherwise. The raw
+copies under the shared ids, counted with the section's script (ages only, no words): 8 `jots.jsonl` files hold 4
+lines, all `mcp`, all 4.8 days old: 4 over the 4-day mark, 0 over 15, no `.striking` file. The four are past the 3-day
+limit but inside the 14 days an owed note keeps (or are notes whose memory didn't land). Nothing escapes. **Keep.**
 
 ## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch) — checked 2026-11-03, below; re-read when a folder with recent sessions goes off
 
@@ -1359,6 +1394,17 @@ Listed-word turns getting more footnotes than the control, with noise up on thos
 A stop-listed word Mike wants learned → take it off. Undo: `CUE_STOP_LIST = []` (nothing filtered, cue learning exactly
 as before, the old pairs read again).
 
+**Checked 2026-11-18 (17 days on 0.3.45+, counts only; the listed-word against control split was not run).** New
+`cue_edges` since 0.3.45's install (11-01): 5,105 pairs over 1,915 tokens and 557 memories; by week 2,123, 1,943, then
+1,039 in the last ~3.4 days, down from ~3,200 the first week (part of the drop is retraining, which keeps
+`created_at`; 7,293 pairs touched). No new row on a listed word. `cueStopped` is 3,412 of 42,629 cue deltas (8.0%),
+inside the 7–10% expected. Footnote noise / useful: 31.1% / 28.8% on 0.3.45, 27.8% / 25.4% on 0.3.46–0.3.53, 37.3% /
+23.7% on 0.3.54, against 40.7% / 16.7% on 11-01 (not R3S's alone). The widest new words fall in two classes, each at
+16–41 memories: filler (`stuff`, `basicalli`, `bit`, `doing`, `did`, `try`, `mayb`) and what looks like the host's own
+agent text (`delegat`, `subagent`, `indent`, `authoriti`, `forg`): the section's "new filler class at dozens of
+memories". **Keep** the list; widening it or moving to a rule (a minimum informativeness for learned words) is
+**Mike's call**. The by-turn split stays ROADMAP's.
+
 ## Due ~2026-11-06: folds keep named ids (2026-10-30, FI1, a lost-information fix; no switch of its own, `recall.SEE_ALSO_NAMED_IDS` still rules what's read)
 
 What: a fold or merge writes `Names: mem_…, mem_…` as its last line, with what its sources named and it didn't: each
@@ -1383,6 +1429,11 @@ Changes it: see-also'd memories from folds rated worse than plain ones, kept ids
 naming each other's neighbours), or folds with a line of ids rated or found worse by meaning, since the ids move the
 vector (numbers in the decision; leaving the line out of what's indexed is the fix to try). Revert: the PR; what's
 written stays as text, and is harmless.
+
+**Checked 2026-11-18 (0.3.42 on, barely exercised).** Since 0.3.42, 43 live gists and 10 merges in `dream_changes`;
+one kept a `Names:` line (mem_6a82413e8008, a 0.3.42 gist, 4 ids), and `namesPast` was never above 0. That gist
+brought a see-also footnote once (`seeAlso.by`), unrated. The mechanism works; one fold is no read of its worth, and 4
+is not too few. **Keep.** **Re-read** when ~5 folds have kept names, with PP1's ratings.
 
 ## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`) — checked 2026-11-02, below; re-check ~11-09
 
@@ -1409,6 +1460,13 @@ Read (read-only, by build):
 Changes it: see-also'd memories rated worse than footnotes (noise: lower `SEE_ALSO_MAX` to 1, or read only the
 footnotes' texts), or the rule still missing "ping" after a credited use (look at the turn's `seeAlso.by` and the
 rule's verdict). Revert: `recall.SEE_ALSO_NAMED_IDS=false`.
+
+**Checked 2026-11-18 (the 11-09 re-check, lived days 43–58, 0.3.46–0.3.54).** 18 see-also'd footnotes of 3,152 since
+day 43; 12 rated (joined by session and id): mean 0.50, 58% zero, against plain footnotes over the same days 0.99, 32%
+zero (n 2,364). With 11-02's 8 that is ~20 rated at about half the plain mean, and the bar missed twice. The ping
+demo: `cue_edges` has `ping` to mem_66bb7d836201 (0.51) and mem_4892da5d1aa3 (0.86), still not to the rule
+mem_0ca7f032368a. **Tune or revert: Mike's call** — the section's next step is `SEE_ALSO_MAX` 1 (or reading only the
+footnotes' texts); revert is `recall.SEE_ALSO_NAMED_IDS=false`. At 18 a fortnight its cost is small either way.
 
 ## Due ~3 nights after S2 (2026-10-26, Mike: "sounds good", lightly held — `coverage.UNRECORDED_OWED_PIECES`, `dream.OWED_COUNTS_AS_NEW`)
 
