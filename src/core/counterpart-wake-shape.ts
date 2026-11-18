@@ -199,8 +199,16 @@ function readerFolders(cp: Counterpart, here: WakeHere | undefined): Set<string>
   return new Set(cp["threadReader"](here?.scope, here?.exportsFrom).folders.map(projectFolder).filter((f) => f.length > 0));
 }
 
-/** This reader's horizon, in the horizon's order, closed folders out (brief item 2: the night's fence, at a session start too). */
-export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined): Cue[] {
+/**
+ * This reader's horizon, in the horizon's order, closed folders out (brief item 2: the night's fence, at a session start too).
+ *
+ * `includeTold` (2026-11-18): the plain reminders the lane left out as told
+ * (`horizonFor`'s `toldItems`) come after, through the same fences. Off for the
+ * wake, which doesn't say a told one again (2026-09-29); on for the deliberate
+ * lookups (`Counterpart#comingUp`, the still-open door's dated list), where a
+ * told one past its day is still owed, so overdue, until someone closes it.
+ */
+export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined, opts: { readonly includeTold?: boolean } = {}): Cue[] {
   const store = cp.store;
   const day = store.livedDay();
   const asked = horizonFor(cp.prospective, at, day, { readToday: READ_TODAY_AT_START });
@@ -209,7 +217,7 @@ export function readCues(cp: Counterpart, at: string, here: WakeHere | undefined
   const rule = { craftTravels: cp.self.tunables.PROJECTS_TRAVEL, craftSince: craftSince(store) };
   const seen = new Set<string>();
   const out: Cue[] = [];
-  for (const h of [...asked.items, ...asked.moreItems] as HorizonLine[]) {
+  for (const h of [...asked.items, ...asked.moreItems, ...(opts.includeTold === true ? asked.toldItems : [])] as HorizonLine[]) {
     if (seen.has(h.id) || settled.has(h.id)) continue;
     seen.add(h.id);
     const row = store.row(h.id);

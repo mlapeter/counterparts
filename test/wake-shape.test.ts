@@ -1076,8 +1076,8 @@ describe("Coming up", () => {
     expect(block).not.toContain(planned);
     expect(block).toContain(`(1 more overdue (oldest ${addDays(today, -5).slice(5)}), 1 more here; recall "coming up")`);
     const d = await door();
-    // The door after the wake: the plain one is no longer listed (observed on master too, before this change: left for review).
-    expect(idsOf(d["overdue"]).filter((x) => x !== plain)).toEqual([loose, planned]);
+    // The door after the wake: the plain one, told, left the wake's lane but not the door (2026-11-18): still owed, so overdue.
+    expect(idsOf(d["overdue"])).toEqual([plain, loose, planned]);
     expect(idsOf(d["passed"])).toEqual([fact]);
   });
 });

@@ -477,6 +477,14 @@ export interface HorizonResult {
    * …") so a dated item past the count is never silently missing.
    */
   readonly more: Arrival[];
+  /**
+   * WHAT THE LANE LEFT OUT AS TOLD (2026-11-18): the plain arrivals whose last
+   * beat was told and whose day is behind `at` (`toldForGood`), in the lane's
+   * order. Not the wake's (it doesn't say them again); the deliberate lookups
+   * (`coming up`, the still-open door's dated list) still list them, since
+   * nobody closed them and they are still owed.
+   */
+  readonly told: Arrival[];
   readonly reason: HorizonReason;
   readonly suppressedWholesale: boolean;
   readonly considered: ArrivalResult;
@@ -789,6 +797,7 @@ export class Prospective {
       return {
         items: [],
         more: [],
+        told: [],
         reason: "high-affect-previous-session",
         suppressedWholesale: true,
         considered,
@@ -842,11 +851,14 @@ export class Prospective {
     // count and ids per reason, so a dated item that arrived and is not under
     // "Arriving:" can be traced to the rule that left it out.
     const excluded = { notDay: [] as string[], daily: [] as string[], told: [] as string[] };
+    const toldArrivals: Arrival[] = [];
     const offered = considered.arrivals.filter((a) => {
       if (a.precision !== "day" && a.precision !== "range") excluded.notDay.push(a.memoryId);
       else if (a.recurring === "daily") excluded.daily.push(a.memoryId);
-      else if (this.toldForGood(a, input.at)) excluded.told.push(a.memoryId);
-      else return true;
+      else if (this.toldForGood(a, input.at)) {
+        excluded.told.push(a.memoryId);
+        toldArrivals.push(a);
+      } else return true;
       return false;
     });
     if (excluded.notDay.length + excluded.daily.length + excluded.told.length > 0) {
@@ -871,7 +883,7 @@ export class Prospective {
       arrived: considered.arrivals.length,
       ids: items.map((i) => i.memoryId).join(","),
     });
-    return { items, more, reason, suppressedWholesale: false, considered };
+    return { items, more, told: toldArrivals.sort(byArrivingOrder(input.at)), reason, suppressedWholesale: false, considered };
   }
 
   // ── plain items: the one exception to "a cue, not a command" ──────────────

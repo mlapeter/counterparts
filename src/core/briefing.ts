@@ -54,6 +54,9 @@ export interface HorizonSource {
     /** Past `HORIZON_ITEMS` (review of #367): by id, and since 2026-10-16
      *  with their dates, so a date due today past the count is still today's. */
     more?: readonly HorizonArrival[];
+    /** Left out of the lane as told (2026-11-18, `Prospective#horizon`'s
+     *  `told`): for the deliberate lookups, never the wake's lane. */
+    told?: readonly HorizonArrival[];
   };
 }
 
@@ -152,13 +155,17 @@ export const READ_TODAY_AT_START = true;
  * listed under "Coming up" (and claimed the lane's first room) while today's
  * overdue items were only counted (the 10-20 wake: an Oct 21 reminder listed
  * on Oct 20).
+ *
+ * `toldItems` (2026-11-18): the plain reminders the lane left out as told
+ * (`Prospective#horizon`'s `told`), read the same way. No wake line takes
+ * them; the deliberate lookups (`readCues`' `includeTold`) do.
  */
 export function horizonFor(
   prospective: HorizonSource,
   at: string,
   day?: number,
   opts: { readonly readToday?: boolean } = {},
-): { items: HorizonLine[]; more: string[]; moreItems: HorizonLine[] } {
+): { items: HorizonLine[]; more: string[]; moreItems: HorizonLine[]; toldItems: HorizonLine[] } {
   const asked = prospective.horizon({ at, ...(day === undefined ? {} : { day }) });
   // What the count left out, by id: the lane names them in its "N more"
   // line rather than leave a dated item silently missing (review of #367).
@@ -188,5 +195,5 @@ export function horizonFor(
     };
   };
   const items = asked.items.map(line);
-  return { items, more, moreItems: (asked.more ?? []).map(line) };
+  return { items, more, moreItems: (asked.more ?? []).map(line), toldItems: (asked.told ?? []).map(line) };
 }
