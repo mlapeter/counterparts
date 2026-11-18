@@ -63,7 +63,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Refused calls stay plumbing (TC1): a carried morning share is marked told as it is handed over (no `reflect` call asked of the session); a memory whose subject is our own refused call, a permission prompt or the session's limits keeps no date, open thread or me/us/owner mark (`meta.ownPlumbing`), and no wake line or prompt's ambient recall offers it | 0.3.47, 2026-11-04 (TC1) | a few nights after release (dated reminder set at merge): no dated or me/us/owner memory about a refused call or prompt, `ownPlumbing` rows and their titles, and no share stuck untold | "Due a few nights after refused calls stay plumbing" below |
 | Write-ups skip plumbing (WP1): the host's line after a declined permission prompt and a hook's output enter no capture; every write-up is told permission prompts, refused tool calls and the system's own notices aren't events between the two | 0.3.46, 11-03 (#731) | a few nights after release (dated reminder set at merge): no write-up memory about a permission prompt or a refused tool, and the person's own words about one still kept | "Due a few nights after write-ups skip plumbing" below |
-| Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
+| Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged (read 11-18: not readable as written — `sleep.gate.*` and `sleep.versions.pruned` never reach the store or the log, since `runCycle`'s events go to an in-memory ring and the boundary passes no `onEvent`; the versions phase ran every night on days 44–58, `ran-nothing-found`, no failed phase; `gate_session` 32,819 rows, nothing due before ~day 90. Re-read ~day 90 by `gate_session`'s count, or once the cycle's events are persisted) | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty (read 11-07, 7 lines on 0.3.42–0.3.47: none NULL or refused, 141–202 B, no ids; repeats 2 of 7, lesson-shaped 2 of 7, at the bar; re-read ~11-14) | "Due a week after the night's own line" below; "Checked 2026-11-07" |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off by default; **on for Mike's store from 11-01** (he ran `counterparts wake-shape on`) | a few days of real wakes on his store: ROADMAP holds the read, reminder 11-04, no default change before it | [below](#the-wakes-shape-wk2) |
@@ -432,6 +432,13 @@ reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDo
 Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
 close is undone by the reflect tool's `reopen` with the item's id.
 
+**Checked 2026-11-18 (lived days 49–58, on 0.3.52–0.3.54: not exercised).** The `close` phase ran every night,
+`ran-nothing-found` each time: `closed` 0 on all ten nights, no `thread.night.closed` or `thread.night.reopened` row
+ever, so the dry run's 2 backlog closes didn't happen. First night's skips: `no-later-release` 1, `not-a-release-step`
+3; later nights hold `asked` (73 → 85), `no-subject` (86 → 123), `a-check` (35 → 42). `open.mayBeDone` lists 2. Live
+open items 362, up from 290 at the 11-05 baseline. **Keep**; nothing closed wrongly. **Re-read** after the next release
+day, the rule's only trigger.
+
 ## A write lists the open items it may settle (SO1 step 1b)
 
 SO1 step 1b (2026-11-07, roadmap with Mike; lightly held), `core/close-hint.ts`, `McpServer#mayCloseOf`. A stored
@@ -520,6 +527,13 @@ read that needed ids): move that name back to 90, or roll more into the summary.
 
 **Revert.** Empty `SHORT_RETENTION_NAMES` in `src/core/store/operational.ts`. Rows already swept stay gone. Their counts
 are in `events.rolled`.
+
+**Checked 2026-11-18 (lived days 50–58, on 0.3.53–0.3.54: holds).** `sleep.log.swept`: 5,000 rows on day 50 with 915
+left, 1,927 on day 51 with 0 left, then 60–606 a night. `events.rolled`: 28 rows, one each for days 0–27; the per-turn
+rows now start at day 28 (`recall.decision` 9,241, `recall.credit` 9,952, `recall.rated` 1,138), exactly lived day −
+30. `recall_turns` 0 rows, as expected. `events` 145,149 rows, ~70.6 MB of payload; the file is 158.7 MB (121 MB on day
+47) since SQLite reuses pages and no VACUUM has run. Doctor's other Growth lines weren't taken (no CLI against the live
+store). **Keep**; their first numbers wait on Mike's `counterparts doctor --json`.
 
 ## Old chapters leave ambient recall (FD1 step 5)
 
@@ -625,6 +639,14 @@ is unchanged (`D_FLOOR_DAYS` 14): a faded memory still waits under the floor, an
 Revert: `INTERFERENCE_TUNABLES.ON = false` (`core/interference.ts`), the phase then runs and counts
 `switched-off`. Each fade made so far can be undone like any settle (`counterparts settle --undo <pair>`), and an
 undone one is never faded again.
+
+**Checked 2026-11-18 (lived days 49–58, on 0.3.52–0.3.54).** `sleep.cycle` `interfered`: 67 the first night (day 49,
+the dry run's 67 exactly), 8 on day 50, 5 on day 51, then 0 for seven nights (`ran-nothing-found`); 80
+`contradiction.settled` rows with `source` `interference`. None of the 80 is owner-said, carries a feeling, is about
+anything but `work`, or is open; none undone (the only `contradiction.undone` rows are days 23–28). The guards holding
+most each night: `no-subject` (~2,300), `not-done` (~1,980), `salient` (~900), `owner-said` (~700). Age prunes run
+14–28 a night from day 51. The hand-read of 20 pairs isn't done (it needs bodies, on a snapshot). **Keep**; the
+hand-read is Mike's call or a later session's on a copy.
 
 ## The tail after a compaction is owed (CT1)
 
@@ -970,6 +992,14 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 
 **How to revert:** the two are separate. For the night's start, drop the `passesOnNight` branch in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
 
+**Checked 2026-11-18 (lived days 42–58, on 0.3.45–0.3.54: holds; sleep arm not exercised).** `dream.night`: 17 nights
+started since day 42, all `done` (223–925 s), none lost, one on every lived day 42–58. No row carries `sleptMs` and the
+session logs (kept since 11-11) have no `adapter.night.slept`, so no night spanned a sleep and the watchdog-on-wake case
+hasn't come up. `adapter.night.writeup`: 13 since day 42, all `done` (the last `timed-out` was day 41, 0.3.42, before
+the fix). Who started the nights, 11-11 to 11-18: 7 `adapter.night.started`, all `entrypoint: cli`; both `sdk-cli`
+sessions are `adapter.dream.unwatched` with `passed: "headless"`, `started: false`, so headless sessions pass as meant.
+**Keep.** Re-read the first time a `dream.night` row carries `sleptMs`.
+
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 
 **What we're trying:** on 11-01 the counterpart rewrote its own page (v72) as dated stories with the lesson inside, a "Practices, no story yet" list and a short "Firm" section, and no "## How I work"; the nightly writers were told to keep "## How I work" as short general lessons (`HOW_I_WORK_RULE`). With `counterparts page-form own`, day's end and the reflection are told instead to amend the page in its own form. Mike's store only; every other store has no row and is the comparison. Why and undo: `docs/IMPROVEMENTS.md`, "One store's nightly writers keep the page's own form".
@@ -1075,6 +1105,13 @@ weeks: consider the existing rows, which keep 0.4 unless the era read learns to 
 a month: drop them, starting with the loudest (`cue`, `sem`, `bar`, about 13 KB a day).
 **Revert.** `SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM` back to 0.4; rows born at 0.25 stay at it unless a store's owner says.
 
+**Checked 2026-11-18 (lived days 40–58, on 0.3.42–0.3.54).** Live chapter summaries: 585 at 0.25 (473 work, 111
+unmarked, 1 us), 75 ever used, mean uses 0.03; 590 at 0.4 (361 work, 135 unmarked, 72 us, 20 me, 2 owner), 180 used.
+Since day 40 `recall.rated` rated a 0.25 summary 11 times (mean 0.73, 27% zero, none useful) and a 0.4 one 41 times
+(mean 0.12, 90% zero), against 1.01 for all ratings. No summary pruned yet. Nothing says a lowered summary was wanted.
+**Keep.** The older 0.4 rows rate mostly noise, the section's "consider the existing rows" case: **Mike's call**.
+**Re-read** at the first summary prunes, ~9 lived weeks in (~2027-01-01).
+
 ## Due a week after the night's own line (2026-10-30, NL1, ROADMAP's decision marked for Mike's review — no switch) — checked 2026-11-07 ("Checked 2026-11-07" above); re-read ~11-14
 
 **What we're trying.** After the page, the reflection may send one or two whole sentences for whoever wakes tomorrow:
@@ -1166,6 +1203,14 @@ Reasons and costs: `docs/decisions.d/chore-read-1029-knobs.md`.
 **Revert.** `recall.PRIME_TRAIN_SHARE=0.5`; `TAGS_KINDS_PER_NIGHT` back to 10 in `src/core/schemas/tunables.ts`; the
 project line's row goes with the line (`self.WAKE_PROJECT_LINE=false` writes none).
 
+**Checked 2026-11-18 (lived days 40–58, on 0.3.42–0.3.54).** *Priming:* since day 44 `primed.train` is false on all
+568 footnotes that carry a `primed`. Footnote ratings (0 noise, 2+ useful): 10-26..28 39.8% / 17.7% (n 787); days
+40–48 30.3% / 24.8% (n 1,544); days 49–58 34.6% / 24.8% (n 1,402): noise down, useful up, bar met. *Kinds:* kindless
+live entity cards 30 of 506 (144 on 10-29); no `mcp.result.oversize` for `tags`, no failed night. *Project line:* 0
+`self.project.line` rows ever: `folder_projects` is empty on this store, so `projectOf` finds no project and the line
+returns before writing; it has never shown here. **Keep** train priming at 0 and 30 kinds a night. Whether the project
+line stays (it can't fire until a folder maps to a project) is **Mike's call**. The beliefs-slot finding stays undated.
+
 ## Due 3–4 nights after the page split (2026-10-23, Mike's go, very lightly held, an experiment — `self.PAGE_SPLIT`)
 
 What: the night writes the page in two lanes instead of two whole-page rewrites. The page writer, in a child of its
@@ -1240,6 +1285,13 @@ Changes it: Core or the reflection's entries getting worse without the chapters'
 its address: count recalls of `epi_…#N` in the reflection child), Lately thinner, or a night's parts going past 4.
 Revert: `dream.REFLECT_ROOM_ORDER=false` and/or `self.DAYS_END_INPUT=false` (each puts back exactly what was), or
 revert the PR. The name stays either way.
+
+**Checked 2026-11-18 (late, lived day 58, on 0.3.46–0.3.54: holds).** `reflections` since 10-24: 24 rows on 24 dates,
+all `reflected`, 23 with `chaptersAs = 'summaries'`. Days 44–58: every row shows the whole core (18–19), 30
+candidates and 10 felt (`detail.lanes`), with `lined` 105–244; `fit.parts` is 4 every night since day 44 (the last 5
+was day 33). Candidates not shown climb 140 → 205, the cap working. Page versions (`self.page.revised`) 1–3 a night on
+days 49–58. The trace line and Mike's read of the pages need `doctor` or Mike and weren't read. **Keep.** Re-read only
+if `parts` goes past 4.
 
 ## Due 3–4 nights after the candidates' cap (2026-10-24, R1, Mike's go 10:58, lightly held — `dream.REFLECT_CANDIDATES_CAP`)
 
@@ -3016,6 +3068,11 @@ sorts them (the record lists what each was).
   anything. `folder-closed` often, on days an off folder really wrote: then filter day's end's input instead of holding
   the prose. A summary that shows a closed folder's words: revert.
 - **Revert:** put the `inDay` clause, the scope-count clause and no time bound back in `daySummaryShown`; the row can stay.
+
+**Seen 2026-11-18 (in passing, with the D1/D2 read).** The gate has now held: 3 `handoff.daysummary.held` rows, all
+`what: memory`, `why: night-origins` (a summary citing a night-made memory whose folders can't be told), on 0.3.54,
+days 52, 54 and 58. A cause the 11-07 read never saw; the gate behaves as designed. Re-read if it holds more than ~1
+night in 3.
 
 ## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md) — read 10-29 (`~/counterparts-notes/2026-10-29-read.md` item 5) and checked 2026-11-02, above
 
