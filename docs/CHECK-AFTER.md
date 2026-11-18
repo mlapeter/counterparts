@@ -63,7 +63,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The night's two holes (NT1): a watchdog counts time awake, and a headless session leaves the night to the next session a person starts | 0.3.45, 11-01 (#712) | ~1 week after release: a run spanning sleep, no catch-up stopped by a watchdog after one, which session started each night, any day with no night | "Due ~1 week after the night's two holes" below; dated reminder set at merge |
 | Refused calls stay plumbing (TC1): a carried morning share is marked told as it is handed over (no `reflect` call asked of the session); a memory whose subject is our own refused call, a permission prompt or the session's limits keeps no date, open thread or me/us/owner mark (`meta.ownPlumbing`), and no wake line or prompt's ambient recall offers it | 0.3.47, 2026-11-04 (TC1) | a few nights after release (dated reminder set at merge): no dated or me/us/owner memory about a refused call or prompt, `ownPlumbing` rows and their titles, and no share stuck untold | "Due a few nights after refused calls stay plumbing" below |
 | Write-ups skip plumbing (WP1): the host's line after a declined permission prompt and a hook's output enter no capture; every write-up is told permission prompts, refused tool calls and the system's own notices aren't events between the two | 0.3.46, 11-03 (#731) | a few nights after release (dated reminder set at merge): no write-up memory about a permission prompt or a refused tool, and the person's own words about one still kept | "Due a few nights after write-ups skip plumbing" below |
-| Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
+| Recall's gate rows get a live sweep: the sleep cycle's versions phase calls `pruneGateSessions`, rows unused for `retentionDays` (90 lived days) go (#728) | 0.3.46, 11-03 (#728) | **2026-11-08** (dated reminder): `sleep.gate.pruned` rows each night with count 0 on Mike's store (younger than 90 lived days; nothing goes until ~day 90), no `sleep.gate.failed`, and the versions phase's numbers unchanged (read 11-18: not readable as written — `sleep.gate.*` and `sleep.versions.pruned` never reach the store or the log, since `runCycle`'s events go to an in-memory ring and the boundary passes no `onEvent`; the versions phase ran every night on days 44–58, `ran-nothing-found`, no failed phase; `gate_session` 32,819 rows, nothing due before ~day 90. Re-read ~day 90 by `gate_session`'s count, or once the cycle's events are persisted) | `docs/decisions.d/fix-prune-gate-sessions.md` (now in `docs/IMPROVEMENTS.md`); `src/core/recall/NOTES.md` §6 |
 | Unmarked and work chapter summaries born at 0.25, not 0.4; me, us and owner keep 0.4 (F1), and the new log fields (near-miss ids, why a memory showed, wake sections at session start, kept ids, refused returns, the dream's cut) | 0.3.42, 10-30 (#696) | ~2 weeks after release (~2026-11-14): summaries in reach, what ratings say of them, the fields' bytes; ~9 lived weeks after: the first summaries let go | "Due ~2 weeks after summaries started lower" below |
 | The night's own line (NL1): the reflection may send one or two sentences past the page, on its row, shown by `recall "last night"`, read by WK2 | 0.3.42, 10-30 (#693) | a week of real lines after release (~1 week): morals, page repeats, how often it's empty (read 11-07, 7 lines on 0.3.42–0.3.47: none NULL or refused, 141–202 B, no ids; repeats 2 of 7, lesson-shaped 2 of 7, at the bar; re-read ~11-14) | "Due a week after the night's own line" below; "Checked 2026-11-07" |
 | The wake's shape (WK2): one composer behind `self.WAKE_SHAPE`, off | 0.3.43, 11-01 (#698), off by default; **on for Mike's store from 11-01** (he ran `counterparts wake-shape on`) | a few days of real wakes on his store: ROADMAP holds the read, reminder 11-04, no default change before it | [below](#the-wakes-shape-wk2) |
@@ -222,6 +222,13 @@ the sentence, and `remember/spans.ts` runs the same scan on every turn and note 
 
 Revert: remove the two `password` entries from `SECRET_FAMILIES` (the raw-buffer scan stays: it is the same gate).
 
+**Checked 2026-11-18 (nine lived days on 0.3.52–0.3.54).** `gate.deposit` from day 49: 1,752 writes; `password` 7
+redactions in 4 writes, `assigned-credential` 2 in 2. 7 live memories hold `[REDACTED:password]`, all born day 49 or
+later. Hand-read around the marker: 6 are development notes about SX1 itself (its examples and test phrasings), no real
+password; one looks like a false positive, "pin" beside a commit hash in a work note (mem_dba9f6eae9b9, 0.3.54). No
+report from Mike. Whether that earns a `PROSE_STOP` word or a test row is Mike's call; otherwise **keep**. **Re-read**
+at the next report, or once non-development memories carry the marker.
+
 ## Recall's steps are timed (LT2 part 1)
 
 LT2 part 1 (2026-11-09, Mike's yes 11-07; measurement only, `recall.STEP_TIMING`). The 11-07 read had recall's p50
@@ -252,6 +259,16 @@ the build and `record` after it, outside `elapsedMs`; the rest tile the build.
 That read briefs the fix for whichever step grows. Revert: `recall.STEP_TIMING=false` (the key leaves the row;
 nothing else moves).
 
+**Checked 2026-11-18 (lived days 49–58, the steps' first 9 days; typed against host not split).** Per-step p50 by
+lived day from `recall.decision`'s `steps`, and `elapsedMs` (2,359 turns). Everything since day 51 is 0.3.54, so what
+follows is not a build change. The turn's p50 went 201 ms (day 49) → 245–296 (days 50–54) → 387 / 353 on the busy
+days 56–57 (414 and 463 turns). Two steps grow: `primePlan` 13.5 ms (day 49) → 20–28 (days 50–52) → 73–80 (days
+53–57), and `beliefs` 54 → 103–104 on days 56–57. `semantic` is two-sided: its p50 fell from 92–131 (days 49–52) to
+16–23 from day 53, but its mean is still ~111, so a minority of turns pay 100+ ms. `spread` drifted 6 → 10. Flat:
+`cue` (~30), `rank` (~12), `settledOver`, `learned`, `competing`, `gateLoad`, `habituation` (each under 4), `rest` 0.1
+(no unnamed step). **Keep** the timing; **the read briefs the fix**: `primePlan` and `beliefs` first, then
+`semantic`'s slow minority. The typed/host split through `adapter.recall` goes with part 2's brief. Closed as a read.
+
 ## The wake as its reader read it (WK3)
 
 WK3 (2026-11-09, from a counterpart's own feedback on five mornings of its wake; Mike agreed the same day; lightly
@@ -275,6 +292,14 @@ which every road carries.
 Revert: each piece is local. The fold rule is `shownEarlier`/`retold` in `shapedDelivery`; the own line's filter is
 `ownToldOnce`; the overdue clause is `lateWords`; the handoff order is `handoffsTold`; the quote is `quoteOf`; the night
 line's journaled branch is the first `if` in `nightLine`; the head field is `own` in `Lifecycle#composeWake`.
+
+**Checked 2026-11-18 (8 lived days on, partial: size only; the six-point read is not done).** Delivered
+`adapter.wake.injected` bytes, daily means: 7,600–8,950 on days 40–49 (before), 7,000–8,950 on days 50–58 on
+0.3.53/0.3.54 (after); max 8,989 of the 9,000 budget, none over; at or under the brief's ~8.6 KB most days. The
+threads section grew (~800 → 800–1,030 B) with the overdue words and titled reminders. Transcript counts since 11-03,
+118 wakes: "shown earlier" 1, "under way" 7 (not timed against the journal), "Waiting on" 81. The six-point read
+against the brief needs a fresh session over the week's wakes: **Mike's call** whether to spend one. Nothing seen says
+revert.
 
 ## What waits on the owner (SO1 step 4)
 
@@ -304,6 +329,16 @@ and `owedOne` in `core/counterpart-wake-shape.ts`. Only the shaped wake changes.
 
 Revert: the filter `x.r?.status !== "asked"` and `owe` in `openSec`, `ownerParked` passed to `Self#stillOpen` (two
 callers), and `attended` in `Lifecycle#recallTurn` (the turn lane). The record and events are inert once nothing reads them.
+
+**Checked 2026-11-18 (8 lived days on).** `open.owner.raised`, days 50–58: 116 raises of 100 distinct items, 67 by
+wake and 49 by turn, 2–21 a day; 4 are sunk handoffs (`kind: handoff`); no item raised in two sessions on one day.
+Chains in meta `wake.owner.raised`: 84 raised once, 16 twice, none three times, so **nothing is parked yet**
+(expected before 3+7+14 days). Answered: none — all 96 memory items raised are still `asked`, none revised, closed or
+superseded. Live open grew to 362 and `asked` to 112, against 290 / 99 on 11-05. The `owed` step on
+`recall.decision.steps` is 0 on most turns; on the 743 that built it, p50 30 ms, p90 126 ms, max 1,779 ms (6 over 500
+ms). The relevance hand-read wasn't done. **Mike's call:** the raise works as built but has drawn no answers — either
+~100 asked items are too many to raise one a wake, or he answers by another road. **Re-read** ~day 74, when the first
+chains reach parked.
 
 ## The page names what it sets down (PG1)
 
@@ -415,6 +450,13 @@ reopened. The unsure ones (the night's and the reflection's) are listed `mayBeDo
 Revert: `OPEN_CLOSE_TUNABLES.ON = false` (`core/open-close.ts`): the phase runs and counts `switched-off`. Each
 close is undone by the reflect tool's `reopen` with the item's id.
 
+**Checked 2026-11-18 (lived days 49–58, on 0.3.52–0.3.54: not exercised).** The `close` phase ran every night,
+`ran-nothing-found` each time: `closed` 0 on all ten nights, no `thread.night.closed` or `thread.night.reopened` row
+ever, so the dry run's 2 backlog closes didn't happen. First night's skips: `no-later-release` 1, `not-a-release-step`
+3; later nights hold `asked` (73 → 85), `no-subject` (86 → 123), `a-check` (35 → 42). `open.mayBeDone` lists 2. Live
+open items 362, up from 290 at the 11-05 baseline. **Keep**; nothing closed wrongly. **Re-read** after the next release
+day, the rule's only trigger.
+
 ## A write lists the open items it may settle (SO1 step 1b)
 
 SO1 step 1b (2026-11-07, roadmap with Mike; lightly held), `core/close-hint.ts`, `McpServer#mayCloseOf`. A stored
@@ -447,6 +489,13 @@ model decides; nothing closes on its own.
   at 2; mostly closed says keep.
 
 Revert: `CLOSE_HINT_TUNABLES.ON = false` (`core/close-hint.ts`): no list, nothing counted.
+
+**Checked 2026-11-18 (nine lived days on 0.3.52–0.3.54).** 8 entries listed (`open.close-hint.shown`, days 49–57), 6
+distinct ids, 15 listings in all; one umbrella item (mem_62e7c7bdb564) was listed 7 times through `settlesWhen`. Rules
+used: `settles-when` mostly, `version` once, `pr` once. 5 of the 6 ids were closed, all the day they were listed
+(`daysAfter` 0); the sixth, a queued README item listed after #843 (day 57), is still open. Cost p50 3.4 ms, max 10.9
+ms. Hand-read of the 6 listed titles against their entries: 0 plainly irrelevant, 1 weak (the umbrella), against the
+11-07 baseline's 3 of 19 irrelevant plus 2 weak. **Keep.**
 
 ## Growth exits (FD1 step 2)
 
@@ -497,6 +546,13 @@ read that needed ids): move that name back to 90, or roll more into the summary.
 **Revert.** Empty `SHORT_RETENTION_NAMES` in `src/core/store/operational.ts`. Rows already swept stay gone. Their counts
 are in `events.rolled`.
 
+**Checked 2026-11-18 (lived days 50–58, on 0.3.53–0.3.54: holds).** `sleep.log.swept`: 5,000 rows on day 50 with 915
+left, 1,927 on day 51 with 0 left, then 60–606 a night. `events.rolled`: 28 rows, one each for days 0–27; the per-turn
+rows now start at day 28 (`recall.decision` 9,241, `recall.credit` 9,952, `recall.rated` 1,138), exactly lived day −
+30. `recall_turns` 0 rows, as expected. `events` 145,149 rows, ~70.6 MB of payload; the file is 158.7 MB (121 MB on day
+47) since SQLite reuses pages and no VACUUM has run. Doctor's other Growth lines weren't taken (no CLI against the live
+store). **Keep**; their first numbers wait on Mike's `counterparts doctor --json`.
+
 ## Old chapters leave ambient recall (FD1 step 5)
 
 FD1 step 5 (2026-11-07, decided by the roadmap seat with Mike's ruling: keep the journal forever, old chapters stop
@@ -520,6 +576,16 @@ and the dream are unchanged.
 **What would change it:** if 7–13-day chapters stay under ~0.3 and the freed slots go to better footnotes, move N to
 7 (one line in `journalAged`; it stops reusing `LAST_HERE_LIFE_DAYS`). An old chapter Mike missed in a footnote says
 lengthen it. **How to revert:** drop the `journal-aged` line in `recallableRow`; the counts stay at 0.
+
+**Checked 2026-11-18 (lived days 49–58, 0.3.52–0.3.54).** `recall.decision`'s `journalAged` and `journalCandidates`,
+and footnote ratings of chapter ids (`epi_…`) against memories; a chapter's age is read from its journal file's date
+(when it started), so this reads older than its last heading. The skip fires on 2,195 of 2,201 ambient turns, 28–35
+chapters a turn (max 103). The journal's share of the cut fell 11.9% → 9.7% / 7.6% / 7.1% on 0.3.52 / .53 / .54
+(3,067 of 43,080 on 0.3.54); the pool is 49–64 against 78. Turns whose footnotes were all chapters: 23 on days 51–57,
+against 83 a week before. Chapter footnotes rated 0.81 with 21% zero (n 42), memories 0.97 / 35% (n 1,360). By start
+age: <7 days 0.82 (n 38), 7–13 days 0.67 (n 3), 14+ 1 (n 1, a chapter whose last heading is newer). Meaning mode not
+exercised: no `mcp.recall` used it since day 49 (143 handle, 63 question). **Keep** N at 14; the 7–13 bucket (n 3) is
+too small for "move N to 7". **Re-read** when it reaches ~15 rated, or at the first meaning-mode recalls.
 
 ## A done memory is never overdue (SO1 step 2)
 
@@ -546,6 +612,13 @@ day asked: a done dated today has happened), `Prospective#plainDue` skips the sa
 
 Revert: drop the `done` arm in `derive.ts` and its `load()` field, the `plainDue` skip, and the
 `doneDateAsOccurred` calls in `server.ts` and `server-session-end.ts`.
+
+**Checked 2026-11-18 (8 lived days on).** 3 live rows are `status = 'done'` with `event_date` on or before today, none
+recurring; one (mem_4bd50e3c085c, dated 11-15) showed in a wake's Coming up on 11-12 while its date was still ahead,
+by design, and none shows in any wake after its date passed. The wake's overdue count, from transcripts since 11-09:
+medians 8–10 a day through 11-16, then 6 on 11-17 and 4 on 11-18 (1–13 by folder). The write side: of 442 done rows
+born since day 49, 408 carry `occurred_on` with no `event_date`, and none landed with an `event_date` on or before its
+write day. No real reminder seen missing (no hand-read of bodies). **Keep.**
 
 ## A newer routine work event fades the older one (FD1 step 3)
 
@@ -592,6 +665,14 @@ Revert: `INTERFERENCE_TUNABLES.ON = false` (`core/interference.ts`), the phase t
 `switched-off`. Each fade made so far can be undone like any settle (`counterparts settle --undo <pair>`), and an
 undone one is never faded again.
 
+**Checked 2026-11-18 (lived days 49–58, on 0.3.52–0.3.54).** `sleep.cycle` `interfered`: 67 the first night (day 49,
+the dry run's 67 exactly), 8 on day 50, 5 on day 51, then 0 for seven nights (`ran-nothing-found`); 80
+`contradiction.settled` rows with `source` `interference`. None of the 80 is owner-said, carries a feeling, is about
+anything but `work`, or is open; none undone (the only `contradiction.undone` rows are days 23–28). The guards holding
+most each night: `no-subject` (~2,300), `not-done` (~1,980), `salient` (~900), `owner-said` (~700). Age prunes run
+14–28 a night from day 51. The hand-read of 20 pairs isn't done (it needs bodies, on a snapshot). **Keep**; the
+hand-read is Mike's call or a later session's on a copy.
+
 ## The tail after a compaction is owed (CT1)
 
 CT1 (2026-11-04, decided by counterparts-a0, lightly held), `core/coverage/index.ts#tailCut`
@@ -613,6 +694,14 @@ Tier 0 cost: Dana unchanged; Theo one more write-up in the week (14 → 15), no 
 - **Nothing lost the other way.** No session whose record followed its compaction is newly owed.
 
 Revert: drop the `|| isDebt(stretchOf(tail), false)` arm in `ledger` (`core/coverage/index.ts`).
+
+**Checked 2026-11-18 (two weeks on, partial: not read).** Mike's store compacts 3–4 times a lived day
+(`pre-compaction` boundaries in 11 of 48 span folders; 7 on 11-17). Since day 45, 66 sessions were owed
+(`coverage.owed`): 62 ended (1.6 pieces on average), 4 quiet. `compactionTail` lives only in the ledger and is never
+logged, so splitting the owed rows into CT1 tails and S2 short sessions needs `counterparts coverage` on a snapshot
+copy, which a read-only pass doesn't run; the person's-words-or-plumbing hand-read of the tails isn't done either. The
+night's write-ups stayed small (10 runs since day 45). **Re-read** with a snapshot ledger read and the tails'
+hand-read together; only then keep or narrow.
 
 ## Folder attribution (FS1)
 
@@ -741,6 +830,14 @@ lines: tool, session, ok, reason, the hashed store; no words) and what people sa
 Revert: drop the `night` line from claude.ai's wake (`server.ts#claudeAiNight` returning null); the setting words, the
 tool words, the told lines and the manual go back with it.
 
+**Checked 2026-11-18 (partial: one night in log reach; the rest waits on Mike's production read).** `railway logs
+--since 14d --filter "[hosted] mcp"` only reaches the current deploy (from 11-18 06:13 UTC): 2 stores, 168 lines, one
+night. A `claude-code` connection called `wake`, then `chapter`/`session_end`, 7 `dream` calls (all ok) and 3
+`reflect`, one store, one connection; a claude.ai connection initialized 7 s before it and made no tool call. So that
+night was a routine's, not a chat's; no double start, no refusal. Nights started from chats, owed days with no night,
+and complaints across the week **wait on Mike's production read** (or on logs kept across deploys). Not exercised in
+what the logs reach.
+
 ## The wake knows yesterday's news (WF1)
 
 WF1 (2026-11-03, Mike's go 14:41, ROADMAP's brief, lightly held), in the shaped wake (`core/counterpart-wake-news.ts`,
@@ -809,6 +906,15 @@ in the older 7 days aren't held until then. The next rating row rebuilds it (tes
 **How to revert:** `HABITUATION_WINDOW_DAYS` back to 7, in `src/core/recall/tunables.ts`. A 14-day note read at 7 is right at
 once. `HABITUATION_BAR_LIFT` 0 turns the mechanism off.
 
+**Checked 2026-11-18 (numbers only; ROADMAP owns the verdict; the held-set script was not run).** Live counts, not the
+review's replay. `habituationCut` per turn was 0.30–0.51 on days 35–42 (the 7-day window), stayed 0.30–0.51 on days
+43–54, and was lower on days 56–57 (0.13, 0.25). Footnote noise / useful (score 0 / 2+) from `recall.rated`: 39.7% /
+17.8% on 0.3.37–0.3.43 (n 1,779), 31.1% / 28.8% on 0.3.45 (n 386), 27.8% / 25.4% on 0.3.46–0.3.53 (n 1,167), 37.3% /
+23.7% on 0.3.54 (n 989); R3S and other changes move the same number, so it isn't H14's alone. Since day 43 the `asked`
+lane has 24 ratings at a mean 2.54, `opened` 20 at 2.3. Not read here: held-set size, held memories later opened,
+asked for or rated 2–3, and any rating-3 memory sitting held; those need `held.py` on a store copy. Nobody has
+reported a missing ruling. **ROADMAP's read.**
+
 ## Due a few nights after write-ups skip plumbing (2026-11-03, WP1, Mike's OK 14:41, lightly held — a fix, no switch)
 
 **What we're trying.** In the 11-03 Dana re-run the night's catch-up wrote a refused tool call into memory ("Declined
@@ -848,6 +954,12 @@ puts inside the rejected `tool_result` and so has never reached capture, turning
 door's `next`. The reader: move the two frames back into `HOST_FRAMES` (both read as `injected` again, and the hook
 frame inside a system reminder goes back to `classifyBlock`'s `injected`). Neither touches the store's shape.
 
+**Checked 2026-11-18 (two weeks on, on 0.3.46–0.3.54).** 215 write-up memories born since day 43; one title matches
+permission, declined, denied, hook or refused (mem_387e04d8ed20, 0.3.47), and it is product copy using the word
+"hook", not plumbing. No write-up about a permission prompt, a refused tool or a hook landed, and nothing looks lost:
+write-ups kept coming every night (`adapter.night.writeup` 10 since day 45). The harness's Dana item 8 was not re-run
+here. **Keep.**
+
 ## Due a few nights after refused calls stay plumbing (2026-11-04, TC1, lightly held — a fix, no switch)
 
 **What we're trying.** In the developer week (11-04) and Dana's (11-03) the carried morning share asked the session to
@@ -880,6 +992,15 @@ told (the host marks delivery, not the telling).
 **How to revert:** separate. The carry: write `carried` again in `carryLine` and restore the `told` ask (`CARRIED_TOLD_NOTE`).
 The gate: return null from `ownPlumbingOf`. Neither touches the store's shape.
 
+**Checked 2026-11-18 (two weeks on, on 0.3.47–0.3.54).** The carry half holds: every reflection's share from day 45
+to day 58 is `told` (12 nights), none stuck `offered`. The gate half has never fired: 0 memories carry
+`meta.ownPlumbing`. Since day 45, 20 memory titles say permission, denied, declined or refused: 18 are work memories
+about product refusals or guards, one is an `us` decision, and one is our own refused call (mem_690cafd37910, day 45,
+0.3.47, `about: me`, a hook install the permission classifier blocked) that kept its me mark, so the cue missed that
+phrasing ("blocked by permission classifier"). The one dated row is this check's own reminder. One miss in two weeks:
+**keep**. Adding that phrasing to `own-plumbing.ts` is Mike's call. **Re-read** at the next me/us memory about a
+refused call.
+
 ## Due ~1 week after the night's two holes (2026-11-01, NT1, Mike's call, lightly held — a fix, no switch)
 
 **What we're trying.** The night keeps starting at the first message, and two holes close: `claude-code/awake.ts` makes a night's watchdogs count time awake, and a session the hook reads as headless (`hooks.ts#passesOnNight`) passes on the night without claiming the day. On 11-01 a night started from a `claude -p` session in a lid-closed dark wake, its catch-up child got about 15 s awake, the laptop slept 853 s and the 10-minute watchdog fired on wake. Why, and what wasn't changed: `docs/IMPROVEMENTS.md`. Only a live read can show real sleep: everything before it stopped a process with SIGSTOP or stubbed the clock.
@@ -903,6 +1024,14 @@ FROM events WHERE name = 'adapter.night.writeup' ORDER BY seq DESC LIMIT 20;
 **What would change it:** a watchdog still firing on wake (read `adapter.night.slept` against the row, then whether the gap is too wide); a real child killed late because stalls read as sleep; days with no night that a person would have wanted (a schedule comes back on the table, as Mike said).
 
 **How to revert:** the two are separate. For the night's start, drop the `passesOnNight` branch in `hooks.ts#dreamLines`. For the watchdog, `arm(terminate, plan.timeoutMs)` in `child.ts`. Neither touches the store's shape: `sleptMs` is a field on a row, and an older build ignores it.
+
+**Checked 2026-11-18 (lived days 42–58, on 0.3.45–0.3.54: holds; sleep arm not exercised).** `dream.night`: 17 nights
+started since day 42, all `done` (223–925 s), none lost, one on every lived day 42–58. No row carries `sleptMs` and the
+session logs (kept since 11-11) have no `adapter.night.slept`, so no night spanned a sleep and the watchdog-on-wake case
+hasn't come up. `adapter.night.writeup`: 13 since day 42, all `done` (the last `timed-out` was day 41, 0.3.42, before
+the fix). Who started the nights, 11-11 to 11-18: 7 `adapter.night.started`, all `entrypoint: cli`; both `sdk-cli`
+sessions are `adapter.dream.unwatched` with `passed: "headless"`, `started: false`, so headless sessions pass as meant.
+**Keep.** Re-read the first time a `dream.night` row carries `sleptMs`.
 
 ## Due 2026-11-08: the page in its own form (PF1, ROADMAP 2026-11-01, an experiment — meta `self.page_form`)
 
@@ -945,6 +1074,12 @@ a broken `at` or a stranded `.striking` file. `over4days` above 0 is normal only
 A real note's words missing from a write-up later would mean the rewind isn't doing its job (`remember/NOTES.md`).
 
 **Revert.** `docs/IMPROVEMENTS.md`, Undo.
+
+**Checked 2026-11-18 (lived days 49–58).** `remember.prune` ran every lived day from day 49 to 58, STARTED then
+PRUNED, 5–28 sessions deleted a day; `unboundLines` 3 on day 49, 10 on day 53, 1 on day 54, 0 otherwise. The raw
+copies under the shared ids, counted with the section's script (ages only, no words): 8 `jots.jsonl` files hold 4
+lines, all `mcp`, all 4.8 days old: 4 over the 4-day mark, 0 over 15, no `.striking` file. The four are past the 3-day
+limit but inside the 14 days an owed note keeps (or are notes whose memory didn't land). Nothing escapes. **Keep.**
 
 ## Due ~3 nights after the catch-up respects a folder that is off (2026-10-30, NC1, coordinator's brief marked for Mike's review — a fix, no switch) — checked 2026-11-03, below; re-read when a folder with recent sessions goes off
 
@@ -1002,6 +1137,13 @@ re-mark raise the claim. No loss after 2
 weeks: consider the existing rows, which keep 0.4 unless the era read learns to tell summaries apart. Fields nobody read in
 a month: drop them, starting with the loudest (`cue`, `sem`, `bar`, about 13 KB a day).
 **Revert.** `SELF_TUNABLES.CHAPTER_SUMMARY_CLAIM` back to 0.4; rows born at 0.25 stay at it unless a store's owner says.
+
+**Checked 2026-11-18 (lived days 40–58, on 0.3.42–0.3.54).** Live chapter summaries: 585 at 0.25 (473 work, 111
+unmarked, 1 us), 75 ever used, mean uses 0.03; 590 at 0.4 (361 work, 135 unmarked, 72 us, 20 me, 2 owner), 180 used.
+Since day 40 `recall.rated` rated a 0.25 summary 11 times (mean 0.73, 27% zero, none useful) and a 0.4 one 41 times
+(mean 0.12, 90% zero), against 1.01 for all ratings. No summary pruned yet. Nothing says a lowered summary was wanted.
+**Keep.** The older 0.4 rows rate mostly noise, the section's "consider the existing rows" case: **Mike's call**.
+**Re-read** at the first summary prunes, ~9 lived weeks in (~2027-01-01).
 
 ## Due a week after the night's own line (2026-10-30, NL1, ROADMAP's decision marked for Mike's review — no switch) — checked 2026-11-07 ("Checked 2026-11-07" above); re-read ~11-14
 
@@ -1094,6 +1236,14 @@ Reasons and costs: `docs/decisions.d/chore-read-1029-knobs.md`.
 **Revert.** `recall.PRIME_TRAIN_SHARE=0.5`; `TAGS_KINDS_PER_NIGHT` back to 10 in `src/core/schemas/tunables.ts`; the
 project line's row goes with the line (`self.WAKE_PROJECT_LINE=false` writes none).
 
+**Checked 2026-11-18 (lived days 40–58, on 0.3.42–0.3.54).** *Priming:* since day 44 `primed.train` is false on all
+568 footnotes that carry a `primed`. Footnote ratings (0 noise, 2+ useful): 10-26..28 39.8% / 17.7% (n 787); days
+40–48 30.3% / 24.8% (n 1,544); days 49–58 34.6% / 24.8% (n 1,402): noise down, useful up, bar met. *Kinds:* kindless
+live entity cards 30 of 506 (144 on 10-29); no `mcp.result.oversize` for `tags`, no failed night. *Project line:* 0
+`self.project.line` rows ever: `folder_projects` is empty on this store, so `projectOf` finds no project and the line
+returns before writing; it has never shown here. **Keep** train priming at 0 and 30 kinds a night. Whether the project
+line stays (it can't fire until a folder maps to a project) is **Mike's call**. The beliefs-slot finding stays undated.
+
 ## Due 3–4 nights after the page split (2026-10-23, Mike's go, very lightly held, an experiment — `self.PAGE_SPLIT`)
 
 What: the night writes the page in two lanes instead of two whole-page rewrites. The page writer, in a child of its
@@ -1168,6 +1318,13 @@ Changes it: Core or the reflection's entries getting worse without the chapters'
 its address: count recalls of `epi_…#N` in the reflection child), Lately thinner, or a night's parts going past 4.
 Revert: `dream.REFLECT_ROOM_ORDER=false` and/or `self.DAYS_END_INPUT=false` (each puts back exactly what was), or
 revert the PR. The name stays either way.
+
+**Checked 2026-11-18 (late, lived day 58, on 0.3.46–0.3.54: holds).** `reflections` since 10-24: 24 rows on 24 dates,
+all `reflected`, 23 with `chaptersAs = 'summaries'`. Days 44–58: every row shows the whole core (18–19), 30
+candidates and 10 felt (`detail.lanes`), with `lined` 105–244; `fit.parts` is 4 every night since day 44 (the last 5
+was day 33). Candidates not shown climb 140 → 205, the cap working. Page versions (`self.page.revised`) 1–3 a night on
+days 49–58. The trace line and Mike's read of the pages need `doctor` or Mike and weren't read. **Keep.** Re-read only
+if `parts` goes past 4.
 
 ## Due 3–4 nights after the candidates' cap (2026-10-24, R1, Mike's go 10:58, lightly held — `dream.REFLECT_CANDIDATES_CAP`)
 
@@ -1322,6 +1479,17 @@ Listed-word turns getting more footnotes than the control, with noise up on thos
 A stop-listed word Mike wants learned → take it off. Undo: `CUE_STOP_LIST = []` (nothing filtered, cue learning exactly
 as before, the old pairs read again).
 
+**Checked 2026-11-18 (17 days on 0.3.45+, counts only; the listed-word against control split was not run).** New
+`cue_edges` since 0.3.45's install (11-01): 5,105 pairs over 1,915 tokens and 557 memories; by week 2,123, 1,943, then
+1,039 in the last ~3.4 days, down from ~3,200 the first week (part of the drop is retraining, which keeps
+`created_at`; 7,293 pairs touched). No new row on a listed word. `cueStopped` is 3,412 of 42,629 cue deltas (8.0%),
+inside the 7–10% expected. Footnote noise / useful: 31.1% / 28.8% on 0.3.45, 27.8% / 25.4% on 0.3.46–0.3.53, 37.3% /
+23.7% on 0.3.54, against 40.7% / 16.7% on 11-01 (not R3S's alone). The widest new words fall in two classes, each at
+16–41 memories: filler (`stuff`, `basicalli`, `bit`, `doing`, `did`, `try`, `mayb`) and what looks like the host's own
+agent text (`delegat`, `subagent`, `indent`, `authoriti`, `forg`): the section's "new filler class at dozens of
+memories". **Keep** the list; widening it or moving to a rule (a minimum informativeness for learned words) is
+**Mike's call**. The by-turn split stays ROADMAP's.
+
 ## Due ~2026-11-06: folds keep named ids (2026-10-30, FI1, a lost-information fix; no switch of its own, `recall.SEE_ALSO_NAMED_IDS` still rules what's read)
 
 What: a fold or merge writes `Names: mem_…, mem_…` as its last line, with what its sources named and it didn't: each
@@ -1346,6 +1514,11 @@ Changes it: see-also'd memories from folds rated worse than plain ones, kept ids
 naming each other's neighbours), or folds with a line of ids rated or found worse by meaning, since the ids move the
 vector (numbers in the decision; leaving the line out of what's indexed is the fix to try). Revert: the PR; what's
 written stays as text, and is harmless.
+
+**Checked 2026-11-18 (0.3.42 on, barely exercised).** Since 0.3.42, 43 live gists and 10 merges in `dream_changes`;
+one kept a `Names:` line (mem_6a82413e8008, a 0.3.42 gist, 4 ids), and `namesPast` was never above 0. That gist
+brought a see-also footnote once (`seeAlso.by`), unrated. The mechanism works; one fold is no read of its worth, and 4
+is not too few. **Keep.** **Re-read** when ~5 folds have kept names, with PP1's ratings.
 
 ## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`) — checked 2026-11-02, below; re-check ~11-09
 
@@ -1372,6 +1545,13 @@ Read (read-only, by build):
 Changes it: see-also'd memories rated worse than footnotes (noise: lower `SEE_ALSO_MAX` to 1, or read only the
 footnotes' texts), or the rule still missing "ping" after a credited use (look at the turn's `seeAlso.by` and the
 rule's verdict). Revert: `recall.SEE_ALSO_NAMED_IDS=false`.
+
+**Checked 2026-11-18 (the 11-09 re-check, lived days 43–58, 0.3.46–0.3.54).** 18 see-also'd footnotes of 3,152 since
+day 43; 12 rated (joined by session and id): mean 0.50, 58% zero, against plain footnotes over the same days 0.99, 32%
+zero (n 2,364). With 11-02's 8 that is ~20 rated at about half the plain mean, and the bar missed twice. The ping
+demo: `cue_edges` has `ping` to mem_66bb7d836201 (0.51) and mem_4892da5d1aa3 (0.86), still not to the rule
+mem_0ca7f032368a. **Tune or revert: Mike's call** — the section's next step is `SEE_ALSO_MAX` 1 (or reading only the
+footnotes' texts); revert is `recall.SEE_ALSO_NAMED_IDS=false`. At 18 a fortnight its cost is small either way.
 
 ## Due ~3 nights after S2 (2026-10-26, Mike: "sounds good", lightly held — `coverage.UNRECORDED_OWED_PIECES`, `dream.OWED_COUNTS_AS_NEW`)
 
@@ -2922,6 +3102,11 @@ sorts them (the record lists what each was).
   the prose. A summary that shows a closed folder's words: revert.
 - **Revert:** put the `inDay` clause, the scope-count clause and no time bound back in `daySummaryShown`; the row can stay.
 
+**Seen 2026-11-18 (in passing, with the D1/D2 read).** The gate has now held: 3 `handoff.daysummary.held` rows, all
+`what: memory`, `why: night-origins` (a summary citing a night-made memory whose folders can't be told), on 0.3.54,
+days 52, 54 and 58. A cause the 11-07 read never saw; the gate behaves as designed. Re-read if it holds more than ~1
+night in 3.
+
 ## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md) — read 10-29 (`~/counterparts-notes/2026-10-29-read.md` item 5) and checked 2026-11-02, above
 
 **What changed.** The dream's fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000; Mike okayed 24k, see the decision) and each
@@ -2961,6 +3146,13 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **Revert:** `HINTS_IN_WAKE` true for the lane; the rest by reverting the PR. The ids in count lines are not behind a switch.
 
+**Checked 2026-11-18 (two weeks past due, numbers only; no ~/random wake read).** `self.briefing` by span:
+`trimmedTotal` per render 11.3 on days 33–39 → 4.9 on days 40–48 → 5.0 on days 49–58; `trimmedLanes.threads` 3.6 →
+4.6 → 4.8, so the drop is hints no longer being candidates (hints 0.08 → 0), as expected. `handoff.lasthere.noroom`:
+43 rows on days 19–41, none since; `self.work.overflow` none since day 41. The stands block is 420–1,300 B a wake. The
+wider block found room, nothing overflows, no bare-id complaint since. **Keep.** WK3's feedback stands in for the
+~/random wake read.
+
 ## A closed folder's plain reminder
 
 **What we're trying:** a plain reminder that is a closed folder's work isn't said and isn't spent; marked about the owner, or with no folder, it is said whatever the folder. Coming up holds whatever the mark, so the two differ on purpose.
@@ -2970,6 +3162,11 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a real date lost that way (mark it, or tell at the off switch what's waiting), or a personal line from an off folder that shouldn't have been said (drop the `isWorkMemory` line in `dream/slices.ts#reminderHeldBack`, and it matches Coming up).
 
 **How to revert:** `Lifecycle#plainFor` stops asking `plainHeldBack`.
+
+**Checked 2026-11-18 (two weeks on: not exercised).** Mike's `scopes.json` has 6 folders not on (5 off, 1 observer),
+and the live store holds no memory from any of them, dated or not, so no plain reminder could be held back and no real
+date could have gone unsaid. The held-back count lives only in doctor, not run on the live store. **Keep.** Re-read the
+first time a folder with dated work goes off.
 
 ## The wake's shape (WK2)
 
@@ -2983,6 +3180,15 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 
 **How to revert:** `counterparts wake-shape off` for the store; the switch's default is off until ROADMAP changes it.
 
+**Checked 2026-11-18 (17 lived days on, numbers only; the wake read is Mike's call).** `adapter.wake.injected` days
+40–58: every delivered wake is the shaped one (`sec_*` on every row), `pageRung` whole on all, none over the 9,000
+budget (max 8,994). Section means steady across builds: page ~4,790 B, stands 420–1,300, threads 250–1,030 (rising
+after WK3). The process logs (11-11..11-18) have no `counterpart.wake.shape.declined` or `.failed` line. In the
+transcripts since 11-03, "Nothing here since." printed in 17 of 118 wakes, so it earns its line. The door: 21 handle
+recalls on days 40–58 (`handleResolved`, ~1 a day; which handle isn't recorded). No ROADMAP write-up of the draft's
+test was found; WK3's feedback on five mornings is the nearest read, and it changed the shape. **Keep the shape on
+Mike's store.** On by default is ROADMAP's and Mike's call, once a wake read against the test is written up.
+
 ## A failed mint
 
 `remember` and `session_end` wrote the claim, then the memory, so a mint that threw lost the note and marked its words as written up. The claim now comes after the mint (`src/core/remember/NOTES.md`, "A failed mint"; docs/IMPROVEMENTS.md). Before the fix, on the owner's logs (10-25 to 11-01): no lock or full-disk lines in 29,622; `session_end` 1,791 entries, 1,787 stored. `remember` wasn't visible at all.
@@ -2992,6 +3198,12 @@ is expected, not a fault: `recall.credit`'s expansions would show it.
 **What would change it:** a steady rate of `landed: false` means writers are holding the lock past 5 seconds, which is its own fix. Twins that sleep doesn't fold mean the kill window isn't as small as it reads. A `notLanded` on a nightly write-up with nothing saved after it means that last-part case needs a resend.
 
 **How to revert:** `counterpart-deposit.ts#deposit` back to `submitProposal` before the mint. That restores the loss.
+
+**Checked 2026-11-18 (two and a half weeks on, partial: not exercised).** The session log keeps 8 days: in
+`sessions/log/` for 11-11 to 11-18 (19,731 lines), 0 `counterpart.deposit.mint.failed` lines and no `mcp.refused`
+with `threw`; the 20 refusals there are argument refusals (mode-required 8, text-required 5, past-room 2,
+session-not-live 2, already-written-up 2, write-up-runner 1). The store has no mint event, and 11-01 to 11-10 have
+rolled off the log. No failed mint, so no retry or twin to look at. **Keep**; re-read at the first `mint.failed`.
 
 ## Each item shows where it can be acted on (SO1 step 3)
 
@@ -3018,3 +3230,10 @@ a deadline that still went unsaid would argue for crossing sooner than 2 lived d
 
 **How to revert:** in `counterpart-wake-shape.ts` set `saysHere` back to `c.mine || c.plain`, drop the `plainAway` and
 `plainCrossing` calls in `lifecycle.ts#plainFor`, and drop the `about === "world"` clause in `threadPlace`.
+
+**Checked 2026-11-18 (8 lived days on, partial: ids on the wake's `Due today` and `Still open` header lines only).**
+Host transcripts 11-10..11-18, distinct item × folder pairs joined to each id's `origin_scope` and `about`: work items
+shown outside their folder 0; personal (me/us/owner) shown away 5 on 11-10, 11 on 11-17, 1 on 11-18, all allowed;
+the rest at home (37). `prospective.plain.crossed`: 1 row ever (day 57), a work reminder told once elsewhere after its
+folder had no session; whether Mike wanted that one is his to say. Claude.ai chats and doctor's amber line weren't
+read. **Keep.**
