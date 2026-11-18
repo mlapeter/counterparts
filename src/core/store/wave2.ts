@@ -68,14 +68,16 @@ export function tagsOf(store: Store, memoryId: string): { tag: string; via: stri
     .map((r) => ({ tag: r.tag, via: r.via, createdAt: r.created_at }));
 }
 
-export function memoriesTagged(store: Store, tag: string, opts: { archived?: boolean } = {}): string[] {
+/** `limit`: the first that many ids (in id order); a caller that only asks "more than N?" reads N + 1 (2026-11-18). */
+export function memoriesTagged(store: Store, tag: string, opts: { archived?: boolean; limit?: number } = {}): string[] {
   if (!has(store, "memory_tags")) return [];
   return ops(store)
     .all<{ memory_id: string }>(
       `SELECT t.memory_id FROM memory_tags t JOIN memories m ON m.id = t.memory_id
           WHERE t.tag = ?${opts.archived === true ? "" : " AND m.archived = 0"}
-          ORDER BY t.memory_id`,
+          ORDER BY t.memory_id LIMIT ?`,
       normalizeTag(tag),
+      opts.limit === undefined || !Number.isFinite(opts.limit) ? -1 : Math.max(0, Math.floor(opts.limit)),
     )
     .map((r) => r.memory_id);
 }
@@ -101,18 +103,28 @@ export function tagNeighbours(store: Store, tags: readonly string[], opts: { lim
   if (!has(store, "memory_tags")) return [];
   const want = [...new Set(tags.map(normalizeTag))].filter((t) => t.length > 0);
   if (want.length === 0) return [];
-  const marks = want.map(() => "?").join(", ");
-  return ops(store).all<{ tag: string; together: number }>(
-    `SELECT b.tag AS tag, COUNT(DISTINCT a.memory_id) AS together
+  return ops(store).all<{ tag: string; together: number }>(tagNeighboursSql(want.length), ...want, ...want, opts.limit ?? -1);
+}
+
+/**
+ * `tagNeighbours`' query for `n` words. THE PLAN IS PINNED (2026-11-18, the
+ * recall latency diagnosis): `+m.archived` keeps `archived = 0` from being an
+ * index term. Without it, and with no planner statistics (the store has never
+ * been ANALYZEd), an IN list of 4 words or more made SQLite start from
+ * `memories_birth (archived=?)` — every live memory, ~23 ms a call — when
+ * `archived = 0` matches nearly all of them; the tag index walk is under 1 ms.
+ * Same rows, same order: the `+` changes only which index may serve the term
+ * (`archived` is an INTEGER column holding 0 or 1). The pattern #783 met in
+ * `openItemHeads`. Exported for the plan test (`test/recall-plan-pins.test.ts`).
+ */
+export function tagNeighboursSql(n: number): string {
+  const marks = Array.from({ length: n }, () => "?").join(", ");
+  return `SELECT b.tag AS tag, COUNT(DISTINCT a.memory_id) AS together
          FROM memory_tags a
          JOIN memory_tags b ON b.memory_id = a.memory_id AND b.tag NOT IN (${marks})
          JOIN memories m ON m.id = a.memory_id
-        WHERE a.tag IN (${marks}) AND m.archived = 0 AND m.superseded_by IS NULL
-        GROUP BY b.tag ORDER BY together DESC, b.tag LIMIT ?`,
-    ...want,
-    ...want,
-    opts.limit ?? -1,
-  );
+        WHERE a.tag IN (${marks}) AND +m.archived = 0 AND m.superseded_by IS NULL
+        GROUP BY b.tag ORDER BY together DESC, b.tag LIMIT ?`;
 }
 
 export function recordTagMerge(store: Store, alias: string, tag: string, via: string, at: number): boolean {
@@ -151,11 +163,18 @@ export function tagMerges(store: Store): TagMergeRow[] {
 export function subjectsOfKind(store: Store, kind: string, opts: { archived?: boolean } = {}): string[] {
   if (!store.hasColumn("memories", "subject_kind")) return [];
   return ops(store)
-    .all<{ id: string }>(
-      `SELECT id FROM memories WHERE subject_kind = ?${opts.archived === true ? "" : " AND archived = 0"} AND body != '' ORDER BY id`,
-      kind,
-    )
+    .all<{ id: string }>(subjectsOfKindSql(opts.archived === true), kind)
     .map((r) => r.id);
+}
+
+/**
+ * `subjectsOfKind`'s query. PINNED as `tagNeighboursSql` is (2026-11-18):
+ * `+archived` so the planner takes the partial `memories_subject_kind`
+ * (a few cards) and not `memories_birth (archived=?)` (every live memory).
+ * Same rows, same order. Exported for the plan test.
+ */
+export function subjectsOfKindSql(archived: boolean): string {
+  return `SELECT id FROM memories WHERE subject_kind = ?${archived ? "" : " AND +archived = 0"} AND body != '' ORDER BY id`;
 }
 
 // ── belief support ──────────────────────────────────────────────────────────

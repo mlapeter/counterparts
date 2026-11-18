@@ -5085,8 +5085,8 @@ export class Store {
     return wave2.tagsOf(this, memoryId);
   }
 
-  /** The memories carrying a tag, live ones unless `archived`. */
-  memoriesTagged(tag: string, opts?: { archived?: boolean }): string[] {
+  /** The memories carrying a tag, live ones unless `archived`; the first `limit` in id order when given. */
+  memoriesTagged(tag: string, opts?: { archived?: boolean; limit?: number }): string[] {
     return wave2.memoriesTagged(this, tag, opts);
   }
 
