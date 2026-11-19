@@ -271,6 +271,8 @@ describe("closing in words: the follow-ups", () => {
       // The date carries (a quiet item's date reads "Was"); the plan does not.
       expect(c.store.row(next)?.event_date).toBe("2026-11-05");
       expect(c.store.row(next)?.status ?? null).toBeNull();
+      // Said, never silently lost.
+      expect(body["facts"]).toMatchObject({ statusNotCarried: status });
       dayOf(a, "2026-11-08");
       const up = c.comingUp({ scope: SCOPE });
       expect(up.overdue).toEqual([]);
@@ -353,6 +355,41 @@ describe("closing in words: the follow-ups", () => {
     const done = (await s.call("remember", { title: "Kiln serviced early", text: "The engineer came early and serviced the kiln already.", updates: next, status: "done" })).structuredContent;
     expect(done["reminder"]).toMatchObject({ cleared: true });
     expect((await door(s, "coming up"))["total"]).toBe(0);
+  });
+
+  test("a plain reminder dated tomorrow, told today, closed today by unresolved false is spent, not kept as ahead", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Ring the glazier", text: "Ring the glazier about the cracked kiln window.", eventDate: "2026-11-06", remind: "plain" });
+    dayOf(a, "2026-11-05");
+    // Due tomorrow is due the morning its wake is read (`plainDueOn`): told now.
+    expect((await wake(a, "s-told")).all).toContain("Ring the glazier");
+    const body = (await s.call("remember", { title: "Rang the glazier", text: "Rang the glazier; the kiln window is booked in for Monday.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ cleared: true });
+    for (const day of ["2026-11-06", "2026-11-08"]) {
+      dayOf(a, day);
+      const up = c.comingUp({ scope: SCOPE });
+      expect([...up.today, ...up.overdue, ...up.passed].map((x) => x.title).join("|")).not.toContain("glazier");
+      expect((await door(s, "coming up"))["total"]).toBe(0);
+      expect((await wake(a, `s-${day}`)).lane).not.toContain("glazier");
+    }
+  });
+
+  test("a planned plain reminder still ahead keeps its plan and its date when closed in words", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Kiln service", text: "The kiln service engineer comes on the 10th, morning.", eventDate: "2026-11-10", remind: "plain", status: "planned" });
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "Kiln service at 9am", text: "The kiln service engineer comes on the 10th at 9am sharp.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ keptAhead: true });
+    expect(c.store.row(String(body["id"]))?.status).toBe("planned");
+    expect((body["facts"] as Record<string, unknown> | undefined)?.["statusNotCarried"]).toBeUndefined();
   });
 
   test("a repeat's occurrence closed in words, with no title, does not take the reminder's title", async () => {

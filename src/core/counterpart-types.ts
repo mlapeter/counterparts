@@ -557,6 +557,10 @@ export interface DepositFacts {
   readonly inherited: readonly FactField[];
   /** The memory they were taken from, when any was. */
   readonly from: string | null;
+  /** A plan status (`planned`, `proposed`, `asked`) the revised memory had and
+   *  this one did NOT carry, because the write closed it in words (2026-11-19,
+   *  `counterpart-deposit.ts#carryFacts`). Absent otherwise. */
+  readonly planDropped?: MemoryStatus;
 }
 
 export interface DepositContext {
@@ -830,6 +834,10 @@ export interface ReminderCarryPlan {
   /** `unresolved: false` at a one-off plain reminder whose day is still ahead
    *  (2026-11-19): kept, not spent; the reply says how to drop it. */
   readonly keptAhead?: boolean;
+  /** The revised one-off's first day is after tomorrow (the writer's day + 1,
+   *  past `plainDueOn`'s window), whatever its mode (2026-11-19): a close in
+   *  words keeps a plain one (`keptAhead`) and its plan status (`carryFacts`). */
+  readonly ahead?: boolean;
   /**
    * A `done` at a REPEATING reminder (2026-10-20): the memory holding it,
    * whose open occurrence the deposit closes. `from` is null then: nothing is

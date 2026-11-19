@@ -162,6 +162,10 @@ const YEAR_ALONE_NOTE =
  *  wrong year can be caught by the model that wrote it. */
 const DATE_PASSED_NOTE = "That date has already passed — it won't come back as a reminder.";
 
+/** A plan status not carried onto a close in words (2026-11-19, `carryFacts`): said. */
+const PLAN_DROPPED_NOTE =
+  "`unresolved: false` closed it, so the plan status it had was not carried over. If it is still a plan, send status with it.";
+
 /** `unresolved: false` at a one-off reminder still ahead (2026-11-19): kept, and said. */
 const KEPT_AHEAD_NOTE =
   "Its day is still ahead, so `unresolved: false` kept the reminder: it comes back on its day. If it is done or off, send its id with `eventDate: null` (or status \"done\").";
@@ -579,6 +583,7 @@ export function factsEcho(deposit: DepositResult, read: FactsRead): Record<strin
       ...((f?.saidBy ?? null) === null || f === undefined ? {} : { saidBy: f.saidBy }),
       ...((f?.status ?? null) === null || f === undefined ? {} : { status: f.status }),
       ...(f === undefined || f.inherited.length === 0 ? {} : { carriedOver: [...f.inherited], from: f.from }),
+      ...(f?.planDropped === undefined ? {} : { statusNotCarried: f.planDropped, statusNote: PLAN_DROPPED_NOTE }),
       ...dropped,
       ...(read.notes.length === 0 ? {} : { note: read.notes.join(" ") }),
     },
