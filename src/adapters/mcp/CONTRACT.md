@@ -601,7 +601,8 @@ inferred) and `status` (done, planned, proposed, asked), all optional. **[M]** N
 refuses a memory: one that cannot be read is dropped and said in the answer's `facts`, with
 what to send instead (`server-args.ts#readWriteFacts`). **[M]** A revision by `updates` carries
 each over from the memory it revises unless one is sent (null: none); nothing moves off the
-old memory (`counterpart-deposit.ts#carryFacts`). **[A]** The descriptions ask the writer to
+old memory (`counterpart-deposit.ts#carryFacts`), except that a plan status (planned, proposed,
+asked) is not carried onto a revision that sends `unresolved: false` and no date of its own (2026-11-19). **[A]** The descriptions ask the writer to
 resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
 from `eventDate` (a future date to be reminded on). Facts mode reads them (§6f).
 **[M]** A done one dated today or earlier (SO1 step 2, 2026-11-07, lightly held): `status:

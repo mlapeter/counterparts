@@ -798,3 +798,13 @@ repeat. Any weekly reminder hits this.
   `done` does (`counterpart-deposit.ts#carryReminder`): a one-off's date drops, a repeat's open occurrence closes and
   the repeat stays. Before, it carried the date and plain mode over, so the "closed" reminder stayed owed. A quiet dated
   item is not a reminder: its date carries over as before and reads "Was <date>".
+- **Follow-ups (2026-11-19, from #854's re-review):** (1) a close in words carries no plan status: `carryFacts` no
+  longer puts `planned`, `proposed` or `asked` onto a revision that sends `unresolved: false` and no date, so a quiet
+  dated plan closed that way reads "Was", not overdue (`owedOf` owes `planned` and `asked` before it reads the thread
+  flag, and the new row has no flag to read). (2) The close reads the sent `remind` as well as the prior one: a
+  `remind: "plain"` beside the close at a quiet thread spent nothing before and minted an overdue plain reminder. (3) A
+  ONE-OFF plain reminder whose first day is after the writer's day (`ctx.at`, else the store's today) is kept by
+  `unresolved: false`, not spent: the flag is sent on detail-only revisions too, and a silently dropped appointment
+  costs more than one more mention. The reply says `keptAhead` and how to drop it; `status: "done"` and `eventDate:
+  null` still spend it. A repeat is unchanged (its open occurrence closes, or nothing does). (4) A repeat's occurrence
+  closed in words asks for its own title, as a `done` does, instead of carrying the reminder's.
