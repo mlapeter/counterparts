@@ -808,6 +808,8 @@ repeat. Any weekly reminder hits this.
   minted an overdue plain reminder; a `remind: "quiet"` beside the close at a plain one spends it too. (3) A one-off
   reminder still AHEAD is spent by the close as #854 shipped it (a kept one turned a "done early" close into a plain line
   on the day and a standing overdue entry), and the reply says it loudly: `reminder.droppedAhead` with the date, and a
-  note to resend `eventDate` if it still stands. (4) A repeat's occurrence closed in words asks for its own title, as a
+  note to resend `eventDate` and its `remind` if it still stands (none beside a `status: "done"`). (4) A repeat's occurrence closed in words asks for its own title, as a
   `done` does, instead of carrying the reminder's. Known, left: a month or range "ahead" is read by its first day; a
-  repeat closed in words closes the open occurrence or nothing, whatever its next date.
+  repeat closed in words closes the open occurrence or nothing, whatever its next date. Known follow-up, not in #855: a
+  night close (`open-close.ts`) of a quiet dated `planned` or `asked` row writes only the thread flag, and `owedOf` reads
+  status first, so the row would stay owed (overdue once past).

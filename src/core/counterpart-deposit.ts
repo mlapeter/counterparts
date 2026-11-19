@@ -978,7 +978,8 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
   const closedInWords = p.threadSaid === true && p.unresolved === false && aReminder;
   const today = writerDay !== null && isDay(writerDay) ? writerDay : cp.store.today();
   const first = parseCalendarDate(priorDate)?.first ?? null;
-  const droppedAhead = intent.eventDate === "absent" && closedInWords && priorRule === null && first !== null && first > today;
+  // A `done` sent with it is done early, not a guess: no "if it still stands".
+  const droppedAhead = intent.eventDate === "absent" && closedInWords && sentStatus !== "done" && priorRule === null && first !== null && first > today;
   const spent = intent.eventDate === "absent" && (sentStatus === "done" || closedInWords);
   // DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
   // a `done` at a REPEATING reminder, with no date and no `recurring: null`
@@ -1014,7 +1015,7 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
     from,
     inherited,
     ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
-    ...(droppedAhead ? { droppedAhead: priorDate } : {}),
+    ...(droppedAhead ? { droppedAhead: priorDate, droppedRemind: priorMode } : {}),
   };
 }
 
@@ -1121,7 +1122,7 @@ export function moveReminder(cp: Counterpart, carry: ReminderCarryPlan, successo
     remind: carry.proposal.remind,
     recurring: carry.proposal.recurring ?? null,
     ...(carry.recurringDropped === true ? { recurringDropped: true } : {}),
-    ...(carry.droppedAhead === undefined ? {} : { droppedAhead: carry.droppedAhead }),
+    ...(carry.droppedAhead === undefined ? {} : { droppedAhead: carry.droppedAhead, droppedRemind: carry.droppedRemind ?? "quiet" }),
     inherited: carry.inherited,
     moved,
   };

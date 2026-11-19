@@ -167,8 +167,9 @@ const PLAN_DROPPED_NOTE =
   "`unresolved: false` closed it, so the plan status it had was not carried over. If it is still a plan, send status with it.";
 
 /** A one-off reminder still ahead, spent by `unresolved: false` (2026-11-19): said loudly, so a wrong drop can be put back. */
-function droppedAheadNote(date: string): string {
-  return `Dropped the ${date} reminder: \`unresolved: false\` closed it before its day. If it still stands, send this memory's id with \`eventDate: "${date}"\`.`;
+function droppedAheadNote(date: string, remind: "plain" | "quiet", alsoClosed: boolean): string {
+  const chain = alsoClosed ? " (and the earlier memories of it in `alsoClosed`)" : "";
+  return `Dropped the ${date} reminder${chain} before its day: \`unresolved: false\` closed it, and neither this memory nor the one it revises will come back as a reminder. If it still stands, send this memory's id with \`eventDate: "${date}", remind: "${remind}"\`.`;
 }
 
 /**
@@ -298,12 +299,13 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
           ...(carried.alsoClosed === undefined ? {} : { alsoClosed: [...carried.alsoClosed] }),
           // Ahead when spent (2026-11-19): said first, beside the drop.
           ...(carried.droppedAhead === undefined ? {} : { droppedAhead: carried.droppedAhead }),
-          note: [
-            ...(carried.droppedAhead === undefined ? [] : [droppedAheadNote(carried.droppedAhead)]),
-            carried.alsoClosed === undefined
-              ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
-              : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
-          ].join(" "),
+          // One statement: the loud one when it was still ahead, else the plain drop.
+          note:
+            carried.droppedAhead !== undefined
+              ? droppedAheadNote(carried.droppedAhead, carried.droppedRemind ?? "quiet", carried.alsoClosed !== undefined)
+              : carried.alsoClosed === undefined
+                ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
+                : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
         },
       };
     }

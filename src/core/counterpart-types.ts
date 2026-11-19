@@ -793,6 +793,8 @@ export interface DepositReminder {
    *  spent while it was still ahead of the writer's day (2026-11-19): said
    *  loudly in the reply, so a wrong drop can be put back. */
   readonly droppedAhead?: string;
+  /** Beside `droppedAhead`: the mode it had, for the put-back the reply teaches. */
+  readonly droppedRemind?: "plain" | "quiet";
   /** Which fields came from `from` because the author left them out. */
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
@@ -834,6 +836,8 @@ export interface ReminderCarryPlan {
   readonly recurringDropped?: boolean;
   /** The date a close in words spent while still ahead (2026-11-19; `DepositReminder.droppedAhead`). */
   readonly droppedAhead?: string;
+  /** Its mode then (`DepositReminder.droppedRemind`). */
+  readonly droppedRemind?: "plain" | "quiet";
   /**
    * A `done` at a REPEATING reminder (2026-10-20): the memory holding it,
    * whose open occurrence the deposit closes. `from` is null then: nothing is
