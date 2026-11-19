@@ -19,7 +19,7 @@ import {
   REMINDER_SPENT_BY_META,
 } from "./reconsolidation.js";
 import type { SlotOutcome, HeldUpdate } from "./reconsolidation.js";
-import { isDay, occurrenceOnOrAfter } from "./time.js";
+import { isDay, occurrenceOnOrAfter, parseCalendarDate } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
@@ -27,7 +27,7 @@ import { isBeliefRow } from "./recall/index.js";
 import { headOf } from "./recall/standing.js";
 import { noteCloseHintTaken } from "./close-hint.js";
 import { READER_US_META_KEY, isCounterpartIdentityRow, isReaderHostRow, readerSelfOfRow, readerUsOfMeta, readerUsOfRow } from "./reader-note.js";
-import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
+import { PLAN_STATUSES, statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { AboutMark, MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
   DepositContext,
@@ -226,7 +226,7 @@ export async function deposit(
   // settled; the new memory is the reader's own note, and the result says why.
   const readerHeld = ctx.host === undefined ? null : readerIdentityTarget(cp, result.proposal);
   const held = readerHeld === null ? await cp["guardUpdate"](result.proposal, ctx) : null;
-  const carry = cp["carryReminder"](held === null && readerHeld === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null);
+  const carry = cp["carryReminder"](held === null && readerHeld === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null, ctx.at ?? null);
   // v12: the writer's three fields, a revision's carried over where unsent.
   const carried = cp["carryFacts"](carry.proposal, ctx.facts);
   // A READER HOST NEVER WRITES `said_by = self` (CX2 fix round, `reader-note.ts`):
@@ -237,7 +237,10 @@ export async function deposit(
   // write closes a dated memory (2026-10-14).
   // A `done` revision closes too, for the title (review of #493): "Plan: X"
   // on the memory that says X was done reads as still open.
-  const closes = (carry.from !== null && carry.proposal.eventDate === null) || ctx.facts?.status === "done";
+  // A repeat's occurrence closed in words (`unresolved: false`, 2026-11-19)
+  // closes too: "Sweep the kiln room" on the memory that says it was swept
+  // this time reads as the reminder itself, as it does after a `done`.
+  const closes = (carry.from !== null && carry.proposal.eventDate === null) || carry.occurrence !== undefined || ctx.facts?.status === "done";
   const titled = carryTitle(cp, withFacts, closes);
   const titledProposal: Proposal = titled.carried === undefined ? withFacts : { ...withFacts, title: titled.carried.title };
   // v14, lane B: its tags, a revision's carried over when none were sent.
@@ -760,7 +763,17 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
   };
   const occurredOn = pick("occurredOn", sent?.occurredOn, occurredOnOf(row?.occurred_on ?? null));
   const saidBy = pick("saidBy", sent?.saidBy, saidByOf(row?.said_by ?? null));
-  const status = pick("status", sent?.status, statusOf(row?.status ?? null));
+  // A CLOSE IN WORDS CARRIES NO PLAN (2026-11-19, follow-up of #854): a
+  // revision that sends `unresolved: false` and no date of its own says the
+  // thing is closed, so a `planned`, `proposed` or `asked` it would inherit
+  // reads it as still a plan — `owedOf` kept a quiet dated one overdue, and
+  // the handoff's plans and the night's plan checks list it. The status is
+  // not carried; a sent one still wins. A write that sends a new date beside
+  // the flag is a moved plan, and carries as before.
+  const priorStatus = statusOf(row?.status ?? null);
+  const closesInWords = p.threadSaid === true && p.unresolved === false && p.dateIntent?.eventDate !== "set";
+  const keptStatus = closesInWords && priorStatus !== null && PLAN_STATUSES.includes(priorStatus) ? null : priorStatus;
+  const status = pick("status", sent?.status, keptStatus);
   if (occurredOn === null && saidBy === null && status === null && inherited.length === 0) {
     return sent === undefined || Object.keys(sent).length === 0 ? null : { occurredOn, saidBy, status, inherited, from: null };
   }
@@ -919,7 +932,7 @@ export function closeThread(cp: Counterpart, p: Proposal, successor: string): { 
  * a reminder that faded or was put away is not revived onto a live row by a
  * revision that did not ask for it.
  */
-export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemoryStatus | null = null): ReminderCarryPlan {
+export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemoryStatus | null = null, writerDay: string | null = null): ReminderCarryPlan {
   const intent = p.dateIntent;
   const target = p.updates?.method === "declared" ? p.updates.resolved : null;
   const none: ReminderCarryPlan = { proposal: p, from: null, inherited: [] };
@@ -948,7 +961,22 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
   // "closed" reminder stayed owed. Now it reads as a `done`: a one-off's date
   // drops, a repeat's occurrence closes. A quiet dated item keeps its date:
   // there the date is often when the thing happened, and it reads "Was".
-  const closedInWords = p.threadSaid === true && p.unresolved === false && (priorMode === "plain" || priorRule !== null);
+  // The mode is the prior's OR the one sent (2026-11-19, follow-up of #854):
+  // `remind: "plain"` sent beside the close at a quiet thread would otherwise
+  // carry its date over as a plain reminder, overdue from the day it was
+  // closed. A plain reminder sent `remind: "quiet"` still closes, as before.
+  // A ONE-OFF STILL AHEAD IS KEPT (2026-11-19): `unresolved: false` at a
+  // reminder whose first day is after the writer's day is not read as done.
+  // The flag says "not an open thread" as often as "done" (a detail added to
+  // next week's appointment), and a silently lost reminder costs more than
+  // one more mention. Its date carries over, and the reply says how to drop
+  // it (`eventDate: null`, or `status: "done"`, which still spends it).
+  const aReminder = priorMode === "plain" || intent.remind === "plain" || priorRule !== null;
+  const today = writerDay !== null && isDay(writerDay) ? writerDay : cp.store.today();
+  const first = parseCalendarDate(priorDate)?.first ?? null;
+  const ahead = priorRule === null && first !== null && first > today;
+  const closedInWords = p.threadSaid === true && p.unresolved === false && aReminder && !ahead;
+  const keptAhead = p.threadSaid === true && p.unresolved === false && aReminder && ahead && sentStatus !== "done" && intent.eventDate === "absent";
   const spent = intent.eventDate === "absent" && (sentStatus === "done" || closedInWords);
   // DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
   // a `done` at a REPEATING reminder, with no date and no `recurring: null`
@@ -984,6 +1012,7 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
     from,
     inherited,
     ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
+    ...(keptAhead ? { keptAhead: true } : {}),
   };
 }
 
@@ -1090,6 +1119,7 @@ export function moveReminder(cp: Counterpart, carry: ReminderCarryPlan, successo
     remind: carry.proposal.remind,
     recurring: carry.proposal.recurring ?? null,
     ...(carry.recurringDropped === true ? { recurringDropped: true } : {}),
+    ...(carry.keptAhead === true ? { keptAhead: true } : {}),
     inherited: carry.inherited,
     moved,
   };

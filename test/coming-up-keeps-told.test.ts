@@ -251,3 +251,125 @@ describe("a told plain reminder past its day", () => {
     expect(lane).not.toMatch(/overdue/);
   });
 });
+
+/**
+ * THE FOLLOW-UPS OF #854 (2026-11-19), through the same doors: MCP `remember`,
+ * then `comingUp`, the `coming up` and `still open` handles and the next wake.
+ */
+describe("closing in words: the follow-ups", () => {
+  for (const status of ["planned", "asked"] as const)
+    test(`a quiet dated ${status} item closed by unresolved false carries no plan: Was, never overdue`, async () => {
+      const a = adapter();
+      const s = server(a);
+      const c = a.counterpart;
+      dayOf(a, "2026-11-04");
+      const id = await remember(s, { title: "Fit the kiln shelf", text: "Fit the new kiln shelf on the 5th, before the firing.", eventDate: "2026-11-05", status });
+      dayOf(a, "2026-11-06");
+      const body = (await s.call("remember", { title: "Fitted the kiln shelf", text: "Fitted the kiln shelf; it sits level and the firing can go ahead.", updates: id, unresolved: false })).structuredContent;
+      expect(body["stored"]).toBe(true);
+      const next = String(body["id"]);
+      // The date carries (a quiet item's date reads "Was"); the plan does not.
+      expect(c.store.row(next)?.event_date).toBe("2026-11-05");
+      expect(c.store.row(next)?.status ?? null).toBeNull();
+      dayOf(a, "2026-11-08");
+      const up = c.comingUp({ scope: SCOPE });
+      expect(up.overdue).toEqual([]);
+      expect(up.passed.map((x) => x.id)).toEqual([next]);
+      const d = await door(s, "coming up");
+      expect(idsOf(d["overdue"])).toEqual([]);
+      const open = ((await door(s, "still open"))["comingUp"] ?? []) as { id: string; overdue?: boolean }[];
+      expect(open.filter((x) => x.overdue === true).map((x) => x.id)).toEqual([]);
+      const lane = (await wake(a, "s-next")).lane;
+      expect(lane).toContain(`- Was 11-05 · `);
+      expect(lane).not.toMatch(/overdue/);
+    });
+
+  test("a planned item whose close sends its own status keeps it; one that moves the date keeps the plan", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Fit the kiln shelf", text: "Fit the new kiln shelf on the 5th, before the firing.", eventDate: "2026-11-05", status: "planned" });
+    dayOf(a, "2026-11-05");
+    const moved = (await s.call("remember", { title: "Fit the kiln shelf on the 9th", text: "The kiln shelf fitting moved to the 9th; the bracket is late.", updates: id, unresolved: false, eventDate: "2026-11-09" })).structuredContent;
+    expect(moved["stored"]).toBe(true);
+    expect(c.store.row(String(moved["id"]))?.status).toBe("planned");
+    const sent = (await s.call("remember", { title: "Kiln shelf still planned", text: "The kiln shelf is still planned for the 9th, confirmed with the fitter.", updates: String(moved["id"]), unresolved: false, status: "planned" })).structuredContent;
+    expect(sent["stored"]).toBe(true);
+    expect(c.store.row(String(sent["id"]))?.status).toBe("planned");
+  });
+
+  test("remind plain sent beside the close at a quiet thread spends it, never a new overdue reminder", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Hear back from the supplier", text: "Hear back from the supplier about the kiln part.", eventDate: "2026-11-05", unresolved: true });
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "The supplier answered", text: "The supplier answered: the kiln part ships on Friday.", updates: id, unresolved: false, remind: "plain" })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ cleared: true });
+    expect(c.store.row(String(body["id"]))?.event_date).toBeNull();
+    dayOf(a, "2026-11-08");
+    const up = c.comingUp({ scope: SCOPE });
+    expect([...up.today, ...up.overdue, ...up.passed, ...up.later].map((x) => x.title).join("|")).not.toContain("supplier");
+    expect((await door(s, "coming up"))["total"]).toBe(0);
+    expect((await wake(a, "s-next")).lane).not.toMatch(/overdue/);
+  });
+
+  test("a plain reminder sent remind quiet beside the close still closes", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    const id = await told(a, s);
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "Rang the glazier", text: "Rang the glazier; the kiln window is booked in for Monday.", updates: id, unresolved: false, remind: "quiet" })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ cleared: true });
+    dayOf(a, "2026-11-07");
+    expect((await door(s, "coming up"))["total"]).toBe(0);
+    expect(c.comingUp({ scope: SCOPE }).overdue).toEqual([]);
+  });
+
+  test("a one-off plain reminder still ahead is kept by unresolved false, and the reply says how to drop it", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Kiln service", text: "The kiln service engineer comes on the 10th, morning.", eventDate: "2026-11-10", remind: "plain" });
+    dayOf(a, "2026-11-06");
+    const body = (await s.call("remember", { title: "Kiln service at 9am", text: "The kiln service engineer comes on the 10th at 9am sharp.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    const next = String(body["id"]);
+    expect(body["reminder"]).toMatchObject({ eventDate: "2026-11-10", remind: "plain", keptAhead: true });
+    expect(String((body["reminder"] as { note: string }).note)).toContain("eventDate: null");
+    expect(c.store.row(next)?.event_date).toBe("2026-11-10");
+    // On its day it comes up, in the lookups and the wake.
+    dayOf(a, "2026-11-10");
+    expect(c.comingUp({ scope: SCOPE }).today.map((x) => x.id)).toEqual([next]);
+    expect(idsOf((await door(s, "coming up"))["today"])).toEqual([next]);
+    expect((await wake(a, "s-day")).all).toContain("Kiln service at 9am");
+    // `status: "done"` still spends one ahead (done early), as before.
+    const done = (await s.call("remember", { title: "Kiln serviced early", text: "The engineer came early and serviced the kiln already.", updates: next, status: "done" })).structuredContent;
+    expect(done["reminder"]).toMatchObject({ cleared: true });
+    expect((await door(s, "coming up"))["total"]).toBe(0);
+  });
+
+  test("a repeat's occurrence closed in words, with no title, does not take the reminder's title", async () => {
+    const a = adapter();
+    const s = server(a);
+    const c = a.counterpart;
+    dayOf(a, "2026-11-04");
+    const id = await remember(s, { title: "Sweep the kiln room", text: "Sweep the kiln room every Thursday.", eventDate: "2026-11-05", recurring: "weekly", remind: "plain" });
+    dayOf(a, "2026-11-05");
+    const body = (await s.call("remember", { text: "Swept the kiln room this Thursday, all clean now.", updates: id, unresolved: false })).structuredContent;
+    expect(body["stored"]).toBe(true);
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true });
+    expect(c.store.row(String(body["id"]))?.title ?? null).not.toBe("Sweep the kiln room");
+    expect(body["titleCarried"]).toBeUndefined();
+    expect(String(body["titleAsked"])).toContain("reminder's title would read as the reminder itself");
+    // The reminder keeps its own title, date and repeat.
+    expect(c.store.row(id)?.title).toBe("Sweep the kiln room");
+    expect(c.store.row(id)?.event_date).toBe("2026-11-05");
+  });
+});

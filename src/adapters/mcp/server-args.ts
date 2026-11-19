@@ -162,6 +162,10 @@ const YEAR_ALONE_NOTE =
  *  wrong year can be caught by the model that wrote it. */
 const DATE_PASSED_NOTE = "That date has already passed — it won't come back as a reminder.";
 
+/** `unresolved: false` at a one-off reminder still ahead (2026-11-19): kept, and said. */
+const KEPT_AHEAD_NOTE =
+  "Its day is still ahead, so `unresolved: false` kept the reminder: it comes back on its day. If it is done or off, send its id with `eventDate: null` (or status \"done\").";
+
 /**
  * `eventDate` and `remind` off a `remember` or a `session_end` entry, CHECKED
  * before anything mints: the date by `time.ts` (the one module that reads
@@ -307,6 +311,7 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
         ...unmoved,
         ...dateNote(carried.eventDate, today, carried.recurring),
         ...(ruleDropped ? { note: RECURRING_DROPPED_NOTE } : {}),
+        ...(carried.keptAhead === true ? { keptAhead: true, note: KEPT_AHEAD_NOTE } : {}),
       },
     };
   }
