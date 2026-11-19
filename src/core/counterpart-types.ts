@@ -789,9 +789,10 @@ export interface DepositReminder {
   /** A repeat — sent or carried — that the new date cannot take (only a day
    *  repeats), so it was dropped: said in the answer, never silently lost. */
   readonly recurringDropped?: boolean;
-  /** `unresolved: false` at a one-off plain reminder still ahead (2026-11-19):
-   *  its date was kept, not spent (`carryReminder`). */
-  readonly keptAhead?: boolean;
+  /** The date of a one-off reminder a close in words (`unresolved: false`)
+   *  spent while it was still ahead of the writer's day (2026-11-19): said
+   *  loudly in the reply, so a wrong drop can be put back. */
+  readonly droppedAhead?: string;
   /** Which fields came from `from` because the author left them out. */
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
@@ -831,13 +832,8 @@ export interface ReminderCarryPlan {
   readonly from: string | null;
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   readonly recurringDropped?: boolean;
-  /** `unresolved: false` at a one-off plain reminder whose day is still ahead
-   *  (2026-11-19): kept, not spent; the reply says how to drop it. */
-  readonly keptAhead?: boolean;
-  /** The revised one-off's first day is after tomorrow (the writer's day + 1,
-   *  past `plainDueOn`'s window), whatever its mode (2026-11-19): a close in
-   *  words keeps a plain one (`keptAhead`) and its plan status (`carryFacts`). */
-  readonly ahead?: boolean;
+  /** The date a close in words spent while still ahead (2026-11-19; `DepositReminder.droppedAhead`). */
+  readonly droppedAhead?: string;
   /**
    * A `done` at a REPEATING reminder (2026-10-20): the memory holding it,
    * whose open occurrence the deposit closes. `from` is null then: nothing is

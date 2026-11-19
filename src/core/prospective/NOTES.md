@@ -798,15 +798,16 @@ repeat. Any weekly reminder hits this.
   `done` does (`counterpart-deposit.ts#carryReminder`): a one-off's date drops, a repeat's open occurrence closes and
   the repeat stays. Before, it carried the date and plain mode over, so the "closed" reminder stayed owed. A quiet dated
   item is not a reminder: its date carries over as before and reads "Was <date>".
-- **Follow-ups (2026-11-19, from #854's re-review):** (1) a close in words carries no plan status: `carryFacts` no
-  longer puts `planned`, `proposed` or `asked` onto a revision that sends `unresolved: false` and no date, so a quiet
-  dated plan closed that way reads "Was", not overdue; the reply says `facts.statusNotCarried`. A plan whose one-off date
-  is past tomorrow keeps its status, as its reminder is kept (`owedOf` owes `planned` and `asked` before it reads the thread
-  flag, and the new row has no flag to read). (2) The close reads the sent `remind` as well as the prior one: a
-  `remind: "plain"` beside the close at a quiet thread spent nothing before and minted an overdue plain reminder. (3) A
-  ONE-OFF plain reminder whose first day is after TOMORROW (the writer's day, `ctx.at` or the store's, + 1: a plain one
-  dated tomorrow is already due and told, `plainDueOn`) is kept by `unresolved: false`, not spent: the flag may be sent
-  on detail-only revisions too (an assumption from the tool's wording, not measured), and a silently dropped appointment
-  costs more than one more mention. The reply says `keptAhead` and how to drop it; `status: "done"` and `eventDate:
-  null` still spend it. A repeat is unchanged (its open occurrence closes, or nothing does). (4) A repeat's occurrence
-  closed in words asks for its own title, as a `done` does, instead of carrying the reminder's.
+- **Follow-ups (2026-11-19, from #854's re-review; reshaped after #855's review):** (1) a close in words carries no
+  plan status at a DATED memory: `carryFacts` no longer puts `planned`, `proposed` or `asked` onto a revision that sends
+  `unresolved: false` and no date, when the memory it revises held a date (past or ahead, quiet or plain), so a quiet
+  dated plan closed that way reads "Was", not overdue (`owedOf` owes `planned` and `asked` before it reads the thread
+  flag, and the new row has no flag to read). The reply says `facts.statusNotCarried`. An undated plan keeps its status;
+  a sent status wins; a new date sent beside the flag is a moved plan and keeps it. (2) The close reads the sent
+  `remind` as well as the prior one: a `remind: "plain"` beside the close at a quiet thread spent nothing before and
+  minted an overdue plain reminder; a `remind: "quiet"` beside the close at a plain one spends it too. (3) A one-off
+  reminder still AHEAD is spent by the close as #854 shipped it (a kept one turned a "done early" close into a plain line
+  on the day and a standing overdue entry), and the reply says it loudly: `reminder.droppedAhead` with the date, and a
+  note to resend `eventDate` if it still stands. (4) A repeat's occurrence closed in words asks for its own title, as a
+  `done` does, instead of carrying the reminder's. Known, left: a month or range "ahead" is read by its first day; a
+  repeat closed in words closes the open occurrence or nothing, whatever its next date.

@@ -19,7 +19,7 @@ import {
   REMINDER_SPENT_BY_META,
 } from "./reconsolidation.js";
 import type { SlotOutcome, HeldUpdate } from "./reconsolidation.js";
-import { addDays, isDay, occurrenceOnOrAfter, parseCalendarDate } from "./time.js";
+import { isDay, occurrenceOnOrAfter, parseCalendarDate } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
@@ -228,7 +228,8 @@ export async function deposit(
   const held = readerHeld === null ? await cp["guardUpdate"](result.proposal, ctx) : null;
   const carry = cp["carryReminder"](held === null && readerHeld === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null, ctx.at ?? null);
   // v12: the writer's three fields, a revision's carried over where unsent.
-  const carried = cp["carryFacts"](carry.proposal, ctx.facts, carry.ahead === true);
+  // A plan status is dropped by a close in words only at a DATED memory (its reminder, or a repeat's occurrence).
+  const carried = cp["carryFacts"](carry.proposal, ctx.facts, carry.from !== null || carry.occurrence !== undefined);
   // A READER HOST NEVER WRITES `said_by = self` (CX2 fix round, `reader-note.ts`):
   // in this store `self` is the counterpart, so not even one a revision would carry.
   const facts = carried !== null && ctx.host !== undefined && carried.saidBy === "self" ? { ...carried, saidBy: null } : carried;
@@ -747,7 +748,7 @@ export function carryTitle(cp: Counterpart, p: Proposal, closes: boolean): { car
  * keeps its own three, which describe its words truly. Null when nothing
  * was sent and nothing carried.
  */
-export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undefined, dateAhead = false): DepositFacts | null {
+export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undefined, targetDated = false): DepositFacts | null {
   const target = p.updates?.method === "declared" ? p.updates.resolved : null;
   let row: MemoryRow | undefined;
   try {
@@ -769,12 +770,11 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
   // reads it as still a plan — `owedOf` kept a quiet dated one overdue, and
   // the handoff's plans and the night's plan checks list it. The status is
   // not carried, and the reply says so (`planDropped`); a sent one still
-  // wins. Kept, as the reminder is (`carryReminder`'s `ahead`): a write that
-  // sends a new date beside the flag (a moved plan), and a one-off plan whose
-  // day is still past tomorrow (the flag is likely "not a thread" there, an
-  // assumption read from the tool's wording, not measured).
+  // wins. Only at a DATED memory (`targetDated`), past or ahead, quiet or
+  // plain: an undated plan revised with the flag keeps its status. A write
+  // that sends a new date beside the flag is a moved plan, and keeps it.
   const priorStatus = statusOf(row?.status ?? null);
-  const closesInWords = p.threadSaid === true && p.unresolved === false && p.dateIntent?.eventDate !== "set" && !dateAhead;
+  const closesInWords = p.threadSaid === true && p.unresolved === false && p.dateIntent?.eventDate !== "set" && targetDated;
   const planDropped = sent?.status === undefined && closesInWords && priorStatus !== null && PLAN_STATUSES.includes(priorStatus) ? priorStatus : null;
   const status = pick("status", sent?.status, planDropped === null ? priorStatus : null);
   const dropped = planDropped === null ? {} : { planDropped, from: target as string };
@@ -969,21 +969,16 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
   // `remind: "plain"` sent beside the close at a quiet thread would otherwise
   // carry its date over as a plain reminder, overdue from the day it was
   // closed. A plain reminder sent `remind: "quiet"` still closes, as before.
-  // A ONE-OFF STILL AHEAD IS KEPT (2026-11-19): `unresolved: false` at a
-  // reminder whose first day is after TOMORROW (the writer's day + 1) is not
-  // read as done. The flag may say "not an open thread" there (a detail added
-  // to next week's appointment) — an assumption from the tool's wording, not
-  // measured — and a silently lost reminder costs more than one more mention.
-  // Its date carries over, and the reply says how to drop it (`eventDate:
-  // null`, or `status: "done"`, which still spends it). Tomorrow is not ahead:
-  // a plain one dated tomorrow is already due and told (`plainDueOn`), and
-  // kept it would read overdue in the lookups while the wake stays quiet.
+  // A ONE-OFF STILL AHEAD IS SPENT TOO, AND SAID LOUDLY (2026-11-19,
+  // coordinator's call on #855's review): "done early" closed in words is the
+  // close the tools teach, and keeping the date would fire a plain line on a
+  // done thing and leave it overdue. A date wrongly dropped is said at write
+  // time (`droppedAhead`, the reply's note) and can be put back.
   const aReminder = priorMode === "plain" || intent.remind === "plain" || priorRule !== null;
+  const closedInWords = p.threadSaid === true && p.unresolved === false && aReminder;
   const today = writerDay !== null && isDay(writerDay) ? writerDay : cp.store.today();
   const first = parseCalendarDate(priorDate)?.first ?? null;
-  const ahead = priorRule === null && first !== null && first > addDays(today, 1);
-  const closedInWords = p.threadSaid === true && p.unresolved === false && aReminder && !ahead;
-  const keptAhead = p.threadSaid === true && p.unresolved === false && aReminder && ahead && sentStatus !== "done" && intent.eventDate === "absent";
+  const droppedAhead = intent.eventDate === "absent" && closedInWords && priorRule === null && first !== null && first > today;
   const spent = intent.eventDate === "absent" && (sentStatus === "done" || closedInWords);
   // DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
   // a `done` at a REPEATING reminder, with no date and no `recurring: null`
@@ -1019,8 +1014,7 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
     from,
     inherited,
     ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
-    ...(keptAhead ? { keptAhead: true } : {}),
-    ...(ahead ? { ahead: true } : {}),
+    ...(droppedAhead ? { droppedAhead: priorDate } : {}),
   };
 }
 
@@ -1127,7 +1121,7 @@ export function moveReminder(cp: Counterpart, carry: ReminderCarryPlan, successo
     remind: carry.proposal.remind,
     recurring: carry.proposal.recurring ?? null,
     ...(carry.recurringDropped === true ? { recurringDropped: true } : {}),
-    ...(carry.keptAhead === true ? { keptAhead: true } : {}),
+    ...(carry.droppedAhead === undefined ? {} : { droppedAhead: carry.droppedAhead }),
     inherited: carry.inherited,
     moved,
   };

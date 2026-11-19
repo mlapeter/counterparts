@@ -6328,8 +6328,8 @@ export class Counterpart {
     return depositPart.carryAbout(this, p, sent);
   }
 
-  private carryFacts(p: Proposal, sent: SentFacts | undefined, dateAhead?: boolean): DepositFacts | null {
-    return depositPart.carryFacts(this, p, sent, dateAhead);
+  private carryFacts(p: Proposal, sent: SentFacts | undefined, targetDated?: boolean): DepositFacts | null {
+    return depositPart.carryFacts(this, p, sent, targetDated);
   }
 
   private closeThread(

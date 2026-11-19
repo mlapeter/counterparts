@@ -166,9 +166,10 @@ const DATE_PASSED_NOTE = "That date has already passed — it won't come back as
 const PLAN_DROPPED_NOTE =
   "`unresolved: false` closed it, so the plan status it had was not carried over. If it is still a plan, send status with it.";
 
-/** `unresolved: false` at a one-off reminder still ahead (2026-11-19): kept, and said. */
-const KEPT_AHEAD_NOTE =
-  "Its day is still ahead, so `unresolved: false` kept the reminder: it comes back on its day. If it is done or off, send its id with `eventDate: null` (or status \"done\").";
+/** A one-off reminder still ahead, spent by `unresolved: false` (2026-11-19): said loudly, so a wrong drop can be put back. */
+function droppedAheadNote(date: string): string {
+  return `Dropped the ${date} reminder: \`unresolved: false\` closed it before its day. If it still stands, send this memory's id with \`eventDate: "${date}"\`.`;
+}
 
 /**
  * `eventDate` and `remind` off a `remember` or a `session_end` entry, CHECKED
@@ -295,16 +296,25 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
           ...unmoved,
           // The rest of its chain, closed with it (2026-10-14).
           ...(carried.alsoClosed === undefined ? {} : { alsoClosed: [...carried.alsoClosed] }),
-          note:
+          // Ahead when spent (2026-11-19): said first, beside the drop.
+          ...(carried.droppedAhead === undefined ? {} : { droppedAhead: carried.droppedAhead }),
+          note: [
+            ...(carried.droppedAhead === undefined ? [] : [droppedAheadNote(carried.droppedAhead)]),
             carried.alsoClosed === undefined
               ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
               : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
+          ].join(" "),
         },
       };
     }
     // A repeat — sent or carried — that the new date cannot take (a month or a
     // range does not repeat) is SAID, never silently lost.
     const ruleDropped = carried.recurringDropped === true;
+    // Notes are JOINED, never one over another (review of #855).
+    const dated = dateNote(carried.eventDate, today, carried.recurring);
+    const notes = [...(typeof dated["note"] === "string" ? [dated["note"]] : []), ...(ruleDropped ? [RECURRING_DROPPED_NOTE] : [])];
+    const { note: _dn, ...datedRest } = dated;
+    void _dn;
     return {
       reminder: {
         eventDate: carried.eventDate,
@@ -313,9 +323,8 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
         from: carried.from,
         ...(carried.inherited.length > 0 ? { carriedOver: [...carried.inherited] } : {}),
         ...unmoved,
-        ...dateNote(carried.eventDate, today, carried.recurring),
-        ...(ruleDropped ? { note: RECURRING_DROPPED_NOTE } : {}),
-        ...(carried.keptAhead === true ? { keptAhead: true, note: KEPT_AHEAD_NOTE } : {}),
+        ...datedRest,
+        ...(notes.length === 0 ? {} : { note: notes.join(" ") }),
       },
     };
   }
