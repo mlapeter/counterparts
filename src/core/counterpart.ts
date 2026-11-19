@@ -6328,8 +6328,8 @@ export class Counterpart {
     return depositPart.carryAbout(this, p, sent);
   }
 
-  private carryFacts(p: Proposal, sent: SentFacts | undefined): DepositFacts | null {
-    return depositPart.carryFacts(this, p, sent);
+  private carryFacts(p: Proposal, sent: SentFacts | undefined, targetDated?: boolean): DepositFacts | null {
+    return depositPart.carryFacts(this, p, sent, targetDated);
   }
 
   private closeThread(
@@ -6339,8 +6339,8 @@ export class Counterpart {
     return depositPart.closeThread(this, p, successor);
   }
 
-  private carryReminder(p: Proposal, sentStatus?: MemoryStatus | null): ReminderCarryPlan {
-    return depositPart.carryReminder(this, p, sentStatus);
+  private carryReminder(p: Proposal, sentStatus?: MemoryStatus | null, writerDay?: string | null): ReminderCarryPlan {
+    return depositPart.carryReminder(this, p, sentStatus, writerDay);
   }
 
   private reminderHolder(target: string): string | null {

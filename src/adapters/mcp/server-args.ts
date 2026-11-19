@@ -162,6 +162,16 @@ const YEAR_ALONE_NOTE =
  *  wrong year can be caught by the model that wrote it. */
 const DATE_PASSED_NOTE = "That date has already passed — it won't come back as a reminder.";
 
+/** A plan status not carried onto a close in words (2026-11-19, `carryFacts`): said. */
+const PLAN_DROPPED_NOTE =
+  "`unresolved: false` closed it, so the plan status it had was not carried over. If it is still a plan, send status with it.";
+
+/** A one-off reminder still ahead, spent by `unresolved: false` (2026-11-19): said loudly, so a wrong drop can be put back. */
+function droppedAheadNote(date: string, remind: "plain" | "quiet", alsoClosed: boolean): string {
+  const chain = alsoClosed ? " (and the earlier memories of it in `alsoClosed`)" : "";
+  return `Dropped the ${date} reminder${chain} before its day: \`unresolved: false\` closed it, and neither this memory nor the one it revises will come back as a reminder. If it still stands, send this memory's id with \`eventDate: "${date}", remind: "${remind}"\`.`;
+}
+
 /**
  * `eventDate` and `remind` off a `remember` or a `session_end` entry, CHECKED
  * before anything mints: the date by `time.ts` (the one module that reads
@@ -287,16 +297,26 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
           ...unmoved,
           // The rest of its chain, closed with it (2026-10-14).
           ...(carried.alsoClosed === undefined ? {} : { alsoClosed: [...carried.alsoClosed] }),
+          // Ahead when spent (2026-11-19): said first, beside the drop.
+          ...(carried.droppedAhead === undefined ? {} : { droppedAhead: carried.droppedAhead }),
+          // One statement: the loud one when it was still ahead, else the plain drop.
           note:
-            carried.alsoClosed === undefined
-              ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
-              : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
+            carried.droppedAhead !== undefined
+              ? droppedAheadNote(carried.droppedAhead, carried.droppedRemind ?? "quiet", carried.alsoClosed !== undefined)
+              : carried.alsoClosed === undefined
+                ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
+                : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
         },
       };
     }
     // A repeat — sent or carried — that the new date cannot take (a month or a
     // range does not repeat) is SAID, never silently lost.
     const ruleDropped = carried.recurringDropped === true;
+    // Notes are JOINED, never one over another (review of #855).
+    const dated = dateNote(carried.eventDate, today, carried.recurring);
+    const notes = [...(typeof dated["note"] === "string" ? [dated["note"]] : []), ...(ruleDropped ? [RECURRING_DROPPED_NOTE] : [])];
+    const { note: _dn, ...datedRest } = dated;
+    void _dn;
     return {
       reminder: {
         eventDate: carried.eventDate,
@@ -305,8 +325,8 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
         from: carried.from,
         ...(carried.inherited.length > 0 ? { carriedOver: [...carried.inherited] } : {}),
         ...unmoved,
-        ...dateNote(carried.eventDate, today, carried.recurring),
-        ...(ruleDropped ? { note: RECURRING_DROPPED_NOTE } : {}),
+        ...datedRest,
+        ...(notes.length === 0 ? {} : { note: notes.join(" ") }),
       },
     };
   }
@@ -574,6 +594,7 @@ export function factsEcho(deposit: DepositResult, read: FactsRead): Record<strin
       ...((f?.saidBy ?? null) === null || f === undefined ? {} : { saidBy: f.saidBy }),
       ...((f?.status ?? null) === null || f === undefined ? {} : { status: f.status }),
       ...(f === undefined || f.inherited.length === 0 ? {} : { carriedOver: [...f.inherited], from: f.from }),
+      ...(f?.planDropped === undefined ? {} : { statusNotCarried: f.planDropped, statusNote: PLAN_DROPPED_NOTE }),
       ...dropped,
       ...(read.notes.length === 0 ? {} : { note: read.notes.join(" ") }),
     },

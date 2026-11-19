@@ -557,6 +557,10 @@ export interface DepositFacts {
   readonly inherited: readonly FactField[];
   /** The memory they were taken from, when any was. */
   readonly from: string | null;
+  /** A plan status (`planned`, `proposed`, `asked`) the revised memory had and
+   *  this one did NOT carry, because the write closed it in words (2026-11-19,
+   *  `counterpart-deposit.ts#carryFacts`). Absent otherwise. */
+  readonly planDropped?: MemoryStatus;
 }
 
 export interface DepositContext {
@@ -785,6 +789,12 @@ export interface DepositReminder {
   /** A repeat — sent or carried — that the new date cannot take (only a day
    *  repeats), so it was dropped: said in the answer, never silently lost. */
   readonly recurringDropped?: boolean;
+  /** The date of a one-off reminder a close in words (`unresolved: false`)
+   *  spent while it was still ahead of the writer's day (2026-11-19): said
+   *  loudly in the reply, so a wrong drop can be put back. */
+  readonly droppedAhead?: string;
+  /** Beside `droppedAhead`: the mode it had, for the put-back the reply teaches. */
+  readonly droppedRemind?: "plain" | "quiet";
   /** Which fields came from `from` because the author left them out. */
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
@@ -824,6 +834,10 @@ export interface ReminderCarryPlan {
   readonly from: string | null;
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   readonly recurringDropped?: boolean;
+  /** The date a close in words spent while still ahead (2026-11-19; `DepositReminder.droppedAhead`). */
+  readonly droppedAhead?: string;
+  /** Its mode then (`DepositReminder.droppedRemind`). */
+  readonly droppedRemind?: "plain" | "quiet";
   /**
    * A `done` at a REPEATING reminder (2026-10-20): the memory holding it,
    * whose open occurrence the deposit closes. `from` is null then: nothing is
