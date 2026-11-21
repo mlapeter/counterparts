@@ -4783,6 +4783,11 @@ export class Store {
     return memoryReads.craftCandidates(this, limit, sinceDay);
   }
 
+  /** Every standing skill memory's id and words, earliest born first (`reads-memories.ts#standingSkills`). READ-ONLY. */
+  standingSkills(): { id: string; body: string }[] {
+    return memoryReads.standingSkills(this);
+  }
+
   /**
    * WHAT A SESSION WROTE IN ONE DIRECTORY AFTER A MOMENT THAT MAY BE A PLAN
    * (2026-10-09, the handoff's "since" line): live memories a session wrote

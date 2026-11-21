@@ -185,6 +185,21 @@ export function workCandidates(store: Store, scope: string, limit: number): stri
     .map((r) => r.id);
 }
 
+/**
+ * Every standing skill memory's id and words, earliest born first (ties by
+ * id): what a nightly write's set-down reads so a practice moved to a skill
+ * twice names the one that stands rather than minting its twin (2026-11-20).
+ * Archived, replaced and tombstoned rows are not here; the caller drops the
+ * deny-list.
+ */
+export function standingSkills(store: Store): { id: string; body: string }[] {
+  return store["ops"].all<{ id: string; body: string }>(
+    `SELECT id, body FROM memories
+        WHERE type = 'memory' AND kind = 'skill' AND archived = 0 AND superseded_by IS NULL AND body != ''
+        ORDER BY birth_day, id`,
+  );
+}
+
 export function craftCandidates(store: Store, limit: number, sinceDay: number): string[] {
   if (!Number.isFinite(sinceDay)) return [];
   return store["ops"]

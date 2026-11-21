@@ -34,6 +34,7 @@
  * Every number is in `tunables.ts#SET_DOWN_LIMITS`.
  */
 import { scanSecrets } from "../encode/secrets.js";
+import { isReaderHostRow } from "../store/index.js";
 import type { Store } from "../store/index.js";
 import { stemTerm } from "../store/stem.js";
 import { monthDay } from "../time.js";
@@ -480,6 +481,11 @@ export interface SetDownRecord {
   readonly skills: readonly string[];
 }
 
+/** A skill's words as the remember door tells a repeat (`remember/proposals.ts#normalize`). Pure. */
+function skillKey(words: string): string {
+  return words.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 /**
  * RECORD A NIGHTLY WRITE'S SET-DOWNS: the diff of `before` and `after`, a
  * memory per line set down (at most `MAX_PER_WRITE`), the set-downs this write
@@ -544,12 +550,38 @@ export function recordSetDowns(
   // memory, unmarked (an unmarked skill is craft and reaches every folder),
   // which recall finds when the work calls for it. Null when there are no
   // words left to keep.
+  //
+  // ONE SKILL PER PRACTICE (2026-11-20, found on the live store): two lines
+  // set down with the same skill words in one write made two skill memories,
+  // the next night's merge archived one, and its set-down named the archived
+  // id. Words that are the same as a standing skill's, by the remember door's
+  // identity (`remember/proposals.ts#normalize`: trimmed, spaces folded, case
+  // folded), name that skill instead: the earliest born, which is the one the
+  // merge keeps; never one on the deny-list, nor a reader host's note (the
+  // merge never folds across that boundary). Nothing is changed on it.
   const skills: string[] = [];
+  let standing: Map<string, string> | null = null;
+  const standingOf = (): Map<string, string> => {
+    if (standing !== null) return standing;
+    const denied = new Set(store.deniedIds());
+    standing = new Map();
+    for (const s of store.standingSkills()) {
+      const key = skillKey(s.body);
+      if (!denied.has(s.id) && !standing.has(key) && !isReaderHostRow(store.row(s.id))) standing.set(key, s.id);
+    }
+    return standing;
+  };
   const skillOf = (v: SetDownVerdict): string | null => {
     if (v.outcome !== "named" || v.skill === undefined) return null;
     const scanned = scanSecrets(v.skill, "body");
     if (scanned.emptyAfterRedaction) return null;
     const words = clipWords(scanned.redacted, STORY.SKILL_CHARS);
+    const key = skillKey(words);
+    const known = standingOf().get(key);
+    if (known !== undefined) {
+      if (!skills.includes(known)) skills.push(known);
+      return known;
+    }
     const id = store.put({
       type: "memory",
       kind: "skill",
@@ -561,6 +593,7 @@ export function recordSetDowns(
       physics: { birthDay: input.day, lastUsedDay: input.day },
       ...(input.model === undefined ? {} : { model: input.model }),
     });
+    standingOf().set(key, id);
     skills.push(id);
     return id;
   };

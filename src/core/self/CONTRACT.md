@@ -919,7 +919,9 @@ by strength plus a head start for me/us (own-form only, `PAGE_STORY_LIMITS.HEAD_
 order moves, the physics do not. **[M]** A memory tagged `story nominated` (`remember`'s
 `story: true`, every store) is shown first and marked, at most `NOMINATED_FIRST` a day; the
 writer still decides, and nothing keeps an untaken one. **[M]** A named set-down with `skill`
-becomes a `kind: skill` memory, and the set-down's facts and body name it.
+becomes a `kind: skill` memory, and the set-down's facts and body name it; words a standing
+skill memory already has (the remember door's repeat: case and spacing folded) name that one
+instead, so one write never mints twins (2026-11-20).
 
 ## 6. Scars honored
 

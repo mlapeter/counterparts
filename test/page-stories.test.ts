@@ -101,12 +101,13 @@ const NOMINATED = "Wren and I found the speckled glaze by accident, mixing two l
  * (`DAYS_END_MEMORIES`), each a little stronger than one memory about me;
  * and one moment nominated as a story through the MCP door.
  */
-async function yesterday(own: boolean): Promise<{ me: string; nominated: string; work: string[] }> {
+async function yesterday(own: boolean, page = PAGE, skill?: string): Promise<{ me: string; nominated: string; work: string[]; skill: string | null }> {
   const c = open(() => Date.now() - DAY_MS);
   try {
     if (own) c.store.setMeta(PAGE_FORM_KEY, "own");
-    c.revisePage(PAGE, { reason: "a first page", by: "owner" });
+    c.revisePage(page, { reason: "a first page", by: "owner" });
     const day = c.store.livedDay();
+    const had = skill === undefined ? null : c.store.put({ type: "memory", kind: "skill", body: skill, physics: { birthDay: day, lastUsedDay: day } });
     const work: string[] = [];
     for (let i = 0; i < SELF_TUNABLES.DAYS_END_MEMORIES + 2; i += 1) {
       work.push(c.store.put({ type: "memory", kind: "fact", body: WORK(i), salience: { relevance: 0.6, emotional: 0.25, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } }));
@@ -121,7 +122,7 @@ async function yesterday(own: boolean): Promise<{ me: string; nominated: string;
     const nominated = String(r["id"]);
     expect(r["story"]).toMatchObject({ nominated: true });
     expect(c.store.tagsOf(nominated).map((t) => t.tag)).toContain(STORY_TAG);
-    return { me, nominated, work };
+    return { me, nominated, work, skill: had };
   } finally {
     c.close();
   }
@@ -265,6 +266,72 @@ describe("PS1: the page's stories, on an own-form store", () => {
     const { reflect } = await night(false);
     expect(has(reflect, PAGE_STORIES_RULE)).toBe(true);
     expect(has(reflect, pageCraftRule("page.setDown"))).toBe(true);
+  });
+});
+
+/** A second craft line, the same practice in other words: a writer may move both to one skill. */
+const CRAFT2 = "- Keep a control tile of a known glaze in every test firing.";
+const PAGE2 = PAGE.replace(`${CRAFT}\n`, `${CRAFT}\n${CRAFT2}\n`);
+
+describe("one skill per practice (2026-11-20)", () => {
+  /** Day's end moves both craft lines out, each with these skill words. */
+  async function moveBoth(first: string, second: string): Promise<Record<string, unknown>> {
+    let wrote: Record<string, unknown> = {};
+    await night(true, async (s, ifVersion) => {
+      wrote = sc(
+        await s.call("self_page", {
+          body: WRITTEN,
+          reason: "day's end",
+          session: SESSION,
+          ifVersion,
+          setDown: [
+            { line: CRAFT.slice(2), why: "moved to a skill", skill: first },
+            { line: CRAFT2.slice(2), why: "moved to a skill", skill: second },
+          ],
+        }),
+      );
+    });
+    expect(wrote["stored"]).toBe(true);
+    return wrote;
+  }
+
+  /** The standing skill memories with the practice's words, and each set-down's named skill. */
+  function read(): { skills: string[]; named: string[]; bodies: string[] } {
+    const c = open();
+    try {
+      const skills = c.store
+        .liveMemoryTexts()
+        .filter((m) => m.kind === "skill" && m.body.toLowerCase().replace(/\s+/g, " ") === SKILL.toLowerCase())
+        .map((m) => m.id);
+      const rows = readSetDowns(c.store);
+      expect(rows.map((r) => r.line).sort()).toEqual([CRAFT.slice(2), CRAFT2.slice(2)].sort());
+      const named = rows.map((r) => String((c.store.readProse(r.id).meta[SET_DOWN_META] as Record<string, unknown>)["skill"]));
+      const bodies = rows.map((r) => c.store.readProse(r.id).body);
+      return { skills, named, bodies };
+    } finally {
+      c.close();
+    }
+  }
+
+  test("two lines set down with the same skill words, one differing only in case and spacing, share one skill memory, and both set-downs name it", async () => {
+    await yesterday(true, PAGE2);
+    const wrote = await moveBoth(SKILL, `  ${SKILL.toUpperCase().replace(/ /g, "  ")} `);
+    const { skills, named, bodies } = read();
+    expect(skills).toHaveLength(1);
+    const id = skills[0] ?? "";
+    expect(named).toEqual([id, id]);
+    for (const b of bodies) expect(b).toContain(`Moved to a skill memory: ${id}.`);
+    // Said back once.
+    expect(String(wrote["setDown"])).toContain(`Moved to a skill memory: ${id}.`);
+  });
+
+  test("a skill memory that already stands with those words is named, and none is minted", async () => {
+    const { skill } = await yesterday(true, PAGE2, SKILL);
+    if (skill === null) throw new Error("no skill");
+    await moveBoth(SKILL, SKILL);
+    const { skills, named } = read();
+    expect(skills).toEqual([skill]);
+    expect(named).toEqual([skill, skill]);
   });
 });
 
