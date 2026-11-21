@@ -34,6 +34,7 @@
  * Every number is in `tunables.ts#SET_DOWN_LIMITS`.
  */
 import { scanSecrets } from "../encode/secrets.js";
+import { isReaderHostRow } from "../store/index.js";
 import type { Store } from "../store/index.js";
 import { stemTerm } from "../store/stem.js";
 import { monthDay } from "../time.js";
@@ -556,7 +557,8 @@ export function recordSetDowns(
   // id. Words that are the same as a standing skill's, by the remember door's
   // identity (`remember/proposals.ts#normalize`: trimmed, spaces folded, case
   // folded), name that skill instead: the earliest born, which is the one the
-  // merge keeps; never one on the deny-list. Nothing is changed on it.
+  // merge keeps; never one on the deny-list, nor a reader host's note (the
+  // merge never folds across that boundary). Nothing is changed on it.
   const skills: string[] = [];
   let standing: Map<string, string> | null = null;
   const standingOf = (): Map<string, string> => {
@@ -565,7 +567,7 @@ export function recordSetDowns(
     standing = new Map();
     for (const s of store.standingSkills()) {
       const key = skillKey(s.body);
-      if (!denied.has(s.id) && !standing.has(key)) standing.set(key, s.id);
+      if (!denied.has(s.id) && !standing.has(key) && !isReaderHostRow(store.row(s.id))) standing.set(key, s.id);
     }
     return standing;
   };
