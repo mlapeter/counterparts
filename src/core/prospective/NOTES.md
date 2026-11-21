@@ -813,3 +813,11 @@ repeat. Any weekly reminder hits this.
   repeat closed in words closes the open occurrence or nothing, whatever its next date. Known follow-up, not in #855: a
   night close (`open-close.ts`) of a quiet dated `planned` or `asked` row writes only the thread flag, and `owedOf` reads
   status first, so the row would stay owed (overdue once past).
+- **A closed flag outranks a plan status (2026-11-20, that follow-up):** the night's close and the reflection's
+  (`dream/reflect.ts`, both its proposed-close and its close by ids) write only `unresolved: false` on the row, in
+  place, and leave `planned` / `asked`, so the closed plan stayed overdue in Coming up and the `coming up` door while
+  Still open had let it go. `owedOf` now reads the flag first: `false` (written only by a close; `mint` writes only
+  `true`) owes nothing from the status, and the item reads "Was <date>"; a reopen sets the flag back and it is owed
+  again. Fixed in the one rule, not in the writes, so a reopen restores nothing extra. A repeat still owes, and so
+  does a plain reminder: known, left, a night- or reflection-closed `remind: "plain"` row stays overdue (the author's
+  close spends a plain reminder, `carryReminder`; those closes do not). Test: `test/night-close-owed.test.ts`.
