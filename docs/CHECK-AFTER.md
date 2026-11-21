@@ -39,7 +39,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 |---|---|---|---|
 | The night's page writers (PR #824): a line still ahead whose day has come says what became of it where a memory tells, or is set down (`AHEAD_PASSED_RULE`); a host's `PAGE_ROOM_BYTES` is the room the writers are told; after an empty yesterday, day's end is about the last day lived that no night closed, at most 7 days back (`NIGHT_LOOKBACK_DAYS`) | unreleased, 11-13 (#824) | ~2026-11-18 on the live store: "ahead" lines after the thing happened, past-tense story lines unchurned, and a night after a skipped day about the day before the gap | [below](#the-nights-page-writers-pr-824) |
 | The wake as its reader read it (WK3): "shown earlier" only for a telling in this session's context, else the items by title and id (up to 5); the night's own line drops sentences the page or day's end already tell, and is a clause the second morning running; overdue is its own count with its oldest date; a handoff whose lead waits on the owner with nothing since sinks, and one past a week nothing refers to isn't listed; Elsewhere lines say when and what; "Last said" quotes a whole first sentence; "under way" never over a journaled dream; the head names the session | 0.3.53, 11-09 (WK3, #792) | ~7 lived days after install (dated reminder set at merge): a week of wakes read by a fresh session against the brief's six points (`~/counterparts-notes/2026-11-09-briefs/WK3-wake-feedback.md`), and the delivered size against ~8.6 KB | [below](#the-wake-as-its-reader-read-it-wk3) |
-| What waits on the owner is raised, backs off, then parks (SO1 step 4, revised): an `asked` item is no longer one of Still open's lines; one item waiting on the owner is said per attended wake ("Waiting on <owner>, ask when it fits"), the most relevant to the folder's week first, a sunk WK3 handoff included; a turn a person started that touches one raises it after the recall block, with what it needs and how long it has waited; one raise per item per lived day store-wide; then 3/7/14 lived days (at session start at least a week), then parked | 0.3.53, 11-09 (SO1 step 4, #796) | **~7 lived days after install** (dated reminder set at merge): raises per day (`open.owner.raised`) by `via` (turn vs wake), distinct items raised, the `owed` step's p50 ms on `recall.decision`, answered (revised, closed or no longer `asked` after a raise) vs unanswered, items parked by backoff (`wake.owner.raised` chains at the last step), sunk handoffs raised, and items seen in more than one session a day (should be 0); a hand-read of a week of mentions for ones plainly irrelevant to their folder; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 99 of them `asked`, every one in its folder's Still open each wake). **Read 11-20:** 128 raises of 107 items, none parked yet; 87 of 103 closed after a raise (42 in one triage session, day 58; 11-18's "none" read `status`, not `unresolved`); asked-and-open 112 to 22; all in their own folder; re-read ~day 74 | [below](#what-waits-on-the-owner-so1-step-4) |
+| What waits on the owner is raised, backs off, then parks (SO1 step 4, revised): an `asked` item is no longer one of Still open's lines; one item waiting on the owner is said per attended wake ("Waiting on <owner>, ask when it fits"), the most relevant to the folder's week first, a sunk WK3 handoff included; a turn a person started that touches one raises it after the recall block, with what it needs and how long it has waited; one raise per item per lived day store-wide; then 3/7/14 lived days (at session start at least a week), then parked | 0.3.53, 11-09 (SO1 step 4, #796) | **~7 lived days after install** (dated reminder set at merge): raises per day (`open.owner.raised`) by `via` (turn vs wake), distinct items raised, the `owed` step's p50 ms on `recall.decision`, answered (revised, closed or no longer `asked` after a raise) vs unanswered, items parked by backoff (`wake.owner.raised` chains at the last step), sunk handoffs raised, and items seen in more than one session a day (should be 0); a hand-read of a week of mentions for ones plainly irrelevant to their folder; baseline: ~/counterparts-notes/2026-11-09-briefs/1105-read.md (290 live open, 99 of them `asked`, every one in its folder's Still open each wake). **Read 11-20:** 128 raises of 107 items, backoff steps as designed, none parked yet; 87 of 103 closed after a raise (45 by his answers, 42 in the 11-18 waiting-on-Mike sort; 11-18's "none" went by `status`, not `unresolved`); 22 asked items open; re-read ~day 74 | [below](#what-waits-on-the-owner-so1-step-4) |
 | Mike's first real Codex week (CX2): the Codex host — wake with the reader frame, recall, Stop capture through the cursor, the end ask in the model's own voice, SessionEnd ~1 min after `/exit`, `about: me` kept as the model's own note, the stand-down inside Claude Code | the branch, from 2026-11-09 (CX2) | ~7 days of Codex use after Mike approves the hooks: Codex sessions in `counterparts log`, their spans and asks, `meta.host = 'codex'` rows, `readerSelf` rows, the plugin probe's log | [below](#mikes-first-real-codex-week-cx2) |
 | The first real Windows user's install (W1): npm on native Windows, `connect`'s hook line (`node` by name, `/` paths, a `file:` loader) in Git Bash or PowerShell, the `.cmd`/`.ps1` launchers the postinstall rewrites, `claude.cmd` read for its target, a night | 0.3.52, 11-09 (W1, #787) | **no date**: read when we hear back from the first Windows user (the Reddit commenter who asked) | [below](#the-first-real-windows-users-install-w1) |
 | A password named in a sentence is redacted (SX1): a `password` family takes the value after "password / passcode / PIN / pw … is / was / 's", or a bare value with a digit; the raw buffer crosses the same scan before it is written, local and hosted | 0.3.52, 11-09 (SX1, #788) | ~7 lived days after install (dated reminder set at merge): redactions by family, count only, from `gate.deposit`'s `secretFamilies` (`password` against the rest); any false positive reported or seen in a hand-read of `[REDACTED:password]` memories | [below](#a-password-named-in-a-sentence-is-redacted-sx1) |
@@ -342,26 +342,33 @@ ms). The relevance hand-read wasn't done. **Mike's call:** the raise works as bu
 chains reach parked.
 
 **Read 2026-11-20 (lived day 60, still 0.3.54), on a store copy; corrects 11-18's "answered: none."** Raises, days
-50–60: 128 of 107 distinct items (103 memories, 4 sunk handoffs), 78 by wake and 50 by turn, 20 on day 50 falling
-to 5 on 59 and 2 on 60. Chains: 86 raised once, 21 twice (first gaps 3–7 days), none three times, so **still nothing
-parked**. No item raised in two sessions on one day, and every raise was in the item's own folder (114 work, 9 `us`,
-1 `owner`, the 4 handoffs in theirs). **Answered:** the 11-18 read checked `status`, but a close never changes it: it
-flips meta `unresolved` to false (`thread-closed`) and `status` stays `asked`. Counted that way, **87 of the 103
-memory items raised are closed after their last raise**, every one by a later write that settled it (`changed`):
-45 in 26 other sessions on days 50–59, and **42 in one session on day 58** (98c05508, the counterparts session
-on Mike's last day before the trip, 127 settles at its end). Their 87 successors: 41 `done`, 14 still open (12
-`planned`, 2 `asked`), the rest plain records. The 3 cleared handoffs went the same way; the motelier one is still
-up. Open now 286 (362 on 11-18, 290 on 11-05); `asked` and open 22 (112, 99): 16 raised and unanswered, 6 never
-raised (all born since day 38). No raise was of an item already closed. So the queue is draining, but mostly through
-one triage session, not one ask at a time: the raise may have helped choose what to triage, and the store can't
-show it. A successor that is itself open starts a new id, so its backoff starts over (2 such `asked` ones; small).
-The `owed` step: 867 decisions built it, p50 30 ms, p90 128 ms, max 1,779 ms (6 over 500 ms), as on 11-18.
-**Relevance hand-read** of 24 raises (every third from day 53): all fit their folder's work (Motelier's Channex,
-pricing and tax questions in motelier, the Heartbeats take in random, quiz wording in fable-continuity); one was
-stale ("Mike approved a second Tomás run", living-journal, day 54: still `asked` after his yes). Whether the turn
-lane's turns really touched the item needs the host transcripts, not read. **Mike's call:** whether a triage
-session is the road for these (then the one-a-wake raise is mainly a reminder), and the week floor and per-item
-weekly step, which can't be judged until chains reach parked. **Re-read** ~day 74 as planned.
+50–60: 128 of 107 distinct items (103 memories, 4 sunk handoffs), 78 by wake and 50 by turn, 2–21 a day (5 and 2 on
+days 59–60, Mike away). **The backoff holds:** 86 items raised once, 21 twice, none three times, so nothing parked
+yet; every second raise by wake came 7–8 days after the first, and the 3–6-day ones were all by turn, as designed.
+**Answered:** the 11-18 read went by "still `asked`", but a close never changes `status`: it flips meta `unresolved`
+to false (`thread-closed`). Counted by `unresolved` (the predicate `owner-waits.ts` reads), **87 of the 103 memory
+items raised are closed after their last raise**, each by a later write that settled it (`changed`). 42 of them in
+one session on day 58 (98c05508), whose successors say "Closed 11-18 in the waiting-on-Mike sort (Mike's go):
+already answered or done": 30 were (answered earlier, or done), and 12 came back open as `planned`, mine to do, no
+longer waiting on him. The other 45, in 26 sessions on days 50–59, are mostly Mike's answers ("Mike 11-16: yes
+deposit is first night…", "Mike 11-17: go on step 2…"); by hand-read about 3 are restatements of an ask still
+pending (a model mix not chosen, a 11-12 question, "as of 11-16 still unanswered by Mike: past-guest email…")
+written with `unresolved` false, so they left the queue unanswered; that is the writer's choice, not the engine's.
+Many successors keep `status: asked` though they record an answer, a stale status, harmless to the queue. The 3
+cleared handoffs went the same way; the motelier one is still up. Unresolved now 286, `asked` and unresolved 22 (16
+raised and unanswered, 6 never raised); 11-18's 362 / 112 may not use the same predicate. No raise was of an item
+already closed. **Where:** joined to the session's own wake (`adapter.wake.injected` folder), all 121 work and
+handoff raises were in their folder; 7 personal ones (`us`, `owner`) were raised elsewhere, which is allowed.
+**Same day, two sessions:** holds by construction in the events (the day latch is the `dedup_key`), and the wake
+event carries no item ids, so whether a wake ever said an item a second time can't be checked from the store. The
+`owed` step: 867 decisions built it, p50 30 ms, p90 128 ms, max 1,779 ms (6 over 500 ms), as on 11-18.
+**Relevance hand-read** of 24 raises (every third from day 53): each holds an ask to Mike in its folder's work
+(Motelier's Channex, pricing and tax questions, the seed accounts; the Heartbeats take in random; quiz wording in
+fable-continuity); one was mostly answered ("go ahead and push", living-journal, day 54, still raised). Whether the
+turn lane's turns really touched their item needs the host transcripts, not read. **So:** the raise works as built
+and most raised items are now closed: about half through Mike's answers in the sessions that raised them, half in
+one sort with him. **Mike's call:** whether a periodic sort like 11-18's is the road and the one-a-wake raise a reminder between
+them; the week floor and the per-item step can't be judged until chains reach parked. **Re-read** ~day 74 as planned.
 
 ## The page names what it sets down (PG1)
 
@@ -468,11 +475,12 @@ on 11-17 (none in the first seven days); of the 4 a night has seen, 3 are cited 
 friend line, the trip gift, run 2), and 1 isn't (Montaigne leaving the room; a different line on that letter came in
 v93); the 2 from day 60 wait for tonight. None went to the stories heading. **Craft moved out:** 5 lines on 2
 nights (day 51: three Practices, "control", "names its build", "manual step isn't green"; day 52: the 10-30 caps
-story and its lesson), all about the work, none about honesty or Mike, though the day-52 one was a story, not a
-practice. The two day-52 set-downs carried the same skill words, so the door wrote **two identical skill memories**;
+story and its lesson), all about the work and none about Mike, though two ("names its build", "manual step isn't
+green") are as much about honest reporting, and the day-52 one was a story, not a practice. The two day-52 set-downs carried the same skill words, so the door wrote **two identical skill memories**;
 the next night's merge archived one (`identical-content-hash`), and the set-down that named it still points at the
 archived id. Since then **no moved skill has surfaced**: 0 of 4 live ones in any `recall.decision` (surfaced or
-footnote), `uses` 0 (1 on the merged one, from the merge's credit), against 20 of 60 other skills born days 50–56.
+footnote), `uses` 0 (1 on the merged one, from the merge's credit), against 20 of 56 other skills born days 50–56.
+That is within chance (~1 in 6), and they can be found: 9 of 67 `source: reflection` memories have come up in recall.
 **Open, Mike's call:** whether the stories section should stay corrections-only and let the other kinds live in
 Core and Us, or the heading or rule change; whether craft moved to skills that recall never brings back is kept or
 lost; and his own read of the page, which this one can't replace.
