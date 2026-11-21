@@ -846,7 +846,7 @@ clause at Coming up's door, "N (more) overdue (oldest MM-DD)", never folded into
 another folder's are counted as overdue inside its count, never listed; the one pass keeps
 that door when it must take the section down. Only an item someone owes is overdue
 (`Cue#owed`, 2026-11-18: planned or asked, unresolved or with a settles-when, plain, or a
-repeat); a past dated fact nobody owes is listed after the owed ones in the same slots as
+repeat; a thread a close flagged `unresolved: false` owes nothing from its status, 2026-11-20); a past dated fact nobody owes is listed after the owed ones in the same slots as
 "Was MM-DD", counted behind the door as more here, and is `passed` at the `coming up` door,
 never overdue. **[A]** A handoff whose lead
 item waits on the owner (`counterpart-wake-shape.ts#waitsOnOwner`: an `asked` memory it names,

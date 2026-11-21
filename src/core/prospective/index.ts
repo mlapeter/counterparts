@@ -137,14 +137,15 @@ export function cueModeOf(doc: Pick<ProseDoc, "meta">): CueMode {
  * "overdue" rather than a fact whose day went by. Status planned or asked, an
  * open thread (`unresolved: true`, or a settles-when not closed by
  * `unresolved: false`, which is how a thread is closed), a plain reminder, or
- * a repeat. Read by the shaped wake's Coming up, the `coming up` door and the
+ * a repeat. A closed thread (`unresolved: false`) owes nothing from a plan
+ * status (2026-11-20): the night's close and the reflection's write only the
+ * flag, in place, and leave the status. Read by the shaped wake's Coming up, the `coming up` door and the
  * `still open` door's dated list, so the three agree. Pure; wording and rank
  * only: a past item nobody owes is still listed. A meta that will not parse is
  * read as empty.
  */
 export function owedOf(row: { readonly status: unknown; readonly meta: string | Readonly<Record<string, unknown>> | null | undefined }, repeats = false): boolean {
-  const status = statusOf(row.status);
-  if (repeats || status === "planned" || status === "asked") return true;
+  if (repeats) return true;
   let meta: Readonly<Record<string, unknown>> = {};
   if (typeof row.meta === "string") {
     try {
@@ -155,6 +156,10 @@ export function owedOf(row: { readonly status: unknown; readonly meta: string | 
     }
   } else if (row.meta !== null && row.meta !== undefined) meta = row.meta;
   const open = meta["unresolved"];
+  // A flag a close wrote (only a close writes `false`: the author's, the
+  // night's, the reflection's) outranks a plan status the close left on the
+  // row in place (2026-11-20).
+  if (open !== false && (statusOf(row.status) === "planned" || statusOf(row.status) === "asked")) return true;
   if (open === true || (open !== false && settlesWhenOf(meta) !== null)) return true;
   return cueModeOf({ meta }) === "plain" || (meta[RECURRING_META] !== undefined && meta[RECURRING_META] !== null);
 }

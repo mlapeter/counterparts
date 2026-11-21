@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { nightClosedOf } from "../src/core/open-close.js";
+import { owedOf } from "../src/core/prospective/index.js";
 import { WAKE_SHAPE_KEY } from "../src/core/self/tunables.js";
 
 const DAY = 24 * 3_600_000;
@@ -124,11 +125,8 @@ describe("a quiet dated plan the night closed", () => {
     expect(idsOf(d["overdue"])).not.toContain(plan);
     expect(idsOf(d["passed"])).toContain(plan);
     const dated = ((await door(s, "still open"))["comingUp"] ?? []) as { id: string; overdue?: boolean; passed?: boolean }[];
-    const row = dated.find((x) => x.id === plan);
-    if (row !== undefined) {
-      expect(row.overdue).toBeUndefined();
-      expect(row.passed).toBe(true);
-    }
+    expect(dated.find((x) => x.id === plan)).toMatchObject({ passed: true });
+    expect(dated.find((x) => x.id === plan)?.overdue).toBeUndefined();
     const lane = w.lane("1f0e0000-0000-4000-8000-0000000000e2");
     expect(lane).toContain(`[${plan}]`);
     expect(lane).toContain("Was 11-02");
@@ -139,5 +137,18 @@ describe("a quiet dated plan the night closed", () => {
     expect(w.c.store.readProse(plan).meta["unresolved"]).toBe(true);
     expect(w.c.comingUp({ scope: HERE }).overdue.map((x) => x.id)).toContain(plan);
     expect(idsOf((await door(s, "coming up"))["overdue"])).toContain(plan);
+  });
+
+  // The rule the doors share, beside the path above: the reflection's close writes the same flag-only shape
+  // (an `asked` the night never closes), and a closed flag outranks the status, not a repeat or a plain reminder.
+  test("owedOf: a closed flag outranks planned and asked; a repeat and a plain reminder still owe", () => {
+    for (const status of ["planned", "asked"]) {
+      expect(owedOf({ status, meta: { unresolved: false } })).toBe(false);
+      expect(owedOf({ status, meta: JSON.stringify({ unresolved: false, settlesWhen: "x" }) })).toBe(false);
+      expect(owedOf({ status, meta: {} })).toBe(true);
+      expect(owedOf({ status, meta: { unresolved: true } })).toBe(true);
+    }
+    expect(owedOf({ status: "planned", meta: { unresolved: false } }, true)).toBe(true);
+    expect(owedOf({ status: "planned", meta: { unresolved: false, remind: "plain" } })).toBe(true);
   });
 });
