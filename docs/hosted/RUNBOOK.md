@@ -206,8 +206,8 @@ the domain on Cloudflare.
    It prints one `cpi_…` code, once, and the time it expires. A code lasts 7 days; `--expires 30` gives it 30 (whole
    days, 1 to 365). A code made before this change was deployed has no expiry and stays valid until used. It needs the backup
    variables set, as `serve` does.
-2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email, so open it
-   **in the same browser**.
+2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email: open it on
+   any device and press **Sign in** (opening it alone signs nobody in; 11-25).
 3. Your account page shows no connected apps yet.
 
 ### Opening spots (SU1, 2026-11-10)

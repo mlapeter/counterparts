@@ -31,7 +31,7 @@ import { tenantDir } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
 import { HOSTED_VIEWS } from "../../src/adapters/dashboard/web/respond.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
-import { freePort, tempRoot } from "./helpers.js";
+import { freePort, pressLink, tempRoot } from "./helpers.js";
 
 const WEB = fileURLToPath(new URL("../../src/adapters/dashboard/web/", import.meta.url));
 
@@ -123,7 +123,7 @@ async function rig(): Promise<Rig> {
 async function signIn(r: Rig, browser: Browser, email: string, invite: string, next = "/account"): Promise<Response> {
   const form = await (await browser.go(`/login?next=${encodeURIComponent(next)}`)).text();
   await browser.form("/login", { csrf: csrfOf(form), email, invite, tz: "America/Denver", next });
-  return browser.go(/https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
+  return pressLink(browser, /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
 }
 
 async function signUp(r: Rig, email: string): Promise<{ browser: Browser; personId: string; storeId: string }> {

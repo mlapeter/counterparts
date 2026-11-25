@@ -132,7 +132,12 @@ async function signup(n: number, log: string): Promise<string> {
     if (link === null) await sleep(500);
   }
   if (link === null) fail(`"${marker}" and a link in ${log} within 20 s`, "neither");
-  const used = await b.go(link!);
+  // Opening the link spends nothing (11-25): its page's button, a POST, signs in.
+  const opened = await b.go(link!);
+  const openedText = await opened.text();
+  if (opened.status !== 200) fail("the link's page 200", `${String(opened.status)} ${openedText.slice(0, 200)}`);
+  const token = /name="token" value="([^"]+)"/.exec(openedText)?.[1] ?? fail("a token field on the link's page", openedText.slice(0, 200));
+  const used = await b.form("/login/link", { csrf: csrfOf(openedText), token, next: "/account" });
   if (used.status !== 303 && used.status !== 302) fail("the link to redirect (303) with a session", `${String(used.status)} ${(await used.text()).slice(0, 200)}`);
   if (![...b.jar.keys()].some((k) => k.endsWith("cp_session"))) fail("a cp_session cookie after the link", [...b.jar.keys()].join(",") || "no cookies");
   const account = await b.go("/account");

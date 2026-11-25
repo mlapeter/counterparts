@@ -27,7 +27,7 @@ import { EnvKeyWrapper, KeyStore, kekRingFromEnv, kekVersionOf, litestreamKey } 
 import { storeTag, tenantDir } from "../src/tenants.js";
 import { controlAside, prepareVolume, restoreCommand, startOverCommand } from "../src/main.js";
 import { sweepAside } from "../src/app.js";
-import { RECOVERY, listen, storeId, tempRoot, testRecovery } from "./helpers.js";
+import { RECOVERY, listen, pressLink, storeId, tempRoot, testRecovery } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -361,7 +361,7 @@ async function signUp(r: { app: App; base: string; mail: ReturnType<typeof memor
   const form = await (await browser.go("/login")).text();
   await browser.form("/login", { csrf: csrfOf(form), email, invite: code, tz: "America/Denver", next: "/account" });
   const link = /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0].replace(/^https?:\/\/[^/]+/, "");
-  assert.equal((await browser.go(link)).status, 303);
+  assert.equal((await pressLink(browser, link)).status, 303);
   const personId = r.app.accounts.sessionPerson(browser.jar.get("cp_session") ?? null)!;
   return { browser, personId, storeId: r.app.accounts.person(personId)!.storeId! };
 }

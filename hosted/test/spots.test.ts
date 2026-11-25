@@ -30,7 +30,7 @@ import { memoryMailer } from "../src/egress.js";
 import { SPOTS_CACHE_MS, WAITLIST_URL, accountPages } from "../src/pages.js";
 import { createHostedServer } from "../src/server.js";
 import { Tenants } from "../src/tenants.js";
-import { listen, tempRoot } from "./helpers.js";
+import { listen, pressLink, tempRoot } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -118,7 +118,7 @@ async function signUp(r: Rig, email: string, invite = ""): Promise<{ browser: Br
   const browser = new Browser(r.base);
   const asked = await askLink(r, browser, email, invite);
   if (asked.link === null) return { browser, asked, click: null, clickBody: "" };
-  const click = await browser.go(asked.link);
+  const click = await pressLink(browser, asked.link);
   return { browser, asked, click, clickBody: await click.text() };
 }
 
@@ -201,7 +201,7 @@ describe("spots left", () => {
     assert.ok(idle.link !== null);
     assert.equal(r.accounts.spots().left, 2);
 
-    const click = await me.go(asked.link);
+    const click = await pressLink(me, asked.link);
     assert.equal(click.status, 303);
     const account = await (await me.go("/account")).text();
     assert.match(account, /Signed in as <strong>new@example\.com<\/strong>/);
@@ -255,7 +255,7 @@ describe("spots left", () => {
     const askedA = await askLink(r, a, "a@example.com");
     const askedB = await askLink(r, b, "b@example.com");
     assert.ok(askedA.link !== null && askedB.link !== null, "both were sent a link while one spot was left");
-    const [clickA, clickB] = await Promise.all([a.go(askedA.link), b.go(askedB.link)]);
+    const [clickA, clickB] = await Promise.all([pressLink(a, askedA.link), pressLink(b, askedB.link)]);
     const outcomes = [clickA, clickB].map((c) => c.status).sort();
     assert.deepEqual(outcomes, [200, 303], "one signed in (303), one shown a page (200)");
     const loser = clickA.status === 200 ? clickA : clickB;
@@ -515,7 +515,7 @@ describe("EC1: the hourly email cap while spots are open", () => {
     assert.equal(known.status, unknown.status);
     assert.equal(words(known.body), words(unknown.body));
     assert.match(unknown.body, /Lots of people are signing up/);
-    assert.equal((await knownBrowser.go(known.link)).status, 303, "the member's link signs them in");
+    assert.equal((await pressLink(knownBrowser, known.link)).status, 303, "the member's link signs them in");
   });
 
   test("a member's ask and a stranger's count alike, so the next newcomer can't tell which came before", async () => {

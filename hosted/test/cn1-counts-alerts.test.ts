@@ -36,7 +36,7 @@ import { memoryMailer } from "../src/egress.js";
 import { McpLimits, STORE_QUOTA_BYTES, storeBytes } from "../src/limits.js";
 import { opsEnv } from "../src/main.js";
 import { SETUP_URL } from "../src/pages.js";
-import { freePort, rpc, tempRoot, tool } from "./helpers.js";
+import { freePort, pressLink, rpc, tempRoot, tool } from "./helpers.js";
 import { Browser, bearer, connect, csrfOf, rig, signInByLink } from "./oauth-rig.js";
 import type { Rig } from "./oauth-rig.js";
 
@@ -82,7 +82,7 @@ async function signUpFrom(r: { origin: string; mail: { sent: { to: string; text:
   // The page answers before the mail is handed over (never awaited, CONTRACT §12); a log's line can come a moment later.
   for (let i = 0; i < 200 && r.mail.sent.length === before; i++) await new Promise((res) => setTimeout(res, 50));
   assert.equal(r.mail.sent.length, before + 1, "a link was mailed");
-  return browser.go(/https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
+  return pressLink(browser, /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
 }
 
 const counts = async (origin: string, token?: string): Promise<Response> => fetch(`${origin}/ops/counts`, token === undefined ? {} : { headers: { authorization: `Bearer ${token}` } });
@@ -178,11 +178,13 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     await signUpFrom(r, first, "one@example.com", "r=reddit&ref=https://www.reddit.com/");
     const page = await (await first.go("/account")).text();
     assert.ok(page.includes(`href="${SETUP_URL}"`), "the empty state links the step-by-step");
-    assert.match(page, /Step-by-step: how to add it in Claude/);
-    assert.match(page, /\/mcp<\/code>/);
+    assert.ok(page.includes(`<pre class="cp-paste" id="cp-mcp">${r.origin}/mcp</pre>`), "the connector address, to copy");
     // Connected over OAuth and one real tool call.
     const c = await connect(r, { browser: first, signIn: async () => assert.fail("already signed in") });
     await tool(`${r.origin}/mcp`, "status", {}, bearer(c.access));
+    // Connected: the steps are gone, the connection listed.
+    const connected = await (await first.go("/account")).text();
+    assert.doesNotMatch(connected, /Set it up in claude\.ai|id="cp-mcp"|data-copy=/);
 
     // The counts: 401 without the token, or a wrong one; 200 with it, counts only.
     assert.equal((await counts(r.origin)).status, 401);
@@ -193,8 +195,8 @@ describe("CN1: /ops/counts, and AL1's spots alert, through the real door", () =>
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get("cache-control"), "no-store");
     const body = (await ok.json()) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(body).sort(), ["accounts", "active7d", "at", "referrers", "sources", "spots", "used"]);
-    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "https://www.reddit.com": 1 } });
+    assert.deepEqual(Object.keys(body).sort(), ["accounts", "active7d", "at", "otherBrowser7d", "referrers", "sources", "spots", "used"]);
+    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "https://www.reddit.com": 1 }, otherBrowser7d: 0 });
     assert.doesNotMatch(JSON.stringify(body), /@|[0-9a-f]{32}/);
     assert.equal(alertsTo(r).length, 0);
 
@@ -554,7 +556,7 @@ describe("the whole path as a process: main.ts serve, MAIL=log", () => {
     await tool(`${origin}/mcp`, "status", {}, bearer(c.access));
     assert.equal((await counts(origin)).status, 401);
     const body = (await (await counts(origin, TOKEN)).json()) as Record<string, unknown>;
-    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "(none)": 1 } });
+    assert.deepEqual({ ...body, at: "" }, { at: "", accounts: 1, used: 1, active7d: 1, spots: { total: 5, left: 4 }, sources: { reddit: 1 }, referrers: { "(none)": 1 }, otherBrowser7d: 0 });
     for (const n of ["two", "three", "four"]) await signUpFrom(logRig, new Browser(origin), `${n}@example.com`, "");
     await waitFor(/alert\.sent which=spots-80/, "the 80% alert");
     const alerts = (): number => err.split(`an email for ${OPS}`).length - 1;

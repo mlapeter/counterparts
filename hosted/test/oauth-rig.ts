@@ -15,7 +15,7 @@ import * as oauth from "oauth4webapi";
 import { createApp } from "../src/app.js";
 import type { App, AppOptions } from "../src/app.js";
 import { memoryMailer } from "../src/egress.js";
-import { freePort, rpc } from "./helpers.js";
+import { freePort, pressLink, rpc } from "./helpers.js";
 
 export const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 export const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -113,7 +113,7 @@ export async function signInByLink(r: Rig, browser: Browser, email: string, invi
   await browser.form("/login", { csrf: csrfOf(form), email, invite, tz: "America/Denver", next });
   assert.equal(r.mail.sent.length, before + 1, "a link was mailed");
   const link = /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0];
-  return browser.go(link);
+  return pressLink(browser, link);
 }
 
 export interface Connected {

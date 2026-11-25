@@ -12,12 +12,12 @@ import { afterEach, beforeEach, describe, test } from "node:test";
 import { Accounts, INVITE_TTL_MS, normalizeEmail, validTimeZone } from "../src/accounts.js";
 import { createApp } from "../src/app.js";
 import { memoryMailer, resendMailer, RESEND_ENDPOINT } from "../src/egress.js";
-import { accountPages } from "../src/pages.js";
+import { SETUP_INSTRUCTIONS, accountPages } from "../src/pages.js";
 import { createHostedServer } from "../src/server.js";
 import { Tenants } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
-import { freePort, listen, tempRoot } from "./helpers.js";
+import { freePort, listen, pressLink, tempRoot } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -107,7 +107,7 @@ describe("signing up and signing in", () => {
     assert.match(asked.body, /Check your email/);
     assert.ok(asked.link !== null);
     assert.equal(r.mail.sent[0]!.to, "katie@example.com");
-    const used = await me.go(asked.link);
+    const used = await pressLink(me, asked.link);
     assert.equal(used.status, 303);
     assert.equal(used.headers.get("location"), "/account");
     const account = await (await me.go("/account")).text();
@@ -123,7 +123,7 @@ describe("signing up and signing in", () => {
     const { code } = r.accounts.createInvite();
     const first = new Browser(r.base);
     const signup = await askLink(r, first, "known@example.com", code);
-    await first.go(signup.link!);
+    await pressLink(first, signup.link!);
     const known = await askLink(r, new Browser(r.base), "known@example.com");
     const unknown = await askLink(r, new Browser(r.base), "stranger@example.com");
     const badInvite = await askLink(r, new Browser(r.base), "stranger2@example.com", "cpi_not-a-real-code-at-all-000000");
@@ -136,29 +136,146 @@ describe("signing up and signing in", () => {
     assert.equal(unNonced(badInvite.body), unNonced(known.body));
   });
 
-  test("a link works once, for 15 minutes, and only in the browser that asked — the wrong browser does not spend it", async () => {
+  test("opening a link spends nothing, in any browser; the press spends it once", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite({ maxUses: 3 });
     const me = new Browser(r.base);
     const a = await askLink(r, me, "a@example.com", code);
-    // Another browser (a forwarded email, a mail scanner): refused, link intact.
-    const other = new Browser(r.base);
-    await other.go("/login");
-    const wrong = await other.go(a.link!);
-    assert.equal(wrong.status, 400);
-    assert.match(await wrong.text(), /browser where you asked/);
-    const noCookie = await fetch(`${r.base}${a.link!}`, { redirect: "manual" });
-    assert.equal(noCookie.status, 400);
-    assert.equal((await me.go(a.link!)).status, 303);
-    // Used.
+    // A mail scanner (no cookie), another browser, and the asking browser, each opening it twice: nothing spent.
+    for (let i = 0; i < 2; i++) {
+      const scanner = await fetch(`${r.base}${a.link!}`, { redirect: "manual" });
+      assert.equal(scanner.status, 200);
+      assert.equal(scanner.headers.getSetCookie().some((c) => c.startsWith("cp_session=")), false, "a GET signs nobody in");
+      assert.equal((await new Browser(r.base).go(a.link!)).status, 200);
+      const mine = await me.go(a.link!);
+      assert.equal(mine.status, 200);
+      const html = await mine.text();
+      assert.match(html, /<h1>Sign in<\/h1>/);
+      assert.match(html, /<button type="submit">Sign in<\/button>/);
+      assert.doesNotMatch(html, /\*\*\*@/, "the asking browser isn't shown an address");
+    }
+    assert.equal((await me.go("/account")).status, 303, "still signed out after the opens");
+    assert.equal(r.accounts.spots().people, 0, "and no account made");
+    // The press: signed in.
+    const pressed = await pressLink(me, a.link!);
+    assert.equal(pressed.status, 303);
+    assert.equal(pressed.headers.get("location"), "/account");
+    assert.equal((await me.go("/account")).status, 200);
+    // Used: the page says so, and a second press is refused.
     assert.equal((await me.go(a.link!)).status, 400);
-    // Expired (a second browser: the first is signed in now).
-    const later = new Browser(r.base);
-    const b = await askLink(r, later, "a@example.com");
-    r.setNow(Date.UTC(2026, 9, 26, 12, 16));
-    assert.equal((await later.go(b.link!)).status, 400);
+    assert.equal((await pressLink(me, a.link!)).status, 400);
+    assert.equal(r.accounts.auditOf(r.accounts.sessionPerson(me.jar.get("cp_session")!)!).some((x) => x.action === "login.link.other-browser"), false);
     // A token nobody issued.
     assert.equal((await me.go("/login/link?token=cpl_nonsense_nonsense_nonsense")).status, 400);
+  });
+
+  test("another browser: a confirm with the masked address; the browser that presses is signed in, the asker isn't; counted", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({ maxUses: 3 });
+    const asker = new Browser(r.base);
+    const a = await askLink(r, asker, "mike.l@example.com", code);
+    const phone = new Browser(r.base);
+    const opened = await phone.go(a.link!);
+    assert.equal(opened.status, 200);
+    const html = await opened.text();
+    assert.match(html, /<h1>Sign in on this browser as m\*\*\*@example\.com\?<\/h1>/);
+    assert.match(html, /<button type="submit">Sign in on this browser<\/button>/);
+    assert.doesNotMatch(html, /mike\.l@/, "never the whole address");
+    const pressed = await pressLink(phone, a.link!);
+    assert.equal(pressed.status, 303);
+    assert.match((await (await phone.go("/account")).text()), /Signed in as <strong>mike\.l@example\.com<\/strong>/);
+    assert.equal((await asker.go("/account")).status, 303, "the asking browser gets nothing");
+    // A second press, from either browser, is refused.
+    assert.equal((await pressLink(phone, a.link!)).status, 400);
+    assert.equal((await pressLink(asker, a.link!)).status, 400);
+    // Counted: one audit row beside the sign-up's, and the operator's count.
+    const person = r.accounts.sessionPerson(phone.jar.get("cp_session")!)!;
+    assert.deepEqual(r.accounts.auditOf(person).map((x) => x.action), ["signup", "login.link.other-browser"]);
+    assert.equal(r.accounts.counts().otherBrowser7d, 1);
+    // A member's sign-in finished elsewhere counts too; eight days on, neither is in the week.
+    const later = await askLink(r, new Browser(r.base), "mike.l@example.com");
+    assert.equal((await pressLink(new Browser(r.base), later.link!)).status, 303);
+    assert.equal(r.accounts.counts().otherBrowser7d, 2);
+    r.setNow(Date.UTC(2026, 10, 3, 13));
+    assert.equal(r.accounts.counts().otherBrowser7d, 0);
+  });
+
+  test("an OAuth connect finished in another browser lands on the account page (the Allow page lives in the browser that started it)", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({ maxUses: 3 });
+    const a = await askLink(r, new Browser(r.base), "oauth-elsewhere@example.com", code, "/oauth/allow/abc123");
+    assert.equal((await pressLink(new Browser(r.base), a.link!)).headers.get("location"), "/account");
+  });
+
+  test("an expired link: refused at the open and at the press", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({ maxUses: 3 });
+    const me = new Browser(r.base);
+    const a = await askLink(r, me, "late@example.com", code);
+    // Opened in time, pressed too late.
+    const page = await (await me.go(a.link!)).text();
+    r.setNow(Date.UTC(2026, 9, 26, 12, 16));
+    const late = await me.form("/login/link", { csrf: csrfOf(page), token: /name="token" value="([^"]+)"/.exec(page)![1]!, next: "/account" });
+    assert.equal(late.status, 400);
+    assert.match(await late.text(), /can&#39;t be used/);
+    // Opened too late.
+    assert.equal((await me.go(a.link!)).status, 400);
+    assert.equal(r.accounts.spots().people, 0);
+  });
+
+  test("the press: no CSRF token, another browser's token, a foreign Origin, or not a form are refused, and spend nothing", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({ maxUses: 3 });
+    const me = new Browser(r.base);
+    const a = await askLink(r, me, "csrf@example.com", code);
+    const page = await (await me.go(a.link!)).text();
+    const token = /name="token" value="([^"]+)"/.exec(page)![1]!;
+    const other = new Browser(r.base);
+    const otherPage = await (await other.go(a.link!)).text();
+    assert.equal((await me.form("/login/link", { token, next: "/account" })).status, 403);
+    assert.equal((await me.form("/login/link", { csrf: csrfOf(otherPage), token, next: "/account" })).status, 403);
+    assert.equal((await me.form("/login/link", { csrf: csrfOf(page), token, next: "/account" }, { origin: "https://evil.example" })).status, 403);
+    assert.equal((await me.go("/login/link", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ csrf: csrfOf(page), token }) })).status, 403);
+    // A cross-site page can't carry this browser's cookie into the form either: a bare POST is refused.
+    assert.equal((await fetch(`${r.base}/login/link`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ csrf: csrfOf(page), token }).toString(), redirect: "manual" })).status, 403);
+    assert.equal(r.accounts.spots().people, 0, "nothing spent");
+    assert.equal((await me.form("/login/link", { csrf: csrfOf(page), token, next: "/account" })).status, 303, "the real press still works");
+  });
+
+  test("the email and the sent page say once, 15 minutes, any device; never 'the same browser'", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const a = await askLink(r, new Browser(r.base), "words@example.com", code);
+    const text = r.mail.sent.at(-1)!.text;
+    assert.match(text, /It works once, for 15 minutes, on any device/);
+    assert.doesNotMatch(text, /same browser/);
+    assert.match(a.body, /It works once, for 15 minutes, on any device\./);
+    assert.doesNotMatch(a.body, /in this browser/);
+  });
+
+  test("a new account lands on the setup steps (leak 4): the address and the instructions to copy, then the beta note", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const me = new Browser(r.base);
+    assert.equal((await pressLink(me, (await askLink(r, me, "new@example.com", code)).link!)).headers.get("location"), "/account");
+    const res = await me.go("/account");
+    const html = await res.text();
+    const at = (s: string): number => {
+      const i = html.indexOf(s);
+      assert.ok(i >= 0, `the page has ${s}`);
+      return i;
+    };
+    // The steps in order, and the beta note after the last of them.
+    const order = [at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("Hosted Counterparts is a free beta.")];
+    assert.deepEqual([...order].sort((x, y) => x - y), order);
+    assert.ok(html.includes('<pre class="cp-paste" id="cp-mcp">http://127.0.0.1/mcp</pre>'));
+    // The instruction block, exactly the site's (escaped once), with its own Copy button.
+    assert.ok(html.includes(`<pre class="cp-paste" id="cp-instructions">${SETUP_INSTRUCTIONS.replace(/'/g, "&#39;")}</pre>`));
+    assert.equal(html.match(/<button type="button" class="cp-copy" data-copy="cp-(mcp|instructions)">/g)?.length, 2);
+    // The copy script runs under the page's nonce; the CSP is unchanged otherwise.
+    const nonce = /script-src 'nonce-([^']+)'/.exec(res.headers.get("content-security-policy") ?? "")![1]!;
+    assert.ok(html.includes(`<script nonce="${nonce}">`));
+    assert.doesNotMatch(html, /\son[a-z]+=/i, "no inline handlers");
   });
 
   test("an invite used up: the second sign-up through it is refused even if both links were asked for first", async () => {
@@ -168,8 +285,8 @@ describe("signing up and signing in", () => {
     const two = new Browser(r.base);
     const l1 = await askLink(r, one, "one@example.com", code);
     const l2 = await askLink(r, two, "two@example.com", code);
-    assert.equal((await one.go(l1.link!)).status, 303);
-    assert.equal((await two.go(l2.link!)).status, 400);
+    assert.equal((await pressLink(one, l1.link!)).status, 303);
+    assert.equal((await pressLink(two, l2.link!)).status, 400);
     assert.equal((await two.go("/account")).status, 303); // not signed in: back to login
   });
 
@@ -243,10 +360,10 @@ describe("signing up and signing in", () => {
     const { code } = r.accounts.createInvite({ maxUses: 5 });
     const b = new Browser(r.base);
     const evil = await askLink(r, b, "n@example.com", code, "//evil.example/x");
-    assert.equal((await b.go(evil.link!)).headers.get("location"), "/account");
+    assert.equal((await pressLink(b, evil.link!)).headers.get("location"), "/account");
     const b2 = new Browser(r.base);
     const good = await askLink(r, b2, "n@example.com", "", "/oauth/allow/abc123");
-    assert.equal((await b2.go(good.link!)).headers.get("location"), "/oauth/allow/abc123");
+    assert.equal((await pressLink(b2, good.link!)).headers.get("location"), "/oauth/allow/abc123");
     for (const bad of ["//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "/account/../..//evil", "/elsewhere"]) {
       assert.equal(safeNext(bad), "/account", bad);
     }
@@ -264,14 +381,14 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const b = new Browser(r.base);
-    await b.go((await askLink(r, b, "redirect@example.com", code)).link!);
+    await pressLink(b, (await askLink(r, b, "redirect@example.com", code)).link!);
     const res = await b.go(`/login?next=${encodeURIComponent("/oauth/..//evil.example/phish")}`);
     assert.equal(res.status, 303);
     assert.equal(res.headers.get("location"), "/account");
     // And through the emailed link's `next`.
     const b2 = new Browser(r.base);
     const viaLink = await askLink(r, b2, "redirect@example.com", "", "/oauth/..//evil.example/phish");
-    assert.equal((await b2.go(viaLink.link!)).headers.get("location"), "/account");
+    assert.equal((await pressLink(b2, viaLink.link!)).headers.get("location"), "/account");
   });
 
   test("review of #644: behind the proxy, the per-IP limit keys on the hop the proxy appended, not the one the client wrote", async () => {
@@ -313,7 +430,7 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const first = new Browser(r.base);
-    await first.go((await askLink(r, first, "member@example.com", code)).link!);
+    await pressLink(first, (await askLink(r, first, "member@example.com", code)).link!);
     const dbPath = join(tmp.root, "control", "accounts.sqlite");
     const count = (): number => {
       const db = openDb(dbPath, { wal: true });
@@ -342,7 +459,7 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const b = new Browser(r.base);
-    await b.go((await askLink(r, b, "audit@example.com", code)).link!);
+    await pressLink(b, (await askLink(r, b, "audit@example.com", code)).link!);
     const personId = r.accounts.sessionPerson(b.jar.get("cp_session")!)!;
     assert.equal(r.accounts.setState(personId, "suspended"), true);
     const db = openDb(join(tmp.root, "control", "accounts.sqlite"), { wal: true });
@@ -359,14 +476,14 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const b = new Browser(r.base);
-    await b.go((await askLink(r, b, "again@example.com", code)).link!);
+    await pressLink(b, (await askLink(r, b, "again@example.com", code)).link!);
     const old = b.jar.get("cp_session")!;
     assert.ok(r.accounts.sessionPerson(old) !== null);
     // A second link asked for and used in this same browser (the form's token is the browser's, on any page).
     const form = await (await b.go("/account")).text();
     await b.form("/login", { csrf: csrfOf(form), email: "again@example.com", next: "/account" });
     const link = /https?:\/\/[^\s]+/.exec(r.mail.sent.at(-1)!.text)![0].replace(/^https?:\/\/[^/]+/, "");
-    assert.equal((await b.go(link)).status, 303);
+    assert.equal((await pressLink(b, link)).status, 303);
     assert.equal(r.accounts.sessionPerson(old), null);
     assert.ok(r.accounts.sessionPerson(b.jar.get("cp_session")!) !== null);
   });
@@ -375,13 +492,13 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite({ maxUses: 2 });
     const b = new Browser(r.base);
-    await b.go((await askLink(r, b, "s@example.com", code)).link!);
+    await pressLink(b, (await askLink(r, b, "s@example.com", code)).link!);
     const page = await (await b.go("/account")).text();
     const out = await b.form("/logout", { csrf: csrfOf(page) });
     assert.equal(out.status, 303);
     assert.equal((await b.go("/account")).status, 303);
     const c = new Browser(r.base);
-    await c.go((await askLink(r, c, "t@example.com", code)).link!);
+    await pressLink(c, (await askLink(r, c, "t@example.com", code)).link!);
     assert.equal((await c.go("/account")).status, 200);
     const personId = r.accounts.sessionPerson(c.jar.get("cp_session") ?? null)!;
     r.accounts.setState(personId, "suspended");
@@ -392,7 +509,7 @@ describe("signing up and signing in", () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const b = new Browser(r.base);
-    await b.go((await askLink(r, b, "tz@example.com", code)).link!);
+    await pressLink(b, (await askLink(r, b, "tz@example.com", code)).link!);
     let html = await (await b.go("/account")).text();
     assert.equal((await b.form("/account/timezone", { csrf: csrfOf(html), tz: "Mars/Olympus" })).status, 400);
     assert.equal((await b.form("/account/timezone", { csrf: csrfOf(html), tz: "Europe/Berlin" })).status, 303);
@@ -514,7 +631,7 @@ describe("G4: the beta note, and the bare address", () => {
     const { code } = r.accounts.createInvite({});
     const me = new Browser(r.base);
     const asked = await askLink(r, me, "new@example.com", code);
-    const used = await me.go(asked.link!);
+    const used = await pressLink(me, asked.link!);
     assert.equal(used.headers.get("location"), "/account");
     const html = await (await me.go("/account")).text();
     assert.ok(visible(html).includes(NOTE), "the note, verbatim");
