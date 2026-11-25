@@ -185,7 +185,7 @@ describe("the reviewer's test account (item 7)", () => {
       const b = new Browser(r.origin);
       const form = await (await b.go("/login")).text();
       const res = await b.form("/login", { csrf: csrfOf(form), email, invite, tz: "UTC", next: "/account" });
-      return { status: res.status, body: (await res.text()).replace(/name="csrf" value="[^"]+"/g, "").replace(/nonce="[^"]+"/g, ""), cookie: res.headers.getSetCookie().some((c) => c.includes("session")) };
+      return { status: res.status, body: (await res.text()).replace(/name="(csrf|email)" value="[^"]*"/g, "").replace(/nonce="[^"]+"/g, ""), cookie: res.headers.getSetCookie().some((c) => c.includes("session")) };
     };
     const wrong = await page("reviewer@example.com", "cpr_not-the-code");
     const none = await page("reviewer@example.com", "");

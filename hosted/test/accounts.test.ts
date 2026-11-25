@@ -825,10 +825,14 @@ describe("PR B: the 6-digit code, only in the browser that asked", () => {
     // The stranger's dead row took its try too: one write each.
     const db = openDb(join(tmp.root, "control", "accounts.sqlite"));
     try {
-      assert.deepEqual(db.all<{ email: string; code_tries: number }>("SELECT email, code_tries FROM login_links WHERE code_tries > 0 ORDER BY email"), [
-        { email: "", code_tries: 1 },
-        { email: "member2@example.com", code_tries: 1 },
-      ]);
+      const tries = db.all<{ email: string; code_tries: number }>("SELECT email, code_tries FROM login_links WHERE code_tries > 0 ORDER BY email");
+      assert.deepEqual(
+        tries.map((t) => [t.email, Number(t.code_tries)]),
+        [
+          ["", 1],
+          ["member2@example.com", 1],
+        ],
+      );
       // And no code is kept: the hash only, under the row's id.
       assert.equal(db.all("SELECT 1 FROM login_links WHERE code_hash IS NULL OR length(code_hash) != 64").length, 0);
     } finally {
