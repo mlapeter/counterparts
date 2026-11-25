@@ -361,10 +361,12 @@ describe("the style's primary and danger selectors match the real pages", () => 
     if (byValue !== null) return new RegExp(`<button\\b[^>]*\\bvalue="${byValue[1]!}"`).test(html);
     const byForm = /^form\[action="([^"]+)"\] button$/.exec(selector);
     if (byForm !== null) return forms(html, byForm[1]!).some((f) => /<button\b/.test(f));
+    const byClass = /^a\.([a-z-]+)$/.exec(selector);
+    if (byClass !== null) return new RegExp(`<a\\b[^>]*\\bclass="${byClass[1]!}"`).test(html);
     throw new Error(`a selector shape this test doesn't know: ${selector}`);
   };
 
-  test("primary: Allow, sign-in, keep; danger: every delete button; each selector matches a real page", async () => {
+  test("primary: Allow, sign-in, keep, the dashboard link; danger: every delete button; each selector matches a real page", async () => {
     const r = await rig();
     const login = await (await new Browser(r.origin).go("/login")).text();
     const me = await signUp(r, "styled@example.com");
@@ -380,19 +382,50 @@ describe("the style's primary and danger selectors match the real pages", () => 
 
     const primary = selectorsOf(/background:var\(--accent\)/);
     const danger = selectorsOf(/^color:var\(--danger\)/);
-    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button', 'form[action="/login/link"] button', 'form[action="/login/code"] button'].sort());
+    assert.deepEqual([...primary].sort(), ['a.cp-button', 'button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button', 'form[action="/login/link"] button', 'form[action="/login/code"] button'].sort());
     assert.deepEqual(danger, ['form[action="/account/delete"] button']);
     // Each selector on the page it was written for.
     assert.ok(matches("button[value=allow]", allow), "Allow is primary on the Allow page");
     assert.ok(!matches("button[value=allow]", allow.replace(/<button\b[^>]*value="allow"[^>]*>/, "")), "and only Allow: Deny is not");
     assert.ok(matches('form[action="/login"] button', login), "the sign-in button");
     assert.ok(matches('form[action="/account/keep"] button', pending), "keep, on the pending page");
+    assert.ok(matches("a.cp-button", account), "the dashboard link, on the account page");
+    assert.match(account, /<a class="cp-button" href="\/dashboard\/">Open your dashboard<\/a>/);
     for (const [name, html] of [["account", account], ["pending", pending]] as const) {
       const deletes = [...html.matchAll(/<button\b[^>]*>Delete[^<]*<\/button>/g)].map((d) => d[0]);
       assert.ok(deletes.length > 0, `the ${name} page has delete buttons`);
       const danger = forms(html, "/account/delete").join("");
       for (const d of deletes) assert.ok(danger.includes(d), `${name}: ${d} is drawn as danger`);
     }
+  });
+});
+
+describe("the account page with a connected AI (11-25): what a returning person came for first", () => {
+  test("Sign out and the dashboard lead, then the connected AIs, time zone, download, delete, and the note last; no setup steps", async () => {
+    const r = await rig();
+    const me = await signUp(r, "back@example.com");
+    await connect(r, me.browser);
+    const html = await (await me.browser.go("/account")).text();
+    const at = (s: string): number => {
+      const i = html.indexOf(s);
+      assert.ok(i >= 0, `the page has ${s}`);
+      return i;
+    };
+    const order = [
+      at("Signed in as <strong>back@example.com</strong>"),
+      at('action="/logout"'),
+      at('href="/dashboard/">Open your dashboard</a>'),
+      at("<h2>Connected AIs</h2>"),
+      at("<h2>Your day</h2>"),
+      at("<h2>Take your memory with you</h2>"),
+      at("<h2>Delete your account</h2>"),
+      at('<h2 id="privacy">What we keep, and your choices</h2>'),
+      at("Hosted Counterparts is a free beta."),
+      at("Found a bug?"),
+    ];
+    assert.deepEqual([...order].sort((x, y) => x - y), order);
+    assert.doesNotMatch(html.replace(/<style[\s\S]*?<\/style>/, ""), /Set it up in claude\.ai|1\. Make your account: done|class="cp-paste"|None yet\./,"a connected account sees no setup steps");
+    assert.doesNotMatch(html, /<script/, "and no copy script");
   });
 });
 

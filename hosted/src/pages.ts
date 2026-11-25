@@ -214,13 +214,24 @@ const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 // the account keeps `people.invite_id`, and codes are stored only hashed.
 const ISSUES_URL = "https://github.com/mlapeter/counterparts/issues";
 const FEEDBACK_EMAIL = "mike@resonantventures.com";
+/**
+ * The note as the account page shows it (11-25, Mike: "a weird wall of text"): the
+ * same sentences, word for word and in the same order, split only at sentence ends
+ * into short paragraphs under their own heading at the foot of the page. The last
+ * paragraph is the bug and contact line.
+ */
+const BETA_NOTE_PARAGRAPHS: readonly string[] = [
+  "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased).",
+  "We also keep the day you last started a chat with Counterparts and the day you last used Counterparts' tools (just the dates), to tell quiet accounts from active ones and count them. If the link you signed up through carried it, we keep where you came from: a campaign tag, the referring site's address (no page or search terms) and the page you landed on. We keep no transcript of your chats.",
+  "Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.",
+  "You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe).",
+];
 const BETA_NOTE_HTML =
-  escapeHtml(
-    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased). We also keep the day you last started a chat with Counterparts and the day you last used Counterparts' tools (just the dates), to tell quiet accounts from active ones and count them. If the link you signed up through carried it, we keep where you came from: a campaign tag, the referring site's address (no page or search terms) and the page you landed on. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
-  ) +
+  BETA_NOTE_PARAGRAPHS.map((t) => `<p class="muted">${escapeHtml(t)}</p>`).join("\n") +
+  `\n<p class="muted">${escapeHtml("Found a bug? Open an issue at ")}` +
   `<a href="${ISSUES_URL}">${ISSUES_URL}</a>` +
   escapeHtml(" (please don't paste memories into it). For anything else, write to ") +
-  `<a href="mailto:${FEEDBACK_EMAIL}">${FEEDBACK_EMAIL}</a>.`;
+  `<a href="mailto:${FEEDBACK_EMAIL}">${FEEDBACK_EMAIL}</a>.</p>`;
 
 /**
  * THE DELETE EMAILS (R9, Mike 2026-10-27): one at a delete (24 hours), one at
@@ -646,18 +657,20 @@ ${switching}${form}`,
       const connections = (await opts.connections?.list(personId)) ?? [];
       const token = escapeHtml(csrf.token(browser));
       const fmt = (t: number): string => new Date(t).toISOString().slice(0, 10);
-      // No connected AI yet (a new account, or one that disconnected them all): the setup steps
-      // open the page, and the beta note follows them (leak 4, 11-25).
+      // The order is what a returning person came for (11-25): who's signed in and Sign out, the
+      // dashboard, then the setup steps while no AI is connected (leak 4) or the connected AIs,
+      // the time zone, download, delete, and last the beta note under its own heading.
       const setUp = connections.length === 0;
       const nonce = randomBytes(16).toString("base64");
       page(res, 200, {
         title: "Your account",
         nonce,
         body: `<h1>Your Counterparts account</h1>
-<p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
-${url.searchParams.get("from") === "elsewhere" ? `<p><strong>Signed in here. To finish connecting Claude, go back to the browser where you started.</strong></p>\n` : ""}${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n<h2>About the beta</h2>\n` : ""}<p class="muted">${BETA_NOTE_HTML}</p>
-<p><a href="/dashboard/">Open your dashboard</a> <span class="muted">— your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</span></p>
-<h2>Connected AIs</h2>
+<div class="cp-who"><p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form></div>
+${url.searchParams.get("from") === "elsewhere" ? `<p><strong>Signed in here. To finish connecting Claude, go back to the browser where you started.</strong></p>\n` : ""}<p><a class="cp-button" href="/dashboard/">Open your dashboard</a></p>
+<p class="muted">Your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</p>
+${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n` : ""}<h2>Connected AIs</h2>
 ${
   setUp
     ? `<p class="muted">None yet. <a href="#setup">The steps above</a> connect claude.ai.</p>`
@@ -692,7 +705,8 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
 <button type="submit" name="when" value="now">Delete everything now</button>
 <p class="muted">${escapeHtml(AFTER_ERASE_WORDS)} ${escapeHtml(FORGET_WORDS)}</p></form>`
 }
-<form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form>${setUp ? `\n<script nonce="${nonce}">${COPY_SCRIPT}</script>` : ""}`,
+<h2 id="privacy">What we keep, and your choices</h2>
+${BETA_NOTE_HTML}${setUp ? `\n<script nonce="${nonce}">${COPY_SCRIPT}</script>` : ""}`,
       });
       return true;
     }

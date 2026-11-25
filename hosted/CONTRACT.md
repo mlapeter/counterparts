@@ -733,12 +733,18 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     within 15 minutes (the process died mid-send) is taken again by a later check. A duplicate is possible, silence
     isn't. Counts and sizes only.
 43. **The account page's empty state is the setup steps** (11-25, the funnel walk's leak 4). With no connected AI,
-    `/account` opens with the site's steps inline ("1. Make your account: done", then 2 to 5): the connector address with a Copy button, adding it in
-    claude.ai, Always allow, the instruction block with a Copy button, say hi; the beta note follows them. The words
+    `/account` shows the site's steps inline, right under the dashboard button ("1. Make your account: done", then 2 to 5): the connector address with a Copy button, adding it in
+    claude.ai, Always allow, the instruction block with a Copy button, say hi. The words
     are a SECOND COPY of counterparts-site's `features/claude-ai/SetupPage.tsx` and `content.ts#INSTRUCTIONS`
     (`pages.ts#SETUP_INSTRUCTIONS`, byte for byte): a change to one is a change to both. The steps link the site's
     (`pages.ts#SETUP_URL`, `https://counterparts.ai/claude-ai/#setup`). The Copy buttons are a few lines of nonce'd
     script (§15); the boxes are selectable without it. With a connection, the steps are gone.
+    **The page's order** (11-25, Mike: "a weird wall of text"): what a returning person came for first. "Signed in
+    as" with Sign out beside it; the dashboard as a primary button-styled link (`a.cp-button`); the steps or the
+    connected AIs; the time zone; download; delete; and last, under its own heading "What we keep, and your
+    choices", the beta note (G4). The note is Mike's sentences word for word and in order (`pages.ts#BETA_NOTE_PARAGRAPHS`),
+    split only at sentence ends into short paragraphs, always shown (not folded: the promises stay in view for
+    anyone who scrolls); its last paragraph is the bug and contact line.
 44. **The sign-in page's heading** (11-25, leak 5): "Sign up or sign in" when the request carries no session cookie
     or carries the site's where-from fields (§41); "Sign in to Counterparts" for a (stale) session cookie alone.
     Chosen by the request, never by an address (§12). The email says to open the link on the device to be signed

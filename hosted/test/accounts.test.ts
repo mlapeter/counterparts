@@ -295,7 +295,7 @@ describe("signing up and signing in", () => {
     assert.doesNotMatch(a.body, /once, in this browser/);
   });
 
-  test("a new account lands on the setup steps (leak 4): the address and the instructions to copy, then the beta note", async () => {
+  test("a new account sees the dashboard, then the setup steps (leak 4): the address and the instructions to copy; the beta note at the foot", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const me = new Browser(r.base);
@@ -307,8 +307,8 @@ describe("signing up and signing in", () => {
       assert.ok(i >= 0, `the page has ${s}`);
       return i;
     };
-    // The steps in order, and the beta note after the last of them.
-    const order = [at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>1. Make your account: done</h3>"), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("Hosted Counterparts is a free beta.")];
+    // The dashboard first, then the steps in order, and the beta note at the foot (11-25).
+    const order = [at('href="/dashboard/">Open your dashboard</a>'), at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>1. Make your account: done</h3>"), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("<h2>Connected AIs</h2>"), at("<h2>Your day</h2>"), at('<h2 id="privacy">What we keep, and your choices</h2>'), at("Hosted Counterparts is a free beta.")];
     assert.deepEqual([...order].sort((x, y) => x - y), order);
     assert.ok(html.includes('<pre class="cp-paste" id="cp-mcp">http://127.0.0.1/mcp</pre>'));
     // The instruction block, exactly the site's (escaped once), with its own Copy button.
@@ -659,14 +659,19 @@ describe("G4: the beta note, and the bare address", () => {
   // constant would let a changed word through.
   const NOTE =
     "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased). We also keep the day you last started a chat with Counterparts and the day you last used Counterparts' tools (just the dates), to tell quiet accounts from active ones and count them. If the link you signed up through carried it, we keep where you came from: a campaign tag, the referring site's address (no page or search terms) and the page you landed on. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at https://github.com/mlapeter/counterparts/issues (please don't paste memories into it). For anything else, write to mike@resonantventures.com.";
+  // The page splits the note into short paragraphs at sentence ends (11-25): the words
+  // between tags are compared with runs of whitespace made one space.
   const visible = (html: string): string =>
     html
+      .replace(/<style[\s\S]*?<\/style>/g, "")
+      .replace(/<\/p>\s*<p[^>]*>/g, " ")
       .replace(/<[^>]+>/g, "")
       .replace(/&#39;/g, "'")
       .replace(/&quot;/g, '"')
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")
-      .replace(/&amp;/g, "&");
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ");
 
   test("the account page a new sign-up lands on carries the note word for word, with a link to the issues and a mailto", async () => {
     const r = await rig();
@@ -680,6 +685,10 @@ describe("G4: the beta note, and the bare address", () => {
     assert.equal(visible(html).split(NOTE).length, 2, "once");
     assert.match(html, /<a href="https:\/\/github\.com\/mlapeter\/counterparts\/issues">https:\/\/github\.com\/mlapeter\/counterparts\/issues<\/a>/);
     assert.match(html, /<a href="mailto:mike@resonantventures\.com">mike@resonantventures\.com<\/a>/);
+    // Under its own heading at the foot (11-25), after the dashboard and the rest of the page.
+    const head = html.indexOf('<h2 id="privacy">What we keep, and your choices</h2>');
+    assert.ok(html.indexOf('href="/dashboard/"') < head && html.indexOf("<h2>Your day</h2>") > 0 && html.indexOf("<h2>Your day</h2>") < head);
+    assert.ok(head < html.indexOf("Hosted Counterparts is a free beta."));
   });
 
   test("GET / goes to the account page, and a signed-out visitor from there to sign in", async () => {
