@@ -375,7 +375,7 @@ ${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
 <button type="submit">Sign in with the code</button>
 </form>
 <p class="muted">The code works only here, in this browser. The link works on any device.</p>`;
-    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}\n<p>${escapeHtml(CODE_OR_LINK_WORDS)}</p>\n${codeForm}` });
+    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>\n<p>${escapeHtml(CODE_OR_LINK_WORDS)}</p>${html}\n${codeForm}` });
   };
 
   /** Signed in by a link's press or a code: the sign-up's hooks, one session for this browser, and on to `next`. */

@@ -82,7 +82,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 10a. **The email also carries a 6-digit code, which works only in the browser that asked** (11-25, PR B): read the
     mail on a phone, type the code on the laptop. Typed in the "check your email" page's box (`POST /login/code`,
     CSRF- and Origin-checked; the box rides on every sent page, whatever the ask's outcome). The page leads with one
-    recommendation, the same on every sent page: click the link, or type the code if it opens somewhere else.
+    recommendation, just under its heading and the same on every sent page: click the link, or type the code if it
+    opens somewhere else.
     - Made with `crypto.randomInt`, kept as `login_links.code_hash` (§9). One use covers the link and the code: a
       good code spends the row as the press does.
     - `Accounts#useCode` looks only at THIS browser's latest ask of the last hour, and the code is good only when

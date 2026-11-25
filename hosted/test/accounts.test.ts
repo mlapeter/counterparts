@@ -728,7 +728,10 @@ describe("PR B: the 6-digit code, only in the browser that asked", () => {
     assert.match(asked.body, /autocomplete="one-time-code"/);
     // One recommendation leads (11-25): the link, then the code as the fallback; the code's limits stay said.
     const lead = asked.body.indexOf("Click the link in the email. If it opens somewhere else, or you&#39;d rather not, type the 6-digit code here.");
-    assert.ok(lead >= 0 && lead < asked.body.indexOf('<form method="post" action="/login/code">'));
+    // Just under the heading: the first paragraph after the h1, ahead of the sent words and the code form.
+    const afterH1 = asked.body.slice(asked.body.indexOf("<h1>Check your email</h1>"));
+    assert.equal(afterH1.indexOf("<p>"), afterH1.indexOf("<p>Click the link in the email."));
+    assert.ok(lead >= 0 && lead < asked.body.indexOf("a link is on its way") && lead < asked.body.indexOf('<form method="post" action="/login/code">'));
     assert.match(asked.body, /The code works only here, in this browser\. The link works on any device\./);
     assert.match(asked.body, /It works once, for 15 minutes/);
     const code = codeOf(r);
