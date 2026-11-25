@@ -6,7 +6,8 @@
  *   { "at": "<ISO>", "accounts": 11, "used": 8, "active7d": 5,
  *     "spots": { "total": 500, "left": 489 },
  *     "sources": { "reddit": 3, "(none)": 8 },
- *     "referrers": { "https://www.reddit.com": 2, "(none)": 9 } }
+ *     "referrers": { "https://www.reddit.com": 2, "(none)": 9 },
+ *     "otherBrowser7d": 1 }
  *
  * COUNTS ONLY (`Accounts#counts`): no address, id, name or date of anyone. The
  * people counted are the ones the spots count, so `sources` and `referrers` each

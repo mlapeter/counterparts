@@ -260,7 +260,7 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
 
 ```json
 {"at":"2026-11-17T15:00:00.000Z","accounts":11,"used":8,"active7d":5,"spots":{"total":500,"left":489},
- "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9}}
+ "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9},"otherBrowser7d":1}
 ```
 
 - `accounts`: accounts that exist now, as the spots count them (a pending delete included; reviewers' accounts not).
@@ -272,6 +272,9 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
   `people.last_seen_on`, a day stamp written at most once a day per person.
 - `sources` and `referrers`: accounts per source tag and per first referrer's origin (SA1, below); `(none)` for
   those that came with none. Each sums to `accounts`.
+- `otherBrowser7d` (11-25): sign-in links finished in a browser other than the one that asked, sign-ups and
+  sign-ins alike, in the last 7 days (the `login.link.other-browser` audit rows). Before 11-25 those were refused;
+  this is how many the any-browser link let through.
 
 Counts only: no address, id or name. A missing or wrong token is a `401`; with the variable unset, a `404`. To
 change the token, set a new value and redeploy (the old one stops at once).
