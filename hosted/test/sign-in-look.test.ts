@@ -71,7 +71,7 @@ describe("the sign-in pages' look (LP1)", () => {
     assert.match(html, /Counterparts for claude\.ai/);
     assert.match(html, /<h1>Sign up or sign in<\/h1>/);
     assert.match(html, /<button type="submit">Email me a link<\/button>/);
-    assert.match(html, /<details><summary>Have an invite code\?<\/summary>/);
+    assert.match(html, /<details><summary>Have an invite code\? \(only if someone gave you one\)<\/summary>/);
   });
 
   test("the heading (11-25, leak 5): 'Sign up or sign in' with no session cookie or with the site's where-from fields; 'Sign in' for a stale session alone", async () => {

@@ -121,6 +121,8 @@ const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts
 // THE CODE'S WORDS (PR B): one sentence for a wrong code, a dead one (5 wrong tries), a capped try, and a
 // browser that never asked, so the box says nothing of who has an account or of what went wrong.
 const CODE_WRONG_WORDS = "That code didn't work. Check it against the newest email, or open the email's link instead.";
+// One recommendation on the check-your-email page (11-25 walk, round 2): the link first, the code as the fallback.
+const CODE_OR_LINK_WORDS = "Click the link in the email. If it opens somewhere else, or you'd rather not, type the 6-digit code here.";
 /** The code box's caps (PR B), on top of a code's own 5 tries: per IP and per address an hour, and per address a day. */
 export const CODE_LIMITS = { perIpHour: 20, perEmailHour: 10, perEmailDay: 20 } as const;
 
@@ -133,7 +135,8 @@ export const SETUP_URL = "https://counterparts.ai/claude-ai/#setup";
  * happen. The words are the site's, taken from counterparts-site
  * features/claude-ai/SetupPage.tsx (steps 2 to 5) and content.ts (INSTRUCTIONS,
  * CONNECTOR_NAME) as of the site's 02677b9 (content.ts lastReviewed 2026-11-17),
- * not rewritten: only the JSX is made HTML and the screenshots left out.
+ * with SetupPage.tsx's 2026-11-25 wording (the connector explained in step 2, "read"
+ * for "wake", what Instructions is), not rewritten: only the JSX is made HTML and the screenshots left out.
  * THIS IS NOW A SECOND COPY OF THAT TEXT: when the site's steps or its instruction
  * block change, change these too (and the other way round).
  */
@@ -157,18 +160,19 @@ function setupStepsHtml(mcp: string): string {
 <p class="muted">It takes about five minutes, once. <a href="${SETUP_URL}">The same steps on counterparts.ai</a>.</p>
 <h3>1. Make your account: done</h3>
 <h3>2. Add Counterparts to claude.ai</h3>
+<p>A connector is claude.ai&rsquo;s name for an outside tool Claude can use. Counterparts is one: it&rsquo;s where this memory lives.</p>
 <p>On <a href="https://claude.ai">claude.ai</a>, go to <strong>Customize &gt; Connectors</strong>, click <strong>+ Add</strong>, then <strong>Add custom connector</strong>. Name it exactly <strong>${CONNECTOR_NAME}</strong>, and paste this address:</p>
 ${copyBlock("cp-mcp", mcp, "connector address")}
 <p>Keep the suggested sign-in settings and finish adding it. Sign in with your email if it asks, then click <strong>Allow</strong>. On Team or Enterprise, an Owner adds it first; you then click Connect.</p>
 <p class="muted">The Free plan allows one custom connector.</p>
 <h3>3. Let Claude use it without asking</h3>
-<p>Open the connector&rsquo;s settings and set every Counterparts tool to <strong>Always allow</strong>. Otherwise Claude stops to ask before each tool, and usually won&rsquo;t wake its memory at all.</p>
+<p>Open the connector&rsquo;s settings and set every Counterparts tool to <strong>Always allow</strong>. Otherwise Claude stops to ask before each tool, and usually won&rsquo;t read its memory at all.</p>
 <h3>4. Tell Claude to use it</h3>
-<p>Go to <strong>Settings &gt; Your Claude</strong>, find <strong>Instructions</strong> (or, in the older layout, <strong>Account &gt; Instructions for Claude</strong>), and paste this in, whole. To use Counterparts in one project only, paste it into that project&rsquo;s instructions instead.</p>
+<p>Go to <strong>Settings &gt; Your Claude</strong>, find <strong>Instructions</strong>, a note Claude reads at the start of every chat (or, in the older layout, <strong>Account &gt; Instructions for Claude</strong>), and paste this in, whole. To use Counterparts in one project only, paste it into that project&rsquo;s instructions instead.</p>
 ${copyBlock("cp-instructions", SETUP_INSTRUCTIONS, "instructions for Claude")}
-<p>It&rsquo;s written in your voice on purpose: it&rsquo;s you telling Claude you set this up and want it used. Without it, Claude may answer from its built-in memory and never wake this one. Claude&rsquo;s own memory stays on; the two work side by side.</p>
+<p>It&rsquo;s written in your voice on purpose: it&rsquo;s you telling Claude you set this up and want it used. Without it, Claude may answer from its built-in memory and never read this one. Claude&rsquo;s own memory stays on; the two work side by side.</p>
 <h3>5. Say hi</h3>
-<p>Start a new chat and say hi. The first time, Counterparts suggests a short first meeting so you and Claude can get to know each other; after that, the instructions you pasted have Claude wake its memory at the start of each chat. You don&rsquo;t have to tell it what to keep. Ask &ldquo;what do you remember about me?&rdquo; whenever you like.</p>`;
+<p>Start a new chat and say hi. The first time, Counterparts suggests a short first meeting so you and Claude can get to know each other; after that, the instructions you pasted have Claude read its memory at the start of each chat. You don&rsquo;t have to tell it what to keep. Ask &ldquo;what do you remember about me?&rdquo; whenever you like.</p>`;
 }
 
 /** The Copy buttons' few lines: the clipboard is written in the click, from the box's own text. */
@@ -214,13 +218,24 @@ const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 // the account keeps `people.invite_id`, and codes are stored only hashed.
 const ISSUES_URL = "https://github.com/mlapeter/counterparts/issues";
 const FEEDBACK_EMAIL = "mike@resonantventures.com";
+/**
+ * The note as the account page shows it (11-25, Mike: "a weird wall of text"): the
+ * same sentences, word for word and in the same order, split only at sentence ends
+ * into short paragraphs under their own heading at the foot of the page. The last
+ * paragraph is the bug and contact line.
+ */
+const BETA_NOTE_PARAGRAPHS: readonly string[] = [
+  "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased).",
+  "We also keep the day you last started a chat with Counterparts and the day you last used Counterparts' tools (just the dates), to tell quiet accounts from active ones and count them. If the link you signed up through carried it, we keep where you came from: a campaign tag, the referring site's address (no page or search terms) and the page you landed on. We keep no transcript of your chats.",
+  "Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule.",
+  "You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe).",
+];
 const BETA_NOTE_HTML =
-  escapeHtml(
-    "Hosted Counterparts is a free beta. We store what Claude writes through Counterparts' tools (your memories, their earlier versions, a journal, dreams, reflections and a self page) and your account details: your email, time zone, connected AIs, sign-in sessions, which invite you used, if any (a reference, not the code), and a record of account events (kept for 12 months, then erased). We also keep the day you last started a chat with Counterparts and the day you last used Counterparts' tools (just the dates), to tell quiet accounts from active ones and count them. If the link you signed up through carried it, we keep where you came from: a campaign tag, the referring site's address (no page or search terms) and the page you landed on. We keep no transcript of your chats. Our hosting provider encrypts its disks (AES-256 at rest), and backups of your memories that leave our server are encrypted with a key that belongs to your account. Our hosting provider also keeps short-term snapshots of its disks for its own recovery, and rotates them on its own schedule. You can delete a single memory by asking Claude, and you can delete your whole account any time: it locks at once and is erased after 24 hours unless you keep it, or you can delete everything now. You can download your whole memory any time as one SQLite file (not encrypted: keep it somewhere safe). Found a bug? Open an issue at ",
-  ) +
+  BETA_NOTE_PARAGRAPHS.map((t) => `<p class="muted">${escapeHtml(t)}</p>`).join("\n") +
+  `\n<p class="muted">${escapeHtml("Found a bug? Open an issue at ")}` +
   `<a href="${ISSUES_URL}">${ISSUES_URL}</a>` +
   escapeHtml(" (please don't paste memories into it). For anything else, write to ") +
-  `<a href="mailto:${FEEDBACK_EMAIL}">${FEEDBACK_EMAIL}</a>.`;
+  `<a href="mailto:${FEEDBACK_EMAIL}">${FEEDBACK_EMAIL}</a>.</p>`;
 
 /**
  * THE DELETE EMAILS (R9, Mike 2026-10-27): one at a delete (24 hours), one at
@@ -328,7 +343,7 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
 ${from.source === null ? "" : `<input type="hidden" name="r" value="${escapeHtml(from.source)}">\n`}${from.referrer === null ? "" : `<input type="hidden" name="ref" value="${escapeHtml(from.referrer)}">\n`}${from.landing === null ? "" : `<input type="hidden" name="land" value="${escapeHtml(from.landing)}">\n`}<label>Email<br><input type="email" name="email" required autocomplete="email"${typed.length > 0 ? ` value="${escapeHtml(typed)}"` : ""}></label><br>
-<details><summary>Have an invite code?</summary>
+<details><summary>Have an invite code? (only if someone gave you one)</summary>
 <label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
 </details>
 <button type="submit">Email me a link</button>
@@ -356,11 +371,11 @@ ${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(box.browser))}">
 <input type="hidden" name="email" value="${escapeHtml(box.email)}">
 <input type="hidden" name="next" value="${escapeHtml(box.next)}">
-<label>Or type the 6-digit code from the email<br><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
+<label>The 6-digit code from the email<br><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
 <button type="submit">Sign in with the code</button>
 </form>
 <p class="muted">The code works only here, in this browser. The link works on any device.</p>`;
-    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}\n${codeForm}` });
+    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>\n<p>${escapeHtml(CODE_OR_LINK_WORDS)}</p>${html}\n${codeForm}` });
   };
 
   /** Signed in by a link's press or a code: the sign-up's hooks, one session for this browser, and on to `next`. */
@@ -646,18 +661,20 @@ ${switching}${form}`,
       const connections = (await opts.connections?.list(personId)) ?? [];
       const token = escapeHtml(csrf.token(browser));
       const fmt = (t: number): string => new Date(t).toISOString().slice(0, 10);
-      // No connected AI yet (a new account, or one that disconnected them all): the setup steps
-      // open the page, and the beta note follows them (leak 4, 11-25).
+      // The order is what a returning person came for (11-25): who's signed in and Sign out, the
+      // dashboard, then the setup steps while no AI is connected (leak 4) or the connected AIs,
+      // the time zone, download, delete, and last the beta note under its own heading.
       const setUp = connections.length === 0;
       const nonce = randomBytes(16).toString("base64");
       page(res, 200, {
         title: "Your account",
         nonce,
         body: `<h1>Your Counterparts account</h1>
-<p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
-${url.searchParams.get("from") === "elsewhere" ? `<p><strong>Signed in here. To finish connecting Claude, go back to the browser where you started.</strong></p>\n` : ""}${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n<h2>About the beta</h2>\n` : ""}<p class="muted">${BETA_NOTE_HTML}</p>
-<p><a href="/dashboard/">Open your dashboard</a> <span class="muted">— your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</span></p>
-<h2>Connected AIs</h2>
+<div class="cp-who"><p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
+<form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form></div>
+${url.searchParams.get("from") === "elsewhere" ? `<p><strong>Signed in here. To finish connecting Claude, go back to the browser where you started.</strong></p>\n` : ""}<p><a class="cp-button" href="/dashboard/">Open your dashboard</a></p>
+<p class="muted">Your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</p>
+${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n` : ""}<h2>Connected AIs</h2>
 ${
   setUp
     ? `<p class="muted">None yet. <a href="#setup">The steps above</a> connect claude.ai.</p>`
@@ -692,7 +709,8 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
 <button type="submit" name="when" value="now">Delete everything now</button>
 <p class="muted">${escapeHtml(AFTER_ERASE_WORDS)} ${escapeHtml(FORGET_WORDS)}</p></form>`
 }
-<form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form>${setUp ? `\n<script nonce="${nonce}">${COPY_SCRIPT}</script>` : ""}`,
+<h2 id="privacy">What we keep, and your choices</h2>
+${BETA_NOTE_HTML}${setUp ? `\n<script nonce="${nonce}">${COPY_SCRIPT}</script>` : ""}`,
       });
       return true;
     }

@@ -163,6 +163,10 @@ describe("the production default: spots never set", () => {
     assert.equal(stranger.asked.status, 200);
     assert.match(stranger.asked.body, /Check your email/);
     assert.match(stranger.asked.body, /join the waiting list/);
+    // The page leads with its one recommendation (11-25), ahead of the sent words and the waiting-list line.
+    const sent = stranger.asked.body;
+    const lead = sent.indexOf("<p>Click the link in the email.");
+    assert.ok(lead > sent.indexOf("<h1>Check your email</h1>") && lead < sent.indexOf("If that address has an account") && lead < sent.indexOf("join the waiting list"));
     assert.equal(stranger.asked.link, null, "no email");
     assert.equal(r.mail.sent.length, 0);
     assert.equal(people(r), 0);
