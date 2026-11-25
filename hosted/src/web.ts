@@ -172,7 +172,7 @@ export const PAGE_STYLE = [
   // The account page's head (11-25): who's signed in beside Sign out, and the dashboard as a primary button-styled link.
   ".cp-who{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;margin:0 0 1rem}.cp-who p,.cp-who form{margin:0}",
   "a.cp-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;font:600 13px/1.2 var(--mono);text-decoration:none;border:1px solid var(--accent);border-radius:4px;background:var(--accent);color:var(--accent-ink);box-shadow:var(--accent-glow)}",
-  "a.cp-button:hover{text-decoration:none;filter:brightness(1.08)}",
+  "a.cp-button:hover{text-decoration:none;color:var(--accent-ink);filter:brightness(1.08)}",
   ".cp-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}",
   ":focus-visible{outline:2px solid var(--accent);outline-offset:3px}",
   "button:focus-visible{outline-offset:2px}",

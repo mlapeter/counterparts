@@ -311,6 +311,10 @@ describe("signing up and signing in", () => {
     const order = [at('href="/dashboard/">Open your dashboard</a>'), at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>1. Make your account: done</h3>"), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("<h2>Connected AIs</h2>"), at("<h2>Your day</h2>"), at('<h2 id="privacy">What we keep, and your choices</h2>'), at("Hosted Counterparts is a free beta.")];
     assert.deepEqual([...order].sort((x, y) => x - y), order);
     assert.ok(html.includes('<pre class="cp-paste" id="cp-mcp">http://127.0.0.1/mcp</pre>'));
+    // The site's 11-25 wording, in the second copy too.
+    assert.ok(html.includes("A connector is claude.ai&rsquo;s name for an outside tool Claude can use. Counterparts is one: it&rsquo;s where this memory lives."));
+    assert.ok(html.includes("<strong>Instructions</strong>, a note Claude reads at the start of every chat (or, in the older layout,"));
+    assert.ok(html.includes("and usually won&rsquo;t read its memory at all.") && html.includes("never read this one.") && html.includes("have Claude read its memory at the start of each chat."));
     // The instruction block, exactly the site's (escaped once), with its own Copy button.
     assert.ok(html.includes(`<pre class="cp-paste" id="cp-instructions">${SETUP_INSTRUCTIONS.replace(/'/g, "&#39;")}</pre>`));
     assert.equal(html.match(/<button type="button" class="cp-copy" data-copy="cp-(mcp|instructions)">/g)?.length, 2);
@@ -722,6 +726,11 @@ describe("PR B: the 6-digit code, only in the browser that asked", () => {
     const asked = await askLink(r, me, "Coder@Example.com", invite);
     assert.match(asked.body, /<form method="post" action="\/login\/code">/);
     assert.match(asked.body, /autocomplete="one-time-code"/);
+    // One recommendation leads (11-25): the link, then the code as the fallback; the code's limits stay said.
+    const lead = asked.body.indexOf("Click the link in the email. If it opens somewhere else, or you&#39;d rather not, type the 6-digit code here.");
+    assert.ok(lead >= 0 && lead < asked.body.indexOf('<form method="post" action="/login/code">'));
+    assert.match(asked.body, /The code works only here, in this browser\. The link works on any device\./);
+    assert.match(asked.body, /It works once, for 15 minutes/);
     const code = codeOf(r);
     assert.match(r.mail.sent.at(-1)!.text, /Don't give this code or link to anyone/);
     const res = await typeCode(me, asked.body, `${code.slice(0, 3)} ${code.slice(3)}`);

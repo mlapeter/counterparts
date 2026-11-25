@@ -121,6 +121,8 @@ const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts
 // THE CODE'S WORDS (PR B): one sentence for a wrong code, a dead one (5 wrong tries), a capped try, and a
 // browser that never asked, so the box says nothing of who has an account or of what went wrong.
 const CODE_WRONG_WORDS = "That code didn't work. Check it against the newest email, or open the email's link instead.";
+// One recommendation on the check-your-email page (11-25 walk, round 2): the link first, the code as the fallback.
+const CODE_OR_LINK_WORDS = "Click the link in the email. If it opens somewhere else, or you'd rather not, type the 6-digit code here.";
 /** The code box's caps (PR B), on top of a code's own 5 tries: per IP and per address an hour, and per address a day. */
 export const CODE_LIMITS = { perIpHour: 20, perEmailHour: 10, perEmailDay: 20 } as const;
 
@@ -133,7 +135,8 @@ export const SETUP_URL = "https://counterparts.ai/claude-ai/#setup";
  * happen. The words are the site's, taken from counterparts-site
  * features/claude-ai/SetupPage.tsx (steps 2 to 5) and content.ts (INSTRUCTIONS,
  * CONNECTOR_NAME) as of the site's 02677b9 (content.ts lastReviewed 2026-11-17),
- * not rewritten: only the JSX is made HTML and the screenshots left out.
+ * with SetupPage.tsx's 2026-11-25 wording (the connector explained in step 2, "read"
+ * for "wake", what Instructions is), not rewritten: only the JSX is made HTML and the screenshots left out.
  * THIS IS NOW A SECOND COPY OF THAT TEXT: when the site's steps or its instruction
  * block change, change these too (and the other way round).
  */
@@ -157,18 +160,19 @@ function setupStepsHtml(mcp: string): string {
 <p class="muted">It takes about five minutes, once. <a href="${SETUP_URL}">The same steps on counterparts.ai</a>.</p>
 <h3>1. Make your account: done</h3>
 <h3>2. Add Counterparts to claude.ai</h3>
+<p>A connector is claude.ai&rsquo;s name for an outside tool Claude can use. Counterparts is one: it&rsquo;s where this memory lives.</p>
 <p>On <a href="https://claude.ai">claude.ai</a>, go to <strong>Customize &gt; Connectors</strong>, click <strong>+ Add</strong>, then <strong>Add custom connector</strong>. Name it exactly <strong>${CONNECTOR_NAME}</strong>, and paste this address:</p>
 ${copyBlock("cp-mcp", mcp, "connector address")}
 <p>Keep the suggested sign-in settings and finish adding it. Sign in with your email if it asks, then click <strong>Allow</strong>. On Team or Enterprise, an Owner adds it first; you then click Connect.</p>
 <p class="muted">The Free plan allows one custom connector.</p>
 <h3>3. Let Claude use it without asking</h3>
-<p>Open the connector&rsquo;s settings and set every Counterparts tool to <strong>Always allow</strong>. Otherwise Claude stops to ask before each tool, and usually won&rsquo;t wake its memory at all.</p>
+<p>Open the connector&rsquo;s settings and set every Counterparts tool to <strong>Always allow</strong>. Otherwise Claude stops to ask before each tool, and usually won&rsquo;t read its memory at all.</p>
 <h3>4. Tell Claude to use it</h3>
-<p>Go to <strong>Settings &gt; Your Claude</strong>, find <strong>Instructions</strong> (or, in the older layout, <strong>Account &gt; Instructions for Claude</strong>), and paste this in, whole. To use Counterparts in one project only, paste it into that project&rsquo;s instructions instead.</p>
+<p>Go to <strong>Settings &gt; Your Claude</strong>, find <strong>Instructions</strong>, a note Claude reads at the start of every chat (or, in the older layout, <strong>Account &gt; Instructions for Claude</strong>), and paste this in, whole. To use Counterparts in one project only, paste it into that project&rsquo;s instructions instead.</p>
 ${copyBlock("cp-instructions", SETUP_INSTRUCTIONS, "instructions for Claude")}
-<p>It&rsquo;s written in your voice on purpose: it&rsquo;s you telling Claude you set this up and want it used. Without it, Claude may answer from its built-in memory and never wake this one. Claude&rsquo;s own memory stays on; the two work side by side.</p>
+<p>It&rsquo;s written in your voice on purpose: it&rsquo;s you telling Claude you set this up and want it used. Without it, Claude may answer from its built-in memory and never read this one. Claude&rsquo;s own memory stays on; the two work side by side.</p>
 <h3>5. Say hi</h3>
-<p>Start a new chat and say hi. The first time, Counterparts suggests a short first meeting so you and Claude can get to know each other; after that, the instructions you pasted have Claude wake its memory at the start of each chat. You don&rsquo;t have to tell it what to keep. Ask &ldquo;what do you remember about me?&rdquo; whenever you like.</p>`;
+<p>Start a new chat and say hi. The first time, Counterparts suggests a short first meeting so you and Claude can get to know each other; after that, the instructions you pasted have Claude read its memory at the start of each chat. You don&rsquo;t have to tell it what to keep. Ask &ldquo;what do you remember about me?&rdquo; whenever you like.</p>`;
 }
 
 /** The Copy buttons' few lines: the clipboard is written in the click, from the box's own text. */
@@ -339,7 +343,7 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <input type="hidden" name="tz" id="tz" value="">
 ${from.source === null ? "" : `<input type="hidden" name="r" value="${escapeHtml(from.source)}">\n`}${from.referrer === null ? "" : `<input type="hidden" name="ref" value="${escapeHtml(from.referrer)}">\n`}${from.landing === null ? "" : `<input type="hidden" name="land" value="${escapeHtml(from.landing)}">\n`}<label>Email<br><input type="email" name="email" required autocomplete="email"${typed.length > 0 ? ` value="${escapeHtml(typed)}"` : ""}></label><br>
-<details><summary>Have an invite code?</summary>
+<details><summary>Have an invite code? (only if someone gave you one)</summary>
 <label>Invite code <span class="muted">(optional)</span><br><input type="text" name="invite" autocomplete="off"></label>
 </details>
 <button type="submit">Email me a link</button>
@@ -367,11 +371,11 @@ ${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(box.browser))}">
 <input type="hidden" name="email" value="${escapeHtml(box.email)}">
 <input type="hidden" name="next" value="${escapeHtml(box.next)}">
-<label>Or type the 6-digit code from the email<br><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
+<label>The 6-digit code from the email<br><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
 <button type="submit">Sign in with the code</button>
 </form>
 <p class="muted">The code works only here, in this browser. The link works on any device.</p>`;
-    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}\n${codeForm}` });
+    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}\n<p>${escapeHtml(CODE_OR_LINK_WORDS)}</p>\n${codeForm}` });
   };
 
   /** Signed in by a link's press or a code: the sign-up's hooks, one session for this browser, and on to `next`. */

@@ -81,7 +81,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - A link finished in another browser is audited `login.link.other-browser` (no detail), counted by §40.
 10a. **The email also carries a 6-digit code, which works only in the browser that asked** (11-25, PR B): read the
     mail on a phone, type the code on the laptop. Typed in the "check your email" page's box (`POST /login/code`,
-    CSRF- and Origin-checked; the box rides on every sent page, whatever the ask's outcome).
+    CSRF- and Origin-checked; the box rides on every sent page, whatever the ask's outcome). The page leads with one
+    recommendation, the same on every sent page: click the link, or type the code if it opens somewhere else.
     - Made with `crypto.randomInt`, kept as `login_links.code_hash` (§9). One use covers the link and the code: a
       good code spends the row as the press does.
     - `Accounts#useCode` looks only at THIS browser's latest ask of the last hour, and the code is good only when
@@ -736,7 +737,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `/account` shows the site's steps inline, right under the dashboard button ("1. Make your account: done", then 2 to 5): the connector address with a Copy button, adding it in
     claude.ai, Always allow, the instruction block with a Copy button, say hi. The words
     are a SECOND COPY of counterparts-site's `features/claude-ai/SetupPage.tsx` and `content.ts#INSTRUCTIONS`
-    (`pages.ts#SETUP_INSTRUCTIONS`, byte for byte): a change to one is a change to both. The steps link the site's
+    (`pages.ts#SETUP_INSTRUCTIONS`, byte for byte), synced with SetupPage.tsx's 11-25 wording: a change to one is a change to both. The steps link the site's
     (`pages.ts#SETUP_URL`, `https://counterparts.ai/claude-ai/#setup`). The Copy buttons are a few lines of nonce'd
     script (§15); the boxes are selectable without it. With a connection, the steps are gone.
     **The page's order** (11-25, Mike: "a weird wall of text"): what a returning person came for first. "Signed in
