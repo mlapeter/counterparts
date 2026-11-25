@@ -57,8 +57,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 8. **The person is the hub.** A person has identities: kind and value, unique, so phone numbers, passkeys and other
    AIs attach later as more rows. A person also has one store.
 9. **Every secret is stored as its SHA-256**: login-link tokens, session tokens, invite codes, the browser binding,
-   and the login code (§10a), hashed under its row's id so the table is no lookup table of a million codes.
-   A copy of `accounts.sqlite` signs nobody in. The test greps the file for raw secrets.
+   and the login code (§10a), hashed under its row's id so the table is no ready-made lookup table of a million
+   codes. A copy of `accounts.sqlite` signs nobody in. For the code that holds because of the browser binding, not
+   the hash: 10^6 SHA-256s recover any one code in moments, but a code is good only in the browser that asked
+   (`browser_hash`, whose cookie the copy doesn't hold), and dies with its link at 15 minutes. The test greps the
+   file for raw secrets, and checks each `code_hash` is 64 hex characters and never the code.
 10. **A login link works once, for 15 minutes, in any browser, and only by a press** (11-25, the hosted funnel walk's
     leak 3; before it, only in the browser that asked).
     - **A GET never spends a link**, in any browser (`Accounts#peekLink` writes nothing): opening it shows a page with
@@ -83,7 +86,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       good code spends the row as the press does.
     - `Accounts#useCode` looks only at THIS browser's latest ask of the last hour, and the code is good only when
       that ask was for the address typed on the page, is unused and unexpired, and has tries left.
-    - **At most 5 tries per email** (`login_links.code_tries`, taken by one guarded `UPDATE … WHERE code_tries < 5`
+    - **At most 5 tries per emailed code, i.e. per ask** (`login_links.code_tries`, taken by one guarded `UPDATE … WHERE code_tries < 5`
       BEFORE the compare, so a parallel burst can't pass it); then the code is dead and the link still works.
     - Every try that finds an ask costs that one write, refused asks' rows included (they carry a code nobody was
       sent), so the time doesn't say whether the address has an account.
@@ -139,8 +142,12 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. The code box (§10a) has its own,
     taken before the code is read: 20 an hour per IP on every try, and 10 an hour and 20 a day per address, taken
-    only once the browser's ask is known to be for that address, so nobody uses up a person's tries without that
-    person being emailed (`pages.ts#CODE_LIMITS`); any full, or any error taking them, refuses the try (closed). They live in memory, which suits
+    only once the browser's ask is known to be for that address (`pages.ts#CODE_LIMITS`); any full, or any error
+    taking them, refuses the try (closed). So a stranger can't spend an address's code caps by typing it alone: each
+    ask emails the person. But they CAN by asking: four asks for the address from their own browser (under the
+    form's 5 an hour) and five wrong codes each fill the 20 a day, and the person's own code is then refused for up
+    to 24 hours, in the same words. The link still works throughout, so this blocks only the code; the person gets
+    an email per ask. They live in memory, which suits
     one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
     first (the client's own words). One proxy hop is assumed; check the header's shape on the first Railway deploy.
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.

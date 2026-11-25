@@ -116,6 +116,20 @@ describe("signing up and signing in", () => {
     // The store id is 128 random bits; the person row carries the zone from the browser.
     const db = readFileSync(join(tmp.root, "control", "accounts.sqlite")).toString("latin1");
     assert.doesNotMatch(db, /cpl_|cps_|cpi_/); // no raw secret anywhere in the file
+    // The login code (PR B): only its hash, 64 hex characters, never the code itself.
+    const sent = /in that same browser: (\d{6})/.exec(r.mail.sent[0]!.text)![1]!;
+    const rows = openDb(join(tmp.root, "control", "accounts.sqlite"));
+    try {
+      const hashes = rows.all<{ code_hash: string | null }>("SELECT code_hash FROM login_links").map((x) => x.code_hash);
+      assert.ok(hashes.length > 0);
+      for (const h of hashes) {
+        assert.match(String(h), /^[0-9a-f]{64}$/);
+        assert.notEqual(h, sent);
+      }
+      assert.equal(rows.all("SELECT 1 FROM login_links WHERE code_hash = ? OR code_hash = ?", sent, Number(sent)).length, 0);
+    } finally {
+      rows.close();
+    }
   });
 
   test("an unknown address without an invite gets the same page as a known one, and no email", async () => {
@@ -805,7 +819,30 @@ describe("PR B: the 6-digit code, only in the browser that asked", () => {
     assert.equal((await typeCode(other, fresh.body, code, { "x-forwarded-for": "203.0.113.10" })).status, 303, "another IP, the same code: in");
   });
 
-  test("nobody uses up a person's code tries without that person being emailed (the Phone's re-check)", async () => {
+  test("a stranger who ASKS for an address can fill its daily code cap (four asks, five wrong each): the person's code is refused for the day, the link still works", async () => {
+    const r = await rig({ trustProxy: 1 });
+    const { code: invite } = r.accounts.createInvite();
+    const attacker = new Browser(r.base);
+    // Four asks for the victim's address from the attacker's own browser (each emails the victim), five wrong codes each.
+    for (let n = 0; n < 4; n++) {
+      const asked = await askLink(r, attacker, "target@example.com", invite);
+      const code = codeOf(r);
+      for (let i = 0; i < 5; i++) assert.equal((await typeCode(attacker, asked.body, notIt(code), { "x-forwarded-for": `203.0.113.${String(30 + n)}` })).status, 400);
+    }
+    assert.equal(r.mail.sent.filter((m) => m.to === "target@example.com").length, 4, "the person got an email per ask");
+    // Two hours on (the hourly cap long clear), the person asks: their right code is refused, in the same words.
+    r.setNow(Date.UTC(2026, 9, 26, 14, 1));
+    const victim = new Browser(r.base);
+    const asked = await askLink(r, victim, "target@example.com", invite);
+    const refused = await typeCode(victim, asked.body, codeOf(r), { "x-forwarded-for": "198.51.100.30" });
+    assert.equal(refused.status, 400);
+    assert.match(await refused.text(), CALM);
+    // The link still signs them in.
+    assert.equal((await pressLink(victim, asked.link!)).status, 303);
+    assert.equal(r.accounts.spots().people, 1);
+  });
+
+  test("nobody uses up a person's code tries by typing their address alone (the Phone's re-check)", async () => {
     const r = await rig({ trustProxy: 1 });
     const { code: invite } = r.accounts.createInvite({ maxUses: 2 });
     // Another browser, which asked for its own address, types the victim's address fifteen times.
