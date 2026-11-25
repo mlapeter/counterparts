@@ -988,8 +988,12 @@ export class Accounts {
    * (they carry a code nobody was sent), so neither the answer nor its time says
    * whether the address has an account. Success spends the row as the link's
    * press does (`finishLink`), so one use covers the link and the code.
+   * `addressAllowed` (the page's per-address caps) is asked only once the ask is
+   * known to be for this address, i.e. it was emailed in the last hour (the
+   * Phone's re-check, its commit 5b60537): nobody uses up a person's code tries
+   * without that person getting an email. False, or a throw, refuses (closed).
    */
-  useCode(input: { browser: string | null; email: unknown; code: unknown }): CodeUse {
+  useCode(input: { browser: string | null; email: unknown; code: unknown; addressAllowed?: () => boolean }): CodeUse {
     if (input.browser === null) return { ok: false, reason: "wrong" };
     const at = this.now();
     const row = this.db.get<LinkRow & { code_hash: string | null; code_tries: number }>(
@@ -1002,8 +1006,14 @@ export class Accounts {
     const counted = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
     const email = normalizeEmail(input.email);
     const code = typeof input.code === "string" ? input.code.replace(/\s+/g, "") : "";
-    const good =
-      counted && email !== null && row.email === email && row.used_at === null && row.expires_at > at && row.code_hash !== null && /^\d{6}$/.test(code) && codeHash(row.id, code) === row.code_hash;
+    if (!counted || email === null || row.email !== email) return { ok: false, reason: "wrong" };
+    let allowed: boolean;
+    try {
+      allowed = input.addressAllowed === undefined || input.addressAllowed();
+    } catch {
+      allowed = false;
+    }
+    const good = allowed && row.used_at === null && row.expires_at > at && row.code_hash !== null && /^\d{6}$/.test(code) && codeHash(row.id, code) === row.code_hash;
     if (!good) return { ok: false, reason: "wrong" };
     return this.finishLink(row, false);
   }

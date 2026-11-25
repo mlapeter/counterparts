@@ -805,6 +805,19 @@ describe("PR B: the 6-digit code, only in the browser that asked", () => {
     assert.equal((await typeCode(other, fresh.body, code, { "x-forwarded-for": "203.0.113.10" })).status, 303, "another IP, the same code: in");
   });
 
+  test("nobody uses up a person's code tries without that person being emailed (the Phone's re-check)", async () => {
+    const r = await rig({ trustProxy: 1 });
+    const { code: invite } = r.accounts.createInvite({ maxUses: 2 });
+    // Another browser, which asked for its own address, types the victim's address fifteen times.
+    const attacker = new Browser(r.base);
+    const its = await askLink(r, attacker, "attacker@example.com", invite);
+    for (let i = 0; i < 15; i++) await attacker.form("/login/code", { ...formFields(its.body, "/login/code")!, email: "victim@example.com", code: "000000" }, { "x-forwarded-for": "203.0.113.20" });
+    // The victim's caps are untouched: their own code signs them in.
+    const victim = new Browser(r.base);
+    const asked = await askLink(r, victim, "victim@example.com", invite);
+    assert.equal((await typeCode(victim, asked.body, codeOf(r), { "x-forwarded-for": "198.51.100.20" })).status, 303);
+  });
+
   test("no enumeration: a member's and a stranger's code box answer a wrong code alike, and each try costs the same write", async () => {
     const r = await rig();
     // Spots are 0 here (never set): a stranger without an invite gets no email, only the same page.

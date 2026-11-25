@@ -138,8 +138,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     (`/account`, `/dashboard/`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
     `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. The code box (§10a) has its own,
-    taken on every try before the code is read: 20 an hour per IP, and 10 an hour and 20 a day per address
-    (`pages.ts#CODE_LIMITS`); any full, or any error taking them, refuses the try (closed). They live in memory, which suits
+    taken before the code is read: 20 an hour per IP on every try, and 10 an hour and 20 a day per address, taken
+    only once the browser's ask is known to be for that address, so nobody uses up a person's tries without that
+    person being emailed (`pages.ts#CODE_LIMITS`); any full, or any error taking them, refuses the try (closed). They live in memory, which suits
     one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
     first (the client's own words). One proxy hop is assumed; check the header's shape on the first Railway deploy.
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.

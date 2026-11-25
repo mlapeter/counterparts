@@ -255,16 +255,22 @@ export function accountPages(opts: PagesOptions): Pages {
   const codePerIp = new RateLimit(CODE_LIMITS.perIpHour, 60 * 60 * 1000, now);
   const codePerEmail = new RateLimit(CODE_LIMITS.perEmailHour, 60 * 60 * 1000, now);
   const codePerEmailDay = new RateLimit(CODE_LIMITS.perEmailDay, 24 * 60 * 60 * 1000, now);
-  /** Every code try takes from all three caps; any of them full, or any error, refuses it (fails closed). */
-  const codeAllowed = (ip: string, email: string): boolean => {
+  /**
+   * The code box's caps; a full one, or any error taking one, refuses the try (fails closed). The IP's is taken
+   * for every try; the address's two only once `useCode` knows this browser's ask emailed that address (it
+   * catches a throw there).
+   */
+  const codeIpAllowed = (ip: string): boolean => {
     try {
-      const a = codePerIp.take(ip);
-      const b = codePerEmail.take(email);
-      const c = codePerEmailDay.take(email);
-      return a && b && c;
+      return codePerIp.take(ip);
     } catch {
       return false;
     }
+  };
+  const codeAddressAllowed = (email: string): boolean => {
+    const hour = codePerEmail.take(email);
+    const day = codePerEmailDay.take(email);
+    return hour && day;
   };
 
   const browserOf = (req: IncomingMessage, res: ServerResponse): string => {
@@ -543,8 +549,11 @@ ${
       }
       const next = safeNext(form.get("next"));
       const email = (form.get("email") ?? "").trim().toLowerCase().slice(0, 320);
-      // The caps first, every try counted; then the code. Wrong, dead, capped: the same words.
-      const used = codeAllowed(clientIp(req, opts.trustProxy ?? 0), email) ? opts.accounts.useCode({ browser: browser!, email, code: form.get("code") }) : ({ ok: false, reason: "wrong" } as const);
+      // The caps before the code is read, every try counted (the address's once its ask is known). Wrong, dead,
+      // capped: the same words.
+      const used = codeIpAllowed(clientIp(req, opts.trustProxy ?? 0))
+        ? opts.accounts.useCode({ browser: browser!, email, code: form.get("code"), addressAllowed: () => codeAddressAllowed(email) })
+        : ({ ok: false, reason: "wrong" } as const);
       if (!used.ok) {
         if (used.reason === "full") fullAtTheClick(res);
         else sentPage(res, `<p>${escapeHtml(CODE_WRONG_WORDS)}</p>`, { browser: browser!, email, next }, 400);
