@@ -19,7 +19,7 @@ import * as oauth from "oauth4webapi";
 
 import { createApp } from "../src/app.js";
 import { memoryMailer } from "../src/egress.js";
-import { tempRoot } from "./helpers.js";
+import { pressLink, tempRoot } from "./helpers.js";
 
 const out = process.argv[2];
 if (out === undefined) {
@@ -84,8 +84,9 @@ try {
   const loginHtml = await save("01-sign-in", await me.go("/login"));
   await save("02-check-your-email", await me.form("/login", { csrf: csrfOf(loginHtml), email: "katie@example.com", invite: code, tz: "America/Denver", next: "/account" }));
   const link = /https?:\/\/\S+/.exec(mail.sent.at(-1)!.text)![0];
-  await save("03-link-used-in-another-browser", await new Browser(origin).go(link));
-  await me.go(link);
+  await save("03-link-opened-in-another-browser", await new Browser(origin).go(link));
+  await save("03b-link-opened-in-the-asking-browser", await me.go(link));
+  await pressLink(me, link);
   await save("03a-account-no-connections", await me.go("/account"));
 
   // SU1: with a spot open, the sign-in page and its sent page for a new address
@@ -96,7 +97,7 @@ try {
   await save("02b-check-your-email-spots-open", await newcomer.form("/login", { csrf: csrfOf(openHtml), email: "new@example.com", invite: "", tz: "America/Denver", next: "/account" }));
   const freshLink = /https?:\/\/\S+/.exec(mail.sent.at(-1)!.text)![0];
   app.accounts.setSpots(app.accounts.spots().people);
-  await save("02c-full-at-the-click", await newcomer.go(freshLink));
+  await save("02c-full-at-the-click", await pressLink(newcomer, freshLink));
   // EC1: spots open, this hour's email cap reached: the sent page everyone sees.
   app.accounts.setSpots(app.accounts.spots().people + 5);
   app.accounts.setEmailsPerHour(0);
@@ -144,7 +145,7 @@ try {
   const again = new Browser(origin);
   const againLogin = await (await again.go("/login")).text();
   await again.form("/login", { csrf: csrfOf(againLogin), email: "katie@example.com", invite: "", tz: "America/Denver", next: "/account" });
-  await again.go(/https?:\/\/\S+/.exec(mail.sent.filter((m) => /sign/i.test(m.subject)).at(-1)!.text)![0]);
+  await pressLink(again, /https?:\/\/\S+/.exec(mail.sent.filter((m) => /sign/i.test(m.subject)).at(-1)!.text)![0]);
   const pendingHtml = await save("10-pending-delete", await again.go("/account"));
   await save("11-kept", await again.form("/account/keep", { csrf: csrfOf(pendingHtml) }));
 

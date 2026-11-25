@@ -58,10 +58,23 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
    AIs attach later as more rows. A person also has one store.
 9. **Every secret is stored as its SHA-256**: login-link tokens, session tokens, invite codes, the browser binding.
    A copy of `accounts.sqlite` signs nobody in. The test greps the file for raw secrets.
-10. **A login link works once, for 15 minutes, in the browser that asked for it.**
-    - The single-use claim is one `UPDATE … WHERE used_at IS NULL`.
-    - The wrong browser is refused without spending the link, so a forwarded email or a mail scanner signs nobody in
-      and doesn't burn the link either.
+10. **A login link works once, for 15 minutes, in any browser, and only by a press** (11-25, the hosted funnel walk's
+    leak 3; before it, only in the browser that asked).
+    - **A GET never spends a link**, in any browser (`Accounts#peekLink` writes nothing): opening it shows a page with
+      a button, so a mail scanner's prefetch neither burns a link nor signs anyone in. Only the page's POST spends it,
+      CSRF-bound to the pressing browser's cookie and Origin-checked (§13).
+    - In the browser that asked, the page says "Sign in". In another, it says "Sign in on this browser as
+      you@example.com?", the WHOLE address (review of #860: whoever holds the link sees it one press later anyway, so
+      masking protects nothing and only weakens the warning), since someone can be sent a link to another person's
+      account. The browser that presses gets the session; the asking browser gets nothing.
+    - The press ends any session the pressing browser carries. When that session is someone else's, the page says so
+      before the press: "You're signed in here as X; this signs you in as Y instead" (a forwarded link is otherwise a
+      silent login CSRF).
+    - Finished in another browser, an `/oauth/…` `next` lands on `/account?from=elsewhere` instead, which says
+      "Signed in here. To finish connecting Claude, go back to the browser where you started": the Allow page lives
+      in the browser that started the connect.
+    - The single-use claim is one `UPDATE … WHERE used_at IS NULL`; a second press, from any browser, is refused.
+    - A link finished in another browser is audited `login.link.other-browser` (no detail), counted by §40.
 11. **Sign-up takes a spot or a live invite** (SU1, 2026-11-10; invite only before it).
     - **Spots.** `spots set N` (stored in control's `settings`; never set ⇒ 0) is the accounts hosted takes in all.
       Spots left = max(0, N − people), counting every person but a `deleted` tombstone and a reviewer's account
@@ -644,8 +657,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 
 40. **The operator's counts** (CN1, Mike 2026-11-17; `src/counts.ts`, `Accounts#counts`). `GET /ops/counts`, with
     `Authorization: Bearer <HOSTED_COUNTS_TOKEN>` compared in constant time (both sides SHA-256'd first), answers
-    `{at, accounts, used, active7d, spots: {total, left}, sources, referrers}`: counts only, over the people the
-    spots count (§11), so `sources` and `referrers` (`(none)` for those with none) each sum to `accounts`. A missing
+    `{at, accounts, used, active7d, spots: {total, left}, sources, referrers, otherBrowser7d}`: counts only, over the
+    people the spots count (§11), so `sources` and `referrers` (`(none)` for those with none) each sum to `accounts`.
+    `otherBrowser7d` (11-25) is the sign-in links finished in a browser other than the one that asked, sign-ups and
+    sign-ins alike, in the last 7 days: the `login.link.other-browser` audit rows (§10) of the same people (no
+    tombstone, no reviewer's account). A missing
     or wrong token is `401`; with no token configured the path is a `404`, as any unknown path. `no-store`.
     "Used" and "active" read `people.last_seen_on`: the UTC day (`YYYY-MM-DD`) of the person's last MCP
     `tools/call` that reached their store, any tool, answered or refused (`server.ts#onToolCall`,
@@ -691,8 +707,18 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     don't both send. It is confirmed after the mailer answers; a failed send releases it; a claim never confirmed
     within 15 minutes (the process died mid-send) is taken again by a later check. A duplicate is possible, silence
     isn't. Counts and sizes only.
-43. **The account page's empty state** links the step-by-step setup (`pages.ts#SETUP_URL`,
-    `https://counterparts.ai/claude-ai/#setup`) beside the connector address.
+43. **The account page's empty state is the setup steps** (11-25, the funnel walk's leak 4). With no connected AI,
+    `/account` opens with the site's steps inline ("1. Make your account: done", then 2 to 5): the connector address with a Copy button, adding it in
+    claude.ai, Always allow, the instruction block with a Copy button, say hi; the beta note follows them. The words
+    are a SECOND COPY of counterparts-site's `features/claude-ai/SetupPage.tsx` and `content.ts#INSTRUCTIONS`
+    (`pages.ts#SETUP_INSTRUCTIONS`, byte for byte): a change to one is a change to both. The steps link the site's
+    (`pages.ts#SETUP_URL`, `https://counterparts.ai/claude-ai/#setup`). The Copy buttons are a few lines of nonce'd
+    script (§15); the boxes are selectable without it. With a connection, the steps are gone.
+44. **The sign-in page's heading** (11-25, leak 5): "Sign up or sign in" when the request carries no session cookie
+    or carries the site's where-from fields (§41); "Sign in to Counterparts" for a (stale) session cookie alone.
+    Chosen by the request, never by an address (§12). The email says to open the link on the device to be signed
+    in, that it works once, for 15 minutes, and signs in whichever device opens it, and not to give it to anyone, a
+    person or an AI; the sent page says the same of the link.
 
 ## What it drops, for now
 

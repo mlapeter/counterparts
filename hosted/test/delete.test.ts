@@ -32,7 +32,7 @@ import { StoreLocked, storeTag, tenantDir } from "../src/tenants.js";
 import { PAGE_STYLE } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
 import { REFUSED_ERROR } from "../../src/adapters/remote/http.js";
-import { RECOVERY, rpc, tempRoot, tool } from "./helpers.js";
+import { RECOVERY, pressLink, rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -188,7 +188,7 @@ async function signIn(r: Rig, browser: Browser, email: string, invite: string, n
   await browser.form("/login", { csrf: csrfOf(form), email, invite, tz: "America/Denver", next });
   assert.equal(r.mail.sent.length, before + 1, "a sign-in link was mailed");
   const link = /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0];
-  return browser.go(link);
+  return pressLink(browser, link);
 }
 
 /** A person signed up in a browser, with their ids. */
@@ -380,7 +380,7 @@ describe("the style's primary and danger selectors match the real pages", () => 
 
     const primary = selectorsOf(/background:var\(--accent\)/);
     const danger = selectorsOf(/^color:var\(--danger\)/);
-    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button'].sort());
+    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button', 'form[action="/login/link"] button'].sort());
     assert.deepEqual(danger, ['form[action="/account/delete"] button']);
     // Each selector on the page it was written for.
     assert.ok(matches("button[value=allow]", allow), "Allow is primary on the Allow page");

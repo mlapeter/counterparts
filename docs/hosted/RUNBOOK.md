@@ -206,8 +206,8 @@ the domain on Cloudflare.
    It prints one `cpi_…` code, once, and the time it expires. A code lasts 7 days; `--expires 30` gives it 30 (whole
    days, 1 to 365). A code made before this change was deployed has no expiry and stays valid until used. It needs the backup
    variables set, as `serve` does.
-2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email, so open it
-   **in the same browser**.
+2. Open `https://app.counterparts.ai/login`, then enter your email and the code. The link comes by email: open it on
+   any device and press **Sign in** (opening it alone signs nobody in; 11-25).
 3. Your account page shows no connected apps yet.
 
 ### Opening spots (SU1, 2026-11-10)
@@ -260,7 +260,7 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
 
 ```json
 {"at":"2026-11-17T15:00:00.000Z","accounts":11,"used":8,"active7d":5,"spots":{"total":500,"left":489},
- "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9}}
+ "sources":{"reddit":3,"(none)":8},"referrers":{"https://www.reddit.com":2,"(none)":9},"otherBrowser7d":1}
 ```
 
 - `accounts`: accounts that exist now, as the spots count them (a pending delete included; reviewers' accounts not).
@@ -272,6 +272,10 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
   `people.last_seen_on`, a day stamp written at most once a day per person.
 - `sources` and `referrers`: accounts per source tag and per first referrer's origin (SA1, below); `(none)` for
   those that came with none. Each sums to `accounts`.
+- `otherBrowser7d` (11-25): sign-in links finished in a browser other than the one that asked, sign-ups and
+  sign-ins alike, in the last 7 days (the `login.link.other-browser` audit rows), of the accounts `accounts` counts
+  (reviewers' not). Before 11-25 those were refused;
+  this is how many the any-browser link let through.
 
 Counts only: no address, id or name. A missing or wrong token is a `401`; with the variable unset, a `404`. To
 change the token, set a new value and redeploy (the old one stops at once).

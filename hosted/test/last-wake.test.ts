@@ -23,7 +23,7 @@ import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
 import { memoryMailer } from "../src/egress.js";
 import { openDb } from "../../src/core/store/db.js";
-import { freePort, rpc, tempRoot, tool } from "./helpers.js";
+import { freePort, pressLink, rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -122,7 +122,7 @@ async function connect(r: Rig, email: string): Promise<{ access: string; personI
     const form = await (await browser.go(`/login?next=${encodeURIComponent(allowPath)}`)).text();
     const { code } = r.app.accounts.createInvite();
     await browser.form("/login", { csrf: csrfOf(form), email, invite: code, tz: "America/Denver", next: allowPath });
-    await browser.go(/https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
+    await pressLink(browser, /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
     res = await browser.go(allowPath);
   }
   res = await browser.form(allowPath, { csrf: csrfOf(await res.text()), decision: "allow" });

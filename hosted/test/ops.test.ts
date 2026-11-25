@@ -42,7 +42,7 @@ import { recoverKeys } from "../src/keyops.js";
 import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag, uploadsLine } from "../src/main.js";
 import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
-import { MAIN, RECOVERY, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, testRecovery, tool } from "./helpers.js";
+import { MAIN, RECOVERY, freePort, pressLink, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, testRecovery, tool } from "./helpers.js";
 import type { S3StandIn, Stored } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -144,7 +144,7 @@ async function connect(r: Rig, email: string): Promise<{ access: string; storeId
     const form = await (await browser.go(`/login?next=${encodeURIComponent(allowPath)}`)).text();
     const { code } = r.app.accounts.createInvite();
     await browser.form("/login", { csrf: csrfOf(form), email, invite: code, tz: "America/Denver", next: allowPath });
-    await browser.go(/https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
+    await pressLink(browser, /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0]);
     res = await browser.go(allowPath);
   }
   res = await browser.form(allowPath, { csrf: csrfOf(await res.text()), decision: "allow" });

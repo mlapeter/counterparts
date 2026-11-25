@@ -69,9 +69,25 @@ describe("the sign-in pages' look (LP1)", () => {
     for (const banned of [/<link\b/i, /<img\b/i, /\ssrc=/i, /\sstyle=/i, /url\(/i, /@import/i, /\son[a-z]+=/i]) assert.doesNotMatch(html, banned);
     // The one line of context, and SU1's words where they were.
     assert.match(html, /Counterparts for claude\.ai/);
-    assert.match(html, /<h1>Sign in to Counterparts<\/h1>/);
+    assert.match(html, /<h1>Sign up or sign in<\/h1>/);
     assert.match(html, /<button type="submit">Email me a link<\/button>/);
     assert.match(html, /<details><summary>Have an invite code\?<\/summary>/);
+  });
+
+  test("the heading (11-25, leak 5): 'Sign up or sign in' with no session cookie or with the site's where-from fields; 'Sign in' for a stale session alone", async () => {
+    const base = (await served).base;
+    const h1 = async (path: string, cookie?: string): Promise<string> => {
+      const html = await (await fetch(`${base}${path}`, cookie === undefined ? {} : { headers: { cookie } })).text();
+      return /<h1>([^<]*)<\/h1>/.exec(html)![1]!;
+    };
+    assert.equal(await h1("/login"), "Sign up or sign in");
+    assert.equal(await h1("/login?r=reddit&land=/claude-ai/"), "Sign up or sign in");
+    // A session cookie that signs nobody in (expired, or signed out elsewhere): someone who had an account here.
+    assert.equal(await h1("/login", "cp_session=cps_stale_and_gone_000000000000"), "Sign in to Counterparts");
+    assert.equal(await h1("/login?land=/claude-ai/", "cp_session=cps_stale_and_gone_000000000000"), "Sign up or sign in");
+    // The "New here?" line stays while spots are open (none are set here: full, so it's the waiting-list line instead).
+    const html = await (await fetch(`${base}/login`)).text();
+    assert.match(html, /Hosted is full for now/);
   });
 
   test("an emailed link's error page is warm too, without the fox; the CSP the same", async () => {

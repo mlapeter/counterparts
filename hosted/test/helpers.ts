@@ -294,3 +294,28 @@ export async function spawnServe(env: Record<string, string>, ms = 30_000): Prom
     },
   };
 }
+
+/** The hidden fields of the first `<form method="post" action="<action>">` on a page, as served. */
+export function formFields(html: string, action: string): Record<string, string> | null {
+  const at = html.indexOf(`<form method="post" action="${action}">`);
+  if (at < 0) return null;
+  const body = html.slice(at, html.indexOf("</form>", at));
+  const out: Record<string, string> = {};
+  for (const m of body.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)) {
+    out[m[1]!] = m[2]!.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  }
+  return out;
+}
+
+/**
+ * OPEN AN EMAILED LINK, THEN PRESS ITS BUTTON (11-25: a GET never spends a link). `browser`
+ * is any of the tests' cookie jars. A page with no sign-in form (the link can't be used)
+ * comes back as it was served; otherwise the press's answer.
+ */
+export async function pressLink(browser: { go(target: string, init?: RequestInit): Promise<Response> }, link: string): Promise<Response> {
+  const opened = await browser.go(link);
+  const html = await opened.text();
+  const fields = opened.status === 200 ? formFields(html, "/login/link") : null;
+  if (fields === null) return new Response(html, { status: opened.status, headers: opened.headers });
+  return browser.go("/login/link", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() });
+}

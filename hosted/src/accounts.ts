@@ -11,9 +11,11 @@
  *   - **Every secret is stored as its SHA-256 and compared by lookup of the
  *     hash**: login-link tokens, web-session tokens, invite codes, the browser
  *     binding. A copy of this database signs nobody in.
- *   - **A login link works once, for 15 minutes, in the browser that asked for
- *     it.** "Used" and the person's session are written in one statement that
- *     only an unused, unexpired row satisfies, so two clicks cannot both win.
+ *   - **A login link works once, for 15 minutes, in any browser, and only by a
+ *     press** (11-25; the asking browser only, before it). Opening it spends
+ *     nothing (`peekLink`); the page's CSRF-checked POST spends it (`useLink`).
+ *     "Used" is written in one statement that only an unused, unexpired row
+ *     satisfies, so two presses cannot both win.
  *   - **Sign-up takes a spot or an invite** (SU1, 2026-11-10; Q10 before it).
  *     An unknown address signs up with just its email while a spot is left
  *     (`spots set N`: N accounts in all, every person counted, invited or
@@ -277,6 +279,11 @@ export interface Counts {
   readonly sources: Readonly<Record<string, number>>;
   /** Accounts per first referrer's origin; `(none)` likewise. Sums to `accounts`. */
   readonly referrers: Readonly<Record<string, number>>;
+  /**
+   * Sign-in links finished in a browser other than the one that asked, in the last 7 days (11-25): the
+   * `login.link.other-browser` audit rows, sign-ups and sign-ins alike, of the people the spots count.
+   */
+  readonly otherBrowser7d: number;
 }
 
 export interface Person {
@@ -302,7 +309,17 @@ export type LinkRequest =
 
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
-  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "wrong-browser" | "suspended" | "invite-spent" | "full" };
+  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "suspended" | "invite-spent" | "full" };
+
+/**
+ * What opening a link shows (`peekLink`): never spends it. `email` is the WHOLE
+ * address (review of #860): whoever holds the link sees it one press later anyway,
+ * so masking it protects nothing and only weakens the confirm's warning against a
+ * link forwarded to sign someone into another person's account.
+ */
+export type LinkPeek =
+  | { readonly ok: true; readonly email: string; readonly sameBrowser: boolean }
+  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" };
 
 /** What `signUpWithIdentity` answers (JS1). `storeId` is the active store, null unless `state` is `active`. */
 export interface IdentitySignUp {
@@ -531,6 +548,12 @@ export class Accounts {
       spots: { total: spots.total, left: spots.left },
       sources: by("signup_source"),
       referrers: by("signup_referrer"),
+      // Over the same people as the rest (the spots' people: no tombstone, no reviewer).
+      otherBrowser7d:
+        this.db.get<{ n: number }>(
+          "SELECT count(*) AS n FROM audit JOIN people ON people.id = audit.person_id WHERE audit.action = 'login.link.other-browser' AND audit.at > ? AND people.state != 'deleted' AND people.kind IS NOT 'reviewer'",
+          this.now() - 7 * 24 * 60 * 60 * 1000,
+        )?.n ?? 0,
     };
   }
 
@@ -874,7 +897,27 @@ export class Accounts {
   }
 
   /**
-   * The link was opened. One use, in time, in the browser that asked. A sign-up
+   * THE LINK WAS OPENED (a GET, 11-25): what its page should say, and NOTHING
+   * is written. Unknown, used and expired read as they will at the press. A
+   * refused ask's row is dead on arrival (used), so it reads `used` like any.
+   * `sameBrowser` is whether this browser's binding is the one that asked.
+   */
+  peekLink(input: { token: string; browser: string | null }): LinkPeek {
+    const row = this.db.get<{ email: string; browser_hash: string; expires_at: number; used_at: number | null }>(
+      "SELECT email, browser_hash, expires_at, used_at FROM login_links WHERE token_hash = ?",
+      sha256(input.token),
+    );
+    if (row === undefined) return { ok: false, reason: "unknown" };
+    if (row.used_at !== null) return { ok: false, reason: "used" };
+    if (row.expires_at <= this.now()) return { ok: false, reason: "expired" };
+    return { ok: true, email: row.email, sameBrowser: input.browser !== null && sha256(input.browser) === row.browser_hash };
+  }
+
+  /**
+   * The link was PRESSED (the confirm page's POST). One use, in time, in any
+   * browser (11-25: the asking browser only, before it). A link finished in a
+   * browser other than the one that asked is audited `login.link.other-browser`
+   * beside the sign-in's own row, for the counts (`counts().otherBrowser7d`). A sign-up
    * creates the person, the email identity (verified by this very click) and the
    * store, and spends one use of the invite — or, with no invite (or one used up
    * since), takes a spot: the count and the insert in this one transaction
@@ -890,10 +933,13 @@ export class Accounts {
     if (row === undefined) return { ok: false, reason: "unknown" };
     if (row.used_at !== null) return { ok: false, reason: "used" };
     if (row.expires_at <= this.now()) return { ok: false, reason: "expired" };
-    // Wrong browser: refused WITHOUT spending the link, so the right browser can still use it.
-    if (input.browser === null || sha256(input.browser) !== row.browser_hash) return { ok: false, reason: "wrong-browser" };
+    // Any browser may finish it (11-25); one that didn't ask is only counted.
+    const otherBrowser = input.browser === null || sha256(input.browser) !== row.browser_hash;
     return this.db.transaction((): LinkUse => {
       const at = this.now();
+      const noteOther = (personId: string): void => {
+        if (otherBrowser) this.audit(personId, null, "login.link.other-browser", null);
+      };
       // The single-use claim: only an unused row is updated.
       this.db.run("UPDATE login_links SET used_at = ? WHERE id = ? AND used_at IS NULL", at, row.id);
       const claimed = this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
@@ -902,6 +948,7 @@ export class Accounts {
         const ident = this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE id = ?", row.identity_id);
         if (ident === undefined || !this.canSignIn(ident.person_id)) return { ok: false, reason: "suspended" };
         this.audit(ident.person_id, null, "login.link", null);
+        noteOther(ident.person_id);
         return { ok: true, personId: ident.person_id, created: false };
       }
       // An address that signed up through another link meanwhile: sign in as that person.
@@ -909,6 +956,7 @@ export class Accounts {
       if (existing !== undefined) {
         if (!this.canSignIn(existing.person_id)) return { ok: false, reason: "suspended" };
         this.audit(existing.person_id, null, "login.link", null);
+        noteOther(existing.person_id);
         return { ok: true, personId: existing.person_id, created: false };
       }
       let inviteId: string | null = null;
@@ -933,6 +981,7 @@ export class Accounts {
       this.db.run("INSERT INTO identities (id, person_id, kind, value, verified_at, created_at) VALUES (?, ?, 'email', ?, ?, ?)", id128(), personId, row.email, at, at);
       this.db.run("INSERT INTO stores (id, person_id, created_at, state) VALUES (?, ?, ?, 'active')", storeId, personId, at);
       this.audit(personId, storeId, "signup", inviteId ?? "spot");
+      noteOther(personId);
       return { ok: true, personId, created: true };
     });
   }

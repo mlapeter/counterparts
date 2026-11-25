@@ -233,7 +233,8 @@ allows 240 s per tool call (**V**), so plain JSON is fine.
 2. The link's token is 32 random bytes, stored hashed (SHA-256). It lasts 15 minutes, works once, and is bound to the
    browser that asked by a cookie: the phone pattern, `oauth.ts#startedHere`.
    - Opening the link in another browser shows "open it in the browser where you started", with a re-send button. No
-     cross-browser login in the beta.
+     cross-browser login in the beta. (Superseded 11-25, hosted CONTRACT §10: any browser may finish a link, after a
+     press on its page; a GET never spends one.)
 3. A web session cookie follows: `__Host-cp_session`, random, stored hashed, HttpOnly, Secure, SameSite=Lax. It lasts 30
    days, sliding.
 4. Rate limits: per email (5 an hour) and per IP (20 an hour).

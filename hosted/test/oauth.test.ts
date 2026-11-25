@@ -26,7 +26,7 @@ import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
 import { cimdFetch, memoryMailer } from "../src/egress.js";
 import { clientLabel, returnsTo } from "../src/oauth.js";
-import { listen, rpc, tempRoot, tool } from "./helpers.js";
+import { listen, pressLink, rpc, tempRoot, tool } from "./helpers.js";
 import { toldSet } from "../../src/core/told.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -141,7 +141,7 @@ async function signIn(r: Rig, browser: Browser, email: string, invite: string, n
   await browser.form("/login", { csrf: csrfOf(form), email, invite, tz: "America/Denver", next });
   assert.equal(r.mail.sent.length, before + 1, "a link was mailed");
   const link = /https?:\/\/\S+/.exec(r.mail.sent.at(-1)!.text)![0];
-  return browser.go(link);
+  return pressLink(browser, link);
 }
 
 interface Connected {
