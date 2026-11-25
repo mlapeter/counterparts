@@ -17,7 +17,7 @@ import { createHostedServer } from "../src/server.js";
 import { Tenants } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
 import { openDb } from "../../src/core/store/db.js";
-import { freePort, listen, pressLink, tempRoot } from "./helpers.js";
+import { formFields, freePort, listen, pressLink, tempRoot } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
 const closers: (() => unknown)[] = [];
@@ -131,7 +131,8 @@ describe("signing up and signing in", () => {
     assert.equal(unknown.link, null);
     assert.equal(badInvite.link, null);
     assert.equal(unknown.res.status, known.res.status);
-    const unNonced = (h: string): string => h.replace(/nonce="[^"]+"/g, "nonce");
+    // The nonce, and the code box's own browser token and the address it was typed as (PR B), differ by request alone.
+    const unNonced = (h: string): string => h.replace(/nonce="[^"]+"/g, "nonce").replace(/name="(csrf|email)" value="[^"]*"/g, 'name="$1"');
     assert.equal(unNonced(unknown.body), unNonced(known.body));
     assert.equal(unNonced(badInvite.body), unNonced(known.body));
   });
@@ -274,10 +275,10 @@ describe("signing up and signing in", () => {
     const a = await askLink(r, new Browser(r.base), "words@example.com", code);
     const text = r.mail.sent.at(-1)!.text;
     assert.match(text, /Open this link on the device you want to sign in on\. It works once, for 15 minutes, and signs in whichever device opens it/);
-    assert.match(text, /Don't give this link to anyone, a person or an AI\./);
-    assert.doesNotMatch(text, /same browser/);
+    assert.match(text, /Don't give this code or link to anyone, a person or an AI\./);
+    assert.doesNotMatch(text, /Open this link in the same browser/);
     assert.match(a.body, /It works once, for 15 minutes, and signs in whichever device opens it\./);
-    assert.doesNotMatch(a.body, /in this browser/);
+    assert.doesNotMatch(a.body, /once, in this browser/);
   });
 
   test("a new account lands on the setup steps (leak 4): the address and the instructions to copy, then the beta note", async () => {
@@ -679,5 +680,159 @@ describe("G4: the beta note, and the bare address", () => {
     assert.equal(account.headers.get("location"), "/login?next=%2Faccount");
     assert.equal((await b.go("/", { method: "HEAD" })).status, 303);
     assert.equal((await b.go("/nope")).status, 404); // only the bare address
+  });
+});
+
+describe("PR B: the 6-digit code, only in the browser that asked", () => {
+  const codeOf = (r: Rig): string => /in that same browser: (\d{6})/.exec(r.mail.sent.at(-1)!.text)![1]!;
+  const notIt = (code: string, by = 1): string => String((Number(code) + by) % 1_000_000).padStart(6, "0");
+  /** Type `code` in the code box of `body` (a "check your email" page), as `browser`. */
+  const typeCode = async (browser: Browser, body: string, code: string, extra: Record<string, string> = {}): Promise<Response> =>
+    browser.form("/login/code", { ...formFields(body, "/login/code")!, code }, extra);
+  const CALM = /That code didn&#39;t work\./;
+  const words = (h: string): string => h.replace(/<style[\s\S]*?<\/style>/g, "").replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+  test("the right code in the right browser signs in (a sign-up here), and spends the link too", async () => {
+    const r = await rig();
+    const { code: invite } = r.accounts.createInvite();
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "Coder@Example.com", invite);
+    assert.match(asked.body, /<form method="post" action="\/login\/code">/);
+    assert.match(asked.body, /autocomplete="one-time-code"/);
+    const code = codeOf(r);
+    assert.match(r.mail.sent.at(-1)!.text, /Don't give this code or link to anyone/);
+    const res = await typeCode(me, asked.body, `${code.slice(0, 3)} ${code.slice(3)}`);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("location"), "/account");
+    assert.match(await (await me.go("/account")).text(), /Signed in as <strong>coder@example\.com<\/strong>/);
+    assert.equal(r.accounts.spots().people, 1);
+    // One use covers both: the link is spent, and the code again is refused.
+    assert.equal((await me.go(asked.link!)).status, 400);
+    assert.equal((await typeCode(me, asked.body, code)).status, 400);
+  });
+
+  test("the right code in a different browser is refused, in the calm words; the asking browser's code still works", async () => {
+    const r = await rig();
+    const { code: invite } = r.accounts.createInvite({ maxUses: 2 });
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "phone@example.com", invite);
+    const code = codeOf(r);
+    // Another browser that asked too (for its own address), typing the first one's address and code.
+    const laptop = new Browser(r.base);
+    const its = await askLink(r, laptop, "laptop@example.com", invite);
+    const stolen = await laptop.form("/login/code", { ...formFields(its.body, "/login/code")!, email: "phone@example.com", code });
+    assert.equal(stolen.status, 400);
+    assert.match(await stolen.text(), CALM);
+    // And one that never asked.
+    const stranger = new Browser(r.base);
+    const page = await (await stranger.go("/login")).text();
+    assert.equal((await stranger.form("/login/code", { csrf: csrfOf(page), email: "phone@example.com", code, next: "/account" })).status, 400);
+    assert.equal(r.accounts.spots().people, 0, "nobody signed in");
+    assert.equal((await typeCode(me, asked.body, code)).status, 303);
+  });
+
+  test("five wrong tries kill the code (the link still works); a parallel burst can't pass five", async () => {
+    const r = await rig();
+    const { code: invite } = r.accounts.createInvite({ maxUses: 2 });
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "fumble@example.com", invite);
+    const code = codeOf(r);
+    for (let i = 0; i < 5; i++) {
+      const res = await typeCode(me, asked.body, notIt(code));
+      assert.equal(res.status, 400);
+      assert.match(await res.text(), CALM);
+    }
+    const dead = await typeCode(me, asked.body, code);
+    assert.equal(dead.status, 400, "the right code, after five wrong ones");
+    assert.match(await dead.text(), CALM);
+    assert.equal((await pressLink(me, asked.link!)).status, 303, "the link still signs in");
+
+    const you = new Browser(r.base);
+    const burst = await askLink(r, you, "burst@example.com", invite);
+    const its = codeOf(r);
+    await Promise.all(Array.from({ length: 8 }, () => typeCode(you, burst.body, notIt(its, 7))));
+    assert.equal((await typeCode(you, burst.body, its)).status, 400);
+  });
+
+  test("an expired code is refused; no CSRF token or a foreign Origin is refused", async () => {
+    const r = await rig();
+    const { code: invite } = r.accounts.createInvite();
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "slow@example.com", invite);
+    const code = codeOf(r);
+    assert.equal((await me.form("/login/code", { ...formFields(asked.body, "/login/code")!, csrf: "", code })).status, 403);
+    assert.equal((await typeCode(me, asked.body, code, { origin: "https://evil.example" })).status, 403);
+    r.setNow(Date.UTC(2026, 9, 26, 12, 16));
+    assert.equal((await typeCode(me, asked.body, code)).status, 400);
+    assert.equal(r.accounts.spots().people, 0);
+  });
+
+  test("an OAuth connect's next rides through the code box, in the browser that started it", async () => {
+    const r = await rig();
+    const { code: invite } = r.accounts.createInvite();
+    const me = new Browser(r.base);
+    const asked = await askLink(r, me, "connect@example.com", invite, "/oauth/allow/abc123");
+    assert.equal((await typeCode(me, asked.body, codeOf(r))).headers.get("location"), "/oauth/allow/abc123");
+  });
+
+  test("the caps fail closed: ten tries an hour per address across links, twenty per IP; refused in the same words", async () => {
+    const r = await rig({ trustProxy: 1 });
+    const { code: invite } = r.accounts.createInvite({ maxUses: 5 });
+    const me = new Browser(r.base);
+    const ip = { "x-forwarded-for": "198.51.100.7" };
+    // Two links, five wrong tries each (each code dies at five): ten tries on this address.
+    for (let n = 0; n < 2; n++) {
+      const asked = await askLink(r, me, "capped@example.com", invite);
+      const code = codeOf(r);
+      for (let i = 0; i < 5; i++) assert.equal((await typeCode(me, asked.body, notIt(code), ip)).status, 400);
+    }
+    // A third link, its right code at once: refused by the address's cap.
+    const third = await askLink(r, me, "capped@example.com", invite);
+    const capped = await typeCode(me, third.body, codeOf(r), ip);
+    assert.equal(capped.status, 400);
+    assert.match(await capped.text(), CALM);
+    assert.equal(r.accounts.spots().people, 0);
+    assert.equal((await pressLink(me, third.link!)).status, 303, "the link is still the way in");
+
+    // Per IP: twenty tries from one address of the internet, any emails; the twenty-first is refused.
+    const other = new Browser(r.base);
+    const page = await (await other.go("/login")).text();
+    const walker = { "x-forwarded-for": "203.0.113.9" };
+    for (let i = 0; i < 20; i++) await other.form("/login/code", { csrf: csrfOf(page), email: `walk${String(i)}@example.com`, code: "000000", next: "/account" }, walker);
+    const fresh = await askLink(r, other, "fresh@example.com", invite);
+    const code = codeOf(r);
+    assert.equal((await typeCode(other, fresh.body, code, walker)).status, 400);
+    assert.equal((await typeCode(other, fresh.body, code, { "x-forwarded-for": "203.0.113.10" })).status, 303, "another IP, the same code: in");
+  });
+
+  test("no enumeration: a member's and a stranger's code box answer a wrong code alike, and each try costs the same write", async () => {
+    const r = await rig();
+    // Spots are 0 here (never set): a stranger without an invite gets no email, only the same page.
+    const { code: invite } = r.accounts.createInvite();
+    const first = new Browser(r.base);
+    await pressLink(first, (await askLink(r, first, "member2@example.com", invite)).link!);
+    const knownBrowser = new Browser(r.base);
+    const known = await askLink(r, knownBrowser, "member2@example.com");
+    const memberCode = codeOf(r);
+    const sent = r.mail.sent.length;
+    const unknownBrowser = new Browser(r.base);
+    const unknown = await askLink(r, unknownBrowser, "nobody@example.com");
+    assert.equal(r.mail.sent.length, sent, "the stranger was sent nothing");
+    const a = await typeCode(knownBrowser, known.body, notIt(memberCode));
+    const b = await typeCode(unknownBrowser, unknown.body, notIt(memberCode));
+    assert.equal(a.status, b.status);
+    assert.equal(words(await a.text()), words(await b.text()));
+    // The stranger's dead row took its try too: one write each.
+    const db = openDb(join(tmp.root, "control", "accounts.sqlite"));
+    try {
+      assert.deepEqual(db.all<{ email: string; code_tries: number }>("SELECT email, code_tries FROM login_links WHERE code_tries > 0 ORDER BY email"), [
+        { email: "", code_tries: 1 },
+        { email: "member2@example.com", code_tries: 1 },
+      ]);
+      // And no code is kept: the hash only, under the row's id.
+      assert.equal(db.all("SELECT 1 FROM login_links WHERE code_hash IS NULL OR length(code_hash) != 64").length, 0);
+    } finally {
+      db.close();
+    }
   });
 });

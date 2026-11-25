@@ -380,7 +380,7 @@ describe("the style's primary and danger selectors match the real pages", () => 
 
     const primary = selectorsOf(/background:var\(--accent\)/);
     const danger = selectorsOf(/^color:var\(--danger\)/);
-    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button', 'form[action="/login/link"] button'].sort());
+    assert.deepEqual([...primary].sort(), ['button[value=allow]', 'form[action="/account/keep"] button', 'form[action="/login"] button', 'form[action="/login/link"] button', 'form[action="/login/code"] button'].sort());
     assert.deepEqual(danger, ['form[action="/account/delete"] button']);
     // Each selector on the page it was written for.
     assert.ok(matches("button[value=allow]", allow), "Allow is primary on the Allow page");

@@ -10,6 +10,8 @@
  *   GET  /login/link       shows the link's page, a "Sign in" button, and spends NOTHING (11-25): a mail
  *                          scanner's prefetch neither burns a link nor signs anyone in
  *   POST /login/link       the button: spends the link, once, in time, in ANY browser (CSRF- and Origin-checked)
+ *   POST /login/code       the 6-digit code from the same email, typed on the "check your email" page: only in the
+ *                          browser that asked (11-25, PR B); 5 wrong tries per email, hourly and daily caps
  *   GET  /spots            `{"left": n, "open": bool}` for the site's "N spots left" (SU1): `left` within the public
  *                          window of 100 (`accounts.ts#publicSpots`), `open` by the hard total; public, cached a few
  *                          seconds, CORS for counterparts.ai only, and nothing else (no totals, no addresses)
@@ -116,6 +118,11 @@ const SENT_WORDS_FULL = "If that address has an account, or your invite code is 
 // member, who still gets a link, and for a newcomer, who gets none this hour.
 const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works once, for 15 minutes, and signs in whichever device opens it.";
 const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts? Try again in an hour.";
+// THE CODE'S WORDS (PR B): one sentence for a wrong code, a dead one (5 wrong tries), a capped try, and a
+// browser that never asked, so the box says nothing of who has an account or of what went wrong.
+const CODE_WRONG_WORDS = "That code didn't work. Check it against the newest email, or open the email's link instead.";
+/** The code box's caps (PR B), on top of a code's own 5 tries: per IP and per address an hour, and per address a day. */
+export const CODE_LIMITS = { perIpHour: 20, perEmailHour: 10, perEmailDay: 20 } as const;
 
 /** The step-by-step for adding Counterparts as a connector in Claude (the account page's empty state). */
 export const SETUP_URL = "https://counterparts.ai/claude-ai/#setup";
@@ -245,6 +252,20 @@ export function accountPages(opts: PagesOptions): Pages {
   const now = opts.now ?? ((): number => Date.now());
   const perIp = new RateLimit(20, 60 * 60 * 1000, now);
   const perEmail = new RateLimit(5, 60 * 60 * 1000, now);
+  const codePerIp = new RateLimit(CODE_LIMITS.perIpHour, 60 * 60 * 1000, now);
+  const codePerEmail = new RateLimit(CODE_LIMITS.perEmailHour, 60 * 60 * 1000, now);
+  const codePerEmailDay = new RateLimit(CODE_LIMITS.perEmailDay, 24 * 60 * 60 * 1000, now);
+  /** Every code try takes from all three caps; any of them full, or any error, refuses it (fails closed). */
+  const codeAllowed = (ip: string, email: string): boolean => {
+    try {
+      const a = codePerIp.take(ip);
+      const b = codePerEmail.take(email);
+      const c = codePerEmailDay.take(email);
+      return a && b && c;
+    } catch {
+      return false;
+    }
+  };
 
   const browserOf = (req: IncomingMessage, res: ServerResponse): string => {
     const have = parseCookies(req).get(names.browser);
@@ -318,10 +339,49 @@ ${full ? `<p class="muted">${NEWCOMER_FULL_HTML}</p>` : ""}
       body: `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(words)}</p>${link === undefined ? "" : `<p><a href="${escapeHtml(link.href)}">${escapeHtml(link.text)}</a></p>`}`,
     });
   };
-  /** The page after "Email me a link" (LP1: the warm look, with the fox). `html` is the words, already escaped. */
-  const sentPage = (res: ServerResponse, html: string): void => {
+  /**
+   * The page after "Email me a link" (LP1: the warm look, with the fox). `html` is the words, already escaped.
+   * THE CODE BOX (PR B) under them, the same for every ask, sent or not: the address as typed (normalized), and
+   * `next`, ride in hidden fields to `POST /login/code`.
+   */
+  const sentPage = (res: ServerResponse, html: string, box: { browser: string; email: string; next: string }, status = 200): void => {
     const nonce = randomBytes(16).toString("base64");
-    page(res, 200, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}` });
+    const codeForm = `<form method="post" action="/login/code">
+<input type="hidden" name="csrf" value="${escapeHtml(csrf.token(box.browser))}">
+<input type="hidden" name="email" value="${escapeHtml(box.email)}">
+<input type="hidden" name="next" value="${escapeHtml(box.next)}">
+<label>Or type the 6-digit code from the email<br><input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required></label>
+<button type="submit">Sign in with the code</button>
+</form>
+<p class="muted">The code works only here, in this browser. The link works on any device.</p>`;
+    page(res, status, { title: "Check your email", nonce, warm: true, body: `${foxHtml(nonce)}\n<h1>Check your email</h1>${html}\n${codeForm}` });
+  };
+
+  /** Signed in by a link's press or a code: the sign-up's hooks, one session for this browser, and on to `next`. */
+  const signIn = async (req: IncomingMessage, res: ServerResponse, used: { personId: string; created: boolean }, next: string): Promise<void> => {
+    if (used.created) {
+      try {
+        opts.onCreated?.(used.personId);
+      } catch {
+        /* a note, not a gate */
+      }
+    }
+    if (used.created && opts.onSignup !== undefined) {
+      const storeId = opts.accounts.person(used.personId)?.storeId ?? null;
+      if (storeId !== null) {
+        // Start-up's `ensureAll` finishes whatever fails here.
+        await opts.onSignup(used.personId, storeId).catch(() => opts.accounts.audit(used.personId, storeId, "signup.backup.failed", null));
+      }
+    }
+    // A session this browser already carried ends here: one browser, one session row.
+    opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
+    const session = opts.accounts.startSession(used.personId);
+    redirect(res, next, { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
+  };
+
+  /** The last spot went between the ask and this sign-up. Said only to the person who held the link or its code. */
+  const fullAtTheClick = (res: ServerResponse): void => {
+    page(res, 200, { title: FULL_TITLE, warm: true, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
   };
 
   /**
@@ -455,7 +515,7 @@ ${
           .send({
             to: asked.to,
             subject: asked.signUp ? "Finish signing up for Counterparts" : "Your Counterparts sign-in link",
-            text: `Open this link on the device you want to sign in on. It works once, for ${minutes} minutes, and signs in whichever device opens it:\n\n${link}\n\nIf you didn't ask, ignore this email: nobody can sign in without it. Don't give this link to anyone, a person or an AI.\n`,
+            text: `Open this link on the device you want to sign in on. It works once, for ${minutes} minutes, and signs in whichever device opens it:\n\n${link}\n\nOr type this code on the page where you asked, in that same browser: ${asked.code}\n\nIf you didn't ask, ignore this email: nobody can sign in without it. Don't give this code or link to anyone, a person or an AI.\n`,
           })
           .catch(() => {
             // The page says the same thing either way; the failure is the operator's to see.
@@ -466,9 +526,31 @@ ${
             }
           });
       }
-      if (busy) sentPage(res, `<p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>`);
-      else if (open) sentPage(res, `<p>${escapeHtml(SENT_WORDS_OPEN)}</p>`);
-      else sentPage(res, `<p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>`);
+      // The box carries the address as typed and normalized, sent or not (a refused ask's box can never sign in).
+      const box = { browser: browser!, email: email.slice(0, 320), next };
+      if (busy) sentPage(res, `<p>${escapeHtml(SENT_WORDS_BUSY)}</p><p>${escapeHtml(BUSY_WORDS)}</p>`, box);
+      else if (open) sentPage(res, `<p>${escapeHtml(SENT_WORDS_OPEN)}</p>`, box);
+      else sentPage(res, `<p>${escapeHtml(SENT_WORDS_FULL)}</p><p>${NEWCOMER_FULL_HTML}</p>`, box);
+      return true;
+    }
+    if (p === "/login/code" && req.method === "POST") {
+      // THE CODE (PR B): only in the browser that asked (`Accounts#useCode`), CSRF- and Origin-checked like every form.
+      const browser = parseCookies(req).get(names.browser);
+      const form = await readForm(req);
+      if (form === null || !sameOrigin(req, opts.publicOrigin) || !csrf.check(browser, form.get("csrf"))) {
+        message(res, 403, "Start again", "This form expired or came from somewhere else. Open the sign-in page again.", { href: "/login", text: "Sign in" }, true);
+        return true;
+      }
+      const next = safeNext(form.get("next"));
+      const email = (form.get("email") ?? "").trim().toLowerCase().slice(0, 320);
+      // The caps first, every try counted; then the code. Wrong, dead, capped: the same words.
+      const used = codeAllowed(clientIp(req, opts.trustProxy ?? 0), email) ? opts.accounts.useCode({ browser: browser!, email, code: form.get("code") }) : ({ ok: false, reason: "wrong" } as const);
+      if (!used.ok) {
+        if (used.reason === "full") fullAtTheClick(res);
+        else sentPage(res, `<p>${escapeHtml(CODE_WRONG_WORDS)}</p>`, { browser: browser!, email, next }, 400);
+        return true;
+      }
+      await signIn(req, res, used, next);
       return true;
     }
     if (p === "/login/link" && req.method === "GET") {
@@ -525,7 +607,7 @@ ${switching}${form}`,
       if (!used.ok) {
         if (used.reason === "full") {
           // The last spot went between the ask and this click. Said only here, to the person who clicked their own link.
-          page(res, 200, { title: FULL_TITLE, warm: true, body: `<h1>${escapeHtml(FULL_TITLE)}</h1><p>The last spot went before this link was opened. <a href="${WAITLIST_URL}">Join the waiting list</a>, or, with an invite code, <a href="/login">sign up with it here</a>.</p>` });
+          fullAtTheClick(res);
         } else {
           message(res, 400, "That link can't be used", "It has expired, was already used, or isn't one of ours. Ask for a new one.", { href: "/login", text: "Ask for a new link" }, true);
         }
@@ -536,24 +618,7 @@ ${switching}${form}`,
       const asked = safeNext(form.get("next"));
       // `?from=elsewhere` has the account page say why (review of #860: or a new person re-adds the connector).
       const next = seen?.ok === true && !seen.sameBrowser && asked.startsWith("/oauth/") ? "/account?from=elsewhere" : asked;
-      if (used.created) {
-        try {
-          opts.onCreated?.(used.personId);
-        } catch {
-          /* a note, not a gate */
-        }
-      }
-      if (used.created && opts.onSignup !== undefined) {
-        const storeId = opts.accounts.person(used.personId)?.storeId ?? null;
-        if (storeId !== null) {
-          // Start-up's `ensureAll` finishes whatever fails here.
-          await opts.onSignup(used.personId, storeId).catch(() => opts.accounts.audit(used.personId, storeId, "signup.backup.failed", null));
-        }
-      }
-      // A session this browser already carried ends here: one browser, one session row.
-      opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
-      const session = opts.accounts.startSession(used.personId);
-      redirect(res, next, { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
+      await signIn(req, res, used, next);
       return true;
     }
     if (p === "/account" && req.method === "GET") {
