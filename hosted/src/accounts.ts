@@ -12,7 +12,9 @@
  *     hash**: login-link tokens, web-session tokens, invite codes, the browser
  *     binding. A copy of this database signs nobody in.
  *   - **A login link works once, for 15 minutes, in any browser, and only by a
- *     press** (11-25; the asking browser only, before it). Opening it spends
+ *     press** (11-25; the asking browser only, before it). Its email also
+ *     carries a 6-digit code (11-25, PR B) that works only in the browser that
+ *     asked, at most `CODE_TRIES` wrong tries (`useCode`); one use covers both. Opening it spends
  *     nothing (`peekLink`); the page's CSRF-checked POST spends it (`useLink`).
  *     "Used" is written in one statement that only an unused, unexpired row
  *     satisfies, so two presses cannot both win.
@@ -35,7 +37,7 @@
  *     from an address or a name.
  *   - **Nothing in `audit` is content**: action codes and ids only.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -43,6 +45,10 @@ import { openDb } from "../../src/core/store/db.js";
 import type { Db } from "../../src/core/store/db.js";
 
 export const LINK_MS = 15 * 60 * 1000;
+/** Wrong tries a login code takes before it is dead (the link still works): 5 of 10^6 values per email asked for. */
+export const CODE_TRIES = 5;
+/** A code is checked only against the browser's ask of the last hour (it dies with its link, at 15 minutes, before that). */
+export const CODE_LOOKBACK_MS = 60 * 60 * 1000;
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 export const SESSION_TOUCH_MS = 60 * 60 * 1000;
 /** How long an invite code lives by default (G1 L4). The `invite` command takes `--expires <days>`. */
@@ -304,12 +310,41 @@ export interface Person {
 }
 
 export type LinkRequest =
-  | { readonly send: true; readonly to: string; readonly token: string; readonly signUp: boolean }
+  | { readonly send: true; readonly to: string; readonly token: string; readonly code: string; readonly signUp: boolean }
   | { readonly send: false; readonly reason: "bad-email" | "full" | "suspended" | "busy" };
 
 export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
   | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "suspended" | "invite-spent" | "full" };
+
+/** The columns `finishLink` reads from a login link's row. */
+interface LinkRow {
+  readonly id: string;
+  readonly email: string;
+  readonly identity_id: string | null;
+  readonly invite_id: string | null;
+  readonly time_zone: string | null;
+  readonly browser_hash: string;
+  readonly expires_at: number;
+  readonly used_at: number | null;
+  readonly signup_source: string | null;
+  readonly signup_referrer: string | null;
+  readonly signup_landing: string | null;
+}
+const LINK_ROW = "id, email, identity_id, invite_id, time_zone, browser_hash, expires_at, used_at, signup_source, signup_referrer, signup_landing";
+
+/** A code typed on the "check your email" page (`useCode`): the link's own outcome, or `wrong` (wrong, dead, or none). */
+export type CodeUse = LinkUse | { readonly ok: false; readonly reason: "wrong" };
+
+/** A login code: six digits, uniform. */
+export function loginCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+/** How a code is kept: SHA-256 under its row's id, so a copy of the table is no lookup table of a million codes. */
+function codeHash(rowId: string, code: string): string {
+  return sha256(`code:${rowId}:${code}`);
+}
 
 /**
  * What opening a link shows (`peekLink`): never spends it. `email` is the WHOLE
@@ -456,6 +491,11 @@ export class Accounts {
     }
     const linkCols = new Set(this.db.all<{ name: string }>("PRAGMA table_info(login_links)").map((c) => c.name));
     for (const col of ATTRIBUTION_COLUMNS) if (!linkCols.has(col)) this.db.exec(`ALTER TABLE login_links ADD COLUMN ${col} TEXT`);
+    // THE LOGIN CODE (11-25, PR B): the emailed code's hash (`codeHash`, under the row's id) and the
+    // tries it has taken. On every ask's row, refused ones too (their code is never sent), so a try
+    // costs one write whatever the ask was. Added by ALTER like the ones above: purely additive.
+    if (!linkCols.has("code_hash")) this.db.exec("ALTER TABLE login_links ADD COLUMN code_hash TEXT");
+    if (!linkCols.has("code_tries")) this.db.exec("ALTER TABLE login_links ADD COLUMN code_tries INTEGER NOT NULL DEFAULT 0");
     // A tombstone never keeps them (the #843 review): an account erased by a build from before these columns
     // (a deploy, a rollback, a delete, a roll-forward) kept what the newer build wrote. Cleared at every open;
     // a no-op write when there is nothing to clear.
@@ -846,6 +886,8 @@ export class Accounts {
       if (inviteId === null && spotsLeft === 0) refused = "full";
     }
     const token = secret("cpl_");
+    const code = loginCode();
+    const rowId = id128();
     const at = this.now();
     // Cleaned again here, whatever the caller did: nothing unclean is ever written.
     const a = input.attribution ?? NO_ATTRIBUTION;
@@ -875,8 +917,8 @@ export class Accounts {
       this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
       const signUpLink = refused === null && identity === undefined;
       this.db.run(
-        "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at, signup_source, signup_referrer, signup_landing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        id128(),
+        "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at, signup_source, signup_referrer, signup_landing, code_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rowId,
         sha256(token),
         refused === null ? email : "",
         refused === null ? (identity?.id ?? null) : null,
@@ -890,10 +932,11 @@ export class Accounts {
         signUpLink ? attribution.source : null,
         signUpLink ? attribution.referrer : null,
         signUpLink ? attribution.landing : null,
+        codeHash(rowId, code),
       );
     });
     if (refused !== null) return { send: false, reason: refused };
-    return { send: true, to: email, token, signUp: identity === undefined };
+    return { send: true, to: email, token, code, signUp: identity === undefined };
   }
 
   /**
@@ -925,16 +968,58 @@ export class Accounts {
    * for the last spot can't both get in (SU1).
    */
   useLink(input: { token: string; browser: string | null }): LinkUse {
-    const hash = sha256(input.token);
-    const row = this.db.get<{ id: string; email: string; identity_id: string | null; invite_id: string | null; time_zone: string | null; browser_hash: string; expires_at: number; used_at: number | null; signup_source: string | null; signup_referrer: string | null; signup_landing: string | null }>(
-      "SELECT id, email, identity_id, invite_id, time_zone, browser_hash, expires_at, used_at, signup_source, signup_referrer, signup_landing FROM login_links WHERE token_hash = ?",
-      hash,
-    );
+    const row = this.db.get<LinkRow>(`SELECT ${LINK_ROW} FROM login_links WHERE token_hash = ?`, sha256(input.token));
     if (row === undefined) return { ok: false, reason: "unknown" };
     if (row.used_at !== null) return { ok: false, reason: "used" };
     if (row.expires_at <= this.now()) return { ok: false, reason: "expired" };
     // Any browser may finish it (11-25); one that didn't ask is only counted.
-    const otherBrowser = input.browser === null || sha256(input.browser) !== row.browser_hash;
+    return this.finishLink(row, input.browser === null || sha256(input.browser) !== row.browser_hash);
+  }
+
+  /**
+   * A CODE TYPED ON THE "CHECK YOUR EMAIL" PAGE (11-25, PR B). Only in the
+   * browser that asked: the row looked at is THIS browser's latest ask of the
+   * last hour, and the code is good only when that ask was for `email` (the
+   * address the page sent it to), is unused and unexpired, has tries left, and
+   * the code's hash matches. Every try takes one of the row's `CODE_TRIES` in
+   * ONE guarded UPDATE before the compare, so parallel guesses can't pass the
+   * count; a row with none left is dead (its link still works). The same one
+   * write happens for every try that finds a row, refused asks' rows included
+   * (they carry a code nobody was sent), so neither the answer nor its time says
+   * whether the address has an account. Success spends the row as the link's
+   * press does (`finishLink`), so one use covers the link and the code.
+   * `addressAllowed` (the page's per-address caps) is asked only once the ask is
+   * known to be for this address, i.e. it was emailed in the last hour (the
+   * Phone's re-check, its commit 5b60537): nobody uses up a person's code tries
+   * without that person getting an email. False, or a throw, refuses (closed).
+   */
+  useCode(input: { browser: string | null; email: unknown; code: unknown; addressAllowed?: () => boolean }): CodeUse {
+    if (input.browser === null) return { ok: false, reason: "wrong" };
+    const at = this.now();
+    const row = this.db.get<LinkRow & { code_hash: string | null; code_tries: number }>(
+      `SELECT ${LINK_ROW}, code_hash, code_tries FROM login_links WHERE browser_hash = ? AND created_at > ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+      sha256(input.browser),
+      at - CODE_LOOKBACK_MS,
+    );
+    if (row === undefined) return { ok: false, reason: "wrong" };
+    this.db.run("UPDATE login_links SET code_tries = code_tries + 1 WHERE id = ? AND code_tries < ?", row.id, CODE_TRIES);
+    const counted = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
+    const email = normalizeEmail(input.email);
+    const code = typeof input.code === "string" ? input.code.replace(/\s+/g, "") : "";
+    if (!counted || email === null || row.email !== email) return { ok: false, reason: "wrong" };
+    let allowed: boolean;
+    try {
+      allowed = input.addressAllowed === undefined || input.addressAllowed();
+    } catch {
+      allowed = false;
+    }
+    const good = allowed && row.used_at === null && row.expires_at > at && row.code_hash !== null && /^\d{6}$/.test(code) && codeHash(row.id, code) === row.code_hash;
+    if (!good) return { ok: false, reason: "wrong" };
+    return this.finishLink(row, false);
+  }
+
+  /** The press or the code: spend the row once, and sign in or sign up (the SU1 transaction). */
+  private finishLink(row: LinkRow, otherBrowser: boolean): LinkUse {
     return this.db.transaction((): LinkUse => {
       const at = this.now();
       const noteOther = (personId: string): void => {
