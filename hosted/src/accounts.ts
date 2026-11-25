@@ -281,7 +281,7 @@ export interface Counts {
   readonly referrers: Readonly<Record<string, number>>;
   /**
    * Sign-in links finished in a browser other than the one that asked, in the last 7 days (11-25): the
-   * `login.link.other-browser` audit rows, sign-ups and sign-ins alike.
+   * `login.link.other-browser` audit rows, sign-ups and sign-ins alike, of the people the spots count.
    */
   readonly otherBrowser7d: number;
 }
@@ -311,21 +311,15 @@ export type LinkUse =
   | { readonly ok: true; readonly personId: string; readonly created: boolean }
   | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" | "suspended" | "invite-spent" | "full" };
 
-/** What opening a link shows (`peekLink`): never spends it. `email` is masked (`maskEmail`). */
-export type LinkPeek =
-  | { readonly ok: true; readonly maskedEmail: string; readonly sameBrowser: boolean }
-  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" };
-
 /**
- * An address shown to a browser that may not be its owner's (the other-browser
- * confirm, 11-25): the first character, then `***`, then the domain whole.
- * `mike@example.com` reads `m***@example.com`.
+ * What opening a link shows (`peekLink`): never spends it. `email` is the WHOLE
+ * address (review of #860): whoever holds the link sees it one press later anyway,
+ * so masking it protects nothing and only weakens the confirm's warning against a
+ * link forwarded to sign someone into another person's account.
  */
-export function maskEmail(email: string): string {
-  const at = email.lastIndexOf("@");
-  if (at <= 0) return "***";
-  return `${email.slice(0, 1)}***${email.slice(at)}`;
-}
+export type LinkPeek =
+  | { readonly ok: true; readonly email: string; readonly sameBrowser: boolean }
+  | { readonly ok: false; readonly reason: "unknown" | "used" | "expired" };
 
 /** What `signUpWithIdentity` answers (JS1). `storeId` is the active store, null unless `state` is `active`. */
 export interface IdentitySignUp {
@@ -554,7 +548,12 @@ export class Accounts {
       spots: { total: spots.total, left: spots.left },
       sources: by("signup_source"),
       referrers: by("signup_referrer"),
-      otherBrowser7d: this.db.get<{ n: number }>("SELECT count(*) AS n FROM audit WHERE action = 'login.link.other-browser' AND at > ?", this.now() - 7 * 24 * 60 * 60 * 1000)?.n ?? 0,
+      // Over the same people as the rest (the spots' people: no tombstone, no reviewer).
+      otherBrowser7d:
+        this.db.get<{ n: number }>(
+          "SELECT count(*) AS n FROM audit JOIN people ON people.id = audit.person_id WHERE audit.action = 'login.link.other-browser' AND audit.at > ? AND people.state != 'deleted' AND people.kind IS NOT 'reviewer'",
+          this.now() - 7 * 24 * 60 * 60 * 1000,
+        )?.n ?? 0,
     };
   }
 
@@ -911,7 +910,7 @@ export class Accounts {
     if (row === undefined) return { ok: false, reason: "unknown" };
     if (row.used_at !== null) return { ok: false, reason: "used" };
     if (row.expires_at <= this.now()) return { ok: false, reason: "expired" };
-    return { ok: true, maskedEmail: maskEmail(row.email), sameBrowser: input.browser !== null && sha256(input.browser) === row.browser_hash };
+    return { ok: true, email: row.email, sameBrowser: input.browser !== null && sha256(input.browser) === row.browser_hash };
   }
 
   /**

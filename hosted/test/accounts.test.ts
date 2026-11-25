@@ -169,7 +169,7 @@ describe("signing up and signing in", () => {
     assert.equal((await me.go("/login/link?token=cpl_nonsense_nonsense_nonsense")).status, 400);
   });
 
-  test("another browser: a confirm with the masked address; the browser that presses is signed in, the asker isn't; counted", async () => {
+  test("another browser: a confirm with the whole address; the browser that presses is signed in, the asker isn't; counted", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite({ maxUses: 3 });
     const asker = new Browser(r.base);
@@ -178,9 +178,9 @@ describe("signing up and signing in", () => {
     const opened = await phone.go(a.link!);
     assert.equal(opened.status, 200);
     const html = await opened.text();
-    assert.match(html, /<h1>Sign in on this browser as m\*\*\*@example\.com\?<\/h1>/);
+    assert.match(html, /<h1>Sign in on this browser as mike\.l@example\.com\?<\/h1>/);
     assert.match(html, /<button type="submit">Sign in on this browser<\/button>/);
-    assert.doesNotMatch(html, /mike\.l@/, "never the whole address");
+    assert.doesNotMatch(html, /signed in here as/, "nobody is signed in in this browser");
     const pressed = await pressLink(phone, a.link!);
     assert.equal(pressed.status, 303);
     assert.match((await (await phone.go("/account")).text()), /Signed in as <strong>mike\.l@example\.com<\/strong>/);
@@ -196,15 +196,41 @@ describe("signing up and signing in", () => {
     const later = await askLink(r, new Browser(r.base), "mike.l@example.com");
     assert.equal((await pressLink(new Browser(r.base), later.link!)).status, 303);
     assert.equal(r.accounts.counts().otherBrowser7d, 2);
+    // A reviewer's account (DIR1) finishing a link elsewhere isn't counted: §40 counts the spots' people.
+    const made = r.accounts.createReviewer({ email: "reviewer@example.com", days: 30 });
+    assert.ok(!("refusal" in made));
+    const rev = await askLink(r, new Browser(r.base), "reviewer@example.com");
+    assert.equal((await pressLink(new Browser(r.base), rev.link!)).status, 303);
+    assert.equal(r.accounts.counts().otherBrowser7d, 2);
     r.setNow(Date.UTC(2026, 10, 3, 13));
     assert.equal(r.accounts.counts().otherBrowser7d, 0);
   });
 
-  test("an OAuth connect finished in another browser lands on the account page (the Allow page lives in the browser that started it)", async () => {
+  test("a forwarded link, opened where someone else is signed in: the page says whose session the press ends, before the press", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite({ maxUses: 3 });
+    const victim = new Browser(r.base);
+    assert.equal((await pressLink(victim, (await askLink(r, victim, "victim@example.com", code)).link!)).status, 303);
+    // The attacker asks for a link to their own account and forwards it.
+    const forwarded = await askLink(r, new Browser(r.base), "attacker@example.com", code);
+    const html = await (await victim.go(forwarded.link!)).text();
+    assert.match(html, /<h1>Sign in on this browser as attacker@example\.com\?<\/h1>/);
+    assert.match(html, /You&rsquo;re signed in here as victim@example\.com; this signs you in as attacker@example\.com instead\./);
+    // A link to the same person, opened where they're already signed in: no warning.
+    const own = await askLink(r, new Browser(r.base), "victim@example.com");
+    assert.doesNotMatch(await (await victim.go(own.link!)).text(), /signed in here as/);
+  });
+
+  test("an OAuth connect finished in another browser lands on the account page, which says to go back to the browser that started it", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite({ maxUses: 3 });
     const a = await askLink(r, new Browser(r.base), "oauth-elsewhere@example.com", code, "/oauth/allow/abc123");
-    assert.equal((await pressLink(new Browser(r.base), a.link!)).headers.get("location"), "/account");
+    const phone = new Browser(r.base);
+    const pressed = await pressLink(phone, a.link!);
+    assert.equal(pressed.headers.get("location"), "/account?from=elsewhere");
+    const page = await (await phone.go(pressed.headers.get("location")!)).text();
+    assert.match(page, /Signed in here\. To finish connecting Claude, go back to the browser where you started\./);
+    assert.doesNotMatch(await (await phone.go("/account")).text(), /go back to the browser where you started/);
   });
 
   test("an expired link: refused at the open and at the press", async () => {
@@ -242,14 +268,15 @@ describe("signing up and signing in", () => {
     assert.equal((await me.form("/login/link", { csrf: csrfOf(page), token, next: "/account" })).status, 303, "the real press still works");
   });
 
-  test("the email and the sent page say once, 15 minutes, any device; never 'the same browser'", async () => {
+  test("the email and the sent page say once, 15 minutes, the device that opens it; never 'the same browser'", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();
     const a = await askLink(r, new Browser(r.base), "words@example.com", code);
     const text = r.mail.sent.at(-1)!.text;
-    assert.match(text, /It works once, for 15 minutes, on any device/);
+    assert.match(text, /Open this link on the device you want to sign in on\. It works once, for 15 minutes, and signs in whichever device opens it/);
+    assert.match(text, /Don't give this link to anyone, a person or an AI\./);
     assert.doesNotMatch(text, /same browser/);
-    assert.match(a.body, /It works once, for 15 minutes, on any device\./);
+    assert.match(a.body, /It works once, for 15 minutes, and signs in whichever device opens it\./);
     assert.doesNotMatch(a.body, /in this browser/);
   });
 
@@ -266,7 +293,7 @@ describe("signing up and signing in", () => {
       return i;
     };
     // The steps in order, and the beta note after the last of them.
-    const order = [at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("Hosted Counterparts is a free beta.")];
+    const order = [at('<h2 id="setup">Set it up in claude.ai</h2>'), at("<h3>1. Make your account: done</h3>"), at("<h3>2. Add Counterparts to claude.ai</h3>"), at("<strong>Always allow</strong>"), at("<h3>4. Tell Claude to use it</h3>"), at("<h3>5. Say hi</h3>"), at("Hosted Counterparts is a free beta.")];
     assert.deepEqual([...order].sort((x, y) => x - y), order);
     assert.ok(html.includes('<pre class="cp-paste" id="cp-mcp">http://127.0.0.1/mcp</pre>'));
     // The instruction block, exactly the site's (escaped once), with its own Copy button.

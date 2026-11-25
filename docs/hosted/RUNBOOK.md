@@ -273,7 +273,8 @@ curl -s -H "Authorization: Bearer $HOSTED_COUNTS_TOKEN" https://app.counterparts
 - `sources` and `referrers`: accounts per source tag and per first referrer's origin (SA1, below); `(none)` for
   those that came with none. Each sums to `accounts`.
 - `otherBrowser7d` (11-25): sign-in links finished in a browser other than the one that asked, sign-ups and
-  sign-ins alike, in the last 7 days (the `login.link.other-browser` audit rows). Before 11-25 those were refused;
+  sign-ins alike, in the last 7 days (the `login.link.other-browser` audit rows), of the accounts `accounts` counts
+  (reviewers' not). Before 11-25 those were refused;
   this is how many the any-browser link let through.
 
 Counts only: no address, id or name. A missing or wrong token is a `401`; with the variable unset, a `404`. To

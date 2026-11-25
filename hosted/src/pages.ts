@@ -22,7 +22,8 @@
  * of the asking browser's cookie: since 11-25 (the hosted funnel walk, leak 3)
  * that no longer refuses another browser, it only changes the words. Opened in
  * another browser, the link's page asks "Sign in on this browser as
- * m***@example.com?" (someone can be sent a link to another person's account);
+ * you@example.com?", the whole address (someone can be sent a link to another
+ * person's account), and a browser signed in as someone else is told so first;
  * the browser that presses gets the session, the asking browser nothing. What
  * keeps a forwarded link or a mail scanner from signing in is the press: a GET
  * never spends a link, only the page's own CSRF-bound POST does.
@@ -107,13 +108,13 @@ export interface Pages {
 // of who has an account (CONTRACT §12). While spots are left, any address can
 // sign in or sign up (a suspended one gets no email); with none left, only one
 // with an account or a good code gets a link.
-const SENT_WORDS_OPEN = "If that address can sign in or sign up, a link is on its way. It works once, for 15 minutes, on any device.";
-const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works once, for 15 minutes, on any device.";
+const SENT_WORDS_OPEN = "If that address can sign in or sign up, a link is on its way. It works once, for 15 minutes, and signs in whichever device opens it.";
+const SENT_WORDS_FULL = "If that address has an account, or your invite code is good, a link is on its way. It works once, for 15 minutes, and signs in whichever device opens it.";
 // THE BUSY WORDS (EC1): spots are open but this hour's sign-in emails reached
 // the cap (`spots emails M`). Chosen by that count, read before the ask and the
 // same for every address, never by what happened to this one; true for a
 // member, who still gets a link, and for a newcomer, who gets none this hour.
-const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works once, for 15 minutes, on any device.";
+const SENT_WORDS_BUSY = "If that address has an account, a link is on its way. It works once, for 15 minutes, and signs in whichever device opens it.";
 const BUSY_WORDS = "Lots of people are signing up right now. New to Counterparts? Try again in an hour.";
 
 /** The step-by-step for adding Counterparts as a connector in Claude (the account page's empty state). */
@@ -146,7 +147,8 @@ function copyBlock(id: string, text: string, label: string): string {
 /** The account page's setup steps, for a person with no connected AI. `mcp` is this server's connector address. */
 function setupStepsHtml(mcp: string): string {
   return `<h2 id="setup">Set it up in claude.ai</h2>
-<p class="muted">Your account is made. It takes about five minutes, once. <a href="${SETUP_URL}">The same steps on counterparts.ai</a>.</p>
+<p class="muted">It takes about five minutes, once. <a href="${SETUP_URL}">The same steps on counterparts.ai</a>.</p>
+<h3>1. Make your account: done</h3>
 <h3>2. Add Counterparts to claude.ai</h3>
 <p>On <a href="https://claude.ai">claude.ai</a>, go to <strong>Customize &gt; Connectors</strong>, click <strong>+ Add</strong>, then <strong>Add custom connector</strong>. Name it exactly <strong>${CONNECTOR_NAME}</strong>, and paste this address:</p>
 ${copyBlock("cp-mcp", mcp, "connector address")}
@@ -453,7 +455,7 @@ ${
           .send({
             to: asked.to,
             subject: asked.signUp ? "Finish signing up for Counterparts" : "Your Counterparts sign-in link",
-            text: `Open this link to sign in. It works once, for ${minutes} minutes, on any device:\n\n${link}\n\nIf you didn't ask, ignore this email: nobody can sign in without it.\n`,
+            text: `Open this link on the device you want to sign in on. It works once, for ${minutes} minutes, and signs in whichever device opens it:\n\n${link}\n\nIf you didn't ask, ignore this email: nobody can sign in without it. Don't give this link to anyone, a person or an AI.\n`,
           })
           .catch(() => {
             // The page says the same thing either way; the failure is the operator's to see.
@@ -482,6 +484,14 @@ ${
       }
       const next = safeNext(url.searchParams.get("next"));
       const nonce = randomBytes(16).toString("base64");
+      // The press ends any session this browser carries (one browser, one session): if it is someone
+      // else's, say so before the press (review of #860: a forwarded link is a login CSRF otherwise).
+      const current = personOf(req);
+      const currentEmail = current === null ? null : (opts.accounts.person(current)?.email ?? null);
+      const switching =
+        currentEmail !== null && currentEmail !== seen.email
+          ? `<p><strong>You&rsquo;re signed in here as ${escapeHtml(currentEmail)}; this signs you in as ${escapeHtml(seen.email)} instead.</strong></p>\n`
+          : "";
       const form = `<form method="post" action="/login/link">
 <input type="hidden" name="csrf" value="${escapeHtml(csrf.token(browser))}">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
@@ -493,10 +503,10 @@ ${
         nonce,
         warm: true,
         body: seen.sameBrowser
-          ? `${foxHtml(nonce)}\n<h1>Sign in</h1>\n${form}`
-          : `${foxHtml(nonce)}\n<h1>Sign in on this browser as ${escapeHtml(seen.maskedEmail)}?</h1>
+          ? `${foxHtml(nonce)}\n<h1>Sign in</h1>\n${switching}${form}`
+          : `${foxHtml(nonce)}\n<h1>Sign in on this browser as ${escapeHtml(seen.email)}?</h1>
 <p class="muted">This link was asked for in another browser. Sign in here only if you asked for it.</p>
-${form}`,
+${switching}${form}`,
       });
       return true;
     }
@@ -524,7 +534,8 @@ ${form}`,
       // An OAuth connect's Allow page lives in the browser that started it (the provider's own
       // cookie): finished in another browser, the link lands on the account page instead.
       const asked = safeNext(form.get("next"));
-      const next = seen?.ok === true && !seen.sameBrowser && asked.startsWith("/oauth/") ? "/account" : asked;
+      // `?from=elsewhere` has the account page say why (review of #860: or a new person re-adds the connector).
+      const next = seen?.ok === true && !seen.sameBrowser && asked.startsWith("/oauth/") ? "/account?from=elsewhere" : asked;
       if (used.created) {
         try {
           opts.onCreated?.(used.personId);
@@ -570,7 +581,7 @@ ${form}`,
         nonce,
         body: `<h1>Your Counterparts account</h1>
 <p>Signed in as <strong>${escapeHtml(person.email ?? "")}</strong>.</p>
-${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n<h2>About the beta</h2>\n` : ""}<p class="muted">${BETA_NOTE_HTML}</p>
+${url.searchParams.get("from") === "elsewhere" ? `<p><strong>Signed in here. To finish connecting Claude, go back to the browser where you started.</strong></p>\n` : ""}${setUp ? `${setupStepsHtml(`${opts.publicOrigin}/mcp`)}\n<h2>About the beta</h2>\n` : ""}<p class="muted">${BETA_NOTE_HTML}</p>
 <p><a href="/dashboard/">Open your dashboard</a> <span class="muted">— your memory as Claude keeps it: the days, the memories, the self page, the dreams. Only you see it.</span></p>
 <h2>Connected AIs</h2>
 ${
