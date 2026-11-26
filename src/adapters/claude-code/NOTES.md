@@ -3099,6 +3099,12 @@ hours, 5 `would`, **0.10 per active hour** (0.06, 0.40 and 0.11 by folder), all 
 bar, so it ships on (`TUNABLES.NOTICING_ON`). For scale: those folders' agent worktrees, 44 sessions, 83.3 hours,
 0.23/hour; two personal folders, 0.20 and 1.31/hour, which is where it is meant to fire.
 
+Two effects the replay does not measure. A session with no row yet (one running across the upgrade, a resume or a
+fork under a new id) scans its whole file at its first Stop and may nudge once for an old reading. And a nudge beside
+the full ask is answered with `session_end`, which `taken` does not count, so `taken` reads low on those Stops. A
+nudge answered in words alone (the continuation calls nothing) clears `pending` at the re-fire, so a later turn's
+`remember` is not read as taking it.
+
 Named gaps, for later and only when earned by a real miss: a killed session (no Stop), auto-compact mid-read, a
 subagent's reads (sidechains), pages read as images, long autonomous runs. The social feed's reads were plain
 `python3` in the miss itself; only a configured pattern catches those.

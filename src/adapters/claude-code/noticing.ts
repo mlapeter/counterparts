@@ -153,7 +153,15 @@ export function scanAtStop(
     start = at + 1;
   }
   const fresh = calls.slice(start).map((c) => classifyCall(c, settings));
-  if (fresh.length === 0) return { next: null, say: null, outcome: "none" };
+  if (fresh.length === 0) {
+    // A nudge answered in words alone (no call at all): not taken, and the
+    // flag goes, or a later turn's `remember` would read as this nudge's.
+    if (state.pending === true) {
+      const { pending: _answered, ...rest } = state;
+      return { next: { ...rest, at: opts.now }, say: null, outcome: "none" };
+    }
+    return { next: null, say: null, outcome: "none" };
+  }
   let { would, nudged, taken, quiet } = state;
   let pending = state.pending === true;
   let nudgedAt = state.nudgedAt;

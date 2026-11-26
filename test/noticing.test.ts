@@ -39,6 +39,7 @@ import { loadConfig } from "../src/adapters/config.js";
 import type { AdapterConfig } from "../src/adapters/config.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { mechanismsLines } from "../src/adapters/cli/mechanisms.js";
+import { run } from "../src/adapters/cli/index.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const NO_PATTERNS = { bashPatterns: [], bashOutgoing: [] };
@@ -267,6 +268,19 @@ describe("the re-fire scans, advances, records taken, and never nudges", () => {
     expect(r.pending).toBeUndefined();
   });
 
+  test("a continuation in words alone (no call at all) clears the nudge: a later turn's remember is not counted as taken", () => {
+    const a = adapter();
+    const first = [typed("A letter."), ...call("t1", "mcp__ai-phone__read_message", { id: "1" }), said("Read.")];
+    const path = writeTranscript(first);
+    expect(stop(a, "s-words", path).result.ask).not.toBeNull();
+    writeTranscript([...first, said("Noted; nothing struck me.")]);
+    expect(stop(a, "s-words", path, { refire: true }).stdout).toBe("");
+    expect(row(a, "s-words").pending).toBeUndefined();
+    writeTranscript([...first, said("Noted; nothing struck me."), typed("Something else."), ...remember("t2"), said("Kept.")]);
+    expect(stop(a, "s-words", path).result.ask).toBeNull();
+    expect(row(a, "s-words")).toMatchObject({ nudged: 1, taken: 0 });
+  });
+
   test("a continuation without remember: not taken; a reading inside it is scanned past, counted as would, never said", () => {
     const a = adapter();
     const first = [typed("A letter."), ...call("t1", "mcp__ai-phone__read_message", { id: "1" }), said("Read.")];
@@ -416,6 +430,23 @@ describe("the switch and the patterns are read leniently", () => {
     expect(line).toBe("Noticing at Stops (Claude Code), this week over 2 sessions: would 2, nudged 2, taken 1, quiet 3");
     const lines = mechanismsLines({ rows: [], from: "2026-11-20", today: "2026-11-26", young: false } as never, [], undefined, line);
     expect(lines).toContain(line);
+  });
+
+  test("through the console's door: `counterparts mechanisms` shows a nudge and its taking, and --json carries them", async () => {
+    const a = adapter();
+    const first = [typed("Read me the inbox."), ...call("t1", "mcp__ai-phone__read_inbox", {}), said("Two letters.")];
+    const path = writeTranscript(first);
+    stop(a, "s-console", path);
+    writeTranscript([...first, ...remember("t2"), said("Kept.")]);
+    stop(a, "s-console", path, { refire: true });
+    a.counterpart.close();
+    const out: string[] = [];
+    const io = { out: (s: string) => out.push(s), err: () => undefined } as never;
+    expect(await run(["mechanisms", "--dir", store], { io })).toBe(0);
+    expect(out).toContain("Noticing at Stops (Claude Code), this week over 1 session: would 1, nudged 1, taken 1, quiet 0");
+    const json: string[] = [];
+    await run(["mechanisms", "--json", "--dir", store], { io: { out: (s: string) => json.push(s), err: () => undefined } as never });
+    expect((JSON.parse(json.join("")) as { noticing: unknown }).noticing).toEqual({ sessions: 1, would: 1, nudged: 1, taken: 1, quiet: 0 });
   });
 });
 
