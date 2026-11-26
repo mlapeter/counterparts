@@ -10,7 +10,10 @@
  *    reads a page that is always at least a session old. What was said since
  *    (Dana's launch, d5s1; the surgery news, d2s1, read from the shop folder in
  *    d2s2) had no road into the next wake. Owner and us memories cross folders;
- *    work stays home (Elsewhere names it).
+ *    work stays home (Elsewhere names it). A person memory not marked work
+ *    crosses too, one line at most (B3, 2026-11-26: a letter written to us in
+ *    one folder, saved as its writer, marked world, never reached a wake in
+ *    another); and a line from another folder says which (B4).
  *
  * 2. WHAT ALREADY HAPPENED: a dated item a newer memory says is done (the shop
  *    that launched a day early) is no longer due, coming up or told as a plain
@@ -39,6 +42,10 @@ export interface NewsItem {
   readonly at: number;
   /** What it was ranked by: the larger of its salience at birth and its strongest feeling. */
   readonly strength: number;
+  /** The folder it was written in, when that isn't this one (B4); null when it is. */
+  readonly folder: string | null;
+  /** In only as a person memory (B3): not marked owner or us. At most one is shown. */
+  readonly person: boolean;
 }
 
 /**
@@ -108,7 +115,8 @@ function nameOf(row: Pick<MemoryRow, "title" | "body">): string {
 
 /**
  * "SINCE THE LAST NIGHT" for a wake on `at` read in `here`: up to
- * `NEWS_SHOWN` live memories marked about the owner or us, written after
+ * `NEWS_SHOWN` live memories marked about the owner or us, or person memories
+ * not marked work (at most one of those, B3), written after
  * `newsSince`, at least `NEWS_FLOOR` strong, strongest first (newer first on a
  * tie). Each row by the fence's own rule (`memoryClosedTo`): this folder's and
  * its project's own; another's only when that folder is on (`exportsFrom`; a
@@ -156,12 +164,13 @@ export function sinceLastNight(
     if (strength < SHAPE.NEWS_FLOOR) continue;
     const title = nameOf(r).replace(/\s+/g, " ");
     if (title.length === 0) continue;
-    out.push({ id: r.id, title, at: r.created_at ?? 0, strength });
+    out.push({ id: r.id, title, at: r.created_at ?? 0, strength, folder: home ? null : folder, person: r.about !== "owner" && r.about !== "us" });
   }
   out.sort((a, b) => b.strength - a.strength || b.at - a.at || (a.id < b.id ? -1 : 1));
   const kept: NewsItem[] = [];
   for (const n of out) {
     if (kept.length >= SHAPE.NEWS_SHOWN) break;
+    if (n.person && kept.some((k) => k.person)) continue;
     const mine = stems(n.title);
     const echo = kept.some((k) => {
       const theirs = stems(k.title);

@@ -378,6 +378,11 @@ export function memoriesWrittenHereSince(store: Store, scope: string, since: num
  * caller ranks them, fences them by folder and drops what another line names.
  * Not the nightly run's (`NIGHTLY_SQL`), not a starter memory, not our own plumbing
  * (TC1, `meta.ownPlumbing`, as `memoryTitlesByScopeSince`). Bounded by `limit`.
+ *
+ * AND A PERSON (B3, 2026-11-26): a `person` memory not marked work travels too,
+ * whatever else it is marked (world, me, or nothing): a letter written to us in
+ * one folder, saved as the person who wrote it, reaches the next wake in another.
+ * The caller says at most one such line.
  */
 export function aboutUsWrittenSince(store: Store, since: number, until: number, limit: number): MemoryRow[] {
   return store["ops"]
@@ -385,7 +390,8 @@ export function aboutUsWrittenSince(store: Store, since: number, until: number, 
       `SELECT id FROM memories
         WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
           AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
-          AND about IN ('owner', 'us') AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
+          AND (about IN ('owner', 'us') OR (kind = 'person' AND (about IS NULL OR about != 'work')))
+          AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
           AND meta NOT LIKE '%"${STORE_OWN_PLUMBING_META_KEY}"%'
         ORDER BY created_at DESC, id LIMIT ?`,
       since,

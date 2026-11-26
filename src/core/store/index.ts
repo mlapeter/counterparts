@@ -5656,7 +5656,7 @@ export class Store {
     return memoryReads.memoriesWrittenHereSince(this, scope, since, until, limit);
   }
 
-  /** Live owner/us memories written in `(since, until]`, any folder, newest first (`reads-memories.ts#aboutUsWrittenSince`; WF1). */
+  /** Live owner/us memories, and person ones not marked work (B3), written in `(since, until]`, any folder, newest first (`reads-memories.ts#aboutUsWrittenSince`; WF1). */
   aboutUsWrittenSince(since: number, until: number, limit: number): MemoryRow[] {
     return memoryReads.aboutUsWrittenSince(this, since, until, limit);
   }
