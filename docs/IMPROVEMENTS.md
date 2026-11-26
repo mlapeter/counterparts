@@ -5110,6 +5110,30 @@ The limits and their reasons are `WAKE_SHAPE_LIMITS` in `src/core/self/tunables.
   set-down is), and the set-down's facts and body name its id. Nothing is migrated; the writers move one when they
   judge it about the work, not about honesty or about the owner.
 
+### Decided by the recall-plan-pins builder, 2026-11-18, lightly held (recall latency, no store change)
+
+- Decided by the recall-plan-pins builder, 2026-11-18, lightly held: `tagNeighbours` and
+  `subjectsOfKind` are pinned with a unary `+archived`, not `INDEXED BY` as #783 did. Why:
+  `+` only takes the bait index (`memories_birth`) away and can never fail, while a named
+  index that is missing throws "no such index" (and `selfSubject` is read outside the
+  beliefs slot's per-subject guard). Revisit once the store runs ANALYZE or `PRAGMA optimize`.
+- Decided by the recall-plan-pins builder, 2026-11-18, lightly held: `beliefsNamedIn` catches
+  up once a call, not once a named subject. Why: each catch-up is a scan of `memories`. The
+  cost: a belief another process files in the milliseconds between two subjects of one
+  turn shows next turn. No incremental watermark yet: once a call already makes it one scan
+  a turn, and the type index the next batched migration can add removes the scan outright.
+
+### Decided by the noticing v1 builder, 2026-11-26, lightly held (noticing at a Stop)
+
+- Decided by the noticing v1 builder, 2026-11-26, lightly held: noticing ships ON (`TUNABLES.NOTICING_ON`). Why: the
+  replay fired on all three misses and on coding sessions at 0.10 per active hour, under the ~1/hour bar (adapter
+  NOTES, 2026-11-26).
+- Decided by the noticing v1 builder, 2026-11-26, lightly held: no cap between nudges. `would` counts each scanned Stop
+  with unwritten perception (the re-fire included) and `nudged` each line sent; a cap waits for a real complaint.
+- Decided by the noticing v1 builder, 2026-11-26, lightly held: `Read` of a `.pdf`/`.epub` counts as a document and the
+  host's `web-fetch` subagent as a page, beside the design's list; sends (MCP `send_message`, `noticing.bashOutgoing`)
+  count too, on the coordinator's word the same day. `session_end` does not count as the answer.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
