@@ -179,7 +179,7 @@ for (const shape of ["on", "off"] as const) {
         const w = on(d);
         expect(w).not.toContain(MARK);
         // Counted, not listed, each road in its own words.
-        if (shape === "on") expect(w).toMatch(/1 more open/);
+        if (shape === "on") expect(w).toContain('(1 more of mine; recall "still open")');
         else expect(w).toContain("1 — none due today");
       }
       expect(on(3)).toContain(MARK);
@@ -188,7 +188,9 @@ for (const shape of ["on", "off"] as const) {
       for (const d of [11, 23]) expect(on(d)).not.toContain(MARK);
       const d24 = on(24);
       expect(d24).not.toContain(MARK);
-      expect(d24).toMatch(/1 parked/);
+      // The shaped wake doesn't count the parked (B1, 2026-11-26); the assembled road still does.
+      if (shape === "on") expect(d24).not.toMatch(/parked/);
+      else expect(d24).toMatch(/1 parked/);
       expect(raiseRecord(c.store)[id]?.days).toEqual([START, START + 3, START + 10]);
       // Nothing deleted: recall "still open" lists it, marked parked.
       expect(c.stillOpen({ scope: HERE }).items.find((i) => i.id === id)?.parked).toBe(true);
@@ -273,7 +275,8 @@ describe("review of #819", () => {
     const d0 = stillOpen(hook());
     for (const id of fresh) expect(d0).toContain(id);
     for (const id of old) expect(d0).not.toContain(id);
-    expect(d0).toContain("20 parked");
+    // Not counted in the wake (B1, 2026-11-26): recall "still open" lists them, below.
+    expect(d0).not.toContain("parked");
     for (let d = 1; d <= 14; d++) {
       c.store.setMeta("livedDay", String(START + 20 + d));
       const w = stillOpen(hook());

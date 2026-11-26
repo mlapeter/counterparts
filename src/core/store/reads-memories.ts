@@ -3,6 +3,7 @@ import { addDays, calendarOverlaps, compareCalendarDates, isDay, parseCalendarDa
 import { LATER_FEELING_SOURCES } from "./feelings.js";
 import { TUNABLES as PHYSICS_TUNABLES } from "../physics/index.js";
 import { StoreError } from "./errors.js";
+import { READER_SELF_META_KEY, READER_US_META_KEY } from "../reader-note.js";
 import { SETTLES_WHEN_META_KEY } from "../types.js";
 import {
   CLAIMS_ERA_CUTOFF_KEY,
@@ -382,7 +383,9 @@ export function memoriesWrittenHereSince(store: Store, scope: string, since: num
  * AND A PERSON (B3, 2026-11-26): a `person` memory not marked work travels too,
  * whatever else it is marked (world, me, or nothing): a letter written to us in
  * one folder, saved as the person who wrote it, reaches the next wake in another.
- * The caller says at most one such line.
+ * The caller says at most one such line. Not another reader's note about itself
+ * or about it and the owner (`readerSelf`, `readerUs`: a Codex model's, say),
+ * which is never the counterpart's news.
  */
 export function aboutUsWrittenSince(store: Store, since: number, until: number, limit: number): MemoryRow[] {
   return store["ops"]
@@ -390,7 +393,9 @@ export function aboutUsWrittenSince(store: Store, since: number, until: number, 
       `SELECT id FROM memories
         WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
           AND created_at IS NOT NULL AND created_at > ? AND created_at <= ?
-          AND (about IN ('owner', 'us') OR (kind = 'person' AND (about IS NULL OR about != 'work')))
+          AND (about IN ('owner', 'us')
+               OR (kind = 'person' AND (about IS NULL OR about != 'work')
+                   AND meta NOT LIKE '%"${READER_US_META_KEY}"%' AND meta NOT LIKE '%"${READER_SELF_META_KEY}"%'))
           AND COALESCE(source, '') != 'told' AND NOT ${NIGHTLY_SQL}
           AND meta NOT LIKE '%"${STORE_OWN_PLUMBING_META_KEY}"%'
         ORDER BY created_at DESC, id LIMIT ?`,

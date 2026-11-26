@@ -155,7 +155,8 @@ describe("since the last night", () => {
     const { wake, row } = hook(NOTES);
     expect(readSentinel(wake).intact).toBe(true);
     const block = section(wake, "Since the last night:");
-    expect(block).toContain(`- ${LAUNCH} (24 hours)`);
+    // Written in the shop folder, read from notes: the line names it (B4).
+    expect(block).toContain(`- ${LAUNCH} (shop, 24 hours)`);
     // Before the night: the page's. Work: Elsewhere's. Weak: no news.
     expect(block).not.toContain("nervous before");
     expect(block).not.toContain("Oat Milk");
