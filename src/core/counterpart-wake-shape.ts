@@ -112,6 +112,8 @@ interface Sec {
   readonly floor?: number;
   /** The item waiting on the owner this section said (SO1 step 4), recorded as raised once the wake is delivered. */
   readonly owed?: Owed;
+  /** The memory ids the folder's handoff lines shown name (B2), kept out of Still open only. */
+  readonly named?: readonly string[];
 }
 type Budgets = Record<SectionKey, number>;
 
@@ -605,6 +607,8 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
 
   // ── the sections ──
   const spareOn = new Set<SectionKey>();
+  // What the handoff lines this compose shows name (B2): read by Still open alone.
+  let handoffNamed: ReadonlySet<string> = new Set();
   const blockOf = (lines: readonly string[]): string => (lines.length === 0 ? "" : `${lines.join("\n")}\n\n`);
 
   // "Since the last night" (WF1): titles only, with their ages; no door, since
@@ -612,7 +616,19 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const newsSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const list = news.items.filter((n) => !claim.has(n.id));
     if (list.length === 0) return { text: "", ids: [], items: 0 };
-    const render = (k: number): string[] => [news.night ? "Since the last night:" : "Since yesterday:", ...aged(list.slice(0, k).map((n) => ({ text: `- ${n.title}`, age: ageOf(n.at) })))];
+    // ANOTHER FOLDER'S LINE SAYS WHICH (B4, 2026-11-26): "- title (distribution, 11 min)";
+    // the age left off when the line before has the same one, as `aged` does.
+    const among = [scope, ...list.flatMap((n) => (n.folder === null ? [] : [n.folder]))];
+    const lineOf = (n: NewsItem, i: number, shown: readonly NewsItem[]): string => {
+      const age = ageOf(n.at);
+      const before = i > 0 ? shown[i - 1] : undefined;
+      const parts = [...(n.folder === null ? [] : [placeWords(n.folder, among)]), ...(before !== undefined && ageOf(before.at) === age ? [] : [age])];
+      return `- ${n.title}${parts.length === 0 ? "" : ` (${parts.join(", ")})`}`;
+    };
+    const render = (k: number): string[] => {
+      const shown = list.slice(0, k);
+      return [news.night ? "Since the last night:" : "Since yesterday:", ...shown.map((n, i) => lineOf(n, i, shown))];
+    };
     let k = list.length;
     while (k > 0 && byteLength(blockOf(render(k))) > b) k -= 1;
     if (k === 0) return { text: "", ids: [], items: 0 };
@@ -627,9 +643,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
     const tail = here?.sessions === undefined || noHandoffs ? null : openHereLine(liveHere, at, zone);
     // A sunk handoff said as Still open's ask isn't also its pointer line here (SO1 step 4: shown once).
     const olderPick = pickOlder(owed?.kind === "handoff" ? hs.filter((h) => h.id !== owed.id) : hs);
-    const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number } => {
+    const build = (n: { lead: number; since: number; older: number; said: boolean }): { lines: string[]; leadBytes: number; named: string[] } => {
       const out = ["Where this folder stands:"];
       let leadSize = 0;
+      // The memory ids the handoff lines shown name (B2); a stepped-down pointer names none.
+      const named: string[] = [];
       let stepped: string | null = null;
       if (newest === undefined) {
         if (!noHandoffs) out.push("No handoff here. Leave one with session_end's handoff field when you stop.");
@@ -646,6 +664,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
         const delta = written !== null && installed !== null && versionOlder(written, installed) ? `; ${written} then, ${installed} now` : "";
         const head = `Handoff, ${seat}, ${when} (${ageOf(newestAt ?? startOfLocalDay(newest.writtenOn, zone))} old${delta}${amongWords}). ${lead.cut ? "whole: " : ""}recall ${newest.id}`;
         out.push(head, ...lead.lines.map((l) => `  ${l}`));
+        for (const l of lead.lines) named.push(...(l.match(MEMORY_ID) ?? []));
         leadSize = byteLength(`${head}\n`) + lead.lines.reduce((x, l) => x + byteLength(`  ${l}\n`), 0);
       }
       if (sinceLines.length > 0 && n.since > 0) {
@@ -678,11 +697,15 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       const rest = hs.length - 1;
       if (rest > 0) {
         out.push(`Older handoffs: ${String(rest)}; recall "${HANDOFFS_HANDLE}"`);
-        for (const o of olderPick.slice(0, n.older)) out.push(`- ${o.seat}: ${firstRealSentence(o.h.body)} (${monthDay(o.h.writtenOn)}; ${o.h.id})`);
+        for (const o of olderPick.slice(0, n.older)) {
+          const first = firstRealSentence(o.h.body);
+          out.push(`- ${o.seat}: ${first} (${monthDay(o.h.writtenOn)}; ${o.h.id})`);
+          named.push(...(first.match(MEMORY_ID) ?? []));
+        }
       }
       if (tail !== null) out.push(tail);
       if (n.said && said !== null) out.push(said.line);
-      return { lines: out, leadBytes: leadSize };
+      return { lines: out, leadBytes: leadSize, named };
     };
     const most = newest === undefined || stepDown ? 1 : Math.max(1, leadOf(newest.body, leadLines, leadBytes).lines.length);
     const n = { lead: most, since: Math.min(SHAPE.SINCE_SHOWN, sinceLines.length), older: Math.min(SHAPE.OLDER_SHOWN, olderPick.length), said: said !== null };
@@ -705,6 +728,7 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       handoffs: [...(newest === undefined ? [] : [{ h: newest, bytes: lines.leadBytes }]), ...shownOlder.map((o) => ({ h: o.h, bytes: byteLength(firstRealSentence(o.h.body)) }))],
       ...(said === null ? {} : { saidBytes: n.said ? said.bytes : 0 }),
       chapters: sinceLines.slice(0, n.since).filter((s) => s.chapter).length,
+      named: [...new Set(lines.named)],
     };
   };
 
@@ -851,7 +875,10 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const openSec = (b: number, claim: ReadonlySet<string>): Sec => {
     const cap = spareOn.has("open") ? SHAPE.OPEN_SHOWN_SPARE : SHAPE.OPEN_SHOWN;
     // What waits on the owner is said once, as `owed`, or not at all (SO1 step 4).
-    const all = openRows.filter((x) => !claim.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
+    // A memory a handoff line shown above names is said there (B2, 2026-11-26): not
+    // a line here and not counted. Only here: the shared claim set is untouched,
+    // so Coming up, the waiting line, Yesterday and Carried forward still may.
+    const all = openRows.filter((x) => !claim.has(x.i.id) && !handoffNamed.has(x.i.id) && !cueIds.has(x.i.id) && x.r?.status !== "asked");
     // ON THE RAISE SCHEDULE (the putty, 2026-11-13; `owner-waits.ts#laneHeld`):
     // a line listed on a day is raised, and listed again on its 3/7/14 steps;
     // between, counted as more open. A dated item or a core memory being
@@ -867,9 +894,11 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
       tail: `${x.i.reconsidering === true ? " · a core memory being reconsidered" : ""}${x.i.settlesWhen === undefined ? "" : ` · settles when ${flatten(x.i.settlesWhen)}`} [${x.i.id}]`,
     });
     const render = (k: number): string[] => {
+      // THE DOOR IS ONE COUNT (B1, 2026-11-26): what else is open, and no parked
+      // count; recall "still open" lists the parked ones.
       const more = carried.length - k + resting;
-      const door = more > 0 || open.parked > 0 ? `(${[more > 0 ? `${String(more)} more open` : "", open.parked > 0 ? `${String(open.parked)} parked` : ""].filter((w) => w.length > 0).join(", ")}; recall "still open")` : "";
-      // Nothing open and nothing parked: no section (WF1), not "Nothing open."
+      const door = more > 0 ? `(${String(more)} more of mine; recall "still open")` : "";
+      // Nothing else open: no section (WF1), not "Nothing open."
       if (k === 0 && door === "" && oweLines.length === 0) return [];
       return ["Still open:", ...oweLines, ...aged(carried.slice(0, k).map(lineOf)), ...(door === "" ? [] : [door])];
     };
@@ -951,10 +980,12 @@ export function shapedDelivery(cp: Counterpart, delivery: WakeDelivery, here: Wa
   const compose = (budgets: Budgets): Record<SectionKey, Sec> => {
     const claim = new Set<string>(cues.filter((c) => c.plain).map((c) => c.id));
     for (const id of self.ids) claim.add(id);
+    handoffNamed = new Set();
     const out = {} as Record<SectionKey, Sec>;
     for (const k of ORDER) {
       const s = fn[k](budgets[k], claim);
       for (const id of s.ids) claim.add(id);
+      if (k === "folder" && s.text.length > 0) handoffNamed = new Set(s.named ?? []);
       out[k] = s;
     }
     return out;

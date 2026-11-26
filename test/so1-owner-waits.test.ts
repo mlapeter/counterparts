@@ -237,8 +237,9 @@ describe("1. an item waiting on the owner backs off, then parks", () => {
     liveOn(c, START + 28);
     const w28 = hook();
     expect(w28).not.toContain(id);
-    // Two: this one, and the cooling rack, untouched past P2's 14 lived days.
-    expect(section(w28, "Still open:")).toContain("2 parked");
+    // Two parked: this one, and the cooling rack, untouched past P2's 14 lived days.
+    // The wake no longer counts them (B1, 2026-11-26); recall "still open" lists them.
+    expect(section(w28, "Still open:")).not.toContain("parked");
     expect(c.stillOpen({ scope: HERE }).items.find((i) => i.id === plain)?.parked).toBe(true);
     const listed = c.stillOpen({ scope: HERE }).items.find((i) => i.id === id);
     expect(listed?.parked).toBe(true);

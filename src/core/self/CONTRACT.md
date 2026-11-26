@@ -873,7 +873,8 @@ written there in `OWNER_CONTEXT_MS`); then this folder's before a personal one, 
 `wake.owner.raised` at the item's version. **[M]** After each unanswered raise it waits
 `OWNER_RAISE_STEPS` lived days (3, 7, 14); at session start never sooner than `OWNER_MENTION_EVERY`
 (a week) after the last raise, so here the steps read 7, 7, 14. After the last step it parks: out of
-the wake, listed parked by `recall "still open"` and counted in the wake's "N parked". A revision
+the wake, listed parked by `recall "still open"` and counted in the assembled wake's "N parked" (the
+shaped wake no longer counts it, B1 2026-11-26). A revision
 (`revision`, a handoff's `version`) starts the chain again. **[M]** The relevance lane: on a turn
 a person started, an item the turn touches (two shared words each over `OWNER_TURN_WORD_FLOOR`, together
 `OWNER_TURN_WEIGHT`, at recall's cue weight; a turn under `OWNER_TURN_MIN_WORDS` content words doesn't look), in its own
@@ -889,7 +890,7 @@ open"'s lines, on every wake road (the shaped `openSec`, the assembled `Self#ass
 the published bundle `Self#buildWithLanes` composes at a boundary, delivered as it was), is
 a raise on the same record, latch and chain as above (`via: "lane"`): listed every wake of the day it is
 new, then only when the turn lane's steps let it through (3, 7, 14 lived days, no week floor: days 0, 3,
-10), then parked from day 24, counted in the wake's "N parked", listed parked by `recall "still open"`.
+10), then parked from day 24, counted in the assembled wake's "N parked", listed parked by `recall "still open"`.
 Between steps it is not a line: the shaped road counts it in "N more open"; the assembled road counts it
 in the lane's more only beside a listed line (alone, the collapsed line would say "no room"). **[M]**
 Recorded by the host for a session's own wake (`Lifecycle#composeWake` → `Counterpart#noteStillOpenShown`,
@@ -902,8 +903,9 @@ lists a waiting item takes none. **[M]** An open item with no chain (an upgrade,
 let go) that is untouched `OPEN_CARRY_DAYS` lived days is parked, not new (`unchainedParked`, read-time; an
 `asked` one is raised first, as the carry rule never parks it). Writing a raise drops the chains of memories no longer open first.
 **[M]** All waiting and nothing listed: the assembled and published lanes say `Still open: N — none due
-today; recall "still open" lists them` with the parked count after; the shaped one its "(N more open, M
-parked; …)" door. **[A]** The published bundle delivered as it was on a host that composes it only at
+today; recall "still open" lists them` with the parked count after; the shaped one its "(N more of
+mine; recall "still open")" door, with no parked count (B1, 2026-11-26). In the shaped wake an open item
+a handoff line shown above names by id is neither listed nor counted (B2). **[A]** The published bundle delivered as it was on a host that composes it only at
 session end: a showing slips a day and repeats the day after (measured days 0,1,4,5,12,13); the fix is a
 delivery-time read, not built. **[M]** Exempt: a dated item (its date's rule) and a core memory being reconsidered. One chain
 per item: a raise by the turn lane or the wake's mention counts here too. A revision starts it again.

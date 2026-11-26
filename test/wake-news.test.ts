@@ -29,7 +29,7 @@ import { WAKE_SHAPE_KEY } from "../src/core/counterpart-wake-shape.js";
 import { WAKE_SHAPE_LIMITS as SHAPE } from "../src/core/self/tunables.js";
 import { readSentinel } from "../src/core/self/index.js";
 import { DATABASE_FILE, Store } from "../src/core/store/index.js";
-import { monthDay } from "../src/core/time.js";
+import { addDays, monthDay } from "../src/core/time.js";
 
 const BUDGET = CLAUDE_CODE_BUDGET_BYTES;
 const MIN = 60_000;
@@ -155,7 +155,8 @@ describe("since the last night", () => {
     const { wake, row } = hook(NOTES);
     expect(readSentinel(wake).intact).toBe(true);
     const block = section(wake, "Since the last night:");
-    expect(block).toContain(`- ${LAUNCH} (24 hours)`);
+    // Written in the shop folder, read from notes: the line names it (B4).
+    expect(block).toContain(`- ${LAUNCH} (shop, 24 hours)`);
     // Before the night: the page's. Work: Elsewhere's. Weak: no news.
     expect(block).not.toContain("nervous before");
     expect(block).not.toContain("Oat Milk");
@@ -230,6 +231,176 @@ describe("since the last night", () => {
     expect(block).toContain(LAUNCH);
     expect(block).not.toContain("11 pieces sold\n");
     expect(block.split("\n").length).toBe(2);
+  });
+});
+
+/** A person memory as a session writes it: a letter saved as the one who wrote it (B3). */
+function person(c: Counterpart, title: string, more: { scope: string; about: "owner" | "us" | "work" | "me" | "world" | null; strength?: number }): string {
+  const s = more.strength ?? 0.8;
+  return c.store.put({
+    type: "memory",
+    kind: "person",
+    title,
+    body: `${title}.`,
+    ...(more.about === null ? {} : { about: more.about }),
+    salience: { relevance: s, emotional: 0, predictive: s },
+    origin: { session: DANA, scope: more.scope },
+  });
+}
+
+describe("a letter or a person travels (B3), and a line from another folder names it (B4)", () => {
+  const LETTER = "Ada wrote to me: a letter about the tide tables she keeps";
+
+  test("the 11-26 miss: a person memory marked world, written in another folder, is in this folder's news with that folder's name", () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 2 * HOUR);
+    person(c, LETTER, { scope: SHOP, about: "world" });
+    at(NOW);
+    c.close();
+    const { wake } = hook(NOTES);
+    const block = section(wake, "Since the last night:");
+    expect(block).toContain(`- ${LETTER} (shop, 2 hours)`);
+    // Said once in the whole wake: a person memory is never Elsewhere's work line.
+    expect(wake.split(LETTER).length - 1).toBe(1);
+  });
+
+  test("written through remember, as a session saves a letter: the same line", async () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 2 * HOUR);
+    const S = "dddd0009-0000-4000-8000-000000000000";
+    recordSession(storeDir, { sessionId: S, scope: SHOP, phase: "start", at: NOW - 2 * HOUR });
+    const r = await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S }).call("remember", {
+      kind: "person",
+      title: LETTER,
+      text: "Ada wrote that she keeps the tide tables in a tin by the door, and that she thought of us when the spring tide came in.",
+      about: "world",
+      salience: 0.8,
+    });
+    const id = r.structuredContent["id"] as string;
+    expect(c.store.row(id)?.kind).toBe("person");
+    expect(c.store.row(id)?.about).toBe("world");
+    at(NOW);
+    c.close();
+    expect(section(hook(NOTES).wake, "Since the last night:")).toContain(`- ${LETTER} (shop, 2 hours)`);
+  });
+
+  test("this folder's own line has no folder name; unmarked counts, work and weak don't", () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 2 * HOUR);
+    person(c, "Bram, the kiln repairman, came by", { scope: NOTES, about: null });
+    person(c, "Cleo the client wants invoices monthly", { scope: NOTES, about: "work", strength: 0.95 });
+    person(c, "Dov said hello in passing", { scope: NOTES, about: "world", strength: 0.3 });
+    at(NOW);
+    c.close();
+    const block = section(hook(NOTES).wake, "Since the last night:");
+    expect(block).toContain("- Bram, the kiln repairman, came by (2 hours)");
+    expect(block).not.toContain("Cleo");
+    expect(block).not.toContain("Dov");
+  });
+
+  test("at most one person line among the three; a person marked owner or us doesn't use up the one", () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 3 * HOUR);
+    person(c, "Ada wrote again about the harbour", { scope: SHOP, about: "world", strength: 0.9 });
+    person(c, "Bram replied about the kiln part", { scope: NOTES, about: "world", strength: 0.85 });
+    person(c, "Dana's sister Esme is visiting", { scope: NOTES, about: "owner", strength: 0.8 });
+    at(NOW);
+    c.close();
+    const block = section(hook(NOTES).wake, "Since the last night:");
+    expect(block).toContain("Ada wrote again about the harbour (shop, 3 hours)");
+    expect(block).not.toContain("Bram");
+    expect(block).toContain("Dana's sister Esme is visiting");
+    expect(block.split("\n").length).toBe(3);
+  });
+
+  test("a person memory from a folder that is off stays home", () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - HOUR);
+    person(c, LETTER, { scope: SHOP, about: "world" });
+    at(NOW);
+    c.close();
+    scopes({ [NOTES]: "on", [SHOP]: "off" });
+    expect(hook(NOTES).wake).not.toContain(LETTER);
+  });
+});
+
+describe("an item the handoff names isn't Still open's too (B2)", () => {
+  const SEAT = "eeee0002-0000-4000-8000-000000000000";
+
+  function open(c: Counterpart, title: string): string {
+    return c.store.put({ type: "memory", kind: "fact", title, body: `${title}.`, about: "work", meta: { unresolved: true }, salience: { relevance: 0.8, emotional: 0.3, predictive: 0.8 }, origin: { session: DANA, scope: SHOP } });
+  }
+
+  function shopWithHandoff(c: Counterpart, at: (t: number) => void, writtenAt: number): { named: string; other: string; dated: string } {
+    at(writtenAt - HOUR);
+    const named = open(c, "Whether the glaze badge goes left or right");
+    const other = open(c, "Whether the shop takes custom orders");
+    const dated = c.store.put({ type: "memory", kind: "fact", title: "Photo shoot for the spring mugs", body: "Photo shoot for the spring mugs.", about: "work", eventDate: addDays(c.store.today(), 3), salience: { relevance: 0.8, emotional: 0.3, predictive: 0.8 }, origin: { session: DANA, scope: SHOP } });
+    at(writtenAt);
+    recordSession(storeDir, { sessionId: SEAT, scope: SHOP, phase: "start", at: writtenAt });
+    c.writeHandoff(`next: settle the badge (${named}) and book the shoot (${dated}). Then the product page.`, { scope: SHOP, session: SEAT });
+    return { named, other, dated };
+  }
+
+  test("named in the handoff's lead: not a Still open line nor in its count; Coming up still lists the dated one", () => {
+    const { c, at } = brain();
+    const ids = shopWithHandoff(c, at, NOW - HOUR);
+    at(NOW);
+    c.close();
+    const { wake } = hook(SHOP);
+    expect(section(wake, "Where this folder stands:")).toContain(ids.named);
+    const still = section(wake, "Still open:");
+    expect(still).toContain(ids.other);
+    expect(still).not.toContain(ids.named);
+    expect(still).not.toContain("more of mine");
+    // The shared claim set is untouched: Coming up still says the dated item the lead names.
+    expect(section(wake, "Coming up:")).toContain(ids.dated);
+  });
+
+  test("a stepped-down handoff names nothing: the item is Still open's again", () => {
+    const { c, at } = brain();
+    const ids = shopWithHandoff(c, at, NOW - 5 * 24 * HOUR);
+    for (let i = 0; i < 2; i++) {
+      const t = NOW - (3 - i) * 24 * HOUR;
+      at(t);
+      const s = `ffff001${String(i)}-0000-4000-8000-000000000000`;
+      recordSession(storeDir, { sessionId: s, scope: SHOP, phase: "start", at: t });
+      note(c, `Shop voice: warm ${String(i)}`, { scope: SHOP, about: "work", session: s, status: "done" });
+    }
+    at(NOW);
+    c.close();
+    const { wake } = hook(SHOP);
+    expect(section(wake, "Where this folder stands:")).toContain("Last handoff,");
+    const still = section(wake, "Still open:");
+    expect(still).toContain(ids.named);
+    expect(still).toContain(ids.other);
+  });
+
+  test("named on a lead line the budget didn't show: still Still open's", () => {
+    const { c, at } = brain();
+    at(NOW - 2 * HOUR);
+    const hidden = open(c, "Whether the mugs ship in paper or foam");
+    at(NOW - HOUR);
+    recordSession(storeDir, { sessionId: SEAT, scope: SHOP, phase: "start", at: NOW - HOUR });
+    const filler = Array.from({ length: 12 }, (_, i) => `- Shop note ${String(i)}: the glaze shelf, the price cards and the photo corner were tidied for the week.`);
+    c.writeHandoff(["Shop handoff.", ...filler, `- Packing: settle ${hidden} before the first orders ship.`, "next: build the product page."].join("\n"), { scope: SHOP, session: SEAT });
+    at(NOW);
+    c.close();
+    const { wake } = hook(SHOP);
+    const stands = section(wake, "Where this folder stands:");
+    expect(stands).toContain("next: build the product page");
+    expect(stands).not.toContain(hidden);
+    expect(section(wake, "Still open:")).toContain(hidden);
   });
 });
 
