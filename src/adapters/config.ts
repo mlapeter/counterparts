@@ -173,6 +173,15 @@ export const TUNABLES = {
    */
   STOP_OPEN_MAX: 5,
   /**
+   * NOTICING AT A STOP (2026-11-26, `claude-code/noticing.ts`; an experiment,
+   * lightly held): on unless the configuration says `"noticing": {"enabled":
+   * false}`. Calibrated before it shipped on (adapter NOTES, 2026-11-26).
+   * Revert: false.
+   */
+  NOTICING_ON: true,
+  /** A session's noticing row untouched this many days is deleted (a new session's first row prunes). */
+  NOTICING_ROW_DAYS: 30,
+  /**
    * A plain reminder's handle — the memory's title or first line — is clipped
    * to this many characters in the line a person reads (2026-09-26). One
    * glance's worth: a longer title is a paragraph, and the memory's id rides
@@ -419,6 +428,21 @@ export interface AdapterConfig {
    */
   readonly debug?: { readonly nightTranscripts?: boolean };
   /**
+   * NOTICING (2026-11-26, `claude-code/noticing.ts`): `enabled` turns the
+   * Stop's counts-only line on or off (absent: `TUNABLES.NOTICING_ON`);
+   * `bashPatterns` are the owner's extra regular expressions for a shell
+   * command that READS (counted as pages), `bashOutgoing` for one that SENDS
+   * (counted as posts), each tested against the whole command. Read
+   * leniently: a bad field or a pattern that does not compile costs itself
+   * and is named in `ignored`, never the configuration.
+   */
+  readonly noticing?: {
+    readonly enabled?: boolean;
+    readonly bashPatterns?: readonly string[];
+    readonly bashOutgoing?: readonly string[];
+    readonly ignored?: readonly string[];
+  };
+  /**
    * THE DAILY UPDATE CHECK (U1b, 2026-10-28): `"updateCheck": false` turns it
    * off — no request to registry.npmjs.org, and no update line in any wake
    * (`adapters/update-check.ts`). The durable switch /privacy names first,
@@ -506,6 +530,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     dreaming?: { model?: string; timeoutMs?: number; maxTurns?: number; ignored?: string[] };
     retention?: { afterWriteUpDays?: number; maxDays?: number; ignored?: string[] };
     debug?: { nightTranscripts?: boolean };
+    noticing?: { enabled?: boolean; bashPatterns?: string[]; bashOutgoing?: string[]; ignored?: string[] };
     updateCheck?: false;
     shares?: "on" | "off";
     sharesPerWeek?: number;
@@ -692,6 +717,10 @@ export function loadConfig(raw: unknown): LoadedConfig {
   if (typeof debug === "object" && debug !== null && !Array.isArray(debug)) {
     out.debug = (debug as Record<string, unknown>)["nightTranscripts"] === true ? { nightTranscripts: true } : {};
   }
+  // NOTICING (2026-11-26): lenient, like `dreaming`. Nothing here ever sets
+  // `unreadable`.
+  const noticing = rec["noticing"];
+  if (noticing !== undefined) out.noticing = readNoticing(noticing);
   // THE UPDATE CHECK'S SWITCH (U1b): lenient. `false`, `0`, and the words
   // `COUNTERPARTS_UPDATE_CHECK` takes ("off", "false", "0", "no", "disable",
   // "disabled") all mean off; anything else is ignored, never refused.
@@ -866,6 +895,51 @@ function readDreaming(raw: unknown): { model?: string; timeoutMs?: number; maxTu
   }
   for (const key of Object.keys(d)) {
     if (key !== "model" && key !== "timeoutMs" && key !== "maxTurns") raws.push(`"dreaming.${key}" is not a setting this reads; it was ignored`);
+  }
+  return done();
+}
+
+/**
+ * The `noticing` block, read leniently (`AdapterConfig.noticing`). A pattern
+ * must be a string that compiles as a regular expression; any other is left
+ * out and named.
+ */
+function readNoticing(raw: unknown): { enabled?: boolean; bashPatterns?: string[]; bashOutgoing?: string[]; ignored?: string[] } {
+  const raws: string[] = [];
+  const out: { enabled?: boolean; bashPatterns?: string[]; bashOutgoing?: string[] } = {};
+  const done = (): typeof out & { ignored?: string[] } => (raws.length === 0 ? out : { ...out, ignored: tidy(raws) });
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    raws.push(`"noticing" was not an object; it was ignored`);
+    return done();
+  }
+  const n = raw as Record<string, unknown>;
+  const enabled = n["enabled"];
+  if (typeof enabled === "boolean") out.enabled = enabled;
+  else if (enabled !== undefined) raws.push(`"noticing.enabled" was ${JSON.stringify(enabled)}; using the default`);
+  for (const key of ["bashPatterns", "bashOutgoing"] as const) {
+    const list = n[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) {
+      raws.push(`"noticing.${key}" was not a list; it was ignored`);
+      continue;
+    }
+    const kept: string[] = [];
+    for (const p of list as unknown[]) {
+      let ok = typeof p === "string" && p.length > 0;
+      if (ok) {
+        try {
+          new RegExp(p as string);
+        } catch {
+          ok = false;
+        }
+      }
+      if (ok) kept.push(p as string);
+      else raws.push(`a "noticing.${key}" entry was ${JSON.stringify(p)}, which is not a pattern; it was ignored`);
+    }
+    out[key] = kept;
+  }
+  for (const key of Object.keys(n)) {
+    if (key !== "enabled" && key !== "bashPatterns" && key !== "bashOutgoing") raws.push(`"noticing.${key}" is not a setting this reads; it was ignored`);
   }
   return done();
 }

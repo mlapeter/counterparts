@@ -455,7 +455,7 @@ export function plumbingLine(report: FiredReport): string {
 /** The whole short view, as plain lines: one per mechanism in the site's four
  *  groups and order, then the plumbing in one line, then — when it was read —
  *  the settled-things line (`settledReading`). */
-export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[], settled?: SettledReading): string[] {
+export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[], settled?: SettledReading, noticing?: string): string[] {
   const byId = new Map(report.rows.map((r) => [r.id, r]));
   const rows: Rows = (id) => byId.get(id);
   const width = Math.max(...MEMORY_MECHANISMS.map((m) => m.name.length)) + 2;
@@ -472,6 +472,8 @@ export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[
     `${LIGHT.working} working this week  ${LIGHT.idle} built, not firing  ${LIGHT.notBuilt} not built yet`,
     plumbingLine(report),
     ...(settled === undefined ? [] : settledLines(settled)),
+    // Noticing at Stops (2026-11-26, `claude-code/noticing.ts`), when it was read.
+    ...(noticing === undefined ? [] : [noticing]),
     "Every detail: counterparts mechanisms --all",
   );
   return lines;

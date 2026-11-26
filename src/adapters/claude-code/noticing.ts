@@ -49,6 +49,8 @@
  *  - `taken`: a `remember` came in the continuation after a nudge;
  *  - `quiet`: perception, and a `remember` already followed it.
  */
+import type { AdapterConfig } from "../config.js";
+import { TUNABLES } from "../config.js";
 import type { ToolCall } from "./transcript.js";
 
 /** What a call was, for the line. */
@@ -316,4 +318,14 @@ export function compilePatterns(sources: readonly string[] | undefined): RegExp[
     }
   }
   return out;
+}
+
+/** The configuration's switch and patterns, compiled (`AdapterConfig.noticing`; absent: `TUNABLES.NOTICING_ON`, no patterns). */
+export function noticingSettings(config: Pick<AdapterConfig, "noticing">): NoticingSettings {
+  const n = config.noticing;
+  return {
+    on: n?.enabled ?? TUNABLES.NOTICING_ON,
+    bashPatterns: compilePatterns(n?.bashPatterns),
+    bashOutgoing: compilePatterns(n?.bashOutgoing),
+  };
 }

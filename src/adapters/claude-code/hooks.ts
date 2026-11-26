@@ -91,7 +91,9 @@ import type { NightKind } from "./night-run.js";
 import { spawnDetached } from "../spawn.js";
 import { ONE_TAG_LINE, tagLead } from "../store-id.js";
 import type { SpawnOutcome } from "../spawn.js";
-import { NO_ARRIVAL, STOP_ASK_OPENER, readWakeArrival, startedByHost } from "./transcript.js";
+import { NOTICE_OPENER, NO_ARRIVAL, STOP_ASK_OPENER, readWakeArrival, startedByHost } from "./transcript.js";
+import type { ToolCall } from "./transcript.js";
+import { NOTICING_META_PREFIX, noticeLine, noticingKey, noticingSettings, readNoticingState, scanAtStop } from "./noticing.js";
 import type { WakeArrival } from "./transcript.js";
 
 /**
@@ -160,6 +162,13 @@ export interface HookInput extends SessionInput {
    * file read for the one thing that parse deliberately skips.
    */
   readonly transcriptPath?: string;
+  /**
+   * EVERY TOOL CALL IN THE TRANSCRIPT, in file order (`transcript.ts#ToolCall`):
+   * what noticing reads at a Stop (`noticing.ts`). Names, ids and one input
+   * field; never a result. Absent: not read (a test, an embedder), and
+   * noticing says nothing.
+   */
+  readonly toolCalls?: readonly ToolCall[];
   /**
    * THE HOST'S RE-FIRE. A blocked Stop comes back with `stop_hook_active`, and
    * that pass must ask nothing — v1's anti-loop, kept for the same reason. It is
@@ -1693,7 +1702,12 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // the code did not keep: one evening's Stops billed 13 chunks and minted
       // 61 memories beside 34 the model had authored itself.
       // The headless nightly run is asked nothing (`HookInput.nightRun`).
-      const ask = input.nightRun !== true ? this.askAtStop(input) : null;
+      const asked = input.nightRun !== true ? this.askAtStop(input) : null;
+      // NOTICING (2026-11-26, `noticing.ts`): its own line, its own state,
+      // never the pacer. Due beside the ask, it rides in the ask's block: one
+      // output, never two.
+      const noticed = this.noticeAtStop(input);
+      const ask = noticed === null ? asked : asked === null ? noticed : `${asked}\n${noticed}`;
       const spawn = this.spawnWorker(input);
       return { ...claimed, ask, spawn };
     });
@@ -1790,6 +1804,62 @@ export class ClaudeCodeAdapter extends Lifecycle {
     // invitation the model has no way to accept on this host — and the
     // chapter number is the STORE's, one past what was written.
     return chapter === null ? null : stopAsk(input.sessionId, chapter, this.openHere(input.sessionId));
+  }
+
+  /**
+   * NOTICING AT A STOP (2026-11-26, `noticing.ts`): scan the tool calls since
+   * this session's watermark, move the watermark and the counters in the
+   * session's one meta row, and return the counts-only line, or null.
+   *
+   * Silent for a session nobody attends (`isInteractive`), the night's child,
+   * an observer (the guard already stood it down), the switch off, and a
+   * transcript that did not read. The re-fire scans and records `taken`, and
+   * never speaks (`scanAtStop`). It never consults or moves the ask's pacer,
+   * and it never fails the Stop: any error is a silent Stop.
+   */
+  private noticeAtStop(input: HookInput): string | null {
+    try {
+      if (input.nightRun === true || this.observer || input.sessionId.length === 0) return null;
+      if (!isInteractive(input) || input.turnsUnread === true || input.toolCalls === undefined) return null;
+      const settings = noticingSettings(this.config);
+      if (!settings.on) return null;
+      const calls = input.toolCalls;
+      const store = this.counterpart.store;
+      const now = this.nowFn();
+      let done: ReturnType<typeof scanAtStop> | null = null;
+      let fresh = false;
+      store.updateMeta(noticingKey(input.sessionId), (raw) => {
+        fresh = raw === undefined;
+        const scan = scanAtStop(calls, readNoticingState(raw), settings, { reFired: input.reFired === true, now });
+        done = scan;
+        return scan.next === null ? undefined : JSON.stringify(scan.next);
+      });
+      const scan = done as ReturnType<typeof scanAtStop> | null;
+      if (scan === null) return null;
+      if (scan.outcome !== "none") {
+        const said = scan.say === null ? 0 : Object.values(scan.say).reduce((n, v) => n + (v ?? 0), 0);
+        this.emit("adapter.noticing", { outcome: scan.outcome, reFired: input.reFired === true, said });
+      }
+      // A session's first row lets go of rows nobody has touched in a month.
+      if (fresh && scan.next !== null) this.pruneNoticing(now);
+      return scan.say === null ? null : noticeLine(NOTICE_OPENER, scan.say);
+    } catch (err) {
+      this.emit("adapter.noticing.failed", { code: codeOf(err) });
+      return null;
+    }
+  }
+
+  /** Rows untouched for `TUNABLES.NOTICING_ROW_DAYS`, deleted. Never throws. */
+  private pruneNoticing(now: number): void {
+    try {
+      const store = this.counterpart.store;
+      const before = now - TUNABLES.NOTICING_ROW_DAYS * 86_400_000;
+      for (const [key, raw] of store.metaWithPrefix(NOTICING_META_PREFIX)) {
+        if (readNoticingState(raw).at < before) store.updateMeta(key, () => null);
+      }
+    } catch {
+      /* a row left over is a few bytes */
+    }
   }
 
   /**
