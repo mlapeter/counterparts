@@ -1,5 +1,192 @@
 # Changelog
 
+## 0.4.0 — 2026-11-26
+
+**From 0.4.0, Counterparts is source-available under the Business Source License 1.1, not MIT; 0.3.54 and every earlier version stay MIT.** Using it stays free for everyone, personally or at work, at a company of any size; building it into a product or service you offer others, or offering it as a hosted or API service, needs a commercial license, and each version becomes Apache 2.0 four years after its release. What you'll notice: on hosted, the sign-in email also carries a 6-digit code, the emailed link works in any browser after one press, and the account page opens with your dashboard and the setup steps. The memory tools take far less of every session's context (their text went from about 90,700 characters to about 26,300), `recall` is loaded from the start in Claude Code, and `remember` keeps a memory even when one of its fields can't be read, saying what it left out. Asking for facts reads a range of days and can look ahead ("next week"), and lists what else is due then. The start of a session no longer puts the same open item in front of you every day, dates "Coming up" by the sentence that names the day, and now carries a letter or person you wrote down in one folder into the next session in another, naming that folder. OpenAI's Codex can now use the same memory (`counterparts connect --host codex`, reading it as itself, not as your counterpart). In Claude Code, when a turn reads documents, web pages or letters, or sends a letter, and nothing is kept with `remember`, the end of the turn adds one line saying how many (never what or from whom); turn it off with `"noticing": {"enabled": false}` in `claude-code.json`. No store-format change (store v15, cache v7), no migration, and no `counterparts connect`: after upgrading, restart the dashboard and every open Claude Code session. Going back to 0.3.54 is a reinstall with no store restore: `counterparts disconnect`, 0.3.54's install, then `counterparts connect`.
+
+- **Codex can use the same memory.** `counterparts connect --host codex` adds four hooks to Codex's
+  `hooks.json` and a `counterparts` MCP server to its `config.toml` (both backed up first); then approve the hooks with
+  `/hooks` in Codex and restart it. Codex gets the wake, recall on each prompt, the end-of-session ask and turns kept
+  for write-up; it reads the memory as itself, not as your counterpart, and its memories are labelled with Codex and
+  the model. No dreams, reflection or self page run there, and Windows isn't wired yet. `counterparts disconnect
+  --host codex` takes out only what connect added. Details in QUICKSTART's "Codex (new)".
+- **Hosted: an hourly cap on sign-up emails while spots are open.** While anyone can sign up by email, hosted counts
+  the sign-in asks each hour; once 100 are counted (the operator changes it with `spots emails M`), a new address
+  waits for the next hour and the page says "lots of people are signing up right now" to everyone alike. People
+  with an account, or a live invite code, still get their link. The count is kept in the control database, so a deploy doesn't
+  reset it.
+- **Hosted (claude.ai): a lighter, plainer tool list, ready for Anthropic's connector directory.** The tools
+  claude.ai loads are about 40% smaller (67 KB to 40 KB) and say plainly what each does; Memory status and recall are
+  marked read-only (they save and delete nothing), and deleting a memory is its own tool, `delete_memory`, marked as
+  one that deletes (hidden at once, erased after 24 hours, undo before then, as before). Claude Code's and Claude
+  Desktop's tools are unchanged.
+- **Hosted: Claude Code can sign in.** Adding `https://app.counterparts.ai/mcp` to Claude Code now completes the
+  sign-in (it was refused with "invalid_redirect_uri").
+- **Hosted: clearer error messages.** A refused request says what happened and what to do, instead of a bare number.
+- **Hosted: account events and a deleted account's record are kept 12 months, then erased.** The record of account
+  events (sign-ups, sign-ins, connections, exports, deletes: codes and ids, never content) used to be kept with no
+  end. Now a row is erased 365 days after it was written. When an account is deleted, what's left of it (the marker
+  that it existed and its event rows, with no email) is erased 365 days after the deletion. The account page's beta
+  note, the deletion pages and the deletion email say so.
+- **From 0.4.0, Counterparts is source-available under the Business Source License 1.1, not MIT.** Using it
+  stays free for everyone, personally or at work, at a company of any size. Building it into a product
+  or service you offer others, or offering it as a hosted or API service, needs a commercial license.
+  Each version becomes Apache 2.0 four years after release. Versions released before this one stay MIT.
+  Nothing changes in how it runs, and there's nothing to do after upgrading.
+- **`recall` loads up front in Claude Code.** Claude Code keeps most MCP tools behind its tool search
+  until they are needed; `recall` now asks to be loaded from the start, so a session can look
+  something up without first searching for the tool. Its description is tightened to fit Claude
+  Code's limit for tools loaded this way. Claude Desktop and claude.ai are unchanged.
+- **Each turn's recall record says which check kept a memory's words from showing.** The
+  `recall.decision` row now names the check that kept a memory's words off the turn (the strong
+  floor, the cue fraction, the bar and so on), with up to five memories that did not show at all,
+  closest to the threshold each one missed first. It holds ids and numbers only. What recall shows
+  is unchanged.
+- **Asking for facts reads a range of days as one stretch.** "Between 12 and 18 October", "from 12 October to 18
+  October", "Oct 12-18" and the like now cover every day from the first to the last; before, only one of the two days
+  was read (and "Oct 12-18" was read as December 18).
+- **Asking for facts can look ahead.** "Tomorrow", "next week", "next month", "this weekend" and "the coming week" are
+  read. A question whose days run past today, or that asks about today, also finds what is due in them by its
+  reminder date, a repeating one by its next time. It leaves out a one-off marked done whose date is today or
+  earlier, one due today that a newer memory says has happened, a repeat's time already marked done, and the old date
+  of a reminder that was moved. Memories with no date of their own still come back for such a question, after the
+  ones in the window.
+- **A memory with a reminder date says so.** Where facts answers said "no event date" for a memory that had a reminder
+  date, they now say "due" and the date.
+- **Asking about the days ahead also lists what is due then.** A question about a topic with a window still to come
+  ("what about the vet next week") answers with its matches as before, then lists the other reminders due in that
+  window, by date and title, under "also due in this window", so a reminder the question's words didn't reach is still
+  in sight. A repeating reminder is one line. The list isn't counted as matches.
+- **An open item is no longer put in front of you every day.** "Still open" at the start of a session lists an open
+  item the day it is new (in every session that day), then again 3 days later and 7 days after that, and then parks
+  it: counted as parked, not listed. This holds whichever way the session-start text is put together. It is the same
+  schedule a question waiting on you already followed when a conversation touched it, on one record for both, so an
+  item already raised that way counts. A session nobody is reading (an agent's, a routine's, the night's own) follows
+  the schedule without using it up. When everything open is waiting, "Still open" says how many and that none is due
+  today. After updating, an open item nobody has touched in two weeks starts out parked, not new. Nothing is closed or
+  deleted: `recall "still open"` still lists every item, the parked ones marked. Items with a date keep following
+  their date.
+- **A memory is never lost to a field that couldn't be read.** `remember` and `session_end`
+  keep the memory and leave out only what they can't use: an unreadable date, a feeling word
+  they can't place, a malformed trait, a number out of range, an unknown kind. The answer
+  names each field it left out (`dropped`) and each value it read as something else
+  (`readAs`). Before, any of these refused the whole memory and its words were lost.
+- **Dates can be written as words.** A reminder date or the date something happened can be
+  "next Friday", "Oct 15", "late October", "in two weeks" or "yesterday"; the answer shows the
+  date it was read as.
+- **Feelings can be written as plain strings,** like "self: relieved — the test passed" or
+  "owner: frustrated". A feeling word that isn't on the wheel is placed on the nearest core
+  from a thesaurus of a few hundred everyday feeling words, or from an obvious misspelling,
+  and kept in your own words; one that can't be placed is left out alone, and said.
+- **A write-up's memories are read like any other `session_end`'s.** Sent as one object, as
+  a JSON string of a list or as plain text, they're read as the list they are, where before
+  the write-up refused them. Text that starts like JSON but doesn't parse (a trailing comma,
+  a list cut off) is refused so it can be sent again, on any `session_end`, instead of being
+  kept as one memory of raw JSON.
+- **A date and time written without a time zone keeps its day.** "2026-11-14T03:00" in a
+  reminder date or the date something happened is the 14th, whatever zone the server runs
+  in; before, a server in a different zone from yours could file it on the wrong day.
+- **A host can turn the morning share off, or cap it.** A product built on Counterparts can set `shares: "off"`, or
+  `sharesPerWeek` to a number, in its configuration (or through hosted's `createApp`). The night still reflects and
+  writes its entry; it just doesn't offer a share. While shares are held, nothing that would change who it is goes
+  unsaid: a thread it would have closed is listed as "may be done", and a change to its core waits for a night that
+  can tell you. The cap counts the shares offered over the last 7 calendar days; 0 is the same as off, and with
+  shares off a share offered earlier isn't told either. Without the setting, nothing changes.
+- **The memory tools take far less of every session's context.** Their descriptions and field
+  texts on Claude Code went from about 90,700 characters to about 26,300 (Claude Desktop's
+  similarly), mostly by saying each field in a line and dropping the long lists of guarantees
+  the tools printed (every guarantee is still enforced by the code). Old call shapes still
+  work: feelings and traits as objects, the 0-1 relevance, emotional and predictive scores,
+  and the rest are still read, though the schema no longer lists them.
+- **"Still open" is for things that block something.** The `unresolved` flag now says it
+  is for a decision the counterpart needs from you, a promise, or a dated check, and never
+  for curiosity about how something went.
+- **Day's end after skipped days writes about the last day you used it.** Day's end only ever looked at
+  yesterday, so after a day or more away the last day before the gap never reached your page's Lately section.
+  Now, when yesterday is empty, it looks back up to a week for the last day with memories that no night has
+  written about yet. It never writes about a day twice and never works through a backlog.
+- **The page's "ahead" lines are told to catch up.** The nightly writers are now told that a line about
+  something ahead, once its day has come, should say what became of it where a memory tells, or be set down.
+  Before, a page could keep "the wedding is ahead" after the wedding.
+- **A host that sets the page's room tells the writers that room.** With `selfTunables.PAGE_ROOM_BYTES` set,
+  day's end and the reflection were told the default 4,600 bytes and then sent back at the host's number. They
+  are now told the host's number.
+- **"Coming up" no longer pins a date to a sentence about another day.** When a memory's title or first sentence names
+  a different day from the memory's own date (the CR-V listed "on 1 Oct" in a memory dated for Marisol's visit on the
+  16th), the wake and recall "coming up" list it by the sentence that names its date, shortened to about a title's
+  length: "His daughter Marisol is coming home from Denver Friday 16 to Sunday 18 October,". A title or first sentence
+  with no date of its own still leads, and so does a repeating reminder. A number on its own ("3rd floor", "16GB",
+  "PR #16") doesn't count as a date.
+- **A plain reminder is told by the sentence that names its day.** The "Today: …" line you and the model see when a
+  reminder you asked to be told comes due used the memory's title or first line, so a memory that opened with
+  something else ("On 1 Oct Tomás listed Elena's grey 2014 CR-V…") was told as that, on the day of the visit it was
+  dated for. It now uses the rule "Coming up" uses: "Today: His daughter Marisol is coming home from Denver Friday 16 to
+  Sunday 18 October,". A title, a first line with no date of its own, and a repeating reminder still lead, and the
+  same holds for a reminder told late and one crossing from another folder.
+- **Hosted: each memory holds up to 100 MB.** Past it, Claude is told plainly that the memory is full, that nothing
+  in it was lost and recall still works, and to email support@counterparts.ai for more room. A memory already over
+  the limit keeps everything.
+- **Hosted: the account page links the step-by-step setup** for adding Counterparts as a connector in Claude, beside
+  the connector address.
+- **Hosted: where a sign-up came from is kept with the account**, when the link to the sign-in page carried it: a
+  short source tag, the origin of the site the person first came from, and the counterparts.ai page they landed on.
+  No full URL, query or IP. It's erased with the account.
+- **The plugin directory's copy of Counterparts ships in far fewer files.** Its JavaScript
+  is now bundled into about 95 files instead of one per source file, so the whole plugin is
+  about 270 files where it was 510, against the directory's limit of 512. Nothing it does
+  changes, and the npm package and our own plugin are as they were.
+- **Recall answers a turn faster on a big store.** Two of its reads had started walking every
+  memory once the store grew: the tag priming that looks for a memory's neighbours, and the
+  check for which subject is you. Both read their index again. The beliefs a prompt names
+  now check for new beliefs once a turn, not once for each subject named. What recall shows
+  is unchanged.
+- **A plan the night closed no longer shows as overdue.** When the night closed an open, dated plan (an earlier
+  release step a later release showed done), it left "Still open" but "Coming up" and `recall "coming up"` kept
+  counting it as overdue once its day passed. Now a closed item reads "Was <date>" there, as anything nobody owes
+  does, and it's overdue again if you reopen it. Nothing to do after upgrading.
+- **A practice moved off the page makes one skill memory, not two.** When the nightly page
+  write moved two lines to a skill with the same words (or words differing only in case and
+  spacing), it made a skill memory for each; the next night's merge archived one, and a
+  set-down went on naming the archived id. Now both set-downs name one skill memory, and
+  words that match a skill memory already in the store name that one instead of making a
+  copy.
+- **Hosted: the sign-in link works in any browser, after one press.** Opening the emailed link now shows a page
+  with a Sign in button; pressing it signs that browser in. Opened in a different browser from the one that asked
+  (the link tapped in a phone's mail app, say), the page asks "Sign in on this browser as you@example.com?" first,
+  and says so if that browser is signed in as someone else. Opening the link alone never uses it up, so a mail
+  scanner can't spend it. The email says it works once, for 15 minutes, and signs in whichever device opens it.
+  Finishing a claude.ai connect on another device now says to go back to the browser where you started.
+- **Hosted: a new account opens on the setup steps.** Until an AI is connected, the account page starts with the
+  steps that make it work in claude.ai: the connector address and the instructions, each with a Copy button, Always
+  allow, and say hi. The beta note follows them.
+- **Hosted: the sign-in page says "Sign up or sign in"** for someone arriving without an account session.
+- **Hosted: the sign-in email also has a 6-digit code.** Read the email on your phone and type the code on the
+  "check your email" page on your computer. The code works only in the browser where you asked for it, once, for
+  15 minutes, and stops after five wrong tries (the link still works).
+- **The hosted account page leads with what you came for.** Signed in, it opens with your
+  address and Sign out, then a button to your dashboard, then the setup steps (until an AI is
+  connected) or your connected AIs, your time zone, download and delete. What we keep and your
+  choices, the same words as before in a few short paragraphs, sits under its own heading at
+  the foot, with where to report a bug.
+- **Signing in to hosted says plainly what to do.** The check-your-email page leads with one
+  suggestion: click the link, or type the 6-digit code if it opens somewhere else. The invite
+  code field says it's only for someone who was given one. The account page's setup steps
+  match the site's new wording.
+- **A letter or a person you wrote down in one folder reaches the next wake in another.** "Since the
+  last night" now also carries a person memory that isn't marked work (a letter saved as the person who
+  wrote it, say), at most one such line among its three, by the same strength and folder rules as the
+  rest. A line written in another folder now names that folder: `- title (distribution, 11 min)`.
+- **Still open's count is lighter.** Its last line reads `(N more of mine; recall "still open")`; the
+  parked count is no longer in the wake (recall "still open" still lists the parked ones). An item the
+  handoff above already names isn't listed or counted again under Still open.
+- **Claude Code: a short nudge to keep what you read or sent.** When a session reads letters, web pages or documents
+  (a PDF or an EPUB), or sends a letter, and no `remember` follows, the end of that turn adds one line saying how many
+  (never what or from whom) and pointing at `remember`. It is off for sessions nobody attends, under observer and in
+  folders set off. Turn it off with `"noticing": {"enabled": false}` in the configuration; add your own shell
+  commands with `"bashPatterns"` (reads) and `"bashOutgoing"` (sends). `counterparts mechanisms` shows how often it
+  fired and how often a memory followed. The `remember` tool now says to keep a struck line word for word with who
+  wrote it, and that a letter is about the person who wrote it.
+
 ## 0.3.54 — 2026-11-10
 
 **Hosted gets your dashboard (read-only: home, memories, your page and dreams), and hosted sign-up can open by spots instead of invite codes (closed until we open it).** What you'll notice on hosted: the account page links "Open your dashboard", which shows Home, Memories and Self; Subjects, Flow and Health say they're not on hosted yet. The sign-in page reads "Email me a link", with an optional "Have an invite code?". For local users: the dashboard's buttons work as before (their click handling moved, nothing new). No store-format change (store v15, cache v7), no migration. Nothing to run after upgrading beyond the usual restart of the dashboard and every Claude Code session. Going back to 0.3.53 is a reinstall with no store restore: `counterparts disconnect`, 0.3.53's install, then `counterparts connect`.
