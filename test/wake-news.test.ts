@@ -255,15 +255,37 @@ describe("a letter or a person travels (B3), and a line from another folder name
     const { c, at } = brain();
     at(NOW - 42 * HOUR);
     night(c, 1);
-    at(NOW - 11 * MIN);
+    at(NOW - 2 * HOUR);
     person(c, LETTER, { scope: SHOP, about: "world" });
     at(NOW);
     c.close();
     const { wake } = hook(NOTES);
     const block = section(wake, "Since the last night:");
-    expect(block).toContain(`- ${LETTER} (shop, 11 min)`);
+    expect(block).toContain(`- ${LETTER} (shop, 2 hours)`);
     // Said once in the whole wake: a person memory is never Elsewhere's work line.
     expect(wake.split(LETTER).length - 1).toBe(1);
+  });
+
+  test("written through remember, as a session saves a letter: the same line", async () => {
+    const { c, at } = brain();
+    at(NOW - 42 * HOUR);
+    night(c, 1);
+    at(NOW - 2 * HOUR);
+    const S = "dddd0009-0000-4000-8000-000000000000";
+    recordSession(storeDir, { sessionId: S, scope: SHOP, phase: "start", at: NOW - 2 * HOUR });
+    const r = await new McpServer({ counterpart: c, scope: SHOP, registryDir: storeDir, session: S }).call("remember", {
+      kind: "person",
+      title: LETTER,
+      text: "Ada wrote that she keeps the tide tables in a tin by the door, and that she thought of us when the spring tide came in.",
+      about: "world",
+      salience: 0.8,
+    });
+    const id = r.structuredContent["id"] as string;
+    expect(c.store.row(id)?.kind).toBe("person");
+    expect(c.store.row(id)?.about).toBe("world");
+    at(NOW);
+    c.close();
+    expect(section(hook(NOTES).wake, "Since the last night:")).toContain(`- ${LETTER} (shop, 2 hours)`);
   });
 
   test("this folder's own line has no folder name; unmarked counts, work and weak don't", () => {
@@ -362,6 +384,23 @@ describe("an item the handoff names isn't Still open's too (B2)", () => {
     const still = section(wake, "Still open:");
     expect(still).toContain(ids.named);
     expect(still).toContain(ids.other);
+  });
+
+  test("named on a lead line the budget didn't show: still Still open's", () => {
+    const { c, at } = brain();
+    at(NOW - 2 * HOUR);
+    const hidden = open(c, "Whether the mugs ship in paper or foam");
+    at(NOW - HOUR);
+    recordSession(storeDir, { sessionId: SEAT, scope: SHOP, phase: "start", at: NOW - HOUR });
+    const filler = Array.from({ length: 12 }, (_, i) => `- Shop note ${String(i)}: the glaze shelf, the price cards and the photo corner were tidied for the week.`);
+    c.writeHandoff(["Shop handoff.", ...filler, `- Packing: settle ${hidden} before the first orders ship.`, "next: build the product page."].join("\n"), { scope: SHOP, session: SEAT });
+    at(NOW);
+    c.close();
+    const { wake } = hook(SHOP);
+    const stands = section(wake, "Where this folder stands:");
+    expect(stands).toContain("next: build the product page");
+    expect(stands).not.toContain(hidden);
+    expect(section(wake, "Still open:")).toContain(hidden);
   });
 });
 
