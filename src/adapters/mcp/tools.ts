@@ -568,7 +568,7 @@ const REMEMBER: ToolSpec = {
   summary:
     "Save one memory now, in your own words. Nothing reads the transcript later: what you don't save here or at the end-of-session ask is lost. Save what caught your attention: something they said about themselves or you, a decision, a line that struck you and why, news, a work event. One idea per call; keep exact words, numbers and lists when they matter.",
   admission:
-    'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Err toward too many. Leave salience unset for routine things. Field guide: recall "manual fields".',
+    'As it happens, not saved up for the end; small things too, since unused memories fade on their own. Err toward too many. Reading: the lines that struck you word for word, with who wrote them; your reaction is its own memory. A letter to you is about the person who wrote it: kind person. Leave salience unset for routine things. Field guide: recall "manual fields".',
   negativeExamples: [
     "Do NOT fold several things into one call: a quote, a fact and a decision are three memories.",
     'Do NOT write a plan as done: that is status "planned".',

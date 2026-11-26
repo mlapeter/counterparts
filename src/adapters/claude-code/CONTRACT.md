@@ -1144,6 +1144,17 @@ waited past a 3-day `WRITE_UP_WAIT_DAYS`. Counted with the pointer's own eligibi
 debt the pointer never offers (short, and headless or with no session record — counted by reason since S2c) is named apart, as left to lapse. Never red; not in the session-start reading. `Sweep`: `not-opted-in` —
 and an older build's `no-credential` — is green `next session`.
 
+### Noticing at a Stop (2026-11-26 — an experiment, held lightly)
+
+`noticing.ts`. At an attended Stop (not the night's child, not observer, not off, `"noticing": {"enabled": false}`
+not set), when perception tool calls (letters, pages, documents read; letters or posts sent) came after this
+session's watermark and no `remember` followed them, the Stop adds ONE line: counts and kind words only, opening with
+`NOTICE_OPENER` so the host's copy of it is `ritual`. Guarantees: nothing from a tool's input or output reaches the
+line (it is built from a record of numbers); the ask's pacer is never consulted or moved; beside a due ask it is
+appended to the ask's block, one output; the re-fire scans, moves the watermark and records `taken`, and never
+speaks; a failure is a silent Stop. State is one meta row per session (`adapter.noticing.<session>`). Calibration and
+what the build learned: NOTES, 2026-11-26.
+
 ## 6. Scars honored
 
 **E3** (streaming, with the host's socket ceiling proven here rather than assumed by the

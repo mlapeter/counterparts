@@ -423,7 +423,16 @@ export const STOP_ASK_OPENER = "Counterparts, before this session closes:";
 /** `<Event> hook <word(s)>:`, an optional bullet, an optional `["<command>"]: `. */
 const HOOK_FRAME = "[A-Z][A-Za-z]+ hook [A-Za-z ]+:\\s*(?:-\\s*)?(?:\\[[^\\n]*?\\]:\\s*)?";
 const REMINDER_FRAME = "<system-reminder>\\s*";
-const OPENER = STOP_ASK_OPENER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/**
+ * THE NOTICING LINE'S OPENER (2026-11-26, noticing v1, `noticing.ts`): a
+ * second own-ask opener, recognised exactly as the Stop ask's is, so the line
+ * (alone at a Stop, or appended to the ask) is `ritual` wherever the host
+ * writes it back, never conversation.
+ */
+export const NOTICE_OPENER = "Counterparts, since you last wrote:";
+
+const escapeOpener = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const OPENER = `(?:${escapeOpener(STOP_ASK_OPENER)}|${escapeOpener(NOTICE_OPENER)})`;
 
 /**
  * The opener, bare or behind whatever frame the host puts in front of a hook's
@@ -453,6 +462,37 @@ export interface Expansion {
 }
 
 /**
+ * ONE TOOL CALL THE ASSISTANT MADE (2026-11-26, noticing v1): kept beside the
+ * turns, as `expansions` are, because tool blocks never enter the turn list.
+ * Only what the noticing matcher reads (`noticing.ts#classifyCall`): the
+ * call's id, its tool name, and one input field (`toolCallArg`). Never
+ * anything from a tool RESULT. `atTurn` is placed as `Expansion.atTurn` is.
+ * In file order; a sidechain's calls are not this conversation's and are left
+ * out, as is a line the host synthesised.
+ */
+export interface ToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly atTurn: number;
+  /** Bash's `command`, `Read`'s `file_path`, `Agent`'s `subagent_type`; absent otherwise. */
+  readonly arg?: string;
+}
+
+/** The longest `ToolCall.arg` kept: a matcher's input, not a record. */
+export const TOOL_CALL_ARG_MAX = 4_000;
+
+/** The one input field a call's kind is read from, or undefined. */
+export function toolCallArg(name: string, input: unknown): string | undefined {
+  if (input === null || typeof input !== "object") return undefined;
+  const i = input as Record<string, unknown>;
+  const field =
+    name === "Bash" ? "command" : name === "Read" ? "file_path" : name === "Agent" || name === "Task" ? "subagent_type" : undefined;
+  if (field === undefined) return undefined;
+  const v = i[field];
+  return typeof v === "string" ? v.slice(0, TOOL_CALL_ARG_MAX) : undefined;
+}
+
+/**
  * A turn as this reader emits it. `entry` is the ordinal of the transcript line
  * it came from: one line with several text blocks yields several turns (the
  * cursor indexes blocks), and pacing counts the LINE once (`hooks.ts#substanceOf`).
@@ -469,6 +509,8 @@ export interface TranscriptRead {
   readonly corrupt: number;
   /** Deliberate-recall calls, in order, positioned against `turns`. */
   readonly expansions: Expansion[];
+  /** Every tool call the assistant made, in file order (`ToolCall`). */
+  readonly toolCalls: ToolCall[];
   /** `message.model` of the last assistant entry the model wrote (not a host
    *  stand-in, not a sidechain). Absent when none carried one. */
   readonly model?: string;
@@ -506,14 +548,14 @@ export function expansionIdsOf(input: unknown): string[] {
 
 export function readTranscript(path: string | undefined): TranscriptRead {
   if (path === undefined || path.trim().length === 0) {
-    return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [] };
+    return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [], toolCalls: [] };
   }
-  if (!existsSync(path)) return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [] };
+  if (!existsSync(path)) return { turns: [], ok: false, reason: "absent", corrupt: 0, expansions: [], toolCalls: [] };
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
-    return { turns: [], ok: false, reason: "unreadable", corrupt: 0, expansions: [] };
+    return { turns: [], ok: false, reason: "unreadable", corrupt: 0, expansions: [], toolCalls: [] };
   }
   return parseTranscript(raw);
 }
@@ -527,6 +569,7 @@ function isEntry(value: unknown): value is Record<string, unknown> {
 export function parseTranscript(raw: string): TranscriptRead {
   const turns: TranscriptTurn[] = [];
   const expansions: Expansion[] = [];
+  const toolCalls: ToolCall[] = [];
   let corrupt = 0;
   let ordinal = -1;
   // Queued prompts already emitted, by their text. Open until a twin consumes
@@ -611,6 +654,11 @@ export function parseTranscript(raw: string): TranscriptRead {
       if (piece.expansion !== undefined && role === "assistant" && piece.expansion.length > 0) {
         expansions.push({ atTurn: turns.length, ids: piece.expansion });
       }
+      // Every call, for noticing (`ToolCall`): the assistant's own, not a
+      // sidechain's, not a line the host synthesised.
+      if (piece.call !== undefined && role === "assistant" && author !== "host" && entry["isSidechain"] !== true) {
+        toolCalls.push({ ...piece.call, atTurn: turns.length });
+      }
       if (piece.text.trim().length === 0) continue;
       turns.push({ role, text: piece.text, source: piece.source, entry: ordinal });
     }
@@ -621,6 +669,7 @@ export function parseTranscript(raw: string): TranscriptRead {
     reason: "read",
     corrupt,
     expansions,
+    toolCalls,
     ...(model === undefined ? {} : { model }),
     ...(compactedAt === undefined ? {} : { compactedAt }),
   };
@@ -652,7 +701,7 @@ function typedText(pieces: readonly Piece[]): string {
     .trim();
 }
 
-type Piece = { text: string; source: TurnSource; expansion?: string[] };
+type Piece = { text: string; source: TurnSource; expansion?: string[]; call?: { id: string; name: string; arg?: string } };
 
 /**
  * One text block, classified and — where it carries peer messages — attributed.
@@ -735,7 +784,18 @@ function blocksOf(content: unknown, role: "user" | "assistant", author: EntryAut
       const name = b["name"];
       const expansion =
         typeof name === "string" && RECALL_TOOL_NAME.test(name) ? expansionIdsOf(b["input"]) : undefined;
-      out.push({ text: "", source: "tool", ...(expansion === undefined ? {} : { expansion }) });
+      const id = b["id"];
+      const arg = typeof name === "string" ? toolCallArg(name, b["input"]) : undefined;
+      const call =
+        typeof name === "string" && typeof id === "string" && id.length > 0
+          ? { id, name, ...(arg === undefined ? {} : { arg }) }
+          : undefined;
+      out.push({
+        text: "",
+        source: "tool",
+        ...(expansion === undefined ? {} : { expansion }),
+        ...(call === undefined ? {} : { call }),
+      });
     } else if (type === "tool_result") {
       out.push({ text: "", source: "tool" });
     } else if (type === "image") {

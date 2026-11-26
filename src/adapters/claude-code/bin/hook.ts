@@ -458,6 +458,9 @@ export function toHookInput(
     scope,
     turns: transcript.turns,
     expansions: transcript.expansions,
+    // Every tool call, for noticing at a Stop (`noticing.ts`): names, ids and
+    // one input field, never a result.
+    toolCalls: transcript.toolCalls,
     // A named transcript that would not read is not an empty conversation.
     ...(transcriptPath !== undefined && !transcript.ok ? { turnsUnread: true } : {}),
     // THE PATH ITSELF, beside the parse of it. The delivery check reads the head

@@ -21,6 +21,8 @@ import { runCodexHook } from "../src/adapters/codex/bin/hook.js";
 import { codexFindings } from "../src/adapters/codex/doctor.js";
 import { codexDelivery } from "../src/adapters/codex/envelope.js";
 import { CODEX_STOP_OPENER, parseCodexTranscript } from "../src/adapters/codex/transcript.js";
+import { NOTICING_META_PREFIX } from "../src/adapters/claude-code/noticing.js";
+import { NOTICE_OPENER } from "../src/adapters/claude-code/transcript.js";
 import { mergeCodexHooks, ourPositions, stateKey, tomlProblem } from "../src/adapters/codex/wire.js";
 import { CODEX_STOP_OPENER_WORDS, codexStandDown, codexStopAsk } from "../src/adapters/codex/words.js";
 import { CODEX_HOST } from "../src/adapters/hosts.js";
@@ -272,6 +274,25 @@ describe("the hooks", () => {
     const all = c3.spans.spans(scope).filter((x) => x.session === sid).map((x) => x.text).join("\n");
     c3.close();
     expect(all).not.toContain(CODEX_STOP_OPENER);
+  });
+
+  test("noticing (Claude Code only, 2026-11-26) never reaches Codex: reads and sends in a rollout, no line, no row", async () => {
+    const sid = "cx-noticing";
+    await hook(base("SessionStart", sid, null, { source: "startup" }));
+    const lines = rolloutLines(sid, EXCHANGES.slice(0, 2));
+    const fn = (name: string, args: Record<string, unknown>, n: number): Line => ({
+      timestamp: at(100 + n),
+      type: "response_item",
+      payload: { type: "function_call", name, arguments: JSON.stringify(args), call_id: `call_${String(n)}` },
+    });
+    lines.splice(lines.length - 1, 0, fn("mcp__ai-phone__read_inbox", {}, 1), fn("shell", { command: ["pdftotext", "book.pdf", "-"] }, 2), fn("mcp__ai-phone__send_message", { text: "hi" }, 3));
+    const path = writeRollout(sid, lines);
+    const r = await hook(base("Stop", sid, path, { stop_hook_active: false, turn_id: "t1", last_assistant_message: "x" }));
+    expect(r.stdout).not.toContain(NOTICE_OPENER);
+    const c = Counterpart.open({ dir: store, observer: true });
+    const rows = c.store.metaWithPrefix(NOTICING_META_PREFIX);
+    c.close();
+    expect(rows.size).toBe(0);
   });
 
   test("SessionEnd tolerates an empty session: no transcript, or one with no turns", async () => {

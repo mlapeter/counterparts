@@ -199,7 +199,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // the words shortened — remember 2,533 → 762, status 1,289 → 240, session_end 2,540 → 647,
       // chapter 1,980 → 531, scope 1,795 → 414, self_page 4,909 → 720, dream 3,721 → 808,
       // reflect 3,704 → 764, meet 459 → 208, wake 1,963 → 384. Recall untouched (PR 3).
-      remember: { total: 762, beforeList: -1 },
+      // +167 on 2026-11-26 (noticing v1): one line on reading (struck lines
+      // word for word with who wrote them, the reaction its own memory) and
+      // one on letters (about the person who wrote it: kind person).
+      remember: { total: 929, beforeList: -1 },
       // −760 on 2026-11-13 (loaded up front on Claude Code, `ToolSpec.alwaysLoad`):
       // the claims tightened to fit the 4,096 cut, the journal claim an engine
       // row (each answer glosses a chapter itself). The head is untouched.

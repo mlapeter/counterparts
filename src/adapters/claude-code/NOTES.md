@@ -3054,3 +3054,57 @@ without it, a page revised the day before read "more than 14 days" old in every 
   `sessionScope`'s `opensASession` keys on `SessionStart`, which is Codex's spelling too. Nothing here changed; the
   Codex hook's command (`adapters/codex/bin/hook.ts`) does not match `HOOK_COMMAND_MARK`, so neither host's
   `connect` reads the other's line as its own.
+
+## 2026-11-26 — noticing v1: a counts-only nudge toward `remember` after reading or sending
+
+What the build learned (`noticing.ts`; design: the noticing note's v2, part A, plus the coordinator's addition the
+same day: count what a session SENT as well as what it read).
+
+- **The side list.** `parseTranscript` now keeps every tool call the assistant made (`toolCalls`: id, name, one input
+  field: Bash's command, Read's path, Agent's subagent type), beside `expansions`, because tool blocks never enter the
+  turn list. A sidechain's calls and a host-synthesised line's are left out. It rides `HookInput.toolCalls`, not
+  `SessionInput`: codex and core never see it.
+- **The watermark is a tool_use id**, kept in one meta row per session (`adapter.noticing.<session>`) with the last
+  nudge's time, a `pending` flag and the four counters. The turn cursor could not serve (`claim()` moves it before the
+  ask). A stored id the file no longer holds moves to the end quietly. The row is written only when a Stop scanned
+  calls; a session's first row deletes rows untouched for `NOTICING_ROW_DAYS` (30).
+- **Counting.** `would` counts every scanned Stop with unwritten perception, the re-fire included (it scans and never
+  speaks); `nudged` counts lines sent. No cap was built: the design's "before any cap" had no cap to name, and the
+  calibration below gave no reason for one. `taken` is a `remember` among the calls the next Stop scans after a nudge,
+  which is the re-fire when the host sends one. `quiet` is perception a `remember` already followed. `session_end`
+  does not count as the answer (it answers the full ask); `remember`'s old name `note` does, on a counterparts server.
+- **Beyond the design's list, deliberately:** `Read` of a `.pdf`/`.epub` is a document (the same act as `pdftotext`),
+  and the host's `web-fetch` subagent is a page (it stands in for `WebFetch` where that tool is absent). Sends: MCP
+  `…send_message` (case-sensitive, so the host's own `SendMessage` agent tool is not a letter) and the owner's
+  `noticing.bashOutgoing` patterns (counted as posts). `noticing.bashPatterns` reads count as pages.
+- **Two openers now.** `NOTICE_OPENER` ("Counterparts, since you last wrote:") joins `STOP_ASK_OPENER` in `OWN_ASK`, so
+  the line is `ritual` wherever the host writes it back. Alone, its person's line is `NOTICE_HUMAN_LINE`; beside the
+  full ask it is appended to the ask's block and the ask's person's line stands.
+- **Mechanisms** prints one line under the settled-things line, summing rows changed in the console's seven days
+  (`noticingTotals`); `--json` carries the totals as `noticing`.
+
+**Calibration** (`tools/noticing-replay.ts`, 2026-11-26; counts only, read-only over the host's project files; a
+Stop is each `stop_hook_summary` line the host wrote; active hours cap each gap at 10 minutes; every session counted,
+attended or not, so this is an upper bound):
+
+| Session | Stops | would | quiet | unwritten at the nudges |
+|---|---|---|---|---|
+| c830b02c (a book read through `pdftotext`) | 7 | 2 | 0 | 5 documents |
+| 11fe0128 (letters read through a phone's MCP tools) | 6 | 1 | 2 | 2 letters |
+| c4d85e36 (a social feed), no patterns | 20 | 1 | 2 | 1 letter |
+| c4d85e36, with the post script's read and post/reply subcommands as `bashPatterns`/`bashOutgoing` | 20 | 2 | 2 | 4 posts, 1 page, 1 letter |
+
+Coding sessions over the last 7 days, three folders (this repo, the site, one other app): 13 sessions, 48.1 active
+hours, 5 `would`, **0.10 per active hour** (0.06, 0.40 and 0.11 by folder), all pages and documents. Under the ~1/hour
+bar, so it ships on (`TUNABLES.NOTICING_ON`). For scale: those folders' agent worktrees, 44 sessions, 83.3 hours,
+0.23/hour; two personal folders, 0.20 and 1.31/hour, which is where it is meant to fire.
+
+Two effects the replay does not measure. A session with no row yet (one running across the upgrade, a resume or a
+fork under a new id) scans its whole file at its first Stop and may nudge once for an old reading. And a nudge beside
+the full ask is answered with `session_end`, which `taken` does not count, so `taken` reads low on those Stops. A
+nudge answered in words alone (the continuation calls nothing) clears `pending` at the re-fire, so a later turn's
+`remember` is not read as taking it.
+
+Named gaps, for later and only when earned by a real miss: a killed session (no Stop), auto-compact mid-read, a
+subagent's reads (sidechains), pages read as images, long autonomous runs. The social feed's reads were plain
+`python3` in the miss itself; only a configured pattern catches those.

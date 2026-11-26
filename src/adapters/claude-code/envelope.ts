@@ -20,6 +20,8 @@ import type { DreamOffer } from "../../core/dream/index.js";
 import { TUNABLES } from "../config.js";
 import { STOP_HUMAN_LINE, plainLine, withoutDream, withoutDreamNote, withoutPlain } from "./hooks.js";
 import type { DreamTold, HookInput, HookName } from "./hooks.js";
+import { NOTICE_HUMAN_LINE } from "./noticing.js";
+import { NOTICE_OPENER } from "./transcript.js";
 
 /**
  * The host's own spelling of the event that carries a notice at a session's
@@ -424,7 +426,9 @@ export function hostDelivery(
   // ask is ~430 characters, far inside the host's 10,000-character cap.
   return {
     stdout: JSON.stringify({
-      systemMessage: STOP_HUMAN_LINE,
+      // The noticing line alone (`noticing.ts`) has its own person's line: the
+      // ask's says a write-up is being asked for, which this is not.
+      systemMessage: ask.startsWith(NOTICE_OPENER) ? NOTICE_HUMAN_LINE : STOP_HUMAN_LINE,
       hookSpecificOutput: { hookEventName: HOST_STOP, additionalContext: ask },
     }),
     stderr: "",

@@ -1,6 +1,6 @@
 /** The readings: `status`, `doctor`, `probe`, `fired`, `log` and `coverage` (moved out of `commands.ts`, 2026-10-11). */
 import { existsSync, statSync } from "node:fs";
-import { isDay, localDate, localTime, resolveZone, todayIn } from "../../core/time.js";
+import { isDay, localDate, localTime, resolveZone, startOfLocalDay, todayIn } from "../../core/time.js";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { BOUNDARY_EVENT, MCP_RECALL_EVENT, RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT, RECALL_RATED_EVENT } from "../../core/counterpart.js";
@@ -36,11 +36,13 @@ import { defaultConfigPath } from "../config-path.js";
 import type { ConfigChoice } from "../config-path.js";
 // The what-fired reading, shared with `doctor` and the dashboard's health panel
 // so the three surfaces cannot disagree about what "silent" means.
-import { STATE_MEANING, STATE_ORDER, firedReport } from "../fired.js";
+import { FIRED_DAYS, STATE_MEANING, STATE_ORDER, daysBefore, firedReport } from "../fired.js";
 import type { FiredReport, FiredState } from "../fired.js";
 // The short view over the same reading: one line per memory mechanism.
 import { MEMORY_MECHANISMS, mechanismsLines, consoleVerdicts, plumbingLine, readMechanism, settledReading } from "./mechanisms.js";
 import type { SettledReading } from "./mechanisms.js";
+import { noticingConsoleLine, noticingTotals } from "../claude-code/noticing.js";
+import type { NoticingTotals } from "../claude-code/noticing.js";
 // The process log `log` prints (`adapters/log/`).
 import { LOG_DAYS, logDates, readLog } from "../log/index.js";
 import type { LogEntry } from "../log/index.js";
@@ -204,6 +206,14 @@ export function firedCommand(
     } catch {
       settled = undefined;
     }
+    // Noticing at Stops (2026-11-26, `claude-code/noticing.ts`): the sessions'
+    // rows changed inside the console's seven calendar days.
+    let noticing: NoticingTotals | undefined;
+    try {
+      noticing = noticingTotals(store, startOfLocalDay(daysBefore(today, FIRED_DAYS - 1), store.zone()));
+    } catch {
+      noticing = undefined;
+    }
     if (json) {
       const verdicts = consoleVerdicts(store, today);
       const byId = new Map(report.rows.map((r) => [r.id, r]));
@@ -214,11 +224,12 @@ export function firedCommand(
           mechanisms: MEMORY_MECHANISMS.map((m) => ({ name: m.name, group: m.group, ...readMechanism(m, verdicts, (id) => byId.get(id)) })),
           plumbing: plumbingLine(report),
           settled: settled ?? null,
+          noticing: noticing ?? null,
         }),
       );
       return EXIT.ok;
     }
-    for (const line of all ? firedLines(report, true) : mechanismsLines(report, consoleVerdicts(store, today), settled)) io.out(line);
+    for (const line of all ? firedLines(report, true) : mechanismsLines(report, consoleVerdicts(store, today), settled, noticing === undefined ? undefined : noticingConsoleLine(noticing))) io.out(line);
     return EXIT.ok;
   } finally {
     store.close();
