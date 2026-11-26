@@ -3027,6 +3027,11 @@ never a card's names (`memoryTexts`, `liveMemoryTexts`). Seen only by looking: r
   chapter copies, an older fact noted again (a stated day before the window), and an echo of a stronger title. Nothing new,
   no section. It costs ~100 B a title; Dana's two cases are one line each. In the shaped wake only: the old road's
   `ROOM_ORDER` and its byte-identical tests were not touched.
+  **2026-11-26 (B3, B4):** a letter saved in ~/distribution as kind person, about world, never reached a wake in
+  ~/random, because only owner/us rows were read. Now a person memory not marked work (unmarked included) is read too, at
+  most one such line among the three, by the same floor and fence; a person marked owner or us doesn't use up that one.
+  Another reader's notes (`readerUs`, `readerSelf`: a Codex model's) stay out. A line from another folder names it,
+  `- title (distribution, 11 min)` (`placeWords`, by the same `home` test the fence uses). `threadPlace` untouched.
 - **A stale handoff steps down.** Older than `HANDOFF_STEP_DOWN_MS` (12 h) with a session here since (one that wrote a
   chapter or a memory here, not the handoff's own session, not the reader, not a headless one, not one still open), and
   something in "Since, here" to read, the newest handoff is one line, after "Since, here": `Last handoff,
