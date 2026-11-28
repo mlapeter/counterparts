@@ -18,6 +18,10 @@ export interface DecisionRow {
   readonly semantic: string | null;
   readonly startedBy: string | null;
   readonly build: string | null;
+  /** The row's own observer flag (an observer turn is excluded). */
+  readonly observer: boolean;
+  /** The budget the host gave that turn, when recorded. */
+  readonly budgetBytes: number | null;
 }
 
 export interface Rating {
@@ -84,6 +88,8 @@ export function readStoreData(storeDir: string): StoreData {
       semantic: typeof p["semanticSource"] === "string" ? (p["semanticSource"] as string) : null,
       startedBy: startedBy.get(`${session}\u0000${turn}`) ?? null,
       build: typeof p["build"] === "string" ? (p["build"] as string) : null,
+      observer: p["observer"] === true,
+      budgetBytes: typeof p["budgetBytes"] === "number" ? (p["budgetBytes"] as number) : null,
     });
   }
   const cueRows = new Map<string, string[]>();
