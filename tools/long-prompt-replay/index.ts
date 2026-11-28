@@ -492,12 +492,17 @@ function report(): void {
   const reps = readJsonl<ReplayRow>(replayPath);
   const by = new Map<string, ReplayRow>(reps.map((r) => [`${r.seq}:${r.variant}`, r]));
   const allSeqs = [...new Set(reps.map((r) => r.seq))];
-  /** Who started it, in two groups: a person typed it (with or without a pasted block), or anything else. */
-  const groupOf = (s: number): "person" | "host" => (startedKind(live.get(s)!).startsWith("typed") ? "person" : "host");
+  /** Who started it: the row's own `startedBy` says unattended (a headless or scheduled run); else typed (with or without a pasted block) is the person; else the host. */
+  const groupOf = (s: number): "person" | "unattended" | "host" => {
+    const a = live.get(s)!;
+    if (a.startedBy === "unattended") return "unattended";
+    return startedKind(a).startsWith("typed") ? "person" : "host";
+  };
   const groups: [string, number[]][] = [
     ["all", allSeqs],
     ["host-started", allSeqs.filter((s) => groupOf(s) === "host")],
     ["person-typed", allSeqs.filter((s) => groupOf(s) === "person")],
+    ["unattended", allSeqs.filter((s) => groupOf(s) === "unattended")],
   ];
 
   // 4 first (5 needs it): ratings joined to the decision that showed the id (since < turn <= rated turn)
@@ -559,7 +564,7 @@ function report(): void {
   console.log(`  semantic sources: ${JSON.stringify(Object.fromEntries([...new Set(reps.map((r) => r.semantic))].map((k) => [k, reps.filter((r) => r.semantic === k).length])))}; replay ms per call p50 ${quantile(reps.map((r) => r.ms), 0.5)} p90 ${quantile(reps.map((r) => r.ms), 0.9)}`);
 
   console.log(`DENOMINATOR: rating items ${data.ratings.length} (in ${new Set(data.ratings.map((x) => `${x.session}:${x.turn}`)).size} rows), joined to the decision that showed the id ${ratingsJoined}; decisions with any rating ${ratedOn.size}`);
-  for (const [g, pick] of [["all", (_: Aligned) => true], ["host-started", (a: Aligned) => groupOf(a.seq) === "host"], ["person-typed", (a: Aligned) => groupOf(a.seq) === "person"]] as const) {
+  for (const [g, pick] of [["all", (_: Aligned) => true], ["host-started", (a: Aligned) => groupOf(a.seq) === "host"], ["person-typed", (a: Aligned) => groupOf(a.seq) === "person"], ["unattended", (a: Aligned) => groupOf(a.seq) === "unattended"]] as const) {
     for (const t of [0, ...THRESHOLDS]) {
       const turns = aligned.filter((a) => (lenOf.get(a.seq) ?? 0) > t && ratedOn.has(a.seq) && (t === 0 || g === "all" || pick(a)));
       if (t === 0 && g !== "all") continue;
@@ -627,7 +632,7 @@ function handread(): void {
     "# Long-prompt hand-read, 2026-11-28 (PRIVATE)",
     "",
     "Selection rule (fixed before reading): long aligned turns (>2,000 stripped chars) sorted by FNV-1a of `session:turn`, first 25.",
-    "Variant labels A-D are shuffled per turn (FNV of `seq:variant`); the key is at the bottom. Titles marked * were shown live on that turn.",
+    "Variant labels A-D are shuffled per turn (FNV of `seq:variant`). The key at the bottom names each label and lists what live showed on that turn (kept out of the lists, so they stay blind).",
     "",
   ];
   const key: string[] = [];
@@ -645,11 +650,11 @@ function handread(): void {
       const label = "ABCD"[j] as string;
       const r = by.get(`${a.seq}:${v}`);
       lines.push(`Shown under ${label}:`);
-      for (const id of r?.shown ?? []) lines.push(`- ${data.title(id)}${liveIds.has(id) ? " *" : ""}`);
+      for (const id of r?.shown ?? []) lines.push(`- ${data.title(id)}`);
       if ((r?.shown.length ?? 0) === 0) lines.push("- (nothing)");
       lines.push("");
     });
-    key.push(`${i + 1}: ${order.map((v, j) => `${"ABCD"[j]}=${v}`).join(" ")}`);
+    key.push(`${i + 1}: ${order.map((v, j) => `${"ABCD"[j]}=${v}`).join(" ")}; live showed: ${[...liveIds].map((id) => data.title(id)).join(" | ") || "(nothing)"}`);
   });
   lines.push("---", "", "## Key", "", ...key.map((k) => `- ${k}`), "");
   writeFileSync(outPath, lines.join("\n"), { mode: 0o600 });

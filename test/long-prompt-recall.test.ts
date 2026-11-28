@@ -4,8 +4,9 @@
  * UserPromptSubmit hook calls — on a temp store of made-up memories.
  *
  * The case: a prompt whose request sits in its last lines, after ~6,000 chars of
- * made-up policy boilerplate (on the owner's real use, the shape of a sub-agent's
- * hand-back). Today the memory the request names is not even a CANDIDATE: the
+ * made-up policy boilerplate (the shape of a long typed or pasted prompt; on the
+ * owner's real use most long prompts are peer messages, framed by the host).
+ * Today the memory the request names is not even a CANDIDATE: the
  * token loop in `recall/activate.ts#activate` stops at `MAX_CUES * 3` distinct
  * tokens, document frequency is asked only for those, and `buildCues` drops a
  * word with no df, so no word after the window's end can be a cue. The same
