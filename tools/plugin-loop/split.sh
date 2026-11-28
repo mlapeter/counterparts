@@ -252,7 +252,12 @@ echo
 echo "1. a fresh HOME installs counterparts-sidebar alone"
 fresh_home s1
 market new
-claude plugin list 2>&1 | grep -q "No plugins installed" || { echo "STOPPING: s1 HOME is not fresh"; exit 1; }
+S1_LIST=$(claude plugin list 2>&1)
+if ! grep -q "No plugins installed" <<<"$S1_LIST"; then
+  # 2.1.332 lists Claude Code's own built-ins (`name@builtin`) in any home.
+  S1_ROWS=$(grep -E '^[[:space:]]*❯ ' <<<"$S1_LIST" | sed -E 's/[[:space:]]+$//' || true)
+  if [ -z "$S1_ROWS" ] || grep -qv '@builtin$' <<<"$S1_ROWS"; then echo "STOPPING: s1 HOME is not fresh"; exit 1; fi
+fi
 claude plugin marketplace add "$MKT" >"$LOGS/add.txt" 2>&1
 claude plugin install counterparts-sidebar@counterparts >"$LOGS/install.txt" 2>&1
 say "\$ claude plugin install counterparts-sidebar@counterparts" && sed 's/^/        /' "$LOGS/install.txt" | head -8

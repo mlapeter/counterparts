@@ -40,7 +40,7 @@
 #     ~/.claude.json and its plugin cache from $HOME, and so does every
 #     Counterparts process. The guard is first and unconditional.
 #   - Before any command that could fire a hook, step 1 PROVES isolation:
-#     `claude plugin list` must show none of the real home's plugins, `auth
+#     `claude plugin list` must show no plugin but Claude Code's built-ins, `auth
 #     status` must name the throwaway config directory, and a `--debug-file` of
 #     a bare `--init-only` must name no settings file under the real home.
 #   - It never logs in and never copies a credential. Without a login there is
@@ -214,6 +214,15 @@ no() {
 # A command with a ceiling (macOS has no `timeout`).
 t() { perl -e 'alarm shift; exec @ARGV' "$@"; }
 claude() { t 300 "$CLAUDE_BIN" "$@"; }
+# A fresh home's `claude plugin list`: "No plugins installed" (to 2.1.330), or
+# only Claude Code's own built-ins, each `name@builtin` (2.1.332 lists them in
+# any home). Anything else, or output that is no list at all, is not fresh.
+only_builtin_plugins() {
+  grep -q "No plugins installed" <<<"$1" && return 0
+  local rows
+  rows=$(grep -E '^[[:space:]]*❯ ' <<<"$1" | sed -E 's/[[:space:]]+$//') || return 1
+  [ -n "$rows" ] && ! grep -qv '@builtin$' <<<"$rows"
+}
 
 # ── 1. isolation, proved before anything can fire ──────────────────────────
 
@@ -222,8 +231,8 @@ LIST=$(claude plugin list 2>&1)
 AUTH=$(claude auth status 2>&1 || true)
 ( cd "$PROJECT" && claude --debug-file "$WORK/debug-isolation.log" --init-only >/dev/null 2>&1 )
 SETTINGS_READ=$(grep -o 'settings.json at path: .*' "$WORK/debug-isolation.log" 2>/dev/null | sed 's/settings.json at path: //' || true)
-if ! grep -q "No plugins installed" <<<"$LIST"; then
-  no "plugin list is not empty — this is not a fresh home" "$LIST"
+if ! only_builtin_plugins "$LIST"; then
+  no "plugin list holds more than Claude Code's built-ins — this is not a fresh home" "$LIST"
 elif ! grep -qF "\"configDirectory\": \"$HOME/.claude\"" <<<"$AUTH"; then
   no "auth status names another config directory" "$AUTH"
 elif grep -qF "$REAL_HOME/.claude" "$WORK/debug-isolation.log"; then
