@@ -11,10 +11,10 @@
  * (checked against `Recall.build().cueWords` by `index.ts check-cues`);
  * `whole` is the same rule with no window, for comparison only.
  */
-import { buildCues, type Cue } from "../../src/core/recall/cues.ts";
-import { TUNABLES as RECALL_TUNABLES, type RecallTunables } from "../../src/core/recall/tunables.ts";
-import { stemTerm, tokenize } from "../../src/core/store/index.ts";
-import type { Store } from "../../src/core/store/index.ts";
+import { buildCues, type Cue } from "../../src/core/recall/cues.js";
+import { TUNABLES as RECALL_TUNABLES, type RecallTunables } from "../../src/core/recall/tunables.js";
+import { stemTerm, tokenize } from "../../src/core/store/index.js";
+import type { Store } from "../../src/core/store/index.js";
 
 export interface CueAnalysis {
   /** Distinct index terms of MIN_CUE_LENGTH+ tokens anywhere in the text. */

@@ -26,15 +26,15 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { Counterpart } from "../../src/core/counterpart.ts";
-import { stripBoilerplate } from "../../src/core/recall/cues.ts";
-import { openStaticEmbedder } from "../../src/adapters/claude-code/embed-client.ts";
-import { startedByHost } from "../../src/adapters/claude-code/transcript.ts";
-import type { Store } from "../../src/core/store/index.ts";
-import { analyseCues, keptTerms } from "./cues.ts";
-import { readStoreData, type DecisionRow, type StoreData } from "./data.ts";
-import { locateTranscripts, readTranscript, type PromptEntry } from "./transcripts.ts";
-import { wrapBornBefore } from "./born-before.ts";
+import { Counterpart } from "../../src/core/counterpart.js";
+import { stripBoilerplate } from "../../src/core/recall/cues.js";
+import { openStaticEmbedder } from "../../src/adapters/claude-code/embed-client.js";
+import { startedByHost } from "../../src/adapters/claude-code/transcript.js";
+import type { Store } from "../../src/core/store/index.js";
+import { analyseCues, keptTerms } from "./cues.js";
+import { readStoreData, type DecisionRow, type StoreData } from "./data.js";
+import { locateTranscripts, readTranscript, type PromptEntry } from "./transcripts.js";
+import { wrapBornBefore } from "./born-before.js";
 
 // ── arguments and guards ─────────────────────────────────────────────────────
 

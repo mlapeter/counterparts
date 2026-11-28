@@ -21,7 +21,7 @@
  * state (what it had already shown, its carried cues, its train of thought).
  * The tool counts any later-born id that still reaches a shown slot (`leaks`).
  */
-import type { Store } from "../../src/core/store/index.ts";
+import type { Store } from "../../src/core/store/index.js";
 
 type Hit = { id: string; score: number };
 
