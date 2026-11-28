@@ -1626,7 +1626,8 @@ function readerOf(row: { readonly meta?: unknown } | undefined): { reader?: stri
 
 /** The same words, but for spacing and a closing full stop. */
 function sameWords(a: string, b: string): boolean {
-  const norm = (t: string): string => t.replace(/\s+/g, " ").trim().replace(/\.$/, "");
+  // Case, one leading article and one closing period say nothing the other doesn't.
+  const norm = (t: string): string => t.replace(/\s+/g, " ").trim().replace(/\.$/, "").replace(/^(the|a|an) /i, "").toLowerCase();
   return norm(a) === norm(b);
 }
 
