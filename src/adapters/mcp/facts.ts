@@ -1626,8 +1626,13 @@ function readerOf(row: { readonly meta?: unknown } | undefined): { reader?: stri
 
 /** The same words, but for spacing and a closing full stop. */
 function sameWords(a: string, b: string): boolean {
-  // Case, one leading article and one closing period say nothing the other doesn't.
-  const norm = (t: string): string => t.replace(/\s+/g, " ").trim().replace(/\.$/, "").replace(/^(the|a|an) /i, "").toLowerCase();
+  // One leading "the", the case of the first letter after it, and one closing
+  // period say nothing the other doesn't. Case elsewhere can (a path, an id,
+  // "US"), and so can "a" ("A positive"), so both are compared as written.
+  const norm = (t: string): string => {
+    const s = t.replace(/\s+/g, " ").trim().replace(/\.$/, "").replace(/^the /i, "");
+    return s.charAt(0).toLowerCase() + s.slice(1);
+  };
   return norm(a) === norm(b);
 }
 
