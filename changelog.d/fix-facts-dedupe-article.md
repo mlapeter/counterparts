@@ -1,0 +1,1 @@
+- Asking for facts no longer repeats a short memory's words under a title that says the same, apart from a leading "the", the case of its first letter, or a closing period.

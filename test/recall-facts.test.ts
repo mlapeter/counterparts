@@ -1071,6 +1071,11 @@ describe("through the tool", () => {
     const idOf = async (args: Record<string, unknown>): Promise<string> => String(body(await s.call("remember", args))["id"]);
     const short = await idOf({ text: "The zqkite club meets on Tuesdays." });
     const same = await idOf({ title: "The zqkite shop closes at six", text: "The zqkite shop closes at six." });
+    // A title without the leading article, in another case, says the same words (Haiku's titles, 11-27).
+    const bare = await idOf({ title: "zqkite van parks by the pier", text: "The zqkite van parks by the pier." });
+    // Case past the first letter, and "a", can carry the value: those keep their words.
+    const cased = await idOf({ title: "zqkite office: us branch", text: "Zqkite office: US branch." });
+    const blood = await idOf({ title: "zqkite blood type positive", text: "A zqkite blood type positive." });
     const titled = await idOf({ title: "The zqkite field", text: "The zqkite field is behind the old mill, past the second gate." });
     const longText = "The zqkite festival moved from the beach to the hill this year, because the beach car park was closed for repairs all summer.";
     const long = await idOf({ text: longText });
@@ -1084,7 +1089,7 @@ describe("through the tool", () => {
     };
     // The head line still reads as an outside parser expects: rank, words, id, ways.
     const HEAD = /^(\d+)\. (.*) · (mem_[0-9a-f]+) · (.+)$/;
-    for (const id of [short, same]) {
+    for (const id of [short, same, bare]) {
       const lines = block(id);
       expect(lines[0]).toMatch(HEAD);
       expect(lines.slice(1).some((l) => l.trim().startsWith("The zqkite"))).toBe(false);
@@ -1092,6 +1097,8 @@ describe("through the tool", () => {
     expect(block(short)[0]).toContain("The zqkite club meets on Tuesdays.");
     // A title that is only the start of the words keeps them; so does a long memory cut on its head line.
     expect(block(titled).at(-1)?.trim()).toBe("The zqkite field is behind the old mill, past the second gate.");
+    expect(block(cased).at(-1)?.trim()).toBe("Zqkite office: US branch.");
+    expect(block(blood).at(-1)?.trim()).toBe("A zqkite blood type positive.");
     expect(block(long)[0]).toContain("…");
     expect(block(long).at(-1)?.trim()).toBe(longText);
   });
