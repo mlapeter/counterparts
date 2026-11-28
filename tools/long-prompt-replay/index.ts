@@ -102,7 +102,9 @@ interface Aligned {
   text: string;
 }
 const alignedPath = join(workDir, "aligned.jsonl");
-const replayPath = join(workDir, "replay.jsonl");
+/** `--body`: replay the prompt's BODY (host frame and shared footer cut, `bodyOf`) into its own file. */
+const BODY = argv.includes("--body");
+const replayPath = join(workDir, BODY ? "replay-body.jsonl" : "replay.jsonl");
 function readJsonl<T>(path: string): T[] {
   return readFileSync(path, "utf8").split("\n").filter((l) => l.length > 0).map((l) => JSON.parse(l) as T);
 }
@@ -384,6 +386,35 @@ function counts(store: Store): string {
   return `${db.all("SELECT max(seq) AS n FROM events")[0]?.n}/${db.all("SELECT count(*) AS n FROM memories")[0]?.n}`;
 }
 
+/**
+ * A SHARED FOOTER, found from the data rather than written down: long prompts are
+ * grouped by their last 200 chars, and any group of 20+ identical tails gives its
+ * longest common suffix (on the owner's use, the host's fixed text after a peer
+ * message). Text is never printed; only lengths and counts.
+ */
+function sharedFooters(texts: readonly string[]): string[] {
+  const groups = new Map<string, string[]>();
+  for (const t of texts) groups.set(t.slice(-200), [...(groups.get(t.slice(-200)) ?? []), t]);
+  const out: string[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 20) continue;
+    const a = g[0] as string;
+    let k = 0;
+    outer: for (; k < a.length; k++) for (const t of g) if (t[t.length - 1 - k] !== a[a.length - 1 - k]) break outer;
+    out.push(a.slice(a.length - k));
+  }
+  return out;
+}
+/** The body: the host's peer-message opening (through its tag's `>`) and a shared footer cut. */
+function bodyOf(text: string, footers: readonly string[]): string {
+  let t = text;
+  const f = footers.find((x) => t.endsWith(x));
+  if (f !== undefined) t = t.slice(0, t.length - f.length);
+  const open = /^\s*(Another Claude session sent a message:\s*)?<(cross-session-message|agent-message)\b[^>]*>/.exec(t);
+  if (open !== null) t = t.slice(open[0].length);
+  return t.trim();
+}
+
 function replay(): void {
   const { cp, store } = openCopy();
   const before = counts(store);
@@ -392,9 +423,15 @@ function replay(): void {
   const rows = readJsonl<Aligned>(alignedPath).filter((r) => stripBoilerplate(r.text).text.length > LONG);
   const out: string[] = [];
   let n = 0;
+  const footers = sharedFooters(rows.map((r) => stripBoilerplate(r.text).text));
+  if (BODY) console.log(`body mode: ${footers.length} shared footers (${footers.map((f) => f.length).join(", ")} chars)`);
+  const runs: readonly Variant[] = BODY ? ["whole", "tail700", "cues-tail700", "vector-tail"] : ALL;
+  let bodyShorter = 0;
   for (const r of rows.slice(0, limit === Infinity ? undefined : limit)) {
-    const text = stripBoilerplate(r.text).text;
-    for (const v of ALL) {
+    const stripped = stripBoilerplate(r.text).text;
+    const text = BODY ? bodyOf(stripped, footers) : stripped;
+    if (text.length < stripped.length) bodyShorter += 1;
+    for (const v of runs) {
       filter.setDay(v === "whole-unfiltered" ? null : r.day);
       const sessionId = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
       const t0 = performance.now();
@@ -429,15 +466,16 @@ function replay(): void {
       };
       out.push(JSON.stringify(row));
     }
-    if ((out.length / ALL.length) % 50 === 0) {
+    if ((out.length / runs.length) % 50 === 0) {
       writeFileSync(replayPath, out.join("\n") + "\n");
-      console.log(`  replayed ${out.length / ALL.length} of ${rows.length}`);
+      console.log(`  replayed ${out.length / runs.length} of ${rows.length}`);
     }
   }
   filter.restore();
   writeFileSync(replayPath, out.join("\n") + "\n");
   const after = counts(store);
-  console.log(`REPLAY ${out.length / ALL.length} long turns x ${ALL.length} variants; copy events/memories before ${before} after ${after} (${before === after ? "unchanged" : "CHANGED"})`);
+  if (BODY) console.log(`body shorter than the stripped prompt on ${bodyShorter} turns`);
+  console.log(`REPLAY ${out.length / runs.length} long turns x ${runs.length} variants; copy events/memories before ${before} after ${after} (${before === after ? "unchanged" : "CHANGED"})`);
   data.close();
   cp.close();
 }
@@ -533,7 +571,7 @@ function report(): void {
   // 5. variants
   for (const [g, seqs] of groups) {
     console.log(`VARIANTS ${g} (${seqs.length} long turns; born-before filtered):`);
-    for (const v of [...VARIANTS, ...ISOLATING]) {
+    for (const v of [...VARIANTS, ...ISOLATING].filter((x) => reps.some((r) => r.variant === x))) {
       let good = 0, zero = 0, goodCand = 0, zeroCand = 0, diffShown = 0, diffCand = 0, sizeShown = 0, sizeCand = 0, goodTotal = 0, zeroTotal = 0, turnsChanged = 0;
       for (const s of seqs) {
         const r = by.get(`${s}:${v}`);
