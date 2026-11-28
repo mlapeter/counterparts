@@ -516,7 +516,7 @@ const SETTLE_PROPERTY = {
     how: { type: "string", enum: ["changed", "corrected", "open"] },
     why: { type: "string" },
   },
-  description: "Settle two existing memories, as a write's neighboursHint says.",
+  description: "Settle two existing memories, as a write's neighboursHint says. Send it alone, the reason in `why`: `text` beside it is stored as a new memory.",
 } as const;
 
 /** The claims `remember` and `session_end` share about settling — the engine's since trim PR 2. */

@@ -246,7 +246,7 @@ export const CONTRADICTION_PROPOSED_EVENT = "contradiction.proposed";
 
 /** The one line a write's result carries beside its neighbours. */
 export const NEIGHBOURS_HINT =
-  "These existing memories are close to what you just wrote. Is the new one the newer state of the same thing as one of them (a status moved on, a decision made, the latest release or result)? Then settle it now: remember with settle {holds: the new id, over: the old id, how: changed, why}. If it corrects one, how: corrected; if they disagree and you can't tell which holds, how: open. Otherwise do nothing.";
+  "These existing memories are close to what you just wrote. Is the new one the newer state of the same thing as one of them (a status moved on, a decision made, the latest release or result)? Then settle it now: remember with only settle {holds: the new id, over: the old id, how: changed, why}; text beside it is stored as a separate memory. If it corrects one, how: corrected; if they disagree and you can't tell which holds, how: open. Otherwise do nothing.";
 
 /** The line a write's result carries beside a slot the detector proposed (2026-10-11). */
 export const SLOT_HINT =

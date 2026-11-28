@@ -545,7 +545,7 @@ default, `corrected`, `open`) and answer with what the settle did, or that the t
 own path ran instead. A stored memory comes back with its nearest few live memories
 (`neighbours`) and one line inviting a settle — in the payload, so in
 `structuredContent`. `note` with `settle` settles two memories that already exist without
-writing one; `reflect` phase `settle` is the reflection's door; the dream's `propose`
+writing one (a `text` sent beside it is stored as its own memory too); `reflect` phase `settle` is the reflection's door; the dream's `propose`
 takes a `settle` action. Every settle is `core/reconsolidation.ts#settle`'s, recorded with
 who, how, why and when; an observer writes nothing and says so.
 
