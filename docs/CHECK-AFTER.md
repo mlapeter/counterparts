@@ -173,6 +173,22 @@ Revert: `"noticing": {"enabled": false}` in the configuration, or `NOTICING_ON: 
 
 Revert: drop `AHEAD_PASSED_RULE` from `PAGE_WRITING_RULE`; `self.NIGHT_LOOKBACK_DAYS=0` for yesterday only.
 
+**Read 2026-11-28 (lived day 68; 0.4.0 nights 67–68 against 0.3.54 nights 56–66), read-only; covers #823, the share
+setting, and #824.** Shares told every night 45–68, both 0.4.0 nights included, 331–546 chars each; no share setting
+is set on the store, so the default holds. The page sat at 4,585–4,597 B against the 4,600 room across versions 97–100
+(0.4.0), not growing, and every line the 0.4.0 nights lost has a set-down row; the sleep phases and dream counts are
+unchanged. No ahead line passed on a 0.4.0 night: the one that passed was rewritten by a session on 11-26 (version
+95), and two are still ahead, due 11-29 and 11-30. Past-tense lines were reworded 4 times on 2 nights of 0.4.0, about
+the 0.3.54 rate (1–3 on nights 59 and 61), read as room trims. No skipped day on 0.4.0 and no `about` twice; nights
+11-22 and 11-23 never ran on 0.3.54, so days 11-21 and 11-22 were never a night's `about`, and #824's lookback
+probably wouldn't cover a two-day gap (inferred, not tested). **Seen, cause not traced:** on all 4
+`self.page.set_down` rows of 0.4.0, `writerReworded` is 0 and `writerClaims` is `[]` (rewords now count as
+`engineReworded` 2, 1, 1; set-downs are `unsure` or `unnamed`), where every 0.3.54 row (days 57–61) carried claims and
+named set-downs; 0.4.0 changed `self/writer.ts` and `set-down.ts` in several PRs, so it can't be pinned on #824.
+**Keep the share setting. #824: not enough data yet, stays open; re-read the nights of 11-30 and 12-01 and after the
+next skipped day. Question for the owner: does the page writer's lost audit trail (claims, named set-downs) matter?**
+Full read: the owner's private notes, `2026-11-28-check-after-reads.md`.
+
 ## The first real Windows user's install (W1)
 
 W1 (2026-11-09) made the npm install work on native Windows, proven in CI only (`.github/workflows/windows.yml`, the
@@ -320,6 +336,22 @@ threads section grew (~800 → 800–1,030 B) with the overdue words and titled 
 118 wakes: "shown earlier" 1, "under way" 7 (not timed against the journal), "Waiting on" 81. The six-point read
 against the brief needs a fresh session over the week's wakes: **Mike's call** whether to spend one. Nothing seen says
 revert.
+
+**Read 2026-11-28 (69 transcript wakes in 10 folders, 11-19 to 11-28, 12 on 0.4.0), read-only.** The six points:
+"shown earlier" 0, "under way" 0, no `session=` 0, an Elsewhere line without an age or a what 0 of 276, a cut "Last
+said" without "…" 0 of 32. Hits: the page and day's end telling one moment 11 (structural: the night's writer puts
+yesterday into Lately and the wake prints the same day's end); the same own line on later mornings 5 (nights 11-22 and
+11-23 never ran); the terse Coming up render dropping the other folders' overdue count 8 (all 11-26;
+`core/counterpart-wake-shape.ts` ~l.840); one folder's lone 11-16 handoff, waiting on the owner with nothing since,
+leading 9 wakes at up to 11 days old (a lone handoff can't sink, and "when <owner> says" isn't among `WAITING_WORDS`,
+inferred); listed handoffs over a week old 6 (each the folder's newest, by design); **"Last said" quoting host text as
+the owner's words 3 of 32** ("Tool loaded." glued on twice, from a ToolSearch result; an id-attributed
+`<system-reminder id=…>` once, which the bare-tag pattern of `stripBoilerplate`, `src/core/recall/cues.ts:73`, misses;
+that pattern is shared with recall, so the leak may be wider, not checked). Size: 0.4.0 mean 8,855 B, max 8,990, most
+days above the ~8.6 KB brief and against the 9,000 budget. **Keep; nothing says revert. Questions for the owner: the
+four fixes (strip the id-attributed reminder form and "Tool loaded."; filter the day's end against the page; keep
+other folders' overdue in the terse render; let a lone week-old handoff waiting on the owner age out).** Full read:
+the owner's private notes, `2026-11-28-check-after-reads.md`.
 
 ## What waits on the owner (SO1 step 4)
 
@@ -539,6 +571,17 @@ ever, so the dry run's 2 backlog closes didn't happen. First night's skips: `no-
 open items 362, up from 290 at the 11-05 baseline. **Keep**; nothing closed wrongly. **Re-read** after the next release
 day, the rule's only trigger.
 
+**Read 2026-11-28 (days 58–68, the 0.4.0 nights 67–68 included), read-only.** The `close` phase was
+`ran-nothing-found` every night and `closed` was 0; `thread.night.closed` and `thread.night.reopened` have no row
+ever; `open.mayBeDone` lists 1 item (2 on 11-18); live open is 283 by `unresolved:true` (37 `asked`, 15 carry `status:
+done`; 11-18's 362 may have used another predicate). Night 68's skips: no-subject 143, not-open 64, asked 34, a-check
+28, a-problem 8, not-a-release-step 3, conditional 2; no `no-later-release` skip since day 58. 0.4.0 couldn't trigger
+it (verified in `core/open-close.ts`): a close needs a strictly higher patch in the same `major.minor` series, and
+0.3.55 never shipped (tags go from v0.3.54 to v0.4.0), so nothing was wrongly left open by the rule. **Keep; not
+enough data. Re-read after 0.4.1, the first same-series release since install. Question for the owner: should a minor
+or major bump close the earlier series' release steps? Today it can't.** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
+
 ## A write lists the open items it may settle (SO1 step 1b)
 
 SO1 step 1b (2026-11-07, roadmap with Mike; lightly held), `core/close-hint.ts`, `McpServer#mayCloseOf`. A stored
@@ -635,6 +678,18 @@ rows now start at day 28 (`recall.decision` 9,241, `recall.credit` 9,952, `recal
 47) since SQLite reuses pages and no VACUUM has run. Doctor's other Growth lines weren't taken (no CLI against the live
 store). **Keep**; their first numbers wait on Mike's `counterparts doctor --json`.
 
+**Read 2026-11-28, FD1 step 1 (prune pace against the day-47 projection; no row of its own, read here beside the
+Growth baseline), lived day 68, read-only.** Prunes per night rose from 2–8 (days 47–50) to 14–20 (51–55) and 49–59
+(62–68). Cumulative from day 47: 279 by day 61 (projection ~458), 640 by day 68, so about 1,000 by day 75 against
+~1,620. Pruned kinds: fact 628, place 9, skill 2, entity 1 (17 had ever been used). The pace is limited by the 14-day
+dwell (141–157 rows a night skipped as `blocked:dwell-too-short`), not by the 1,000 budget, which the last pass spent
+in full. Doctor's `growth-memories`: 10,856 live (3,690 in reach, 7,124 below, 415 under the floor, 42 not ranked);
+over 7 lived days 885 born, 372 left (361 pruned), net +513. All 640 pruned rows are archived, and no later event
+names any of them: none was opened, asked for, rated or recalled. Side note: the prune walks archived ids too (61–72 a
+night count against its budget), so doctor's "lap ~14 nights" overstates a lap of live rows (about 11); cosmetic or a
+small budget leak. **Keep; `D_FLOOR_DAYS` stays 14.** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
+
 ## Old chapters leave ambient recall (FD1 step 5)
 
 FD1 step 5 (2026-11-07, decided by the roadmap seat with Mike's ruling: keep the journal forever, old chapters stop
@@ -668,6 +723,21 @@ against 83 a week before. Chapter footnotes rated 0.81 with 21% zero (n 42), mem
 age: <7 days 0.82 (n 38), 7–13 days 0.67 (n 3), 14+ 1 (n 1, a chapter whose last heading is newer). Meaning mode not
 exercised: no `mcp.recall` used it since day 49 (143 handle, 63 question). **Keep** N at 14; the 7–13 bucket (n 3) is
 too small for "move N to 7". **Re-read** when it reaches ~15 rated, or at the first meaning-mode recalls.
+
+**Read 2026-11-28 (days 38–68), read-only; chapters dated by their last heading's lived day, as `journalAged` does
+(11-18 dated them by start, so its 7–13 bucket moves).** Footnote ratings, mean / share rated 0, days 38–48 (before
+the step), 49–58, 59–68: chapters under 7 days 0.80 / 29% (n 113), 0.83 / 20% (n 41), 1.08 / 15% (n 13); 7–13 days
+**0.32 / 68% (n 28)**, 0.67 / 33% (n 3), n 0; 14+ days 0.00 / 100% (n 4), 1.0 (n 1), n 0; memories 0.99 / 32%, 0.98 /
+34%, 0.98 / 32%. `journalAged` per ambient turn (median / p90 / max): 28 / 40 / 70 on 0.3.52, 29 / 43 / 58 on 0.3.53,
+37 / 56 / 109 on 0.3.54, 40 / 56 / 69 on 0.4.0; the skip fired on 971 of 973 turns in days 59–68. The journal's share
+of the cut: 9.7%, 7.6%, 6.4%, **4.8% on 0.4.0** (11-07: 11.9%); pool median 60 / 65 / 45 / **26 on 0.4.0** (78 on
+11-07; the drop is unexplained here). Turns whose footnotes were all chapters: 13 in days 59–68, against 23 in days
+51–57 and 83 a week before the step. Meaning mode is still not exercised: 11 `mcp.recall` rows ever, the last on day
+43, none with `elapsedMs`. "What took the slots" can't be read (the skip fires nearly every turn, so there is no
+comparison group; non-journal footnotes stay flat at ~0.98). **Not enough live data; the pre-step 7–13 bucket meets
+the "~0.3" half of the move-to-7 test, the other half is unreadable, and the "~15 rated" re-read trigger will likely
+never be met at N = 14. Question for the owner (the roadmap seat's): move N to 7?** Full read: the owner's private
+notes, `2026-11-28-check-after-reads.md`.
 
 ## A done memory is never overdue (SO1 step 2)
 
@@ -784,6 +854,18 @@ logged, so splitting the owed rows into CT1 tails and S2 short sessions needs `c
 copy, which a read-only pass doesn't run; the person's-words-or-plumbing hand-read of the tails isn't done either. The
 night's write-ups stayed small (10 runs since day 45). **Re-read** with a snapshot ledger read and the tails'
 hand-read together; only then keep or narrow.
+
+**Read 2026-11-28 (days 45–67), read-only; `compactionTail` is not logged, so it was rebuilt from the ledger's rule
+and the span files (an inference from `ledger()`'s logic).** Of 90 `coverage.owed` rows: 5 owed by a CT1 tail (days
+45, 45, 56, 66, 67; about 1.5 a week, inside "a few a week"), 54 unrecorded (S2), 13 over the floor, 9 with no span
+data left, 9 in bench folders (excluded). Tails were 1–2 pieces each, 7 in all. Of the three readable: two were the
+person's own closing lines (one asking outright to save), one was two peer messages only (plumbing); the two day-45
+tails were already deleted. Each was written up once by the night's runner (`coverage.written by: next-session`) for
+10, 7, 6, 3 and 8 memories, 34 in all, mostly about pre-cut context; the plumbing-only tail still cost 8, which is
+WP1's case (count the one-piece floor from the person's own messages) not applied to CT1. Not checked: whether those
+34 duplicate what the sessions had already saved. **Keep. Question for the owner: count the tail's floor from the
+person's own pieces only (a code change, not a switch)?** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
 
 ## Folder attribution (FS1)
 
@@ -920,6 +1002,17 @@ night was a routine's, not a chat's; no double start, no refusal. Nights started
 and complaints across the week **wait on Mike's production read** (or on logs kept across deploys). Not exercised in
 what the logs reach.
 
+**Read 2026-11-28 (partial again): the hosted call log reaches only the current deploy (up since 11-26 ~00:09 UTC),
+read-only.** 3 stores, 42 connections (18 claude.ai, 3 toolbox, 21 `claude-code`), 330 `[hosted] mcp` lines. 4 nights,
+every one a `claude-code` routine's (wake, then 5–7 `dream` calls, `reflect`, `self_page`, all ok); 0 started from a
+chat, and the 18 claude.ai connections made no tool call. No `dreaming-now` or `dreamed-today` refusal, no double
+start. A chat's night is still not exercised. Seen beside it, not HN1: Litestream logs `timeout waiting for db
+initialization` about once a minute (1,500–1,750 a day on 11-26 and 11-27) naming 7 tenant stores, while the
+twice-daily `snapshot complete` lines name only the accounts, oauth and one counterparts database, so those 7 may not
+be replicated to R2 (not diagnosed; bears on HD1's backups promise). **Open: not enough data. The week across deploys,
+the owed days and the complaints wait on the owner's production read or on logs kept across deploys.** Full read: the
+owner's private notes, `2026-11-28-check-after-reads.md`.
+
 ## The wake knows yesterday's news (WF1)
 
 WF1 (2026-11-03, Mike's go 14:41, ROADMAP's brief, lightly held), in the shaped wake (`core/counterpart-wake-news.ts`,
@@ -996,6 +1089,19 @@ review's replay. `habituationCut` per turn was 0.30–0.51 on days 35–42 (the 
 lane has 24 ratings at a mean 2.54, `opened` 20 at 2.3. Not read here: held-set size, held memories later opened,
 asked for or rated 2–3, and any rating-3 memory sitting held; those need `held.py` on a store copy. Nobody has
 reported a missing ruling. **ROADMAP's read.**
+
+**Read 2026-11-28 (days 43–68), read-only; ratings from the day-49 copy plus live (1,322 `recall.rated` rows), held
+sets recomputed with `habituatedFrom`'s rule for the 14-day and 7-day windows.** Held-set size, 14 vs 7 days: 273 vs
+114 on day 43, 233 vs 35 on day 49, 140 vs 54 on day 58, 83 vs 22 on day 68 (it shrank with thinner rating days 59–64,
+not a bug); 442 distinct memories were ever held only by the 14-day window. Footnote ratings of those that still
+showed (using their held state from the day before): n 132, mean 0.58, 56% noise, 10% useful, against 0.51 / 56% / 5%
+for held under both windows (n 39) and 1.00 / 31% / 25% for unheld (n 2,777): the extra set is the noise it was meant
+to hold. But 49 of those 442 were later wanted (35 rated 2–3 in footnotes, 20 opened by handle; some may be
+coordinator sessions opening ids by name), and 97 owner rulings (`about` us or owner, said by the owner) were held at
+some point, 24 at once on day 68 (59 on day 43); 31 distinct ids were held within 14 days of a rating 3. "Held" only
+raises the bar; they still surfaced and were rated. Not read: the 14-vs-21 arm. **Keep 14; mixed. Question for the
+owner: should owner rulings be exempt from habituation (a design decision, not a window length)?** Full read: the
+owner's private notes, `2026-11-28-check-after-reads.md`.
 
 ## Due a few nights after write-ups skip plumbing (2026-11-03, WP1, Mike's OK 14:41, lightly held — a fix, no switch)
 
@@ -1326,6 +1432,25 @@ live entity cards 30 of 506 (144 on 10-29); no `mcp.result.oversize` for `tags`,
 returns before writing; it has never shown here. **Keep** train priming at 0 and 30 kinds a night. Whether the project
 line stays (it can't fire until a folder maps to a project) is **Mike's call**. The beliefs-slot finding stays undated.
 
+**Read 2026-11-28 (by build, day-49 copy plus live; covers the four K1 rows), read-only.** *Train priming:*
+`primed.train` is false on all 4,170 turns from 0.3.41 to 0.4.0 (`byTrain` 0; on 0.3.40 it was true on 119 of 119).
+Footnote noise / useful: 0.3.40 22.0% / 20.9% (n 91), 0.3.41 47.3% / 13.3% (n 241), 0.3.54 35.5% / 23.5% (n 1,751;
+days 59–68 32.4% / 23.0%, n 661), 0.4.0 23.3% / 20.0% (n 30), against the bar's 10-26..28 band of 38–43% / 15–22%: bar
+met. Footnotes per turn (all turns; no person-turn flag exists) fell from 1.13 on 0.3.40 to 0.84–0.86 on 0.3.54 and
+0.4.0, under the bar's ~1.1 per person turn, but R3S, H14 and FD1 step 5 also cut footnotes. *Kinds:* kindless live
+cards 7 of 656 (30 of 506 on 11-18, 144 of 207 on 10-29); 8–23 kinds set a night (1 refused on 11-20); the tags
+child's code is 0 on every `dream.night` since day 49 and no `mcp.result.oversize` for tags (only days 41 and 43, the
+`dream` writer); a 12-card spot check read right, with companies filed as topics (no kind of their own) and two
+born-by-mention stubs whose kind is a guess from a name. *Project line:* 0 `self.project.line` rows ever and
+`folder_projects` is empty (only an explicit `joinProject` fills it), so the line can't fire on this store, as on
+11-18. *Beliefs slot:* two beliefs have shown, both about the owner: `sch_305a1aabc8fa` (days 38–57, 58 turns, rated
+1.03, n 29) and `sch_7774cde93e7c` (days 56–68, 55 turns, rated 1.73, n 26, 0 zeros), against ~0.98 for footnotes; 19
+live beliefs, and whether 3+ about other people pass the 0.3 floor wasn't read (strength is computed, not stored).
+**Keep train priming at 0 and 30 kinds a night. The project line stays open as a question for the owner: retire it
+(`self.WAKE_PROJECT_LINE=false`) or keep it dormant until a folder is joined to a project. The beliefs finding stays
+open until beliefs about other people exist.** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
+
 ## Due 3–4 nights after the page split (2026-10-23, Mike's go, very lightly held, an experiment — `self.PAGE_SPLIT`)
 
 What: the night writes the page in two lanes instead of two whole-page rewrites. The page writer, in a child of its
@@ -1602,6 +1727,14 @@ one kept a `Names:` line (mem_6a82413e8008, a 0.3.42 gist, 4 ids), and `namesPas
 brought a see-also footnote once (`seeAlso.by`), unrated. The mechanism works; one fold is no read of its worth, and 4
 is not too few. **Keep.** **Re-read** when ~5 folds have kept names, with PP1's ratings.
 
+**Read 2026-11-28 (lived day 68), read-only.** 74 gists and merges since 0.3.42 (53 on 11-18, so 21 new, 6 of them on
+0.4.0), still 1 with a kept `Names:` line (`mem_6a82413e8008`, 0.3.42, 4 ids), `namesPast` never above 0. Since day 57
+only one source of any gist or merge names an id at all, and that id (`mem_18171d2a7f84`) has no `memories` row, so
+leaving it out is right: the mechanism isn't failing, almost nothing it would keep ever arrives. That fold's see-also
+footnotes: 1 row (day 58, unrated), the one 11-18 found, nothing since. **Keep; not enough data. The 11-18 re-read
+trigger (~5 folds having kept names) is far off.** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
+
 ## Due ~3 lived days after see-also from named ids (2026-10-29, PP1, ROADMAP go 10-29 13:09, an experiment — `recall.SEE_ALSO_NAMED_IDS`, `SEE_ALSO_MAX`, `SEE_ALSO_TITLE_BYTES`) — checked 2026-11-02, below; re-check ~11-09
 
 What: a memory a turn shows (loud or a cued footnote) whose text names another memory's id (`mem_…`) brings the
@@ -1634,6 +1767,18 @@ zero (n 2,364). With 11-02's 8 that is ~20 rated at about half the plain mean, a
 demo: `cue_edges` has `ping` to mem_66bb7d836201 (0.51) and mem_4892da5d1aa3 (0.86), still not to the rule
 mem_0ca7f032368a. **Tune or revert: Mike's call** — the section's next step is `SEE_ALSO_MAX` 1 (or reading only the
 footnotes' texts); revert is `recall.SEE_ALSO_NAMED_IDS=false`. At 18 a fortnight its cost is small either way.
+
+**Read 2026-11-28 (lived day 68), read-only; same method as 11-02 and 11-18 (each footnote joined to the first later
+`recall.rated` of the same id in the same session).** Days 59–68: 6 see-also'd of 919 footnotes (0.65%), 3 rated, mean
+0.67 / 33% zero, against plain 0.97 / 32% (683 rated); 0.4.0 alone (days 66–68) 3 see-alsos, 1 rated (1.00), plain
+0.95 / 27% (106). All of 0.3.41 on (days 39–68): 39 see-also'd, 26 rated, mean 0.58 / 54% zero, against plain 0.96 /
+33% (4,022 rated). By window, see-also vs plain mean: days 38–42 0.64 vs 0.87, days 43–58 0.50 vs 0.99, days 59–68
+0.67 vs 0.97. The bar is missed a third time by about 0.4, on a sample no longer one rating's swing. The ping demo:
+`cue_edges` for `ping` still has no edge to the rule `mem_0ca7f032368a` (edges to `mem_4892da5d1aa3` 0.74,
+`mem_66bb7d836201` 0.44, two at 0.02). **Open: tune or revert is still the owner's call, unchanged from 11-18. Next
+step in the section: `SEE_ALSO_MAX` 1, or reading the footnotes' texts; revert is `recall.SEE_ALSO_NAMED_IDS=false`.
+At ~6 a fortnight the cost is small either way.** Full read: the owner's private notes,
+`2026-11-28-check-after-reads.md`.
 
 ## Due ~3 nights after S2 (2026-10-26, Mike: "sounds good", lightly held — `coverage.UNRECORDED_OWED_PIECES`, `dream.OWED_COUNTS_AS_NEW`)
 
@@ -3275,6 +3420,18 @@ transcripts since 11-03, "Nothing here since." printed in 17 of 118 wakes, so it
 recalls on days 40–58 (`handleResolved`, ~1 a day; which handle isn't recorded). No ROADMAP write-up of the draft's
 test was found; WK3's feedback on five mornings is the nearest read, and it changed the shape. **Keep the shape on
 Mike's store.** On by default is ROADMAP's and Mike's call, once a wake read against the test is written up.
+
+**Read 2026-11-28 (days 59–68, 157 shaped wakes, 9 of them on 0.4.0), read-only; plus a hand read of 69 transcript
+wakes in 10 folders.** Every wake shaped, `pageRung` whole on all, none over the 9,000 budget (max 8,992); mean bytes
+by build 8,544 on 0.3.52 (5 wakes), 8,870 on 0.3.53 (8), 8,746 on 0.3.54 (135), 8,855 on 0.4.0 (9). On 0.4.0 the
+Coming up section grew about 340 B and threads shrank about 185 B. 0 `counterpart.wake.shape.declined` or `.failed`
+lines in the 11-21 to 11-28 process logs (10,496 lines). `Nothing here since.` printed in 3 of 69 wakes. Door use is
+low: 163 `mcp.recall` calls on days 58–68, 2 of them resolved a handle. The draft's test (what is live, what is owed,
+what changed, without a tool call) mostly passes on the hand read; the misses are a stale lone handoff leading one
+folder's wakes and host text in "Last said", both under WK3. **Keep the shape on the owner's store. Question for the
+owner / ROADMAP: a default change for new stores is now readable as supported (no failures, nothing over budget, the
+page always whole), but only this one store's shape was ever read: a near-empty new store's wake is not.** Full read:
+the owner's private notes, `2026-11-28-check-after-reads.md`.
 
 ## A failed mint
 
