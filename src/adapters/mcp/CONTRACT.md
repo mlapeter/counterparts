@@ -545,7 +545,7 @@ default, `corrected`, `open`) and answer with what the settle did, or that the t
 own path ran instead. A stored memory comes back with its nearest few live memories
 (`neighbours`) and one line inviting a settle — in the payload, so in
 `structuredContent`. `note` with `settle` settles two memories that already exist without
-writing one; `reflect` phase `settle` is the reflection's door; the dream's `propose`
+writing one (a `text` sent beside it is stored as its own memory too); `reflect` phase `settle` is the reflection's door; the dream's `propose`
 takes a `settle` action. Every settle is `core/reconsolidation.ts#settle`'s, recorded with
 who, how, why and when; an observer writes nothing and says so.
 
@@ -837,7 +837,9 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   counted (2026-10-09: archived, a corrected memory is out of the word index, and a wrong
   correction made a true one unreachable); `open` and unsettled pairs named —
   never naming a removed memory.
-  Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
+  Unknown fields say so. Short bodies whole, long ones a 300-character excerpt; a short
+  body the head line already says (no title, or a title that is the words) is not said
+  again under it (2026-11-27).
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
   (below reach — `deliberate.ts#hasFaded`, the rule meaning mode shares) are ranked with

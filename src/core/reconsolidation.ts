@@ -246,15 +246,15 @@ export const CONTRADICTION_PROPOSED_EVENT = "contradiction.proposed";
 
 /** The one line a write's result carries beside its neighbours. */
 export const NEIGHBOURS_HINT =
-  "These existing memories are close to what you just wrote. Is the new one the newer state of the same thing as one of them (a status moved on, a decision made, the latest release or result)? Then settle it now: remember with settle {holds: the new id, over: the old id, how: changed, why}. If it corrects one, how: corrected; if they disagree and you can't tell which holds, how: open. Otherwise do nothing.";
+  "These existing memories are close to what you just wrote. Is the new one the newer state of the same thing as one of them (a status moved on, a decision made, the latest release or result)? Then settle it now: remember with only settle {holds: the new id, over: the old id, how: changed, why}; text beside it is stored as a separate memory. If it corrects one, how: corrected; if they disagree and you can't tell which holds, how: open. Otherwise do nothing.";
 
 /** The line a write's result carries beside a slot the detector proposed (2026-10-11). */
 export const SLOT_HINT =
-  "This reads as the newer state of the same thing as the memory in `slot`, so that one was marked as possibly out of date, provisionally; tonight's dream confirms or undoes it. If it is, settle it now: remember with settle {holds, over, how: changed, why}. If they are two different things, do nothing.";
+  "This reads as the newer state of the same thing as the memory in `slot`, so that one was marked as possibly out of date, provisionally; tonight's dream confirms or undoes it. If it is, settle it now: remember with only settle {holds, over, how: changed, why}; text beside it is stored as a separate memory. If they are two different things, do nothing.";
 
 /** The same ask, for the memory a write named in `updates` that looked unrelated to it (2026-10-09). */
 export const HELD_HINT =
-  "The memory you named in updates looks unrelated to what you just wrote (few words in common, not close in meaning), so it was left as it was: not changed, not corrected, not linked. Its title and text are here. If the new memory does change or correct it, settle it now: remember with settle {holds, over, how, why}. If not, do nothing.";
+  "The memory you named in updates looks unrelated to what you just wrote (few words in common, not close in meaning), so it was left as it was: not changed, not corrected, not linked. Its title and text are here. If the new memory does change or correct it, settle it now: remember with only settle {holds, over, how, why}; text beside it is stored as a separate memory. If not, do nothing.";
 
 export type SettleRefusal =
   | "observer"

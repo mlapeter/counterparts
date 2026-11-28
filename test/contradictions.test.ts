@@ -18,7 +18,7 @@ import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { mechanismEvidence } from "../src/adapters/mechanism-evidence.js";
 import type { Verdict } from "../src/adapters/mechanism-evidence.js";
-import { McpServer, openServer } from "../src/adapters/mcp/index.js";
+import { McpServer, openServer, toolDefinitions } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Recall, render } from "../src/core/recall/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
@@ -482,6 +482,30 @@ describe("noticing at write time", () => {
     expect(body["neighboursHint"]).toBe(NEIGHBOURS_HINT);
     // What Claude Code hands the model is the structured copy, serialized (#282).
     expect(JSON.stringify(r.structuredContent)).toContain(x);
+  });
+
+  test("the settle words say to send settle alone, and a text beside it is still stored as its own memory (11-27)", async () => {
+    // The 0.4.0 trim lost "`text` may be left out"; a writer sent the new value as text beside
+    // the settle and kept a duplicate. Both places now say it; the server still does both.
+    expect(NEIGHBOURS_HINT).toContain("remember with only settle {holds: the new id, over: the old id, how: changed, why}");
+    expect(NEIGHBOURS_HINT).toContain("text beside it is stored as a separate memory");
+    const remember = toolDefinitions().find((t) => t["name"] === "remember") as { inputSchema: { properties: Record<string, { description?: string }> } };
+    expect(remember.inputSchema.properties["settle"]?.description).toContain("Send it alone, the reason in `why`: `text` beside it is stored as a new memory.");
+    const s = server();
+    const store = s.counterpart.store;
+    aged(store);
+    const old = put(store, "The Pine building office parking quota is 8000 spaces.");
+    const now = put(store, "The Pine building office parking quota is now 9000 spaces.");
+    const r = payload(
+      await s.call("remember", {
+        settle: { holds: now, over: old, how: "changed", why: "The quota was raised." },
+        text: "The Pine building office parking quota is now 9000, replacing the earlier 8000.",
+      }),
+    );
+    expect((r["settle"] as Record<string, unknown>)["ok"]).toBe(true);
+    expect(typeof r["id"]).toBe("string");
+    expect(r["id"]).not.toBe(now);
+    expect(store.row(r["id"] as string)?.body).toContain("replacing the earlier 8000");
   });
 
   test("nothing close, nothing listed; journal chapters and archived rows are left out, and the retired confidential mark changes nothing", () => {

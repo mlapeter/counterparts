@@ -1595,7 +1595,6 @@ function channelWords(semantic: SemanticSource): string | null {
   return null;
 }
 
-/** The labeled lines of one result. */
 /**
  * " · may be inside the time asked" for an event date coarser than the window
  * (a month, a year, a range) that only partly overlaps it. Checked against the
@@ -1625,6 +1624,17 @@ function readerOf(row: { readonly meta?: unknown } | undefined): { reader?: stri
   return line === null ? {} : { reader: line };
 }
 
+/** The same words, but for spacing and a closing full stop. */
+function sameWords(a: string, b: string): boolean {
+  const norm = (t: string): string => t.replace(/\s+/g, " ").trim().replace(/\.$/, "");
+  return norm(a) === norm(b);
+}
+
+/**
+ * One result's lines: the head line (`N. <title or words> · <id> · <ways>`),
+ * who said it and when, earlier and corrected versions, then the words — left
+ * out when the head line already said them whole (`sameWords`).
+ */
 function itemLines(m: FactItem, i: number, today: string, excerptChars: number, time: string | undefined, window: DayWindow | null): string[] {
   const out: string[] = [];
   const mark = m.journal ? "[journal] " : "";
@@ -1681,6 +1691,11 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number, 
         : `   +${String(unnamed)} more corrected (was wrong)`,
     );
   }
+  // A short memory with no title, or a title that is its words, said its words
+  // already on the head line: they are not said again (2026-11-27, adebench).
+  // The head line stays — rank, id and ways ride on it. A title that is only
+  // the start of the words keeps them.
+  if (!m.journal && m.whole && m.block === undefined && sameWords(m.line, m.body)) return out;
   const words = m.body.length <= excerptChars ? m.body : cutExcerpt(m.body, excerptChars);
   // The verbatim trial (2026-10-11): a list or a table kept word for word is
   // flattened into the excerpt; saying it is there tells a reader the rest is
