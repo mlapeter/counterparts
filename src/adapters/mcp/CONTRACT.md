@@ -837,7 +837,9 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   counted (2026-10-09: archived, a corrected memory is out of the word index, and a wrong
   correction made a true one unreachable); `open` and unsettled pairs named —
   never naming a removed memory.
-  Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
+  Unknown fields say so. Short bodies whole, long ones a 300-character excerpt; a short
+  body the head line already says (no title, or a title that is the words) is not said
+  again under it (2026-11-27).
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
   (below reach — `deliberate.ts#hasFaded`, the rule meaning mode shares) are ranked with
