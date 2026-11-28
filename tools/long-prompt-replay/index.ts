@@ -316,11 +316,20 @@ function describe(): void {
 // ── replay ───────────────────────────────────────────────────────────────────
 
 const VARIANTS = ["whole", "head2000", "tail2000", "head1000+tail1000"] as const;
-type Variant = (typeof VARIANTS)[number] | "whole-unfiltered";
+/**
+ * Two more that split the channels apart, each changing ONE input of the whole-prompt turn:
+ * "cues-tail" takes its cue words from the last 2,000 chars but keeps the shipped head vector;
+ * "vector-tail" keeps the shipped cue words but embeds the last 2,000 chars. And
+ * "whole-unfiltered", the shipped turn with no born-before filter, for the reproduction check.
+ */
+const ISOLATING = ["cues-tail", "vector-tail"] as const;
+type Variant = (typeof VARIANTS)[number] | (typeof ISOLATING)[number] | "whole-unfiltered";
+const ALL: readonly Variant[] = [...VARIANTS, ...ISOLATING, "whole-unfiltered"];
 function variantText(text: string, v: Variant): string {
   if (v === "whole" || v === "whole-unfiltered" || text.length <= 2000) return text;
   if (v === "head2000") return text.slice(0, 2000);
-  if (v === "tail2000") return text.slice(-2000);
+  if (v === "tail2000" || v === "cues-tail") return text.slice(-2000);
+  if (v === "vector-tail") return text;
   return `${text.slice(0, 1000)}\n${text.slice(-1000)}`;
 }
 interface ReplayRow {
@@ -355,11 +364,20 @@ function replay(): void {
   let n = 0;
   for (const r of rows.slice(0, limit === Infinity ? undefined : limit)) {
     const text = stripBoilerplate(r.text).text;
-    for (const v of [...VARIANTS, "whole-unfiltered" as const]) {
+    for (const v of ALL) {
       filter.setDay(v === "whole-unfiltered" ? null : r.day);
       const sessionId = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
       const t0 = performance.now();
-      const res = cp.recallForTurn({ sessionId, text: variantText(text, v), day: r.day, ...(r.budgetBytes === null ? {} : { budgetBytes: r.budgetBytes }) } as Parameters<Counterpart["recallForTurn"]>[0]);
+      // The vector as `session.ts#inLineSemantic` makes it, from the head or (vector-tail) the tail.
+      const vecText = v === "cues-tail" ? text.trim().slice(0, 2000) : v === "vector-tail" ? text.trim().slice(-2000) : null;
+      const vector = vecText === null ? null : store.textVector(vecText);
+      const res = cp.recallForTurn({
+        sessionId,
+        text: variantText(text, v),
+        day: r.day,
+        ...(vector === null || vector.length === 0 ? {} : { vector, semanticSource: "in-line" }),
+        ...(r.budgetBytes === null ? {} : { budgetBytes: r.budgetBytes }),
+      } as Parameters<Counterpart["recallForTurn"]>[0]);
       const d = res.decision;
       const shown = [...d.surfaced, ...d.footnotes].map((x) => (typeof x === "string" ? x : (x as { id: string }).id));
       const row: ReplayRow = {
@@ -379,15 +397,15 @@ function replay(): void {
       };
       out.push(JSON.stringify(row));
     }
-    if (out.length % 50 === 0) {
+    if ((out.length / ALL.length) % 50 === 0) {
       writeFileSync(replayPath, out.join("\n") + "\n");
-      console.log(`  replayed ${out.length / 5} of ${rows.length}`);
+      console.log(`  replayed ${out.length / ALL.length} of ${rows.length}`);
     }
   }
   filter.restore();
   writeFileSync(replayPath, out.join("\n") + "\n");
   const after = counts(store);
-  console.log(`REPLAY ${out.length / 5} long turns x 5 variants; copy events/memories before ${before} after ${after} (${before === after ? "unchanged" : "CHANGED"})`);
+  console.log(`REPLAY ${out.length / ALL.length} long turns x ${ALL.length} variants; copy events/memories before ${before} after ${after} (${before === after ? "unchanged" : "CHANGED"})`);
   data.close();
   cp.close();
 }
@@ -465,7 +483,7 @@ function report(): void {
   // 5. variants
   console.log("VARIANTS (long turns; filtered replays):");
   const base = (s: number) => by.get(`${s}:whole`)!;
-  for (const v of VARIANTS) {
+  for (const v of [...VARIANTS, ...ISOLATING]) {
     let good = 0, zero = 0, goodCand = 0, zeroCand = 0, diffShown = 0, diffCand = 0, sizeShown = 0, turnsWithGood = 0;
     for (const s of seqs) {
       const r = by.get(`${s}:${v}`)!;
