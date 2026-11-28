@@ -146,7 +146,7 @@ describe("an unrelated pair is held", () => {
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled).toMatchObject({ ok: false, held: true, reason: "looks-unrelated", how: "corrected", holds: id, over: passport, title: "Passport name change", detail: HELD_HINT });
     expect(String(settled["text"])).toContain("new passport arrived in May");
-    expect(HELD_HINT).toContain("remember with settle {holds, over, how, why}");
+    expect(HELD_HINT).toContain("remember with only settle {holds, over, how, why}");
     // Not shown twice: the held memory is not also a neighbour.
     expect(((r["neighbours"] ?? []) as { id: string }[]).map((n) => n.id)).not.toContain(passport);
 
