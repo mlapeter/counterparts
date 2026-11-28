@@ -1,1 +1,1 @@
-- `counterparts dream --help` no longer calls `ask` the default: a new install starts on `auto`, and only a memory with no setting reads `ask`.
+- `counterparts dream --help` no longer calls `ask` the default: a new install starts on `auto`; a memory started with `start-fresh`, or one with no setting, reads `ask`.
