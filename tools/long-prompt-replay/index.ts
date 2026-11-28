@@ -96,6 +96,7 @@ interface Aligned {
   origin: PromptEntry["origin"];
   isMeta: boolean;
   promptIndex: number;
+  cwd: string | null;
   dtMs: number;
   share: number;
   text: string;
@@ -211,6 +212,7 @@ function join_(): void {
         origin: pick.origin,
         isMeta: pick.isMeta,
         promptIndex: pick.index,
+        cwd: pick.cwd,
         dtMs: d.at - pick.at,
         share,
         text: pick.text,
@@ -315,22 +317,47 @@ function describe(): void {
 
 // ── replay ───────────────────────────────────────────────────────────────────
 
+/**
+ * The brief's four text variants. What each one exercises, given the 72-token cue
+ * window (cues come from roughly the first 750 chars of WHATEVER text is passed)
+ * and the 2,000-char vector clip:
+ *   whole              as shipped: cues from the head ~750, vector from the head 2,000
+ *   head2000           the same cue window and the same vector as whole; differs only
+ *                      through term counts past char 2,000 and anything reading the whole text
+ *   tail2000           cues from chars -2,000..~-1,250 (NOT the closing lines), vector from the tail
+ *   head1000+tail1000  cues from the head ~750 only, vector from head 1,000 + tail 1,000
+ */
 const VARIANTS = ["whole", "head2000", "tail2000", "head1000+tail1000"] as const;
 /**
- * Two more that split the channels apart, each changing ONE input of the whole-prompt turn:
- * "cues-tail" takes its cue words from the last 2,000 chars but keeps the shipped head vector;
- * "vector-tail" keeps the shipped cue words but embeds the last 2,000 chars. And
- * "whole-unfiltered", the shipped turn with no born-before filter, for the reproduction check.
+ * Diagnostic variants, each answering one question:
+ *   tail700            the closing lines alone: cues AND vector from the last 700 chars
+ *                      (inside the window), the nearest thing to "the ask itself"
+ *   cues-tail700       cues from the last 700 chars, the shipped head vector: the cue channel alone moved
+ *   vector-tail        the shipped cues, the vector from the last 2,000 chars: the vector alone moved
+ *   whole-repeat       whole again under another session id: the noise floor
+ *   whole-unfiltered   whole with no born-before filter: for the reproduction check
  */
-const ISOLATING = ["cues-tail", "vector-tail"] as const;
+const ISOLATING = ["tail700", "cues-tail700", "vector-tail", "whole-repeat"] as const;
 type Variant = (typeof VARIANTS)[number] | (typeof ISOLATING)[number] | "whole-unfiltered";
 const ALL: readonly Variant[] = [...VARIANTS, ...ISOLATING, "whole-unfiltered"];
 function variantText(text: string, v: Variant): string {
-  if (v === "whole" || v === "whole-unfiltered" || text.length <= 2000) return text;
+  if (v === "whole" || v === "whole-repeat" || v === "whole-unfiltered" || v === "vector-tail") return text;
+  if (v === "tail700" || v === "cues-tail700") return text.slice(-700);
+  if (text.length <= 2000) return text;
   if (v === "head2000") return text.slice(0, 2000);
-  if (v === "tail2000" || v === "cues-tail") return text.slice(-2000);
-  if (v === "vector-tail") return text;
+  if (v === "tail2000") return text.slice(-2000);
   return `${text.slice(0, 1000)}\n${text.slice(-1000)}`;
+}
+/** Which lane brought a candidate, from its verdict's own fields. */
+function laneOf(v: { cue: number; semantic: number; hops: number; via?: string; standsFor?: string; temporal: number }): string {
+  const parts: string[] = [];
+  if (v.cue - v.temporal > 0) parts.push("cue");
+  if (v.temporal > 0) parts.push("temporal");
+  if (v.semantic > 0) parts.push("semantic");
+  if (v.hops > 0) parts.push("hop");
+  if (v.via !== undefined) parts.push(v.via);
+  if (v.standsFor !== undefined) parts.push("stands-for");
+  return parts.length === 0 ? "other" : parts.join("+");
 }
 interface ReplayRow {
   seq: number;
@@ -345,6 +372,9 @@ interface ReplayRow {
   candidateCount: number;
   semantic: string;
   leaks: number;
+  /** Later-born ids among the candidates, and the lanes that brought them. */
+  leakCandidates: number;
+  leakLanes: string[];
   ms: number;
 }
 
@@ -369,7 +399,7 @@ function replay(): void {
       const sessionId = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
       const t0 = performance.now();
       // The vector as `session.ts#inLineSemantic` makes it, from the head or (vector-tail) the tail.
-      const vecText = v === "cues-tail" ? text.trim().slice(0, 2000) : v === "vector-tail" ? text.trim().slice(-2000) : null;
+      const vecText = v === "cues-tail700" ? text.trim().slice(0, 2000) : v === "vector-tail" ? text.trim().slice(-2000) : null;
       const vector = vecText === null ? null : store.textVector(vecText);
       const res = cp.recallForTurn({
         sessionId,
@@ -377,7 +407,7 @@ function replay(): void {
         day: r.day,
         ...(vector === null || vector.length === 0 ? {} : { vector, semanticSource: "in-line" }),
         ...(r.budgetBytes === null ? {} : { budgetBytes: r.budgetBytes }),
-      } as Parameters<Counterpart["recallForTurn"]>[0]);
+      } as Parameters<Counterpart["recallForTurn"]>[0], r.cwd === null ? {} : { scope: r.cwd });
       const d = res.decision;
       const shown = [...d.surfaced, ...d.footnotes].map((x) => (typeof x === "string" ? x : (x as { id: string }).id));
       const row: ReplayRow = {
@@ -393,6 +423,8 @@ function replay(): void {
         candidateCount: d.candidates,
         semantic: String((d as { semanticSource?: unknown }).semanticSource ?? ""),
         leaks: v === "whole-unfiltered" ? 0 : shown.filter((id) => (data.birthDay.get(id) ?? Infinity) >= r.day).length,
+        leakCandidates: v === "whole-unfiltered" ? 0 : d.verdicts.filter((x) => (data.birthDay.get(x.id) ?? Infinity) >= r.day).length,
+        leakLanes: v === "whole-unfiltered" ? [] : d.verdicts.filter((x) => (data.birthDay.get(x.id) ?? Infinity) >= r.day).map((x) => `${laneOf(x)}${shown.includes(x.id) ? ":shown" : ""}`),
         ms: Math.round(performance.now() - t0),
       };
       out.push(JSON.stringify(row));
@@ -419,46 +451,16 @@ function report(): void {
   const live = new Map(aligned.map((a) => [a.seq, a]));
   const reps = readJsonl<ReplayRow>(replayPath);
   const by = new Map<string, ReplayRow>(reps.map((r) => [`${r.seq}:${r.variant}`, r]));
-  const seqs = [...new Set(reps.map((r) => r.seq))];
+  const allSeqs = [...new Set(reps.map((r) => r.seq))];
+  /** Who started it, in two groups: a person typed it (with or without a pasted block), or anything else. */
+  const groupOf = (s: number): "person" | "host" => (startedKind(live.get(s)!).startsWith("typed") ? "person" : "host");
+  const groups: [string, number[]][] = [
+    ["all", allSeqs],
+    ["host-started", allSeqs.filter((s) => groupOf(s) === "host")],
+    ["person-typed", allSeqs.filter((s) => groupOf(s) === "person")],
+  ];
 
-  // 3. reproduction
-  for (const v of ["whole", "whole-unfiltered"] as const) {
-    let liveShown = 0, reShown = 0, reCand = 0, sameDay = 0, sameDayShown = 0, turnsAll = 0, turnsAny = 0, liveEmpty = 0, replayEmptyToo = 0;
-    for (const s of seqs) {
-      const a = live.get(s)!;
-      const r = by.get(`${s}:${v}`)!;
-      const ids = [...a.footnotes, ...a.surfaced];
-      if (ids.length === 0) {
-        liveEmpty += 1;
-        if (r.shown.length === 0) replayEmptyToo += 1;
-        continue;
-      }
-      const shown = new Set(r.shown);
-      const cand = new Set(r.candidates);
-      let hit = 0;
-      for (const id of ids) {
-        liveShown += 1;
-        if ((data.birthDay.get(id) ?? Infinity) >= a.day) {
-          sameDay += 1;
-          if (shown.has(id)) sameDayShown += 1;
-        }
-        if (shown.has(id)) {
-          reShown += 1;
-          hit += 1;
-        }
-        if (cand.has(id)) reCand += 1;
-      }
-      if (hit === ids.length) turnsAll += 1;
-      if (hit > 0) turnsAny += 1;
-    }
-    const withShown = seqs.length - liveEmpty;
-    console.log(`REPRODUCTION [${v}] over ${seqs.length} long turns (${withShown} with live ids): live ids ${liveShown}; reshown ${reShown} (${pct(reShown, liveShown)}); among replay candidates ${reCand} (${pct(reCand, liveShown)}); live ids born on/after the turn's day ${sameDay} (reshown ${sameDayShown}); reproducible-by-construction share reshown ${pct(reShown - sameDayShown, liveShown - sameDay)}; turns all reproduced ${turnsAll}, any ${turnsAny}; live-empty turns ${liveEmpty} (replay empty too ${replayEmptyToo})`);
-  }
-  const leaks = reps.filter((r) => r.variant !== "whole-unfiltered").reduce((n, r) => n + r.leaks, 0);
-  console.log(`  born-before leaks into shown slots (filtered variants): ${leaks}; semantic sources: ${JSON.stringify(Object.fromEntries([...new Set(reps.map((r) => r.semantic))].map((k) => [k, reps.filter((r) => r.semantic === k).length])))}`);
-  console.log(`  replay ms per call: p50 ${quantile(reps.map((r) => r.ms), 0.5)} p90 ${quantile(reps.map((r) => r.ms), 0.9)}`);
-
-  // 4. denominator: ratings joined to the decision that showed the id (since < turn <= rated turn)
+  // 4 first (5 needs it): ratings joined to the decision that showed the id (since < turn <= rated turn)
   const decisionsBySession = new Map<string, DecisionRow[]>();
   for (const d of data.decisions) decisionsBySession.set(d.session, [...(decisionsBySession.get(d.session) ?? []), d]);
   const ratedOn = new Map<number, Map<string, number>>(); // decision seq -> id -> score
@@ -472,43 +474,92 @@ function report(): void {
     m.set(x.id, x.score);
     ratedOn.set(d.seq, m);
   }
-  console.log(`DENOMINATOR: ratings ${data.ratings.length}, joined to a showing decision ${ratingsJoined}; decisions with any rating ${ratedOn.size}`);
-  for (const t of [0, ...THRESHOLDS]) {
-    const turns = aligned.filter((a) => (lenOf.get(a.seq) ?? 0) > t && ratedOn.has(a.seq));
-    const byScore = [0, 1, 2, 3].map((s) => turns.filter((a) => [...ratedOn.get(a.seq)!.values()].includes(s)).length);
-    const ids = turns.flatMap((a) => [...ratedOn.get(a.seq)!.values()]);
-    console.log(`  aligned turns over ${t} chars with a rated footnote: ${turns.length} (turns having a score 0/1/2/3: ${byScore.join("/")}; rated ids ${ids.length}: ${[0, 1, 2, 3].map((s) => ids.filter((x) => x === s).length).join("/")})`);
+
+  // 3. reproduction
+  for (const [g, seqs] of groups) {
+    for (const v of ["whole", "whole-unfiltered"] as const) {
+      let liveIds = 0, reCand = 0, reShown = 0, sameDay = 0, sameDayCand = 0, sameDayShown = 0, turnsAll = 0, turnsAny = 0, liveEmpty = 0, replayEmptyToo = 0;
+      for (const s of seqs) {
+        const a = live.get(s)!;
+        const r = by.get(`${s}:${v}`);
+        if (r === undefined) continue;
+        const ids = [...a.footnotes, ...a.surfaced];
+        if (ids.length === 0) {
+          liveEmpty += 1;
+          if (r.shown.length === 0) replayEmptyToo += 1;
+          continue;
+        }
+        const shown = new Set(r.shown);
+        const cand = new Set(r.candidates);
+        let hit = 0;
+        for (const id of ids) {
+          liveIds += 1;
+          const late = (data.birthDay.get(id) ?? Infinity) >= a.day;
+          if (late) sameDay += 1;
+          if (cand.has(id)) {
+            reCand += 1;
+            if (late) sameDayCand += 1;
+          }
+          if (shown.has(id)) {
+            reShown += 1;
+            hit += 1;
+            if (late) sameDayShown += 1;
+          }
+        }
+        if (hit === ids.length) turnsAll += 1;
+        if (hit > 0) turnsAny += 1;
+      }
+      console.log(`REPRODUCTION ${g} [${v}] long turns ${seqs.length}: live shown ids ${liveIds}; of those, replay CANDIDATES ${reCand} (${pct(reCand, liveIds)}), replay SHOWN ${reShown} (${pct(reShown, liveIds)}); live ids born on/after the turn's day ${sameDay} (candidates ${sameDayCand}, shown ${sameDayShown}); excluding those: candidates ${pct(reCand - sameDayCand, liveIds - sameDay)}, shown ${pct(reShown - sameDayShown, liveIds - sameDay)}; turns fully reshown ${turnsAll}, any ${turnsAny}; live-empty turns ${liveEmpty} (replay empty too ${replayEmptyToo})`);
+    }
+  }
+  const filtered = reps.filter((r) => r.variant !== "whole-unfiltered");
+  const lanes = new Map<string, number>();
+  for (const r of filtered) for (const l of r.leakLanes ?? []) lanes.set(l, (lanes.get(l) ?? 0) + 1);
+  console.log(`  born-before leaks (filtered calls ${filtered.length}): shown ${filtered.reduce((n, r) => n + r.leaks, 0)}, candidates ${filtered.reduce((n, r) => n + (r.leakCandidates ?? 0), 0)}; by lane ${JSON.stringify(Object.fromEntries([...lanes].sort((x, y) => y[1] - x[1])))}`);
+  console.log(`  semantic sources: ${JSON.stringify(Object.fromEntries([...new Set(reps.map((r) => r.semantic))].map((k) => [k, reps.filter((r) => r.semantic === k).length])))}; replay ms per call p50 ${quantile(reps.map((r) => r.ms), 0.5)} p90 ${quantile(reps.map((r) => r.ms), 0.9)}`);
+
+  console.log(`DENOMINATOR: rating items ${data.ratings.length} (in ${new Set(data.ratings.map((x) => `${x.session}:${x.turn}`)).size} rows), joined to the decision that showed the id ${ratingsJoined}; decisions with any rating ${ratedOn.size}`);
+  for (const [g, pick] of [["all", (_: Aligned) => true], ["host-started", (a: Aligned) => groupOf(a.seq) === "host"], ["person-typed", (a: Aligned) => groupOf(a.seq) === "person"]] as const) {
+    for (const t of [0, ...THRESHOLDS]) {
+      const turns = aligned.filter((a) => (lenOf.get(a.seq) ?? 0) > t && ratedOn.has(a.seq) && (t === 0 || g === "all" || pick(a)));
+      if (t === 0 && g !== "all") continue;
+      const byScore = [0, 1, 2, 3].map((sc) => turns.filter((a) => [...ratedOn.get(a.seq)!.values()].includes(sc)).length);
+      const ids = turns.flatMap((a) => [...ratedOn.get(a.seq)!.values()]);
+      const total = aligned.filter((a) => (lenOf.get(a.seq) ?? 0) > t && (t === 0 || g === "all" || pick(a))).length;
+      console.log(`  ${g} aligned turns over ${t} chars: ${total}; with a rated footnote ${turns.length} (turns holding a 0/1/2/3: ${byScore.join("/")}; rated ids 0/1/2/3: ${[0, 1, 2, 3].map((sc) => ids.filter((x) => x === sc).length).join("/")})`);
+    }
   }
 
   // 5. variants
-  console.log("VARIANTS (long turns; filtered replays):");
-  const base = (s: number) => by.get(`${s}:whole`)!;
-  for (const v of [...VARIANTS, ...ISOLATING]) {
-    let good = 0, zero = 0, goodCand = 0, zeroCand = 0, diffShown = 0, diffCand = 0, sizeShown = 0, turnsWithGood = 0;
-    for (const s of seqs) {
-      const r = by.get(`${s}:${v}`)!;
-      const rated = ratedOn.get(s);
-      if (rated !== undefined) {
-        for (const [id, sc] of rated) {
+  for (const [g, seqs] of groups) {
+    console.log(`VARIANTS ${g} (${seqs.length} long turns; born-before filtered):`);
+    for (const v of [...VARIANTS, ...ISOLATING]) {
+      let good = 0, zero = 0, goodCand = 0, zeroCand = 0, diffShown = 0, diffCand = 0, sizeShown = 0, sizeCand = 0, goodTotal = 0, zeroTotal = 0, turnsChanged = 0;
+      for (const s of seqs) {
+        const r = by.get(`${s}:${v}`);
+        const b = by.get(`${s}:whole`);
+        if (r === undefined || b === undefined) continue;
+        for (const [id, sc] of ratedOn.get(s) ?? []) {
           if (sc >= 2) {
+            goodTotal += 1;
             if (r.shown.includes(id)) good += 1;
             if (r.candidates.includes(id)) goodCand += 1;
           } else if (sc === 0) {
+            zeroTotal += 1;
             if (r.shown.includes(id)) zero += 1;
             if (r.candidates.includes(id)) zeroCand += 1;
           }
         }
-        if ([...rated.values()].some((x) => x >= 2)) turnsWithGood += 1;
+        const bs = new Set(b.shown), bc = new Set(b.candidates), rs = new Set(r.shown);
+        const d = r.shown.filter((id) => !bs.has(id)).length + b.shown.filter((id) => !rs.has(id)).length;
+        diffShown += d;
+        if (d > 0) turnsChanged += 1;
+        diffCand += r.candidates.filter((id) => !bc.has(id)).length;
+        sizeShown += r.shown.length;
+        sizeCand += r.candidates.length;
       }
-      const b = base(s);
-      const bs = new Set(b.shown), bc = new Set(b.candidates);
-      diffShown += r.shown.filter((id) => !bs.has(id)).length + b.shown.filter((id) => !r.shown.includes(id)).length;
-      diffCand += r.candidates.filter((id) => !bc.has(id)).length;
-      sizeShown += r.shown.length;
+      console.log(`  ${v.padEnd(18)} shown ${sizeShown} (cand ${sizeCand}); rated-2/3: shown ${good}/${goodTotal}, candidates ${goodCand}; rated-0: shown ${zero}/${zeroTotal}, candidates ${zeroCand}; shown ids differing from whole ${diffShown} on ${turnsChanged} turns; candidates not in whole's ${diffCand}`);
     }
-    const goodTotal = [...ratedOn].filter(([s]) => seqs.includes(s)).flatMap(([, m]) => [...m.values()]).filter((x) => x >= 2).length;
-    const zeroTotal = [...ratedOn].filter(([s]) => seqs.includes(s)).flatMap(([, m]) => [...m.values()]).filter((x) => x === 0).length;
-    console.log(`  ${v.padEnd(18)} shown ${sizeShown}; rated-2/3 shown ${good}/${goodTotal} (candidates ${goodCand}); rated-0 shown ${zero}/${zeroTotal} (candidates ${zeroCand}); shown ids differing from whole ${diffShown}; candidate ids not in whole ${diffCand}; turns with a rated-2/3 ${turnsWithGood}`);
   }
   data.close();
 }
