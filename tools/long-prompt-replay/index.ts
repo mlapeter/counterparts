@@ -11,7 +11,9 @@
  *             validated by recomputing the turn's cue words (writes work/aligned.jsonl)
  *   describe  lengths, origins, cue eligibility and cue positions of aligned turns
  *   replay    the real `recallForTurn` (observer) over each long aligned turn,
- *             born-before filtered, for the four text variants (writes work/replay.jsonl)
+ *             born-before filtered, for the text variants (writes work/replay.jsonl);
+ *             with --body, on the prompt's body (host frame and shared footer cut;
+ *             writes work/replay-body.jsonl, which `report --body` reads)
  *   report    reproduction, the rated denominator and the variant overlaps
  *   handread  the PRIVATE hand-read sheet (writes the path given by --out)
  *
